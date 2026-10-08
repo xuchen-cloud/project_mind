@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct FileVersionRestore {
+pub struct FileVersionRestore {
     pub object: ObjectRef,
     pub version_id: String,
     pub expected_version_number: u32,
@@ -70,7 +70,10 @@ pub(crate) fn check_source_transaction(
             |row| row.get(0),
         )
         .map_err(|_| {
-            AgentError::new(ErrorCode::IoFailed, "Cannot validate historical File Version")
+            AgentError::new(
+                ErrorCode::IoFailed,
+                "Cannot validate historical File Version",
+            )
         })?;
     if !matches {
         return Err(AgentError::new(

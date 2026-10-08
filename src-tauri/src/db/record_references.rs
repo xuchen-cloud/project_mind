@@ -117,7 +117,7 @@ fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolve
             Some(ObjectKind::Todo),
         ),
         "document" => (
-            "SELECT project_id FROM documents WHERE id=?1",
+            "SELECT project_id FROM agent_visible_files WHERE id=?1",
             Some(ObjectKind::File),
         ),
         "tag" => ("SELECT project_id FROM file_tag_options WHERE id=?1", None),

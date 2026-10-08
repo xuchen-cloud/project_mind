@@ -6,24 +6,30 @@ use super::{
     operations::{OperationUndoInput, OperationUndoResult},
     output_runtime::{OutputUpdateInput, RuntimeOutput, StageRecordInput},
     outputs::OutputIntent,
+    file_outputs::FileOutputService,
     record_outputs::{RecordOutputResult, RecordOutputService},
     todo_outputs::TodoOutputService,
 };
 use crate::{
     committed_changes::capture_committed,
+    file_version_service::BoundFileCommitStore,
     db::agent_record_withdrawals::{
         RecordRestoreInput, RecordWithdrawalInput, RecordWithdrawalResult,
     },
     record_document_service::{BoundRecordStore, DocumentUtility, RecordDocumentService},
 };
 
-pub(crate) async fn stage<S: BoundRecordStore, W: DocumentUtility>(
+pub(crate) async fn stage<S: BoundRecordStore + BoundFileCommitStore, W: DocumentUtility>(
     store: &S,
     utility: &W,
     request: &RequestContext,
     input: &StageRecordInput,
 ) -> AgentResult<RecordOutputResult> {
     match &input.intent {
+        OutputIntent::FileCreate { .. } | OutputIntent::FileUpdate { .. }
+        | OutputIntent::FilePatch { .. } | OutputIntent::FileRestore { .. } => {
+            FileOutputService::new(store).stage_and_execute(request, input)
+        }
         OutputIntent::TodoCreate { .. } | OutputIntent::TodoUpdate { .. } => {
             TodoOutputService::new(store).stage_and_execute(request, input)
         }
@@ -35,13 +41,17 @@ pub(crate) async fn stage<S: BoundRecordStore, W: DocumentUtility>(
     }
 }
 
-pub(crate) async fn update<S: BoundRecordStore, W: DocumentUtility>(
+pub(crate) async fn update<S: BoundRecordStore + BoundFileCommitStore, W: DocumentUtility>(
     store: &S,
     utility: &W,
     request: &RequestContext,
     input: &OutputUpdateInput,
 ) -> AgentResult<RuntimeOutput> {
     match &input.candidate.intent {
+        OutputIntent::FileCreate { .. } | OutputIntent::FileUpdate { .. }
+        | OutputIntent::FilePatch { .. } | OutputIntent::FileRestore { .. } => {
+            FileOutputService::new(store).update_file(request, input)
+        }
         OutputIntent::TodoCreate { .. } | OutputIntent::TodoUpdate { .. } => {
             TodoOutputService::new(store).update_todo(request, input)
         }
@@ -53,7 +63,7 @@ pub(crate) async fn update<S: BoundRecordStore, W: DocumentUtility>(
     }
 }
 
-pub(crate) async fn commit<S: BoundRecordStore, W: DocumentUtility>(
+pub(crate) async fn commit<S: BoundRecordStore + BoundFileCommitStore, W: DocumentUtility>(
     store: &S,
     utility: &W,
     request: &RequestContext,
@@ -62,6 +72,10 @@ pub(crate) async fn commit<S: BoundRecordStore, W: DocumentUtility>(
 ) -> AgentResult<RecordOutputResult> {
     let output = store.with_current(|binding, db| db.agent_output_get(request, binding, id))?;
     match output.staged.intent {
+        OutputIntent::FileCreate { .. } | OutputIntent::FileUpdate { .. }
+        | OutputIntent::FilePatch { .. } | OutputIntent::FileRestore { .. } => {
+            FileOutputService::new(store).commit_file(request, id, revision)
+        }
         OutputIntent::TodoCreate { .. } | OutputIntent::TodoUpdate { .. } => {
             TodoOutputService::new(store).commit_todo(request, id, revision)
         }
@@ -73,7 +87,7 @@ pub(crate) async fn commit<S: BoundRecordStore, W: DocumentUtility>(
     }
 }
 
-pub(crate) async fn undo<S: BoundRecordStore, W: DocumentUtility>(
+pub(crate) async fn undo<S: BoundRecordStore + BoundFileCommitStore, W: DocumentUtility>(
     store: &S,
     utility: &W,
     request: &RequestContext,
@@ -86,6 +100,17 @@ pub(crate) async fn undo<S: BoundRecordStore, W: DocumentUtility>(
         return RecordDocumentService::new(store, utility)
             .undo_operation(request, input)
             .await;
+    }
+    if entry.object.kind == ObjectKind::File {
+        if entry.kind == "file.create" {
+            if entry.after_revision != Some(input.expected_head_revision) {
+                return Err(AgentError::new(ErrorCode::UndoConflict, "File creation baseline changed"));
+            }
+            return super::file_outputs::withdraw_created_file(store, request, &RecordWithdrawalInput {
+                creation_operation_id: input.operation_id.clone(),
+            }).map(OperationUndoResult::CreatedFile);
+        }
+        return super::file_undo::undo_file(store, request, input).map(OperationUndoResult::ModifiedFile);
     }
     if entry.object.kind != ObjectKind::Todo {
         return Err(AgentError::new(
@@ -124,18 +149,18 @@ pub(crate) async fn undo<S: BoundRecordStore, W: DocumentUtility>(
     result
 }
 
-pub(crate) fn restore<S: BoundRecordStore>(
+pub(crate) fn restore<S: BoundRecordStore + BoundFileCommitStore>(
     store: &S,
     request: &RequestContext,
     input: &RecordRestoreInput,
 ) -> AgentResult<RecordWithdrawalResult> {
+    let entry = store.with_current(|binding, db| db.agent_operation_access(
+        request, binding, &input.creation_operation_id, "operation.restore_created",
+    ))?;
+    if entry.object.kind == ObjectKind::File {
+        return super::file_outputs::restore_created_file(store, request, input);
+    }
     let (result, changes) = store.with_current(|binding, db| {
-        let entry = db.agent_operation_access(
-            request,
-            binding,
-            &input.creation_operation_id,
-            "operation.restore_created",
-        )?;
         capture_committed(binding, db, &request.request_id, || {
             match entry.object.kind {
                 ObjectKind::Record => db.agent_record_creation_restore(request, binding, input),

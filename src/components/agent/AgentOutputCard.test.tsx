@@ -116,3 +116,65 @@ it("discards old native object responses across workspace generations", async ()
   expect(screen.queryByRole("button", { name: "旧对象" })).not.toBeInTheDocument();
   expect(mocks.navigate).not.toHaveBeenCalled();
 });
+
+const fileObject = { ...object, kind: "file" as const, id: "41" };
+const fileOutputs: AgentRuntimeOutput[] = [
+  { ...output, intent: { intent: "file_create", projectId: 1, safeName: "阶段计划.html", utf8Content: "<h1>阶段目标</h1>" } },
+  { ...output, intent: { intent: "file_update", target: fileObject, expectedVersion: 2, expectedHash: "sha256:current", stagedContentId: "staged-upload" } },
+  { ...output, intent: { intent: "file_patch", patch: { object: fileObject, expectedVersionNumber: 2, expectedContentHash: "sha256:current", edits: [{ oldText: "旧目标", newText: "新目标", occurrence: 1 }], appendText: null } } },
+  { ...output, intent: { intent: "file_restore", restore: { object: fileObject, versionId: "17", expectedVersionNumber: 2, expectedContentHash: "sha256:current" } } },
+];
+function fileResolve() {
+  mocks.resolve.mockResolvedValue({ kind: "document", id: 41, label: "阶段计划.html", scope: "project", projectId: 1, route: "/projects/1?focus=document-41", managedPath: "/actual/workspace/plan.html" });
+}
+it.each(fileOutputs)("confirms File intent %j inline and shows the actual saved version and native object route", async candidate => {
+  fileResolve();
+  const input = props({ output: candidate });
+  const view = render(<AgentOutputCard {...input} />);
+  expect(screen.getByText("查看详情").closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+  await waitFor(() => expect(input.onCommit).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(mocks.preview).not.toHaveBeenCalled(); expect(mocks.compare).not.toHaveBeenCalled();
+  view.rerender(<AgentOutputCard {...input} output={{ ...candidate, state: "committed", object: fileObject, fileReceipt: { documentId: 41, versionNumber: 3, contentHash: "sha256:saved", noChange: false } }} />);
+  expect(screen.getByText(/文件已保存为 v3/)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "阶段计划.html" }));
+  await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/projects/1?focus=document-41"));
+  expect(mocks.resolve).toHaveBeenCalledWith({ kind: "document", id: 41 });
+});
+
+it("renders durable File no-change metadata without inventing a version or offering undo", () => {
+  fileResolve();
+  const candidate = fileOutputs[2];
+  const input = props({ output: { ...candidate, state: "committed", object: fileObject, fileReceipt: { documentId: 41, versionNumber: 2, contentHash: "sha256:same", noChange: true } }, operation: { ...operation, kind: "file.version.commit", object: fileObject, beforeRevision: 2, afterRevision: 2, undoState: "unavailable", recovery: null } });
+  render(<AgentOutputCard {...input} />);
+  expect(screen.getByText(/内容已相同，仍为 v2/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "撤销修改" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/v3/)).not.toBeInTheDocument();
+  expect(input.onCommit).not.toHaveBeenCalled();
+});
+
+it("uses actual File operation recovery for creation withdrawal and restoration", async () => {
+  fileResolve();
+  const fileOperation = { ...operation, kind: "file.create", object: fileObject };
+  const input = props({ output: { ...fileOutputs[0], state: "committed", object: fileObject, fileReceipt: { documentId: 41, versionNumber: 1, contentHash: "sha256:new", noChange: false } }, operation: fileOperation });
+  const view = render(<AgentOutputCard {...input} />);
+  fireEvent.click(screen.getByRole("button", { name: "撤回创建" }));
+  await waitFor(() => expect(input.onUndo).toHaveBeenCalledOnce());
+  view.rerender(<AgentOutputCard {...input} operation={{ ...fileOperation, undoState: "undone", recovery: { withdrawn: true, withdrawalRevision: 1, restoreAvailable: true } }} />);
+  expect(screen.getByText("已撤回")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "阶段计划.html" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "恢复文件" }));
+  await waitFor(() => expect(input.onRestore).toHaveBeenCalledOnce());
+  view.rerender(<AgentOutputCard {...input} operation={{ ...fileOperation, undoState: "undone", recovery: { withdrawn: false, withdrawalRevision: 2, restoreAvailable: false } }} />);
+  expect(screen.getByText("已恢复")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "阶段计划.html" })).toBeInTheDocument();
+});
+
+it("rejects File navigation when the actual owning project differs", async () => {
+  mocks.resolve.mockResolvedValue({ kind: "document", id: 41, label: "别的文件", scope: "project", projectId: 9, route: "/projects/9?focus=document-41" });
+  render(<AgentOutputCard {...props({ output: { ...fileOutputs[0], state: "committed", object: fileObject } })} />);
+  fireEvent.click(screen.getByRole("button", { name: "阶段计划.html" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("所属对象或范围已变化"));
+  expect(mocks.navigate).not.toHaveBeenCalled();
+});

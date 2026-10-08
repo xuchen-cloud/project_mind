@@ -119,6 +119,7 @@ pub(super) fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOut
     if payload.source_changed.len() != sources.len() {
         return Err(damaged());
     }
+    let file_receipt = super::agent_file_outputs::file_output_receipt(conn, id, &row.0, row.2)?;
     Ok(RuntimeOutput {
         staged: StagedOutput {
             id: id.into(),
@@ -137,12 +138,13 @@ pub(super) fn read_output(conn: &Connection, id: &str) -> AgentResult<RuntimeOut
         mode: decode(&encode(&row.7)?)?,
         error_code: payload.error_code,
         dismissed: payload.dismissed,
+        file_receipt,
     })
 }
-fn intent_scope(
+pub(super) fn intent_scope(
     intent: &OutputIntent,
 ) -> AgentResult<(
-    &Scope,
+    Scope,
     &'static str,
     &'static str,
     Option<&ObjectRef>,
@@ -150,12 +152,12 @@ fn intent_scope(
 )> {
     match intent {
         OutputIntent::RecordCreate { scope, .. } => {
-            Ok((scope, "content.create", "create", None, None))
+            Ok((scope.clone(), "content.create", "create", None, None))
         }
         OutputIntent::RecordPatch { patch } => {
             record_patch_target(patch)?;
             Ok((
-                &patch.record.scope,
+                patch.record.scope.clone(),
                 "record.patch",
                 "record_patch",
                 Some(&patch.record),
@@ -163,7 +165,7 @@ fn intent_scope(
             ))
         }
         OutputIntent::TodoCreate { scope, .. } => {
-            Ok((scope, "content.create", "create", None, None))
+            Ok((scope.clone(), "content.create", "create", None, None))
         }
         OutputIntent::TodoUpdate {
             target,
@@ -178,27 +180,75 @@ fn intent_scope(
             }
             target.key()?;
             Ok((
-                &target.scope,
+                target.scope.clone(),
                 "todo.update",
                 "todo_update",
                 Some(target),
                 Some(*expected_revision),
             ))
         }
-        _ => Err(AgentError::new(
-            ErrorCode::ToolCallUnsupported,
-            "Only Record and Todo output staging are available",
+        OutputIntent::FileCreate { project_id, .. } if *project_id > 0 => Ok((
+            Scope::Project {
+                project_id: *project_id,
+            },
+            "content.create",
+            "create",
+            None,
+            None,
         )),
+        OutputIntent::FileUpdate {
+            target,
+            expected_version,
+            expected_hash,
+            staged_content_id,
+        } => {
+            target.key()?;
+            if target.kind != ObjectKind::File
+                || *expected_version == 0
+                || !super::file_versions::valid_hash(expected_hash)
+                || !crate::file_content::valid_stage_id(staged_content_id)
+            {
+                return Err(invalid("Invalid staged File update"));
+            }
+            Ok((
+                target.scope.clone(),
+                "file.update",
+                "file_update",
+                Some(target),
+                Some(u64::from(*expected_version)),
+            ))
+        }
+        OutputIntent::FilePatch { patch } => {
+            patch.validate()?;
+            Ok((
+                patch.object.scope.clone(),
+                "file.update",
+                "file_update",
+                Some(&patch.object),
+                Some(u64::from(patch.expected_version_number)),
+            ))
+        }
+        OutputIntent::FileRestore { restore } => {
+            restore.validate()?;
+            Ok((
+                restore.object.scope.clone(),
+                "file.restore",
+                "file_update",
+                Some(&restore.object),
+                Some(u64::from(restore.expected_version_number)),
+            ))
+        }
+        _ => Err(invalid("File creation requires a real Project")),
     }
 }
 fn output_kind(intent: &OutputIntent) -> AgentResult<&'static str> {
     match intent {
         OutputIntent::RecordCreate { .. } | OutputIntent::RecordPatch { .. } => Ok("record"),
         OutputIntent::TodoCreate { .. } | OutputIntent::TodoUpdate { .. } => Ok("todo"),
-        _ => Err(AgentError::new(
-            ErrorCode::ToolCallUnsupported,
-            "This output kind is unavailable",
-        )),
+        OutputIntent::FileCreate { .. }
+        | OutputIntent::FileUpdate { .. }
+        | OutputIntent::FilePatch { .. }
+        | OutputIntent::FileRestore { .. } => Ok("file"),
     }
 }
 fn dedupe_key(intent: &OutputIntent) -> Option<&str> {
@@ -397,13 +447,18 @@ impl Database {
         input: &StageRecordInput,
     ) -> AgentResult<Payload> {
         let (scope, operation, _, target, _) = intent_scope(&input.intent)?;
-        if scope != &run.scope {
+        if scope != run.scope {
             return Err(denied());
         }
-        request.authorize(binding, scope, operation)?;
-        frozen(request, run).authorize(binding, scope, operation)?;
-        self.source_live_scope(scope)?;
-        if encode(input)?.len() > 1024 * 1024 || input.sources.len() > 20 {
+        request.authorize(binding, &scope, operation)?;
+        frozen(request, run).authorize(binding, &scope, operation)?;
+        self.source_live_scope(&scope)?;
+        let max_payload = if output_kind(&input.intent)? == "file" {
+            16 * 1024 * 1024
+        } else {
+            1024 * 1024
+        };
+        if encode(input)?.len() > max_payload || input.sources.len() > 20 {
             return Err(invalid("Output candidate exceeds staging budget"));
         }
         match &input.intent {
@@ -452,7 +507,17 @@ impl Database {
                     &input.intent,
                 )?;
             }
-            _ => unreachable!("intent_scope checked the supported output kinds"),
+            OutputIntent::FileCreate { .. }
+            | OutputIntent::FileUpdate { .. }
+            | OutputIntent::FilePatch { .. }
+            | OutputIntent::FileRestore { .. } => {
+                self.agent_file_validate_candidate(
+                    request,
+                    binding,
+                    &frozen(request, run),
+                    &input.intent,
+                )?;
+            }
         }
         let mut changed = Vec::with_capacity(input.sources.len());
         for source in &input.sources {
@@ -914,6 +979,31 @@ impl Database {
         self.agent_operation_access(request, binding, &operation_id, "output.commit")
             .map(Some)
     }
+    /// The upload's original owner is derived from a validated frozen run,
+    /// while the GUI retains its own authority for the eventual native write.
+    pub(crate) fn agent_output_file_upload_owner(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        run_id: &str,
+        operation: &str,
+    ) -> AgentResult<RequestContext> {
+        if !matches!(
+            operation,
+            "output.stage" | "output.update" | "output.commit"
+        ) {
+            return Err(denied());
+        }
+        let run = self.output_authorize(request, binding, run_id, operation)?;
+        writable(&run)?;
+        frozen(request, &run).authorize(binding, &run.scope, operation)?;
+        Ok(RequestContext {
+            caller: Caller::BuiltinRun {
+                run_id: run_id.to_owned(),
+            },
+            ..frozen(request, &run)
+        })
+    }
     pub(crate) fn agent_output_record_receipt(
         &self,
         request: &RequestContext,
@@ -941,7 +1031,7 @@ impl Database {
         if !matches!(output.state, OutputState::Committed) {
             return Ok(None);
         }
-        let result:Option<String>=self.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id=?1 AND operation IN ('record.create','record.patch','todo.create','todo.update') AND state='committed' AND run_id=?2 AND json_extract(output_context_json,'$.outputId')=?3",params![format!("output:{id}:{expected_revision}"),output.staged.run_id,id],|r|r.get(0)).optional().map_err(io_error)?;
+        let result:Option<String>=self.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id=?1 AND operation IN ('record.create','record.patch','todo.create','todo.update','file.create','file.version.commit') AND state='committed' AND run_id=?2 AND json_extract(output_context_json,'$.outputId')=?3",params![format!("output:{id}:{expected_revision}"),output.staged.run_id,id],|r|r.get(0)).optional().map_err(io_error)?;
         let result = result.ok_or_else(|| {
             AgentError::new(
                 ErrorCode::OutputCommitFailed,
@@ -960,6 +1050,21 @@ pub(super) fn agent_output_todo_binding(
     request_id: &str,
     operation: &str,
 ) -> AgentResult<(RuntimeOutput, ScopeGrant)> {
+    agent_output_native_binding(tx, caller, request_id, operation)
+}
+pub(super) fn agent_output_native_binding(
+    tx: &Transaction<'_>,
+    caller: &str,
+    request_id: &str,
+    operation: &str,
+) -> AgentResult<(RuntimeOutput, ScopeGrant)> {
+    let (kind, creating) = match operation {
+        "todo.create" => ("todo", true),
+        "todo.update" => ("todo", false),
+        "file.create" => ("file", true),
+        "file.version.commit" => ("file", false),
+        _ => return Err(denied()),
+    };
     let parts: Vec<_> = request_id.split(':').collect();
     if parts.len() != 3 || parts[0] != "output" {
         return Err(invalid("Invalid output commit identity"));
@@ -992,9 +1097,9 @@ pub(super) fn agent_output_todo_binding(
         return Err(denied());
     }
     let (scope, permission, intent, _, _) = intent_scope(&output.staged.intent)?;
-    if scope != &run.scope
-        || output_kind(&output.staged.intent)? != "todo"
-        || (operation == "todo.create") != (intent == "create")
+    if scope != run.scope
+        || output_kind(&output.staged.intent)? != kind
+        || creating != (intent == "create")
     {
         return Err(denied());
     }
@@ -1008,8 +1113,8 @@ pub(super) fn agent_output_todo_binding(
         caller: Caller::Gui,
         request_id: request_id.into(),
     };
-    captured.authorize(&binding, scope, "output.commit")?;
-    captured.authorize(&binding, scope, permission)?;
+    captured.authorize(&binding, &scope, "output.commit")?;
+    captured.authorize(&binding, &scope, permission)?;
     Ok((output, run.grant))
 }
 
@@ -1071,7 +1176,7 @@ pub(crate) fn agent_output_record_committed(
         return Err(denied());
     }
     let (scope, permission, intent, target, base) = intent_scope(&output.staged.intent)?;
-    if scope != &run.scope
+    if scope != run.scope
         || output_kind(&output.staged.intent)? != "record"
         || (operation == "record.create") != (intent == "create")
     {
@@ -1086,8 +1191,8 @@ pub(crate) fn agent_output_record_committed(
         caller: Caller::Gui,
         request_id: request_id.into(),
     };
-    frozen_context.authorize(&frozen_context.binding, scope, "output.commit")?;
-    frozen_context.authorize(&frozen_context.binding, scope, permission)?;
+    frozen_context.authorize(&frozen_context.binding, &scope, "output.commit")?;
+    frozen_context.authorize(&frozen_context.binding, &scope, permission)?;
     let (head, before_revision, before_snapshot, after_snapshot, operation_id, undo) =
         if operation == "record.patch" {
             let result: RecordPatchResult = decode(result_json)?;
@@ -1115,7 +1220,7 @@ pub(crate) fn agent_output_record_committed(
             let head: RecordCommittedHead = decode(result_json)?;
             (head, None, None, None, random_id(), "available")
         };
-    if &head.target.scope != scope {
+    if head.target.scope != scope {
         return Err(denied());
     }
     let object = ObjectRef {
@@ -1552,7 +1657,7 @@ mod tests {
             .agent_output_commit_prepare(&f.gui, &f.binding, &output.staged.id, 1)
             .is_ok());
         let mut req = f.builtin.clone();
-        req.request_id = "unsupported".into();
+        req.request_id = "file-outside-bound-scope".into();
         let todo = StageRecordInput {
             intent: OutputIntent::FileCreate {
                 project_id: 1,
@@ -1565,7 +1670,7 @@ mod tests {
             f.db.agent_output_stage_record(&req, &f.binding, &todo)
                 .unwrap_err()
                 .code,
-            ErrorCode::ToolCallUnsupported
+            ErrorCode::ScopeDenied
         );
         f.db.conn.execute("UPDATE agent_runs SET grant_json=json_set(grant_json,'$.operations',json('[\"output.stage\"]'))",[]).unwrap();
         req.request_id = "reduced-grant".into();

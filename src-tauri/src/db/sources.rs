@@ -129,6 +129,27 @@ impl Database {
     ) -> AgentResult<ObjectRef> {
         self.source_read_object_inner(request, binding, object, true)
     }
+    pub(crate) fn source_read_historical_file(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+    ) -> AgentResult<ObjectRef> {
+        if object.kind != ObjectKind::File {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Expected a historical File target",
+            ));
+        }
+        // User-directed native history is distinct from active AI context.
+        // It still resolves the actual owner and checks the bound read grant.
+        if matches!(request.caller, Caller::Gui) {
+            return self.source_resolve_business(request, binding, object, "source.read");
+        }
+        // A fixed version supplied by a model remains an AI source access;
+        // withdrawal does not grant a historical read capability to that caller.
+        self.source_read_object_inner(request, binding, object, false)
+    }
     fn source_read_object_inner(
         &self,
         request: &RequestContext,
@@ -154,6 +175,14 @@ impl Database {
                 &self.conn,
                 resolved.id.parse().map_err(|_| {
                     AgentError::new(ErrorCode::InvalidArgument, "Invalid Todo identity")
+                })?,
+            )?;
+        }
+        if resolved.kind == ObjectKind::File && !historical {
+            super::agent_file_undo::require_file_visible(
+                &self.conn,
+                resolved.id.parse().map_err(|_| {
+                    AgentError::new(ErrorCode::InvalidArgument, "Invalid File identity")
                 })?,
             )?;
         }

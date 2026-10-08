@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TextEdit {
+pub struct TextEdit {
     pub old_text: String,
     pub new_text: String,
     /// One-based occurrence, including overlapping candidate matches.
@@ -15,7 +15,7 @@ pub(crate) struct TextEdit {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct FileTextPatch {
+pub struct FileTextPatch {
     pub object: ObjectRef,
     pub expected_version_number: u32,
     pub expected_content_hash: String,

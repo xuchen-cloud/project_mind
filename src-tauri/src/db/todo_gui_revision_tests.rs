@@ -241,7 +241,7 @@ fn todo_gui_schema30_upgrade_backs_up_business_children_and_reopens_once() {
             due_date: None,
         })
         .unwrap();
-    db.conn.execute_batch("DROP VIEW agent_visible_todos; DROP TABLE todo_revision_heads; DROP TABLE todo_revision_snapshots; DROP INDEX agent_todo_output_dedupe; ALTER TABLE agent_outputs DROP COLUMN dedupe_key; PRAGMA user_version=30;").unwrap();
+    db.conn.execute_batch("DROP VIEW agent_visible_files; DROP VIEW agent_visible_todos; DROP TABLE todo_revision_heads; DROP TABLE todo_revision_snapshots; DROP INDEX agent_todo_output_dedupe; ALTER TABLE agent_outputs DROP COLUMN dedupe_key; PRAGMA user_version=30;").unwrap();
     drop(db);
     let db = open(root.path());
     assert_eq!(db.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);

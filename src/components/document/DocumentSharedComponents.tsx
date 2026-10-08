@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -17,6 +19,8 @@ import { tagColorValue } from "../../lib/constants";
 import { projectMindApi } from "../../services/projectMindApi";
 import { PopoverPanel, StatusBadge } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+
+const FileVersionHistory = lazy(() => import("./FileVersionHistory"));
 
 // Helper functions
 export function canRenameDocument(document: DocumentRecord) {
@@ -131,6 +135,7 @@ export function DocumentVersionDropdown({
   onOpenVersion: (version: DocumentVersionRecord) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<FloatingMenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -267,16 +272,19 @@ export function DocumentVersionDropdown({
               onClick={stopPropagation}
             >
               <PopoverPanel
+                role="menu"
+                aria-label={`${document.baseName} 版本列表`}
                 className="min-w-[13.75rem] p-1.5"
                 motion="trigger"
                 motionOrigin={menuPosition?.placement === "top" ? "bottom left" : "top left"}
               >
+                <button type="button" role="menuitem" className="context-menu__item text-text-muted hover:bg-bg-hover hover:text-text" onClick={() => { setOpen(false); setHistoryOpen(true); }}>查看历史与比较</button>
                 {versionsQuery.isLoading ? (
                   <p className="px-2.5 py-2 text-ui text-text-soft">正在加载版本...</p>
                 ) : versions.length === 0 ? (
                   <p className="px-2.5 py-2 text-ui text-text-soft">没有可选版本</p>
                 ) : (
-                  <div className="grid gap-1" role="menu" aria-label={`${document.baseName} 版本列表`}>
+                  <div className="grid gap-1">
                     {versions.map((version) => {
                       const isCurrent = version.versionNumber === document.currentVersionNumber;
 
@@ -319,6 +327,7 @@ export function DocumentVersionDropdown({
             globalThis.document.body,
           )
         : null}
+      {historyOpen ? <Suspense fallback={<p role="status" className="text-ui text-text-soft">正在加载版本历史…</p>}><FileVersionHistory document={document} onClose={() => setHistoryOpen(false)} /></Suspense> : null}
     </div>
   );
 }

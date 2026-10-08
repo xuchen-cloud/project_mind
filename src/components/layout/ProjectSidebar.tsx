@@ -1066,7 +1066,7 @@ export function ProjectSidebar({
                                 >
                                   {document.baseName}
                                 </p>
-                                {document.versionCount > 1 ? (
+                                {document.versionCount > 0 ? (
                                   <DocumentVersionDropdown
                                     document={document as DocumentRecord}
                                     onOpenVersion={(version) => {

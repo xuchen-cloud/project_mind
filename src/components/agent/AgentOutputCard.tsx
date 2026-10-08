@@ -47,6 +47,10 @@ export function outputCandidatePreview(output: AgentRuntimeOutput): string {
     return `内容：\n${todo.content}\n\n优先级：${todoPriorityOptionLabel(todo.priority)}\n期限：${deadlineText(todo.dueDate)}\n标签：${tagText(todo.tagIds)}\n子项（${todo.children.length}）：${todo.children.length ? "\n" + todo.children.map(childText).join("\n\n") : "无"}`;
   }
   if (output.intent.intent === "todo_update") return output.intent.changes.map(todoChangeText).join("\n\n");
+  if (output.intent.intent === "file_create") return output.intent.utf8Content;
+  if (output.intent.intent === "file_update") return "上传内容已暂存，确认后保存到文件。";
+  if (output.intent.intent === "file_patch") return output.intent.patch.edits?.map(edit => `替换内容：\n${edit.oldText}\n→\n${edit.newText}`).join("\n\n") ?? output.intent.patch.appendText ?? "";
+  if (output.intent.intent === "file_restore") return "恢复选定历史版本的文件内容。";
   return "";
 }
 
@@ -66,8 +70,9 @@ function OutputCardBody({ binding, output, operation, runActive = false, onCommi
   useEffect(() => { setError(null); }, [output.revision]);
   const isRecord = output.intent.intent === "record_create" || output.intent.intent === "record_patch";
   const isTodo = output.intent.intent === "todo_create" || output.intent.intent === "todo_update";
-  const objectLabel = isTodo ? "待办" : "记录";
-  const object = output.object ?? (output.intent.intent === "record_patch" ? output.intent.patch.record : output.intent.intent === "todo_update" ? output.intent.target : null);
+  const isFile = output.intent.intent === "file_create" || output.intent.intent === "file_update" || output.intent.intent === "file_patch" || output.intent.intent === "file_restore";
+  const objectLabel = isFile ? "文件" : isTodo ? "待办" : "记录";
+  const object = output.object ?? (output.intent.intent === "record_patch" ? output.intent.patch.record : output.intent.intent === "todo_update" || output.intent.intent === "file_update" ? output.intent.target : output.intent.intent === "file_patch" ? output.intent.patch.object : output.intent.intent === "file_restore" ? output.intent.restore.object : null);
   const objectIdentity = JSON.stringify(object);
   const withdrawn = operation?.recovery?.withdrawn ?? false;
   const restored = !withdrawn && operation?.recovery?.withdrawalRevision != null;
@@ -79,8 +84,8 @@ function OutputCardBody({ binding, output, operation, runActive = false, onCommi
     return true;
   }
   async function resolveObject() {
-    if (!object || !(isRecord || isTodo) || !(await checkBinding())) return null;
-    const kind = isTodo ? "todo" : object.scope.kind === "workspace" ? "workspace_record" : "note";
+    if (!object || !(isRecord || isTodo || isFile) || !(await checkBinding())) return null;
+    const kind = isFile ? "document" : isTodo ? "todo" : object.scope.kind === "workspace" ? "workspace_record" : "note";
     const reference = await projectMindApi.internalReferenceResolve({ kind, id: Number(object.id) });
     if (!active.current || !(await checkBinding())) return null;
     if (!reference) throw new Error(`${objectLabel}已删除或已撤回，请查看成果状态。`);
@@ -105,11 +110,11 @@ function OutputCardBody({ binding, output, operation, runActive = false, onCommi
     const reference = await resolveObject();
     if (reference && active.current) { setResolved(reference); navigate(reference.route); }
   }
-  if (!isRecord && !isTodo) return null;
-  const created = output.intent.intent === "record_create" || output.intent.intent === "todo_create";
+  if (!isRecord && !isTodo && !isFile) return null;
+  const created = output.intent.intent === "record_create" || output.intent.intent === "todo_create" || output.intent.intent === "file_create";
   const title = output.intent.intent === "record_create" ? output.intent.title : output.intent.intent === "todo_create"
     ? output.intent.content.length > 72 ? `${output.intent.content.slice(0, 72)}…` : output.intent.content
-    : resolved?.label ?? `这条${objectLabel}`;
+    : output.intent.intent === "file_create" ? output.intent.safeName : resolved?.label ?? `这条${objectLabel}`;
   let proposal: string;
   if (output.intent.intent === "record_create") proposal = `我将创建记录“${title || "未命名记录"}”。`;
   else if (output.intent.intent === "record_patch") proposal = `我将更新“${title}”，调整 ${output.intent.patch.operations.length} 处内容。`;
@@ -119,19 +124,25 @@ function OutputCardBody({ binding, output, operation, runActive = false, onCommi
       : change.change === "status" ? ["状态"] : change.change === "priority" ? ["优先级"] : change.change === "tags" ? ["标签"] : []))];
     const children = output.intent.changes.filter(change => change.change.startsWith("child_")).length;
     proposal = `我将更新“${title}”${fields.length ? `的${fields.join("、")}` : ""}${children ? `，调整 ${children} 个子项` : ""}。`;
-  } else proposal = "";
+  } else if (output.intent.intent === "file_create") proposal = `我将创建文件“${title}”。`;
+  else if (output.intent.intent === "file_restore") proposal = `我将把“${title}”恢复为选定历史版本的内容。`;
+  else if (isFile) proposal = `我将更新“${title}”的内容。`;
+  else proposal = "";
   const writable = output.mode !== "read_only";
   const dismissed = output.dismissed;
   const canExecute = writable && !dismissed && (output.state === "failed" || output.state === "staged" && (output.mode === "review" || !runActive));
   const awaitingReview = canExecute && output.mode === "review";
   const saved = output.state === "committed";
+  const fileReceipt = isFile ? output.fileReceipt : undefined;
+  const savedVersion = fileReceipt?.versionNumber ?? (isFile ? operation?.afterRevision : null);
+  const noChange = fileReceipt?.noChange === true;
   const preview = outputCandidatePreview(output);
   return <SurfaceCard as="article" className="agent-output" aria-label={`${objectLabel}操作`}>
     <div className="agent-output__heading">
       <strong>{saved ? withdrawn ? "已撤回" : restored ? "已恢复" : undone ? "已撤销" : "已完成" : dismissed ? "已取消" : "操作提案"}</strong>
       {busy || output.state === "committing" ? <StatusBadge tone="neutral">正在执行…</StatusBadge> : null}
     </div>
-    {saved ? <p className="agent-message__text">{withdrawn ? `已撤回创建的${objectLabel}，可以恢复。` : restored ? `${objectLabel}已恢复。` : undone ? "已撤销此次修改，后续内容保留。" : `已${created ? "创建" : "更新"}${objectLabel}。`}
+    {saved ? <p className="agent-message__text">{withdrawn ? `已撤回创建的${objectLabel}，可以恢复。` : restored ? `${objectLabel}已恢复。` : undone ? "已撤销此次修改，后续内容保留。" : isFile ? noChange ? `内容已相同${savedVersion != null ? `，仍为 v${savedVersion}` : ""}。` : `文件已保存${savedVersion != null ? `为 v${savedVersion}` : ""}。` : `已${created ? "创建" : "更新"}${objectLabel}。`}
       {object && !withdrawn ? <> <Button size="sm" variant="ghost" disabled={busy} onClick={() => void action(openObject)}>{resolved?.label ?? title}</Button></> : null}</p>
       : <p className="agent-message__text">{dismissed ? "已取消，未作更改。" : proposal}</p>}
     {awaitingReview ? <p className="agent-panel__hint">是否确认执行？</p> : null}
@@ -142,7 +153,7 @@ function OutputCardBody({ binding, output, operation, runActive = false, onCommi
     <div className="agent-output__actions">
       {canExecute ? <Button size="sm" disabled={busy} onClick={() => void action(onCommit)}>{busy ? "正在执行…" : awaitingReview ? "确认执行" : "重试"}</Button> : null}
       {awaitingReview ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void action(onDismiss)}>取消</Button> : null}
-      {operation?.undoState === "available" && operation.afterRevision != null ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void action(onUndo)}>{created ? "撤回创建" : "撤销修改"}</Button> : null}
+      {!noChange && operation?.undoState === "available" && operation.afterRevision != null ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void action(onUndo)}>{created ? "撤回创建" : "撤销修改"}</Button> : null}
       {operation?.recovery?.restoreAvailable && operation.recovery.withdrawalRevision != null ? <Button size="sm" disabled={busy} onClick={() => void action(onRestore)}>恢复{objectLabel}</Button> : null}
     </div>
     <details><summary>查看详情</summary>

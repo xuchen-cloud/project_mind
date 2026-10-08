@@ -1,6 +1,6 @@
 /** Internal Rust ↔ Node protocol. This is not the MCP wire protocol. */
 export const PROTOCOL_VERSION = "mind-agent-host/v1";
-export const MAX_FRAME_BYTES = 1024 * 1024;
+export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 const methods = new Set([
   "initialize", "session.open", "run.start", "run.cancel", "session.close", "shutdown", "tool.result", "session.messages.read",
 ]);

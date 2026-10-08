@@ -2,9 +2,9 @@
 use super::Database;
 use crate::{
     agent::{
-        access::RequestContext,
+        access::{Caller, RequestContext},
         errors::{AgentError, AgentResult, ErrorCode},
-        models::{ObjectKind, WorkspaceBinding},
+        models::{ObjectKind, ObjectRef, WorkspaceBinding},
     },
     source_file_snapshot::{FileReadPlan, FileSourceFormat},
     source_service::SourceReadTarget,
@@ -30,7 +30,7 @@ impl Database {
         self.conn.execute(
             "DELETE FROM source_index_snapshots AS s
              WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='file'
-             AND (NOT EXISTS(SELECT 1 FROM documents d JOIN document_versions v ON v.document_id=d.id
+             AND (NOT EXISTS(SELECT 1 FROM agent_visible_files d JOIN document_versions v ON v.document_id=d.id
                  JOIN source_file_version_hashes h ON h.document_version_id=v.id
                  WHERE CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id=?3
                  AND d.storage_mode!='managed_note_image' AND v.version_number=s.version AND h.content_hash=s.revision)
@@ -38,7 +38,7 @@ impl Database {
             params![binding.workspace_id, scope.key(), project_id],
         ).map_err(storage_error)?;
         self.conn.execute(
-            "UPDATE source_index_snapshots AS s SET is_current=EXISTS(SELECT 1 FROM documents d
+            "UPDATE source_index_snapshots AS s SET is_current=EXISTS(SELECT 1 FROM agent_visible_files d
              WHERE CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id=?3 AND d.current_version_number=s.version)
              WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='file'",
             params![binding.workspace_id, scope.key(), project_id],
@@ -109,6 +109,30 @@ impl Database {
         source: &SourceReadTarget,
     ) -> AgentResult<FileReadPlan> {
         let object = self.source_read_object(request, binding, &source.object)?;
+        self.source_file_registered_plan(source, object)
+    }
+    /// User-directed raw history only. Existing AI plan consumers keep the
+    /// ordinary source boundary, including GUI requests made on their behalf.
+    pub(crate) fn source_file_history_plan(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        source: &SourceReadTarget,
+    ) -> AgentResult<FileReadPlan> {
+        if !matches!(request.caller, Caller::Gui) || source.file_version.is_none() {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "GUI history requires an explicit File version",
+            ));
+        }
+        let object = self.source_read_historical_file(request, binding, &source.object)?;
+        self.source_file_registered_plan(source, object)
+    }
+    fn source_file_registered_plan(
+        &self,
+        source: &SourceReadTarget,
+        object: ObjectRef,
+    ) -> AgentResult<FileReadPlan> {
         if object.kind != ObjectKind::File
             || source.record_version.is_some()
             || source.file_version == Some(0)

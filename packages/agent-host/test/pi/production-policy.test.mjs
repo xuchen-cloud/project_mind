@@ -17,6 +17,10 @@ test('production rejects unregistered discovery, duplicate tools and unbounded s
   assert.deepEqual(validateToolDescriptors([descriptor]), [descriptor]);
   const todoGet = { ...descriptor, name: 'mind_todo_get', method: 'todo.get' };
   assert.deepEqual(validateToolDescriptors([todoGet]), [todoGet]);
+  for (const method of ['file.source.read', 'file.versions.list', 'file.versions.get', 'file.content.begin', 'file.content.chunk', 'file.content.complete', 'file.content.status']) {
+    const tool = { ...descriptor, method, name: `mind_${method.replaceAll('.', '_')}` };
+    assert.deepEqual(validateToolDescriptors([tool]), [tool]);
+  }
   for (const method of ['bash', 'shell.exec', 'file.read', 'file.create', 'record.create', 'todo.create', 'todo.update']) {
     assert.throws(() => validateToolDescriptors([{ ...descriptor, method }]), { code: 'INVALID_ARGUMENT' });
   }
@@ -32,6 +36,14 @@ test('production rejects unregistered discovery, duplicate tools and unbounded s
   assert.equal(frames.at(-1).error.code, 'TOOL_CALL_UNSUPPORTED');
   assert.equal(opened, false);
   assert.ok(!JSON.stringify(frames).includes('pipe-only-key'));
+});
+
+test('trusted File input schemas bound large source text and base64 chunks without enabling primitive writes', () => {
+  const tool = { ...descriptor, method: 'output.stage', parameters: { type: 'object', properties: { utf8Content: { type: 'string', maxLength: 2 * 1024 * 1024 } }, required: ['utf8Content'], additionalProperties: false } };
+  assert.deepEqual(validateToolDescriptors([tool]), [tool]);
+  tool.parameters.properties.utf8Content.maxLength++;
+  assert.throws(() => validateToolDescriptors([tool]), { code: 'INVALID_ARGUMENT' });
+  for (const method of ['file.update', 'file.patch', 'file.restore']) assert.throws(() => validateToolDescriptors([{ ...descriptor, method }]), { code: 'INVALID_ARGUMENT' });
 });
 
 test('trusted Record tools allow canonical recursive schemas but never external or missing refs', () => {

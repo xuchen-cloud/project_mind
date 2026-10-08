@@ -258,18 +258,31 @@ export type AgentTodoObjectRef = AgentObjectRef & { kind: "todo" };
 export type AgentTodoOutputIntent =
   | { intent: "todo_create"; scope: AgentScope; dedupeKey: string; content: string; priority: TodoPriority; dueDate: string | null; tagIds: number[]; children: AgentTodoNewChild[] }
   | { intent: "todo_update"; target: AgentTodoObjectRef; expectedRevision: number; changes: AgentTodoMutation[] };
-export type AgentOutputIntent = AgentRecordOutputIntent | AgentTodoOutputIntent
+export type AgentFileObjectRef = AgentObjectRef & { kind: "file" };
+export interface AgentFileTextEdit { oldText: string; newText: string; occurrence?: number | null }
+export interface AgentFileTextPatch {
+  object: AgentFileObjectRef; expectedVersionNumber: number; expectedContentHash: string;
+  edits?: AgentFileTextEdit[] | null; appendText?: string | null;
+}
+export interface AgentFileVersionRestore {
+  object: AgentFileObjectRef; versionId: string; expectedVersionNumber: number; expectedContentHash: string;
+}
+export type AgentFileOutputIntent =
   | { intent: "file_create"; projectId: number; safeName: string; utf8Content: string }
-  | { intent: "file_update"; target: AgentObjectRef; expectedVersion: number; expectedHash: string; stagedContentId: string };
+  | { intent: "file_update"; target: AgentFileObjectRef; expectedVersion: number; expectedHash: string; stagedContentId: string }
+  | { intent: "file_patch"; patch: AgentFileTextPatch }
+  | { intent: "file_restore"; restore: AgentFileVersionRestore };
+export type AgentOutputIntent = AgentRecordOutputIntent | AgentTodoOutputIntent | AgentFileOutputIntent;
 export interface AgentStageRecordInput { intent: AgentRecordOutputIntent; sources: AgentSourceRef[] }
-export interface AgentStageOutputInput { intent: AgentRecordOutputIntent | AgentTodoOutputIntent; sources: AgentSourceRef[] }
+export interface AgentStageOutputInput { intent: AgentRecordOutputIntent | AgentTodoOutputIntent | AgentFileOutputIntent; sources: AgentSourceRef[] }
 /** Candidates stay separate from business content until native commit. */
+export interface AgentFileCommittedVersion { documentId: number; versionNumber: number; contentHash: string; noChange: boolean }
 export interface AgentRuntimeOutput {
   id: string; runId: string; ordinal: number; revision: number;
   intent: AgentOutputIntent; sources: AgentSourceRef[];
   state: "staged" | "committing" | "committed" | "failed";
   object: AgentObjectRef | null; mode: "collaborate" | "review" | "read_only";
-  errorCode: AgentError["code"] | null; sourceChanged: boolean[]; dismissed: boolean;
+  errorCode: AgentError["code"] | null; sourceChanged: boolean[]; dismissed: boolean; fileReceipt?: AgentFileCommittedVersion;
 }
 export interface AgentOutputPage { outputs: AgentRuntimeOutput[]; nextCursor: string | null }
 export interface AgentOutputListInput { runId: string; cursor?: string | null; limit?: number }
@@ -306,7 +319,12 @@ export interface AgentTodoUndoResult {
   beforeRevision: number; afterRevision: number;
   beforeSnapshotRef: string; afterSnapshotRef: string; bodyHash: string;
 }
-export type AgentOperationUndoResult = AgentRecordUndoResult | AgentTodoUndoResult | AgentRecordWithdrawalResult;
+export interface AgentFileUndoResult {
+  operationId: string; originalOperationId: string; object: AgentFileObjectRef;
+  beforeVersionNumber: number; afterVersionNumber: number;
+  beforeVersionId: string; afterVersionId: string; contentHash: string;
+}
+export type AgentOperationUndoResult = AgentRecordUndoResult | AgentTodoUndoResult | AgentFileUndoResult | AgentRecordWithdrawalResult;
 export type AgentSessionState = "active" | "archived" | "read_only";
 export interface AgentSessionMetadata {
   id: string;

@@ -4,7 +4,7 @@ import path from 'node:path';
 // Persist the SDK's own entries, changing only its documented path fields. Message
 // content remains byte-for-byte meaningful, including paths typed by the user.
 const MAX_CHECKPOINT_BYTES = 64 * 1024 * 1024;
-const MAX_ENTRY_BYTES = 1024 * 1024;
+const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const ENTRY_TYPES = new Set(['message', 'thinking_level_change', 'model_change', 'usage',
   'compaction', 'branch_summary', 'custom', 'custom_message', 'context_edit', 'label', 'session_info']);
 const ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;

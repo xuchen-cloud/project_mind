@@ -35,10 +35,20 @@ pub(crate) struct RuntimeOutput {
     /// GUI decision stored separately from the native commit state.
     #[serde(default)]
     pub dismissed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_receipt: Option<FileOutputReceipt>,
     pub error_code: Option<super::errors::ErrorCode>,
     /// Ordered with sources. A legal retained citation may already differ from
     /// its current source; preserving it must not silently replace the evidence.
     pub source_changed: Vec<bool>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FileOutputReceipt {
+    pub document_id: i64,
+    pub version_number: u32,
+    pub content_hash: String,
+    pub no_change: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

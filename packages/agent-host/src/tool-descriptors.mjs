@@ -1,8 +1,8 @@
 // This is a second, small allowlist; Rust still owns grants and argument checks.
-export const READ_METHODS = new Set(['context.get', 'context.overview.get', 'knowledge.search', 'knowledge.get', 'source.search', 'source.read', 'todo.get']);
+export const READ_METHODS = new Set(['context.get', 'context.overview.get', 'knowledge.search', 'knowledge.get', 'source.search', 'source.read', 'todo.get', 'file.source.read', 'file.versions.list', 'file.versions.get']);
 // Registration is supplied by the trusted Host after its mode/grant checks.
 // Business mutations still execute in Rust and require durable undo receipts.
-const RECORD_METHODS = new Set(['record.blocks.get', 'output.stage', 'output.get', 'output.list', 'output.commit', 'operation.get', 'operation.list', 'operation.undo', 'operation.restore_created']);
+const RECORD_METHODS = new Set(['record.blocks.get', 'output.stage', 'output.get', 'output.list', 'output.commit', 'operation.get', 'operation.list', 'operation.undo', 'operation.restore_created', 'file.content.begin', 'file.content.chunk', 'file.content.complete', 'file.content.status']);
 export const PROBE_TOOLS = ['source.read', 'output.stage'].map((method) => ({
   name: `mind_${method.replace('.', '_')}`, method,
   description: `Acceptance fixture for scoped ${method}.`,
@@ -45,7 +45,9 @@ export function validateToolDescriptors(tools, { probe = false } = {}) {
         for (const item of Object.values(value.properties)) schema(item, depth + 1);
         if (value.required !== undefined && (!Array.isArray(value.required) || value.required.some((name) => !Object.hasOwn(value.properties, name)))) invalid();
       }
-      if (value.type === 'string' && (!Number.isInteger(value.maxLength) || value.maxLength < 1 || value.maxLength > 65536)) invalid();
+      // File creation accepts up to 2 MiB of UTF-8 bytes; upload chunks carry
+      // at most 1 MiB as base64. Rust separately enforces actual byte budgets.
+      if (value.type === 'string' && (!Number.isInteger(value.maxLength) || value.maxLength < 1 || value.maxLength > 2 * 1024 * 1024)) invalid();
       if (value.type === 'array') {
         if (!Number.isInteger(value.maxItems) || value.maxItems < 0 || value.maxItems > 100) invalid();
         schema(value.items, depth + 1);

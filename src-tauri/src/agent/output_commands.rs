@@ -216,6 +216,8 @@ pub(crate) async fn agent_output_update(
                 "content.create",
                 "record.patch",
                 "todo.update",
+                "file.update",
+                "file.restore",
             ],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
@@ -241,6 +243,8 @@ pub(crate) async fn agent_output_commit(
                 "content.create",
                 "record.patch",
                 "todo.update",
+                "file.update",
+                "file.restore",
                 "record.read",
                 "record.write",
                 "record.metadata.write",

@@ -160,6 +160,12 @@ pub enum OutputIntent {
         expected_hash: String,
         staged_content_id: String,
     },
+    FilePatch {
+        patch: crate::file_text_patch::FileTextPatch,
+    },
+    FileRestore {
+        restore: crate::file_version_restore::FileVersionRestore,
+    },
     TodoCreate {
         scope: Scope,
         content: String,

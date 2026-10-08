@@ -55,3 +55,20 @@ test('valid checksum does not permit a path escape or an unsupported session ver
   const changed = `${JSON.stringify({ ...JSON.parse(encoded.jsonl), version: 99 })}\n`;
   assert.throws(() => decodeSession(changed, root, manager.getSessionId(), checksum(changed)), { code: 'RUNTIME_INCOMPATIBLE' });
 });
+
+test('File payload checkpoints support escaped 2 MiB entries while preserving entry and total bounds', () => {
+  const root = path.join(os.tmpdir(), 'file-checkpoint');
+  const manager = SessionManager.inMemory(root, { id: '5'.repeat(32) });
+  const content = '\0'.repeat(2 * 1024 * 1024);
+  manager.appendMessage({ role: 'assistant', content: [{ type: 'toolCall', id: 'tool1', name: 'mind_output_stage', arguments: { intent: { intent: 'file_create', projectId: 1, safeName: 'source.txt', utf8Content: content }, sources: [] } }], timestamp: 1 });
+  const encoded = encodeSession([manager.getHeader(), ...manager.getEntries()], root);
+  assert.ok(encoded.bytes > 12 * 1024 * 1024);
+  const decoded = decodeSession(encoded.jsonl, root, manager.getSessionId(), encoded.checksum);
+  assert.equal(decoded[1].message.content[0].arguments.intent.utf8Content, content);
+  const header = manager.getHeader();
+  const entry = { type: 'message', id: 'entry1', parentId: null, timestamp: header.timestamp, message: { role: 'user', content: 'x'.repeat(16 * 1024 * 1024), timestamp: 1 } };
+  assert.throws(() => encodeSession([header, entry], root), { code: 'RUNTIME_INCOMPATIBLE' });
+  entry.message.content = 'x'.repeat(13 * 1024 * 1024);
+  const large = Array.from({ length: 5 }, (_, index) => ({ ...entry, id: `entry${index}`, parentId: index ? `entry${index - 1}` : null }));
+  assert.throws(() => encodeSession([header, ...large], root), { code: 'RUNTIME_INCOMPATIBLE' });
+});

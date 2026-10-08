@@ -75,11 +75,25 @@ pub(crate) struct TodoUndoResult {
     pub body_hash: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FileUndoResult {
+    pub operation_id: String,
+    pub original_operation_id: String,
+    pub object: ObjectRef,
+    pub before_version_number: u32,
+    pub after_version_number: u32,
+    pub before_version_id: String,
+    pub after_version_id: String,
+    pub content_hash: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum OperationUndoResult {
     ModifiedRecord(RecordUndoResult),
     CreatedRecord(crate::db::agent_record_withdrawals::RecordWithdrawalResult),
     ModifiedTodo(TodoUndoResult),
+    ModifiedFile(FileUndoResult),
+    CreatedFile(crate::db::agent_record_withdrawals::RecordWithdrawalResult),
     CreatedTodo(crate::db::agent_record_withdrawals::RecordWithdrawalResult),
 }
 

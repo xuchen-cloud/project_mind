@@ -647,7 +647,7 @@ export function ManagedDocumentSection({
                             >
                               {document.baseName}
                             </p>
-                            {document.versionCount > 1 ? (
+                            {document.versionCount > 0 ? (
                               <DocumentVersionDropdown
                                 document={document}
                                 onOpenVersion={(version) =>
@@ -698,7 +698,7 @@ export function ManagedDocumentSection({
                             >
                               {document.baseName}
                             </p>
-                            {document.versionCount > 1 ? (
+                            {document.versionCount > 0 ? (
                               <DocumentVersionDropdown
                                 document={document}
                                 onOpenVersion={(version) =>

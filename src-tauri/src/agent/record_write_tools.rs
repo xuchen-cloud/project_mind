@@ -1,9 +1,12 @@
 //! Descriptor inventory only. Registering execution/capabilities is a Host decision.
 //! JSON node/mark names and attribute whitelists come from the native editor schema.
-use super::todo_tools::todo_ref_schema;
 use super::tools::{
     array, integer, locator_schema, nullable, object, object_ref_schema, scope_schema, text,
     ReadToolDescription,
+};
+use super::{
+    file_tools::{file_intent_schemas, file_schema_definitions, file_tool_descriptions},
+    todo_tools::todo_ref_schema,
 };
 use serde_json::{json, Map, Value};
 const SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -232,10 +235,18 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
         &["intent", "sources"],
     );
     stage["$defs"] = node_definitions();
-    add("output.stage","Stage a validated Record or Todo creation/update. Read actual revisions and child/block IDs before updating. Todo creation uses a stable dedupeKey for the same action within this Run. Collaborate commits and returns its real receipt; review stages for local commit. Run and mode come from the Host.",stage);
+    stage["properties"]["intent"]["oneOf"]
+        .as_array_mut()
+        .unwrap()
+        .extend(file_intent_schemas());
+    stage["$defs"]
+        .as_object_mut()
+        .unwrap()
+        .extend(file_schema_definitions().as_object().unwrap().clone());
+    add("output.stage","Stage a validated Record, Todo or File creation/update/restore. Read actual revisions, IDs and raw File version hashes before updates. Todo creation uses a stable dedupeKey within this Run. File replacements require a completed upload ticket. Collaborate commits and returns its real receipt; review stages for local confirmation. Run and mode come from the Host.",stage);
     add(
         "output.get",
-        "Read one candidate or committed output authorized to the current Run.",
+        "Read compact proposal or committed execution metadata authorized to this Run. Read object contents through scoped object read tools; this response does not return full staged File bodies.",
         object(json!({"outputId":id()}), &["outputId"]),
     );
     add(
@@ -246,7 +257,7 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
             &[],
         ),
     );
-    add("output.commit","Commit the expected candidate revision using its native Record or Todo transaction. A saved output always returns its committed object and receipt.",object(json!({"outputId":id(),"expectedRevision":integer(SAFE_INTEGER)}),&["outputId","expectedRevision"]));
+    add("output.commit","Commit the expected candidate revision using its native Record, Todo or File transaction. A saved output always returns its committed object and receipt.",object(json!({"outputId":id(),"expectedRevision":integer(SAFE_INTEGER)}),&["outputId","expectedRevision"]));
     add(
         "operation.get",
         "Read a real committed operation receipt within the current scope and caller authority.",
@@ -254,7 +265,8 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
     );
     add("operation.list","List scoped committed operation receipts for an authorized Run, including completed work after cancellation.",object(json!({"runId":id(),"cursor":nullable(text(2048)),"limit":integer(50)}),&["runId"]));
     add("operation.undo","Undo one original operation using its retained native baseline. expectedHeadRevision must still match; later edits or external references cause UndoConflict.",object(json!({"operationId":id(),"expectedHeadRevision":integer(SAFE_INTEGER)}),&["operationId","expectedHeadRevision"]));
-    add("operation.restore_created","Restore an originally created Record at the current withdrawal revision, preserving the same Record ID and its history.",object(json!({"creationOperationId":id(),"expectedWithdrawalRevision":integer(SAFE_INTEGER)}),&["creationOperationId","expectedWithdrawalRevision"]));
+    add("operation.restore_created","Restore an originally created Record, Todo or File at its current withdrawal revision, preserving the same object ID and retained history.",object(json!({"creationOperationId":id(),"expectedWithdrawalRevision":integer(SAFE_INTEGER)}),&["creationOperationId","expectedWithdrawalRevision"]));
+    result.extend(file_tool_descriptions());
     result
 }
 
@@ -344,7 +356,7 @@ mod tests {
     #[test]
     fn record_write_schemas_reuse_editor_whitelists_and_bound_recursive_inputs() {
         let descriptions = record_write_tool_descriptions();
-        assert_eq!(descriptions.len(), 10);
+        assert_eq!(descriptions.len(), 17);
         let stage = &descriptions
             .iter()
             .find(|tool| tool.method == "output.stage")
@@ -387,7 +399,7 @@ mod tests {
             );
         }
         let json = serde_json::to_vec_pretty(&descriptions).unwrap();
-        assert!(json.len() < 100_000);
+        assert!(serde_json::to_vec(&descriptions).unwrap().len() <= 65536);
         // Shared artifact for the parent to validate these exact Rust schemas
         // against the executable Node descriptor policy after this serial test.
         std::fs::write("/tmp/project-mind-record-write-tools.json", json).unwrap();

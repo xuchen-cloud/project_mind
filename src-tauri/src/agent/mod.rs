@@ -35,6 +35,12 @@ pub(crate) mod source_navigation;
 pub(crate) mod tools;
 pub(crate) mod todo_outputs;
 pub(crate) mod todo_tools;
+pub(crate) mod file_tools;
+pub(crate) mod file_outputs;
+pub(crate) mod file_undo;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod file_dispatch_tests;

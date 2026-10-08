@@ -506,10 +506,20 @@ impl Stage {
         binding: &crate::agent::models::WorkspaceBinding,
         now: i64,
     ) -> AgentResult<()> {
-        self.manifest.owner(request)?;
+        self.check_owned(db, request, binding, now, request)
+    }
+    fn check_owned(
+        &self,
+        db: &Database,
+        request: &RequestContext,
+        binding: &crate::agent::models::WorkspaceBinding,
+        now: i64,
+        owner: &RequestContext,
+    ) -> AgentResult<()> {
+        self.manifest.owner(owner)?;
         self.manifest.alive(now)?;
         db.file_version_registered_target(request, binding, &self.manifest.begin.object)?;
-        let mut begin_request = request.clone();
+        let mut begin_request = owner.clone();
         begin_request.request_id = self.manifest.begin_request_id.clone();
         if db
             .file_content_begin_replay(&begin_request, binding, &self.manifest.begin)?
@@ -1128,6 +1138,57 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
         request: &RequestContext,
         input: &FileContentUpdate,
     ) -> AgentResult<FileVersionCommitResult> {
+        self.update_owned(request, input, false)
+    }
+    /// Adoption exists only for an already approved File output. Current GUI
+    /// authority still controls the native write; the frozen run proves ownership.
+    pub(crate) fn update_output(
+        &self,
+        request: &RequestContext,
+        input: &FileContentUpdate,
+    ) -> AgentResult<FileVersionCommitResult> {
+        self.update_owned(request, input, true)
+    }
+    pub(crate) fn validate_output_stage(
+        &self,
+        request: &RequestContext,
+        input: &FileContentUpdate,
+        owner: &RequestContext,
+    ) -> AgentResult<()> {
+        input.validate()?;
+        let host = self.store.gui_commit_host(&request.binding)?;
+        let db = host.database()?;
+        let stage = Stage::open(host.root(), &input.staged_content_id)?;
+        stage.check_owned(&db, request, host.binding(), self.now()?, owner)?;
+        if input.object != stage.manifest.begin.object
+            || input.expected_version_number != stage.manifest.begin.expected_version_number
+            || input.expected_content_hash != stage.manifest.begin.expected_content_hash
+        {
+            return Err(error(
+                ErrorCode::ScopeDenied,
+                "Upload belongs to a different File baseline",
+            ));
+        }
+        if stage.manifest.retired || stage.manifest.commit_request_id.is_some() {
+            return Err(error(
+                ErrorCode::IdempotencyConflict,
+                "Upload content is already consumed",
+            ));
+        }
+        let blob = stage.manifest.assembled.as_ref().ok_or_else(|| {
+            error(
+                ErrorCode::SourceNotReady,
+                "Seal uploaded bytes before staging a candidate",
+            )
+        })?;
+        verify_blob(&stage.directory, blob)
+    }
+    fn update_owned(
+        &self,
+        request: &RequestContext,
+        input: &FileContentUpdate,
+        output: bool,
+    ) -> AgentResult<FileVersionCommitResult> {
         input.validate()?;
         let host = self.store.gui_commit_host(&request.binding)?;
         let mut db = host.database()?;
@@ -1140,6 +1201,11 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
             });
         }
         let before = db.committed_change_watermark()?;
+        let owner = if output {
+            Some(db.agent_output_file_update_owner(request, host.binding(), input)?)
+        } else {
+            None
+        };
         let opened = Stage::open(host.root(), &input.staged_content_id);
         // A concurrent retry may have settled and retired the stage while this
         // caller waited. The durable version receipt is authoritative.
@@ -1152,7 +1218,13 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
             });
         }
         let mut stage = opened?;
-        stage.check(&db, request, host.binding(), self.now()?)?;
+        stage.check_owned(
+            &db,
+            request,
+            host.binding(),
+            self.now()?,
+            owner.as_ref().unwrap_or(request),
+        )?;
         {
             let _permit = host.fence().enter()?;
             stage.recover_receipted(&db)?;
@@ -1225,8 +1297,7 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
                 version_path,
             }
         });
-        let changes = if committed && result.is_ok()
-        {
+        let changes = if committed && result.is_ok() {
             db.committed_changes_since(host.binding(), &request.request_id, before)
                 .unwrap_or_else(|e| {
                     eprintln!("File upload notification capture failed: {}", e.message);

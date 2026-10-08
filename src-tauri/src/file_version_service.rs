@@ -47,15 +47,40 @@ pub(crate) struct FileCommitHost {
     fence: Arc<crate::workspace_commit_fence::WorkspaceCommitFence>,
 }
 impl FileCommitHost {
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        binding: WorkspaceBinding,
+        paths: crate::workspace::WorkspacePaths,
+        secret_password: Option<String>,
+        fence: Arc<crate::workspace_commit_fence::WorkspaceCommitFence>,
+    ) -> Self {
+        Self {
+            binding,
+            paths,
+            secret_password,
+            fence,
+        }
+    }
     pub(crate) fn database(&self) -> AgentResult<crate::db::Database> {
-        let mut db = crate::db::Database::open_runtime_connection(&self.paths.db_path, &self.paths.root_path,
-            self.secret_password.clone()).map_err(file_io)?;
-        db.bind_native_workspace(&self.binding.workspace_id).map_err(file_io)?;
+        let mut db = crate::db::Database::open_runtime_connection(
+            &self.paths.db_path,
+            &self.paths.root_path,
+            self.secret_password.clone(),
+        )
+        .map_err(file_io)?;
+        db.bind_native_workspace(&self.binding.workspace_id)
+            .map_err(file_io)?;
         Ok(db)
     }
-    pub(crate) fn binding(&self) -> &WorkspaceBinding { &self.binding }
-    pub(crate) fn root(&self) -> &Path { &self.paths.root_path }
-    pub(crate) fn fence(&self) -> &crate::workspace_commit_fence::WorkspaceCommitFence { &self.fence }
+    pub(crate) fn binding(&self) -> &WorkspaceBinding {
+        &self.binding
+    }
+    pub(crate) fn root(&self) -> &Path {
+        &self.paths.root_path
+    }
+    pub(crate) fn fence(&self) -> &crate::workspace_commit_fence::WorkspaceCommitFence {
+        &self.fence
+    }
 }
 pub(crate) trait BoundFileCommitStore: CommittedChangePublisher {
     fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<FileCommitHost>;
@@ -85,6 +110,9 @@ fn file_io(_: impl std::fmt::Display) -> AgentError {
     AgentError::new(ErrorCode::IoFailed, "Cannot prepare or commit File Version")
 }
 impl FileHashSnapshot {
+    pub(crate) fn content_hash(&self) -> &str {
+        &self.hash
+    }
     fn verify(&self) -> AgentResult<()> {
         let metadata = fs::symlink_metadata(&self.path).map_err(file_io)?;
         if metadata.file_type().is_symlink()
@@ -121,10 +149,12 @@ pub(crate) struct FileVersionService<'a, S, R> {
     store: &'a S,
     reader: &'a R,
 }
-impl<'a, S: BoundFileVersionStore, R: FileBytesReader> FileVersionService<'a, S, R> {
+impl<'a, S, R> FileVersionService<'a, S, R> {
     pub(crate) fn new(store: &'a S, reader: &'a R) -> Self {
         Self { store, reader }
     }
+}
+impl<'a, S: BoundFileVersionStore, R: FileBytesReader> FileVersionService<'a, S, R> {
     pub(crate) fn prepare_gui(
         &self,
         binding: &WorkspaceBinding,
@@ -444,8 +474,7 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
             }
             success => success,
         };
-        let changes = if committed && result.is_ok()
-        {
+        let changes = if committed && result.is_ok() {
             db.committed_changes_since(&host.binding, &request.request_id, before)
                 .unwrap_or_else(|error| {
                     eprintln!("File patch notification capture failed: {}", error.message);
@@ -555,12 +584,17 @@ mod tests {
                 // Another legitimate writer may take its lease immediately
                 // after our commit releases it. Bounded waiting still detects
                 // an own lease retained across this synchronous publisher.
-                let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
                 loop {
                     match fs2::FileExt::try_lock_exclusive(&lock) {
-                        Ok(())=>break,
-                        Err(error) if error.kind()==std::io::ErrorKind::WouldBlock && std::time::Instant::now()<deadline=>std::thread::sleep(std::time::Duration::from_millis(1)),
-                        Err(error)=>panic!("publish after File lease release: {error}"),
+                        Ok(()) => break,
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::WouldBlock
+                                && std::time::Instant::now() < deadline =>
+                        {
+                            std::thread::sleep(std::time::Duration::from_millis(1))
+                        }
+                        Err(error) => panic!("publish after File lease release: {error}"),
                     }
                 }
             }
@@ -592,6 +626,15 @@ mod tests {
                 return Err(AgentError::new(ErrorCode::WorkspaceChanged, "reopened"));
             }
             state.db.file_version_gui_metadata(input)
+        }
+    }
+    impl crate::source_service::BoundSourceStore for Store {
+        fn with_current<T>(
+            &self,
+            action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+        ) -> AgentResult<T> {
+            let state = self.0.lock().unwrap();
+            action(&state.binding, &state.db)
         }
     }
     fn fixture() -> (
@@ -2945,6 +2988,91 @@ mod tests {
             expected_content_hash: receipt.content_hash,
         };
         (root, store, binding, input, request, restore)
+    }
+    #[test]
+    fn file_gui_history_restore_ignores_ai_exclusion_while_model_restore_stays_denied() {
+        use crate::{agent::access::Caller, source_service::SourcePolicyUpdate};
+        let original = b"\0\xfforiginal binary\r\n";
+        let (_root, store, binding, input, mut request, restore) =
+            file_restore_case("source.bin", original, b"\0\xfechanged binary\n");
+        request.caller = Caller::Gui;
+        request.scope_grant.operations = vec![
+            "source.read".into(),
+            "file.restore".into(),
+            "settings.write".into(),
+        ];
+        request.request_id = "exclude-restorable-file".into();
+        store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .source_policy_update(
+                &request,
+                &binding,
+                &SourcePolicyUpdate {
+                    object: restore.object.clone(),
+                    expected_revision: 0,
+                    excluded: true,
+                },
+            )
+            .unwrap();
+        let mut model = request.clone();
+        model.caller = Caller::BuiltinRun {
+            run_id: "a".repeat(32),
+        };
+        model.request_id = "model-denied-restore".into();
+        assert_eq!(
+            FileVersionService::new(store.as_ref(), &FilesystemFileReader)
+                .restore_version(&model, &restore)
+                .err()
+                .unwrap()
+                .code,
+            ErrorCode::ScopeDenied
+        );
+        assert_eq!(version_count(&store, input.document_id), 2);
+        let before = store.1.load(std::sync::atomic::Ordering::Relaxed);
+        request.request_id = "gui-history-restore".into();
+        let restored =
+            crate::file_read_commands::restore_gui_file_history(store.as_ref(), &request, &restore)
+                .unwrap();
+        assert_eq!(restored.receipt.version_number, 3);
+        assert!(!restored.receipt.no_change);
+        // A native commit moves the previous managed path into retained history.
+        // Resolve the actual current version through the local GUI repository.
+        let current_path = store
+            .0
+            .lock()
+            .unwrap()
+            .db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: input.document_id,
+            })
+            .unwrap()
+            .into_iter()
+            .find(|version| version.version_number == i64::from(restored.receipt.version_number))
+            .unwrap()
+            .managed_path;
+        assert_eq!(fs::read(&current_path).unwrap(), original);
+        assert_eq!(version_count(&store, input.document_id), 3);
+        assert_eq!(
+            store.1.load(std::sync::atomic::Ordering::Relaxed),
+            before + 1
+        );
+        let mut current = restore.clone();
+        current.expected_version_number = 3;
+        current.expected_content_hash = restored.receipt.content_hash;
+        fs::write(&current_path, b"externally changed").unwrap();
+        request.request_id = "gui-refuses-unregistered-current".into();
+        assert_eq!(
+            crate::file_read_commands::restore_gui_file_history(store.as_ref(), &request, &current)
+                .err()
+                .unwrap()
+                .code,
+            ErrorCode::FileChangedUnregistered
+        );
+        assert_eq!(version_count(&store, input.document_id), 3);
+        assert_eq!(fs::read(&current_path).unwrap(), b"externally changed");
     }
     #[test]
     fn file_restore_binary_history_becomes_new_version_and_preserves_original_paths() {

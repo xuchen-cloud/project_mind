@@ -81,13 +81,14 @@ function RunOutputsBody({ binding, runId, active: runActive = false }: AgentRunO
     }
   }
   function invalidateObject(output: AgentRuntimeOutput) {
-    const scope = output.object?.scope ?? (output.intent.intent === "record_create" ? output.intent.scope : output.intent.intent === "record_patch" ? output.intent.patch.record.scope : output.intent.intent === "todo_create" ? output.intent.scope : output.intent.intent === "todo_update" ? output.intent.target.scope : null);
+    const scope = output.object?.scope ?? (output.intent.intent === "record_create" ? output.intent.scope : output.intent.intent === "record_patch" ? output.intent.patch.record.scope : output.intent.intent === "todo_create" ? output.intent.scope : output.intent.intent === "todo_update" || output.intent.intent === "file_update" ? output.intent.target.scope : output.intent.intent === "file_create" ? { kind: "project" as const, projectId: output.intent.projectId } : output.intent.intent === "file_patch" ? output.intent.patch.object.scope : output.intent.intent === "file_restore" ? output.intent.restore.object.scope : null);
     if (!scope || !mounted.current) return;
     void queryClient.invalidateQueries({ queryKey: scope.kind === "project" ? queryKeys.projectPage(scope.projectId) : queryKeys.workspacePage });
     if (output.intent.intent === "todo_create" || output.intent.intent === "todo_update") {
       void queryClient.invalidateQueries({ queryKey: queryKeys.todoViews.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.todoCollections.all });
     }
+    if (output.object?.kind === "file") void queryClient.invalidateQueries({ queryKey: queryKeys.documentVersions(Number(output.object.id)) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.searchAll });
     void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
   }
@@ -155,7 +156,7 @@ function RunOutputsBody({ binding, runId, active: runActive = false }: AgentRunO
   return <section className="agent-run-outputs" aria-label="助手操作">
     {error ? <p className="agent-output__error" role="alert">{error}</p> : null}
     {outputs.map(output => {
-      const operation = operations.find(entry => entry.requestId === `output:${output.id}:${output.revision}` && ["record.create", "record.patch", "todo.create", "todo.update"].includes(entry.kind)) ?? null;
+      const operation = operations.find(entry => entry.requestId === `output:${output.id}:${output.revision}` && ["record.create", "record.patch", "todo.create", "todo.update", "file.create", "file.version.commit"].includes(entry.kind)) ?? null;
       return <AgentOutputCard key={output.id} binding={binding} output={output} operation={operation} runActive={runActive}
         onCommit={() => commit(output)} onDismiss={() => dismiss(output)} onUndo={() => operation ? undo(output, operation) : Promise.resolve()} onRestore={() => operation ? restore(output, operation) : Promise.resolve()} />;
     })}

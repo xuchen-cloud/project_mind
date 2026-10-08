@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseFrame, PROTOCOL_VERSION } from "../src/protocol.mjs";
+import { parseFrame, PROTOCOL_VERSION, MAX_FRAME_BYTES } from "../src/protocol.mjs";
 import { createHostProtocol } from '../src/host-protocol.mjs';
 const frame = (method, requestId = "r1") => ({ protocolVersion: PROTOCOL_VERSION, requestId, method });
 
@@ -56,10 +56,18 @@ test("stdio emits only valid frames and does not echo malformed secrets", { time
 });
 
 test("unterminated and oversized frames fail with bounded output", { timeout: 5000 }, async () => {
-  for (const input of [JSON.stringify(frame("initialize")), "x".repeat(1024 * 1024 + 1)]) {
+  for (const input of [JSON.stringify(frame("initialize")), "x".repeat(MAX_FRAME_BYTES + 1)]) {
     const result = await exchange(input);
     assert.equal(result.code, 2);
     assert.ok(result.stdout.length < 500);
     assert.equal(JSON.parse(result.stdout).error.code, "INVALID_ARGUMENT");
   }
+});
+
+test('wire bound admits escaped 2 MiB File content and rejects excess UTF-8 bytes', () => {
+  const value = { ...frame('tool.result'), data: { result: '\0'.repeat(2 * 1024 * 1024) } };
+  const encoded = JSON.stringify(value);
+  assert.ok(Buffer.byteLength(encoded) > 12 * 1024 * 1024);
+  assert.deepEqual(parseFrame(encoded), value);
+  assert.throws(() => parseFrame(JSON.stringify({ ...frame('tool.result'), data: { result: '中'.repeat(Math.floor(MAX_FRAME_BYTES / 3)) } })));
 });

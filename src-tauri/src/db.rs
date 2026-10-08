@@ -10,6 +10,10 @@ mod agent_record_undo;
 pub(crate) mod todo_revisions;
 pub(crate) mod agent_todo_undo;
 pub(crate) mod agent_todo_outputs;
+mod file_output_schema;
+pub(crate) mod agent_file_outputs;
+pub(crate) mod agent_file_undo;
+pub(crate) mod file_reads;
 mod agent_overviews;
 mod overview_inventory;
 mod source_catalogue;
@@ -29,7 +33,7 @@ mod native_changes;
 pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
-mod file_imports;
+pub(crate) mod file_imports;
 mod file_metadata;
 mod file_deletions;
 mod file_relocations;
@@ -115,7 +119,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = todo_revisions::TODO_REVISION_SCHEMA_VERSION;
+const CURRENT_SCHEMA_VERSION: i64 = file_output_schema::FILE_OUTPUT_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -828,6 +832,7 @@ impl Database {
         self.ensure_agent_runtime_schema()?;
         self.ensure_agent_output_schema()?;
         self.ensure_todo_revision_schema()?;
+        self.ensure_file_output_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -2008,7 +2013,7 @@ impl Database {
             )?,
             todo_count: count("agent_visible_todos")?,
             file_count: self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE storage_mode != ?1",
+                "SELECT COUNT(*) FROM agent_visible_files WHERE storage_mode != ?1",
                 [MANAGED_NOTE_IMAGE_STORAGE_MODE],
                 |row| row.get(0),
             )?,
@@ -4989,7 +4994,7 @@ impl Database {
               ), '') AS tag_match_text,
               p.name,
               d.updated_at
-            FROM documents d
+            FROM agent_visible_files d
             INNER JOIN projects p ON p.id = d.project_id
             WHERE (
                 d.name LIKE ?1
@@ -5243,7 +5248,7 @@ impl Database {
               d.name AS name_match_text,
               p.name AS project_name,
               d.updated_at
-            FROM documents d
+            FROM agent_visible_files d
             INNER JOIN projects p ON p.id = d.project_id
             WHERE d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}'
               AND p.is_archived = 0
@@ -5441,6 +5446,10 @@ impl Database {
                     )
                     .optional()?;
 
+                if let Some((id, _, _, _)) = &resolved {
+                    agent_file_undo::require_file_visible(&self.conn, *id)
+                        .map_err(|error| anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
+                }
                 Ok(resolved.map(|(id, project_id, name, managed_path_ref)| {
                     InternalReferenceResolveResult {
                         kind: "document".to_string(),
@@ -6038,7 +6047,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id
-            FROM documents
+            FROM agent_visible_files
             WHERE project_id = ?1
               AND storage_mode != ?2
             ORDER BY created_at DESC, id DESC
@@ -6196,10 +6205,10 @@ impl Database {
                   f.created_at,
                   f.updated_at
                 FROM file_tag_options f
-                LEFT JOIN document_tag_links l ON l.tag_id = f.id
-                LEFT JOIN note_tag_links nl ON nl.tag_id = f.id
-                LEFT JOIN todo_tag_links tl ON tl.tag_id = f.id
-                LEFT JOIN workspace_note_tag_links wnl ON wnl.tag_id = f.id
+                LEFT JOIN document_tag_links l ON l.tag_id = f.id AND l.document_id IN (SELECT id FROM agent_visible_files)
+                LEFT JOIN note_tag_links nl ON nl.tag_id = f.id AND nl.note_id IN (SELECT id FROM agent_visible_notes)
+                LEFT JOIN todo_tag_links tl ON tl.tag_id = f.id AND tl.todo_id IN (SELECT id FROM agent_visible_todos)
+                LEFT JOIN workspace_note_tag_links wnl ON wnl.tag_id = f.id AND wnl.workspace_note_id IN (SELECT id FROM agent_visible_workspace_notes)
                 WHERE f.id = ?1
                 GROUP BY f.id, f.label, f.color_key, f.created_at, f.updated_at
                 "#,
@@ -7095,7 +7104,7 @@ impl Database {
             r#"
             SELECT DISTINCT f.id, f.label, f.color_key, d.project_id
             FROM file_tag_options f
-            LEFT JOIN document_tag_links l ON l.tag_id = f.id
+            LEFT JOIN document_tag_links l ON l.tag_id = f.id AND l.document_id IN (SELECT id FROM agent_visible_files)
             LEFT JOIN documents d ON d.id = l.document_id
             WHERE f.project_id IS NULL
             "#,
@@ -9101,6 +9110,7 @@ mod tests {
     /// declares an old version; production migrations retain strict CREATE.
     fn remove_later_agent_schema_fixture(database: &Database) {
         database.conn.execute_batch(r#"
+DROP VIEW agent_visible_files;
 DROP VIEW agent_visible_todos;
 DROP TABLE todo_revision_heads;
 DROP TABLE todo_revision_snapshots;

@@ -93,10 +93,10 @@ describe("ManagedDocumentSection", () => {
     projectMindApiMocks.documentListVersions.mockResolvedValue([]);
   });
 
-  it("does not show a version badge for single-version documents", () => {
+  it("keeps history available for single-version documents", () => {
     renderSection([buildDocument({ versionCount: 1, currentVersionNumber: 1 })]);
 
-    expect(screen.queryByText("v1")).not.toBeInTheDocument();
+    expect(screen.getByText("v1")).toBeInTheDocument();
   });
 
   it("shows the current version badge without extra action buttons", () => {
@@ -150,6 +150,7 @@ describe("ManagedDocumentSection", () => {
     await user.click(screen.getByRole("button", { name: "选择 Roadmap.pdf 的版本" }));
 
     expect(await screen.findByRole("menu", { name: "Roadmap.pdf 版本列表" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "查看历史与比较" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "版本历史 · Roadmap.pdf" })).not.toBeInTheDocument();
     expect(projectMindApiMocks.documentListVersions).toHaveBeenCalledWith({ documentId: 7 });
 

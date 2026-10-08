@@ -31,7 +31,7 @@ pub(crate) fn parse_scope_key(key: &str) -> AgentResult<Scope> {
     Ok(scope)
 }
 
-fn operation_hash(
+pub(super) fn operation_hash(
     caller_id: &str,
     request_id: &str,
     payload: &impl Serialize,
@@ -155,6 +155,12 @@ impl Database {
             request_id,
             operation,
             &result_json,
+        )?;
+        super::agent_file_outputs::agent_file_output_receipt_committed(
+            &tx, caller_id, request_id, operation, &result_json, self.native_workspace_id.as_deref(),
+        )?;
+        super::agent_file_undo::agent_file_recovery_receipt_committed(
+            &tx, caller_id, request_id, operation, &result_json,
         )?;
         if let Some(change) = change {
             tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,?3,?4,?5)", params![change.object_key,change.scope.key(),operation,change.revision,now]).map_err(io_error)?;

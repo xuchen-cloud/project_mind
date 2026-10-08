@@ -223,6 +223,7 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
                     | "output.stage"
                     | "output.update"
                     | "output.commit"
+                    | "file.update"
                     | "operation.undo"
                     | "operation.restore_created"
             )));
@@ -259,7 +260,7 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
         assert!(
             capability.implemented
                 && !capability.read_only
-                && capability.delivery.ends_with(":Record/Todo")
+                && capability.delivery.ends_with(":Record/Todo/File")
         );
     }
     let todo_get = capabilities()

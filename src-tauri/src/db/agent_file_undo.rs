@@ -1,0 +1,538 @@
+//! File recovery retains every managed byte/version and uses native CAS receipts.
+use super::{
+    agent_operations::{io_error, OperationChange},
+    agent_record_undo::{authorize, read_entry},
+    agent_record_withdrawals::{RecordRestoreInput, RecordWithdrawalInput, RecordWithdrawalResult},
+    file_versions::{self, CommittedVersion},
+    Database,
+};
+use crate::{
+    agent::{
+        access::{RequestContext, ScopeGrant},
+        errors::{AgentError, AgentResult, ErrorCode},
+        models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        operations::{FileUndoResult, OperationEntry, OperationUndoInput},
+    },
+    file_version_restore::FileVersionRestore,
+};
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+
+pub(super) const FILE_VISIBILITY_VIEW_SQL: &str = r#"
+CREATE VIEW agent_visible_files AS SELECT d.* FROM documents d WHERE NOT EXISTS (
+ SELECT 1 FROM agent_object_withdrawals w WHERE w.withdrawn_at IS NOT NULL
+ AND w.object_key GLOB '*/project:'||d.project_id||'/file/'||d.id
+);
+"#;
+pub(crate) const FILE_UNDO_REQUEST_PREFIX: &str = "fileundo:";
+fn conflict() -> AgentError {
+    AgentError::new(
+        ErrorCode::UndoConflict,
+        "File changed after this operation; its later work will be retained",
+    )
+}
+fn decode<T: DeserializeOwned>(value: &str) -> AgentResult<T> {
+    serde_json::from_str(value)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "File recovery receipt is damaged"))
+}
+fn encode(value: &impl Serialize) -> AgentResult<String> {
+    serde_json::to_string(value)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot encode File recovery receipt"))
+}
+fn file_id(object: &ObjectRef) -> AgentResult<i64> {
+    object.key()?;
+    if object.kind != ObjectKind::File || !matches!(object.scope, Scope::Project { .. }) {
+        return Err(conflict());
+    }
+    object
+        .id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0 && id.to_string() == object.id)
+        .ok_or_else(conflict)
+}
+pub(super) fn require_file_visible(conn: &Connection, id: i64) -> AgentResult<()> {
+    let project: i64 = conn
+        .query_row(
+            "SELECT project_id FROM documents WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(io_error)?
+        .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File is no longer present"))?;
+    let state:Option<(String,String,i64)>=conn.query_row("SELECT object_key,creation_operation_id,revision FROM agent_object_withdrawals WHERE object_key LIKE ?1 AND withdrawn_at IS NOT NULL",[format!("%/project:{project}/file/{id}")],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(io_error)?;
+    if let Some((key, creation, revision)) = state {
+        return Err(AgentError::new(ErrorCode::ObjectWithdrawn,"File has been withdrawn; restore it to use its current contents").with_details(json!({"workspaceId":key.split('/').next(),"objectKey":key,"creationOperationId":creation,"withdrawalRevision":revision,"restoreAvailable":true})));
+    }
+    Ok(())
+}
+/// Encoded paths remain private receipt evidence, never part of operation DTOs.
+pub(crate) fn agent_file_creation_metadata(conn: &Connection, id: i64) -> AgentResult<Value> {
+    let mut value:Value=conn.query_row("SELECT id,project_id,base_name,name,storage_mode,managed_path,history_dir_path,updated_at,is_starred,mime_type,health,created_at FROM documents WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"projectId":r.get::<_,i64>(1)?,"baseName":r.get::<_,String>(2)?,"name":r.get::<_,String>(3)?,"storageMode":r.get::<_,String>(4)?,"managedPath":r.get::<_,String>(5)?,"historyDirPath":r.get::<_,String>(6)?,"updatedAt":r.get::<_,String>(7)?,"isStarred":r.get::<_,i64>(8)?!=0,"mimeType":r.get::<_,String>(9)?,"health":r.get::<_,String>(10)?,"createdAt":r.get::<_,String>(11)?}))).map_err(io_error)?;
+    let mut statement = conn
+        .prepare("SELECT tag_id FROM document_tag_links WHERE document_id=?1 ORDER BY tag_id")
+        .map_err(io_error)?;
+    let ids = statement
+        .query_map([id], |r| r.get::<_, i64>(0))
+        .map_err(io_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io_error)?;
+    value["tagIds"] = json!(ids);
+    Ok(value)
+}
+fn entry(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    id: &str,
+    permission: &str,
+) -> AgentResult<OperationEntry> {
+    let (entry, caller) = read_entry(conn, id)?;
+    authorize(request, binding, &entry, &caller, permission)?;
+    file_id(&entry.object)?;
+    Ok(entry)
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredGrant {
+    workspace_id: String,
+    workspace_content: bool,
+    project_ids: Vec<i64>,
+    operations: Vec<String>,
+}
+/// The actual retained run grant is independent of session visibility/lifetime.
+fn original_authority(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    entry: &OperationEntry,
+) -> AgentResult<()> {
+    let Some(run_id) = &entry.run_id else {
+        return Ok(());
+    };
+    let raw:String=conn.query_row("SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1 AND run_id=?2",params![entry.operation_id,run_id],|r|r.get(0)).map_err(io_error)?;
+    let context: Value = decode(&raw)?;
+    let grant: StoredGrant =
+        serde_json::from_value(context["originalGrant"].clone()).map_err(|_| {
+            AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Original File authority is unavailable",
+            )
+        })?;
+    if !matches!(
+        context["originalMode"].as_str(),
+        Some("review" | "collaborate")
+    ) {
+        return Err(AgentError::new(
+            ErrorCode::ScopeDenied,
+            "Original Run cannot recover a write",
+        ));
+    }
+    let captured = RequestContext {
+        binding: request.binding.clone(),
+        caller: request.caller.clone(),
+        request_id: request.request_id.clone(),
+        scope_grant: ScopeGrant {
+            workspace_id: grant.workspace_id,
+            workspace_content: grant.workspace_content,
+            project_ids: grant.project_ids,
+            operations: grant.operations,
+        },
+    };
+    let permission = if entry.kind == "file.create" {
+        "content.create"
+    } else if captured
+        .scope_grant
+        .operations
+        .iter()
+        .any(|op| op == "file.update")
+    {
+        "file.update"
+    } else {
+        "file.restore"
+    };
+    captured.authorize(binding, &entry.object.scope, permission)
+}
+fn registered_version(
+    conn: &Connection,
+    object: &ObjectRef,
+    version_id: &str,
+    number: u64,
+) -> AgentResult<(String, String)> {
+    let id = file_id(object)?;
+    let row:Option<(i64,String,String)>=conn.query_row("SELECT v.version_number,h.content_hash,v.managed_path FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.id=?1 AND v.document_id=?2",params![version_id,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(io_error)?;
+    let (actual, hash, path) = row.ok_or_else(conflict)?;
+    if u64::try_from(actual).ok() != Some(number) || !file_versions::valid_hash(&hash) {
+        return Err(conflict());
+    }
+    Ok((hash, path))
+}
+fn baseline(conn: &Connection, entry: &OperationEntry) -> AgentResult<String> {
+    let id = file_id(&entry.object)?;
+    let number = entry.after_revision.ok_or_else(conflict)?;
+    let version = entry.after_snapshot_ref.as_deref().ok_or_else(conflict)?;
+    let (current, project): (i64, i64) = conn
+        .query_row(
+            "SELECT current_version_number,project_id FROM documents WHERE id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(io_error)?
+        .ok_or_else(conflict)?;
+    if u64::try_from(current).ok() != Some(number)
+        || entry.object.scope
+            != (Scope::Project {
+                project_id: project,
+            })
+    {
+        return Err(conflict());
+    }
+    let (hash, _) = registered_version(conn, &entry.object, version, number)?;
+    let(context,result):(String,String)=conn.query_row("SELECT output_context_json,result_json FROM agent_operation_receipts WHERE operation_id=?1",[&entry.operation_id],|r|Ok((r.get(0)?,r.get(1)?))).map_err(io_error)?;
+    let context: Value = decode(&context)?;
+    let result: Value = decode(&result)?;
+    if context["afterBodyHash"].as_str() != Some(hash.as_str())
+        || result["contentHash"].as_str() != Some(hash.as_str())
+        || result["versionNumber"].as_u64() != Some(number)
+    {
+        return Err(conflict());
+    }
+    if entry.kind == "file.create"
+        && context["afterMetadata"] != agent_file_creation_metadata(conn, id)?
+    {
+        return Err(conflict());
+    }
+    Ok(hash)
+}
+fn no_incoming(conn: &Connection, object: &ObjectRef) -> AgentResult<()> {
+    let key = object.key()?;
+    let id = file_id(object)?;
+    let edges:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM content_reference_edges WHERE target_object_key=?1 AND source_object_key!=?1)",[key],|r|r.get(0)).map_err(io_error)?;
+    if edges {
+        return Err(conflict());
+    }
+    let mut statement=conn.prepare("SELECT content FROM todos UNION ALL SELECT content FROM todo_progresses UNION ALL SELECT summary_markdown FROM projects UNION ALL SELECT content_markdown FROM notes UNION ALL SELECT content_markdown FROM workspace_notes").map_err(io_error)?;
+    for row in statement
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(io_error)?
+    {
+        if super::parse_internal_reference_tokens(&row.map_err(io_error)?)
+            .iter()
+            .any(|(kind, target)| kind == "document" && *target == id)
+        {
+            return Err(conflict());
+        }
+    }
+    Ok(())
+}
+fn previous<T: DeserializeOwned>(conn: &Connection, id: &str) -> AgentResult<T> {
+    let raw:String=conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE operation_id=?1 AND state='committed'",[id],|r|r.get(0)).map_err(io_error)?;
+    decode(&raw)
+}
+
+impl Database {
+    pub(crate) fn agent_file_undo_prepare(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &OperationUndoInput,
+    ) -> AgentResult<(OperationEntry, Option<FileUndoResult>)> {
+        self.operation_binding(binding)?;
+        let entry = entry(
+            &self.conn,
+            request,
+            binding,
+            &input.operation_id,
+            "operation.undo",
+        )?;
+        if entry.kind != "file.version.commit"
+            || entry.after_revision != Some(input.expected_head_revision)
+            || input.expected_head_revision == 0
+            || !matches!(entry.undo_state.as_str(), "available" | "undone")
+            || entry.before_revision == entry.after_revision
+        {
+            return Err(conflict());
+        }
+        original_authority(&self.conn, request, binding, &entry)?;
+        let target = self.file_version_recovery_target(request, binding, &entry.object)?;
+        if let Some(op) = &entry.undo_operation_id {
+            return Ok((
+                entry.clone(),
+                Some(self.agent_file_undo_result(&entry, op)?),
+            ));
+        }
+        let hash = baseline(&self.conn, &entry)?;
+        if file_versions::checksum(Path::new(&target.managed_path)).map_err(|_| conflict())? != hash
+        {
+            return Err(AgentError::new(
+                ErrorCode::FileChangedUnregistered,
+                "File bytes changed outside the registered version chain",
+            ));
+        }
+        Ok((entry, None))
+    }
+    pub(crate) fn agent_file_undo_restore_input(
+        &self,
+        entry: &OperationEntry,
+    ) -> AgentResult<FileVersionRestore> {
+        let hash = baseline(&self.conn, entry)?;
+        let version = entry.before_snapshot_ref.clone().ok_or_else(conflict)?;
+        registered_version(
+            &self.conn,
+            &entry.object,
+            &version,
+            entry.before_revision.ok_or_else(conflict)?,
+        )?;
+        Ok(FileVersionRestore {
+            object: entry.object.clone(),
+            version_id: version,
+            expected_version_number: u32::try_from(entry.after_revision.ok_or_else(conflict)?)
+                .map_err(|_| conflict())?,
+            expected_content_hash: hash,
+        })
+    }
+    pub(crate) fn agent_file_undo_result(
+        &self,
+        original: &OperationEntry,
+        undo_id: &str,
+    ) -> AgentResult<FileUndoResult> {
+        let (saved, _) = read_entry(&self.conn, undo_id)?;
+        let receipt: CommittedVersion = previous(&self.conn, undo_id)?;
+        if saved.object != original.object
+            || saved.before_revision != original.after_revision
+            || receipt.no_change
+        {
+            return Err(conflict());
+        }
+        Ok(FileUndoResult {
+            operation_id: saved.operation_id,
+            original_operation_id: original.operation_id.clone(),
+            object: saved.object,
+            before_version_number: u32::try_from(saved.before_revision.ok_or_else(conflict)?)
+                .map_err(|_| conflict())?,
+            after_version_number: u32::try_from(saved.after_revision.ok_or_else(conflict)?)
+                .map_err(|_| conflict())?,
+            before_version_id: saved.before_snapshot_ref.ok_or_else(conflict)?,
+            after_version_id: saved.after_snapshot_ref.ok_or_else(conflict)?,
+            content_hash: receipt.content_hash,
+        })
+    }
+    pub(crate) fn agent_file_creation_withdraw(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &RecordWithdrawalInput,
+    ) -> AgentResult<RecordWithdrawalResult> {
+        self.file_creation_visibility(request, binding, input, None)
+    }
+    pub(crate) fn agent_file_creation_restore(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &RecordRestoreInput,
+    ) -> AgentResult<RecordWithdrawalResult> {
+        self.file_creation_visibility(
+            request,
+            binding,
+            &RecordWithdrawalInput {
+                creation_operation_id: input.creation_operation_id.clone(),
+            },
+            Some(input.expected_withdrawal_revision),
+        )
+    }
+    fn file_creation_visibility(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &RecordWithdrawalInput,
+        expected: Option<u64>,
+    ) -> AgentResult<RecordWithdrawalResult> {
+        self.operation_binding(binding)?;
+        let withdraw = expected.is_none();
+        let permission = if withdraw {
+            "operation.undo"
+        } else {
+            "operation.restore_created"
+        };
+        let operation = if withdraw {
+            "file.withdraw"
+        } else {
+            "file.restore_created"
+        };
+        let created = entry(
+            &self.conn,
+            request,
+            binding,
+            &input.creation_operation_id,
+            permission,
+        )?;
+        if created.kind != "file.create"
+            || !matches!(created.undo_state.as_str(), "available" | "undone")
+        {
+            return Err(conflict());
+        }
+        original_authority(&self.conn, request, binding, &created)?;
+        self.file_version_recovery_target_hidden(request, binding, &created.object, permission)?;
+        let id = file_id(&created.object)?;
+        let _locks = self.file_recovery_write_locks(id).map_err(|_| conflict())?;
+        self.agent_atomic_operation(&request.caller.key(),&request.request_id,operation,&(input,expected),|tx|{
+ let created=entry(tx,request,binding,&input.creation_operation_id,permission)?;original_authority(tx,request,binding,&created)?;
+ let target=self.file_version_recovery_target_hidden(request,binding,&created.object,permission)?;
+ let key=created.object.key()?;
+ let state:Option<(String,bool,Option<String>,i64)>=tx.query_row("SELECT creation_operation_id,withdrawn_at IS NOT NULL,restore_operation_id,revision FROM agent_object_withdrawals WHERE object_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(io_error)?;
+ if state.as_ref().is_some_and(|row|row.0!=created.operation_id){return Err(conflict());}
+ if withdraw {if let Some(previous_id)=&created.undo_operation_id{return Ok((previous(tx,previous_id)?,None));}if created.undo_state!="available"{return Err(conflict());}}
+ else {let row=state.as_ref().ok_or_else(conflict)?;if let Some(previous_id)=&row.2{if expected!=u64::try_from(row.3).ok().and_then(|value|value.checked_sub(1)){return Err(conflict());}return Ok((previous(tx,previous_id)?,None));}if !row.1||expected!=u64::try_from(row.3).ok(){return Err(conflict());}}
+ let hash=baseline(tx,&created)?;
+ let path=PathBuf::from(&target.managed_path);file_versions::relative(&self.workspace_root,&path).map_err(|_|conflict())?;
+ if file_versions::checksum(&path).map_err(|_|conflict())?!=hash{return Err(AgentError::new(ErrorCode::FileChangedUnregistered,"File bytes changed outside the registered version chain"));}
+ if withdraw{no_incoming(tx,&created.object)?;}
+ let revision=state.as_ref().map_or(Some(1),|row|row.3.checked_add(1)).filter(|value|*value>0).ok_or_else(||AgentError::new(ErrorCode::BudgetExceeded,"File withdrawal revision exhausted"))?;
+ let operation_id=file_versions::token();
+ tx.execute("INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,restore_operation_id,revision) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(object_key) DO UPDATE SET withdrawn_at=excluded.withdrawn_at,restore_operation_id=excluded.restore_operation_id,revision=excluded.revision",params![key,created.operation_id,if withdraw{Some(Utc::now().to_rfc3339())}else{None},if withdraw{None}else{Some(&operation_id)},revision]).map_err(io_error)?;
+ if withdraw{let changed=tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL",params![operation_id,created.operation_id]).map_err(io_error)?;if changed!=1{return Err(conflict());}
+ let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='source_index_snapshots' AND type='table')",[],|r|r.get(0)).map_err(io_error)?;if exists{tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1",[&key]).map_err(io_error)?;}
+ tx.execute("UPDATE agent_jobs SET state='cancelled',error=NULL WHERE kind='extract' AND dedupe_key=?1 AND state IN ('queued','running')",[format!("source-index:{key}")]).map_err(io_error)?;}
+ tx.execute("UPDATE projects SET updated_at=?1 WHERE id=?2",params![Utc::now().to_rfc3339(),target.project_id]).map_err(io_error)?;
+ let result=RecordWithdrawalResult{operation_id,creation_operation_id:created.operation_id,object:created.object.clone(),withdrawn:withdraw,revision:revision as u64};Ok((result,Some(OperationChange{object_key:key,scope:created.object.scope,revision:format!("withdrawal:{revision}:{}",if withdraw{"withdrawn"}else{"visible"})})))
+ })
+    }
+}
+/// Kernel-only authority: the stable request is useful only with its real
+/// original receipt and exact derived restore payload. It cannot restore an
+/// arbitrary version by supplying the prefix.
+pub(crate) fn file_undo_authorize_target(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    object: &ObjectRef,
+) -> AgentResult<bool> {
+    let Some(id) = request.request_id.strip_prefix(FILE_UNDO_REQUEST_PREFIX) else {
+        return Ok(false);
+    };
+    let original = entry(conn, request, binding, id, "operation.undo")?;
+    if original.kind != "file.version.commit"
+        || original.object != *object
+        || !matches!(original.undo_state.as_str(), "available" | "undone")
+        || original.before_revision == original.after_revision
+    {
+        return Err(conflict());
+    }
+    original_authority(conn, request, binding, &original)?;
+    Ok(true)
+}
+pub(crate) fn file_undo_validate_restore(
+    conn: &Connection,
+    request: &RequestContext,
+    binding: &WorkspaceBinding,
+    input: &FileVersionRestore,
+) -> AgentResult<()> {
+    let Some(id) = request.request_id.strip_prefix(FILE_UNDO_REQUEST_PREFIX) else {
+        return Ok(());
+    };
+    file_undo_authorize_target(conn, request, binding, &input.object)?;
+    let (original, _) = read_entry(conn, id)?;
+    let (after_hash, _) = registered_version(
+        conn,
+        &original.object,
+        original
+            .after_snapshot_ref
+            .as_deref()
+            .ok_or_else(conflict)?,
+        original.after_revision.ok_or_else(conflict)?,
+    )?;
+    if original.before_snapshot_ref.as_deref() != Some(input.version_id.as_str())
+        || original.after_revision != Some(u64::from(input.expected_version_number))
+        || after_hash != input.expected_content_hash
+    {
+        return Err(conflict());
+    }
+    Ok(())
+}
+/// Called inside native receipt transaction before the outbox. Any failure
+/// rolls back the ledger, CAS/version SQL and native journal-owned bytes.
+pub(crate) fn agent_file_recovery_receipt_committed(
+    tx: &Transaction<'_>,
+    caller: &str,
+    request_id: &str,
+    operation: &str,
+    result_json: &str,
+) -> AgentResult<()> {
+    if operation == "file.version.commit" {
+        let Some(original_id) = request_id.strip_prefix(FILE_UNDO_REQUEST_PREFIX) else {
+            return Ok(());
+        };
+        let (original, _) = read_entry(tx, original_id)?;
+        let result: CommittedVersion = decode(result_json)?;
+        if original.kind != "file.version.commit"
+            || original.undo_state != "available"
+            || result.no_change
+            || result.document_id != file_id(&original.object)?
+            || Some(result.version_number as u64)
+                != original.after_revision.and_then(|v| v.checked_add(1))
+        {
+            return Err(conflict());
+        }
+        let before_ref = original
+            .before_snapshot_ref
+            .as_deref()
+            .ok_or_else(conflict)?;
+        let (before_hash, _) = registered_version(
+            tx,
+            &original.object,
+            before_ref,
+            original.before_revision.ok_or_else(conflict)?,
+        )?;
+        if result.content_hash != before_hash {
+            return Err(conflict());
+        }
+        let after_id: i64 = tx
+            .query_row(
+                "SELECT id FROM document_versions WHERE document_id=?1 AND version_number=?2",
+                params![result.document_id, result.version_number],
+                |r| r.get(0),
+            )
+            .map_err(io_error)?;
+        let op = file_versions::token();
+        let changed=tx.execute("UPDATE agent_operation_receipts SET undo_state='undone',undo_operation_id=?1 WHERE operation_id=?2 AND undo_state='available' AND undo_operation_id IS NULL",params![op,original_id]).map_err(io_error)?;
+        if changed != 1 {
+            return Err(conflict());
+        }
+        let changed=tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,run_id=?2,target_ref_json=?3,before_revision=?4,after_revision=?5,before_snapshot_ref=?6,after_snapshot_ref=?7,output_context_json=?8,undo_state='unavailable' WHERE caller_id=?9 AND request_id=?10 AND operation=?11",params![op,original.run_id,encode(&original.object)?,original.after_revision.map(|v|v as i64),result.version_number,original.after_snapshot_ref,after_id.to_string(),encode(&json!({"originalOperationId":original_id,"afterBodyHash":result.content_hash,"recovery":"file.undo"}))?,caller,request_id,operation]).map_err(io_error)?;
+        if changed != 1 {
+            return Err(AgentError::new(
+                ErrorCode::IoFailed,
+                "File undo receipt could not be finalized",
+            ));
+        }
+    } else if matches!(operation, "file.withdraw" | "file.restore_created") {
+        let result: RecordWithdrawalResult = decode(result_json)?;
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM agent_operation_receipts WHERE operation_id=?1)",
+                [&result.operation_id],
+                |r| r.get(0),
+            )
+            .map_err(io_error)?;
+        if exists {
+            return Ok(());
+        }
+        let changed=tx.execute("UPDATE agent_operation_receipts SET operation_id=?1,run_id=(SELECT run_id FROM agent_operation_receipts WHERE operation_id=?2),target_ref_json=?3,before_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),after_revision=(SELECT after_revision FROM agent_operation_receipts WHERE operation_id=?2),before_snapshot_ref=(SELECT after_snapshot_ref FROM agent_operation_receipts WHERE operation_id=?2),after_snapshot_ref=(SELECT after_snapshot_ref FROM agent_operation_receipts WHERE operation_id=?2),output_context_json=?4,undo_state='unavailable' WHERE caller_id=?5 AND request_id=?6 AND operation=?7",params![result.operation_id,result.creation_operation_id,encode(&result.object)?,encode(&json!({"creationOperationId":result.creation_operation_id,"withdrawn":result.withdrawn,"withdrawalRevision":result.revision}))?,caller,request_id,operation]).map_err(io_error)?;
+        if changed != 1 {
+            return Err(AgentError::new(
+                ErrorCode::IoFailed,
+                "File visibility receipt could not be finalized",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "agent_file_undo_tests.rs"]
+mod tests;

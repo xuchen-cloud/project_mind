@@ -75,8 +75,13 @@ fn agent_failure(error: anyhow::Error) -> AgentError {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CommitPayload {
-    Native { document_id: i64, new_hash: String },
-    Registered { update: FileVersionUpdate },
+    Native {
+        document_id: i64,
+        new_hash: String,
+    },
+    Registered {
+        update: FileVersionUpdate,
+    },
     RegisteredText {
         object: ObjectRef,
         expected_version_number: u32,
@@ -106,7 +111,14 @@ fn registered_payload(
     stage_id: Option<&str>,
     restore: Option<&crate::file_version_restore::FileVersionRestore>,
 ) -> CommitPayload {
-    if let Some(input)=restore {return CommitPayload::RegisteredRestore {object:update.object.clone(),expected_version_number:update.expected_version_number,expected_content_hash:update.expected_content_hash.clone(),version_id:input.version_id.clone()};}
+    if let Some(input) = restore {
+        return CommitPayload::RegisteredRestore {
+            object: update.object.clone(),
+            expected_version_number: update.expected_version_number,
+            expected_content_hash: update.expected_content_hash.clone(),
+            version_id: input.version_id.clone(),
+        };
+    }
     if let Some(stage_id) = stage_id {
         return CommitPayload::RegisteredStage {
             object: update.object.clone(),
@@ -489,7 +501,7 @@ pub(super) fn owned(root: &Path, value: &str) -> Result<PathBuf> {
     Ok(path)
 }
 impl Database {
-    fn file_version_lock(&self, document_id: i64) -> Result<File> {
+    pub(super) fn file_version_lock(&self, document_id: i64) -> Result<File> {
         self.file_storage_lock("file-version-locks", document_id, true)
     }
     /// Lock order is Project, File, SQLite transaction. Project directory and
@@ -498,6 +510,12 @@ impl Database {
         self.file_storage_lock("file-project-locks", project_id, exclusive)
     }
     pub(super) fn file_native_write_locks(&self, document_id: i64) -> Result<(File, File)> {
+        let locks = self.file_recovery_write_locks(document_id)?;
+        super::agent_file_undo::require_file_visible(&self.conn, document_id)
+            .map_err(CommitFailure)?;
+        Ok(locks)
+    }
+    pub(super) fn file_recovery_write_locks(&self, document_id: i64) -> Result<(File, File)> {
         self.file_version_recover_pending()?;
         let project_id: i64 = self.conn.query_row(
             "SELECT project_id FROM documents WHERE id=?1",
@@ -605,28 +623,60 @@ impl Database {
             {
                 ()
             }
-            CommitPayload::RegisteredText { object, expected_version_number, expected_content_hash, patch_hash }
-                if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
-                    && object.kind == ObjectKind::File
-                    && object.scope == (Scope::Project { project_id: journal.project_id })
-                    && object.id == journal.document_id.to_string()
-                    && i64::from(*expected_version_number) == journal.expected_version
-                    && expected_content_hash == &journal.original_captured_hash
-                    && valid_hash(patch_hash) => { () }
-            CommitPayload::RegisteredStage { object, expected_version_number, expected_content_hash, staged_content_id }
-                if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
-                    && object.kind == ObjectKind::File && object.scope == (Scope::Project { project_id: journal.project_id })
-                    && object.id == journal.document_id.to_string()
-                    && i64::from(*expected_version_number) == journal.expected_version
-                    && expected_content_hash == &journal.original_captured_hash
-                    && crate::file_content::valid_stage_id(staged_content_id) => { () }
-            CommitPayload::RegisteredRestore { object,expected_version_number,expected_content_hash,version_id }
-                if object.workspace_id==journal.workspace_id.as_deref().unwrap_or_default()
-                    && object.kind==ObjectKind::File && object.scope==(Scope::Project {project_id:journal.project_id})
-                    && object.id==journal.document_id.to_string()
-                    && i64::from(*expected_version_number)==journal.expected_version
-                    && expected_content_hash==&journal.original_captured_hash
-                    && crate::file_version_restore::valid_version_id(version_id)=>{()}
+            CommitPayload::RegisteredText {
+                object,
+                expected_version_number,
+                expected_content_hash,
+                patch_hash,
+            } if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
+                && object.kind == ObjectKind::File
+                && object.scope
+                    == (Scope::Project {
+                        project_id: journal.project_id,
+                    })
+                && object.id == journal.document_id.to_string()
+                && i64::from(*expected_version_number) == journal.expected_version
+                && expected_content_hash == &journal.original_captured_hash
+                && valid_hash(patch_hash) =>
+            {
+                ()
+            }
+            CommitPayload::RegisteredStage {
+                object,
+                expected_version_number,
+                expected_content_hash,
+                staged_content_id,
+            } if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
+                && object.kind == ObjectKind::File
+                && object.scope
+                    == (Scope::Project {
+                        project_id: journal.project_id,
+                    })
+                && object.id == journal.document_id.to_string()
+                && i64::from(*expected_version_number) == journal.expected_version
+                && expected_content_hash == &journal.original_captured_hash
+                && crate::file_content::valid_stage_id(staged_content_id) =>
+            {
+                ()
+            }
+            CommitPayload::RegisteredRestore {
+                object,
+                expected_version_number,
+                expected_content_hash,
+                version_id,
+            } if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
+                && object.kind == ObjectKind::File
+                && object.scope
+                    == (Scope::Project {
+                        project_id: journal.project_id,
+                    })
+                && object.id == journal.document_id.to_string()
+                && i64::from(*expected_version_number) == journal.expected_version
+                && expected_content_hash == &journal.original_captured_hash
+                && crate::file_version_restore::valid_version_id(version_id) =>
+            {
+                ()
+            }
             CommitPayload::NativeCas { intent, .. }
                 if journal.caller_id == "gui"
                     && intent.document_id == journal.document_id
@@ -634,7 +684,8 @@ impl Database {
                     && i64::from(intent.expected_version_number) == journal.expected_version
                     && intent.expected_content_hash == journal.original_captured_hash
                     && intent.new_content_hash == journal.new_hash
-                    && relative(&self.workspace_root, Path::new(&intent.managed_path))? == journal.original =>
+                    && relative(&self.workspace_root, Path::new(&intent.managed_path))?
+                        == journal.original =>
             {
                 ()
             }
@@ -823,6 +874,7 @@ impl Database {
             if input.document_id <= 0 || input.project_id <= 0 || input.expected_version_number == 0 {
                 return Err(conflict(ErrorCode::InvalidArgument, "Invalid File Version target"));
             }
+            super::agent_file_undo::require_file_visible(&self.conn, input.document_id).map_err(CommitFailure)?;
             let current = self.document_record(input.document_id).map_err(|error| {
                 if matches!(error.downcast_ref::<rusqlite::Error>(), Some(rusqlite::Error::QueryReturnedNoRows)) {
                     conflict(ErrorCode::NotFound, "File no longer exists")
@@ -853,16 +905,25 @@ impl Database {
         input: &GuiFileVersionPrepare,
     ) -> AgentResult<GuiFileVersionIntent> {
         let metadata = self.file_version_gui_metadata(input)?;
-        relative(&metadata.workspace_root, Path::new(&input.managed_path)).map_err(agent_failure)?;
-        let expected_content_hash = checksum(Path::new(&input.managed_path)).map_err(agent_failure)?;
-        let new_content_hash = input.source_path.as_deref()
+        relative(&metadata.workspace_root, Path::new(&input.managed_path))
+            .map_err(agent_failure)?;
+        let expected_content_hash =
+            checksum(Path::new(&input.managed_path)).map_err(agent_failure)?;
+        let new_content_hash = input
+            .source_path
+            .as_deref()
             .map(|path| checksum(Path::new(path)).map_err(agent_failure))
-            .transpose()?.unwrap_or_else(|| expected_content_hash.clone());
+            .transpose()?
+            .unwrap_or_else(|| expected_content_hash.clone());
         Ok(GuiFileVersionIntent {
-            document_id: input.document_id, project_id: input.project_id,
-            managed_path: input.managed_path.clone(), expected_version_number: input.expected_version_number,
-            expected_content_hash, registered_content_hash: metadata.registered_content_hash,
-            new_content_hash, source_path: input.source_path.clone(),
+            document_id: input.document_id,
+            project_id: input.project_id,
+            managed_path: input.managed_path.clone(),
+            expected_version_number: input.expected_version_number,
+            expected_content_hash,
+            registered_content_hash: metadata.registered_content_hash,
+            new_content_hash,
+            source_path: input.source_path.clone(),
         })
     }
     #[cfg(test)]
@@ -874,9 +935,13 @@ impl Database {
         register_current_bytes: bool,
     ) -> AgentResult<CommittedVersion> {
         self.file_version_commit_gui_bound(
-            binding, request_id, intent, register_current_bytes,
+            binding,
+            request_id,
+            intent,
+            register_current_bytes,
             &crate::workspace_commit_fence::WorkspaceCommitFence::new(),
-        ).map(|outcome| outcome.receipt)
+        )
+        .map(|outcome| outcome.receipt)
     }
     pub(crate) fn file_version_commit_gui_bound(
         &mut self,
@@ -920,7 +985,6 @@ impl Database {
                 Some(fence),
                 None,
                 None,
-
                 None,
             )
         })()
@@ -942,9 +1006,43 @@ impl Database {
         binding: &WorkspaceBinding,
         object: &ObjectRef,
     ) -> AgentResult<DocumentRecord> {
-        self.file_version_target_for(request,binding,object,"file.update")
+        self.file_version_target_for(request, binding, object, "file.update")
     }
-    fn file_version_target_for(&self,request:&RequestContext,binding:&WorkspaceBinding,object:&ObjectRef,operation:&str)->AgentResult<DocumentRecord> {
+    pub(crate) fn file_version_recovery_target(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+    ) -> AgentResult<DocumentRecord> {
+        self.file_version_target_for(request, binding, object, "operation.undo")
+    }
+    pub(crate) fn file_version_recovery_target_hidden(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+        operation: &str,
+    ) -> AgentResult<DocumentRecord> {
+        self.file_version_target_scope(request, binding, object, operation)
+    }
+    fn file_version_target_for(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+        operation: &str,
+    ) -> AgentResult<DocumentRecord> {
+        let target = self.file_version_target_scope(request, binding, object, operation)?;
+        super::agent_file_undo::require_file_visible(&self.conn, target.id)?;
+        Ok(target)
+    }
+    fn file_version_target_scope(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+        operation: &str,
+    ) -> AgentResult<DocumentRecord> {
         object.key()?;
         if object.kind != ObjectKind::File {
             return Err(AgentError::new(
@@ -961,6 +1059,14 @@ impl Database {
         let actual = self
             .agent_resolve_object(object, &binding.workspace_id)?
             .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File no longer exists"))?;
+        let operation = if operation == "file.restore"
+            && super::agent_file_undo::file_undo_authorize_target(
+                &self.conn, request, binding, object,
+            )? {
+            "operation.undo"
+        } else {
+            operation
+        };
         request.authorize_object(binding, object, &actual, operation)?;
         self.source_live_scope(&actual.scope)?;
         self.source_prepare()?;
@@ -1049,7 +1155,6 @@ impl Database {
             Some(fence),
             Some((patch_hash, bytes)),
             None,
-
             None,
         )
         .map_err(agent_failure)
@@ -1131,7 +1236,6 @@ impl Database {
             Some(fence),
             None,
             Some((stage_id, precommit)),
-
             None,
         )
         .map_err(agent_failure)
@@ -1143,6 +1247,7 @@ impl Database {
         input: &crate::file_version_restore::FileVersionRestore,
     ) -> AgentResult<Option<CommittedVersion>> {
         input.validate()?;
+        super::agent_file_undo::file_undo_validate_restore(&self.conn, request, binding, input)?;
         let target =
             self.file_version_target_for(request, binding, &input.object, "file.restore")?;
         let _project = self
@@ -1170,6 +1275,7 @@ impl Database {
         input: &crate::file_version_restore::FileVersionRestore,
     ) -> AgentResult<crate::file_version_restore::FileRestoreSource> {
         input.validate()?;
+        super::agent_file_undo::file_undo_validate_restore(&self.conn, request, binding, input)?;
         let target =
             self.file_version_target_for(request, binding, &input.object, "file.restore")?;
         let id: i64 = input
@@ -1335,9 +1441,9 @@ impl Database {
                 None,
                 None,
                 None,
-
                 None,
-            ).map(|outcome| outcome.receipt)
+            )
+            .map(|outcome| outcome.receipt)
         })();
         result.map_err(|error| match error.downcast::<CommitFailure>() {
             Ok(failure) => failure.0,
@@ -1353,10 +1459,19 @@ impl Database {
         fence: Option<&crate::workspace_commit_fence::WorkspaceCommitFence>,
         patch: Option<(&str, &[u8])>,
         stage: Option<(&str, &dyn Fn() -> AgentResult<()>)>,
-        restore: Option<(&crate::file_version_restore::FileVersionRestore,&dyn Fn()->AgentResult<()>)>,
+        restore: Option<(
+            &crate::file_version_restore::FileVersionRestore,
+            &dyn Fn() -> AgentResult<()>,
+        )>,
     ) -> Result<FileVersionCommitOutcome> {
-        if restore.is_some() && (registered.is_none() || patch.is_some() || stage.is_some()) {bail!("Invalid registered restore intent");}
-        let operation=if restore.is_some() {"file.restore"} else {"file.update"};
+        if restore.is_some() && (registered.is_none() || patch.is_some() || stage.is_some()) {
+            bail!("Invalid registered restore intent");
+        }
+        let operation = if restore.is_some() {
+            "file.restore"
+        } else {
+            "file.update"
+        };
         let stage_id = stage.map(|(id, _)| id);
         self.file_version_recover_pending()?;
         let project_id: i64 = self.conn.query_row(
@@ -1366,9 +1481,12 @@ impl Database {
         )?;
         let _project_lock = self.file_project_lock(project_id, false)?;
         let _lock = self.file_version_lock(input.document_id)?;
+        super::agent_file_undo::require_file_visible(&self.conn, input.document_id)
+            .map_err(CommitFailure)?;
         if let Some((request, update)) = registered {
             let binding = &request.binding;
-            self.file_version_target_for(request, binding, &update.object,operation).map_err(CommitFailure)?;
+            self.file_version_target_for(request, binding, &update.object, operation)
+                .map_err(CommitFailure)?;
             // Another connection may have committed this exact request while
             // we waited for the File lock. Replay before checking the old CAS.
             if let Some(receipt) = self
@@ -1376,32 +1494,62 @@ impl Database {
                     &request.caller.key(),
                     &request.request_id,
                     "file.version.commit",
-                    &registered_payload(update, patch.map(|(hash, _)| hash), stage_id, restore.map(|(input,_)|input)),
+                    &registered_payload(
+                        update,
+                        patch.map(|(hash, _)| hash),
+                        stage_id,
+                        restore.map(|(input, _)| input),
+                    ),
                 )
                 .map_err(CommitFailure)?
             {
-                let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
+                let _commit = fence
+                    .map(|fence| fence.enter())
+                    .transpose()
+                    .map_err(CommitFailure)?;
                 return Ok(FileVersionCommitOutcome::replay(receipt));
             }
         }
         if let Some((request_id, intent, register_current_bytes)) = gui {
-            if let Some(receipt) = self.agent_operation_replay("gui", request_id, "file.version.commit",
-                &CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }).map_err(CommitFailure)? {
-                let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
+            if let Some(receipt) = self
+                .agent_operation_replay(
+                    "gui",
+                    request_id,
+                    "file.version.commit",
+                    &CommitPayload::NativeCas {
+                        intent: intent.clone(),
+                        register_current_bytes,
+                    },
+                )
+                .map_err(CommitFailure)?
+            {
+                let _commit = fence
+                    .map(|fence| fence.enter())
+                    .transpose()
+                    .map_err(CommitFailure)?;
                 return Ok(FileVersionCommitOutcome::replay(receipt));
             }
         }
         if registered.is_none() && gui.is_none() {
             self.ensure_project_file_layout(project_id)?;
         }
-        let restore_source=if let Some((restore,_))=restore {
-            let (request,update)=registered.expect("restore needs registered target");
-            let source=self.file_version_restore_source(request,&request.binding,restore).map_err(CommitFailure)?;
-            if input.source_path.as_deref()!=source.managed_path.to_str() || source.content_hash!=update.new_content_hash {
-                return Err(conflict(ErrorCode::SourceChanged,"Historical File Version changed before preparation"));
+        let restore_source = if let Some((restore, _)) = restore {
+            let (request, update) = registered.expect("restore needs registered target");
+            let source = self
+                .file_version_restore_source(request, &request.binding, restore)
+                .map_err(CommitFailure)?;
+            if input.source_path.as_deref() != source.managed_path.to_str()
+                || source.content_hash != update.new_content_hash
+            {
+                return Err(conflict(
+                    ErrorCode::SourceChanged,
+                    "Historical File Version changed before preparation",
+                ));
             }
             Some(source)
-        } else {None};
+        } else {
+            None
+        };
         let current = self.document_record(input.document_id)?;
         if current.current_version_number <= 0 || current.version_count <= 0 {
             bail!("Invalid stored File Version metadata");
@@ -1445,50 +1593,101 @@ impl Database {
             }
         }
         if let Some((_, intent, register_current_bytes)) = gui {
-            if current.project_id != intent.project_id || current.managed_path != intent.managed_path
-                || current.current_version_number != i64::from(intent.expected_version_number) {
-                return Err(conflict(ErrorCode::RevisionConflict, "File Version or location changed before GUI commit"));
+            if current.project_id != intent.project_id
+                || current.managed_path != intent.managed_path
+                || current.current_version_number != i64::from(intent.expected_version_number)
+            {
+                return Err(conflict(
+                    ErrorCode::RevisionConflict,
+                    "File Version or location changed before GUI commit",
+                ));
             }
             if self.project_record(current.project_id)?.is_archived {
-                return Err(conflict(ErrorCode::ScopeDenied, "Project was archived before File commit"));
+                return Err(conflict(
+                    ErrorCode::ScopeDenied,
+                    "Project was archived before File commit",
+                ));
             }
             crate::source_search_index::SourceIndex::prepare(&self.conn).map_err(CommitFailure)?;
             let known: Option<String> = self.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2", params![current.id, current.current_version_number], |row| row.get(0)).optional()?;
             if known != intent.registered_content_hash {
-                return Err(conflict(ErrorCode::RevisionConflict, "File registration changed before GUI commit"));
+                return Err(conflict(
+                    ErrorCode::RevisionConflict,
+                    "File registration changed before GUI commit",
+                ));
             }
             if checksum(&original)? != intent.expected_content_hash {
-                return Err(conflict(ErrorCode::FileChangedUnregistered, "File bytes changed after GUI preflight"));
+                return Err(conflict(
+                    ErrorCode::FileChangedUnregistered,
+                    "File bytes changed after GUI preflight",
+                ));
             }
             if known.as_ref() != Some(&intent.expected_content_hash) && !register_current_bytes {
-                return Err(conflict(ErrorCode::FileChangedUnregistered, "Confirm registration of current File bytes first"));
+                return Err(conflict(
+                    ErrorCode::FileChangedUnregistered,
+                    "Confirm registration of current File bytes first",
+                ));
             }
         }
         // No filesystem mutation is needed for a registered identical body.
         // Settle its durable receipt before deriving any next-version paths or
         // incrementing the counter; foreign next paths and u32::MAX are irrelevant.
-        let no_change = registered.is_some_and(|(_, update)| update.new_content_hash == update.expected_content_hash)
-            || gui.is_some_and(|(_, intent, _)| intent.registered_content_hash.as_ref() == Some(&intent.expected_content_hash)
-                && intent.new_content_hash == intent.expected_content_hash);
+        let no_change = registered
+            .is_some_and(|(_, update)| update.new_content_hash == update.expected_content_hash)
+            || gui.is_some_and(|(_, intent, _)| {
+                intent.registered_content_hash.as_ref() == Some(&intent.expected_content_hash)
+                    && intent.new_content_hash == intent.expected_content_hash
+            });
         if no_change {
             let (caller_id, request_id, expected_hash, payload) = match (registered, gui) {
-                (Some((request, update)), _) => (request.caller.key(), request.request_id.as_str(), &update.new_content_hash,
-                    registered_payload(update, patch.map(|(hash, _)| hash), stage_id, restore.map(|(input,_)|input))),
-                (_, Some((request_id, intent, register_current_bytes))) => ("gui".into(), request_id, &intent.new_content_hash,
-                    CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
+                (Some((request, update)), _) => (
+                    request.caller.key(),
+                    request.request_id.as_str(),
+                    &update.new_content_hash,
+                    registered_payload(
+                        update,
+                        patch.map(|(hash, _)| hash),
+                        stage_id,
+                        restore.map(|(input, _)| input),
+                    ),
+                ),
+                (_, Some((request_id, intent, register_current_bytes))) => (
+                    "gui".into(),
+                    request_id,
+                    &intent.new_content_hash,
+                    CommitPayload::NativeCas {
+                        intent: intent.clone(),
+                        register_current_bytes,
+                    },
+                ),
                 _ => unreachable!("noChange requires a registered intent"),
             };
-            let source = input.source_path.as_deref().map(PathBuf::from).unwrap_or_else(|| original.clone());
+            let source = input
+                .source_path
+                .as_deref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| original.clone());
             if checksum(&source)? != *expected_hash {
-                return Err(conflict(ErrorCode::SourceChanged, "Selected bytes changed before no-change commit"));
+                return Err(conflict(
+                    ErrorCode::SourceChanged,
+                    "Selected bytes changed before no-change commit",
+                ));
             }
             if let Some((_, validate)) = stage {
                 validate().map_err(CommitFailure)?;
             }
-            if let Some((_,validate))=restore {validate().map_err(CommitFailure)?;}
-            let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
-            let synchronous: i64 = self.conn.pragma_query_value(None, "synchronous", |row| row.get(0))?;
-            self.conn.pragma_update(None, "synchronous", synchronous.max(2))?;
+            if let Some((_, validate)) = restore {
+                validate().map_err(CommitFailure)?;
+            }
+            let _commit = fence
+                .map(|fence| fence.enter())
+                .transpose()
+                .map_err(CommitFailure)?;
+            let synchronous: i64 = self
+                .conn
+                .pragma_query_value(None, "synchronous", |row| row.get(0))?;
+            self.conn
+                .pragma_update(None, "synchronous", synchronous.max(2))?;
             let result = self.agent_atomic_operation(&caller_id, request_id, "file.version.commit", &payload, |tx| {
                 if let Some(source)=&restore_source {crate::file_version_restore::check_source_transaction(tx,source,current.id)?;}
                 if let Some((_, update)) = registered {
@@ -1510,7 +1709,9 @@ impl Database {
             if let Err(error) = self.conn.pragma_update(None, "synchronous", synchronous) {
                 eprintln!("No-change File synchronous restore failed: {error}");
             }
-            return result.map(FileVersionCommitOutcome::replay).map_err(Into::into);
+            return result
+                .map(FileVersionCommitOutcome::replay)
+                .map_err(Into::into);
         }
         let archive = PathBuf::from(&current.history_dir_path).join(super::versioned_file_name(
             &current.base_name,
@@ -1547,7 +1748,9 @@ impl Database {
         {
             bail!("A File Version must preserve its existing file type");
         }
-        let source_ref = if let Some(source)=&restore_source {source.source_ref.clone()} else if registered.is_none() && input.source_path.is_some() {
+        let source_ref = if let Some(source) = &restore_source {
+            source.source_ref.clone()
+        } else if registered.is_none() && input.source_path.is_some() {
             self.encode_path_ref(&source)
         } else {
             self.document_version_source_path_ref(current.id, current.current_version_number)?
@@ -1557,7 +1760,12 @@ impl Database {
         create_owned_directories(&self.workspace_root, &base)?;
         let journal_id = token();
         let request_id = registered.map_or_else(
-            || gui.map_or_else(|| journal_id.clone(), |(request_id, _, _)| request_id.to_owned()),
+            || {
+                gui.map_or_else(
+                    || journal_id.clone(),
+                    |(request_id, _, _)| request_id.to_owned(),
+                )
+            },
             |(request, _)| request.request_id.clone(),
         );
         let caller_id =
@@ -1569,13 +1777,24 @@ impl Database {
             let (old_hash, original_identity, _) =
                 snapshot(&original, &directory.join("original.bin"))?;
             let (new_hash, new_identity) = if let Some((_, bytes)) = patch {
-                let mut output = OpenOptions::new().write(true).create_new(true).open(directory.join("new.bin"))?;
+                let mut output = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(directory.join("new.bin"))?;
                 output.write_all(bytes)?;
                 output.sync_all()?;
-                (format!("sha256:{:x}", Sha256::digest(bytes)), identity(&output)?)
+                (
+                    format!("sha256:{:x}", Sha256::digest(bytes)),
+                    identity(&output)?,
+                )
             } else {
-                let (hash, _, identity) = snapshot_bounded(&source, &directory.join("new.bin"),
-                    registered.filter(|_|restore.is_none()).map(|_| 100 * 1024 * 1024))?;
+                let (hash, _, identity) = snapshot_bounded(
+                    &source,
+                    &directory.join("new.bin"),
+                    registered
+                        .filter(|_| restore.is_none())
+                        .map(|_| 100 * 1024 * 1024),
+                )?;
                 (hash, identity)
             };
             if let Some((_, update)) = registered {
@@ -1594,19 +1813,40 @@ impl Database {
             }
             if let Some((_, intent, _)) = gui {
                 if old_hash != intent.expected_content_hash {
-                    return Err(conflict(ErrorCode::FileChangedUnregistered, "File changed during GUI preparation"));
+                    return Err(conflict(
+                        ErrorCode::FileChangedUnregistered,
+                        "File changed during GUI preparation",
+                    ));
                 }
                 if new_hash != intent.new_content_hash {
-                    return Err(conflict(ErrorCode::SourceChanged, "Selected bytes changed after GUI preflight"));
+                    return Err(conflict(
+                        ErrorCode::SourceChanged,
+                        "Selected bytes changed after GUI preflight",
+                    ));
                 }
             }
             crash_point(CommitPhase::Staged);
             let payload = registered.map_or_else(
-                || gui.map_or_else(|| CommitPayload::Native {
-                    document_id: current.id,
-                    new_hash: new_hash.clone(),
-                }, |(_, intent, register_current_bytes)| CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes }),
-                |(_, update)| registered_payload(update, patch.map(|(hash, _)| hash), stage_id, restore.map(|(input,_)|input)),
+                || {
+                    gui.map_or_else(
+                        || CommitPayload::Native {
+                            document_id: current.id,
+                            new_hash: new_hash.clone(),
+                        },
+                        |(_, intent, register_current_bytes)| CommitPayload::NativeCas {
+                            intent: intent.clone(),
+                            register_current_bytes,
+                        },
+                    )
+                },
+                |(_, update)| {
+                    registered_payload(
+                        update,
+                        patch.map(|(hash, _)| hash),
+                        stage_id,
+                        restore.map(|(input, _)| input),
+                    )
+                },
             );
             let journal = Journal {
                 schema_version: 1,
@@ -1665,8 +1905,13 @@ impl Database {
             if let Some((_, validate)) = stage {
                 validate().map_err(CommitFailure)?;
             }
-            if let Some((_,validate))=restore {validate().map_err(CommitFailure)?;}
-            let _commit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
+            if let Some((_, validate)) = restore {
+                validate().map_err(CommitFailure)?;
+            }
+            let _commit = fence
+                .map(|fence| fence.enter())
+                .transpose()
+                .map_err(CommitFailure)?;
             if checksum(&original)? != journal.original_captured_hash {
                 return Err(conflict(
                     ErrorCode::FileChangedUnregistered,
@@ -2513,12 +2758,25 @@ mod tests {
         if std::env::var_os("MIND_FILE_VERSION_GUI_CRASH").is_some() {
             let (metadata, _) = crate::workspace::load_metadata(root).unwrap();
             let document = db.document_record(id).unwrap();
-            let intent = db.file_version_prepare_gui(&super::GuiFileVersionPrepare {
-                document_id: id, project_id: document.project_id, managed_path: document.managed_path,
-                expected_version_number: document.current_version_number as u32,
-                source_path: Some(root.join("picked.html").to_string_lossy().into()),
-            }).unwrap();
-            db.file_version_commit_gui(&super::WorkspaceBinding { workspace_id: metadata.workspace_id, generation: "real-open".into() }, "gui-crash-save", &intent, false).unwrap();
+            let intent = db
+                .file_version_prepare_gui(&super::GuiFileVersionPrepare {
+                    document_id: id,
+                    project_id: document.project_id,
+                    managed_path: document.managed_path,
+                    expected_version_number: document.current_version_number as u32,
+                    source_path: Some(root.join("picked.html").to_string_lossy().into()),
+                })
+                .unwrap();
+            db.file_version_commit_gui(
+                &super::WorkspaceBinding {
+                    workspace_id: metadata.workspace_id,
+                    generation: "real-open".into(),
+                },
+                "gui-crash-save",
+                &intent,
+                false,
+            )
+            .unwrap();
         } else if std::env::var_os("MIND_FILE_VERSION_REGISTERED_CRASH").is_some() {
             use crate::agent::{
                 access::{Caller, RequestContext, ScopeGrant},
@@ -2665,20 +2923,40 @@ mod tests {
     #[test]
     fn file_version_gui_no_change_ignores_foreign_next_paths_and_counter_limit() {
         let mut fixture = registered_fixture(b"unused");
-        let next = std::path::Path::new(&fixture.document.managed_path).with_file_name("report_v3.html");
+        let next =
+            std::path::Path::new(&fixture.document.managed_path).with_file_name("report_v3.html");
         fs::write(&next, b"foreign file").unwrap();
         let mut prepare = super::GuiFileVersionPrepare {
-            document_id: fixture.document.id, project_id: fixture.document.project_id,
-            managed_path: fixture.document.managed_path.clone(), expected_version_number: 2, source_path: None,
+            document_id: fixture.document.id,
+            project_id: fixture.document.project_id,
+            managed_path: fixture.document.managed_path.clone(),
+            expected_version_number: 2,
+            source_path: None,
         };
         let intent = fixture.db.file_version_prepare_gui(&prepare).unwrap();
-        assert!(fixture.db.file_version_commit_gui(&fixture.binding, "foreign-next-no-change", &intent, false).unwrap().no_change);
+        assert!(
+            fixture
+                .db
+                .file_version_commit_gui(&fixture.binding, "foreign-next-no-change", &intent, false)
+                .unwrap()
+                .no_change
+        );
         assert_eq!(fs::read(next).unwrap(), b"foreign file");
-        fixture.db.conn.execute("UPDATE documents SET current_version_number=?2 WHERE id=?1", rusqlite::params![prepare.document_id, u32::MAX]).unwrap();
+        fixture
+            .db
+            .conn
+            .execute(
+                "UPDATE documents SET current_version_number=?2 WHERE id=?1",
+                rusqlite::params![prepare.document_id, u32::MAX],
+            )
+            .unwrap();
         fixture.db.conn.execute("UPDATE document_versions SET version_number=?2 WHERE document_id=?1 AND version_number=2", rusqlite::params![prepare.document_id, u32::MAX]).unwrap();
         prepare.expected_version_number = u32::MAX;
         let intent = fixture.db.file_version_prepare_gui(&prepare).unwrap();
-        let receipt = fixture.db.file_version_commit_gui(&fixture.binding, "max-no-change", &intent, false).unwrap();
+        let receipt = fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "max-no-change", &intent, false)
+            .unwrap();
         assert!(receipt.no_change);
         assert_eq!(receipt.version_number, i64::from(u32::MAX));
     }
@@ -2689,14 +2967,52 @@ mod tests {
         let before = fixture.db.committed_change_watermark().unwrap();
         let old_bytes = fs::read(&intent.managed_path).unwrap();
         fixture.db.conn.execute_batch("CREATE TRIGGER fail_gui_file_outbox BEFORE INSERT ON agent_change_log WHEN NEW.operation='file.version.commit' BEGIN SELECT RAISE(ABORT,'outbox unavailable'); END;").unwrap();
-        assert!(fixture.db.file_version_commit_gui(&fixture.binding, "gui-rollback", &intent, false).is_err());
+        assert!(fixture
+            .db
+            .file_version_commit_gui(&fixture.binding, "gui-rollback", &intent, false)
+            .is_err());
         assert_eq!(fixture.db.committed_change_watermark().unwrap(), before);
-        assert_eq!(fixture.db.document_record(intent.document_id).unwrap().current_version_number, 2);
+        assert_eq!(
+            fixture
+                .db
+                .document_record(intent.document_id)
+                .unwrap()
+                .current_version_number,
+            2
+        );
         assert_eq!(fs::read(&intent.managed_path).unwrap(), old_bytes);
-        assert_eq!(fixture.db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE request_id='gui-rollback'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
-        fixture.db.conn.execute_batch("DROP TRIGGER fail_gui_file_outbox").unwrap();
-        fixture.db.project_set_archive(crate::models::ProjectArchiveInput { project_id: intent.project_id, is_archived: true }).unwrap();
-        assert_eq!(fixture.db.file_version_commit_gui(&fixture.binding, "gui-archived", &intent, false).unwrap_err().code, super::ErrorCode::ScopeDenied);
+        assert_eq!(
+            fixture
+                .db
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM agent_operation_receipts WHERE request_id='gui-rollback'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        fixture
+            .db
+            .conn
+            .execute_batch("DROP TRIGGER fail_gui_file_outbox")
+            .unwrap();
+        fixture
+            .db
+            .project_set_archive(crate::models::ProjectArchiveInput {
+                project_id: intent.project_id,
+                is_archived: true,
+            })
+            .unwrap();
+        assert_eq!(
+            fixture
+                .db
+                .file_version_commit_gui(&fixture.binding, "gui-archived", &intent, false)
+                .unwrap_err()
+                .code,
+            super::ErrorCode::ScopeDenied
+        );
         assert_eq!(fs::read(&intent.managed_path).unwrap(), old_bytes);
     }
     #[test]

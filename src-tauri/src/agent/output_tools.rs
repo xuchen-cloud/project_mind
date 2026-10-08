@@ -12,8 +12,10 @@ use super::{
 };
 use crate::{
     db::agent_record_withdrawals::RecordRestoreInput,
+    file_version_service::BoundFileCommitStore,
     record_document_service::{BoundRecordStore, DocumentUtility},
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -39,9 +41,12 @@ fn card(output: &RuntimeOutput) -> Value {
         OutputIntent::RecordPatch { patch } => format!("Record {}", patch.record.id),
         OutputIntent::TodoCreate { content, .. } => content.chars().take(120).collect(),
         OutputIntent::TodoUpdate { target, .. } => format!("Todo {}", target.id),
-        _ => String::new(),
+        OutputIntent::FileCreate { safe_name, .. } => safe_name.clone(),
+        OutputIntent::FileUpdate { target, .. } => format!("File {}", target.id),
+        OutputIntent::FilePatch { patch } => format!("File {}", patch.object.id),
+        OutputIntent::FileRestore { restore } => format!("File {}", restore.object.id),
     };
-    json!({"outputId":output.staged.id,"revision":output.staged.revision,"ordinal":output.staged.ordinal,"state":output.state,"dismissed":output.dismissed,"mode":output.mode,"title":title,"object":output.object,"sourceCount":output.staged.sources.len(),"errorCode":output.error_code})
+    json!({"outputId":output.staged.id,"revision":output.staged.revision,"ordinal":output.staged.ordinal,"state":output.state,"dismissed":output.dismissed,"mode":output.mode,"title":title,"object":output.object,"sourceCount":output.staged.sources.len(),"errorCode":output.error_code,"fileReceipt":output.file_receipt})
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -73,7 +78,7 @@ fn saved(result: RecordOutputResult) -> AgentResult<Value> {
     Ok(reply)
 }
 
-pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
+pub(crate) async fn dispatch_output<S: BoundRecordStore + BoundFileCommitStore, R: DocumentUtility>(
     store: &S,
     utility: &R,
     request: &RequestContext,
@@ -83,7 +88,7 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
     if serde_json::to_vec(&arguments)
         .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid output arguments"))?
         .len()
-        > 1024 * 1024
+        > 16 * 1024 * 1024
     {
         return Err(AgentError::new(
             ErrorCode::BudgetExceeded,
@@ -91,6 +96,26 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
         ));
     }
     match method {
+        "file.content.begin" => {
+            let input: crate::file_content::FileContentBegin = decode(arguments)?;
+            encode(crate::file_content::FileContentService::new(store, &crate::file_content::SystemFileContentClock).begin(request, &input)?)
+        }
+        "file.content.chunk" => {
+            let input: super::file_tools::FileContentChunkInput = decode(arguments)?;
+            if input.data_base64.len() > crate::file_content::MAX_CHUNK.div_ceil(3) * 4 {
+                return Err(AgentError::new(ErrorCode::BudgetExceeded, "File chunk exceeds 1 MiB"));
+            }
+            let bytes = STANDARD.decode(&input.data_base64)
+                .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid base64 File chunk"))?;
+            encode(crate::file_content::FileContentService::new(store, &crate::file_content::SystemFileContentClock)
+                .append(request, &input.staged_content_id, input.offset, &bytes)?)
+        }
+        "file.content.complete" | "file.content.status" => {
+            let input: super::file_tools::FileContentIdInput = decode(arguments)?;
+            let service = crate::file_content::FileContentService::new(store, &crate::file_content::SystemFileContentClock);
+            encode(if method == "file.content.complete" { service.finish(request, &input.staged_content_id)? }
+                else { service.status(request, &input.staged_content_id)? })
+        }
         "todo.get" => {
             let input: super::todo_tools::TodoGetInput = decode(arguments)?;
             store.with_current(|binding, db| {
@@ -104,7 +129,7 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore, R: DocumentUtility>(
         "output.get" => {
             let input: OutputGetInput = decode(arguments)?;
             store.with_current(|binding, db| {
-                encode(db.agent_output_get(request, binding, &input.output_id)?)
+                Ok(card(&db.agent_output_get(request, binding, &input.output_id)?))
             })
         }
         "output.list" => {
@@ -193,6 +218,11 @@ mod tests {
         fn publish_committed(&self, changes: CommittedChanges) {
             assert!(self.db.try_lock().is_ok());
             self.published.lock().unwrap().push(changes);
+        }
+    }
+    impl BoundFileCommitStore for Store {
+        fn gui_commit_host(&self, _: &super::super::models::WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+            panic!("Record/Todo fixture must not open a File Host")
         }
     }
     impl BoundRecordStore for Store {

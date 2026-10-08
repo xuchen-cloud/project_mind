@@ -57,7 +57,10 @@ pub(super) fn read_entry(conn: &Connection, id: &str) -> AgentResult<(OperationE
         r.get::<_,Option<String>>(10)?, r.get::<_,String>(11)?, r.get::<_,String>(12)?
     ))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Operation receipt not found"))?;
     let object: ObjectRef = decode(&r.4)?;
-    let recovery = if matches!(r.3.as_str(), "record.create" | "todo.create") {
+    let recovery = if matches!(
+        r.3.as_str(),
+        "record.create" | "todo.create" | "file.create"
+    ) {
         let state:Option<(bool,i64)> = conn.query_row("SELECT withdrawn_at IS NOT NULL,revision FROM agent_object_withdrawals WHERE object_key=?1 AND creation_operation_id=?2",params![object.key()?,id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(io_error)?;
         Some(OperationRecovery {
             withdrawn: state.as_ref().is_some_and(|s| s.0),

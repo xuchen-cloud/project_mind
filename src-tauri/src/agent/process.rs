@@ -14,7 +14,7 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
-pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const NODE_VERSION_GUARD: &str = "data:text/javascript,if(process.versions.node!==%2724.21.0%27)throw%20new%20Error(%27Unsupported%20agent%20runtime%27)";
 const PINNED_RUNTIME: &str = include_str!("../../../packages/agent-host/runtime-manifest.json");
@@ -558,6 +558,9 @@ mod tests {
         let mut exact = BoundedFrame(Vec::new());
         serde_json::to_writer(&mut exact, &json!("x".repeat(MAX_FRAME_BYTES - 2))).unwrap();
         assert_eq!(exact.0.len(), MAX_FRAME_BYTES);
+        let mut escaped = BoundedFrame(Vec::new());
+        serde_json::to_writer(&mut escaped, &json!({"content":"\0".repeat(2*1024*1024)})).unwrap();
+        assert!(escaped.0.len() > 12 * 1024 * 1024 && escaped.0.len() < MAX_FRAME_BYTES);
     }
 
     // Test-only explicit runtime injection never resolves a system Node.
@@ -615,8 +618,8 @@ for await (const line of createInterface({ input: process.stdin })) {
         let fixture = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
         for script in [
-            "process.stdout.write('x'.repeat(1024*1024+1));setInterval(()=>{},1000);",
-            "process.stdout.write('x'.repeat(1024*1024+1)+'\\n');setInterval(()=>{},1000);",
+            &format!("process.stdout.write('x'.repeat({}));setInterval(()=>{{}},1000);", MAX_FRAME_BYTES + 1),
+            &format!("process.stdout.write('x'.repeat({})+'\\n');setInterval(()=>{{}},1000);", MAX_FRAME_BYTES + 1),
             "process.stdout.write('{\"partial\":true}');",
             "process.stdout.write('not JSON\\n');",
         ] {

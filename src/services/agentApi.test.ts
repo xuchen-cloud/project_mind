@@ -7,7 +7,7 @@ import type { OverviewReadInput, OverviewReadPage, KnowledgeGetInput, KnowledgeG
   AgentSessionMetadata, AgentSessionSnapshot, AgentStoredRun, AgentRunEvent, AgentRunEventPage,
   AgentSourceRef, AgentSourceNavigation,
   AgentRuntimeOutput, AgentOperationEntry, AgentRecordOutputResult, AgentRecordUndoResult, AgentRecordWithdrawalResult,
-  AgentRecordOutputPreview, AgentOutputResult, AgentTodoUndoResult,
+  AgentRecordOutputPreview, AgentOutputResult, AgentTodoUndoResult, AgentFileUndoResult,
 } from "../lib/agent-types";
 
 vi.mock("./desktopApi", () => ({ desktopApi: { command: vi.fn(), listenEvent: vi.fn() } }));
@@ -394,4 +394,22 @@ it("dismisses the exact output revision durably without committing business cont
     error: { code: "REVISION_CONFLICT", message: "Output revision changed", retryable: true } });
   await expect(agentApi.outputDismiss(binding, data, "dismiss-stale")).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
   expect(vi.mocked(desktopApi.command).mock.calls.map(([name]) => name)).toEqual(["agent_output_dismiss", "agent_output_dismiss"]);
+});
+
+
+it("retains exact File patch/restore candidates and native undo versions through the shared APIs", async () => {
+  const object = { ...receiptObject, kind: "file" as const, id: "41" };
+  const patch = { object, expectedVersionNumber: 2, expectedContentHash: "sha256:" + "d".repeat(64), edits: [{ oldText: "旧目标", newText: "新目标", occurrence: 2 }], appendText: null };
+  const data = { outputId: output.id, expectedRevision: output.revision, candidate: { intent: { intent: "file_patch" as const, patch }, sources: [] } };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "file-patch", ok: true, data: { ...output, intent: data.candidate.intent, revision: 3 } });
+  expect((await agentApi.outputUpdate(binding, data, "file-patch")).intent).toBe(data.candidate.intent);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_output_update", { input: { binding, requestId: "file-patch", data } });
+  const restored: AgentRuntimeOutput = { ...output, object, state: "committed", intent: { intent: "file_restore", restore: { object, versionId: "17", expectedVersionNumber: 3, expectedContentHash: "sha256:" + "e".repeat(64) } }, fileReceipt: { documentId: 41, versionNumber: 4, contentHash: "sha256:restored", noChange: false } };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "file-restore", ok: true, data: { output: restored, receipt: restored.fileReceipt, operation: null } });
+  expect((await agentApi.outputCommit(binding, { outputId: output.id, expectedRevision: 2 }, "file-restore")).output.fileReceipt).toBe(restored.fileReceipt);
+  const undo: AgentFileUndoResult = { operationId: "file-undo", originalOperationId: "file-save", object,
+    beforeVersionNumber: 4, afterVersionNumber: 5, beforeVersionId: "18", afterVersionId: "19", contentHash: "sha256:previous" };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "file-undo", ok: true, data: undo });
+  expect(await agentApi.operationUndo(binding, { operationId: "file-save", expectedHeadRevision: 4 }, "file-undo")).toBe(undo);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_operation_undo", { input: { binding, requestId: "file-undo", data: { operationId: "file-save", expectedHeadRevision: 4 } } });
 });

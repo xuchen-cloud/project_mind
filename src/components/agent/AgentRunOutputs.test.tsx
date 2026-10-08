@@ -194,3 +194,20 @@ it("persists cancellation through CAS, suppresses duplicate dismissal, and reads
   expect(api.outputCommit).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "取消 out" })).not.toBeInTheDocument();
 });
+
+it("applies the actual File commit receipt, version cache invalidation and receipt-based undo", async () => {
+  const fileObject = { ...object, kind: "file" as const, id: "41" };
+  const file: AgentRuntimeOutput = { ...output, intent: { intent: "file_patch", patch: { object: fileObject, expectedVersionNumber: 2, expectedContentHash: "sha256:current", appendText: "补充", edits: null } } };
+  const receipt = { ...operation, kind: "file.version.commit", object: fileObject, beforeRevision: 2, afterRevision: 3, recovery: null };
+  api.outputList.mockResolvedValue({ outputs: [file], nextCursor: null });
+  api.outputCommit.mockResolvedValue({ output: { ...file, state: "committed", object: fileObject, fileReceipt: { documentId: 41, versionNumber: 3, contentHash: "sha256:new", noChange: false } }, receipt: { documentId: 41, versionNumber: 3, contentHash: "sha256:new", noChange: false }, operation: receipt });
+  const client = new QueryClient(); const invalidate = vi.spyOn(client, "invalidateQueries");
+  render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" /></QueryClientProvider>);
+  await waitFor(() => expect(screen.getByText("out · staged")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "保存 out" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "撤销 out" })).toBeInTheDocument());
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["documentVersions", 41] });
+  api.operationGet.mockResolvedValue({ ...receipt, undoState: "undone" });
+  fireEvent.click(screen.getByRole("button", { name: "撤销 out" }));
+  await waitFor(() => expect(api.operationUndo).toHaveBeenCalledWith(binding, { operationId: "op", expectedHeadRevision: 3 }, expect.any(String)));
+});

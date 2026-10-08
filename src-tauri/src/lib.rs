@@ -25,6 +25,8 @@ mod file_version_service;
 mod file_version_restore;
 mod file_text_patch;
 mod file_content;
+mod file_source_read;
+mod file_read_commands;
 mod workspace_commit_fence;
 mod record_editor_coordination;
 mod record_export;
@@ -1405,6 +1407,10 @@ pub fn run() {
             agent::output_commands::agent_output_preview,
             agent::output_commands::agent_output_update,
             agent::output_commands::agent_output_dismiss,
+            file_read_commands::file_source_read,
+            file_read_commands::file_versions_list,
+            file_read_commands::file_versions_get,
+            file_read_commands::file_version_restore,
             agent::output_commands::agent_output_commit,
             agent::output_commands::agent_operation_list,
             agent::output_commands::agent_operation_get,

@@ -137,6 +137,8 @@ pub(crate) fn agent_run_start(
                     "content.create",
                     "record.patch",
                     "todo.update",
+                "file.update",
+                "file.restore",
                 ]
                 .map(str::to_owned),
             );
