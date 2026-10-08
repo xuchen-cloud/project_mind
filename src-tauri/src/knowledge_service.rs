@@ -1001,6 +1001,7 @@ mod tests {
             .unwrap();
         let input = OverviewPublishInput {
             scope: f.scope.clone(),
+            batch_id: format!("knowledge-batch-{expected_revision}"),
             expected_revision,
             target_seq,
             policy_revision: 0,

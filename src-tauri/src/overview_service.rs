@@ -909,6 +909,7 @@ mod tests {
                 .unwrap();
         let input = OverviewPublishInput {
             scope: source.source.object.scope.clone(),
+            batch_id: "service-batch-0".into(),
             expected_revision: 0,
             target_seq: store
                 .db
@@ -970,6 +971,34 @@ mod tests {
                 tag_ids: vec![],
             })
             .unwrap();
+    }
+    #[tokio::test]
+    async fn overview_service_same_batch_new_request_replays_before_source_reverification() {
+        let (_root, store, request, source) = setup();
+        let (input, evidence) = candidate(&store, &request, &source).await;
+        let service = OverviewService::new(&store);
+        let original = service.publish(&request, &input, &evidence).await.unwrap();
+        edit(&store, &source);
+        let mut retry = request.clone();
+        retry.request_id = "same-batch-new-request".into();
+        // A published batch is immutable even if its sources changed later;
+        // retry returns the original receipt without fresh evidence/model work.
+        let replay = service.publish(&retry, &input, &[]).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(replay).unwrap(),
+            serde_json::to_value(original).unwrap()
+        );
+        assert_eq!(store.notifications.load(Ordering::SeqCst), 1);
+        let mut altered = input;
+        altered.expected_revision = 1;
+        assert_eq!(
+            service
+                .publish(&retry, &altered, &[])
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::IdempotencyConflict
+        );
     }
     #[tokio::test]
     async fn overview_service_directory_is_body_free_and_selected_unicode_pages_are_exact() {
@@ -1202,6 +1231,7 @@ mod tests {
         let mut retry = request.clone();
         retry.request_id = "stale-evidence".into();
         let mut next = input;
+        next.batch_id = "service-batch-1".into();
         next.expected_revision = 1;
         next.target_seq = store
             .db

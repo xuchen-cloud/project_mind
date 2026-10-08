@@ -348,6 +348,7 @@ mod tests {
     fn input(db: &Database, scope: &Scope, revision: u64) -> OverviewPublishInput {
         OverviewPublishInput {
             scope: scope.clone(),
+            batch_id: format!("batch-{revision}"),
             expected_revision: revision,
             target_seq: db.committed_change_watermark().unwrap() as u64,
             policy_revision: 0,
@@ -416,7 +417,7 @@ mod tests {
             db.conn
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            28
+            super::super::CURRENT_SCHEMA_VERSION
         );
     }
     #[test]

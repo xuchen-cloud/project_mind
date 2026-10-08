@@ -31,7 +31,7 @@ pub(crate) fn agent_status_get(
             binding: workspace
                 .as_ref()
                 .map(|runtime| runtime.agent_binding.clone()),
-            runtime_available: false,
+            runtime_available: super::process::PackagedAgentRuntime::available(&state.app_handle),
             bridge_available: false,
             capabilities: capabilities(),
         }),

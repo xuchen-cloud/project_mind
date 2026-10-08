@@ -1,4 +1,4 @@
-//! Private, lazily prepared Overview storage. Formal schema version is unchanged.
+//! Versioned Overview storage; formal schema29 owns initial preparation.
 use super::{
     agent_operations::{io_error, OperationChange},
     Database,
@@ -26,7 +26,39 @@ impl Database {
             .map_err(|error| anyhow::anyhow!("{}", error.message))?;
         self.conn
             .execute_batch("SAVEPOINT agent_overviews_prepare")?;
-        match self.conn.execute_batch(include_str!("agent_overviews.sql")) {
+        let result = (|| -> anyhow::Result<()> {
+            let columns = {
+                let mut statement = self
+                    .conn
+                    .prepare("PRAGMA table_info(agent_overview_versions)")?;
+                let names = statement
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                names
+            };
+            if !columns.is_empty() && !columns.iter().any(|column| column == "batch_id") {
+                self.conn.execute_batch(
+                    "ALTER TABLE agent_overview_versions RENAME TO agent_overview_versions_legacy",
+                )?;
+                self.conn
+                    .execute_batch(include_str!("agent_overview_versions.sql"))?;
+                // Preserve historical payload/snapshot bytes and revision-based
+                // evidence ownership. ':' is reserved by the input ID validator,
+                // so new supplied batch IDs cannot claim migrated identities.
+                self.conn.execute_batch("INSERT INTO agent_overview_versions
+                    (scope_key,revision,batch_id,snapshot_json,payload_json,target_seq,policy_revision,correction_revision,created_at)
+                    SELECT scope_key,revision,'legacy:'||revision,snapshot_json,payload_json,target_seq,policy_revision,correction_revision,created_at
+                    FROM agent_overview_versions_legacy;
+                    DROP TABLE agent_overview_versions_legacy;")?;
+            } else {
+                self.conn
+                    .execute_batch(include_str!("agent_overview_versions.sql"))?;
+            }
+            self.conn
+                .execute_batch(include_str!("agent_overviews.sql"))?;
+            Ok(())
+        })();
+        match result {
             Ok(()) => {
                 self.conn.execute_batch("RELEASE agent_overviews_prepare")?;
                 Ok(())
@@ -198,7 +230,32 @@ impl Database {
         input: &OverviewPublishInput,
     ) -> AgentResult<Option<AiOverview>> {
         self.overview_scope(&input.scope)?;
-        self.agent_operation_replay(caller, request, "overview.publish", input)
+        match self.agent_operation_replay(caller, request, "overview.publish", input)? {
+            Some(receipt) => Ok(Some(receipt)),
+            None => self.overview_batch_replay(input),
+        }
+    }
+    fn overview_batch_replay(
+        &self,
+        input: &OverviewPublishInput,
+    ) -> AgentResult<Option<AiOverview>> {
+        let batch: Option<(String, String)> = self.conn.query_row(
+            "SELECT payload_json,snapshot_json FROM agent_overview_versions WHERE scope_key=?1 AND batch_id=?2",
+            params![input.scope.key(),input.batch_id], |row| Ok((row.get(0)?,row.get(1)?)),
+        ).optional().map_err(io_error)?;
+        match batch {
+            Some((payload, snapshot)) => {
+                let stored: serde_json::Value = decode(&payload)?;
+                if stored != serde_json::to_value(input).map_err(|_| invalid("Invalid payload"))? {
+                    return Err(AgentError::new(
+                        ErrorCode::IdempotencyConflict,
+                        "Overview batch already belongs to another payload",
+                    ));
+                }
+                Ok(Some(decode(&snapshot)?))
+            }
+            None => Ok(None),
+        }
     }
     pub(crate) fn agent_overview_publish(
         &self,
@@ -217,10 +274,8 @@ impl Database {
         }
         self.agent_atomic_operation(caller,request,"overview.publish",input,|tx| {
             self.source_live_scope(&input.scope)?;
-            let batch:Option<(String,String)>=tx.query_row("SELECT payload_json,snapshot_json FROM agent_overview_versions WHERE scope_key=?1 AND target_seq=?2 AND policy_revision=?3 AND correction_revision=?4",params![input.scope.key(),input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(io_error)?;
-            if let Some((payload,snapshot))=batch {
-                if serde_json::from_str::<serde_json::Value>(&payload).ok()!=Some(serde_json::to_value(input).map_err(|_|invalid("Invalid payload"))?) { return Err(AgentError::new(ErrorCode::IdempotencyConflict,"Overview batch already belongs to another payload")); }
-                return Ok((decode(&snapshot)?,None));
+            if let Some(snapshot)=self.overview_batch_replay(input)? {
+                return Ok((snapshot,None));
             }
             let head=self.agent_overview_head(&input.scope)?;
             if head.as_ref().map_or(0,|v|v.revision)!=input.expected_revision { return Err(AgentError::new(ErrorCode::RevisionConflict,"Overview head changed")); }
@@ -243,7 +298,7 @@ impl Database {
             let mut coverage=input.coverage.clone();coverage.pending=pending.pending_count;
             let now=Utc::now().to_rfc3339();
             let result=AiOverview { scope:input.scope.clone(),revision:input.expected_revision+1,schema_version:1,items,as_of_seq:input.target_seq,source_manifest_hash:input.source_manifest_hash.clone(),built_at:now.clone(),coverage,pending_count:pending.pending_count,model_profile_id:input.model_profile_id.clone() };
-            tx.execute("INSERT INTO agent_overview_versions(scope_key,revision,snapshot_json,payload_json,target_seq,policy_revision,correction_revision,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",params![input.scope.key(),result.revision as i64,encode(&result)?,encode(input)?,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
+            tx.execute("INSERT INTO agent_overview_versions(scope_key,revision,batch_id,snapshot_json,payload_json,target_seq,policy_revision,correction_revision,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![input.scope.key(),result.revision as i64,input.batch_id,encode(&result)?,encode(input)?,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
             tx.execute("INSERT INTO agent_overviews(scope_key,current_revision,as_of_seq,policy_revision,correction_revision,updated_at) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(scope_key) DO UPDATE SET current_revision=excluded.current_revision,as_of_seq=excluded.as_of_seq,policy_revision=excluded.policy_revision,correction_revision=excluded.correction_revision,updated_at=excluded.updated_at",params![input.scope.key(),result.revision as i64,input.target_seq as i64,input.policy_revision as i64,input.correction_revision as i64,now]).map_err(io_error)?;
             // Only mutated owners are replaced/acknowledged. Retained stale items keep dirtiness.
             for id in input.remove_item_ids.iter().chain(input.upsert_items.iter().map(|i|&i.id)) {
@@ -444,6 +499,7 @@ mod tests {
     fn input(db: &Database, scope: &Scope) -> OverviewPublishInput {
         OverviewPublishInput {
             scope: scope.clone(),
+            batch_id: "batch-0".into(),
             expected_revision: 0,
             target_seq: db.committed_change_watermark().unwrap() as u64,
             policy_revision: 0,
@@ -505,7 +561,7 @@ mod tests {
             db.conn
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            28
+            super::super::CURRENT_SCHEMA_VERSION
         );
     }
     #[test]
@@ -518,6 +574,7 @@ mod tests {
         assert!(db.agent_overview_head(&scope).unwrap().is_none());
         publish(&db, "one", &p).unwrap();
         let mut stale = p.clone();
+        stale.batch_id = "stale-batch".into();
         stale.target_seq += 1;
         assert_eq!(
             publish(&db, "stale", &stale).unwrap_err().code,
@@ -587,6 +644,7 @@ mod tests {
         let mut p = input(&db, &scope);
         p.upsert_items.push(item("b"));
         publish(&db, "one", &p).unwrap();
+        p.batch_id = "batch-1".into();
         p.expected_revision = 1;
         p.target_seq = db.committed_change_watermark().unwrap() as u64;
         p.upsert_items = vec![item("b")];
@@ -728,6 +786,15 @@ mod tests {
         let (_root, db, scope) = setup();
         let (key, _) = source_event(&db, &scope, "102", "record.delete", "deleted");
         db.conn.execute("DELETE FROM agent_change_log", []).unwrap();
+        // Emulate pre-29 staged registry tombstones before the one-time
+        // Overview bootstrap; current databases prepare this on initial open.
+        db.conn
+            .execute_batch(
+                "DELETE FROM agent_overview_pending;
+            DELETE FROM agent_overview_pending_state;
+            DELETE FROM agent_overview_pending_bootstrap;",
+            )
+            .unwrap();
         db.agent_overviews_prepare().unwrap();
         let page = db
             .agent_overview_pending_page(
@@ -890,5 +957,165 @@ mod tests {
             )
             .unwrap();
         assert_eq!(page.items[0].latest_revision, "concurrent-later");
+    }
+
+    #[test]
+    fn overview_same_watermark_continuations_have_distinct_batches_and_keep_late_pending() {
+        let (_root, db, scope) = setup();
+        let (first_key, _) = source_event(&db, &scope, "201", "record.update", "first");
+        let (second_key, _) = source_event(&db, &scope, "202", "record.update", "second");
+        let (unread_key, _) = source_event(&db, &scope, "203", "record.update", "unread");
+        let mut first = input(&db, &scope);
+        first.batch_id = "maintenance-job-1-batch-1".into();
+        first.settled_object_keys = vec![first_key];
+        let first_receipt = publish(&db, "first-batch", &first).unwrap();
+        assert_eq!(first_receipt.revision, 1);
+        assert_eq!(first_receipt.pending_count, 2);
+        let mut continuation = first.clone();
+        continuation.batch_id = "maintenance-job-1-batch-2".into();
+        continuation.expected_revision = 1;
+        continuation.settled_object_keys = vec![second_key.clone()];
+        continuation.upsert_items = vec![item("b")];
+        let second_receipt = db
+            .agent_overview_publish("gui", "second-batch", "w", &continuation, |db, _| {
+                source_event(db, &scope, "202", "record.update", "late-edit");
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(second_receipt.revision, 2);
+        assert_eq!(second_receipt.as_of_seq, first_receipt.as_of_seq);
+        assert_eq!(second_receipt.items.len(), 2);
+        assert_eq!(second_receipt.pending_count, 2);
+        let pending = db
+            .agent_overview_pending_page(&scope, first.target_seq, None, 100)
+            .unwrap();
+        assert_eq!(pending.items.len(), 1);
+        assert_eq!(pending.items[0].object_key, unread_key);
+        let latest = db
+            .agent_overview_pending_page(
+                &scope,
+                db.committed_change_watermark().unwrap() as u64,
+                None,
+                100,
+            )
+            .unwrap();
+        assert!(latest
+            .items
+            .iter()
+            .any(|item| item.object_key == second_key && item.latest_revision == "late-edit"));
+        let watermark = db.committed_change_watermark().unwrap();
+        let replay = db
+            .agent_overview_publish("gui", "retry-new-request", "w", &continuation, |_, _| {
+                panic!("same batch must not consume/verify again")
+            })
+            .unwrap();
+        assert_eq!(encode(&replay).unwrap(), encode(&second_receipt).unwrap());
+        assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+        assert_eq!(
+            db.agent_overview_versions(&scope, 0, 100).unwrap(),
+            vec![1, 2]
+        );
+        let mut changed = continuation.clone();
+        changed.expected_revision = 2;
+        assert_eq!(
+            publish(&db, "changed-baseline", &changed).unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+        changed = continuation.clone();
+        changed.upsert_items[0].text = "different payload".into();
+        assert_eq!(
+            publish(&db, "changed-payload", &changed).unwrap_err().code,
+            ErrorCode::IdempotencyConflict
+        );
+        changed = continuation.clone();
+        changed.batch_id = "maintenance-job-1-batch-3".into();
+        assert_eq!(
+            publish(&db, "stale-head", &changed).unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        changed.batch_id = "legacy:1".into();
+        assert_eq!(
+            publish(&db, "reserved-legacy", &changed).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        changed.batch_id = "maintenance-job-1-batch-3".into();
+        changed.expected_revision = 2;
+        db.conn
+            .execute(
+                "INSERT INTO agent_scope_settings(scope_key,revision) VALUES (?1,1)",
+                [scope.key()],
+            )
+            .unwrap();
+        assert_eq!(
+            publish(&db, "changed-policy", &changed).unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(
+            db.agent_overview_versions(&scope, 0, 100).unwrap(),
+            vec![1, 2]
+        );
+    }
+
+    #[test]
+    fn overview_schema29_migrates_legacy_unique_watermark_without_rewriting_history() {
+        let (root, db, scope) = setup();
+        let original = input(&db, &scope);
+        publish(&db, "legacy-publish", &original).unwrap();
+        db.conn.execute_batch("ALTER TABLE agent_overview_versions RENAME TO current_versions;
+            CREATE TABLE agent_overview_versions (
+                scope_key TEXT NOT NULL, revision INTEGER NOT NULL,
+                snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),
+                payload_json TEXT NOT NULL CHECK(json_valid(payload_json)), target_seq INTEGER NOT NULL,
+                policy_revision INTEGER NOT NULL, correction_revision INTEGER NOT NULL, created_at TEXT NOT NULL,
+                PRIMARY KEY(scope_key,revision), UNIQUE(scope_key,target_seq,policy_revision,correction_revision));
+            INSERT INTO agent_overview_versions SELECT scope_key,revision,snapshot_json,
+                '  '||json_remove(payload_json,'$.batchId')||char(10),target_seq,policy_revision,correction_revision,created_at FROM current_versions;
+            DROP TABLE current_versions;
+            INSERT INTO agent_evidence(id,owner_kind,owner_id,source_ref_json,excerpt)
+                VALUES ('legacy-evidence','overview','legacy-owner','{}','original evidence');").unwrap();
+        let before: (String, String, String) = db
+            .conn
+            .query_row(
+                "SELECT snapshot_json,payload_json,created_at FROM agent_overview_versions",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        db.set_schema_version(28).unwrap();
+        drop(db);
+        let reopened =
+            Database::open(&root.path().join("overview.sqlite"), root.path(), None).unwrap();
+        let after: (String, String, String, String) = reopened.conn.query_row("SELECT snapshot_json,payload_json,created_at,batch_id FROM agent_overview_versions", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?))).unwrap();
+        assert_eq!((after.0, after.1, after.2), before);
+        assert_eq!(after.3, "legacy:1");
+        assert_eq!(
+            reopened
+                .agent_overview_head(&scope)
+                .unwrap()
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(
+            reopened
+                .conn
+                .query_row(
+                    "SELECT excerpt FROM agent_evidence WHERE id='legacy-evidence'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "original evidence"
+        );
+        let mut next = original;
+        next.batch_id = "post-migration-batch".into();
+        next.expected_revision = 1;
+        next.upsert_items = vec![item("b")];
+        let result = publish(&reopened, "post-migration", &next).unwrap();
+        assert_eq!(result.revision, 2);
+        assert_eq!(
+            reopened.agent_overview_versions(&scope, 0, 100).unwrap(),
+            vec![1, 2]
+        );
     }
 }

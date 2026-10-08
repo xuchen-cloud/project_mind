@@ -213,7 +213,11 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
     assert!(capabilities()
         .iter()
         .filter(|cap| cap.implemented)
-        .all(|cap| cap.read_only || cap.permission == "settings.write"));
+        .all(|cap| cap.read_only || matches!(cap.permission,
+            "settings.write" | "session.write" | "run.start" | "run.cancel")));
+    for method in ["record.create", "record.patch", "file.create", "todo.create", "operation.undo"] {
+        assert!(!capabilities().iter().find(|cap| cap.method == method).unwrap().implemented);
+    }
 }
 
 #[test]

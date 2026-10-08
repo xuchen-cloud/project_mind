@@ -333,6 +333,7 @@ mod tests {
         };
         let input = OverviewPublishInput {
             scope: f.input.scope.clone(),
+            batch_id: "context-batch-0".into(),
             expected_revision: 0,
             target_seq: f.db.committed_change_watermark().unwrap() as u64,
             policy_revision: 0,

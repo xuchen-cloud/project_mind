@@ -67,23 +67,32 @@ fn io_error(_: rusqlite::Error) -> AgentError {
 impl<'a> SourceIndex<'a> {
     pub(crate) fn prepare(conn: &'a Connection) -> AgentResult<Self> {
         let upgrade = || -> rusqlite::Result<()> {
-            let tx = conn.unchecked_transaction()?;
-            tx.execute_batch(include_str!("source_search_index.sql"))?;
-            let columns = {
-                let mut statement = tx.prepare("PRAGMA table_info(source_index_snapshots)")?;
-                let names = statement
-                    .query_map([], |row| row.get::<_, String>(1))?
-                    .collect::<Result<Vec<_>, _>>()?;
-                names
-            };
-            if !columns.iter().any(|column| column == "coverage_json") {
-                tx.execute_batch("ALTER TABLE source_index_snapshots ADD COLUMN coverage_json TEXT NOT NULL DEFAULT '{\"chars\":0,\"complete\":false}' CHECK(json_valid(coverage_json));")?;
+            conn.execute_batch("SAVEPOINT source_index_prepare")?;
+            let result = (|| -> rusqlite::Result<()> {
+                conn.execute_batch(include_str!("source_search_index.sql"))?;
+                let columns = {
+                    let mut statement =
+                        conn.prepare("PRAGMA table_info(source_index_snapshots)")?;
+                    let names = statement
+                        .query_map([], |row| row.get::<_, String>(1))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    names
+                };
+                if !columns.iter().any(|column| column == "coverage_json") {
+                    conn.execute_batch("ALTER TABLE source_index_snapshots ADD COLUMN coverage_json TEXT NOT NULL DEFAULT '{\"chars\":0,\"complete\":false}' CHECK(json_valid(coverage_json));")?;
+                }
+                let legacy:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_index_exclusions')",[],|row|row.get(0))?;
+                if legacy {
+                    conn.execute_batch("INSERT INTO source_access_policies(object_key,excluded,revision) SELECT object_key,1,1 FROM source_index_exclusions WHERE 1 ON CONFLICT(object_key) DO NOTHING; DROP TABLE source_index_exclusions;")?;
+                }
+                conn.execute_batch("RELEASE source_index_prepare")
+            })();
+            if result.is_err() {
+                conn.execute_batch(
+                    "ROLLBACK TO source_index_prepare; RELEASE source_index_prepare",
+                )?;
             }
-            let legacy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_index_exclusions')",[],|row|row.get(0))?;
-            if legacy {
-                tx.execute_batch("INSERT INTO source_access_policies(object_key,excluded,revision) SELECT object_key,1,1 FROM source_index_exclusions WHERE 1 ON CONFLICT(object_key) DO NOTHING; DROP TABLE source_index_exclusions;")?;
-            }
-            tx.commit()
+            result
         };
         upgrade().map_err(|_| {
             AgentError::new(

@@ -4,6 +4,13 @@ pub mod capabilities;
 pub mod changes;
 pub(crate) mod commands;
 pub mod context;
+pub mod conversation;
+pub(crate) mod conversation_commands;
+pub(crate) mod host;
+pub(crate) mod process;
+pub(crate) mod profile_probe;
+pub(crate) mod run_commands;
+pub(crate) mod source_navigation;
 pub(crate) mod overview;
 pub(crate) mod overview_inventory;
 pub(crate) mod knowledge;
@@ -17,6 +24,7 @@ pub mod runtime;
 pub mod service;
 pub mod sessions;
 pub mod settings;
+pub(crate) mod tools;
 
 #[cfg(test)]
 mod tests;

@@ -26,6 +26,8 @@ pub struct ContentChange {
 #[serde(rename_all = "camelCase")]
 pub struct MaintenanceBatch {
     pub scope: Scope,
+    /// Persisted by the existing job owner, independent of its target watermark.
+    pub batch_id: String,
     pub from_seq_exclusive: u64,
     pub through_seq: u64,
     pub previous_overview_revision: Option<u64>,

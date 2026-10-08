@@ -1,4 +1,7 @@
 pub(crate) mod agent;
+mod agent_profiles;
+mod agent_sessions;
+mod agent_runtime_schema;
 mod agent_operations;
 mod agent_overviews;
 mod overview_inventory;
@@ -11,6 +14,7 @@ mod workspace_record_references;
 mod sources;
 mod source_files;
 mod source_native;
+mod source_navigation;
 mod source_transcript;
 pub(crate) mod source_index_queue;
 mod committed_changes;
@@ -103,7 +107,8 @@ const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
 const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
-const CURRENT_SCHEMA_VERSION: i64 = RECORD_DOCUMENT_SCHEMA_VERSION;
+const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
+const CURRENT_SCHEMA_VERSION: i64 = AGENT_RUNTIME_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -813,6 +818,7 @@ impl Database {
         }
         self.ensure_agent_schema()?;
         self.ensure_record_document_schema()?;
+        self.ensure_agent_runtime_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"

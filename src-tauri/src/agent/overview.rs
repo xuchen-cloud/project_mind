@@ -11,6 +11,8 @@ use std::collections::HashSet;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OverviewPublishInput {
     pub scope: Scope,
+    /// Stable persisted maintenance job/batch identity; retries keep this value.
+    pub batch_id: String,
     pub expected_revision: u64,
     pub target_seq: u64,
     pub policy_revision: u64,
@@ -138,6 +140,7 @@ pub(crate) fn validate_id(id: &str) -> AgentResult<()> {
 impl OverviewPublishInput {
     pub(crate) fn validate(&self) -> AgentResult<()> {
         self.scope.validate()?;
+        validate_id(&self.batch_id)?;
         super::knowledge::validate_knowledge_batch(
             &self.scope,
             &self.knowledge_upserts,

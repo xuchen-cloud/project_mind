@@ -141,6 +141,7 @@ pub struct SeedDemoWorkspaceResult {
 
 pub(crate) struct WorkspaceRuntime {
     agent_binding: agent::models::WorkspaceBinding,
+    agent_runs: Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>,
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
     pub(crate) paths: WorkspacePaths,
@@ -180,11 +181,15 @@ impl WorkspaceRuntime {
             }),
         );
 
-        Ok(Self {
-            agent_binding: agent::models::WorkspaceBinding {
+        let agent_binding = agent::models::WorkspaceBinding {
                 workspace_id: metadata.workspace_id.clone(),
                 generation: format!("{:032x}", rand::random::<u128>()),
-            },
+            };
+        db.agent_gui_interrupt_orphans(&agent_binding)
+            .map_err(|error| anyhow!(error.message))?;
+        Ok(Self {
+            agent_binding,
+            agent_runs: Mutex::new(std::collections::HashMap::new()),
             summary: workspace_summary(&paths.root_path, &metadata),
             metadata,
             paths,
@@ -200,6 +205,12 @@ impl WorkspaceRuntime {
 
     fn ai_secrets_unlocked(&self) -> bool {
         lock_mutex(&self.secret_state).is_some()
+    }
+
+    fn cancel_agent_runs(&self) {
+        for cancel in lock_mutex(&self.agent_runs).values() {
+            cancel.send_replace(true);
+        }
     }
 
     pub(crate) fn kick_voice_minutes(&self) {
@@ -279,6 +290,7 @@ impl AppState {
     fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
         let mut current = lock_mutex(&self.current_workspace);
         if let Some(previous) = current.as_ref() {
+            previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
         }
@@ -323,6 +335,7 @@ impl AppState {
         self.ensure_voice_idle()?;
         self.seal_current_record_checkpoints()?;
         close_workspace_runtime(&self.local_session_path, &self.current_workspace, |previous| {
+            previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
         })?;
@@ -350,6 +363,7 @@ impl AppState {
 
     fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
+        runtime.cancel_agent_runs();
         if let Some(error) = runtime.set_secret_password(None)? {
             let _ = self.app_handle.emit("record:checkpoint-error", error);
         }
@@ -1203,8 +1217,9 @@ fn ai_execution_settings_upsert(
 }
 
 #[tauri::command]
-fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
+async fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    settle_agents_before_exit(&state).await;
     state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.exit(0);
@@ -1212,12 +1227,27 @@ fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
 }
 
 #[tauri::command]
-fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
+async fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    settle_agents_before_exit(&state).await;
     state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.request_restart();
     Ok(())
+}
+
+async fn settle_agents_before_exit(state: &AppState) {
+    let runtime = lock_mutex(&state.current_workspace).clone();
+    if let Some(runtime) = runtime {
+        runtime.cancel_agent_runs();
+        // The Host cancels, then kills after its grace period. A damaged database
+        // must not trap application exit; startup marks unfinished runs interrupted.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            while !lock_mutex(&runtime.agent_runs).is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }).await;
+    }
 }
 
 #[tauri::command]
@@ -1360,6 +1390,17 @@ pub fn run() {
             record_document_commands::record_versions_compare,
             record_document_commands::record_version_capacity,
             agent::commands::agent_status_get,
+            agent::conversation_commands::agent_session_create,
+            agent::conversation_commands::agent_sessions_list,
+            agent::conversation_commands::agent_session_get,
+            agent::conversation_commands::agent_session_archive,
+            agent::conversation_commands::agent_session_delete,
+            agent::conversation_commands::agent_run_get,
+            agent::conversation_commands::agent_run_events_list,
+            agent::run_commands::agent_run_start,
+            agent::run_commands::agent_run_cancel,
+            agent::run_commands::agent_profile_probe,
+            agent::source_navigation::agent_source_resolve,
             agent::commands::agent_context_get,
             agent::commands::agent_overview_get,
             agent::commands::agent_knowledge_get,

@@ -635,6 +635,7 @@ mod tests {
             .collect();
         let input = OverviewPublishInput {
             scope: scope.clone(),
+            batch_id: "registry-batch-0".into(),
             expected_revision: 0,
             target_seq: db.committed_change_watermark().unwrap() as u64,
             policy_revision: 0,

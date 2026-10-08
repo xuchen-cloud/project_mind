@@ -1,10 +1,11 @@
-//! Opt-in development desktop driver for the shared durable source queue.
-//! No public source tools, provider calls, or production worker distribution.
+//! Desktop driver for the shared durable source queue. The persisted scope
+//! assistant setting controls indexing; this driver makes no model calls.
 use crate::{
     agent::{
         access::{Caller, RequestContext, ScopeGrant},
-        errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
+        errors::{AgentResult, ApiResponse, ErrorCode},
         models::{Scope, WorkspaceBinding},
+        settings::SettingsRepository,
     },
     db::source_maintenance::{MaintenanceAction, MaintenanceProgress},
     source_service::{BoundSourceStore, SourceIndexBudget, SourceService, SourceUtility},
@@ -12,10 +13,6 @@ use crate::{
 use serde::Deserialize;
 use tauri::Manager;
 
-fn enabled() -> bool {
-    cfg!(debug_assertions)
-        && std::env::var("PROJECT_MIND_SOURCE_INDEXING_DEV").as_deref() == Ok("1")
-}
 pub(crate) fn request(
     binding: WorkspaceBinding,
     scope: &Scope,
@@ -51,12 +48,6 @@ pub(crate) fn agent_source_maintenance(
     input: MaintenanceInput,
 ) -> ApiResponse<Option<MaintenanceProgress>> {
     let result = (|| {
-        if !enabled() {
-            return Err(AgentError::new(
-                ErrorCode::RuntimeUnavailable,
-                "Source scheduling is available only in explicit development validation",
-            ));
-        }
         let request = request(input.binding, &input.scope, input.request_id.clone());
         state.with_current(|binding, db| match input.action {
             Some(action) => db
@@ -92,7 +83,12 @@ pub(crate) async fn step<
         store.with_current(
             |binding, db| match db.source_maintenance_selected(binding)? {
                 Some(scope)
-                    if db.source_maintenance_has_work(binding, &scope, chrono::Utc::now())? =>
+                    if db.agent_settings_get(&scope)?.enabled
+                        && db.source_maintenance_has_work(
+                            binding,
+                            &scope,
+                            chrono::Utc::now(),
+                        )? =>
                 {
                     Ok(Some((binding.clone(), scope)))
                 }
@@ -192,9 +188,6 @@ pub(crate) async fn step<
 }
 
 pub(crate) fn start(app: &tauri::AppHandle) {
-    if !enabled() {
-        return;
-    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         // Resolve/stage/hash-check resources serially before processing work.
@@ -222,4 +215,186 @@ pub(crate) fn start(app: &tauri::AppHandle) {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        agent::settings::{AgentScopeSettings, SettingsUpdate},
+        db::Database,
+        models::{TodoCreateInput, TodoScope},
+        source_service::SourceSearchInput,
+    };
+    use serde_json::Value;
+    use std::sync::Mutex;
+
+    struct Store {
+        db: Mutex<Database>,
+        binding: WorkspaceBinding,
+    }
+    impl crate::committed_changes::CommittedChangePublisher for Store {
+        fn publish_committed(&self, _: crate::committed_changes::CommittedChanges) {
+            assert!(self.db.try_lock().is_ok());
+        }
+    }
+    impl BoundSourceStore for Store {
+        fn with_current<T>(
+            &self,
+            action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+        ) -> AgentResult<T> {
+            action(&self.binding, &self.db.lock().unwrap())
+        }
+    }
+    struct NoUtility;
+    impl crate::record_document_service::DocumentUtility for NoUtility {
+        async fn request(&self, _: &str, _: &str, _: Value) -> AgentResult<Value> {
+            panic!("Native Todo indexing does not need document conversion")
+        }
+    }
+    impl SourceUtility for NoUtility {
+        async fn request(&self, _: &str, _: &str, _: &str, _: &[u8]) -> AgentResult<Value> {
+            panic!("Native Todo indexing does not need File extraction")
+        }
+    }
+    fn add_todo(db: &mut Database, content: &str) {
+        db.todo_create(TodoCreateInput {
+            scope: TodoScope::Workspace,
+            project_id: None,
+            content: content.into(),
+            priority: "not_urgent_important".into(),
+            due_date: None,
+            tag_ids: vec![],
+        })
+        .unwrap();
+    }
+    fn set_enabled(db: &Database, enabled: bool, request_id: &str) {
+        let mut settings = db.agent_settings_get(&Scope::Workspace).unwrap();
+        let revision = settings.revision;
+        settings.enabled = enabled;
+        db.agent_settings_update(
+            "gui",
+            request_id,
+            &SettingsUpdate {
+                settings,
+                expected_revision: revision,
+            },
+        )
+        .unwrap();
+    }
+    fn progress(store: &Store, request: &RequestContext) -> MaintenanceProgress {
+        store
+            .with_current(|binding, db| {
+                db.source_maintenance_progress(
+                    request,
+                    binding,
+                    &Scope::Workspace,
+                    chrono::Utc::now(),
+                )
+            })
+            .unwrap()
+            .unwrap()
+    }
+    #[tokio::test]
+    async fn source_maintenance_production_setting_controls_real_indexing_and_preserves_cancel() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db =
+            Database::open(&root.path().join("maintenance.sqlite"), root.path(), None).unwrap();
+        db.bind_native_workspace("maintenance-workspace").unwrap();
+        add_todo(&mut db, "Enabled evidence");
+        let binding = WorkspaceBinding {
+            workspace_id: "maintenance-workspace".into(),
+            generation: "generation-1".into(),
+        };
+        let request = request(binding.clone(), &Scope::Workspace, "select".into());
+        db.source_maintenance_select(
+            &request,
+            &binding,
+            &Scope::Workspace,
+            MaintenanceAction::Activate,
+            chrono::Utc::now(),
+        )
+        .unwrap();
+        assert_eq!(
+            db.agent_settings_get(&Scope::Workspace).unwrap(),
+            AgentScopeSettings::defaults(Scope::Workspace)
+        );
+        let store = Store {
+            db: Mutex::new(db),
+            binding,
+        };
+        assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert_eq!(progress(&store, &request).attempted_jobs, 0);
+        assert_eq!(progress(&store, &request).charged_chars, 0);
+        assert_eq!(progress(&store, &request).pending_jobs, 0);
+
+        set_enabled(&store.db.lock().unwrap(), true, "enable");
+        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        let search = SourceSearchInput {
+            scope: Scope::Workspace,
+            query: "evidence".into(),
+            kinds: vec![],
+            selected: vec![],
+            include_history: false,
+            limit: None,
+            budget_chars: None,
+        };
+        assert_eq!(
+            SourceService::new(&store)
+                .search(&request, &search)
+                .await
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
+
+        set_enabled(&store.db.lock().unwrap(), false, "disable");
+        add_todo(&mut store.db.lock().unwrap(), "Deferred evidence");
+        let jobs = progress(&store, &request).attempted_jobs;
+        let charged = progress(&store, &request).charged_chars;
+        assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert_eq!(progress(&store, &request).attempted_jobs, jobs);
+        assert_eq!(progress(&store, &request).charged_chars, charged);
+        let mut deferred = search;
+        deferred.query = "Deferred".into();
+        assert!(SourceService::new(&store)
+            .search(&request, &deferred)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+
+        set_enabled(&store.db.lock().unwrap(), true, "reenable");
+        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert_eq!(
+            SourceService::new(&store)
+                .search(&request, &deferred)
+                .await
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
+        store
+            .with_current(|binding, db| {
+                db.source_maintenance_select(
+                    &request,
+                    binding,
+                    &Scope::Workspace,
+                    MaintenanceAction::Cancel,
+                    chrono::Utc::now(),
+                )?;
+                db.source_maintenance_select(
+                    &request,
+                    binding,
+                    &Scope::Workspace,
+                    MaintenanceAction::Activate,
+                    chrono::Utc::now(),
+                )
+            })
+            .unwrap();
+        assert!(progress(&store, &request).cancelled);
+        assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+    }
 }

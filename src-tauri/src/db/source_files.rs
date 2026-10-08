@@ -157,7 +157,17 @@ impl Database {
             AgentError::new(
                 ErrorCode::SourceNotReady,
                 "File Version hash is not registered",
-            )
+            ).with_details(serde_json::json!({
+                "reason": "unregistered_file_version",
+                "object": object,
+                "fileVersion": version,
+                "recovery": {
+                    "action": "open_object",
+                    "object": object,
+                    "label": "打开文件所在项目",
+                    "message": "在文件所在项目的文件列表中，右键选择“登记当前内容并打开”，确认后读取新版本。旧版本仍保留为未经核验的内容。"
+                }
+            }))
         })?;
         if source
             .revision
@@ -674,7 +684,10 @@ mod tests {
             })
             .unwrap();
             let registered: String = db.conn.query_row("SELECT content_hash FROM source_file_version_hashes h JOIN document_versions v ON v.id=h.document_version_id WHERE v.document_id=?1 AND v.version_number=2", [file.id], |row| row.get(0)).unwrap();
-            assert_eq!(registered, format!("sha256:{:x}", Sha256::digest(b"new evidence")));
+            assert_eq!(
+                registered,
+                format!("sha256:{:x}", Sha256::digest(b"new evidence"))
+            );
         }
         // The old cache stops being current even before the new version is indexed.
         assert!(service
@@ -1263,8 +1276,10 @@ mod tests {
     #[test]
     fn source_file_plan_resolves_owner_before_paths_or_registration_state() {
         let root = tempfile::tempdir().unwrap();
-        let mut db =
-            Database::open(&root.path().join("sources.sqlite"), root.path(), None).unwrap();
+        let (metadata, paths) =
+            crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        db.bind_native_workspace(&metadata.workspace_id).unwrap();
         let mut projects = vec![];
         let mut files = vec![];
         for name in ["Visible", "Private"] {
@@ -1289,7 +1304,7 @@ mod tests {
             files.push(file.id);
         }
         let binding = WorkspaceBinding {
-            workspace_id: "file-workspace".into(),
+            workspace_id: metadata.workspace_id,
             generation: "opened".into(),
         };
         let request = RequestContext {
@@ -1316,19 +1331,99 @@ mod tests {
             record_version: None,
             file_version: None,
         };
-        assert_eq!(
-            db.source_file_plan(&request, &binding, &source)
-                .unwrap_err()
-                .code,
-            ErrorCode::ScopeDenied
+        let denied = db
+            .source_file_plan(&request, &binding, &source)
+            .unwrap_err();
+        assert_eq!(denied.code, ErrorCode::ScopeDenied);
+        assert!(
+            denied.details.is_none(),
+            "Denied sources cannot reveal recovery navigation"
         );
         source.object.id = files[0].to_string();
+        let unavailable = db
+            .source_file_plan(&request, &binding, &source)
+            .unwrap_err();
+        assert_eq!(unavailable.code, ErrorCode::SourceNotReady);
+        let details = unavailable.details.unwrap();
+        assert_eq!(details["reason"], "unregistered_file_version");
+        assert_eq!(details["object"], serde_json::json!(source.object));
+        assert_eq!(details["fileVersion"], 1);
+        assert_eq!(details["recovery"]["action"], "open_object");
+        assert_eq!(
+            details["recovery"]["object"],
+            serde_json::json!(source.object)
+        );
+        assert!(details["recovery"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("登记当前内容并打开"));
+        assert!(!serde_json::to_string(&details)
+            .unwrap()
+            .contains(root.path().to_str().unwrap()));
+        // Reading an unregistered legacy source supplies guidance only; it
+        // neither manufactures an old hash nor changes its version history.
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM source_file_version_hashes",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM document_versions WHERE document_id=?1",
+                    [files[0]],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+
+        // The existing explicit GUI registration creates a new version and a
+        // durable source event; repeating that confirmed request is idempotent.
+        let file = db.document_record(files[0]).unwrap();
+        let intent = db
+            .file_version_prepare_gui(&crate::db::file_versions::GuiFileVersionPrepare {
+                document_id: file.id,
+                project_id: file.project_id,
+                managed_path: file.managed_path,
+                expected_version_number: 1,
+                source_path: None,
+            })
+            .unwrap();
+        assert!(intent.registered_content_hash.is_none());
+        let receipt = db
+            .file_version_commit_gui(&binding, "confirm-legacy", &intent, true)
+            .unwrap();
+        assert_eq!(receipt.version_number, 2);
+        assert_eq!(
+            db.file_version_commit_gui(&binding, "confirm-legacy", &intent, true)
+                .unwrap(),
+            receipt
+        );
+        let current = db.source_file_plan(&request, &binding, &source).unwrap();
+        assert_eq!(current.file_version, 2);
+        assert_eq!(current.registered_hash, receipt.content_hash);
+        assert_eq!(db.conn.query_row("SELECT count(*) FROM source_file_version_hashes h JOIN document_versions v ON v.id=h.document_version_id WHERE v.document_id=?1 AND v.version_number=1", [files[0]], |row|row.get::<_,i64>(0)).unwrap(), 0);
+        source.file_version = Some(1);
         assert_eq!(
             db.source_file_plan(&request, &binding, &source)
                 .unwrap_err()
                 .code,
             ErrorCode::SourceNotReady
         );
+        source.file_version = None;
+        db.source_queue_sync(&request, &binding, &source.object.scope, chrono::Utc::now())
+            .unwrap();
+        let queued = db
+            .source_queue_claim(&request, &binding, &source.object.scope, chrono::Utc::now())
+            .unwrap()
+            .unwrap();
+        assert_eq!(queued.object, source.object);
         let mut switched = binding.clone();
         switched.generation = "switched".into();
         assert_eq!(
