@@ -57,6 +57,8 @@ bridge 注册表当前包含 35 个方法（21 读 / 14 写）。读取包括原
 
 `todo.create` 使用原生内容、优先级、日期、标签及子行动字段；`todo.update` 使用实际 Todo 对象、`expectedRevision` 和现有 mutation 类型。所有 `dueDate` 字段都必须出现，可为日期字符串或 `null`。连接使用稳定请求 ID 幂等，CLI/MCP 与 Record 写入共用请求身份约定；内置 Run 的 dedupeKey 保持独立。原生 Todo 提交、不可变字段快照、GUI revision、子行动身份及原子收据由同一数据库服务维护，不创建虚构 Run 或成果候选。
 
+简单文本 Todo 可用 `mind todo create --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json` 创建；可加 `--priority VALUE` 和 `--due-date YYYY-MM-DD`。不指定时优先级为 `not_urgent_not_important`、`dueDate` 为 `null`，标签和子行动为空。复杂字段仍用 `--input-file` 传完整 DTO。`mind todo update --patch-file PATH|- --workspace PATH --connection ID --json` 把现有带 `requestId` 的 wrapped mutation JSON 作为输入，和 `--input-file` 互斥。
+
 修改撤销生成新 revision 并恢复原字段和子行动；新建撤回仅改变可见性，`operation.restore_created` 恢复原对象。目标和引用按实际范围、归档、排除及撤回状态授权，持久连接在提交边界重查；旧版 GUI 写入与连接修改通过同一 revision 检出冲突。来源历史的 GUI 权限保持原样，撤回或排除后的模型来源读取仍被拒绝。
 
 ## File 写入与上传
@@ -66,6 +68,8 @@ bridge 注册表当前包含 35 个方法（21 读 / 14 写）。读取包括原
 创建、精确文本补丁、完整替换和历史恢复共用原生 CAS、File Version、journal、恢复及操作收据，成功重放使用相同请求 ID，不构造内置 Run。上传阶段只处理字节和原生票据，不让服务端读取客户端路径；`file.content.complete` 校验长度/hash 并使票据可提交，本身不创建新版本。版本响应不向外部连接暴露 GUI 使用的绝对 `versionPath`。文件最大 100 MiB，每块最大 1 MiB，阶段票据有效期 10 分钟；base64 块仍受 2 MiB 的 HTTP/CLI JSON 输入上限约束。
 
 `mind file upload --input-file target.json --body-file PATH --request-id ID --workspace PATH --connection ID --json` 在 CLI 本地读入字节并执行 begin、status、chunk、complete、update。`target.json` 使用 `{ "object": { ... }, "expectedVersionNumber": 1, "expectedContentHash": "sha256:…" }`，绑定真实 File 对象及预期版本/hash；`--body-file` 支持路径或 `-`（stdin）。相同 ID 重试会使用稳定的阶段 ID，从已接收字节续传；若最后一个短块已收到，可直接继续 complete。阶段过期时只尝试原始最终 `file.update` 收据：已提交可返回同一结果，未提交则明确失败。CLI 不把本地路径传给服务端。
+
+文本 File 可用 `mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json` 创建；复杂创建仍用 `--input-file` 提供完整 DTO。`mind file patch --patch-file PATH|- --workspace PATH --connection ID --json` 接受既有带 `requestId` 的 wrapped mutation JSON，与 `--input-file` 互斥。Todo/File 创建的 `--body-file` 在 CLI 本地按 UTF-8 读取，保留字符与换行，路径不会传到服务端；正文和生成的请求 JSON 均受 2 MiB 上限约束。二进制或较大 File 继续使用上述字节上传流程。
 
 ## 不应绕过的边界
 

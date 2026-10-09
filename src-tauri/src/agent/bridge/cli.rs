@@ -6,12 +6,13 @@ use crate::agent::{
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
     models::Scope,
 };
+use crate::db::file_imports::{validate_agent_file_create, AgentFileCreateInput};
 use serde_json::{json, Value};
 use std::{io::Read, path::PathBuf};
 #[path = "cli_upload.rs"]
 mod cli_upload;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record patch --dry-run previews without writing and may omit requestId; --budget-chars applies only to this preview (1–12000, default 4000). --patch-file accepts native RecordPatch JSON and cannot be combined with --input-file. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record patch --dry-run previews without writing and may omit requestId; --budget-chars applies only to this preview (1–12000, default 4000). --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body file paths stay local; UTF-8 content is sent to the bound application, and generated JSON is limited to 2 MiB. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
@@ -32,6 +33,9 @@ struct Options {
     input_file: Option<String>,
     patch_file: Option<String>,
     body_file: Option<String>,
+    name: Option<String>,
+    priority: Option<String>,
+    due_date: Option<String>,
     dry_run: bool,
     json: bool,
 }
@@ -83,6 +87,9 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             "--input-file" if options.input_file.is_none() => options.input_file = Some(value.clone()),
             "--patch-file" if options.patch_file.is_none() => options.patch_file = Some(value.clone()),
             "--body-file" if options.body_file.is_none() => options.body_file = Some(value.clone()),
+            "--name" if options.name.is_none() => options.name = Some(value.clone()),
+            "--priority" if options.priority.is_none() => options.priority = Some(value.clone()),
+            "--due-date" if options.due_date.is_none() => options.due_date = Some(value.clone()),
             _ => return Err(invalid("Unknown or duplicate option")),
         }
         cursor += 2;
@@ -142,6 +149,26 @@ fn read_input(path: &str) -> AgentResult<Value> {
     parse_input(source)
 }
 
+fn read_text_body(path: &str) -> AgentResult<String> {
+    let source: Box<dyn Read> = if path == "-" {
+        Box::new(std::io::stdin())
+    } else {
+        Box::new(std::fs::File::open(path).map_err(|_| invalid("Cannot read --body-file"))?)
+    };
+    let mut bytes = Vec::new();
+    source.take(MAX_INPUT_BYTES + 1).read_to_end(&mut bytes)
+        .map_err(|_| invalid("Cannot read --body-file"))?;
+    if bytes.len() as u64 > MAX_INPUT_BYTES { return Err(invalid("--body-file exceeds 2 MiB")); }
+    String::from_utf8(bytes).map_err(|_| invalid("--body-file must contain UTF-8 text"))
+}
+
+fn bounded_generated_params(params: Value) -> AgentResult<Value> {
+    if serde_json::to_vec(&params).expect("generated input JSON").len() as u64 > MAX_INPUT_BYTES {
+        return Err(invalid("Generated input exceeds 2 MiB"));
+    }
+    Ok(params)
+}
+
 fn scoped(options: &Options) -> AgentResult<Scope> {
     match (options.project, options.workspace_scope) {
         (Some(project_id), false) => Ok(Scope::Project { project_id }),
@@ -181,6 +208,43 @@ fn bridge_method(command: &str, dry_run: bool) -> &str {
         ("record.patch", true) => "record.patch.preview",
         _ => command,
     }
+}
+
+fn file_create_params(options: &Options) -> AgentResult<Value> {
+    if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some()
+        || options.priority.is_some() || options.due_date.is_some() {
+        return Err(invalid("File creation accepts --project, --name and --body-file"));
+    }
+    let project_id = options.project.ok_or_else(|| invalid("--project is required for file create"))?;
+    let safe_name = options.name.clone().ok_or_else(|| invalid("--name is required for file create"))?;
+    let request_id = options.request_id.as_deref().ok_or_else(|| invalid("--request-id is required for file create"))?;
+    let body = read_text_body(options.body_file.as_deref().ok_or_else(|| invalid("--body-file is required"))?)?;
+    let input = AgentFileCreateInput { project_id, safe_name, utf8_content: body };
+    validate_agent_file_create(&input)?;
+    bounded_generated_params(json!({"requestId": request_id, "input": input}))
+}
+
+fn todo_create_params(options: &Options) -> AgentResult<Value> {
+    if options.name.is_some() || options.query.is_some() || options.budget_chars.is_some() {
+        return Err(invalid("Todo creation accepts scope, --body-file, --priority and --due-date"));
+    }
+    let scope = scoped(options)?;
+    let priority = options.priority.as_deref().unwrap_or("not_urgent_not_important");
+    if !matches!(priority, "urgent_important" | "urgent_not_important" | "not_urgent_important" | "not_urgent_not_important") {
+        return Err(invalid("Unsupported Todo priority"));
+    }
+    if let Some(date) = options.due_date.as_deref() {
+        if date.len() != 10 || chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .ok().is_none_or(|parsed| parsed.format("%Y-%m-%d").to_string() != date) {
+            return Err(invalid("Todo dates must be explicit valid YYYY-MM-DD values"));
+        }
+    }
+    let request_id = options.request_id.as_deref().ok_or_else(|| invalid("--request-id is required for todo create"))?;
+    let content = read_text_body(options.body_file.as_deref().ok_or_else(|| invalid("--body-file is required"))?)?;
+    bounded_generated_params(json!({"requestId": request_id, "input": {
+        "scope": scope, "content": content, "priority": priority, "dueDate": options.due_date.as_deref(),
+        "tagIds": [], "children": []
+    }}))
 }
 
 /// Stdio owns stdout for its entire lifetime. Diagnostics go only to stderr.
@@ -286,14 +350,29 @@ pub fn run(args: &[String]) -> CliOutput {
     if options.input_file.is_some() && options.patch_file.is_some() {
         return response(request_id(), Err(invalid("--input-file and --patch-file cannot be combined")));
     }
+    if options.input_file.is_some() && options.body_file.is_some() && command != "file.upload" {
+        return response(request_id(), Err(invalid("--input-file and --body-file cannot be combined")));
+    }
     let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
-        if options.patch_file.is_some() && command != "record.patch" {
-            return Err(invalid("--patch-file is only supported by record patch"));
+        if options.patch_file.is_some() && !matches!(command, "record.patch" | "file.patch" | "todo.update") {
+            return Err(invalid("--patch-file is only supported by record patch, file patch and todo update"));
         }
         if options.dry_run && command != "record.patch" {
             return Err(invalid("--dry-run is only supported by record patch"));
+        }
+        if options.name.is_some() && command != "file.create"
+            || (options.priority.is_some() || options.due_date.is_some()) && command != "todo.create" {
+            return Err(invalid("Creation options are only supported by file create or todo create"));
+        }
+        if options.input_file.is_some() && matches!(command, "file.create" | "todo.create")
+            && (options.name.is_some() || options.priority.is_some() || options.due_date.is_some()) {
+            return Err(invalid("Creation options cannot accompany --input-file"));
+        }
+        if matches!(command, "file.create" | "todo.create") && options.body_file.is_none()
+            && (options.name.is_some() || options.priority.is_some() || options.due_date.is_some()) {
+            return Err(invalid("--body-file is required with creation options"));
         }
         if command == "file.upload" {
             reject_scope_options(&options)?;
@@ -309,7 +388,9 @@ pub fn run(args: &[String]) -> CliOutput {
             let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
             return cli_upload::upload(&transport, target, &bytes, &request_id);
         }
-        if options.body_file.is_some() { return Err(invalid("--body-file is only supported by file upload")); }
+        if options.body_file.is_some() && !matches!(command, "file.create" | "todo.create") {
+            return Err(invalid("--body-file is only supported by file upload, file create and todo create"));
+        }
         let method = bridge_method(command, options.dry_run);
         let params = match command {
             "doctor" | "project.list" => {
@@ -327,6 +408,8 @@ pub fn run(args: &[String]) -> CliOutput {
                 if options.input_file.is_some() || options.query.is_some() { return Err(invalid("search uses its positional query, not --query or --input-file")); }
                 json!({"scope":scoped(&options)?,"query":search_query.expect("search query"),"budgetChars":options.budget_chars})
             }
+            "file.create" if options.body_file.is_some() => file_create_params(&options)?,
+            "todo.create" if options.body_file.is_some() => todo_create_params(&options)?,
             _ => {
                 if !registry::is_registered(method) { return Err(invalid("Unknown bridge method")); }
                 if command == "record.patch" {
@@ -342,7 +425,8 @@ pub fn run(args: &[String]) -> CliOutput {
                     if options.dry_run { preview_patch_params(params, options.budget_chars)? } else { params }
                 } else {
                     reject_scope_options(&options)?;
-                    read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
+                    read_input(options.patch_file.as_deref().or(options.input_file.as_deref())
+                        .ok_or_else(|| invalid("--input-file is required"))?)?
                 }
             }
         };
@@ -541,5 +625,76 @@ mod tests {
         explicit_preview_args.extend(common);
         let explicit_preview = invoke(&explicit_preview_args);
         assert_ne!(explicit_preview.exit_code, 2, "{}", explicit_preview.stderr);
+    }
+    #[test]
+    fn convenient_file_and_todo_creation_use_native_dtos_and_preserve_text() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let body = "line 1\n`$HOME` $(touch never) \\ path\n";
+        std::fs::write(file.path(), body).unwrap();
+        let path = file.path().to_str().unwrap().to_owned();
+        let file_options = Options {
+            project: Some(7), name: Some("notes.md".into()), body_file: Some(path.clone()),
+            request_id: Some("file-stable".into()), ..Options::default()
+        };
+        let file_params = file_create_params(&file_options).unwrap();
+        assert_eq!(file_params["input"]["utf8Content"], body);
+        assert_eq!(file_params["input"]["safeName"], "notes.md");
+        registry::validate("file.create", &file_params).unwrap();
+        let todo_options = Options {
+            workspace_scope: true, body_file: Some(path), request_id: Some("todo-stable".into()),
+            ..Options::default()
+        };
+        let todo_params = todo_create_params(&todo_options).unwrap();
+        assert_eq!(todo_params["input"]["content"], body);
+        assert_eq!(todo_params["input"]["priority"], "not_urgent_not_important");
+        assert!(todo_params["input"]["dueDate"].is_null());
+        assert_eq!(todo_params["input"]["tagIds"], json!([]));
+        assert_eq!(todo_params["input"]["children"], json!([]));
+        registry::validate("todo.create", &todo_params).unwrap();
+    }
+    #[test]
+    fn creation_flags_and_json_input_are_mutually_exclusive() {
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let check = |words: &[&str], expected: &str| {
+            let mut args = words.to_vec();
+            args.extend(common);
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2, "{words:?}: {}", out.stderr);
+            assert!(out.stderr.contains(expected), "{words:?}: {}", out.stderr);
+        };
+        check(&["file", "create", "--input-file", "input.json", "--body-file", "text.md"], "cannot be combined");
+        check(&["todo", "create", "--input-file", "input.json", "--priority", "urgent_important"], "cannot accompany --input-file");
+        check(&["file", "create", "--input-file", "input.json", "--name", "notes.md"], "cannot accompany --input-file");
+        check(&["file", "create", "--body-file", "text.md", "--project", "1", "--request-id", "stable"], "--name is required");
+        check(&["todo", "create", "--body-file", "text.md", "--workspace-scope", "--request-id", "stable", "--priority", "normal"], "Unsupported Todo priority");
+        check(&["todo", "create", "--body-file", "text.md", "--workspace-scope", "--request-id", "stable", "--due-date", "2026-02-30"], "valid YYYY-MM-DD");
+        check(&["source", "read", "--input-file", "input.json", "--name", "notes.md"], "Creation options");
+    }
+    #[test]
+    fn generated_text_payload_is_bounded_after_json_escaping() {
+        let params = json!({"input":{"utf8Content":"\\".repeat(1_100_000)}});
+        assert_eq!(bounded_generated_params(params).unwrap_err().message, "Generated input exceeds 2 MiB");
+    }
+    #[test]
+    fn patch_file_alias_keeps_existing_mutation_wrapper() {
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let cases = [
+            ("file", "patch", json!({"requestId":"stable-file","input":{
+                "object":{"workspaceId":"w","scope":{"kind":"project","projectId":1},"kind":"file","id":"1"},
+                "expectedVersionNumber":1,"expectedContentHash":format!("sha256:{}", "0".repeat(64)),
+                "edits":null,"appendText":"hello"}})),
+            ("todo", "update", json!({"requestId":"stable-todo","input":{
+                "target":{"workspaceId":"w","scope":{"kind":"workspace"},"kind":"todo","id":"1"},
+                "expectedRevision":1,"changes":[]}})),
+        ];
+        for (entity, action, params) in cases {
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), serde_json::to_vec(&params).unwrap()).unwrap();
+            let path = file.path().to_str().unwrap();
+            let mut args = vec![entity, action, "--patch-file", path];
+            args.extend(common);
+            let out = invoke(&args);
+            assert_ne!(out.exit_code, 2, "{}", out.stderr);
+        }
     }
 }

@@ -387,6 +387,26 @@ File 当前验证：设置定向 8 项、TypeScript、生产前端构建与路�
 
 验收：路径和 stdin（含中文、换行与 shell 元字符）原样进入现有 DTO；只允许一种输入模式，误用和冲突参数明确报错；正式写入 requestId 一致，已有 JSON 入口和 Record dry-run 不回归。CLI 定向、生产二进制参数/schema 检查、真实凭据/bridge 的 File 与 Todo 创建验证；无前端改动不重复前端构建。
 
+第二子步已完成（2026-10-09）：CLI/client/upload 定向 24 项通过；生产 `mind` 构建通过。独立 Linux Secret Service → 实际 bridge → 原生服务中，生产 CLI 从本地文件创建 File、从 stdin 创建 Todo 均通过：中文、换行、`$()` 与反引号保持字面内容，同一 ID 重试返回同一原生结果；实际 File 字节与 Todo 快照、默认优先级及空截止日期已核对。fixture 同时复用 File 分块上传、Record 创建/预览及撤权验证，1 项真实链路通过。主 agent Standards/Spec 自查通过；无业务 DTO/schema 或前端改动，不重复原生全量及前端验证。后续继续第三子步，连接预设在独立前端文件中并行验证。
+
+### R12b3c 第三子步：Record Markdown 创建与创建预览 / #106
+
+依赖：原生 Record 创建事务、canonical worker 和前两子步 CLI 输入边界。扩展现有 `record.create` 输入，兼容 canonical document，并新增互斥的 Markdown 输入；CLI `record create --title ... --body-file PATH|-` 在本地读文本。新增 `record.create.preview` 及 CLI `--dry-run`，沿用 content.create 授权并返回有界正文与规范化元信息；默认 4000、最多 12000 字符。两种内容格式共用原生资产、引用、标题/标签、范围校验和创建事务。
+
+稳定请求 ID 必须绑定原始输入，而不是 worker 随机生成块 ID 后的候选。实现时从现有创建事务提取接受原始意图 payload 的小内核，现有 GUI/canonical 入口行为不变；Markdown 先查询原始收据，命中直接返回，未命中才转换并提交。预览不写对象、候选、收据或事件，不分配持久对象身份，正式提交重新验证。
+
+非目标：不在 CLI 自行解析 Markdown、不另建暂存数据库、不把预览随机块 ID 当作可复用提交身份，不自动执行预览结果或新增 GUI 确认。复杂标签及 canonical 输入保留 JSON 入口。
+
+验收：Markdown 标题/列表/引用由真实 worker 转换，创建后可正常编辑、读取和撤销；相同原始请求重试仅一个对象，改变 Markdown 的同 ID 请求冲突。创建预览与正式提交正文一致且零持久化；元信息、引用、排除和 worker 期间撤权都复用实际约束。验证 native 创建/预览、bridge/CLI/MCP schema、真实 worker 和生产 CLI 链路；无 GUI 改动复用前端证据。
+
+### R12c 第一子步：明确的连接授权预设 / #106
+
+依赖：b3b 已接通 Record/Todo/File 实际写权限，现有持久 grant 仍为唯一执行依据。本子步与 b3c 的 CLI 参数工作无共享源码，可独立实施。新建连接提供“单 Project 协作（推荐）”“只读”“自定义”三个明确选项。协作固定一个 Project，授予读取、新建、Record/Todo/File 修改和本连接撤销；不自动包含任意历史恢复或 Workspace 内容。只读预设不传写权限；自定义沿用已实现操作集，允许明确选择 Project 子集及 Workspace 直属内容。会话依据读取保持单独显式选项。
+
+非目标：不迁移或自动扩大已有连接，不把 UI 预设名存成新的授权规则，不在尚未贯穿执行边界前显示对象级限制已可用。创建前展示简短范围/权限说明，切 Workspace 清空用户可选授权和旧 Project；无可用 Project 时协作不可创建。
+
+验收：三个预设实际 create DTO 与说明一致，切预设无残留写权限，历史恢复仅自定义明确选择；旧只读连接显示及执行语义不变。设置组件/SettingsDialog、TypeScript、生产前端构建及边界检查，1200/720 普通和长名称无窗口浏览器验证；无 Rust 改动复用 b3b 持久 grant 测试。主 agent Standards/Spec 自查。
+
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
 
 依赖：R01～12 的相关行为通过；从 R04 起持续维护验收证据，不在此重做所有测试。

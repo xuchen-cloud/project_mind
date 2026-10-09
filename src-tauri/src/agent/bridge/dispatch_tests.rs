@@ -1,6 +1,7 @@
 //! Full local socket -> bridge -> persistent grant -> native database read path.
 //! The handler below supplies only the current Workspace container used by AppBridge.
 use std::{
+    io::Write,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, Mutex},
 };
@@ -803,6 +804,102 @@ async fn real_keyring_client_roundtrip() {
     let after_cli = after_cli.structured_content.unwrap()["data"].clone();
     assert_eq!(after_cli["currentVersionNumber"], 3);
     assert_eq!(after_cli["currentContentHash"], cli_hash);
+
+    let cli_file_body = "CLI 本地文件\n$(printf unsafe) `literal`\n";
+    let cli_file_body_path = root.path().join("cli-create-body.txt");
+    std::fs::write(&cli_file_body_path, cli_file_body.as_bytes()).unwrap();
+    let mut first_created_file = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let body_path = cli_file_body_path.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["file", "create", "--name", "cli-created.md", "--body-file"])
+                .arg(body_path)
+                .arg("--project").arg(project_id.to_string())
+                .args(["--request-id", "keyring-cli-file-create", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI File create: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["requestId"], "keyring-cli-file-create");
+        assert_eq!(response["data"]["operation"]["requestId"], "keyring-cli-file-create");
+        if let Some(first) = &first_created_file {
+            assert_eq!(&response["data"], first);
+        } else {
+            first_created_file = Some(response["data"].clone());
+        }
+    }
+    let cli_created_file = first_created_file.unwrap();
+    let cli_created_file_id = cli_created_file["result"]["object"]["id"].as_str().unwrap().parse().unwrap();
+    let cli_created_receipt = crate::db::file_versions::CommittedVersion {
+        document_id: cli_created_file_id,
+        version_number: cli_created_file["result"]["versionNumber"].as_i64().unwrap(),
+        content_hash: cli_created_file["result"]["contentHash"].as_str().unwrap().to_owned(),
+        no_change: false,
+    };
+    let cli_created_path = handler.db.lock().unwrap().file_version_committed_path(&cli_created_receipt).unwrap().unwrap();
+    assert_eq!(std::fs::read(cli_created_path).unwrap(), cli_file_body.as_bytes());
+    assert_eq!(cli_created_file["result"]["versionNumber"], 1);
+
+    let cli_todo_body = "核对发布\n$(echo literal) `backticks`\n";
+    let mut first_created_todo = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let body = cli_todo_body.as_bytes().to_vec();
+        let output = tokio::task::spawn_blocking(move || {
+            let mut child = std::process::Command::new(binary)
+                .args(["todo", "create", "--body-file", "-", "--project"])
+                .arg(project_id.to_string())
+                .args(["--request-id", "keyring-cli-todo-create", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()?;
+            child.stdin.take().unwrap().write_all(&body)?;
+            child.wait_with_output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI Todo create: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["requestId"], "keyring-cli-todo-create");
+        assert_eq!(response["data"]["operation"]["requestId"], "keyring-cli-todo-create");
+        if let Some(first) = &first_created_todo {
+            assert_eq!(&response["data"], first);
+        } else {
+            first_created_todo = Some(response["data"].clone());
+        }
+    }
+    let cli_created_todo = first_created_todo.unwrap();
+    let todo_object: ObjectRef = serde_json::from_value(cli_created_todo["result"]["object"].clone()).unwrap();
+    let todo_snapshot = {
+        let db = handler.db.lock().unwrap();
+        let request = db.agent_connection_authenticate(&binding, &grant_id, &token, "keyring-cli-todo-check").unwrap();
+        db.agent_todo_get(&request, &binding, &todo_object).unwrap()
+    };
+    let todo_value = serde_json::to_value(todo_snapshot).unwrap();
+    assert_eq!(todo_value["snapshot"]["content"], cli_todo_body);
+    assert_eq!(todo_value["snapshot"]["priority"], "not_urgent_not_important");
+    assert_eq!(todo_value["snapshot"]["dueDate"], Value::Null);
 
     let rejected_request = handler.db.lock().unwrap().agent_connection_authenticate(
         &binding, &grant_id, &token, "keyring-after-revoke",
