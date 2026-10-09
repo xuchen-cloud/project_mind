@@ -3,12 +3,14 @@
 use std::{path::PathBuf, sync::{Arc, Mutex}};
 
 use serde_json::{json, Value};
+use rmcp::{model::CallToolRequestParams, serve_client_with_lifecycle, ClientLifecycleMode, ServiceExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{
     client::BridgeClient,
     credentials,
     dispatch,
+    mcp::MindMcp,
     protocol::{CallInput, ConnectInput},
     transport::{self, BridgeHandler},
 };
@@ -219,18 +221,35 @@ async fn real_keyring_client_roundtrip() {
     let client_path = discovery_path.clone();
     let client_grant = grant_id.clone();
     let client_workspace = workspace_path.clone();
-    let (connected, listed, context) = tokio::task::spawn_blocking(move || {
+    let (client, connected, listed, context) = tokio::task::spawn_blocking(move || {
         let client = BridgeClient::from_discovery(&client_path, &client_grant)?;
         let connected = client.connect(&client_grant, &client_workspace, "keyring-connect")?;
         let listed = client.call(&client_grant, &connected, "project.list", json!({}), "keyring-list")?;
         let context = client.call(&client_grant, &connected, "context.get", context(project_id), "keyring-context")?;
-        Ok::<_, AgentError>((connected, listed, context))
+        Ok::<_, AgentError>((client, connected, listed, context))
     }).await.unwrap().unwrap();
     assert_eq!(connected, binding);
     assert_eq!(listed, json!([{"id": project_id, "name": "Keyring Project"}]));
     assert_eq!(context["identity"]["name"], "Keyring Project");
 
+    let mcp = MindMcp::bound(client, connected.clone(), grant_id.clone());
+    let (server_io, client_io) = tokio::io::duplex(64 * 1024);
+    let (server, mcp_client) = tokio::join!(
+        mcp.serve(server_io),
+        serve_client_with_lifecycle((), client_io, ClientLifecycleMode::Initialize)
+    );
+    let mut server = server.unwrap();
+    let mcp_client = mcp_client.unwrap();
+    let tools = mcp_client.peer().list_tools(None).await.unwrap();
+    assert_eq!(tools.tools.len(), 2);
+    let mcp_list = mcp_client.peer().call_tool(CallToolRequestParams::new("mind_project_list")).await.unwrap();
+    assert_eq!(mcp_list.is_error, Some(false));
+    assert_eq!(mcp_list.structured_content.as_ref().unwrap()["data"], listed);
+
     handler.db.lock().unwrap().agent_connection_revoke(&binding, &grant_id).unwrap();
+    let mcp_rejected = mcp_client.peer().call_tool(CallToolRequestParams::new("mind_project_list")).await.unwrap();
+    assert_eq!(mcp_rejected.is_error, Some(true));
+    assert_eq!(mcp_rejected.structured_content.as_ref().unwrap()["error"]["code"], "SCOPE_DENIED");
     let client_path = discovery_path.clone();
     let client_grant = grant_id.clone();
     let rejected = tokio::task::spawn_blocking(move || {
@@ -238,6 +257,8 @@ async fn real_keyring_client_roundtrip() {
         client.call(&client_grant, &connected, "project.list", json!({}), "keyring-revoked")
     }).await.unwrap().unwrap_err();
     assert_eq!(rejected.code, ErrorCode::ScopeDenied);
+
+    server.close().await.unwrap();
 
     bridge.stop().await.unwrap();
     credentials::delete(&grant_id).unwrap();

@@ -3,7 +3,12 @@ use project_mind_alpha_lib::agent::bridge::cli;
 use std::io::{self, Write};
 
 fn main() {
-    let result = cli::run(&std::env::args().skip(1).collect::<Vec<_>>());
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.get(0).is_some_and(|arg| arg == "mcp") && args.get(1).is_some_and(|arg| arg == "serve")
+    {
+        std::process::exit(cli::run_mcp(&args[2..]));
+    }
+    let result = cli::run(&args);
     if !result.stdout.is_empty() {
         let _ = io::stdout().write_all(result.stdout.as_bytes());
     }

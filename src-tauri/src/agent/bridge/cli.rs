@@ -1,5 +1,5 @@
 //! Argument handling and JSON output for the first local CLI read commands.
-use super::{client::BridgeClient, registry};
+use super::{client::BridgeClient, mcp::MindMcp, registry};
 use crate::agent::{
     capabilities::capabilities,
     context::ContextGetInput,
@@ -9,7 +9,7 @@ use crate::agent::{
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema project.list|context.get --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n\nMCP serve is not implemented yet.\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema project.list|context.get --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind mcp serve --workspace PATH --connection ID\n";
 
 pub struct CliOutput {
     pub stdout: String,
@@ -107,12 +107,52 @@ fn response(request_id: String, result: AgentResult<Value>) -> CliOutput {
 
 fn request_id() -> String { format!("cli-{:032x}", rand::random::<u128>()) }
 
+/// Stdio owns stdout for its entire lifetime. Diagnostics go only to stderr.
+pub fn run_mcp(args: &[String]) -> i32 {
+    let parsed = (|| {
+        let mut workspace = None;
+        let mut connection = None;
+        let mut cursor = 0;
+        while cursor < args.len() {
+            let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing MCP option value"))?;
+            if value.starts_with("--") { return Err(invalid("Missing MCP option value")); }
+            match args[cursor].as_str() {
+                "--workspace" if workspace.is_none() => workspace = Some(PathBuf::from(value)),
+                "--connection" if connection.is_none() => connection = Some(value.clone()),
+                _ => return Err(invalid("Unknown or duplicate MCP option")),
+            }
+            cursor += 2;
+        }
+        let workspace = workspace.ok_or_else(|| invalid("--workspace is required"))?;
+        let connection = connection.ok_or_else(|| invalid("--connection is required"))?;
+        if connection.len() != 32 || !connection.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(invalid("Invalid connection ID"));
+        }
+        Ok((workspace, connection))
+    })();
+    let result = parsed.and_then(|(workspace, connection)| {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+            .map_err(|_| AgentError::new(ErrorCode::RuntimeUnavailable, "Cannot start MCP runtime"))?;
+        runtime.block_on(async {
+            let server = MindMcp::connect(&workspace, &connection).await?;
+            server.serve_stdio().await.map_err(|_| AgentError::new(ErrorCode::RuntimeUnavailable, "MCP stdio transport failed"))
+        })
+    });
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{}: {}", serde_json::to_value(error.code).unwrap().as_str().unwrap(), error.message);
+            exit_code(&error)
+        }
+    }
+}
+
 pub fn run(args: &[String]) -> CliOutput {
     let words = args.iter().map(String::as_str).collect::<Vec<_>>();
     match words.as_slice() {
         ["--version"] => return CliOutput { stdout: format!("mind {}\n", env!("CARGO_PKG_VERSION")), stderr: String::new(), exit_code: 0 },
         [] | ["--help"] | ["help"] => return CliOutput { stdout: HELP.into(), stderr: String::new(), exit_code: 0 },
-        ["mcp", "serve", ..] => return CliOutput { stdout: String::new(), stderr: "RUNTIME_UNAVAILABLE: MCP transport is not implemented\n".into(), exit_code: 3 },
+        ["mcp", "serve", ..] => return CliOutput { stdout: String::new(), stderr: "MCP serve must own stdio; use the mind executable\n".into(), exit_code: 2 },
         _ => {}
     }
     if words.as_slice() == ["capabilities", "--json"] {
@@ -176,7 +216,7 @@ mod tests {
     #[test]
     fn mcp_never_writes_protocol_stdout() {
         let out = invoke(&["mcp", "serve"]);
-        assert_eq!(out.exit_code, 3);
+        assert_eq!(out.exit_code, 2);
         assert!(out.stdout.is_empty());
     }
     #[test]

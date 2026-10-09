@@ -120,16 +120,25 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
           <h3 className="text-body font-medium text-text">已有连接</h3>
           {grants.length === 0 && <p className="text-ui text-text-secondary">暂无连接。</p>}
           {grants.map((grant) => {
-            const command = status.cliPath && status.workspacePath
+            const canCopy = grant.enabled && !grant.revokedAt && !!status.cliPath && !!status.workspacePath;
+            const command = canCopy && status.cliPath && status.workspacePath
               ? `${status.cliShell === "powershell" ? "& " : ""}${shellQuote(status.cliPath, status.cliShell)} doctor --workspace ${shellQuote(status.workspacePath, status.cliShell)} --connection ${shellQuote(grant.id, status.cliShell)} --json`
               : null;
+            const mcpConfig = canCopy ? JSON.stringify({
+              mcpServers: { projectmind: {
+                command: status.cliPath,
+                args: ["mcp", "serve", "--workspace", status.workspacePath, "--connection", grant.id],
+              } },
+            }, null, 2) : null;
             return <div key={grant.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-border pb-3 text-ui">
               <div className="flex items-center gap-2"><strong className="text-text">{grant.clientLabel}</strong><StatusBadge tone={grant.enabled && !grant.revokedAt ? "success" : "neutral"}>{grant.revokedAt ? "已撤销" : grant.enabled ? "有效" : "已停用"}</StatusBadge></div>
               <p className="break-words text-text-secondary">{grant.workspaceContent ? "Workspace 内容；" : ""}Project：{grant.projectIds.map((id) => projectNames[id] ?? "已移除的项目").join("、") || "无"}；只读{grant.operations.includes("session.read") ? "，包含会话依据" : ""}</p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {command && <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(command).catch((reason: unknown) => setError(String(reason)))}>复制 CLI 命令</Button>}
+                {mcpConfig && <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(mcpConfig).catch((reason: unknown) => setError(String(reason)))}>复制 MCP 配置</Button>}
                 {!grant.revokedAt && binding && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => externalConnectionsApi.revoke(binding, grant.id), true)}>撤销</Button>}
               </div>
+              {mcpConfig && <p className="text-text-secondary">MCP 读取范围与此连接的授权一致。</p>}
             </div>;
           })}
         </div>

@@ -67,6 +67,12 @@ it("copies a PowerShell command with quoted Windows paths", async () => {
   setup();
   await user.click(await screen.findByRole("button", { name: "复制 CLI 命令" }));
   expect(writeText).toHaveBeenCalledWith("& 'C:\\Program Files\\Mind''s CLI\\mind.exe' doctor --workspace 'C:\\Users\\O''Neil\\My Work' --connection 'grant''1' --json");
+  await user.click(screen.getByRole("button", { name: "复制 MCP 配置" }));
+  expect(JSON.parse(writeText.mock.lastCall![0])).toEqual({ mcpServers: { projectmind: {
+    command: "C:\\Program Files\\Mind's CLI\\mind.exe",
+    args: ["mcp", "serve", "--workspace", "C:\\Users\\O'Neil\\My Work", "--connection", "grant'1"],
+  } } });
+  expect(writeText.mock.lastCall![0]).not.toContain("token");
 });
 
 it("allows the local switch without an open Workspace but disables creation", async () => {
@@ -97,6 +103,8 @@ it("permits an explicitly selected Workspace scope and displays revoke errors", 
   expect(await screen.findByRole("alert")).toHaveTextContent("revoke failed");
   expect(await screen.findByText("已撤销")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "撤销" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "复制 CLI 命令" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "复制 MCP 配置" })).not.toBeInTheDocument();
 });
 
 it("drops an old Workspace result after the current Workspace changes", async () => {

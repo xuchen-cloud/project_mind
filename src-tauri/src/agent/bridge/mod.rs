@@ -3,6 +3,7 @@ pub mod cli;
 pub mod client;
 pub(crate) mod commands;
 pub mod credentials;
+pub mod mcp;
 pub(crate) mod dispatch;
 pub mod protocol;
 pub mod registry;

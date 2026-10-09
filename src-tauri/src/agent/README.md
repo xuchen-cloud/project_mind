@@ -33,11 +33,11 @@ mind CLI
 
 ## R12a 外部调用范围
 
-`mind --version` 和 `mind --help` 可离线使用。`mind capabilities --json` 区分共享能力清单与 bridge 已注册方法；共享能力的 `implemented` 只表示内部服务状态。`mind schema project.list --json` 与 `mind schema context.get --json` 从请求 DTO 生成参数 schema，供后续 MCP 复用。
+`mind --version` 和 `mind --help` 可离线使用。`mind capabilities --json` 区分共享能力清单与 bridge 已注册方法；共享能力的 `implemented` 只表示内部服务状态。`mind schema project.list --json` 与 `mind schema context.get --json` 从请求 DTO 生成参数 schema，与 MCP 工具发现共用。
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前只暴露 `project.list` 与 `context.get` 两项读取。`mind mcp serve` 明确报告尚未实现且不写协议 stdout。外部写命令、完整 MCP 工具集及对象级限制留待后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
+bridge 注册表当前只暴露 `project.list` 与 `context.get` 两项读取。`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。外部写命令、完整 MCP 工具集及对象级限制留待后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
 
 ## 不应绕过的边界
 
@@ -50,3 +50,5 @@ bridge 注册表当前只暴露 `project.list` 与 `context.get` 两项读取。
 ## 验收
 
 当前工作包和平台验收结果见[执行计划](../../../docs/requirements/ai-work-context-delivery.md)。
+
+MCP SDK 依据：[Rust SDK](https://github.com/modelcontextprotocol/rust-sdk)、[rmcp 3.5.1](https://docs.rs/rmcp/3.5.1/rmcp/)、[MCP 2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)。工具参数来自与 CLI 相同的 Rust DTO schema；连接授权仍由应用服务执行，工具提示本身不授予权限。

@@ -311,6 +311,20 @@ R12a 当前接入（2026-10-09）：应用设置可启停本机连接、创建�
 R12b 继续拆分（#106）：b1 基于维护中的 Rust MCP SDK 实现 stdio 初始化、工具发现和调用，先与 CLI 共用两个已实现读取及 schema，固定 Workspace binding，stdout 仅 JSON-RPC；用独立客户端完成 initialize/list/call/越权及协议协商。b2 逐项接入现有有界来源、Overview/知识、会话和版本读服务，跨异步阶段复核连接授权。b3 对接各对象原生写入/上传/修改/收据和本连接撤销，先补真实共享服务缺口，再加入注册表和协作预设。未接通的方法不出现在可用工具清单，不提前宣称全部 CLI/MCP 交付。
 
 
+
+R12b1 当前接入（2026-10-09）：固定 `rmcp 3.5.1` Rust SDK 提供 `mind mcp serve`，标准初始化/协议协商兼容 2025-11-25、工具发现及调用复用两个已注册读取和 DTO schema；只读提示、结构化领域错误及 `isError` 如实返回，握手后的 binding 固定。设置可复制通用 MCP JSON，参数为原始路径及 connection ID，不复制 secret。SDK/协议依据见 [`agent/README.md`](../../src-tauri/src/agent/README.md)。
+
+本包已验：bridge/CLI/MCP 定向 12 项通过（OS 凭据测试默认 ignored）；独立 Linux Secret Service 下，生产 BridgeClient → 实际 socket → 原生 DB → SDK MCP client 的列举、读取及已连接客户端撤权拒绝 1 项通过。设置面板 5 项和 TypeScript 检查通过；无窗口浏览器 1200/720 普通/长名称共 4 组场景验证复制 JSON、撤销后入口隐藏与无溢出，使用实际组件及模拟 IPC。生产前端构建、路径/UI/主包检查通过。CLI 可执行文件构建及实际进程 MCP 启动参数错误/应用未开/stdout 纯净检查通过。主 agent Standards/Spec 自查通过，未启动 review agent。目标桌面安装包与真实外部 Agent 客户端仍待 R12c/R13。
+
+
+b2 按实际共享服务分两步收口（#106；依赖 b1，均不新增模型调用或单独数据索引）：
+
+| 子步 | 交付行为 | 非目标与验收 |
+| --- | --- | --- |
+| b2a Overview / 知识 / 来源 | 将既有 `context.overview.get`、`knowledge.search/get`、`source.search/read` 接入同一外部 dispatcher；从实际请求 DTO 生成 schema；本机 transport 支持异步读取，连接 store 在每个存储阶段核验固定 binding 与当前授权。 | 不复制读取/分页/预算规则，不先增加写入。验证真实 DB 读取一致、跨范围拒绝，以及提取期间撤权/切换 Workspace 后不返回内容。 |
+| b2b 会话 / 对象 / 版本读与 CLI | 接入已有会话检索/原文、Record 块/历史、Todo、File 版本/源码读取；CLI 提供对应有界输入，MCP 从同一注册表发现。 | 不把 GUI 原文权限授予连接；会话仍需 `session.read`，版本仍校验实际对象归属。覆盖长内容分页、历史定位、排除/撤权及 CLI 实际进程输出；缺少真实共享读入口则先补最小服务。 |
+
+
 验收：外部客户端读取并修改当前 Project，应用即时刷新；重试不重复，撤权后拒绝，MCP stdout 仅协议。A04/A05/A09/A13～18/A20/A37/A49/A71；CLI golden、独立 MCP 客户端和同一业务 fixture 的权限/结果对照。外部 transport 不重复实现业务规则。
 
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
