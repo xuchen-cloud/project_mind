@@ -1,6 +1,6 @@
 # AI 工作上下文：工程契约
 
-更新：2026-10-09。状态：实施中，内部服务与产品接入进度不同。与[主规格](ai-work-context-spec.md)、[交付与验收](ai-work-context-delivery.md)共同构成开发依据。这里集中定义接口、数据、并发、预算与故障处理；Issue状态以GitHub为准，当前逐包对照与缺口见[2026-10-09 审视](ai-work-context-delivery.md#intent-audit-20261009)，原 D2a 保留历史快照。
+更新：2026-10-09。用户确认将项目内 HTML/Markdown/Word/Excel/PPT 编辑预览及开源软件集成拆至[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 随之迁出，不作为 AI #97 的 M0～M4 或发布前置。状态：实施中，内部服务与产品接入进度不同。与[主规格](ai-work-context-spec.md)、[交付与验收](ai-work-context-delivery.md)共同构成开发依据。这里集中定义接口、数据、并发、预算与故障处理；Issue状态以GitHub为准，当前逐包对照与缺口见[2026-10-09 审视](ai-work-context-delivery.md#intent-audit-20261009)，原 D2a 保留历史快照。
 
 文中的E编号是稳定工程主题编号。产品流程先读主规格，实现具体模块时按下面目录进入；不存在“较后补充章节覆盖前文”的规则。
 
@@ -14,7 +14,7 @@
 - [E8 Record块编辑、版本与并发](#e8)
 - [E9 File更新与已有版本复用](#e9)
 - [E10 Todo修订与统一撤销](#e10)
-- [E11 HTML交互稿与隔离预览](#e11)
+- [E11 AI File生成与原始源码续改](#e11)
 - [E12 统一API与错误语义](#e12)
 - [E13 CLI、MCP与连接配置](#e13)
 - [E14 助手界面与失败恢复](#e14)
@@ -337,7 +337,7 @@ run events与业务change events是两条流：前者用于会话展示，后者
 - 成功结果在所属轮次只显示一次业务摘要和可点的实际对象，详情按需展开“已创建/已修改”、版本、来源、真实差异及打开/撤销。失败或部分成功在会话中明确显示，模型说“完成”不能替代native receipt。现有GUI与原生对象刷新复用业务事件，不另造成果管理区。
 - `output.update`编辑staged候选使用expectedRevision，服务端重校验；修改后使旧确认失效。未提交候选的完整正文、来源与真实diff仅在显式查看详情时读取，不预读所有历史成果body，不另开审阅Dialog。
 - 新建同名File加后缀；继续修改绑定已有File ID与基线版本，每次成功修改新增File Version。同名不是修改身份，多个同名目标有实质歧义时才询问。
-- HTML成果从实际已提交File进入隔离预览；“继续修改”明确带入同一File ID与当前源码/版本，见E11。查看成果时仍可继续对话，可移除讨论对象提示，不静默变更scope。
+- File 成果链接实际已提交对象与版本；“继续修改”明确带入同一 File ID 与当前源码/版本，见 E11。查看成果时仍可继续对话，可移除讨论对象提示，不静默变更 scope。格式预览/编辑入口由独立需求 #118 决定。
 - Todo只依据明确行动或已知事实创建/修改，review按同任务一次确认后提交、collaborate直接提交；不把假设建议都转换成Todo，不编造日期/负责人/状态。
 - 保存成功立即可在列表找到；来源后来变化标“生成依据有更新”，目标本身变化严格CAS。工具仍受30次/10min预算，超限保留已完成成果。上述接线只复用候选、收据与三类原生提交，不新增通用审批/队列/工作流框架。
 
@@ -349,7 +349,7 @@ run events与业务change events是两条流：前者用于会话展示，后者
 - 外部连接分开授予 `content.create`、`record.patch`、`file.update`；Record恢复另需 `record.restore`，File恢复另需 `file.restore`。修改权限包括已授权对象中的块删除，不含整条记录/文件删除、归档、密码/设置操作。连接可限定Project内所有Record/File或具体对象，UI展示范围；一次run可处理范围内多个与任务相关的对象，每个操作必须绑定具体对象及基线。
 - 同一个Record的一组操作一次应用、一次撤销/版本回退；跨Record或Record+File批处理按对象分别提交，不宣称跨文件系统/数据库的全局原子性。部分成功逐项显示收据，重试只处理未成功项。
 - 预览由base snapshot与经服务验证的patch计算，不能仅展示模型自行描述的“我修改了什么”。显示修改/新增/删除块数量、目标标题、基线修订与受影响引用。
-- 版本入口放在Record更多菜单“版本历史”，展示时间、来源（手动编辑/内置助手/外部连接/恢复）、变更摘要、基线与结果；点击查看只读内容与差异，恢复时明确“恢复正文并创建新版本”。File复用现有版本入口并补当前版本/历史版本比较和恢复为新版本操作；文本逐行diff，二进制展示类型/大小/hash及可用预览，不承诺通用语义diff。
+- 版本入口放在Record更多菜单“版本历史”，展示时间、来源（手动编辑/内置助手/外部连接/恢复）、变更摘要、基线与结果；点击查看只读内容与差异，恢复时明确“恢复正文并创建新版本”。File复用现有版本入口并补当前版本/历史版本比较和恢复为新版本操作；文本逐行diff，二进制展示类型/大小/hash，不承诺通用语义diff或格式预览。
 
 ### 业务事件
 
@@ -449,7 +449,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 `file.update`目标必须是已有File ID，携带expectedVersionNumber与expectedContentHash。新文件用file.create；二者不能用“同名”自动推断，修改后File ID不变，current_version_number+1，旧内容保留在现有history_dir_path。
 
 - `file.patch_text`首期支持已登记UTF-8 md/txt/html/htm：`edits:[{oldText,newText,occurrence?:number}]`精确匹配（多处且未给occurrence报AMBIGUOUS_MATCH），或 `appendText`；所有定位基于同一base字节快照，编辑范围重叠则拒绝。无模糊匹配、不默认改换行/编码/BOM；空oldText拒绝，追加只用appendText。
-- `file.update`还支持完整替换字节，格式不限于md/txt（保持目标原文件类型/扩展名，跨类型变更应新建File）：CLI读取外部Agent产出的DOCX/PDF/图片等，通过上传获得一次性stagedContentId，再提交为新File Version。可保存任意已允许文件类型不等于内置Agent能编辑所有格式；内置首期支持md/txt/html/htm源码生成与修改，其他格式通过外部编辑产物提交。
+- `file.update`还支持完整替换字节，格式不限于md/txt（保持目标原文件类型/扩展名，跨类型变更应新建File）：CLI读取外部Agent产出的DOCX/PDF/图片等，通过上传获得一次性stagedContentId，再提交为新File Version。可保存任意已允许文件类型不等于内置Agent能语义生成或编辑Office格式；内置首期支持md/txt/html/htm源码生成与修改，其他格式通过外部产物提交。
 - 上传上限100MiB，分块1MiB、校验长度与SHA-256，10min过期，绑定connection/run和目标File/期望版本，不能跨scope复用；上传API接收字节，不接收远程请求指定的任意本机绝对路径。超限要求使用现有本地文件版本导入界面，不无限内存base64。
 - staged新内容必须在Workspace托管临时目录，不能在Agent工具中原地改当前managed_path。拿到File级锁后校验DB版本与实际磁盘hash，未知外部修改返回FILE_CHANGED_UNREGISTERED；用户先用现有版本流程登记，再重新读取修改。
 - 从现有 `Database::document_add_version` 抽出共享VersionCommitService，保留其base_name、versioned_file_name、history_dir_path、File ID和现有版本展示；为普通GUI“添加版本”和Agent更新统一加入CAS/receipt/journal。不能另建一套AI文件版本表，也不能只套SQL事务就声称文件操作原子。
@@ -479,27 +479,14 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 <a id="e11"></a>
 
-## E11 HTML交互稿与隔离预览
+## E11 AI File生成与原始源码续改
 
-1. 用户说“根据这个需求做一个可点击的HTML交互稿”，Agent读项目来源，生成UTF-8 `.html/.htm`（单文件≤2MiB，内联CSS/JS、演示数据），经暂存校验形成候选。默认review按E7/E10对本次任务一次会话确认后提交`file.create`；只有用户主动选择的collaborate模式直接提交。实际保存成功后File列表显示它，会话显示“已保存 · v1”和预览入口，不再要求第二次保存确认。内容仍存现有File，不创建新的“原型”业务实体。
-2. 用户在File菜单或预览点击“继续修改”，附加File ID、当前版本/hash及源码来源；预览保持打开。用户说“把筛选改为多选”，Agent读取原始源码、保留无关逻辑，通过`file.patch_text`或`file.update`提交；同File ID生成v2，不另建同名文件。聊天已明确引用唯一HTML时可直接继续，存在多个同名候选才询问目标。
-3. 源码与索引分离：复用R07固定版本源读取helper，`file.source.read(FileRef,version,cursor?)`返回未经脚本清洗的UTF-8源码，单页≤24000字符，携带完整hash/字节数/版本、已读范围/complete/nextCursor；未读全不得声称已理解全文件或加载成完整预览。分页固定同一版本/hash，过期返回SOURCE_CHANGED并显式重载，跨对象/版本异步响应丢弃。聊天不默认展开整段代码；源码视图只读，编辑可交给Agent或现有外部编辑流程。
-4. `FileHtmlPreview`接非模态主工作区与现有同scope会话侧栏，不另建聊天或编辑器。有“预览/只读源码”、当前版本、刷新、375/768/1440宽度及自适应选项、“继续修改”和版本历史入口。窄窗口在会话与预览间切换，不挤出三个不可用面板。按实际容器尺寸缩放，标明所选CSS viewport宽度。
-5. 默认预览最新已提交版本，流式token与staging不逐帧重载。新版本提交后显示更新并加载；切换历史预览时固定File Version，后续新版本不得把用户看的旧版替换掉。恢复旧稿走既有`file.version.restore`生成新版本，引用仍可定位旧版。
-6. 首期完整支持单HTML内联样式/脚本、嵌入图片、表单本地校验、弹窗、标签切换、筛选、模拟增删和hash路由。不依赖CDN即可演示。现有含相对资源、外部CDN、fetch/后端或多页路由的HTML仍允许导入、源码修改、版本化保存；预览明确列出未加载依赖，不声称完整支持工程项目。M1不承诺npm安装、打包构建或多文件原子发布。用户需要时可由Agent将可获取且被授权的资源内联为自包含稿，保留前一版。
-7. `file.create`扩展名白名单扩为md/txt/html/htm；扩展名与MIME一致，HTML内容按原始字节保存，不用Record富文本sanitizer删除JS。已有HTML完整替换沿100MiB上传通路；内置生成2MiB限制不限制已有文件版本能力。超过可读/模型预算时明确说明可处理片段。
-8. 校验文件可读、非空、编码、大小与HTML文档结构，提供预览加载/脚本错误诊断；语法可解析不等于交互验收通过。开发fixture必须验证点击、输入、筛选和恢复版本。Agent只有实际收到对应预览测试结果才可说“已验证交互”；否则说“已保存，可预览”。
+E11 保留稳定编号锚点。AI #97 负责用户任务授权后的 File 内容生成与版本化续改；项目内 HTML/Markdown/Word/Excel/PPT 编辑预览、开源格式组件集成、HTML 执行隔离以及依赖/脚本诊断迁入[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 随之迁移，不属于 AI M0～M4 的发布前置。E11 历史隔离约束由 #118 继承；未经实际目标平台验证，不得在有应用权限的 surface 执行 HTML。
 
-### 预览隔离
-
-开工先复用R07源/版本/restore与R04d～g会话接缝，用实际fixture比较隔离候选再确定单一实现；本节列出必须满足的边界与候选参数，不宣称iframe或原生WebView已验证。前端fixture、真实IPC文件链路、真实模型任务及macOS WebKit/Windows WebView2安装环境分别记录证据，不能互相替代；执行拆分见交付计划R08a～d。
-
-- iframe候选在无应用能力的surface中执行，设置`sandbox="allow-scripts"`，不加`allow-same-origin`、forms、popups、downloads或top-navigation权限；不把生成HTML注入主应用DOM。以srcdoc承载自包含内容并维持opaque origin，不暴露Tauri IPC、连接凭据、Workspace绝对路径或任意文件读取接口；是否满足实际平台约束由fixture与安装环境验证。
-- 预览层附加CSP：`default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`。策略仅作用于预览副本，不修改保存的源文件。内联事件可运行，不开放eval；阻止外部网络、子frame和真实表单提交。同时验证父WebView CSP不会使合法内联交互全部失效，允许脚本的放宽仅用于该隔离surface。
-- iframe sandbox和connect-src本身不能拦截所有frame自身导航。宿主必须对预览surface加网络请求/导航拦截：只允许初始受控内容、data/blob资源和同文档hash变化，拒绝外部URL导航与请求；在实际WebKit/WebView2验证链接、location、meta refresh等路径。若不能可靠约束子frame，则验证无应用能力的专用WebView及宿主层拦截候选；未能证明等价边界前不开放预览，不能只靠前端click监听。
-- srcdoc构造时由可信代码把限制策略放在内容前；导入文档的meta不能放宽策略。拦截资源失败显示依赖状态；工具诊断和postMessage都视为不可信数据，即使来源窗口匹配也不能触发文件写入或提升权限。停止、关闭及切版本销毁iframe。
-- HTML不能依靠预览访问本地持久存储或真实业务API；交互状态是本次演示内存。刷新/切版本会重置演示状态，界面如实提示。M0或AI-18先在实际Tauri/WebKit平台做隔离与内联交互smoke；若iframe候选不能证明隔离，则验证独立且无Tauri capabilities的预览WebView及等价CSP，不把候选fallback视为已经安全，不能退回有应用权限的主页面。
-- 依据：[MDN iframe sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe)、[MDN CSP sandbox](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox)。候选参数须由实际打包平台测试确认；恢复仍用既有服务及冻结的expectedVersion/hash，隔离选型不改变版本CAS或原始源码保存契约。
+1. 用户要求生成 HTML 或 Markdown 成果时，Agent 按 E7/E10 读取有权来源、暂存和校验候选，再按冻结的 review/collaborate 模式提交 `file.create`。内置生成的 UTF-8 `.html/.htm/.md/.txt` 单文件上限为 2 MiB；扩展名与 MIME 一致，原始字节原样保存，不用 Record 富文本 sanitizer 删除 HTML 内联脚本。已保存的成果链接实际 File ID 与版本，仅能据收据说“已保存 · v1”；没有独立预览验收结果不得声称“可预览”或“已验证交互”。
+2. 用户继续修改已有 HTML/Markdown 时，绑定同一 File ID、当前版本/hash 与源码来源；聊天已明确唯一对象时可直接续改，多个同名候选有实质歧义才澄清。Agent 经 `file.source.read(FileRef,version,cursor?)` 读取未经索引清洗的原始 UTF-8 源码，单页≤24000字符，响应含完整 hash、字节数、版本、已读范围、complete 与 nextCursor。未读全不得声称已理解全文；分页固定版本/hash，变化返回 SOURCE_CHANGED，须重新读取并校验基线。MD/HTML 的索引提取文本只用于检索和引用，不能写回为源码。
+3. 修改通过 `file.patch_text` 或 `file.update` 精确提交，同 File ID 新增版本，不按同名另建。恢复历史内容使用 `file.version.restore`，核对实际当前版本/hash并创建新版本；撤销与持久收据沿 E9/E10，不静默覆盖后续人工修改。内置生成限制不缩小既有 File 版本或 100 MiB 字节上传能力；上传外部 DOCX/PDF 等产物只表示保存字节，不授予内置 Agent 对 Word/Excel/PPT 的语义生成、编辑或项目内预览能力。
+4. 文件可读性、编码、大小、目标版本和来源权限按原生提交契约校验。脚本能否执行、依赖能否加载、格式组件可否编辑由 #118 在实际平台另行验证。AI 的真实模型与 File 提交验收不能替代 #118 的安全隔离和交互验收。
 
 <a id="e12"></a>
 
@@ -625,7 +612,7 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 - 顶部仅项目/会话标题、历史、新会话和更多。历史按最近更新时间30条分页并按需展开，消息按50条加载；模型/probe、知识维护与技术设置移入设置或更多菜单，不常驻主消息轴。空态两个入口与输入框可见，零完整知识预读。
 - 用户消息浅底；助手正文通过正常Markdown排版。以稳定消息ID和用户任务轮次组织正文、折叠工具过程、方案与收据摘要；历史分页无重复控件，不把所有run的操作放到聊天尾部，不造另一份模型消息历史。
 - 工具仅显示“查找资料/读取文件/准备方案”等业务摘要，详细JSON/来源按需展开且不含凭据/内部路径；错误在折叠态仍可见。方案确认/取消和实际结果位于所属轮次，结果只展示一次实际业务摘要与对象链接，按E7绑定冻结模式和候选决定。
-- Record/File菜单“带入助手”使用同scope空闲会话及可移除来源/目标提示；当前会话scope不同或运行时新建同scope会话，不能静默切范围。成果打开实际Record/Todo/File页面；查看/编辑旁可继续对话，继续修改绑定实际对象与当前基线。R08才接隔离HTML，不以GUI收口提前执行HTML。
+- Record/File菜单“带入助手”使用同scope空闲会话及可移除来源/目标提示；当前会话scope不同或运行时新建同scope会话，不能静默切范围。成果链接实际Record/Todo/File；查看成果时可继续对话，继续修改绑定实际对象与当前基线。项目内文件格式编辑预览由 #118 交付；未验证隔离前不在助手 GUI 执行 HTML。
 - 运行可继续写草稿，不允许同会话并发发送。首版显式停止当前run、等待已开始操作settled后发送草稿，不隐式入队、自动续发或实现steering框架。
 - 未在底部时不强制滚动，提示新内容；在底部时跟随正文和异步方案/结果高度变化。用户展开工具/历史与切换布局仍保留阅读位置；有界列表沿现渐变遮罩，内容/尺寸变化后更新。
 - 引用按需预览，再打开实际原文；File显示固定版本/页码，旧版可查看、变化/缺失/删除明确标识。未展开来源不预读全部正文。

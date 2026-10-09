@@ -1,6 +1,6 @@
 # AI 工作上下文：验收台账与实机执行入口
 
-更新：2026-10-09。依据：[D3 验收矩阵](ai-work-context-delivery.md#d3-验收矩阵)与 [R13a 第一子步](ai-work-context-delivery.md#r13a-第一子步可追溯的验收台账与执行入口)。这里记录可复核证据及下一步，不替代 Issue 状态或目标平台签收。本表按 D3 的实际编号完整列 A01～A76。状态描述交付覆盖情况，不是该场景的测试执行结果：「部分」仅表示有相关确定性实现/测试源码或既有执行记录，并不表示整项通过；「待实现/平台验证」表示产品行为尚缺实现及目标设备验收；「待执行」表示尚无足以判定该场景的执行结果；「后续」表示 M2～M4 的交付边界。测试源码链接只是复核入口，不证明该场景已运行。本阶段的定向记录包括 CLI 安装 7 项、授权核心 24 项、前端 24 项及 TypeScript/生产构建/静态检查，以及来源索引 14 项、引用 6 项、bridge 84 项（另 2 项 ignored）、知识 23 项、Overview 10 项、来源注册 5 项通过；生产 CLI 构建成功，修正首轮测试夹具后，独立 Linux Secret Service→真实 socket→BridgeClient/SDK MCP/实际 CLI 集成通过，覆盖指定对象的读写、撤销、重放和越权拒绝。无窗口浏览器新增 17 场景/25 截图、原预设 7 场景/19 截图通过（实际组件、模拟 IPC）。本包代码与执行证据基线为 [`ae469ba`](https://github.com/xuchen-cloud/project_mind/commit/ae469ba)，主 agent 已完成 Standards/Spec 核对；这不替代各行所列的剩余交付条件。
+更新：2026-10-09。范围变更：项目内文件编辑/预览归[独立需求](project-file-integration.md)及[父 Issue #118](https://github.com/xuchen-cloud/project_mind/issues/118)，HTML [#115](https://github.com/xuchen-cloud/project_mind/issues/115)迁入该父项。AI 保留文件生成、源码读取、同 ID 续改、保存/版本/撤销及成果链接。A42 保留编号但迁出，不计 AI 发布通过分母；A43 仅 AI 原字节与如实告知部分留在本表。既有证据不等于迁出项完成。依据：[D3 验收矩阵](ai-work-context-delivery.md#d3-验收矩阵)与 [R13a 第一子步](ai-work-context-delivery.md#r13a-第一子步可追溯的验收台账与执行入口)。这里记录可复核证据及下一步，不替代 Issue 状态或目标平台签收。本表按 D3 的实际编号完整列 A01～A76。状态描述交付覆盖情况，不是该场景的测试执行结果：「部分」仅表示有相关确定性实现/测试源码或既有执行记录，并不表示整项通过；「待实现/平台验证」表示产品行为尚缺实现及目标设备验收；「待执行」表示尚无足以判定该场景的执行结果；「后续」表示 M2～M4 的交付边界。测试源码链接只是复核入口，不证明该场景已运行。本阶段的定向记录包括 CLI 安装 7 项、授权核心 24 项、前端 24 项及 TypeScript/生产构建/静态检查，以及来源索引 14 项、引用 6 项、bridge 84 项（另 2 项 ignored）、知识 23 项、Overview 10 项、来源注册 5 项通过；生产 CLI 构建成功，修正首轮测试夹具后，独立 Linux Secret Service→真实 socket→BridgeClient/SDK MCP/实际 CLI 集成通过，覆盖指定对象的读写、撤销、重放和越权拒绝。无窗口浏览器新增 17 场景/25 截图、原预设 7 场景/19 截图通过（实际组件、模拟 IPC）。本包代码与执行证据基线为 [`ae469ba`](https://github.com/xuchen-cloud/project_mind/commit/ae469ba)，主 agent 已完成 Standards/Spec 核对；这不替代各行所列的剩余交付条件。
 
 | 编号 | 批次与状态 | 已有证据入口 | 尚缺执行或条件 |
 | --- | --- | --- | --- |
@@ -42,11 +42,11 @@
 | A36 | M1·部分 | [File 版本测试][file-version-tests] | 目标平台恢复旧版及同内容提交，检查历史路径和 noChange。 |
 | A37 | M1·部分 | [连接授权测试][grant-tests]、[bridge File 写测试][bridge-file-tests] | readonly/create-only 与显式修改 grant 的实际 File patch/整对象删除负例。 |
 | A38 | M1·部分 | [Record 成果测试][record-output-tests]、[Transcript 来源测试][transcript-tests] | Voice Record 正文 patch 后核原始 Transcript 和音轨未变。 |
-| A39 | M1·部分 | [R08 计划及当前 File 基础][delivery]、[File 成果测试][agent-file-tests] | 先开放脚本交互隔离预览；再用真实模型创建并确认 HTML File v1，于 macOS WebKit/Windows WebView2 点击与筛选。 |
-| A40 | M1·部分 | [HTML/File 执行记录][delivery]、[File 成果测试][agent-file-tests] | 真实模型连续两轮改同一 HTML，核 v2/v3、JS/CSS 原字节和无关逻辑。 |
-| A41 | M1·部分 | [R08 计划及 File 版本基础][delivery]、[File 版本测试][file-version-tests] | 脚本交互预览尚未开放；先接历史固定版本预览，再于目标平台恢复→续改，核页不串、基线 hash。 |
-| A42 | M1·待实现/平台验证 | 仅有[File 源码/版本基础与 R08 隔离方案计划][delivery]，无已交付隔离 surface 证据 | 先实现并验证单一隔离 surface，再分别在 macOS WebKit、Windows WebView2 实包试 IPC/存储/fetch/导航/下载阻断与内联交互。 |
-| A43 | M1·待实现/平台验证 | 仅有[File 原字节读取/版本基础与 R08 诊断计划][delivery]，无脚本诊断 surface 证据 | 先交付依赖未加载/JS 错误诊断，再于两目标平台加载 CDN/相对资源与错误 fixture，核原字节和提示。 |
+| A39 | M1·部分 | [File 成果测试][agent-file-tests]、[R07/R04g 接缝][delivery] | 真实模型生成 HTML，按任务一次确认保存为 Project File v1；核成果链接、实际对象 ID、版本与真实收据。点击/筛选预览归 #118/#115。 |
+| A40 | M1·部分 | [HTML/File 既有执行记录][delivery]、[File 成果测试][agent-file-tests] | 真实模型连续两轮读取完整源码并修改同一 HTML File，核同 ID 的 v2/v3、JS/CSS 原字节及无关逻辑保留。 |
+| A41 | M1·部分 | [File 版本基础][delivery]、[File 版本测试][file-version-tests] | 读取指定历史版本源码，核不串到当前 head；目标平台恢复旧版为新版本后继续修改，核当前基线 hash 与冲突保护。历史执行预览归 #118/#115。 |
+| A42 | 已迁出 #118/#115；不计 AI 发布通过分母 | 既有[File 源码/版本基础与原 R08 隔离方案][delivery]，无已交付隔离 surface 证据 | 独立需求验证 macOS WebKit、Windows WebView2 的 IPC/存储/fetch/导航/下载阻断及内联交互；此项未完成，不作为 #106/#107/#97 的 AI 验收条件。 |
+| A43 | M1·部分（AI 原字节/告知）；预览诊断迁 #118/#115 | [File 原字节读取/版本基础][delivery]；原 R08 诊断计划仅为历史证据，无脚本诊断 surface 证据 | AI 续改核原始 JS/CSS/CDN/相对引用等字节不破坏，并如实告知交互未验证；依赖加载与 JS 错误诊断由独立需求和两目标平台验收。 |
 | A44 | M1·部分 | [Todo 操作测试][todo-undo-tests]、[审阅测试][review-tests] | 真实模型新增/更新 Todo 的一次确认与自动模式、列表刷新、撤销。 |
 | A45 | M1·部分 | [Record 撤销测试][record-undo-tests]、[File 撤销测试][file-undo-tests]、[Todo 撤销测试][todo-undo-tests] | 产品入口依次撤销三类修改，核新版本及 GUI 历史。 |
 | A46 | M1·部分 | [Record 撤回测试][withdraw-tests]、[File 撤销测试][file-undo-tests] | 真实创建→撤回→恢复，核搜索/计数/引用和 File 原字节。 |
@@ -71,7 +71,7 @@
 | A65 | M1·部分 | [会话来源测试][session-source-tests]、[连接范围测试][grant-tests] | 删除/排除、无 session.read 与摘要缺口后检索/派生知识负例。 |
 | A66 | M1·部分 | [Host 策略测试][host-policy-tests]、[知识服务测试][knowledge-tests] | 真实空会话首问测注入正文/字符数，不只看工具 schema。 |
 | A67 | M1·部分 | [会话模型搜索测试][model-search-tests] | 真实概括与原话两问，记录有限摘要/消息读取轨迹。 |
-| A68 | M1·部分 | [来源分页测试][source-read-tests]、[Record 正文读取提交][record-read-commit] | 单个 HTML/全文审阅真实调用，续页覆盖可证，截断不冒完整。 |
+| A68 | M1·部分 | [来源分页测试][source-read-tests]、[Record 正文读取提交][record-read-commit] | 单个 HTML 源码修改/全文审阅真实调用，续页覆盖可证，截断不冒完整；不要求执行预览。 |
 | A69 | M1·部分 | [来源索引测试][source-index-tests]、[知识服务测试][knowledge-tests] | 数百节点中文同义词及过时/缺摘要的真实模型查询。 |
 | A70 | M1·部分 | [知识服务测试][knowledge-tests]、[引用测试][reference-tests] | 环状 related、重复读取和预算耗尽真实会话，核已读覆盖。 |
 | A71 | M1·部分 | [CLI/MCP 读取提交][read-bridge-commit]、[bridge 读取测试][bridge-read-tests] | 同问题内置/CLI/MCP 同权限对照版本、字数和读取层级。 |
@@ -79,7 +79,7 @@
 | A73 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 记录][delivery] | 736/1200/1540 实机下收起/展开、保留 draft/scroll、停止后发送及业务页交互。 |
 | A74 | M1·部分 | [Pi 消息组件测试][pi-message-tests]、[会话面板测试][agent-panel-tests] | 真实两轮回答和异步结果插入，核来源、错误、折叠和滚动归属。 |
 | A75 | M1·部分 | [成果审阅测试][review-tests]、[批量操作测试][batch-tests] | [G1/P2 确认可用性](ai-work-context-delivery.md#intent-audit-20261009)：唯一待定方案的「同意」「好的」与按钮同一持久决定，含修改/模糊回复不误批，摘要说明已有对象目标与动作；再用真实“更新计划并建 3 Todo”任务验补充失效、部分失败及逐项收据。 |
-| A76 | M1·部分 | [成果卡片测试][output-card-tests]、[File 成果测试][agent-file-tests] | 实机打开实际对象后继续对话/编辑、移除目标；同 File ID 两轮续改与人工后改冲突。 |
+| A76 | M1·部分 | [成果卡片测试][output-card-tests]、[File 成果测试][agent-file-tests] | 实机从成果链接打开实际对象后继续对话/编辑、移除目标；同 File ID 两轮源码续改与人工后改冲突；文件预览另归 #118。 |
 
 ## 工程契约补充验收（R13 / #107 / E16）
 
@@ -99,7 +99,7 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-contex
 
 1. **安装与升级。** 在没有开发 Node/Pi 的干净设备安装；使用中文、空格和单引号路径的 Workspace/用户目录。打开旧 Workspace，再安装新版本覆盖升级，核迁移不改原始 Record/QuickNote。于设置查看 CLI 来源、目标命令和将改动的 profile/HKCU PATH，显式安装、执行 `mind --version`、重复安装、更新、卸载并检查其他 PATH/同名外部文件未改。重开终端验证命令发现，卸载后不再指向该安装；手改受管块应报冲突且保留修改。对应 A01/A20/A72；记录平台截图、命令输出和目录/配置差异。
 2. **真实模型会话与来源。** 在 Project A 配置真实 Profile，从空会话询问已有 Record/File/PDF/Todo/QuickNote 的具体问题，核模型只在 A 范围调用工具、回答的 recorded 判断有可点来源且建议另标；打开来源分页并核版本、摘录、coverage。停止、重启、继续同会话；再切 Workspace B，确认 A 的晚到事件不进入 B。尝试无凭据、模型不兼容及恶意文档指令；同时检查非模态面板、两轮消息、来源卡片、异步结果和目标移除。对应 A03～07/A11～12/A16～19/A66～70/A73～74/A76；记录实际工具/来源身份和字符预算，不记录私有推理日志。
-3. **成果、冲突与撤销。** 在同一真实会话依次创建 Record、修改一个块、创建/更新 Todo、创建和两轮修改 File；默认模式只对同一任务确认一次，显式自动模式按用户选择执行。“更新计划并创建 3 项 Todo”另核按钮/文字确认一致、补充要求使旧决定失效及部分失败逐项结算。核页面即时刷新、稳定对象 ID、版本、旧字节、来源与操作收据。用同一请求 ID 重试并改 payload，人工后改后提交旧 patch，撤销修改、撤回新增再恢复；针对 File 执行阶段杀进程、磁盘满/DB 故障注入并复查 journal。对应 A08～10/A13/A25～38/A44～50/A75～76。HTML File 待 R08 的脚本交互预览、历史固定版本及隔离/错误诊断 surface 交付后，再在两平台真实 WebView 中试内联按钮/筛选、历史预览以及 IPC、存储、fetch、导航、下载隔离；对应 A39～43。
+3. **成果、冲突与撤销。** 在同一真实会话依次创建 Record、修改一个块、创建/更新 Todo、创建和两轮修改 File；默认模式只对同一任务确认一次，显式自动模式按用户选择执行。“更新计划并创建 3 项 Todo”另核按钮/文字确认一致、补充要求使旧决定失效及部分失败逐项结算。核页面即时刷新、稳定对象 ID、版本、旧字节、来源与操作收据。用同一请求 ID 重试并改 payload，人工后改后提交旧 patch，撤销修改、撤回新增再恢复；针对 File 执行阶段杀进程、磁盘满/DB 故障注入并复查 journal。对应 A08～10/A13/A25～41/A43～50/A75～76 的 AI 部分。另用真实模型生成 HTML File v1，核一次确认、成果链接与收据；读取完整源码，同 ID 连续续改为 v2/v3，读取固定历史源码、恢复为新版后再续改，并核 JS/CSS/CDN 引用字节保留及未验证交互的如实告知。A42 的隔离及 A43 的依赖/JS 诊断由 #118/#115 在目标 WebKit/WebView2 验收，不阻塞 AI 发布。
 4. **知识与记忆。** 触发 Project Overview 初始化、源变更维护及停用/重开后补跑，核水位、partial、预算、纠正与来源；新会话询问较久以前的讨论，分别试有效摘要、摘要缺失、推翻决定和长历史分支，核有限原文回读、未执行建议未升格。覆盖 A02/A51～55/A59～65/A72。24h/48h 的调度结果需按真实设备时钟和离线恢复记录，不用单元测试时间代替。
 5. **CLI/MCP 和授权。** 在应用打开且已绑定 Workspace 时，创建只读、可写和对象限定连接，通过生产 CLI `mind doctor`、`mind project list`、`mind context get`、`mind mcp serve` 的 SDK 客户端查询，并用 `mind schema METHOD --json` 检查参数。只读连接尝试 create 应拒绝；对象连接只选 1–50 个 Record/File，未选对象的搜索/正文/引用/历史/写入不可见或拒绝，范围概览、创建、Todo 和会话读取被拒绝。用可写连接保存、重试、撤销，再撤权并重复请求；关闭应用或切换 Workspace 后须为机器可识别错误且不另开 DB。核 CLI/MCP 与内置相同节点版本和有界结果。对应 A04/A09/A13～15/A37/A71 及 R12c；记录实际 SDK/CLI 响应与目标平台，不将 Linux keyring smoke 代替。
 

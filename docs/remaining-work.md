@@ -18,10 +18,9 @@ GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品
 
 - [父 Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97) 是完整 PRD 和开发工单入口；[开发规格](requirements/ai-work-context-spec.md) 说明产品行为；[工程契约](requirements/ai-work-context-engineering-spec.md)集中数据/接口/故障规则，[交付验收](requirements/ai-work-context-delivery.md)集中工单定义与验收。Overview独立于QuickNote，不建设首页“继续工作”卡片。
 - 首期包含AI维护的Project Overview、每日/隔日增量整理、会话摘要检索及消息引用、按问题渐进读取、Pi 内置会话、带来源问答、Record块修改与版本恢复、项目File版本化修改、成果保存、CLI/MCP；后续为 Workspace分层Overview与长期记忆、多 Agent/菜单和无界面运行。
-- 19 个子任务为 #98～#116，实现状态及依赖在 GitHub 跟踪；按[交付顺序](requirements/ai-work-context-delivery.md)推进。首期完整验收为 #107；[#113 Record块编辑与版本](https://github.com/xuchen-cloud/project_mind/issues/113)、[#114 File版本化修改](https://github.com/xuchen-cloud/project_mind/issues/114)、[#115 HTML交互稿](https://github.com/xuchen-cloud/project_mind/issues/115)和[#116 自主执行与撤销](https://github.com/xuchen-cloud/project_mind/issues/116)均是首期依赖。
-- 2026-10-08 核对 `codex/ai-enhancement@e26380d`：#99 已完成合并；Record、来源、File版本和Overview有阶段实现，生产Host、助手与写入/撤销闭环尚未接通。不能继续按旧文案“全部尚未实现”推进，也不以内部测试数计算交付比例。
-- 当前先做[交付计划R01](requirements/ai-work-context-delivery.md#r01)：补干净构建的固定运行时、Source/Pi资源和目标架构传递；随后接正式资料读取、Host和可问资料的界面。Overview同水位续批冲突在R10a修正，已有版本/来源服务直接复用。
-- 后续按R05～09交付可撤销成果及HTML，R10～12接自动知识/会话/CLI-MCP，R13完成M1安装验收，再做R14～16的Workspace记忆、外部Agent和独立Host。父#97在全部批次完成后关闭；详细缺口、非目标与验证只维护在交付计划，避免再建平行清单。
+- 当前 AI 子任务为 18 个（#98～#116，去除 #115），原编号保留。首期验收为 #107；#113 Record 版本、#114 File 版本化修改及 #116 任务确认/撤销继续属于 AI。HTML 子包 #115 已迁入独立文件需求 #118，不再阻塞 AI。
+- 2026-10-09 已对照规格、工程契约与 R01～R16 核对当前实现：主要服务已接通，真实模型与目标平台仍待验。近期按交付计划补确认体验、本地调度、成段摘要和会话模型选择，再完成 R13 的 AI/E16 验收；后续 R14～16 保留。历史 R01 开工顺序不是当前待办。
+- [项目文件预览与编辑集成](requirements/project-file-integration.md)及[独立需求 #118](https://github.com/xuchen-cloud/project_mind/issues/118)负责 HTML、Markdown、Word、Excel、PPT 的项目内编辑预览与开源组件集成，当前为独立规划。AI 继续生成/修改支持的文件并复用保存、版本与撤销，不因拆分删除已有能力。
 - [方向讨论稿](technical/ai-capability-direction.md) 和 [参考调研](technical/ai-capability-reference-research.md) 保留思路来源；默认沉淀行为以开发规格为准：过程自动保存、成果自主保存并可撤销，Overview随助手启用后定期增量维护。
 
 ## P0：Voice Record 收尾
