@@ -99,6 +99,7 @@ fn fixture() -> (
     };
     let summary = "关于权限管理的讨论。".repeat(210);
     let draft = KnowledgeNodeWrite {
+            memory: None,
         node_id: "segment-one".into(),
         expected_revision: 0,
         kind: KnowledgeKind::SourceSummary,

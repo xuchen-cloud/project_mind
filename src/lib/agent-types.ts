@@ -178,7 +178,7 @@ export interface AiOverview {
   pendingCount: number;
   modelProfileId: string;
 }
-export type KnowledgeStorageKind = "topic" | "decision" | "source_summary";
+export type KnowledgeStorageKind = "topic" | "decision" | "source_summary" | "memory";
 export type KnowledgeReadKind = KnowledgeStorageKind | "overview_item";
 export type KnowledgeNodeId = `node:${string}` | `overview:${string}`;
 export type KnowledgeView = "outline" | "summary" | "content";

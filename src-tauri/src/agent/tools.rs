@@ -82,9 +82,10 @@ where
                         .source_refs
                         .iter()
                         .map(|source| crate::db::agent_run_provenance::ObservedSource {
-                            object: source.object.clone(),
+                            object: source.object.clone().into(),
                             revision: Some(source.revision.clone()),
                         })
+                        .chain(entry.derived_sources.iter().cloned())
                         .collect::<Vec<_>>();
                     let observed = super::source_trace::expand_sources(db, request, binding, observed)?;
                     db.agent_run_provenance_observe(request, binding, &observed)?;
@@ -352,7 +353,7 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
     let id = text(128);
     let sections = json!({"type":"string","maxLength":32,"enum":["profile","progress","knowledgeMap","actions","openQuestions"]});
     let knowledge_kinds =
-        json!({"type":"string","maxLength":32,"enum":["topic","decision","source_summary"]});
+        json!({"type":"string","maxLength":32,"enum":["topic","decision","source_summary","memory"]});
     let mut result = vec![];
     let mut add = |name: &'static str, description, properties, required: &[&str]| {
         result.push(ReadToolDescription {
@@ -365,7 +366,7 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
     add("project.list", "List authorized active Projects by stable ID. Repeat nextCursor to continue; Workspace access alone grants no Project.", json!({"cursor":nullable(text(32)),"limit":nullable(integer(50))}), &[]);
     add("context.get", "Read bounded scope identity and knowledge navigation before opening source bodies. Scope must be within the Host grant.", json!({"scope":scope,"query":nullable(text(2000)),"budgetChars":nullable(integer(3000))}), &["scope"]);
     add("context.overview.get", "Read Overview directory by default; select sections or itemIds for bounded content, and reuse nextCursor for continuation.", json!({"scope":scope,"version":version,"sections":array(sections,5),"itemIds":array(id.clone(),100),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(8000))}), &["scope"]);
-    add("knowledge.search", "Search authorized knowledge cards. If sourceFallbackRequired is true, use source.search to find original evidence.", json!({"scope":scope,"query":text(2000),"kinds":array(knowledge_kinds,3),"cursor":nullable(text(8192)),"limit":nullable(integer(50)),"budgetChars":nullable(integer(3000))}), &["scope","query"]);
+    add("knowledge.search", "Search authorized knowledge cards. If sourceFallbackRequired is true, use source.search to find original evidence.", json!({"scope":scope,"query":text(2000),"kinds":array(knowledge_kinds,4),"cursor":nullable(text(8192)),"limit":nullable(integer(50)),"budgetChars":nullable(integer(3000))}), &["scope","query"]);
     add("knowledge.get", "Read a node: or overview: navigation ID. Default view is summary; use content and sectionIds for selective bounded reading.", json!({"scope":scope,"nodeId":id,"version":version,"view":{"type":"string","maxLength":32,"enum":["outline","summary","content"]},"sectionIds":array(text(128),20),"cursor":nullable(text(8192)),"budgetChars":nullable(integer(8000))}), &["scope","nodeId"]);
     add("source.search", "Search indexed original sources and session summary segments in a granted scope, optionally limited to selected objects. Results are rechecked against actual source ownership, policy and revisions.", json!({"scope":scope,"query":text(256),"kinds":array(source_kinds(),7),"selected":array(object_ref_schema(),50),"includeHistory":{"type":"boolean"},"limit":nullable(integer(50)),"budgetChars":nullable(integer(12000))}), &["scope","query"]);
     let target = object(

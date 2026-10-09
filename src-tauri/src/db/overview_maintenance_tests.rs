@@ -79,6 +79,7 @@ fn publish_input(
         target_seq: batch.target_seq,
         policy_revision: batch.policy_revision,
         correction_revision: batch.correction_revision,
+        expected_memory_epoch: batch.expected_memory_epoch,
         upsert_items: vec![],
         remove_item_ids: vec![],
         settled_object_keys: if progress.state == OverviewSourceState::Partial {
@@ -110,6 +111,21 @@ fn prepare(f: &Fixture) -> OverviewMaintenanceBatch {
     f.db.agent_overview_maintenance_prepare(&f.binding, &f.scope, Utc::now())
         .unwrap()
         .unwrap()
+}
+
+#[test]
+fn memory_policy_epoch_discards_unpublished_batch_and_rejects_old_publish() {
+    let f = fixture();
+    let old = prepare(&f);
+    assert_eq!(old.expected_memory_epoch, 0);
+    assert_eq!(f.db.agent_memory_bump_epoch(&f.scope).unwrap(), 1);
+    let fresh = prepare(&f);
+    assert_ne!(fresh.batch_id, old.batch_id);
+    assert_eq!(fresh.expected_memory_epoch, 1);
+    assert_eq!(fresh.source.object_key, old.source.object_key);
+    let stale = publish_input(&f, &old, &progress(&old, OverviewSourceState::Processed, None));
+    let error = f.db.agent_overview_publish("gui", "old-memory-epoch", "w", &stale, |_, _| Ok(())).unwrap_err();
+    assert_eq!(error.code, ErrorCode::RevisionConflict);
 }
 
 #[test]

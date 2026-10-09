@@ -138,6 +138,8 @@ pub struct ContextEntry {
     /// Exact underlying sources for the visible L0 text; never sent to callers.
     #[serde(skip)]
     pub(crate) source_refs: Vec<SourceRef>,
+    #[serde(skip)]
+    pub(crate) derived_sources: Vec<crate::db::agent_run_provenance::ObservedSource>,
 }
 
 impl ContextEntry {
@@ -160,6 +162,7 @@ impl ContextEntry {
             has_more: truncated,
             available_reads: vec![],
             source_refs: vec![],
+            derived_sources: vec![],
         };
         entry = entry.bounded(Some(budget))?;
         Ok(entry)

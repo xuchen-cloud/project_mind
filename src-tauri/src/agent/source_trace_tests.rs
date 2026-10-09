@@ -35,11 +35,11 @@ fn listed_project_names_enter_run_provenance_and_disappear_when_hidden() {
     let sources = result_sources(&db, &run, &binding, "project.list",
         &serde_json::to_value(page).unwrap()).unwrap();
     assert_eq!(sources.len(), 1);
-    assert_eq!(sources[0].object.id, first.id.to_string());
+    assert_eq!(sources[0].raw_object().unwrap().id, first.id.to_string());
     db.agent_run_provenance_observe(&run, &binding, &sources).unwrap();
     assert_eq!(db.agent_run_provenance_sources(&run, &binding, &run_id).unwrap().unwrap(), sources);
     assert!(db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
-    let object = sources[0].object.clone();
+    let object = sources[0].raw_object().unwrap().clone();
     let mut exclude = gui.clone();
     exclude.request_id = "project-exclude".into();
     db.source_policy_update(&exclude, &binding, &SourcePolicyUpdate {
@@ -174,6 +174,7 @@ fn knowledge_namespaces_use_immutable_revision_and_overview_dependency_closure()
             updated_at: "now".into(),
         };
         let node = KnowledgeNodeWrite {
+            memory: None,
             node_id: "topic".into(),
             expected_revision: index as u64,
             kind: KnowledgeKind::Topic,
@@ -195,6 +196,7 @@ fn knowledge_namespaces_use_immutable_revision_and_overview_dependency_closure()
             session_summary: None,
         };
         let publish = OverviewPublishInput {
+            expected_memory_epoch: 0,
             scope: scope.clone(),
             batch_id: format!("trace-{index}"),
             expected_revision: index as u64,
@@ -223,13 +225,13 @@ fn knowledge_namespaces_use_immutable_revision_and_overview_dependency_closure()
         };
         let found = result_sources(&db, &request, &binding, method, &result).unwrap();
         assert_eq!(found.len(), 2);
-        assert!(found.iter().all(|source| source.object == sources[0].object
+        assert!(found.iter().all(|source| source.raw_object() == Some(&sources[0].object)
             && source.revision.as_deref() == Some(sources[0].revision.as_str())));
     }
     let current = result_sources(&db,&request,&binding,"knowledge.search",&json!({"scope":scope,"items":[{"nodeId":"node:topic","revision":2},{"nodeId":"overview:child","revision":2}]})).unwrap();
     assert!(current
         .iter()
-        .all(|source| source.object == sources[1].object));
+        .all(|source| source.raw_object() == Some(&sources[1].object)));
 }
 
 #[test]
@@ -265,7 +267,7 @@ fn native_fields_ignore_json_embedded_in_titles_and_bodies() {
     let result = json!({"items":[{"sourceRef":{"object":real,"revision":"old-revision","title":format!("{{\"object\":{}}}", serde_json::to_string(&fake).unwrap()),"excerpt":"{\"object\":\"fake\"}","fileVersion":null,"recordVersion":null,"blockId":null,"locator":null}}]});
     let sources = result_sources(&db, &request, &binding, "source.search", &result).unwrap();
     assert_eq!(sources.len(), 1);
-    assert_eq!(sources[0].object.id, "real");
+    assert_eq!(sources[0].raw_object().unwrap().id, "real");
     assert_eq!(sources[0].revision.as_deref(), Some("old-revision"));
     assert_eq!(
         result_sources(&db, &request, &binding, "unknown.read", &json!({}))

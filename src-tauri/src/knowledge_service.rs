@@ -165,6 +165,7 @@ struct SearchCursor {
     s: Scope,
     q: String,
     r: u64,
+    e: u64,
     a: String,
     h: bool,
 }
@@ -214,6 +215,7 @@ fn kind(kind: KnowledgeKind) -> String {
         KnowledgeKind::Topic => "topic",
         KnowledgeKind::Decision => "decision",
         KnowledgeKind::SourceSummary => "source_summary",
+        KnowledgeKind::Memory => "memory",
     }
     .into()
 }
@@ -257,6 +259,7 @@ fn visible_metadata(
     binding: &WorkspaceBinding,
     node: &KnowledgeNode,
 ) -> AgentResult<bool> {
+    if node.memory.is_some() && !db.agent_memory_model_visible(request, binding, node)? { return Ok(false); }
     if node.session_summary.is_some() {
         match request.authorize(binding,&node.scope,"session.read") {
             Ok(())=>(),
@@ -285,6 +288,13 @@ fn visible_metadata(
         }
     }
     Ok(true)
+}
+fn effective_epistemic_status(db: &Database, node: &KnowledgeNode) -> AgentResult<EpistemicStatus> {
+    if node.memory.is_some() && db.agent_memory_policy(&node.scope, &node.node_id)?
+        .is_some_and(|policy| policy.confirmation == crate::agent::memory::MemoryConfirmation::UserConfirmed) {
+        return Ok(EpistemicStatus::UserConfirmed);
+    }
+    Ok(node.epistemic_status.clone())
 }
 fn dirty(db: &Database, binding: &WorkspaceBinding, node: &KnowledgeNode) -> AgentResult<bool> {
     let (policy, corrections) =
@@ -477,11 +487,12 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
             let superseders=if input.view==KnowledgeView::Summary && snapshot.session_summary.is_some() {
                 crate::source_session_summary::superseded_by(db,&source_request,binding,&snapshot)?
             } else {vec![]};
-            let visibility = hash(&(&snapshot.source_refs, &cards, stale, &superseders))?;
+            let memory_epoch = db.agent_memory_scope_epoch(&input.scope)?;
+            let visibility = hash(&(&snapshot.source_refs, &cards, stale, &superseders, memory_epoch))?;
             if cursor.as_ref().is_some_and(|c| c.v != visibility) {
                 return Err(changed());
             }
-            project_with_superseders(
+            let mut page = project_with_superseders(
                 input,
                 &snapshot,
                 cards,
@@ -491,7 +502,9 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
                 cursor.as_ref(),
                 budget,
                 &superseders,
-            )
+            )?;
+            page.epistemic_status = effective_epistemic_status(db, &snapshot)?;
+            Ok(page)
         })
     }
     pub(crate) fn search(
@@ -511,7 +524,7 @@ pub(crate) fn search_current(
     binding: &WorkspaceBinding,
     input: &KnowledgeSearchInput,
 ) -> AgentResult<KnowledgeSearchPage> {
-    if input.query.trim().is_empty() || input.query.chars().count() > 2000 || input.kinds.len() > 3
+    if input.query.trim().is_empty() || input.query.chars().count() > 2000 || input.kinds.len() > 4
     {
         return Err(invalid(
             "Knowledge search requires a bounded nonempty query",
@@ -534,7 +547,8 @@ pub(crate) fn search_current(
     let revision = db
         .agent_overview_head(&input.scope)?
         .map_or(0, |head| head.revision);
-    if cursor.as_ref().is_some_and(|c| c.r != revision) {
+    let memory_epoch = db.agent_memory_scope_epoch(&input.scope)?;
+    if cursor.as_ref().is_some_and(|c| c.r != revision || c.e != memory_epoch) {
         return Err(changed());
     }
     let mut after = cursor.as_ref().map(|c| c.a.clone());
@@ -564,7 +578,7 @@ pub(crate) fn search_current(
                 kind: kind(node.kind),
                 revision: node.revision,
                 stale: dirty(db, binding, &node)?,
-                epistemic_status: node.epistemic_status.clone(),
+                epistemic_status: effective_epistemic_status(db, &node)?,
             });
             if visible.len() > usize::from(limit) {
                 break;
@@ -584,6 +598,7 @@ pub(crate) fn search_current(
             s: input.scope.clone(),
             q: selection.clone(),
             r: revision,
+            e: memory_epoch,
             a: id,
             h: had_visible,
         })
@@ -1101,6 +1116,7 @@ mod tests {
     }
     fn node(f: &Fixture, id: &str, source: usize) -> KnowledgeNodeWrite {
         KnowledgeNodeWrite {
+            memory: None,
             node_id: id.into(),
             expected_revision: 0,
             kind: KnowledgeKind::Topic,
@@ -1146,6 +1162,7 @@ mod tests {
             })
             .unwrap();
         let input = OverviewPublishInput {
+            expected_memory_epoch: 0,
             scope: f.scope.clone(),
             batch_id: format!("knowledge-batch-{expected_revision}"),
             expected_revision,
@@ -1207,6 +1224,56 @@ mod tests {
             })
             .unwrap();
     }
+    #[tokio::test]
+    async fn memory_current_policy_controls_get_search_related_and_old_versions() {
+        use crate::agent::memory::{MemoryCategory, MemoryMetadata};
+        use crate::db::memory_service::{MemoryAction, MemoryCorrection, MemoryUpdateInput};
+        let f = fixture().await;
+        let mut memory = node(&f, "memory", 0);
+        memory.kind = KnowledgeKind::Memory;
+        memory.memory = Some(MemoryMetadata { category: MemoryCategory::Method,
+            last_supported_at: "2026-10-09T00:00:00Z".into() });
+        memory.summary = "Original method".into();
+        memory.body_sections.clear();
+        let mut topic = node(&f, "topic", 1);
+        topic.related = vec![crate::agent::knowledge::KnowledgeRelated {
+            node_id: "memory".into(), revision: 1, relation: KnowledgeRelation::Related,
+            reason: "Reusable method".into(),
+        }];
+        publish(&f, vec![memory, topic], "publish-memory").await;
+        let service = KnowledgeService::new(&f.store);
+        let request = read_request(&f);
+        let mut gui = request.clone();
+        gui.caller = crate::agent::access::Caller::Gui;
+        gui.scope_grant.operations.push("memory.manage".into());
+        let action = |action, node_revision, policy_revision, correction| {
+            f.store.with_current(|binding, db| db.agent_memory_update(&gui, binding, &MemoryUpdateInput {
+                scope: f.scope.clone(), node_id: "node:memory".into(),
+                expected_node_revision: node_revision, expected_policy_revision: policy_revision,
+                action, correction,
+            })).unwrap()
+        };
+        assert_eq!(service.get(&request, &input(&f, "topic")).await.unwrap().related.len(), 1);
+        action(MemoryAction::Confirm, 1, 0, None);
+        assert!(matches!(service.get(&request, &input(&f, "memory")).await.unwrap().epistemic_status,
+            EpistemicStatus::UserConfirmed));
+        action(MemoryAction::Correct, 1, 1, Some(MemoryCorrection {
+            title: "Corrected method".into(), one_line: "Corrected".into(),
+            summary: "User correction".into(), body_sections: vec![],
+        }));
+        let mut old = input(&f, "memory"); old.version = Some(1);
+        assert_eq!(service.get(&request, &old).await.unwrap_err().code, ErrorCode::NotFound);
+        assert!(service.get(&request, &input(&f, "topic")).await.unwrap().related.is_empty());
+        action(MemoryAction::Disable, 2, 2, None);
+        assert_eq!(service.get(&request, &input(&f, "memory")).await.unwrap_err().code, ErrorCode::NotFound);
+        let found = service.search(&request, &KnowledgeSearchInput { scope: f.scope.clone(),
+            query: "Corrected".into(), kinds: vec![KnowledgeKind::Memory], cursor: None,
+            limit: Some(10), budget_chars: Some(3000) }).unwrap();
+        assert!(found.items.is_empty());
+        f.store.with_current(|binding, db| db.source_read_object(&f.request, binding,
+            &f.evidence[0].reference().object)).unwrap();
+    }
+
     #[tokio::test]
     async fn knowledge_selective_unicode_pages_summary_budget_and_head_cursor() {
         let f = fixture().await;

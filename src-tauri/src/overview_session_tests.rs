@@ -464,6 +464,7 @@ async fn frozen_conversation_draft_replays_without_regeneration() {
         }
         let coverage=db.agent_overview_maintenance_coverage_many(binding,&f.scope,&progresses)?;
         db.agent_overview_maintenance_save_draft_many(binding,&f.scope,&frozen.batch_id,&crate::agent::overview::OverviewPublishInput {
+            expected_memory_epoch: 0,
             scope:f.scope.clone(),batch_id:frozen.batch_id.clone(),expected_revision:frozen.expected_revision,target_seq:frozen.target_seq,policy_revision:frozen.policy_revision,correction_revision:frozen.correction_revision,
             upsert_items:vec![crate::agent::context::OverviewItem { id:"draft-cited".into(),section:crate::agent::context::OverviewSection::Progress,text:"三条讨论已有依据".into(),epistemic_status:EpistemicStatus::Recorded,source_refs:refs,
             published_sources: vec![],dependency_item_ids:vec![],valid_state:crate::agent::context::ValidState::Current,updated_at:Utc::now().to_rfc3339() }],

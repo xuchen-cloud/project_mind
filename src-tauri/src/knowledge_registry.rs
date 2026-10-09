@@ -70,6 +70,7 @@ struct SearchCursor {
     scope: Scope,
     selection: String,
     revision: u64,
+    memory_epoch: u64,
     inner: Option<String>,
     overview_after: Option<String>,
     had_hits: bool,
@@ -248,7 +249,7 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
     ) -> AgentResult<KnowledgeSearchPage> {
         if input.query.trim().is_empty()
             || input.query.chars().count() > 2000
-            || input.kinds.len() > 3
+            || input.kinds.len() > 4
         {
             return Err(invalid(
                 "Knowledge search requires a bounded nonempty query",
@@ -277,7 +278,8 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
         let revision = snapshot
             .as_ref()
             .map_or(0, |(snapshot, _)| snapshot.revision);
-        if cursor.as_ref().is_some_and(|c| c.revision != revision) {
+        let memory_epoch = db.agent_memory_scope_epoch(&input.scope)?;
+        if cursor.as_ref().is_some_and(|c| c.revision != revision || c.memory_epoch != memory_epoch) {
             return Err(changed());
         }
         let prior_hits = cursor.as_ref().is_some_and(|c| c.had_hits);
@@ -300,6 +302,7 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
                 scope: input.scope.clone(),
                 selection,
                 revision,
+                memory_epoch,
                 inner: Some(inner),
                 overview_after: None,
                 had_hits: prior_hits || !page.items.is_empty(),
@@ -346,6 +349,7 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
                         scope: input.scope.clone(),
                         selection: selection.clone(),
                         revision,
+                memory_epoch,
                         inner: None,
                         overview_after: Some(candidate_last.clone()),
                         had_hits: prior_hits || !page.items.is_empty(),
@@ -362,6 +366,7 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
                         scope: input.scope.clone(),
                         selection: selection.clone(),
                         revision,
+                memory_epoch,
                         inner: None,
                         overview_after: Some(last),
                         had_hits: prior_hits || !page.items.is_empty(),
@@ -623,6 +628,7 @@ mod tests {
             .collect();
         let nodes = (0..2)
             .map(|n| KnowledgeNodeWrite {
+            memory: None,
                 node_id: format!("topic-{n}"),
                 expected_revision: 0,
                 kind: KnowledgeKind::Topic,
@@ -645,6 +651,7 @@ mod tests {
             })
             .collect();
         let input = OverviewPublishInput {
+            expected_memory_epoch: 0,
             scope: scope.clone(),
             batch_id: "registry-batch-0".into(),
             expected_revision: 0,

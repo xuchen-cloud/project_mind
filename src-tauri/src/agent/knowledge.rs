@@ -3,6 +3,7 @@ use super::{
     context::{EpistemicStatus, SourceCoverage, ValidState},
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, Scope, SourceLocator, SourceRef},
+    memory::MemoryMetadata,
     overview::{invalid, validate_id},
     sessions::SessionSummarySegment,
 };
@@ -21,6 +22,7 @@ pub enum KnowledgeKind {
     Topic,
     Decision,
     SourceSummary,
+    Memory,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +66,8 @@ pub struct KnowledgeNodeWrite {
     pub related: Vec<KnowledgeRelated>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_summary: Option<SessionSummarySegment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemoryMetadata>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +90,8 @@ pub struct KnowledgeNode {
     pub related: Vec<KnowledgeRelated>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_summary: Option<SessionSummarySegment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<MemoryMetadata>,
     pub updated_at: String,
     pub valid_state: ValidState,
 }
@@ -143,6 +149,18 @@ impl KnowledgeNodeWrite {
         }
         if matches!(self.epistemic_status, EpistemicStatus::UserConfirmed) {
             return Err(invalid("Model knowledge cannot assert user_confirmed"));
+        }
+        if (self.kind == KnowledgeKind::Memory) != self.memory.is_some()
+            || self.memory.as_ref().is_some_and(|memory| {
+                memory.last_supported_at.is_empty()
+                    || memory.last_supported_at.len() > 64
+                    || chrono::DateTime::parse_from_rfc3339(&memory.last_supported_at).is_err()
+            })
+        {
+            return Err(invalid("Invalid memory metadata"));
+        }
+        if self.kind == KnowledgeKind::Memory && self.source_refs.is_empty() && self.published_sources.is_empty() {
+            return Err(invalid("Memory requires native source evidence"));
         }
         if matches!(self.epistemic_status, EpistemicStatus::Recorded) && self.source_refs.is_empty() && self.published_sources.is_empty()
         {
@@ -261,6 +279,7 @@ impl KnowledgeNodeWrite {
             coverage: self.coverage.clone(),
             related: self.related.clone(),
             session_summary: self.session_summary.clone(),
+            memory: self.memory.clone(),
             updated_at,
             valid_state: ValidState::Current,
         }

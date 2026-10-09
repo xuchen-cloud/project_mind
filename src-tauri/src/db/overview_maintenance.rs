@@ -4,6 +4,7 @@ use super::{agent_operations::io_error, Database};
 use crate::agent::{
     access::RequestContext,
     context::{SourceCoverage,PublishedOverviewRef},
+    knowledge::KnowledgeNode,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
     overview::{OverviewPendingItem, OverviewPublishInput},
@@ -37,6 +38,31 @@ impl OverviewInput {
         Self::Published{published}=>Ok(format!("published:{}:{}",published.project_id,published.item_id)),
     }}
 }
+
+impl Database {
+    /// Current memory whose actual supporting input is the page being read.
+    /// The indexed raw keys and typed published refs avoid a scope-wide scan.
+    pub(crate) fn agent_overview_memory_for_input(&self,scope:&Scope,input:&OverviewInput)
+        -> AgentResult<Vec<KnowledgeNode>> {
+        let condition=match input {
+            OverviewInput::Raw(_)=>"EXISTS(SELECT 1 FROM agent_memory_node_sources s WHERE s.scope_key=n.scope_key AND s.node_id=n.node_id AND s.source_key=?2)",
+            OverviewInput::Published{..}=>"EXISTS(SELECT 1 FROM json_each(v.snapshot_json,'$.publishedSources') p WHERE json_extract(p.value,'$.projectId')=?2 AND json_extract(p.value,'$.itemId')=?3)",
+        };
+        let sql=format!("SELECT v.snapshot_json FROM agent_knowledge_nodes n JOIN agent_knowledge_versions v ON v.scope_key=n.scope_key AND v.node_id=n.node_id AND v.revision=n.current_revision WHERE n.scope_key=?1 AND n.kind='memory' AND n.deleted=0 AND {condition} AND NOT EXISTS(SELECT 1 FROM agent_memory_policy p WHERE p.scope_key=n.scope_key AND p.node_id=n.node_id AND p.status='disabled') ORDER BY n.node_id LIMIT 51");
+        let mut stmt=self.conn.prepare(&sql).map_err(io_error)?;
+        let mut rows=match input {
+            OverviewInput::Raw(object)=>stmt.query(params![scope.key(),object.key()?]),
+            OverviewInput::Published{published}=>stmt.query(params![scope.key(),published.project_id,published.item_id]),
+        }.map_err(io_error)?;
+        let mut nodes=Vec::new();
+        while let Some(row)=rows.next().map_err(io_error)? {
+            let json:String=row.get(0).map_err(io_error)?;
+            nodes.push(serde_json::from_str(&json).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Invalid stored memory"))?);
+        }
+        if nodes.len()>50 {return Err(AgentError::new(ErrorCode::BudgetExceeded,"Too many memories for this source"));}
+        Ok(nodes)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OverviewSourceProgress {
@@ -56,6 +82,8 @@ pub(crate) struct OverviewMaintenanceBatch {
     pub expected_revision: u64,
     pub policy_revision: u64,
     pub correction_revision: u64,
+    #[serde(default)]
+    pub expected_memory_epoch: u64,
     pub source: OverviewPendingItem,
     pub source_object: OverviewInput,
     pub source_cursor: Option<String>,
@@ -427,8 +455,13 @@ impl Database {
         if ledger.cancelled || ledger.error_code.is_some() {
             return Ok(None);
         }
+        let memory_epoch=self.agent_memory_scope_epoch(scope)?;
         if let Some(batch) = ledger.batch {
-            return Ok(Some(batch));
+            let already_published:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_versions WHERE scope_key=?1 AND batch_id=?2)",
+                params![scope.key(),batch.batch_id],|r|r.get(0)).map_err(io_error)?;
+            if batch.expected_memory_epoch==memory_epoch || already_published {return Ok(Some(batch));}
+            ledger.batch=None;
+            ledger.continuation_target_seq=None;
         }
         let fresh_target: i64 = tx
             .query_row(
@@ -548,6 +581,7 @@ impl Database {
             expected_revision: expected_revision as u64,
             policy_revision: policy_revision as u64,
             correction_revision: correction_revision as u64,
+            expected_memory_epoch: memory_epoch,
             source: OverviewPendingItem {
                 object_key,
                 first_seq: first_seq as u64,
@@ -699,6 +733,7 @@ impl Database {
                 batch.batch_id!=batch_id || publish.batch_id!=batch_id || publish.scope!=*scope ||
                 publish.expected_revision!=batch.expected_revision || publish.target_seq!=batch.target_seq ||
                 publish.policy_revision!=batch.policy_revision || publish.correction_revision!=batch.correction_revision ||
+                publish.expected_memory_epoch!=batch.expected_memory_epoch ||
                 publish.settled_object_keys!=if partial {vec![]} else {vec![batch.source.object_key.clone()]} {
                 return Err(conflict("Published Overview batch changed"));
             }
@@ -706,6 +741,7 @@ impl Database {
             if current!=Some((batch.source.last_seq as i64,batch.source.latest_revision.clone(),batch.source.deleted,batch.source.excluded)) {
                 return Err(AgentError::new(ErrorCode::SourceChanged,"Published item changed during batch"));
             }
+            self.agent_memory_require_scope_epoch(scope,batch.expected_memory_epoch)?;
             if encode(&self.maintenance_coverage_read(binding,scope,progresses)?.0)?!=encode(&publish.coverage)? {
                 return Err(AgentError::new(ErrorCode::SourceChanged,"Published coverage changed"));
             }
@@ -750,6 +786,7 @@ impl Database {
             || publish.target_seq != batch.target_seq
             || publish.policy_revision != batch.policy_revision
             || publish.correction_revision != batch.correction_revision
+            || publish.expected_memory_epoch != batch.expected_memory_epoch
             || progress.object != batch.source_object
             || progress.handled_seq != batch.source.last_seq
             || progress.read_target.as_ref().is_some_and(|target| {
@@ -777,6 +814,7 @@ impl Database {
         let preview = self
             .maintenance_coverage_read(binding, scope, progresses)?
             .0;
+        self.agent_memory_require_scope_epoch(scope,batch.expected_memory_epoch)?;
         if serde_json::to_value(&preview).map_err(|_| invalid("Invalid Overview coverage"))?
             != serde_json::to_value(&publish.coverage)
                 .map_err(|_| invalid("Invalid Overview coverage"))?
@@ -922,6 +960,27 @@ impl Database {
         ledger.error_code = Some(code);
         write_ledger(&tx, scope, &ledger, now)?;
         tx.commit().map_err(io_error)
+    }
+
+    /// A user memory decision invalidates an unpublished draft. Keep the
+    /// pending source intact and let the next preparation freeze the new epoch.
+    pub(crate) fn agent_overview_maintenance_reset_changed_memory_epoch(
+        &self,binding:&WorkspaceBinding,scope:&Scope,batch_id:&str,now:DateTime<Utc>,
+    )->AgentResult<bool> {
+        check_scope(self,binding,scope)?;
+        let tx=Transaction::new_unchecked(&self.conn,TransactionBehavior::Immediate).map_err(io_error)?;
+        let mut ledger=read_ledger(&tx,scope)?;
+        let Some(batch)=ledger.batch.as_ref().filter(|batch|batch.batch_id==batch_id) else {return Ok(false)};
+        if self.agent_memory_scope_epoch(scope)?==batch.expected_memory_epoch {return Ok(false);}
+        let published:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_versions WHERE scope_key=?1 AND batch_id=?2)",
+            params![scope.key(),batch_id],|r|r.get(0)).map_err(io_error)?;
+        if published {return Ok(false);}
+        ledger.batch=None;
+        ledger.continuation_target_seq=None;
+        ledger.error_code=None;
+        write_ledger(&tx,scope,&ledger,now)?;
+        tx.commit().map_err(io_error)?;
+        Ok(true)
     }
 
     pub(crate) fn agent_overview_maintenance_defer_published(

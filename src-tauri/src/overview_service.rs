@@ -979,6 +979,7 @@ mod tests {
                 .await
                 .unwrap();
         let input = OverviewPublishInput {
+            expected_memory_epoch: 0,
             scope: source.source.object.scope.clone(),
             batch_id: "service-batch-0".into(),
             expected_revision: 0,
@@ -1385,6 +1386,7 @@ mod tests {
         let (_root, store, request, source) = setup();
         let (mut input, evidence) = candidate(&store, &request, &source).await;
         input.knowledge_upserts.push(KnowledgeNodeWrite {
+            memory: None,
             node_id: "decision-one".into(),
             expected_revision: 0,
             kind: KnowledgeKind::Decision,

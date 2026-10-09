@@ -23,6 +23,34 @@ fn source() -> SourceRef {
 }
 
 #[test]
+fn memory_candidate_binds_read_evidence_and_keeps_native_id_across_revision() {
+    let allowed=AllowedAffectedIds {existing_ids:HashSet::new(),affected_ids:HashSet::new()};
+    let response=r#"{"upsertItems":[],"removeItemIds":[],"memoryCandidates":[{"category":"method","title":"Working method","oneLine":"Review each source","summary":"The user repeatedly uses source review.","bodySections":[],"keywords":["review"],"evidenceIndices":[0]}]}"#;
+    let first=parse_delta(response,&allowed,&[source()],"2026-10-09T00:00:00Z").unwrap();
+    assert_eq!(first.memory_candidates.len(),1);
+    assert_eq!(first.memory_candidates[0].source_refs[0].revision,source().revision);
+    let mut renamed=source();renamed.title="New title".into();renamed.revision="new-content".into();
+    let second=parse_delta(response,&allowed,&[renamed],"2026-10-10T00:00:00Z").unwrap();
+    assert_eq!(first.memory_candidates[0].node_id,second.memory_candidates[0].node_id);
+    assert_ne!(first.memory_candidates[0].source_refs[0].revision,second.memory_candidates[0].source_refs[0].revision);
+}
+
+#[test]
+fn memory_candidate_cannot_cite_unread_evidence() {
+    let allowed=AllowedAffectedIds {existing_ids:HashSet::new(),affected_ids:HashSet::new()};
+    let response=r#"{"upsertItems":[],"removeItemIds":[],"memoryCandidates":[{"category":"preference","title":"Preference","oneLine":"Prefers review","summary":"Prefers source review.","evidenceIndices":[1]}]}"#;
+    assert_eq!(parse_delta(response,&allowed,&[source()],"2026-10-09T00:00:00Z").unwrap_err().code,ErrorCode::InvalidArgument);
+}
+
+#[test]
+fn duplicate_memory_category_and_support_is_rejected() {
+    let allowed=AllowedAffectedIds {existing_ids:HashSet::new(),affected_ids:HashSet::new()};
+    let one=serde_json::json!({"category":"method","title":"Review method","oneLine":"Review sources","summary":"Review source evidence.","evidenceIndices":[0]});
+    let response=serde_json::json!({"upsertItems":[],"removeItemIds":[],"memoryCandidates":[one.clone(),one]}).to_string();
+    assert_eq!(parse_delta(&response,&allowed,&[source()],"now").unwrap_err().code,ErrorCode::InvalidArgument);
+}
+
+#[test]
 fn published_page_keeps_corrections_and_visible_cross_project_context() {
     let allowed=AllowedAffectedIds { existing_ids:["a".into(),"b".into(),"c".into()].into(),
         affected_ids:["a".into()].into() };
@@ -33,7 +61,7 @@ fn published_page_keeps_corrections_and_visible_cross_project_context() {
     let correction=OverviewCorrection {id:"correction-a".into(),scope:Scope::Project{project_id:7},
         item_id:Some("a".into()),text:"A 的旧结论已被纠正".into(),revision:1,
         deleted:false,created_at:"now".into(),updated_at:"now".into()};
-    let prompt=build_published_prompt(&allowed,&[visible_b],&[correction],"第一页父项正文",0,false).unwrap();
+    let prompt=build_published_prompt(&allowed,&[visible_b],&[correction],&[],"第一页父项正文",0,false).unwrap();
     assert!(prompt.contains("B 的已授权结论"));
     assert!(prompt.contains("A 的旧结论已被纠正"));
     assert!(!prompt.contains("C 的撤权正文"));
@@ -245,6 +273,7 @@ fn prompt_enforces_total_budget_and_marks_source_text_as_untrusted() {
         corrections: &[],
         source_pages: &pages,
         prior_source_summary: None,
+        prior_memory: &[],
         conversation: None,
     })
     .unwrap();
@@ -269,6 +298,7 @@ fn prompt_enforces_total_budget_and_marks_source_text_as_untrusted() {
             corrections: &[],
             source_pages: &huge_pages,
             prior_source_summary: None,
+            prior_memory: &[],
             conversation: None,
         })
         .unwrap_err()

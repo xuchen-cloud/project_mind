@@ -496,6 +496,7 @@ fn schema_33_upgrade_reopens_and_preserves_index() {
         .unwrap();
     let legacy_text = "检索前缀\u{0}🙂文";
     db.conn.execute("INSERT INTO agent_session_search_rows(message_id,text_hash,text) SELECT id,?1,?2 FROM agent_messages",params![format!("sha256:{:x}",Sha256::digest(legacy_text.as_bytes())),legacy_text]).unwrap();
+    super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
     db.conn.execute_batch("PRAGMA user_version=33").unwrap();
     drop(db);
     let reopened = Database::open(&path, root.path(), None).unwrap();

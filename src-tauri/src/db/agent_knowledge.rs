@@ -117,7 +117,7 @@ impl Database {
         limit: u16,
     ) -> AgentResult<Vec<KnowledgeNode>> {
         self.knowledge_scope(scope)?;
-        if !(1..=50).contains(&limit) || query.chars().count() > 2000 || kinds.len() > 3 {
+        if !(1..=50).contains(&limit) || query.chars().count() > 2000 || kinds.len() > 4 {
             return Err(invalid("Invalid knowledge search page"));
         }
         if let Some(id) = after_id {
@@ -132,7 +132,7 @@ impl Database {
         } else {
             " AND n.node_id IN (SELECT node_id FROM agent_knowledge_fts WHERE scope_key=?1 AND agent_knowledge_fts MATCH ?5)"
         };
-        let sql=format!("SELECT v.snapshot_json FROM agent_knowledge_nodes n JOIN agent_knowledge_versions v ON v.scope_key=n.scope_key AND v.node_id=n.node_id AND v.revision=n.current_revision WHERE n.scope_key=?1 AND n.deleted=0 AND n.node_id>?2 AND (json_array_length(?3)=0 OR n.kind IN (SELECT value FROM json_each(?3))){search} ORDER BY n.node_id LIMIT ?4");
+        let sql=format!("SELECT v.snapshot_json FROM agent_knowledge_nodes n JOIN agent_knowledge_versions v ON v.scope_key=n.scope_key AND v.node_id=n.node_id AND v.revision=n.current_revision WHERE n.scope_key=?1 AND n.deleted=0 AND n.node_id>?2 AND (json_array_length(?3)=0 OR n.kind IN (SELECT value FROM json_each(?3))) AND (n.kind!='memory' OR (COALESCE((SELECT p.status FROM agent_memory_policy p WHERE p.scope_key=n.scope_key AND p.node_id=n.node_id),'enabled')='enabled' AND NOT EXISTS(SELECT 1 FROM agent_memory_node_sources s JOIN agent_memory_suppressions x ON x.scope_key=s.scope_key AND x.category=s.category AND x.source_key=s.source_key WHERE s.scope_key=n.scope_key AND s.node_id=n.node_id))){search} ORDER BY n.node_id LIMIT ?4");
         let mut stmt = self.conn.prepare(&sql).map_err(io_error)?;
         let filter = if query.chars().count() < 3 {
             format!(
@@ -189,6 +189,26 @@ impl Database {
         scope.validate()?;
         self.source_live_scope(scope)?;
         validate_knowledge_batch(scope, upserts, removes)?;
+        // User policy protects the identity, even when a model changes kind or
+        // tries to remove the ID. A suppressed new candidate is skipped while
+        // the other candidates in the same atomic publication continue.
+        let mut eligible_upserts=Vec::new();
+        for node in upserts {
+            let policy=self.agent_memory_policy(scope,&node.node_id)?;
+            if policy.as_ref().is_some_and(|p| p.confirmation==crate::agent::memory::MemoryConfirmation::UserConfirmed
+                || p.protected_correction || p.status==crate::agent::memory::MemoryStatus::Disabled) {continue}
+            if node.memory.is_some() && self.agent_memory_suppressed_write(scope,node)? {continue}
+            eligible_upserts.push(node);
+        }
+        let mut eligible_removes=Vec::new();
+        for id in removes {
+            let policy=self.agent_memory_policy(scope,id)?;
+            if policy.as_ref().is_some_and(|p| p.confirmation==crate::agent::memory::MemoryConfirmation::UserConfirmed
+                || p.protected_correction || p.status==crate::agent::memory::MemoryStatus::Disabled) {continue}
+            eligible_removes.push(id);
+        }
+        let upserts=&eligible_upserts;
+        let removes=&eligible_removes;
         if overview_revision == 0
             || overview_revision > i64::MAX as u64
             || target_seq > self.committed_change_watermark()? as u64
@@ -236,7 +256,7 @@ impl Database {
             }
         }
         let now = Utc::now().to_rfc3339();
-        for id in upserts.iter().map(|n| &n.node_id).chain(removes) {
+        for id in upserts.iter().map(|n| &n.node_id).chain(removes.iter().copied()) {
             let owner = format!("{}/{}/knowledge/{}", workspace_id, scope.key(), id);
             self.conn.execute("DELETE FROM content_reference_edges WHERE source_object_key=?1 AND relation='derived_from'",[&owner]).map_err(io_error)?;
             self.conn
@@ -257,6 +277,7 @@ impl Database {
             let kind = kind_key(node.kind)?;
             self.conn.execute("INSERT INTO agent_knowledge_versions(scope_key,node_id,revision,overview_revision,snapshot_json,created_at) VALUES(?1,?2,?3,?4,?5,?6)",params![scope.key(),node.node_id,saved.revision as i64,overview_revision as i64,encode(&saved)?,now]).map_err(io_error)?;
             self.conn.execute("INSERT INTO agent_knowledge_nodes(scope_key,node_id,current_revision,kind,deleted,updated_at) VALUES(?1,?2,?3,?4,0,?5) ON CONFLICT(scope_key,node_id) DO UPDATE SET current_revision=excluded.current_revision,kind=excluded.kind,deleted=0,updated_at=excluded.updated_at",params![scope.key(),node.node_id,saved.revision as i64,kind,now]).map_err(io_error)?;
+            self.agent_memory_index_sources(&saved)?;
             self.conn.execute("INSERT INTO agent_knowledge_fts(scope_key,node_id,title,aliases,keywords,one_line) VALUES(?1,?2,?3,?4,?5,?6)",params![scope.key(),node.node_id,node.title,node.aliases.join("\n"),node.keywords.join("\n"),node.one_line]).map_err(io_error)?;
             for (ordinal, source) in node.source_refs.iter().enumerate() {
                 let owner = format!(
@@ -283,9 +304,10 @@ impl Database {
         }
         for id in removes {
             self.conn.execute("UPDATE agent_knowledge_nodes SET deleted=1,updated_at=?3 WHERE scope_key=?1 AND node_id=?2",params![scope.key(),id,now]).map_err(io_error)?;
+            self.conn.execute("DELETE FROM agent_memory_node_sources WHERE scope_key=?1 AND node_id=?2",params![scope.key(),id]).map_err(io_error)?;
         }
         // These config keys do not qualify as canonical source registry events.
-        for id in upserts.iter().map(|n| &n.node_id).chain(removes) {
+        for id in upserts.iter().map(|n| &n.node_id).chain(removes.iter().copied()) {
             self.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES(?1,?2,'knowledge.publish',?3,?4)",params![format!("knowledge/{}/{}",scope.key(),id),scope.key(),overview_revision.to_string(),now]).map_err(io_error)?;
         }
         Ok(())
@@ -297,10 +319,13 @@ mod tests {
     use super::*;
     use crate::{
         agent::{
-            context::{EpistemicStatus, SourceCoverage},
+            access::{Caller,RequestContext,ScopeGrant},
+            context::{EpistemicStatus,OverviewItem,OverviewSection,SourceCoverage,ValidState},
+            memory::{MemoryCategory,MemoryMetadata},
             models::{ObjectKind, ObjectRef, SourceRef},
             overview::OverviewPublishInput,
         },
+        db::memory_service::{MemoryAction,MemoryCorrection,MemoryUpdateInput},
         models::ProjectCreateInput,
     };
     fn setup() -> (tempfile::TempDir, Database, Scope) {
@@ -352,7 +377,105 @@ mod tests {
             coverage: coverage(),
             related: vec![],
             session_summary: None,
+            memory: None,
         }
+    }
+    fn memory_node(id:&str,scope:&Scope)->KnowledgeNodeWrite {
+        let mut n=node(id);
+        n.kind=KnowledgeKind::Memory;
+        n.memory=Some(MemoryMetadata{category:MemoryCategory::Preference,last_supported_at:"2026-10-09T00:00:00Z".into()});
+        let project_id=match scope {Scope::Project{project_id}=>*project_id,_=>unreachable!()};
+        n.source_refs=vec![SourceRef{object:ObjectRef{workspace_id:"w".into(),scope:scope.clone(),kind:ObjectKind::Project,id:project_id.to_string()},
+            revision:"source-v1".into(),file_version:None,record_version:None,block_id:None,locator:None,title:"Project".into(),excerpt:"Preference evidence".into()}];
+        n
+    }
+    fn memory_request(scope:&Scope)->(RequestContext,crate::agent::models::WorkspaceBinding) {
+        let binding=crate::agent::models::WorkspaceBinding{workspace_id:"w".into(),generation:"g".into()};
+        let project_id=match scope {Scope::Project{project_id}=>*project_id,_=>unreachable!()};
+        (RequestContext{binding:binding.clone(),request_id:"memory-test".into(),caller:Caller::Gui,
+            scope_grant:ScopeGrant{workspace_id:"w".into(),workspace_content:false,project_ids:vec![project_id],
+                operations:vec!["memory.manage".into(),"context.read".into(),"session.read".into()],object_keys:None}},binding)
+    }
+    #[test]
+    fn memory_correction_keeps_real_overview_baseline_and_protects_identity() {
+        let (_root,db,scope)=setup();
+        let mut p=input(&db,&scope,0);p.knowledge_upserts=vec![memory_node("preference",&scope)];
+        publish(&db,"memory-first",&p).unwrap();
+        let (request,binding)=memory_request(&scope);
+        let updated=db.agent_memory_update(&request,&binding,&MemoryUpdateInput{scope:scope.clone(),node_id:"node:preference".into(),
+            expected_node_revision:1,expected_policy_revision:0,action:MemoryAction::Correct,
+            correction:Some(MemoryCorrection{title:"Corrected preference".into(),one_line:"Prefer local".into(),
+                summary:"Use local files".into(),body_sections:vec![]})}).unwrap();
+        assert_eq!(updated.card.node_revision,2);
+        assert_eq!(updated.card.policy_revision,1);
+        let baselines:Vec<i64>=db.conn.prepare("SELECT overview_revision FROM agent_knowledge_versions WHERE scope_key=?1 AND node_id='preference' ORDER BY revision").unwrap()
+            .query_map([scope.key()],|r|r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(baselines,vec![1,1]);
+        p=input(&db,&scope,1);
+        let mut overwrite=node("preference");overwrite.expected_revision=2;overwrite.title="Model overwrite".into();
+        p.knowledge_upserts=vec![overwrite];
+        publish(&db,"memory-overwrite",&p).unwrap();
+        assert_eq!(db.agent_knowledge_get(&scope,"preference",None).unwrap().unwrap().title,"Corrected preference");
+        assert_eq!(db.agent_memory_update(&request,&binding,&MemoryUpdateInput{scope:scope.clone(),node_id:"node:preference".into(),
+            expected_node_revision:1,expected_policy_revision:0,action:MemoryAction::Disable,correction:None}).unwrap_err().code,ErrorCode::RevisionConflict);
+    }
+    #[test]
+    fn memory_suppression_survives_new_ids_and_independent_owners() {
+        let (_root,db,scope)=setup();
+        let mut p=input(&db,&scope,0);p.knowledge_upserts=vec![memory_node("a",&scope),memory_node("b",&scope)];
+        publish(&db,"memory-two",&p).unwrap();
+        let (request,binding)=memory_request(&scope);
+        for id in ["a","b"] {
+            db.agent_memory_update(&request,&binding,&MemoryUpdateInput{scope:scope.clone(),node_id:format!("node:{id}"),
+                expected_node_revision:1,expected_policy_revision:0,action:MemoryAction::Disable,correction:None}).unwrap();
+        }
+        db.agent_memory_update(&request,&binding,&MemoryUpdateInput{scope:scope.clone(),node_id:"node:a".into(),
+            expected_node_revision:1,expected_policy_revision:1,action:MemoryAction::Reenable,correction:None}).unwrap();
+        p=input(&db,&scope,1);p.knowledge_upserts=vec![memory_node("renamed",&scope),node("unrelated")];
+        publish(&db,"memory-next",&p).unwrap();
+        assert!(db.agent_knowledge_get(&scope,"renamed",None).unwrap().is_none());
+        assert!(db.agent_knowledge_get(&scope,"unrelated",None).unwrap().is_some());
+        assert_eq!(db.agent_memory_suppressed_by(&scope,&db.agent_memory_node(&scope,"a").unwrap()).unwrap(),vec!["b"]);
+    }
+    #[test]
+    fn archived_memory_can_be_managed_but_not_confirmed() {
+        let (_root,db,scope)=setup();
+        let mut p=input(&db,&scope,0);p.knowledge_upserts=vec![memory_node("archived",&scope)];
+        publish(&db,"memory-archive",&p).unwrap();
+        let project_id=match scope {Scope::Project{project_id}=>project_id,_=>unreachable!()};
+        db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=?1",[project_id]).unwrap();
+        let (request,binding)=memory_request(&scope);
+        let detail=db.agent_memory_get(&request,&binding,&crate::db::memory_service::MemoryGetInput{scope:scope.clone(),node_id:"node:archived".into()}).unwrap();
+        assert_eq!(detail.card.source_state,crate::agent::memory::MemorySourceState::Archived);
+        assert_eq!(db.agent_memory_update(&request,&binding,&MemoryUpdateInput{scope:scope.clone(),node_id:"node:archived".into(),
+            expected_node_revision:1,expected_policy_revision:0,action:MemoryAction::Confirm,correction:None}).unwrap_err().code,ErrorCode::SourceNotReady);
+        let disabled=db.agent_memory_update(&request,&binding,&MemoryUpdateInput{scope:scope.clone(),node_id:"node:archived".into(),
+            expected_node_revision:1,expected_policy_revision:0,action:MemoryAction::Disable,correction:None}).unwrap();
+        assert_eq!(disabled.card.status,crate::agent::memory::MemoryStatus::Disabled);
+    }
+    #[test]
+    fn memory_candidate_without_original_sources_is_skipped_but_overview_publishes() {
+        let (_root,db,project_scope)=setup();
+        let mut project=input(&db,&project_scope,0);
+        project.upsert_items=vec![OverviewItem{id:"inferred-parent".into(),section:OverviewSection::KnowledgeMap,
+            text:"A hypothesis".into(),epistemic_status:EpistemicStatus::Inferred,source_refs:vec![],
+            published_sources:vec![],dependency_item_ids:vec![],valid_state:ValidState::Current,updated_at:"now".into()}];
+        publish(&db,"memory-parent",&project).unwrap();
+        let project_id=match project_scope {Scope::Project{project_id}=>project_id,_=>unreachable!()};
+        let parent=db.agent_published_item_capture(project_id,"inferred-parent").unwrap().0;
+        let scope=Scope::Workspace;
+        let mut workspace=input(&db,&scope,0);
+        let mut candidate=node("unproven-memory");
+        candidate.kind=KnowledgeKind::Memory;
+        candidate.memory=Some(MemoryMetadata{category:MemoryCategory::Preference,last_supported_at:"2026-10-09T00:00:00Z".into()});
+        candidate.published_sources=vec![parent];
+        workspace.knowledge_upserts=vec![candidate];
+        workspace.upsert_items=vec![OverviewItem{id:"ordinary".into(),section:OverviewSection::KnowledgeMap,
+            text:"Uncertain overview context".into(),epistemic_status:EpistemicStatus::Inferred,source_refs:vec![],
+            published_sources:vec![],dependency_item_ids:vec![],valid_state:ValidState::Current,updated_at:"now".into()}];
+        let published=publish(&db,"memory-workspace",&workspace).unwrap();
+        assert!(published.items.iter().any(|item|item.id=="ordinary"));
+        assert!(db.agent_knowledge_get(&scope,"unproven-memory",None).unwrap().is_none());
     }
     fn input(db: &Database, scope: &Scope, revision: u64) -> OverviewPublishInput {
         OverviewPublishInput {
@@ -362,6 +485,7 @@ mod tests {
             target_seq: db.committed_change_watermark().unwrap() as u64,
             policy_revision: 0,
             correction_revision: 0,
+            expected_memory_epoch: db.agent_memory_scope_epoch(scope).unwrap(),
             upsert_items: vec![],
             remove_item_ids: vec![],
             settled_object_keys: vec![],

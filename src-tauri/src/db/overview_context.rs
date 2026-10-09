@@ -120,7 +120,17 @@ impl Database {
         let query = input.query.as_deref().unwrap_or("");
         let mut cards = Vec::new();
         // A bounded candidate page; authorization precedes every visible title.
-        let candidates = self.agent_knowledge_candidates(&input.scope, query, &[], None, 50)?;
+        let mut candidates = self.agent_knowledge_candidates(&input.scope, query, &[], None, 50)?;
+        if matches!(input.scope, Scope::Workspace) && query.is_empty() {
+            // Use the existing eight-card L0 allowance for memory navigation;
+            // bodies still require an explicit knowledge read.
+            let mut memories = self.agent_knowledge_candidates(&input.scope, query,
+                &[crate::agent::knowledge::KnowledgeKind::Memory], None, 8)?;
+            let ids: HashSet<_> = memories.iter().map(|node| node.node_id.clone()).collect();
+            memories.extend(candidates.into_iter().filter(|node| !ids.contains(&node.node_id)));
+            memories.truncate(50);
+            candidates = memories;
+        }
         let candidate_ids: Vec<_> = candidates.iter().map(|node| node.node_id.clone()).collect();
         let node_stale =
             self.agent_knowledge_stale_ids(&binding.workspace_id, &input.scope, &candidate_ids)?;
@@ -136,6 +146,7 @@ impl Database {
             })
             .collect();
         for node in candidates {
+            if node.memory.is_some() && !self.agent_memory_model_visible(&source_request, binding, &node)? { continue; }
             let mut visible = true;
             if node.session_summary.is_some() {
                 match request.authorize(binding,&node.scope,"session.read") {
@@ -182,7 +193,12 @@ impl Database {
             cards.push(KnowledgeCard {
                 node_id: format!("node:{}", node.node_id),
                 title: node.title,
-                one_line: node.one_line.chars().take(240).collect(),
+                one_line: if node.memory.is_some() {
+                    let confirmed = self.agent_memory_policy(&node.scope, &node.node_id)?
+                        .is_some_and(|p| p.confirmation == crate::agent::memory::MemoryConfirmation::UserConfirmed);
+                    format!("{}：{}", if confirmed { "用户已确认的记忆" } else { "待验证的记忆推断" },
+                        node.one_line.chars().take(220).collect::<String>())
+                } else { node.one_line.chars().take(240).collect() },
             });
         }
         let query_lower = query.to_lowercase();
@@ -240,6 +256,7 @@ impl Database {
                 "knowledge.search".into(),
             ],
             source_refs: vec![],
+            derived_sources: vec![],
         };
         let mut entry = entry.bounded(input.budget_chars)?;
         // Collect after bounding: removed cards and an entirely removed positioning
@@ -261,6 +278,9 @@ impl Database {
                 entry.source_refs.extend(refs.iter().cloned());
             }
         }
+        entry.derived_sources = crate::agent::source_trace::context_derived_sources(
+            self, &source_request, binding, &input.scope, snapshot.revision,
+            &entry.nodes.iter().map(|card| card.node_id.clone()).collect::<Vec<_>>(), selected.clone())?;
         let mut seen = HashSet::new();
         while let Some(id) = selected.pop() {
             if !seen.insert(id.clone()) {
@@ -411,6 +431,7 @@ mod tests {
             updated_at: "time".into(),
         };
         let input = OverviewPublishInput {
+            expected_memory_epoch: 0,
             scope: f.input.scope.clone(),
             batch_id: "context-batch-0".into(),
             expected_revision: 0,
@@ -571,9 +592,9 @@ mod tests {
         let mut request = f.request.clone();
         request.scope_grant.operations.extend(["session.read".into(),"source.read".into()]);
         assert!(derived_source_visible(&f.db,&request,&f.binding,&message_ref).is_ok());
-        let deps = crate::agent::source_trace::expand_sources(&f.db,&request,&f.binding,vec![crate::db::agent_run_provenance::ObservedSource {object: message_ref.object.clone(),revision: Some(message_ref.revision.clone())}]).unwrap();
+        let deps = crate::agent::source_trace::expand_sources(&f.db,&request,&f.binding,vec![crate::db::agent_run_provenance::ObservedSource {object: message_ref.object.clone().into(),revision: Some(message_ref.revision.clone())}]).unwrap();
         assert_eq!(deps.len(),2);
-        assert_eq!(deps[0].object,f.source.object);
+        assert_eq!(deps[0].raw_object(),Some(&f.source.object));
         f.db.conn.execute("INSERT INTO source_access_policies(object_key,excluded,revision) VALUES (?1,1,1)",[f.source.object.key().unwrap()]).unwrap();
         assert!(derived_source_visible(&f.db,&request,&f.binding,&message_ref).is_err());
         f.db.conn.execute("DELETE FROM source_access_policies WHERE object_key=?1",[f.source.object.key().unwrap()]).unwrap();

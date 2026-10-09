@@ -16,6 +16,7 @@ pub(crate) mod host;
 pub(crate) mod local_metrics;
 pub mod instructions;
 pub(crate) mod knowledge;
+pub(crate) mod memory;
 pub mod maintenance;
 pub mod models;
 pub(crate) mod operations;

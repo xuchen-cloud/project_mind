@@ -15,8 +15,61 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ObservedSource {
-    pub object: ObjectRef,
+    pub object: ObservedIdentity,
     pub revision: Option<String>,
+}
+
+/// Derived identities carry their own validity proof in addition to the flat
+/// original sources. Legacy object_json rows deserialize as Raw unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ObservedIdentity {
+    Raw(ObjectRef),
+    Memory { memory: MemoryDependency },
+    Published { published: PublishedDependency },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MemoryDependency {
+    pub workspace_id: String,
+    pub scope: Scope,
+    pub node_id: String,
+    pub node_revision: u64,
+    pub policy_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PublishedDependency {
+    pub workspace_id: String,
+    pub reference: crate::agent::context::PublishedOverviewRef,
+}
+
+impl From<ObjectRef> for ObservedIdentity {
+    fn from(object: ObjectRef) -> Self { Self::Raw(object) }
+}
+impl ObservedIdentity {
+    pub(crate) fn key(&self) -> AgentResult<String> {
+        match self {
+            Self::Raw(object) => object.key(),
+            Self::Memory { memory } => {
+                memory.scope.validate()?;
+                crate::agent::overview::validate_id(&memory.node_id)?;
+                Ok(format!("{}/{}/memory/{}", memory.workspace_id, memory.scope.key(), memory.node_id))
+            }
+            Self::Published { published } => {
+                crate::agent::overview::validate_published_ref(&published.reference)?;
+                Ok(format!("{}/project:{}/published/{}", published.workspace_id,
+                    published.reference.project_id, published.reference.item_id))
+            }
+        }
+    }
+}
+impl ObservedSource {
+    pub(crate) fn raw_object(&self) -> Option<&ObjectRef> {
+        match &self.object { ObservedIdentity::Raw(object) => Some(object), _ => None }
+    }
 }
 
 fn error(code: ErrorCode, message: &str) -> AgentError {
@@ -61,7 +114,7 @@ fn observed(conn: &Connection, run_id: &str) -> AgentResult<Option<Vec<ObservedS
         .map_err(io_error)?;
     rows.map(|row| {
         let (key, json, revision) = row.map_err(io_error)?;
-        let object: ObjectRef = serde_json::from_str(&json)
+        let object: ObservedIdentity = serde_json::from_str(&json)
             .map_err(|_| error(ErrorCode::IoFailed, "Invalid stored source reference"))?;
         if object
             .key()
@@ -92,9 +145,31 @@ fn is_hidden(code: ErrorCode) -> bool {
             | ErrorCode::ScopeDenied
             | ErrorCode::ObjectWithdrawn
             | ErrorCode::SourceNotReady
+            | ErrorCode::SourceChanged
+            | ErrorCode::FileChangedUnregistered
     )
 }
 impl Database {
+    pub(crate) fn agent_run_raw_source_keys(&self, run_id: &str) -> AgentResult<Vec<String>> {
+        observed(&self.conn, run_id)?.ok_or_else(|| error(ErrorCode::SourceNotReady, "Run source ledger is unavailable"))?
+            .iter().filter_map(ObservedSource::raw_object).map(ObjectRef::key).collect()
+    }
+    fn provenance_identity_visible(&self, request: &RequestContext, binding: &WorkspaceBinding,
+        identity: &ObservedIdentity) -> AgentResult<bool> {
+        match identity {
+            ObservedIdentity::Raw(object) => self.source_read_object(request, binding, object).map(|_| true),
+            ObservedIdentity::Memory { memory } => {
+                if memory.workspace_id != binding.workspace_id { return Ok(false); }
+                self.agent_memory_proof_visible(request, binding, &memory.scope, &memory.node_id,
+                    memory.node_revision, memory.policy_revision)
+            }
+            ObservedIdentity::Published { published } => {
+                if published.workspace_id != binding.workspace_id { return Ok(false); }
+                crate::agent::source_trace::published_source_visible(self, request, binding,
+                    &published.reference).map(|_| true)
+            }
+        }
+    }
     fn provenance_read_request(&self, request: &RequestContext) -> RequestContext {
         let mut read = request.clone();
         if !read
@@ -172,9 +247,11 @@ impl Database {
             if source.revision.as_deref().is_some_and(str::is_empty) {
                 return Err(error(ErrorCode::InvalidArgument, "Empty source revision"));
             }
-            let resolved = self.source_read_object(&read, binding, &source.object)?;
-            let key = resolved.key()?;
-            let json = serde_json::to_string(&resolved)
+            if !self.provenance_identity_visible(&read, binding, &source.object)? {
+                return Err(error(ErrorCode::SourceChanged, "Observed memory or published source changed"));
+            }
+            let key = source.object.key()?;
+            let json = serde_json::to_string(&source.object)
                 .map_err(|_| error(ErrorCode::IoFailed, "Cannot encode source reference"))?;
             tx.execute("INSERT OR IGNORE INTO agent_run_source_dependencies(run_id,object_key,object_json,revision) VALUES (?1,?2,?3,?4)",params![run_id,key,json,source.revision.as_deref().unwrap_or("")]).map_err(io_error)?;
         }
@@ -214,8 +291,9 @@ impl Database {
     ) -> AgentResult<bool> {
         let read = self.provenance_read_request(request);
         for source in sources {
-            match self.source_read_object(&read, binding, &source.object) {
-                Ok(_) => (),
+            match self.provenance_identity_visible(&read, binding, &source.object) {
+                Ok(true) => (),
+                Ok(false) => return Ok(false),
                 Err(err) if is_hidden(err.code) => return Ok(false),
                 Err(err) => return Err(err),
             }
@@ -318,7 +396,7 @@ impl Database {
                     scope: scope.clone(),
                     kind: ObjectKind::SessionMessage,
                     id: message_id,
-                },
+                }.into(),
                 revision: None,
             };
             if role == "user" {

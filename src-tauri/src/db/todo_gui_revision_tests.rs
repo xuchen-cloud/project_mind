@@ -241,6 +241,7 @@ fn todo_gui_schema30_upgrade_backs_up_business_children_and_reopens_once() {
             due_date: None,
         })
         .unwrap();
+    super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
     db.conn.execute_batch("DROP TABLE agent_run_source_dependencies; DROP TABLE agent_run_provenance; DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts; DROP VIEW agent_visible_files; DROP VIEW agent_visible_todos; DROP TABLE todo_revision_heads; DROP TABLE todo_revision_snapshots; DROP INDEX agent_todo_output_dedupe; ALTER TABLE agent_outputs DROP COLUMN dedupe_key; PRAGMA user_version=30;").unwrap();
     drop(db);
     let db = open(root.path());

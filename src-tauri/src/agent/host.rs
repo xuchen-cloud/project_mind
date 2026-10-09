@@ -738,9 +738,10 @@ pub(crate) async fn execute(
             .source_refs
             .iter()
             .map(|source| crate::db::agent_run_provenance::ObservedSource {
-                object: source.object.clone(),
+                object: source.object.clone().into(),
                 revision: Some(source.revision.clone()),
             })
+            .chain(context_entry.derived_sources.iter().cloned())
             .collect();
         let initial_sources = super::source_trace::expand_sources(&db, &request, &runtime.agent_binding, initial_sources)?;
         db.agent_run_provenance_begin(&request, &runtime.agent_binding, &initial_sources)?;

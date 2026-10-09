@@ -50,10 +50,11 @@ mod tests {
             CREATE TRIGGER agent_overview_pending_outbox AFTER INSERT ON agent_change_log
             WHEN NEW.scope_key LIKE 'project:%' BEGIN SELECT 1; END;
             DROP TABLE agent_overview_workspace_bootstrap;").unwrap();
+        super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
         db.set_schema_version(35).unwrap();
         drop(db);
         let db=Database::open(&path,root.path(),None).unwrap();
-        assert_eq!(db.schema_version().unwrap(),36);
+        assert_eq!(db.schema_version().unwrap(),super::super::agent_memory_schema::AGENT_MEMORY_SCHEMA_VERSION);
         let trigger:String=db.conn.query_row("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='agent_overview_pending_outbox'",[],|r|r.get(0)).unwrap();
         assert!(trigger.contains("NEW.scope_key='workspace'"));
         assert_eq!(db.conn.query_row("SELECT needs_rebuild FROM agent_overview_pending_state WHERE scope_key='workspace'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
@@ -63,6 +64,6 @@ mod tests {
         assert_eq!(db.conn.query_row("SELECT needs_rebuild FROM agent_overview_pending_state WHERE scope_key='workspace'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
         let backups=root.path().join(crate::db::WORKSPACE_HIDDEN_DIR_NAME).join("backups");
         assert!(std::fs::read_dir(backups).unwrap().any(|entry|entry.unwrap().file_name()
-            .to_string_lossy().contains("schema-35-to-36")));
+            .to_string_lossy().contains("schema-35-to-37")));
     }
 }

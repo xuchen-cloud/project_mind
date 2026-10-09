@@ -350,21 +350,28 @@ async fn shared_read_dispatcher_l0_uses_trusted_workspace_name_and_rejects_argum
         workspace_identity["identity"]["name"],
         "Trusted workspace name"
     );
-    for (method, args) in [
-        (
-            "context.overview.get",
-            json!({"scope":{"kind":"workspace"}}),
-        ),
-        (
-            "knowledge.search",
-            json!({"scope":{"kind":"workspace"},"query":"evidence"}),
-        ),
-    ] {
-        assert_eq!(
-            call(&store, &request, method, args).await.unwrap_err().code,
-            ErrorCode::SourceNotReady
-        );
-    }
+    let workspace_overview = call(
+        &store,
+        &request,
+        "context.overview.get",
+        json!({"scope":{"kind":"workspace"}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(workspace_overview["scope"], json!({"kind":"workspace"}));
+    assert_eq!(workspace_overview["revision"], Value::Null);
+    assert!(workspace_overview["items"].as_array().unwrap().is_empty());
+    let workspace_search = call(
+        &store,
+        &request,
+        "knowledge.search",
+        json!({"scope":{"kind":"workspace"},"query":"evidence"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(workspace_search["scope"], json!({"kind":"workspace"}));
+    assert!(workspace_search["items"].as_array().unwrap().is_empty());
+    assert_eq!(workspace_search["sourceFallbackRequired"], true);
     for args in [
         json!({"scope":{"kind":"workspace"},"scopeGrant":{"workspaceContent":true}}),
         json!({"scope":{"kind":"workspace"},"budgetChars":3001}),

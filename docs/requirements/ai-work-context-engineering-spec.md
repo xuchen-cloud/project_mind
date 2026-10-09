@@ -96,7 +96,7 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 - `agent_overviews(scope_key PK,current_revision,as_of_seq,status,coverage_json,policy_revision,updated_at)`与`agent_overview_versions(scope_key,revision,items_json,source_manifest_json,as_of_seq,model_profile_id,created_at)`保存不可变快照，旧overview不递归成为独立source；快照随Workspace备份，首期不自动裁剪。
 - `agent_overview_dependencies(scope_key,item_id,source_object_key,source_revision,parent_overview_scope,parent_item_id,parent_revision)`支持原始依赖与逐层失效；来源权限每次读取仍校验。
 - `agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision)`与业务outbox同事务更新；Overview自身写入只通知父Workspace，不再将自己当Project业务变化，防止无限更新循环。
-- M2 长期条目复用现有知识节点、正文及不可变版本，增加记忆类别、确认程度、状态与支持时间；不再另建一张重复保存正文的 `agent_memory_items` 表。用户确认、纠正和抑制策略由原生服务独立保存，模型维护不得覆盖。抑制依据为原始来源身份及记忆类别，不依赖模型生成的标题或条目 ID。以上为 S7 规划，尚不是已交付数据结构。
+- M2 长期条目复用现有知识节点、正文及不可变版本，增加记忆类别、确认程度、状态与支持时间；不再另建一张重复保存正文的 `agent_memory_items` 表。用户确认、纠正和抑制策略由原生服务独立保存，模型维护不得覆盖。抑制依据为原始来源身份及记忆类别，不依赖模型生成的标题或条目 ID。S7 本地实现以 `KnowledgeKind::Memory` 和 `memory.category` 表达条目及六种类别，schema 37 保存独立用户策略与抑制；实际验证与外部验收缺口见交付台账。
 
 - `agent_session_summary_segments(id,session_id,branch_id,start_entry_id,end_entry_id,revision,summary_json,message_refs_json,source_refs_json,coverage,input_hash,status)`保存分段当前摘要；历史版本独立保留，唯一(session,branch,range,inputHash)。FTS按segment索引，最新状态与历史时态可区分。
 
@@ -228,7 +228,7 @@ Workspace输入包含两部分：①各授权Project Overview的变化；②Work
 
 Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴趣、可复用方法、用户明确的工作习惯和关键知识入口。项目归档后可退出活跃工作清单，但仍有来源支持的通用方法/经验可以保留；必须保留来源归档状态，用户撤销授权或排除来源另按即时失效处理。
 
-长期记忆条目增加`kind: background|domain|interest|method|preference|knowledge_pointer`、适用scope、sourceRefs、confirmation、lastSupportedAt和status；明确表达的偏好可标确认，重复行为只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制键，防止下一轮从同一来源重新生成。
+长期记忆复用 `kind: memory` 知识节点，以 `memory.category: background|domain|interest|method|preference|knowledge_pointer` 区分类别，保留适用 scope、原始或已发布项目依据和 `lastSupportedAt`；用户策略独立保存 `confirmation` 与 `status`。模型候选一律为推断，用户经可信 GUI 确认或纠正后才标为确认，重复行为仍只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制键，防止下一轮从同一来源重新生成。
 
 每个Workspace记忆条目与Project概览条目保留最终原始来源和派生链。删除/排除/撤回/授权收缩立即失效其依赖，不等待夜间任务；只剩无权来源的条目完全不返回正文、标题或摘录。混合授权来源不能只隐藏引用却返回混合结论：保守整条省略，或用仍可见证据重新生成后返回。只授权项目子集的连接只组合有权限的条目，不读取全Workspace自由文本摘要。Project默认不继承Workspace个人记忆，沿现有领域边界执行。
 

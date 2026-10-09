@@ -396,6 +396,7 @@ async fn e16_reused_corpus_search() {
          db.committed_change_watermark().unwrap() as u64)
     };
     let publish = crate::agent::overview::OverviewPublishInput {
+            expected_memory_epoch: 0,
         scope: scope.clone(), batch_id: format!("e16-published-{}", revision + 1), expected_revision: revision,
         target_seq, policy_revision: 0, correction_revision: 0,
         upsert_items: vec![crate::agent::context::OverviewItem {

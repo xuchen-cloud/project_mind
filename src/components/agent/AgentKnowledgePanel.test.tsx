@@ -4,8 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentContextEntry, AgentScope, KnowledgeGetInput } from "../../lib/agent-types";
 import { AgentKnowledgePanel } from "./AgentKnowledgePanel";
 
-const mocks = vi.hoisted(() => ({ contextGet: vi.fn(), overviewGet: vi.fn(), knowledgeSearch: vi.fn(), knowledgeGet: vi.fn(), sourceMaintenance: vi.fn(), overviewMaintenance: vi.fn(), overviewCorrectionsGet: vi.fn(), overviewCorrectionUpsert: vi.fn(), overviewCorrectionDelete: vi.fn() }));
+const mocks = vi.hoisted(() => ({ contextGet: vi.fn(), overviewGet: vi.fn(), knowledgeSearch: vi.fn(), knowledgeGet: vi.fn(), sourceMaintenance: vi.fn(), overviewMaintenance: vi.fn(), overviewCorrectionsGet: vi.fn(), overviewCorrectionUpsert: vi.fn(), overviewCorrectionDelete: vi.fn(), memoryList: vi.fn(), memoryGet: vi.fn(), memoryUpdate: vi.fn() }));
 vi.mock("../../services/agentApi", () => ({ agentApi: mocks }));
+vi.mock("../../services/agentMemoryApi", () => ({ agentMemoryApi: mocks }));
 vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: ({ source }: { source: { title: string; object: { id: string }; locator: unknown } }) =>
   <div data-testid={`source-${source.object.id}`} data-locator={JSON.stringify(source.locator)}>{source.title}</div> }));
 const binding = { workspaceId: "w1", generation: "g1" };
@@ -29,6 +30,7 @@ beforeEach(() => {
   mocks.sourceMaintenance.mockResolvedValue(progress);
   mocks.overviewMaintenance.mockResolvedValue({ scope, cancelled: false, errorCode: null, batchId: null, pendingCount: 2, coverage, deletedCount: 0, directoryComplete: false, budgetExhausted: false, nextRunAt: null, foregroundBusy: false });
   mocks.overviewCorrectionsGet.mockResolvedValue({ scope, revision: 0, items: [] });
+  mocks.memoryList.mockResolvedValue({ items: [], nextCursor: null });
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -42,9 +44,20 @@ it("loads only metadata and bounded directories after the knowledge menu opens",
   expect(mocks.knowledgeSearch).toHaveBeenCalledWith(binding, { scope, query: "", cursor: null, limit: 10, budgetChars: 2000 });
   expect(mocks.knowledgeGet).not.toHaveBeenCalled();
   expect(mocks.overviewCorrectionsGet).not.toHaveBeenCalled();
+  expect(mocks.memoryList).not.toHaveBeenCalled();
   expect(screen.getByText("部分覆盖")).toBeVisible();
   expect(screen.getByText(/整理时间：/)).toBeVisible();
   expect(screen.getByText("已处理 3 · 部分 1 · 待处理 2 · 已排除 1 · 不支持 0")).toBeVisible();
+});
+
+it("mounts the long-term memory list only after its disclosure opens", async () => {
+  panel({ binding, scope });
+  expect(await screen.findByRole("button", { name: "查看长期记忆" })).toHaveAttribute("aria-expanded", "false");
+  expect(mocks.memoryList).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "查看长期记忆" }));
+  expect(await screen.findByText("还没有长期记忆条目。")).toBeVisible();
+  expect(mocks.memoryList).toHaveBeenCalledWith(binding, { scope, cursor: null, limit: 20 });
+  expect(mocks.memoryGet).not.toHaveBeenCalled();
 });
 
 it("offers Workspace knowledge maintenance, corrections, and separate project status", async () => {

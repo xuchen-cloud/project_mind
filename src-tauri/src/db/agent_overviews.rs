@@ -110,10 +110,11 @@ fn queue_published_change(tx:&rusqlite::Connection,workspace_id:&str,project_id:
     tx.execute("INSERT INTO source_dependency_invalidations(owner_key,changed_object_key,seq,reason)
         WITH RECURSIVE affected(owner_key) AS (
             SELECT e.source_object_key FROM content_reference_edges e WHERE e.relation='derived_from' AND e.target_object_key=?1
+                AND e.source_object_key LIKE ?3
             UNION SELECT e.source_object_key FROM content_reference_edges e JOIN affected a ON e.target_object_key=a.owner_key WHERE e.relation='derived_from'
         ) SELECT owner_key,?1,?2,'source_changed' FROM affected WHERE 1
         ON CONFLICT(owner_key) DO UPDATE SET changed_object_key=excluded.changed_object_key,seq=excluded.seq,reason=excluded.reason",
-        params![owner,seq]).map_err(io_error)?;
+        params![owner,seq,format!("{workspace_id}/workspace/%")]).map_err(io_error)?;
     Ok(())
 }
 impl Database {
@@ -428,6 +429,7 @@ impl Database {
             let policy:i64=tx.query_row("SELECT revision FROM agent_scope_settings WHERE scope_key=?1",[input.scope.key()],|r|r.get(0)).optional().map_err(io_error)?.unwrap_or(0);
             let corrections=self.agent_overview_corrections(&input.scope)?;
             if policy as u64!=input.policy_revision || corrections.revision!=input.correction_revision { return Err(AgentError::new(ErrorCode::RevisionConflict,"Overview policy or corrections changed")); }
+            self.agent_memory_require_scope_epoch(&input.scope,input.expected_memory_epoch)?;
             let previous_items=head.as_ref().map_or_else(Vec::new,|h|h.items.clone());
             let mut items=head.map_or_else(Vec::new,|h|h.items);
             items.retain(|item|!input.remove_item_ids.contains(&item.id));
@@ -798,6 +800,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             target_seq: db.committed_change_watermark().unwrap() as u64,
             policy_revision: 0,
             correction_revision: 0,
+            expected_memory_epoch: 0,
             upsert_items: vec![item("a")],
             remove_item_ids: vec![],
             settled_object_keys: vec![],
@@ -1376,6 +1379,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             )
             .unwrap();
         db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
+        super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
         db.set_schema_version(28).unwrap();
         drop(db);
         let reopened =

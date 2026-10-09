@@ -17,6 +17,8 @@ pub struct OverviewPublishInput {
     pub target_seq: u64,
     pub policy_revision: u64,
     pub correction_revision: u64,
+    #[serde(default)]
+    pub expected_memory_epoch: u64,
     pub upsert_items: Vec<OverviewItem>,
     pub remove_item_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -159,6 +161,7 @@ impl OverviewPublishInput {
             self.target_seq,
             self.policy_revision,
             self.correction_revision,
+            self.expected_memory_epoch,
         ]
         .iter()
         .any(|v| *v >= i64::MAX as u64)

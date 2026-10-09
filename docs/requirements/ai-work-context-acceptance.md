@@ -6,7 +6,9 @@
 
 S4 已提交推送 `b402509`。S5 后端 `37c987e`、`b3344f7` 已集成，本轮提交包含前端与四个测试文件的修正；本地实现和定向验证完成，行为与 Rust 分组证据见[交付记录的 S5 段][delivery]。前端六文件 95 项首跑 94 通过、1 超时（WorkspacePage 旧 empty archived 用例），失败项独立重跑通过（另 21 skipped）；受影响 95 项最终均有通过证据，不能称单次 95 项全通过。TypeScript、生产构建、UI 标准、可移植路径及 bundle 边界通过（主入口 195 KiB / 250 KiB），主 agent Standards/Spec 自查通过。当前 S5 代码未运行 987 项 Rust 全量；S4 的浏览器夹具不是 Workspace 真实体验证据，真实 Provider 与目标平台未验收。S6 的后续本地进度见下段；S7 长期记忆尚未交付。
 
-S6 本地实现已合入 `3aae8fd`（准备提交 `66df517`、`f37e6e7`、`5ff8c5c`），定向验证完成，产品验收未完成。Project 已发布条目以有类型的派生来源保留项目、概览版本、条目及摘要，Workspace 可展开原始依据；直属 Record/Todo/会话沿原来源路径处理。最新 Workspace fixture 1 项覆盖 A/B/C 可见性、GUI search/get、父纠正后旧版 `NotFound`、模型不可用时已保存 draft 重放且额外模型调用为 0；schema 35→36 升级/备份 1、deferred sibling 1、changed item/digest 2 分别通过。Rust 定向组分别为维护 19、Overview 服务 10、knowledge 服务 5、inventory 7、schedule 15、agent overviews 19、source trace 3、knowledge registry 3、agent knowledge 7；组间重叠，不合计为唯一测试数。UI 两文件最终集中复核 19/19 通过，日志 `/workspace/project-mind-env/s6-ui-final.log`；TypeScript 通过。主 agent 已完成 S6 Standards/Spec 自查，S8 完整收口及实机验收仍待完成。未运行本轮 1001 项 Rust 全量。父删除旧版隐藏目前仅有实现路径；长父小模型分页每页纠正仅有 prompt 单元证据；仅文件名变化零模型调用仅有 digest/queue 证据；一个 Project 与 Workspace 直属资料两输入的完整调用计数尚未专测。A22/A56 保持部分覆盖，真实 Provider 与目标平台验收仍缺。S7 长期记忆及其抑制行为未交付，R15/R16 暂缓。
+S6 本地实现已合入 `3aae8fd`（准备提交 `66df517`、`f37e6e7`、`5ff8c5c`），定向验证完成，产品验收未完成。Project 已发布条目以有类型的派生来源保留项目、概览版本、条目及摘要，Workspace 可展开原始依据；直属 Record/Todo/会话沿原来源路径处理。最新 Workspace fixture 1 项覆盖 A/B/C 可见性、GUI search/get、父纠正后旧版 `NotFound`、模型不可用时已保存 draft 重放且额外模型调用为 0；schema 35→36 升级/备份 1、deferred sibling 1、changed item/digest 2 分别通过。Rust 定向组分别为维护 19、Overview 服务 10、knowledge 服务 5、inventory 7、schedule 15、agent overviews 19、source trace 3、knowledge registry 3、agent knowledge 7；组间重叠，不合计为唯一测试数。UI 两文件最终集中复核 19/19 通过，日志 `/workspace/project-mind-env/s6-ui-final.log`；TypeScript 通过。主 agent 已完成 S6 Standards/Spec 自查，S8 完整收口及实机验收仍待完成。S8 新增服务回归 4/4 通过：父删除后旧版隐藏；仅 A 项目变化加 Workspace 直属 Record 的任务实际额外 2 次模型调用，prompt 不含 B/C 原文；File 仅改名为 0 次模型调用且概览版本不变；长父分页每页带用户纠正。未测量 B/C 的物理读取次数。A22/A56 仍为本地部分覆盖，真实 Provider 与目标平台验收仍缺；S7 的 1019 项 Rust 全量另行收口，不把本次 4 项称全量。S7 长期记忆及其抑制行为未交付，R15/R16 暂缓。
+
+S7 长期记忆与 S8 本地实现和有效验证已完成，产品验收未完成。六类记忆、模型候选固定为推断、GUI 用户确认/纠正/停用与重新启用、纠正后知识新版本、按同 scope/类别/原始来源的抑制、多条停用决定各自撤回，以及旧模型读取和 Run 来源证明对最新策略的复核已接入；原始资料仍可按授权搜索。数据库定向组 518 通过、8 ignored，S8 服务回归另为 4/4；这些组可能重叠，不相加为唯一计数。前端三文件最终集中运行 27/27 一次通过；生产构建、UI 标准、可移植路径与 bundle 边界通过，主入口 195 KiB / 250 KiB。736/1200 宽度真实 React 组件加模拟 IPC 的浏览器流程、列表滚动及焦点检查通过，10 张截图报告在 `/workspace/project-mind-env/ui-check/s7-memory`。Rust 1019 项完整运行先得 980 passed、2 failed、37 ignored，用时 201.85 秒，日志 `/workspace/project-mind-env/s8-rust-full.log`。两处仅修测试后分别定向通过：旧 S5 Workspace 能力断言见 `/workspace/project-mind-env/s8-failures-retest.log`；长 Todo 最终用例见 `/workspace/project-mind-env/s8-long-source-final.log`，完整 3800 字节 prompt、约 21k 中文字符的 183 个模型分页全部结算，游标逐页严格前进，用时 38.30 秒。全量后生产代码未改，因此 982 项普通 Rust 用例各有有效通过证据、37 ignored；不能称单次全量 982 通过。主 agent 已完成 S7/S8 Standards/Spec 自查，核对原文及派生来源证明、epoch/CAS/抑制、schema 迁移、GUI 列表与空正文编辑，未发现当前阻塞。A57/A58 为本地部分覆盖，真实 Provider 与目标平台仍缺。
 
 | 编号 | 批次与状态 | 已有证据入口 | 尚缺执行或条件 |
 | --- | --- | --- | --- |
@@ -31,7 +33,7 @@ S6 本地实现已合入 `3aae8fd`（准备提交 `66df517`、`f37e6e7`、`5ff8c
 | A19 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 执行记录][delivery] | macOS/Windows 736/1200/1540、长消息及 reduced-motion 人工交互。 |
 | A20 | M1·待执行 | [CLI 打包提交][cli-bundle-commit]、[安装定向测试][cli-install-tests] | 无 Node/Pi 开发环境的 macOS/Windows 干净安装，含中文/空格路径实测。 |
 | A21 | M2·部分 | [S5 定向证据][delivery]：Workspace 授权子集、项目列表/来源过滤、综合 Record/Todo 归属及操作边界已有本地回归 | 真实模型执行只授权 A/B 的跨项目检索与保存任务，核 C 不泄露及最终来源/归属；目标平台验收。 |
-| A22 | M2·部分 | [S6 本地定向证据][delivery]：changed item/digest、队列和草稿重放有证据 | 仅文件名变化零模型调用尚无直接调用计数；重复批次与真实模型任务仍需完整核验。 |
+| A22 | M2·部分 | [S6 定向证据][delivery]和 S8 服务回归 4/4：File 仅改名 0 模型调用且概览版本不变，草稿重放无额外调用 | 真实模型下的长期重复批次与目标平台结果仍待验收。 |
 | A23 | M3·后续 | 尚无本项执行证据；[R15 计划][delivery] | 实际 Pi CLI/Claude Code 可用设备、版本、账号及 resume 降级。 |
 | A24 | M4·后续 | 尚无本项执行证据；[R16 计划][delivery] | GUI 关闭后独立 Host 写锁、CLI 并发和崩溃恢复。 |
 | A25 | M1·部分 | [Record worker 测试][record-worker-tests]、[Record 编辑测试][record-editor-tests] | 原生安装包中保存/重启/复制/split/merge 全组合及预览隔离。 |
@@ -65,13 +67,13 @@ S6 本地实现已合入 `3aae8fd`（准备提交 `66df517`、`f37e6e7`、`5ff8c
 | A53 | M1·部分 | [Overview 维护测试][overview-tests]、[来源测试][source-read-tests] | Todo 完成/File 加入后真实提问，核新旧条目和 delta。 |
 | A54 | M1·部分 | [Overview 维护测试][overview-tests]、[变更队列测试][source-queue-tests] | 维护中新增事件/重启/失败/日志过期的产品进度和水位。 |
 | A55 | M1·部分 | [知识服务测试][knowledge-tests]、[纠正测试][overview-correction-tests] | 停滞 Todo/冲突目标/用户纠正的真实模型处理，不擅改 Todo。 |
-| A56 | M2·部分 | [S6 本地定向证据][delivery]：已发布条目与直属来源、版本/原始依据、schema 升级、延期 sibling 及 A/B/C fixture 已验证 | 一个 Project 加 Workspace 直属资料两输入的完整调用计数、父删除旧版隐藏与长父分页纠正仍缺完整场景；真实模型和目标平台验收。 |
-| A57 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 项目归档、明确偏好、兴趣笔记与随口提问的长期记忆边界。 |
-| A58 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 排除、部分授权与停用记忆后派生链过滤及不复生。 |
-| A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests] | [G2 本地设置](ai-work-context-delivery.md#intent-audit-20261009)：首次启用记录本机 IANA 时区，保留旧显式值，提供频率/时间/时区入口并测非 UTC、DST、重开；再验证真实 24h/48h、离线、密钥锁定和前台抢占，不以测试时钟充当夜间运行。 |
+| A56 | M2·部分 | [S6 定向证据][delivery]和 S8 服务回归 4/4：父删除旧版隐藏、A 项目变化加 Workspace 直属 Record 额外 2 次模型调用且 prompt 无 B/C 原文、长父分页逐页纠正 | 未测 B/C 物理读取次数；真实 Provider 与目标平台验收仍缺。 |
+| A57 | M2·部分 | S7 本地代码、数据库定向组及前端最终 27/27 有证据；六类记忆、推断/确认、GUI 操作和知识版本已接入；[R14 计划][delivery] | 项目归档、明确偏好、兴趣笔记与随口提问的真实提取边界；真实模型和目标平台验收。 |
+| A58 | M2·部分 | S7 本地代码、数据库定向组与前端最终 27/27 有证据；按来源抑制、多 owner 独立撤回、旧模型读及 Run proof 复核已接入；[R14 计划][delivery] | 排除、部分授权、停用后下一批不复生和旧版本/续聊不泄露的完整产品执行；真实模型与目标平台验收。 |
+| A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests]：本地时区初始化、已有值保留、频率/时刻/时区设置及重算已接入 | 真实设备时钟下验证 24h/48h、离线、密钥锁定与前台抢占；单元测试时间不代替夜间运行。 |
 | A60 | M1·部分 | [Overview 维护测试][overview-tests]、[知识维护测试][knowledge-tests] | 大项目、恶意资料、重复摘要真实模型运行，核 partial 和预算续跑。 |
 | A61 | M1·部分 | [会话检索测试][session-search-tests]、[会话摘要测试][session-summary-tests] | [WP4～5](ai-work-context-delivery.md#confirmed-work-packages-20261009)先验证 Pi 原生压缩续聊与权限复核，再按证据补必要知识；真实旧讨论仍可由跨会话索引定位，摘要缺失时有限原文回读。 |
-| A62 | M1·部分 | [会话摘要测试][session-summary-tests]、[维护测试][session-maintenance-tests] | [WP5](ai-work-context-delivery.md#confirmed-work-packages-20261009)须删除每 Project UTC 日 5 次且失败计入的硬限，盘查其他任意共享额度；核失败保留进度、无重复、有限续跑，必要知识进入 Project Overview 而不生成 Record。 |
+| A62 | M1·部分 | [会话摘要测试][session-summary-tests]、[维护测试][session-maintenance-tests]：每 Project UTC 日 5 次及其他任意共享额度已从调度代码移除；失败保留进度、有限续跑有定向证据 | 真实模型下核失败恢复、无重复和必要知识进入 Project Overview 而不生成 Record。 |
 | A63 | M1·部分 | [会话摘要测试][session-summary-tests] | [WP4～5](ai-work-context-delivery.md#confirmed-work-packages-20261009)须核 Pi 压缩摘要可复用性、原文长消息续页；确需额外知识时验证建议/计划/决定/失败任务的来源分类和短会话覆盖。50 条/12000 字符仅为当前读取分页参数。 |
 | A64 | M1·部分 | [完整历史索引测试][session-search-tests]、[Pi 分支测试][host-session-tests] | 推翻决定、恢复的 Pi 原生压缩与重试分支的实际消息身份；压缩后的续聊与来源失效不得泄露旧内容。 |
 | A65 | M1·部分 | [会话来源测试][session-source-tests]、[连接范围测试][grant-tests] | 删除/排除、外部连接无 session.read、内部助手自动配置 session.read 及摘要缺口后的检索/派生知识负例。 |

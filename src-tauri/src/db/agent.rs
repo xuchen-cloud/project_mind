@@ -689,6 +689,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let path = root.path().join("workspace.sqlite3");
         let db = Database::open(&path, root.path(), None).unwrap();
         db.conn.execute("INSERT INTO projects (name, root_path, summary, summary_markdown, created_at, updated_at) VALUES ('Plan', 'workspace:plan', 'buffer', 'Keep this draft', 'now', 'now')", []).unwrap();
+        super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
         db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.conn.pragma_update(None, "user_version", 25).unwrap();
         drop(db);
@@ -730,6 +731,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     fn agent_migration_failure_rolls_back_tables_and_schema_version() {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
         db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.conn.execute_batch("DROP TABLE agent_context_instructions; DROP TABLE agent_jobs; CREATE TABLE agent_jobs(id TEXT); PRAGMA user_version=25;").unwrap();
         assert!(db.migrate().is_err());

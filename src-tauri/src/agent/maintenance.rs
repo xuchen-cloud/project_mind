@@ -31,6 +31,8 @@ pub struct MaintenanceBatch {
     pub from_seq_exclusive: u64,
     pub through_seq: u64,
     pub previous_overview_revision: Option<u64>,
+    #[serde(default)]
+    pub expected_memory_epoch: u64,
     pub changes: Vec<ContentChange>,
 }
 

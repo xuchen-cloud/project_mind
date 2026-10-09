@@ -183,6 +183,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         db.conn
             .execute("DROP TABLE agent_profile_verifications", [])
             .unwrap();
+        super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
         db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.set_schema_version(28).unwrap();
         drop(db);
@@ -244,6 +245,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     fn agent_runtime_schema_failed_upgrade_rolls_back_new_tables_and_version() {
         let root = tempfile::tempdir().unwrap();
         let db = open(root.path());
+        super::super::agent_memory_schema::remove_agent_memory_schema_fixture(&db);
         db.conn.execute_batch(REMOVE_LATER_AGENT_SCHEMA).unwrap();
         db.set_schema_version(28).unwrap();
         db.conn

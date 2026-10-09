@@ -9,6 +9,7 @@ import { Button, DisclosurePresence, EmptyState, SectionHeader, StatusBadge, Sur
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { AgentSourceCard } from "./AgentSourceCard";
 import { AgentPublishedSource } from "./AgentPublishedSource";
+import { AgentMemoryPanel } from "./AgentMemoryPanel";
 
 export interface AgentKnowledgePanelProps { binding: AgentWorkspaceBinding; scope: AgentScope; open?: boolean }
 const sections: Record<AiOverviewItem["section"], string> = { profile: "项目定位", progress: "进展", knowledgeMap: "知识线索", actions: "行动", openQuestions: "待确认问题" };
@@ -81,6 +82,9 @@ function Failure({ error }: { error: unknown }) {
 }
 
 function KnowledgeContents({ binding, scope }: Omit<AgentKnowledgePanelProps, "open">) {
+  const [memoryExpanded, setMemoryExpanded] = useState(false);
+  const [memoryReadVersion, setMemoryReadVersion] = useState(0);
+  const memoryTrigger = useRef<HTMLButtonElement>(null);
   const client = useQueryClient();
   const base = agentQueryKeys.scope(binding, scope);
   const metadata = useQuery({ queryKey: [...base, "knowledge-metadata"], queryFn: () => agentApi.contextGet(binding, { scope, budgetChars: 1000 }), ...queryOptions });
@@ -121,6 +125,13 @@ function KnowledgeContents({ binding, scope }: Omit<AgentKnowledgePanelProps, "o
     </SurfaceCard>
     <OverviewMaintenance binding={binding} scope={scope} />
     <OverviewCorrectionsPanel binding={binding} scope={scope} />
+    <SurfaceCard className="p-3" data-disclosure-list>
+      <button ref={memoryTrigger} type="button" className="w-full text-left text-ui font-medium text-text" aria-expanded={memoryExpanded}
+        onClick={() => { if (!memoryExpanded) setMemoryReadVersion(value => value + 1); setMemoryExpanded(value => !value); }}>查看长期记忆</button>
+      <DisclosurePresence open={memoryExpanded} triggerRef={memoryTrigger} className="mt-3">
+        <AgentMemoryPanel key={memoryReadVersion} binding={binding} scope={scope} />
+      </DisclosurePresence>
+    </SurfaceCard>
     <div className="max-h-[32rem] [&_.home-side__list]:max-h-[32rem]">
       <HomeSidebarList label="知识内容">
         <div className="space-y-3" data-disclosure-list>
