@@ -306,7 +306,9 @@ impl<'a> SourceIndex<'a> {
         let matches = if long.is_empty() {
             format!("SELECT c.id AS rowid,0.0 AS rank,substr(c.text,1,240) AS excerpt FROM source_index_snapshots s JOIN source_index_chunks c ON c.snapshot_id=s.id WHERE {filters}")
         } else {
-            format!("SELECT source_index_fts.rowid,bm25(source_index_fts) AS rank,snippet(source_index_fts,1,'','','…',64) AS excerpt FROM source_index_fts JOIN source_index_chunks c ON c.id=source_index_fts.rowid JOIN source_index_snapshots s ON s.id=c.snapshot_id WHERE source_index_fts MATCH ?1 AND {filters}")
+            // Bundled SQLite otherwise scans scope/chunks first and reruns FTS MATCH per chunk.
+            // At 3000 indexed Records that plan took seconds per search.
+            format!("SELECT source_index_fts.rowid,bm25(source_index_fts) AS rank,snippet(source_index_fts,1,'','','…',64) AS excerpt FROM source_index_fts CROSS JOIN source_index_chunks c ON c.id=source_index_fts.rowid CROSS JOIN source_index_snapshots s ON s.id=c.snapshot_id WHERE source_index_fts MATCH ?1 AND {filters}")
         };
         // A title-only source has no body chunk or invented paragraph anchor.
         // Apply the identical source filters before it joins ranking/pagination.

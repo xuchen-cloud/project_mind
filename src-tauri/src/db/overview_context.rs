@@ -429,6 +429,23 @@ mod tests {
             .unwrap()
     }
     #[test]
+    #[ignore = "manual E16 published knowledge status latency"]
+    fn e16_published_knowledge_status_latency() {
+        let f = fixture();
+        publish(&f);
+        let mut times = Vec::with_capacity(100);
+        for index in 0..110 {
+            let started = std::time::Instant::now();
+            let entry = get(&f, &f.request, f.input.clone());
+            assert!(!matches!(entry.status, KnowledgeStatus::NotBuilt));
+            assert!(!entry.nodes.is_empty() || entry.positioning.is_some());
+            if index >= 10 { times.push(started.elapsed().as_micros()); }
+        }
+        times.sort_unstable();
+        eprintln!("E16 published knowledge status p50={}us p95={}us max={}us warmup=10 samples=100", times[49], times[94], times[99]);
+        assert!(times[94] <= 200_000);
+    }
+    #[test]
     fn l0_no_overview_keeps_independent_identity_and_not_built() {
         let f = fixture();
         let entry = get(&f, &f.request, f.input.clone());

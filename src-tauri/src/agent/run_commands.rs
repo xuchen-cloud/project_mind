@@ -234,8 +234,7 @@ pub(crate) fn agent_run_start(
                 input.data.prompt,
                 resolved.profile,
                 receiver,
-            )
-            .await;
+            ).await;
             let mut settlement = outcome.unwrap_or_else(|error| RunSettlement {
                 state: RunState::Failed,
                 runtime_settled: false,
@@ -260,6 +259,12 @@ pub(crate) fn agent_run_start(
                 settled =
                     db.agent_run_settle(&request, &runtime.agent_binding, &run_id, &settlement);
             }
+            let cancellation_started = lock_mutex(&runtime.agent_cancel_started).remove(&run_id);
+            let cancellation_result = cancellation_started.map(|started| (started, match &settled {
+                Ok(run) if run.state == RunState::Cancelled => None,
+                Ok(_) => settlement.error_code,
+                Err(error) => Some(error.code),
+            }));
             if let Ok(run) = settled {
                 let event = match run.state {
                     RunState::Completed => RunEventKind::Completed,
@@ -285,6 +290,9 @@ pub(crate) fn agent_run_start(
             }
             drop(db);
             lock_mutex(&runtime.agent_runs).remove(&run_id);
+            if let Some((started, error)) = cancellation_result {
+                super::local_metrics::record_outcome(&runtime.paths, "run.cancel", started, error, 1);
+            }
         });
         Ok(run)
     })();
@@ -309,6 +317,7 @@ pub(crate) fn agent_run_cancel(
         let run = db.agent_run_get(&request, &runtime.agent_binding, &input.data.run_id)?;
         if !run.state.is_terminal() {
             if let Some(cancel) = lock_mutex(&runtime.agent_runs).get(&run.id) {
+                lock_mutex(&runtime.agent_cancel_started).entry(run.id.clone()).or_insert_with(std::time::Instant::now);
                 cancel.send_replace(true);
             }
         }

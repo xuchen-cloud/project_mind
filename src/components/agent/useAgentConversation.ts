@@ -22,6 +22,7 @@ export function agentFailureMessage(error: unknown): string {
     WORKSPACE_CHANGED: "工作区已切换，请重新打开助手。",
     RUNTIME_UNAVAILABLE: "内置助手运行资源不可用，请检查应用安装。",
     BUDGET_EXCEEDED: "本次运行已达到上限，已保存的消息仍可阅读，可发送新的问题继续。",
+    TIMED_OUT: "助手响应超时，已保存的消息仍可阅读；可稍后发送新问题继续。",
     SOURCE_NOT_READY: "资料尚未准备好，请打开知识页查看资料处理状态。",
     SOURCE_CHANGED: "资料已变化，请刷新后继续提问。",
     IO_FAILED: "助手读取或保存会话失败，请刷新后重试。",

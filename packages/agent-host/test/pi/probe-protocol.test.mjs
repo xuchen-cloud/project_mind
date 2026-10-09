@@ -84,3 +84,40 @@ test('tool call limit aborts the SDK and checkpoints instead of starting paid co
   assert.equal(frames.at(-1).data.code, 'BUDGET_EXCEEDED');
   assert.ok(frames.at(-1).data.checkpoint);
 });
+
+test('an unanswered source tool times out, cancels the SDK, and persists the failed checkpoint', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const frames = [];
+  const persisted = [];
+  let cancelled = 0;
+  const protocol = createProbeProtocol({ workspaceRoot: '/tmp/workspace',
+    write: (value) => frames.push(value),
+    persistCheckpoint: async (_sessionId, checkpoint) => {
+      persisted.push(checkpoint);
+      return { checksum: 'timeout-fixture', bytes: 1 };
+    },
+    makeSession: async ({ dispatchTool, onEvent }) => ({
+      activeTools: () => ['mind_source_read'],
+      cancel: async () => { ++cancelled; }, dispose: async () => {},
+      prompt: async () => {
+        await assert.rejects(dispatchTool({ method: 'source.read', toolCallId: 'unanswered', payload: {} }), /timed out/);
+        onEvent({ type: 'agent_settled' });
+        return { jsonl: 'saved SDK history', checksum: 'sdk-fixture', bytes: 1 };
+      },
+    }),
+  });
+  await protocol.handle(frame('initialize'));
+  await protocol.handle(frame('session.open', { sessionId, profile, apiKey: 'fixture-secret', toolCallingVerified: true }));
+  await protocol.handle(frame('run.start', { sessionId, runId, prompt: 'Read source' }));
+  assert.equal(frames.filter((value) => value.method === 'tool.call').length, 1);
+  t.mock.timers.tick(29999);
+  assert.equal(cancelled, 0);
+  assert.equal(frames.some((value) => value.type === 'run.failed'), false);
+  t.mock.timers.tick(1);
+  await protocol.idle();
+  assert.equal(cancelled, 1);
+  assert.deepEqual(persisted, [{ jsonl: 'saved SDK history', checksum: 'sdk-fixture', bytes: 1 }]);
+  assert.equal(frames.at(-1).type, 'run.failed');
+  assert.equal(frames.at(-1).data.code, 'TIMED_OUT');
+  assert.deepEqual(frames.at(-1).data.checkpoint, { checksum: 'timeout-fixture', bytes: 1 });
+});

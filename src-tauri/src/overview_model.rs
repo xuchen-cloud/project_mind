@@ -355,8 +355,8 @@ fn workspace_changed() -> AgentError {
 }
 fn timed_out() -> AgentError {
     AgentError::new(
-        ErrorCode::BudgetExceeded,
-        "Overview generation reached its execution limit",
+        ErrorCode::TimedOut,
+        "Overview generation timed out",
     )
 }
 fn incompatible() -> AgentError {

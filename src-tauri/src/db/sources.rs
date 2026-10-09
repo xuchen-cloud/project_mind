@@ -440,8 +440,8 @@ impl Database {
     /// excluded before counts/pagination are computed. Policies remain durable.
     fn source_prune_cache(&self, binding: &WorkspaceBinding, scope: &Scope) -> AgentResult<()> {
         let ownership=match scope {
-            Scope::Workspace=>"EXISTS(SELECT 1 FROM workspace_notes n WHERE CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.note_kind='workspace_note')",
-            Scope::Project {..}=>"EXISTS(SELECT 1 FROM notes n JOIN projects p ON p.id=n.project_id WHERE CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.project_id=?3)",
+            Scope::Workspace=>"EXISTS(SELECT 1 FROM workspace_notes n WHERE n.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.note_kind='workspace_note')",
+            Scope::Project {..}=>"EXISTS(SELECT 1 FROM notes n JOIN projects p ON p.id=n.project_id WHERE n.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.project_id=?3)",
         };
         let sql=format!("DELETE FROM source_index_snapshots AS s WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='record' AND (NOT ({ownership}) OR (s.version>0 AND NOT EXISTS(SELECT 1 FROM record_versions v WHERE v.record_key=s.scope_key||':'||json_extract(s.object_json,'$.id') AND v.version_number=s.version)) OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))");
         match scope {

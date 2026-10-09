@@ -43,7 +43,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
         if (error) reject(error); else resolve(value);
       };
       const timer = setTimeout(() => {
-        active.failureCode = 'BUDGET_EXCEEDED';
+        active.failureCode = 'TIMED_OUT';
         complete(undefined, new Error('Tool request timed out'));
         void session.cancel().catch(() => {});
       }, method === 'review.decide' ? 600000 : 30000);

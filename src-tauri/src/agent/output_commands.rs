@@ -233,6 +233,8 @@ pub(crate) async fn agent_output_commit(
     state: State<'_, AppState>,
     input: OutputCommandInput<OutputCommitInput>,
 ) -> Result<ApiResponse<RecordOutputResult>, String> {
+    let started = std::time::Instant::now();
+    let binding = input.binding.clone();
     let result = async {
         let request = output_request(
             &state,
@@ -264,6 +266,10 @@ pub(crate) async fn agent_output_commit(
         .await
     }
     .await;
+    let paths = crate::lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == binding).map(|runtime| runtime.paths.clone());
+    if let Some(paths) = paths {
+        super::local_metrics::record(&paths, "output.commit", started, &result, 1);
+    }
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 #[tauri::command]

@@ -18,6 +18,7 @@ pub enum ErrorCode {
     RuntimeIncompatible,
     InvalidRunTransition,
     BudgetExceeded,
+    TimedOut,
     IdempotencyConflict,
     IoFailed,
     Cancelled,

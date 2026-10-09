@@ -200,6 +200,8 @@ _Avoid_：Project QuickNote、项目主页、用户已确认事实
 
 Project Overview 的维护作业在 `agent_jobs` 中持久保存 `batchId`、来源读取游标和待发布草稿；来源引用依据实际读取的来源页与证明，覆盖范围依据真实处理进度计算。取消、预算耗尽、前台任务和凭据锁定会使维护暂停或让出，条件恢复后可续跑。用户在 GUI 中的纠正由专属事务保存并约束后续发布；维护写入独立的 Overview 与派生知识，不改动 QuickNote。
 
+运行超时使用 `TIMED_OUT`，与容量/调用次数达到上限区分；内部上下文检查不算模型首响应。必要运行指标只写 Workspace 本机轮转日志，不记录正文、凭据或推理，也不远程上传。S4 已修复规模语料下的查询执行计划问题，实际查询、边界和验证条件见[本地验证记录](docs/technical/ai-local-performance-20261009.md)。
+
 **Scope Grant**：
 可信适配器绑定到 Workspace 和明确 Project/Workspace 范围的操作权限；资料正文或工具参数不能扩大它。
 _Avoid_：当前页面、模型声明的授权

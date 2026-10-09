@@ -283,6 +283,14 @@ describe("assistant conversation lifecycle", () => {
     expect(api.runCancel).toHaveBeenCalledWith(binding, { runId: stored.id });
     expect(api.contextGet).not.toHaveBeenCalled();
   });
+  it("explains a persisted model timeout and preserves the readable conversation", async () => {
+    api.sessionGet.mockResolvedValue({ session, latestRun: { ...stored, state: "failed", errorCode: "TIMED_OUT" },
+      checkpoint: checkpoint(), messages: [message(0)], nextOrdinal: null });
+    const view = await ready();
+    await act(async () => { await view.result.current.selectSession(session.id); });
+    expect(view.result.current.error).toBe("助手响应超时，已保存的消息仍可阅读；可稍后发送新问题继续。");
+    expect(view.result.current.messages).toHaveLength(1);
+  });
   it("shows a concrete busy error and does not treat rejection as completion", async () => {
     const view = await ready();
     api.runStart.mockRejectedValue(new AgentApiError({ code: "RUN_BUSY", message: "busy", retryable: false }));

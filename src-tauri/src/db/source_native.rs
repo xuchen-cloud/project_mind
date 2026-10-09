@@ -154,7 +154,7 @@ impl Database {
             "DELETE FROM source_index_snapshots AS s WHERE s.workspace_id=?1 AND s.scope_key=?2
              AND json_extract(s.object_json,'$.kind')='todo'
              AND (s.version!=0 OR NOT EXISTS(SELECT 1 FROM agent_visible_todos t
-                 WHERE CAST(t.id AS TEXT)=json_extract(s.object_json,'$.id')
+                 WHERE t.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(t.id AS TEXT)=json_extract(s.object_json,'$.id')
                  AND ((?3 IS NULL AND t.scope='workspace' AND t.project_id IS NULL)
                      OR (t.scope='project' AND t.project_id=?3)))
                  OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))",
@@ -164,7 +164,7 @@ impl Database {
             "DELETE FROM source_index_snapshots AS s WHERE s.workspace_id=?1 AND s.scope_key=?2
              AND json_extract(s.object_json,'$.kind')='quick_note'
              AND (s.version!=0 OR NOT ((?3 IS NULL AND EXISTS(SELECT 1 FROM workspace_notes n
-                 WHERE CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.note_kind='today_quick_note'))
+                 WHERE n.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(n.id AS TEXT)=json_extract(s.object_json,'$.id') AND n.note_kind='today_quick_note'))
                  OR (?3 IS NOT NULL AND EXISTS(SELECT 1 FROM projects p WHERE p.id=?3 AND p.is_archived=0
                      AND CAST(p.id AS TEXT)=json_extract(s.object_json,'$.id'))))
                  OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))",

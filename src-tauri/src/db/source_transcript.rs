@@ -264,7 +264,7 @@ impl Database {
         };
         self.conn.execute("DELETE FROM source_index_snapshots AS s WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='transcript'
             AND (s.version!=0 OR NOT EXISTS(SELECT 1 FROM voice_records v LEFT JOIN notes n ON n.id=v.project_note_id LEFT JOIN workspace_notes w ON w.id=v.workspace_note_id LEFT JOIN projects p ON p.id=n.project_id
-                WHERE CAST(v.id AS TEXT)=json_extract(s.object_json,'$.id') AND ((?3 IS NULL AND w.id IS NOT NULL) OR (n.project_id=?3 AND p.is_archived=0)))
+                WHERE v.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(v.id AS TEXT)=json_extract(s.object_json,'$.id') AND ((?3 IS NULL AND w.id IS NOT NULL) OR (n.project_id=?3 AND p.is_archived=0)))
                 OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))", rusqlite::params![binding.workspace_id,scope.key(),project_id]).map_err(io_error)?;
         Ok(())
     }

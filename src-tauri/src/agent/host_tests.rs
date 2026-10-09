@@ -1,6 +1,19 @@
 use super::super::conversation::MessageRole;
 use super::*;
 
+#[test]
+fn internal_context_check_does_not_extend_first_progress_deadline() {
+    let started = Instant::now();
+    let mut last_progress = started;
+    let mut progress = false;
+    let total_deadline = started + TOTAL_TIMEOUT;
+    let first = run_deadline(started, last_progress, progress, total_deadline);
+    tool_progress("session.context.check", &mut progress, &mut last_progress, started + Duration::from_secs(40));
+    assert_eq!(run_deadline(started, last_progress, progress, total_deadline), first);
+    tool_progress("source.search", &mut progress, &mut last_progress, started + Duration::from_secs(41));
+    assert!(run_deadline(started, last_progress, progress, total_deadline) > first);
+}
+
 fn checkpoint(count: u64) -> SessionCheckpoint {
     SessionCheckpoint {
         schema_version: 1,

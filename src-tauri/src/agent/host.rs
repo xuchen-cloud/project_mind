@@ -29,6 +29,18 @@ const TOTAL_TIMEOUT: Duration = Duration::from_secs(600);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(5);
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
 
+fn tool_progress(method: &str, progress: &mut bool, last_progress: &mut Instant, now: Instant) {
+    if method != "session.context.check" {
+        *last_progress = now;
+        *progress = true;
+    }
+}
+fn run_deadline(started: Instant, last_progress: Instant, progress: bool, total_deadline: Instant) -> Instant {
+    (total_deadline - CANCEL_TIMEOUT)
+        .min(last_progress + IDLE_TIMEOUT)
+        .min(if progress { total_deadline } else { started + FIRST_PROGRESS_TIMEOUT })
+}
+
 fn incompatible(message: &'static str) -> AgentError {
     AgentError::new(ErrorCode::RuntimeIncompatible, message)
 }
@@ -37,6 +49,9 @@ fn budget() -> AgentError {
         ErrorCode::BudgetExceeded,
         "Agent run reached its execution limit",
     )
+}
+fn timed_out() -> AgentError {
+    AgentError::new(ErrorCode::TimedOut, "Agent run timed out")
 }
 fn cancelled() -> AgentError {
     AgentError::new(ErrorCode::Cancelled, "Agent run cancelled")
@@ -51,6 +66,17 @@ fn validate_current(app: &tauri::AppHandle, request: &RequestContext) -> AgentRe
         ));
     }
     Ok(())
+}
+fn record_restore(
+    app: &tauri::AppHandle,
+    runtime: &WorkspaceRuntime,
+    request: &RequestContext,
+    started: std::time::Instant,
+    error: Option<ErrorCode>,
+) {
+    if validate_current(app, request).is_ok() {
+        super::local_metrics::record_outcome(&runtime.paths, "session.restore", started, error, 1);
+    }
 }
 fn command(id: &str, method: &str, data: Value) -> Value {
     json!({"protocolVersion":HOST_PROTOCOL,"requestId":id,"method":method,"data":data})
@@ -72,7 +98,7 @@ fn response(frame: Value, id: &str) -> AgentResult<Value> {
 async fn send(process: &mut HostProcess, frame: &Value) -> AgentResult<()> {
     timeout(CANCEL_TIMEOUT, process.send(frame))
         .await
-        .map_err(|_| budget())?
+        .map_err(|_| timed_out())?
 }
 async fn exchange(
     process: &mut HostProcess,
@@ -88,7 +114,7 @@ async fn exchange(
     tokio::select! {
         _ = cancel.changed(), if method != "run.start" => Err(cancelled()),
         result = timeout(PREPARATION_TIMEOUT, process.next_frame()) => {
-            let frame = result.map_err(|_| budget())??.ok_or_else(|| incompatible("Agent process ended before response"))?;
+            let frame = result.map_err(|_| timed_out())??.ok_or_else(|| incompatible("Agent process ended before response"))?;
             response(frame, id)
         }
     }
@@ -201,7 +227,7 @@ async fn collect_projection(
                 reading.await
             };
             let raw = received
-                .map_err(|_| budget())??
+                .map_err(|_| timed_out())??
                 .ok_or_else(|| incompatible("Agent projection stream ended"))?;
             // The SDK may settle just before cancel. Drain its correlated late
             // acknowledgement while collecting the authoritative terminal.
@@ -468,6 +494,51 @@ async fn dispatch_tool(
     arguments: Value,
     cancel: &watch::Receiver<bool>,
 ) -> AgentResult<Value> {
+    let started = std::time::Instant::now();
+    let result = dispatch_tool_inner(state, record, source, request, method, arguments, cancel).await;
+    let label = match method {
+        "context.get" => Some("context.get"),
+        "source.search" => Some("source.search"),
+        "source.read" | "file.source.read" => Some("source.read"),
+        "output.commit" => Some("output.commit"),
+        _ => None,
+    };
+    if let Some(label) = label {
+        let paths = crate::lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == request.binding).map(|runtime| runtime.paths.clone());
+        if let Some(paths) = paths {
+            let count = result.as_ref().ok().and_then(|value| value.get("results").or_else(|| value.get("items"))).and_then(Value::as_array).map_or(1, Vec::len);
+            super::local_metrics::record(&paths, label, started, &result, count);
+        }
+    }
+    if method == "review.decide" {
+        let paths = crate::lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == request.binding).map(|runtime| runtime.paths.clone());
+        if let (Some(paths), Ok(value)) = (paths, &result) {
+            if value["decision"] == "confirm" {
+                let saved = value["savedCount"].as_u64().unwrap_or(0) as usize;
+                if saved > 0 {
+                    super::local_metrics::record_outcome(&paths, "output.commit", started, None, saved);
+                }
+                if let Some(failures) = value["failures"].as_array() {
+                    for failure in failures {
+                        let code = serde_json::from_value::<ErrorCode>(failure["code"].clone()).unwrap_or(ErrorCode::OutputCommitFailed);
+                        super::local_metrics::record_outcome(&paths, "output.commit", started, Some(code), 0);
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+async fn dispatch_tool_inner(
+    state: &AppState,
+    record: &crate::record_document_service::AppDocumentUtility,
+    source: &crate::source_extraction_worker::SourceExtractionWorker,
+    request: &RequestContext,
+    method: &str,
+    arguments: Value,
+    cancel: &watch::Receiver<bool>,
+) -> AgentResult<Value> {
     if method == "review.decide" {
         execute_review_decision(state,record,request,arguments,cancel,None).await
     } else if method == "session.context.check" {
@@ -723,7 +794,7 @@ pub(crate) async fn execute(
         tokio::task::spawn_blocking(move || PackagedAgentRuntime::for_app(&runtime_app)),
     )
     .await
-    .map_err(|_| budget())?
+    .map_err(|_| timed_out())?
     .map_err(|_| incompatible("Agent resource verification stopped"))??;
     let source_app = app.clone();
     let source = timeout_at(
@@ -733,7 +804,7 @@ pub(crate) async fn execute(
         }),
     )
     .await
-    .map_err(|_| budget())?
+    .map_err(|_| timed_out())?
     .map_err(|_| incompatible("Source resource verification stopped"))??;
     let mut process = packaged.spawn(&workspace_root, false).await?;
     let mut running = false;
@@ -744,18 +815,23 @@ pub(crate) async fn execute(
         let initialized = exchange(&mut process, "initialize", "initialize", json!({"workspaceRoot":workspace_root,"tools":tools,"systemPrompt":system_prompt}), &mut cancel).await?;
         if initialized["runtimeAvailable"] != true || initialized["activeTools"] != json!(active_tools) { return Err(incompatible("Agent runtime read tools differ from the Host manifest")); }
         let resume = stored_checkpoint.is_some() || runtime.paths.root_path.join(".project-mind/agent/sessions").join(&session.id).exists();
+        let resume_started = std::time::Instant::now();
         let opened = exchange(&mut process, "session-open", "session.open", json!({"sessionId":session.id,"resume":resume,"hostOwnedHistoryPolicy":true,
             "profile":{"providerFamily":profile.provider_family,"enabled":true,"supportsText":profile.supports_text,"baseUrl":profile.base_url,"defaultModel":profile.model},
             "modelId":profile.model,"apiKey":profile.api_key,"toolCallingVerified":true}), &mut cancel).await;
         profile.api_key.clear();
-        let opened = opened.map_err(|error| { if resume && error.code == ErrorCode::RuntimeIncompatible { damaged_history = true; } error })?;
-        if opened["sessionId"] != session.id || opened["activeTools"] != json!(active_tools) { return Err(incompatible("Agent session tools differ from the Host manifest")); }
+        let opened = opened.map_err(|error| { if resume && error.code == ErrorCode::RuntimeIncompatible { damaged_history = true; } if resume { record_restore(&app, &runtime, &request, resume_started, Some(error.code)); } error })?;
+        if opened["sessionId"] != session.id || opened["activeTools"] != json!(active_tools) {
+            if resume { record_restore(&app, &runtime, &request, resume_started, Some(ErrorCode::RuntimeIncompatible)); }
+            return Err(incompatible("Agent session tools differ from the Host manifest"));
+        }
         if resume {
-            let checkpoint: SessionCheckpoint = serde_json::from_value(opened["checkpoint"].clone()).map_err(|_| incompatible("Restored Agent checkpoint is invalid"))?;
-            verify_history(&runtime, &session.id, &checkpoint).await.map_err(|error| { damaged_history = true; error })?;
+            let checkpoint: SessionCheckpoint = serde_json::from_value(opened["checkpoint"].clone()).map_err(|_| { record_restore(&app, &runtime, &request, resume_started, Some(ErrorCode::RuntimeIncompatible)); incompatible("Restored Agent checkpoint is invalid") })?;
+            verify_history(&runtime, &session.id, &checkpoint).await.map_err(|error| { damaged_history = true; record_restore(&app, &runtime, &request, resume_started, Some(error.code)); error })?;
             // Read restored history now; the final checkpoint will include it in
             // the caller's atomic projection + terminal transaction.
-            restored_projection = Some(collect_projection(&mut process, &session.id, checkpoint, Some(cancel.clone())).await?);
+            restored_projection = Some(collect_projection(&mut process, &session.id, checkpoint, Some(cancel.clone())).await.map_err(|error| { record_restore(&app, &runtime, &request, resume_started, Some(error.code)); error })?);
+            record_restore(&app, &runtime, &request, resume_started, None);
         }
         validate_current(&app, &request)?;
         if *cancel.borrow() { return Err(cancelled()); }
@@ -764,9 +840,9 @@ pub(crate) async fn execute(
         let accepted = exchange(&mut process, "run-start", "run.start", json!({"sessionId":session.id,"runId":run_id,"prompt":prompt}), &mut cancel).await?;
         if accepted["accepted"] != true || accepted["runId"] != run_id { return Err(incompatible("Agent did not accept the bound run")); }
         Ok::<(), AgentError>(())
-      }).await.map_err(|_| budget())??;
+      }).await.map_err(|_| timed_out())??;
       run_loop(&app, &runtime, &request, &session, &run_id, &mut process, &mut cancel, whole_deadline, &mut read_budget, &source).await
-    }).await.unwrap_or_else(|_| Err(budget()));
+    }).await.unwrap_or_else(|_| Err(timed_out()));
     profile.api_key.clear();
     // Both successful and failed paths close credentials/pipes. Drop is also
     // kill-on-drop; a stuck SDK receives at most the cancellation grace period.
@@ -870,15 +946,7 @@ async fn run_loop(
             cancelling_at = Some(Instant::now());
         }
         let deadline = cancelling_at.map_or_else(
-            || {
-                (total_deadline - CANCEL_TIMEOUT)
-                    .min(last_progress + IDLE_TIMEOUT)
-                    .min(if progress {
-                        total_deadline
-                    } else {
-                        started + FIRST_PROGRESS_TIMEOUT
-                    })
-            },
+            || run_deadline(started, last_progress, progress, total_deadline),
             |at: Instant| at + CANCEL_TIMEOUT,
         );
         let received = tokio::select! {
@@ -897,7 +965,7 @@ async fn run_loop(
                 });
             }
             if received.is_some() {
-                forced_error = Some(ErrorCode::BudgetExceeded);
+                forced_error = Some(ErrorCode::TimedOut);
             }
             crate::lock_mutex(&runtime.db).agent_run_mark_cancelling(
                 request,
@@ -918,7 +986,7 @@ async fn run_loop(
         }
         let frame = received
             .unwrap()
-            .map_err(|_| budget())??
+            .map_err(|_| timed_out())??
             .ok_or_else(|| incompatible("Agent process ended during run"))?;
         if frame["requestId"] == "run-cancel" {
             response(frame, "run-cancel")?;
@@ -961,8 +1029,7 @@ async fn run_loop(
                 }
                 continue;
             }
-            last_progress = Instant::now();
-            progress = true;
+            tool_progress(method, &mut progress, &mut last_progress, Instant::now());
             let mut tool_request = request.clone();
             tool_request.request_id = id.to_owned();
             let arguments = if context_check {
@@ -978,7 +1045,7 @@ async fn run_loop(
                 } else { let tool_cancel=cancel.clone(); tokio::select! {
                     _ = cancel.changed(), if cancelling_at.is_none() => Err(cancelled()),
                     result = timeout(TOOL_TIMEOUT.min(total_deadline.saturating_duration_since(Instant::now())),
-                    dispatch_tool(&*state, &record, source, &tool_request, method, arguments,&tool_cancel)) => result.unwrap_or_else(|_| Err(budget())),
+                    dispatch_tool(&*state, &record, source, &tool_request, method, arguments,&tool_cancel)) => result.unwrap_or_else(|_| Err(timed_out())),
                 }}
             } else {
                 Err(budget_exhausted())
@@ -1025,7 +1092,7 @@ async fn run_loop(
             if result.as_ref().is_err_and(|error| {
                 matches!(
                     error.code,
-                    ErrorCode::Cancelled | ErrorCode::BudgetExceeded | ErrorCode::WorkspaceChanged
+                    ErrorCode::Cancelled | ErrorCode::BudgetExceeded | ErrorCode::TimedOut | ErrorCode::WorkspaceChanged
                 )
             }) {
                 forced_error = result
@@ -1033,8 +1100,9 @@ async fn run_loop(
                     .err()
                     .filter(|error| error.code != ErrorCode::Cancelled)
                     .map(|error| error.code);
-                if forced_error == Some(ErrorCode::BudgetExceeded) {
-                    send(process, &command(id, "tool.result", json!({"sessionId":session.id,"runId":run_id,"error":budget_exhausted()}))).await?;
+                if matches!(forced_error, Some(ErrorCode::BudgetExceeded | ErrorCode::TimedOut)) {
+                    let error = if forced_error == Some(ErrorCode::TimedOut) { timed_out() } else { budget_exhausted() };
+                    send(process, &command(id, "tool.result", json!({"sessionId":session.id,"runId":run_id,"error":error}))).await?;
                 }
                 if cancelling_at.is_none() {
                     crate::lock_mutex(&runtime.db).agent_run_mark_cancelling(

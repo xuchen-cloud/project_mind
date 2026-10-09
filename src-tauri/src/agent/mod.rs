@@ -13,6 +13,7 @@ pub mod conversation;
 pub(crate) mod conversation_commands;
 pub mod errors;
 pub(crate) mod host;
+pub(crate) mod local_metrics;
 pub mod instructions;
 pub(crate) mod knowledge;
 pub mod maintenance;

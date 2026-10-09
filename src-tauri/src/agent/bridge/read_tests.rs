@@ -21,7 +21,7 @@ use crate::{
     models::{DocumentImportInput, ProjectCreateInput, ProjectRecordUpsertInput, TodoCreateInput, TodoScope},
     record_document_service::DocumentUtility,
     record_documents::{body_hash, RecordDocumentProjection, RecordTarget},
-    source_service::{BoundSourceStore, SourceIndexBudget, SourcePolicyUpdate, SourceReadTarget, SourceService, SourceUtility},
+    source_service::{BoundSourceStore, SourceIndexBudget, SourcePolicyUpdate, SourceReadInput, SourceReadTarget, SourceReadView, SourceSearchInput, SourceService, SourceUtility},
 };
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -276,6 +276,181 @@ impl Fixture {
     }
     fn file_input(&self) -> Value {
         json!({"source": {"object": self.file}, "view": "full", "budgetChars": 2000})
+    }
+}
+
+/// Run explicitly on the fixed local performance machine. This builds native
+/// committed objects and their production source index before timing reads.
+#[tokio::test]
+#[ignore = "manual E16 3000 Record + 200 text File performance sample"]
+async fn e16_local_scale_reads() {
+    use std::time::Instant;
+    let f = Fixture::new();
+    let corpus_started = Instant::now();
+    let mut corpus_bytes = 0usize;
+    {
+        let mut db = f.store.db.lock().unwrap();
+        for number in 1..3000 {
+            let text = format!("recordneedle project decision {number:04} {}", "evidence ".repeat(12));
+            corpus_bytes += text.len();
+            let record = db.project_record_upsert(ProjectRecordUpsertInput {
+                project_id: f.project_id, note_id: None,
+                title: Some(format!("Decision {number:04}")),
+                markdown: text.clone(), html: format!("<p>{text}</p>"),
+                default_code_language: None, tag_ids: vec![],
+            }).unwrap();
+            let target = RecordTarget { scope: Scope::Project { project_id: f.project_id }, record_id: record.id };
+            let block = format!("{number:032x}");
+            let document = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":block},"content":[{"type":"text","text":text}]}]});
+            let projection = RecordDocumentProjection { schema_version: 1,
+                body_hash: body_hash(&document, &None), document,
+                html: format!("<p>{text}</p>"), markdown: text.clone(), text,
+                code_language: None };
+            db.record_document_initialize("gui", &format!("e16-record-{number}"), &target,
+                &db.record_document_source(&target).unwrap().source_hash, &projection, &f.binding.workspace_id).unwrap();
+        }
+        for number in 1..200 {
+            let text = format!("fileneedle original source {number:03} {}", "evidence ".repeat(20));
+            corpus_bytes += text.len();
+            let path = f._root.path().join(format!("source-{number:03}.txt"));
+            std::fs::write(&path, text.as_bytes()).unwrap();
+            db.document_import(DocumentImportInput { project_id: f.project_id,
+                source_path: path.to_string_lossy().into(), is_starred: false, tag_ids: None }).unwrap();
+        }
+    }
+    let request = RequestContext { binding: f.binding.clone(), caller: Caller::Gui,
+        request_id: "e16-index".into(), scope_grant: ScopeGrant {
+            object_keys: None, workspace_id: f.binding.workspace_id.clone(),
+            workspace_content: false, project_ids: vec![f.project_id],
+            operations: vec!["source.read".into(), "context.read".into()],
+        } };
+    let scope = Scope::Project { project_id: f.project_id };
+    let source = SourceService::new(&*f.store);
+    let record_worker = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+    let file_worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+        &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")).unwrap();
+    let mut backfill = source.backfill_index_queue(&request, &scope, 200).unwrap();
+    while backfill.has_more { backfill = source.backfill_index_queue(&request, &scope, 200).unwrap(); }
+    source.sync_index_queue(&request, &scope).unwrap();
+    let mut indexed = 0usize;
+    while source.index_next_queued(&request, &scope, SourceIndexBudget::default(),
+        &record_worker, &file_worker).await.unwrap().is_some() {
+        indexed += 1;
+    }
+    assert!(indexed >= 3200, "indexed {indexed} sources");
+    let utility = TextUtility::immediate();
+    let context = json!({"scope":scope,"query":"recordneedle","budgetChars":3000});
+    let record_search = json!({"scope":scope,"query":"recordneedle","kinds":["record"],"limit":8});
+    let file_search = json!({"scope":scope,"query":"fileneedle","kinds":["file"],"limit":8});
+    let record_hit = f.read("e16-record-hit", "source.search", record_search.clone(), &utility).await.unwrap();
+    let file_hit = f.read("e16-file-hit", "source.search", file_search.clone(), &utility).await.unwrap();
+    assert!(!record_hit["items"].as_array().unwrap().is_empty());
+    assert!(!file_hit["items"].as_array().unwrap().is_empty());
+    async fn sample(f: &Fixture, utility: &TextUtility, method: &str, input: Value, target_ms: u128) -> (u128,u128,u128) {
+        let mut times = Vec::with_capacity(100);
+        for number in 0..110 {
+            let started = Instant::now();
+            f.read(&format!("e16-{method}-{number}"), method, input.clone(), utility).await.unwrap();
+            if number >= 10 { times.push(started.elapsed().as_micros()); }
+        }
+        times.sort_unstable();
+        let (p50,p95,max) = (times[49],times[94],times[99]);
+        eprintln!("E16 {method}: p50={p50}us p95={p95}us max={max}us");
+        assert!(p95 <= target_ms * 1000, "{method} p95 {p95}us > {target_ms}ms");
+        (p50,p95,max)
+    }
+    eprintln!("E16 corpus records=3000 files=200 bytes={corpus_bytes} indexed={indexed} buildMs={} appVersion={} os={} arch={} warmup=10 samples=100", corpus_started.elapsed().as_millis(), env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    sample(&f, &utility, "context.get", context, 300).await;
+    sample(&f, &utility, "source.search", record_search, 500).await;
+    sample(&f, &utility, "source.search", file_search, 500).await;
+}
+
+#[tokio::test]
+#[ignore = "manual E16 hot search against preserved fully indexed corpus"]
+async fn e16_reused_corpus_search() {
+    let corpus = std::env::var("PROJECT_MIND_E16_CORPUS").expect("set PROJECT_MIND_E16_CORPUS to the preserved fully indexed Workspace directory");
+    let root = std::path::Path::new(&corpus);
+    let mut db = Database::open(&root.join("bridge.sqlite"), root, None).unwrap();
+    db.bind_native_workspace("bridge-workspace").unwrap();
+    let project_id = db.projects_list(crate::models::ProjectsListInput { include_archived: Some(false) }).unwrap()
+        .into_iter().find(|project| project.name == "Allowed Project").unwrap().id;
+    let binding = WorkspaceBinding { workspace_id: "bridge-workspace".into(), generation: "e16-reopen".into() };
+    let request = RequestContext { binding: binding.clone(), caller: Caller::Gui, request_id: "e16-hot-search".into(),
+        scope_grant: ScopeGrant { object_keys: None, workspace_id: binding.workspace_id.clone(), workspace_content: false,
+            project_ids: vec![project_id], operations: vec!["source.read".into(), "context.read".into(), "knowledge.write".into()] } };
+    let store = Store { binding: Mutex::new(binding), db: Mutex::new(db) };
+    let source = SourceService::new(&store);
+    let scope = Scope::Project { project_id };
+    let record_input = SourceSearchInput { scope: scope.clone(), query: "recordneedle".into(),
+        kinds: vec![ObjectKind::Record], selected: vec![], include_history: false, limit: Some(8), budget_chars: None };
+    let record_ref = source.search(&request, &record_input).await.unwrap().items.first().unwrap().source_ref.clone();
+    let record_worker = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+    let (read, captured) = crate::overview_evidence::capture(&store, &request, &SourceReadInput {
+        source: SourceReadTarget { object: record_ref.object, revision: None, record_version: None, file_version: None },
+        view: SourceReadView::Full, selection: None, cursor: None, budget_chars: Some(4000),
+    }, &record_worker, &TextUtility::immediate()).await.unwrap();
+    assert!(read.text.contains("recordneedle"));
+    let (revision, target_seq) = {
+        let db = store.db.lock().unwrap();
+        (db.agent_overview_head(&scope).unwrap().map_or(0, |head| head.revision),
+         db.committed_change_watermark().unwrap() as u64)
+    };
+    let publish = crate::agent::overview::OverviewPublishInput {
+        scope: scope.clone(), batch_id: format!("e16-published-{}", revision + 1), expected_revision: revision,
+        target_seq, policy_revision: 0, correction_revision: 0,
+        upsert_items: vec![crate::agent::context::OverviewItem {
+            id: "e16-record-profile".into(), section: crate::agent::context::OverviewSection::Profile,
+            text: read.text.chars().take(160).collect(), epistemic_status: crate::agent::context::EpistemicStatus::Recorded,
+            source_refs: vec![captured.reference().clone()], dependency_item_ids: vec![],
+            valid_state: crate::agent::context::ValidState::Current, updated_at: chrono::Utc::now().to_rfc3339(),
+        }], remove_item_ids: vec![], settled_object_keys: vec![], knowledge_upserts: vec![], knowledge_removes: vec![],
+        coverage: crate::agent::context::SourceCoverage { processed: 1, partial: 0, excluded: 0, unsupported: 0, pending: 0 },
+        source_manifest_hash: captured.reference().revision.clone(), model_profile_id: "deterministic-test".into(),
+    };
+    let mut publish_request = request.clone();
+    publish_request.request_id = format!("e16-publish-{}", revision + 1);
+    crate::overview_service::OverviewService::new(&store).publish(&publish_request, &publish, &[captured]).await.unwrap();
+    let mut context_times = Vec::with_capacity(100);
+    for index in 0..110 {
+        let started = std::time::Instant::now();
+        let entry = crate::agent::tools::dispatch_read(&store, &record_worker, &TextUtility::immediate(),
+            &request, "context.get", json!({"scope":scope,"budgetChars":3000})).await.unwrap();
+        assert_ne!(entry["status"], "not_built");
+        assert!(entry["positioning"].as_str().is_some_and(|text| text.contains("recordneedle")));
+        if index >= 10 { context_times.push(started.elapsed().as_micros()); }
+    }
+    context_times.sort_unstable();
+    eprintln!("E16 preserved published context.get p50={}us p95={}us max={}us warmup=10 samples=100", context_times[49], context_times[94], context_times[99]);
+    assert!(context_times[94] <= 300_000);
+    for (query, kind) in [("recordneedle", ObjectKind::Record), ("fileneedle", ObjectKind::File)] {
+        let input = SourceSearchInput { scope: Scope::Project { project_id }, query: query.into(),
+            kinds: vec![kind], selected: vec![], include_history: false, limit: Some(8), budget_chars: None };
+        if kind == ObjectKind::File {
+            let page = source.search(&request, &input).await.unwrap();
+            let object = page.items.first().unwrap().source_ref.object.clone();
+            let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+                &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")).unwrap();
+            let read = source.read_file(&request, &SourceReadInput { source: SourceReadTarget {
+                object, revision: None, record_version: None, file_version: None },
+                view: SourceReadView::Full, selection: None, cursor: None, budget_chars: Some(4000) }, &worker).await.unwrap();
+            assert!(read.text.contains("fileneedle"));
+        }
+        let mut times = Vec::with_capacity(100);
+        for index in 0..110 {
+            let started = std::time::Instant::now();
+            let page = source.search(&request, &input).await.unwrap();
+            assert!(!page.items.is_empty(), "{query} returned no actual source");
+            if index >= 10 {
+                let elapsed = started.elapsed().as_micros();
+                if elapsed > 500_000 { eprintln!("E16 {query} slow sample {index}: {elapsed}us"); }
+                times.push(elapsed);
+                assert!(times.iter().filter(|&&time| time > 500_000).count() < 6,
+                    "{query} has six samples over 500ms; p95 cannot pass");
+            }
+        }
+        times.sort_unstable();
+        eprintln!("E16 preserved {query} p50={}us p95={}us max={}us warmup=10 samples=100", times[49], times[94], times[99]);
+        assert!(times[94] <= 500_000, "{query} search exceeds 500ms");
     }
 }
 

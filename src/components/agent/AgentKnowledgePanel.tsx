@@ -147,6 +147,7 @@ function OverviewMaintenance({ binding, scope }: { binding: AgentWorkspaceBindin
   const value = status.data;
   const issue = value?.errorCode === "PROFILE_UNAVAILABLE" ? "请先配置可用模型。"
     : value?.errorCode === "SECRETS_LOCKED" ? "请先解锁模型密钥。"
+    : value?.errorCode === "TIMED_OUT" ? "本次整理超时，已保存的进度保留；可稍后继续整理。"
     : value?.errorCode ? "本批整理遇到问题，可检查配置后继续。" : null;
   const canResume = !!(value?.cancelled || value?.budgetExhausted || value?.errorCode);
   return <SurfaceCard className="space-y-2 p-3" aria-label="整理知识">

@@ -122,6 +122,14 @@ it("offers resume after a maintenance error and keeps the actual coverage counts
   expect(screen.queryByRole("button", { name: "暂停整理" })).not.toBeInTheDocument();
 });
 
+it("shows a recoverable model timeout for knowledge maintenance", async () => {
+  mocks.overviewMaintenance.mockResolvedValue({ scope, cancelled: false, errorCode: "TIMED_OUT", batchId: "batch1", pendingCount: 2,
+    coverage, deletedCount: 0, directoryComplete: false, budgetExhausted: false, nextRunAt: null, foregroundBusy: false });
+  panel({ binding, scope });
+  expect(await screen.findByText("本次整理超时，已保存的进度保留；可稍后继续整理。")).toBeVisible();
+  expect(screen.getByRole("button", { name: "继续整理" })).toBeEnabled();
+});
+
 it("loads selected Knowledge sections and further body pages only on explicit expansion", async () => {
   mocks.knowledgeGet.mockImplementation(async (_binding: unknown, input: KnowledgeGetInput) => ({ scope, nodeId: card.nodeId, revision: 3,
     kind: "decision", title: "范围决策", view: input.view, summary: input.view === "summary" ? "已整理的摘要" : null, summaryOffset: 0,

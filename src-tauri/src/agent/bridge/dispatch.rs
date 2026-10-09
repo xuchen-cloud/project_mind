@@ -268,7 +268,17 @@ impl BridgeHandler for AppBridge {
     fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
         Box::pin(async move {
             let state = self.0.state::<AppState>();
-            execute(
+            let started = std::time::Instant::now();
+            let binding = input.binding.clone();
+            let label = match input.method.as_str() {
+                "context.get" => Some("context.get"),
+                "source.search" => Some("source.search"),
+                "source.read" | "file.source.read" => Some("source.read"),
+                "file.create" | "file.patch" | "file.update" | "file.version.restore" |
+                "record.create" | "record.patch" | "record.restore" | "todo.create" | "todo.update" => Some("output.commit"),
+                _ => None,
+            };
+            let result = execute(
                 &*state,
                 &state.external_bridge.enabled,
                 token,
@@ -277,7 +287,15 @@ impl BridgeHandler for AppBridge {
                 &AppSourceUtility(self.0.clone()),
                 &AppHistoryUtility(self.0.clone()),
             )
-            .await
+            .await;
+            if let Some(label) = label {
+                let paths = lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == binding).map(|runtime| runtime.paths.clone());
+                if let Some(paths) = paths {
+                    let count = result.as_ref().ok().and_then(|value| value.get("results").or_else(|| value.get("items"))).and_then(Value::as_array).map_or(1, Vec::len);
+                    crate::agent::local_metrics::record(&paths, label, started, &result, count);
+                }
+            }
+            result
         })
     }
 }

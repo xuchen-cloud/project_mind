@@ -124,6 +124,7 @@ pub(crate) fn agent_source_resolve(
     state: tauri::State<'_, crate::AppState>,
     input: SourceResolveInput,
 ) -> ApiResponse<SourceNavigation> {
+    let started = std::time::Instant::now();
     let request = RequestContext {
         binding: input.binding,
         request_id: input.request_id.clone(),
@@ -141,6 +142,12 @@ pub(crate) fn agent_source_resolve(
     };
     let result: AgentResult<_> =
         state.with_current(|binding, db| db.agent_source_resolve(&request, binding, &input.data));
+    let paths = crate::lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == request.binding).map(|runtime| runtime.paths.clone());
+    if let Some(paths) = paths {
+        let unavailable = result.as_ref().is_ok_and(|navigation| !matches!(navigation.status, SourceNavigationStatus::Current | SourceNavigationStatus::Historical));
+        super::local_metrics::record_outcome(&paths, "source.resolve", started,
+            result.as_ref().err().map(|error| error.code).or(if unavailable { Some(super::errors::ErrorCode::NotFound) } else { None }), 1);
+    }
     ApiResponse::from_result(input.request_id, result)
 }
 

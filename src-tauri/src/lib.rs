@@ -152,6 +152,7 @@ pub struct SeedDemoWorkspaceResult {
 pub(crate) struct WorkspaceRuntime {
     agent_binding: agent::models::WorkspaceBinding,
     agent_runs: Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>,
+    agent_cancel_started: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
     pub(crate) paths: WorkspacePaths,
@@ -200,6 +201,7 @@ impl WorkspaceRuntime {
         Ok(Self {
             agent_binding,
             agent_runs: Mutex::new(std::collections::HashMap::new()),
+            agent_cancel_started: Mutex::new(std::collections::HashMap::new()),
             summary: workspace_summary(&paths.root_path, &metadata),
             metadata,
             paths,
