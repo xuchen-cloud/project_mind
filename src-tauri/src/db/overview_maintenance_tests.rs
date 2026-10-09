@@ -504,7 +504,7 @@ fn profile_resume_is_idle_without_paused_workers_and_requires_verified_secret() 
 }
 
 #[test]
-fn exhausted_session_quota_keeps_undrafted_batch_but_allows_draft_replay() {
+fn legacy_session_quota_does_not_block_undrafted_batch_or_draft_replay() {
     let f=fixture();
     let now=DateTime::parse_from_rfc3339("2026-10-08T12:00:00Z").unwrap().with_timezone(&Utc);
     f.db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1",[f.scope.key()]).unwrap();
@@ -515,7 +515,7 @@ fn exhausted_session_quota_keeps_undrafted_batch_but_allows_draft_replay() {
     let quota_key=format!("overview-session-daily:{}/{}",f.binding.workspace_id,f.scope.key());
     let payload=serde_json::json!({"date":"2026-10-08","calls":5}).to_string();
     f.db.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance',?2,?1,'completed','now',?3)",params![quota_key,f.scope.key(),payload]).unwrap();
-    assert!(f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().is_none());
+    assert_eq!(f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().unwrap().batch_id,batch.batch_id);
     assert_eq!(read_ledger(&f.db.conn,&f.scope).unwrap().batch.unwrap().batch_id,batch.batch_id);
     let handled=progress(&batch,OverviewSourceState::Processed,None);
     let draft=publish_input(&f,&batch,&handled);

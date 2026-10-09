@@ -148,8 +148,9 @@ fn hash(value: &impl Serialize) -> AgentResult<String> {
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-/// One source page per publish keeps model input bounded, including a single
-/// large document. Its next cursor is committed only after the version exists.
+/// A document advances one bounded page at a time. Eligible current-branch
+/// conversation messages can share one model call and one atomic publication.
+/// Every source cursor advances only after that publication exists.
 pub(crate) async fn step<
     S: BoundSourceStore,
     R: crate::record_document_service::DocumentUtility,
@@ -327,15 +328,48 @@ async fn process_batch<
         evidence.push(proof);
         pages.push(page);
     }
+    let mut session_data = conversation_data.iter().map(|(record,conversation,_)|(record.clone(),conversation.clone())).collect::<Vec<_>>();
+    let mut progresses = vec![progress.clone()];
+    let candidates = if batch.draft.is_some() && !batch.sources_frozen {
+        vec![]
+    } else if !batch.sources_frozen {
+        store.with_current(|binding,db|db.agent_overview_message_successors(binding,batch))?
+    } else { batch.source_items.clone() };
+    let mut candidate_reads = Vec::new();
+    if !pages.is_empty() && pages[0].complete && !pages[0].text.trim().is_empty() && !session_data.is_empty() {
+        for source in candidates {
+            let object = crate::agent::models::ObjectRef {
+                workspace_id: request.binding.workspace_id.clone(), scope: batch.scope.clone(),
+                kind: ObjectKind::SessionMessage,
+                id: source.object_key.rsplit('/').next().unwrap_or_default().into(),
+            };
+            let target=SourceReadTarget { object:object.clone(), revision:None,record_version:None,file_version:None };
+            let Some((record,conversation,_))=crate::overview_session::input(store,request,&target)? else { break; };
+            let input=SourceReadInput { source:target,view:SourceReadView::Full,selection:None,cursor:None,budget_chars:Some(12000) };
+            let (page,proof)=crate::overview_evidence::capture_session(store,request,&input,history).await?;
+            if !page.complete || page.text.trim().is_empty() { break; }
+            let progress=OverviewSourceProgress { object,read_target:Some(SourceReadTarget { revision:Some(page.source_ref.revision.clone()),..input.source }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq };
+            candidate_reads.push((source,record,conversation,page,proof,progress));
+            if pages.iter().map(|page|page.text.chars().count()).sum::<usize>()+
+                candidate_reads.iter().map(|(_,_,_,page,_,_)|page.text.chars().count()).sum::<usize>() >= 48000 { break; }
+        }
+    }
+    if batch.draft.is_some() {
+        if candidate_reads.len()!=batch.source_items.len() {
+            return Err(AgentError::new(ErrorCode::SourceChanged,"Frozen session batch is no longer readable"));
+        }
+        for (_,record,conversation,page,proof,next_progress) in candidate_reads.drain(..) {
+            session_data.push((record,conversation)); pages.push(page); evidence.push(proof); progresses.push(next_progress);
+        }
+    }
     let publish = if let Some(draft) = &batch.draft {
         draft.clone()
     } else {
-        let (mut old, corrections, coverage) = store.with_current(|binding, db| {
+        let (mut old, corrections) = store.with_current(|binding, db| {
             active(db, binding, request, &batch.scope)?;
             Ok((
                 db.agent_overview_head(&batch.scope)?,
                 db.agent_overview_corrections(&batch.scope)?,
-                db.agent_overview_maintenance_coverage(binding, &batch.scope, Some(&progress))?,
             ))
         })?;
         // Keep all IDs for collision checks, but never send hidden historical
@@ -410,6 +444,36 @@ async fn process_batch<
                 break;
             }
         }
+        let corrections: Vec<_> = corrections.items.into_iter().filter(|item| !item.deleted).collect();
+        let mut selected_sources = Vec::new();
+        for (source,record,conversation,page,proof,next_progress) in candidate_reads {
+            pages.push(page);
+            session_data.push((record,conversation));
+            let mut prospective_allowed=allowed.clone();
+            prospective_allowed.affected_ids.extend(old_items.iter().filter(|item|item.source_refs.iter().any(|reference|reference.object==next_progress.object)).map(|item|item.id.clone()));
+            prospective_allowed.affected_ids.extend(crate::overview_session::predecessors(store,&session_data.last().unwrap().0,old_items)?);
+            loop {
+                let before=prospective_allowed.affected_ids.len();
+                prospective_allowed.affected_ids.extend(old_items.iter().filter(|item|item.dependency_item_ids.iter().any(|id|prospective_allowed.affected_ids.contains(id))).map(|item|item.id.clone()).collect::<Vec<_>>());
+                if before==prospective_allowed.affected_ids.len() { break; }
+            }
+            let prospective_relevant:Vec<_>=old_items.iter().filter(|item|prospective_allowed.affected_ids.contains(&item.id)).cloned().collect();
+            let prospective = crate::overview_generation::build_prompt_batch(&PromptInput {
+                old_overview:old.as_ref(),allowed_ids:&prospective_allowed,relevant_items:&prospective_relevant,corrections:&corrections,
+                source_pages:&pages,prior_source_summary:conversation_data.as_ref().and_then(|(_,_,prior)|prior.as_ref()),
+                conversation:conversation_data.as_ref().map(|(_,conversation,_)|conversation),
+            },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>());
+            match prospective {
+                Ok(_) => { allowed=prospective_allowed; evidence.push(proof); progresses.push(next_progress); selected_sources.push(source); }
+                Err(error) if error.code==ErrorCode::BudgetExceeded => { pages.pop(); session_data.pop(); break; }
+                Err(error) => return Err(error),
+            }
+        }
+        if !batch.source_items.is_empty() && selected_sources.len()!=batch.source_items.len() {
+            return Err(AgentError::new(ErrorCode::SourceChanged,"Frozen session batch is no longer readable"));
+        }
+        store.with_current(|binding,db|db.agent_overview_maintenance_freeze_sources(binding,&batch.scope,&batch.batch_id,selected_sources.clone(),Utc::now()))?;
+        let coverage=store.with_current(|binding,db|db.agent_overview_maintenance_coverage_many(binding,&batch.scope,&progresses))?;
         let mut publish = OverviewPublishInput {
             scope: batch.scope.clone(),
             batch_id: batch.batch_id.clone(),
@@ -419,15 +483,11 @@ async fn process_batch<
             correction_revision: batch.correction_revision,
             upsert_items: vec![],
             remove_item_ids: vec![],
-            settled_object_keys: if progress.state == OverviewSourceState::Partial {
-                vec![]
-            } else {
-                vec![batch.source.object_key.clone()]
-            },
+            settled_object_keys: progresses.iter().filter(|p|p.state!=OverviewSourceState::Partial).map(|p|p.object.key()).collect::<AgentResult<Vec<_>>>()?,
             knowledge_upserts: vec![],
             knowledge_removes: vec![],
             coverage,
-            source_manifest_hash: hash(&(&batch.source, &progress))?,
+            source_manifest_hash: hash(&(&batch.source, &selected_sources, &progresses))?,
             model_profile_id: "native-metadata".into(),
         };
         if pages.is_empty() || (pages[0].complete && pages[0].text.trim().is_empty()) {
@@ -441,12 +501,7 @@ async fn process_batch<
                 .filter(|item| allowed.affected_ids.contains(&item.id))
                 .cloned()
                 .collect();
-            let corrections: Vec<_> = corrections
-                .items
-                .into_iter()
-                .filter(|item| !item.deleted)
-                .collect();
-            let prompt = crate::overview_generation::build_prompt(&PromptInput {
+            let prompt = crate::overview_generation::build_prompt_batch(&PromptInput {
                 old_overview: old.as_ref(),
                 allowed_ids: &allowed,
                 relevant_items: &relevant,
@@ -454,7 +509,7 @@ async fn process_batch<
                 source_pages: &pages,
                 prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
                 conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
-            })?;
+            },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>())?;
             model.ready()?;
             let reserved = store.with_current(|binding, db| {
                 active(db, binding, request, &batch.scope)?;
@@ -468,15 +523,13 @@ async fn process_batch<
             })?;
             if !reserved {
                 return Err(AgentError::new(
-                    ErrorCode::RateLimited,
-                    "Knowledge maintenance budget is exhausted",
+                    ErrorCode::RunBusy,
+                    "Knowledge maintenance yielded to foreground work",
                 ));
             }
             let generated = model.generate(&batch.batch_id, &prompt).await?;
             let refs: Vec<_> = evidence.iter().map(|v| v.reference().clone()).collect();
-            let parsed_session = conversation_data.as_ref().map(|(_, conversation, _)| {
-                crate::overview_generation::parse_session_delta(&generated.text, &allowed, &refs, &Utc::now().to_rfc3339(), conversation)
-            }).transpose()?;
+            let parsed_session = if session_data.is_empty() { None } else { Some(crate::overview_generation::parse_session_batch_delta(&generated.text,&allowed,&refs,&Utc::now().to_rfc3339(),&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>())?) };
             let delta = if let Some(parsed) = &parsed_session { parsed.overview.clone() } else {
                 crate::overview_generation::parse_delta(&generated.text, &allowed, &refs, &Utc::now().to_rfc3339())?
             };
@@ -484,19 +537,20 @@ async fn process_batch<
             publish.upsert_items = delta.upsert_items;
             publish.remove_item_ids = delta.remove_item_ids;
             if let Some(summary) = delta.source_summary {
-                // Each retained source page has its own summary; processing page
-                // two cannot silently replace the unread knowledge from page one.
+                // A document page and a contiguous conversation span each keep
+                // their own node, so later pages cannot replace unread knowledge.
                 let node_id = format!(
                     "source-{}",
-                    hash(&(&batch.source.object_key, &batch.source_cursor))?
+                    if selected_sources.is_empty() {
+                        hash(&(&batch.source.object_key, &batch.source_cursor))?
+                    } else {
+                        hash(&(&batch.source.object_key, &batch.source_cursor, &selected_sources))?
+                    }
                 );
                 let previous = store
                     .with_current(|_, db| db.agent_knowledge_get(&batch.scope, &node_id, None))?;
                 let expected_revision = previous.map_or(0, |v| v.revision);
-                let session_summary = match (&conversation_data, &parsed_session) {
-                    (Some((record, conversation, _)), Some(parsed)) => Some(crate::overview_session::segment(record, batch.source_cursor.as_deref(), &pages[0].text, &node_id, expected_revision + 1, &summary, parsed, conversation)?),
-                    _ => None,
-                };
+                let session_summary = parsed_session.as_ref().map(|parsed|crate::overview_session::segment_batch(&session_data,&pages,batch.source_cursor.as_deref(),&node_id,expected_revision+1,&summary,parsed)).transpose()?;
                 publish.knowledge_upserts.push(KnowledgeNodeWrite {
                     node_id,
                     expected_revision,
@@ -511,11 +565,11 @@ async fn process_batch<
                     source_refs: refs,
                     epistemic_status: EpistemicStatus::Inferred,
                     coverage: SourceCoverage {
-                        processed: u64::from(pages[0].complete),
-                        partial: u64::from(!pages[0].complete),
+                        processed: pages.iter().filter(|page|page.complete).count() as u64,
+                        partial: pages.iter().filter(|page|!page.complete).count() as u64,
                         excluded: 0,
                         unsupported: 0,
-                        pending: u64::from(!pages[0].complete),
+                        pending: pages.iter().filter(|page|!page.complete).count() as u64,
                     },
                     related: vec![],
                 });
@@ -523,12 +577,12 @@ async fn process_batch<
         }
         store.with_current(|binding, db| {
             active(db, binding, request, &batch.scope)?;
-            db.agent_overview_maintenance_save_draft(
+            db.agent_overview_maintenance_save_draft_many(
                 binding,
                 &batch.scope,
                 &batch.batch_id,
                 &publish,
-                &progress,
+                &progresses,
                 Utc::now(),
             )
         })?;
@@ -536,7 +590,8 @@ async fn process_batch<
     };
     service
         .publish_checked(request, &publish, &evidence, |binding, db| {
-            active(db, binding, request, &batch.scope)
+            active(db, binding, request, &batch.scope)?;
+            db.agent_overview_maintenance_validate_sources(request,binding,&batch.scope,&batch.batch_id)
         })
         .await?;
     complete(store, request, batch)

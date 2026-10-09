@@ -1,7 +1,8 @@
 use super::*;
 use crate::agent::{
     access::Caller,
-    conversation::{MessageRole, ProjectionMessage, SessionCheckpoint, VerifiedSessionProjection},
+    conversation::{MessageRole, ProjectionMessage, RunPreparation, RunSettlement, SessionCheckpoint, VerifiedSessionProjection},
+    runtime::RunState,
 };
 use crate::source_session_read::{SessionHistoryFragment, SessionHistoryUtility};
 use serde_json::json;
@@ -124,6 +125,27 @@ async fn drive(f: &Fixture, model: &MockModel, history: &History, start: usize) 
         }
     }
     panic!("Session maintenance did not quiesce");
+}
+fn three_message_run(f:&Fixture, assistant_stop:bool) -> (String,History) {
+    let mut create=request(f.store.binding.clone(),&f.scope,"batch-session-create".into());
+    create.scope_grant.operations.extend(["session.write".into(),"run.start".into()]);
+    let session=f.store.with_current(|binding,db|db.agent_session_create(&create,binding,&f.scope,"Batch","builtin-pi",None)).unwrap();
+    let history=History::new();
+    let entries=[("first","用户计划：周四验收"),("second","助手建议先检查数据"),("third","用户更正：周五验收")];
+    for (entry,text) in &entries { history.add(message_id(&session.id,entry),text); }
+    let mut projected=projection(&entries);
+    projected.messages[1].role=MessageRole::Assistant;
+    if assistant_stop { projected.messages[1].stop_reason=Some("stop".into()); }
+    let run_id="b".repeat(32);
+    f.store.with_current(|binding,db| {
+        db.agent_run_prepare(&create,binding,&session.id,"batch-turn",&RunPreparation { run_id:run_id.clone(),context_manifest:json!({}) })?;
+        db.agent_run_start(&create,binding,&run_id)?;
+        let run_request=RequestContext { caller:Caller::BuiltinRun { run_id:run_id.clone() },..create.clone() };
+        db.agent_run_provenance_begin(&run_request,binding,&[])?;
+        db.agent_run_settle(&run_request,binding,&run_id,&RunSettlement { state:RunState::Completed,runtime_settled:true,projection:Some(projected),usage:None,error_code:None })?;
+        Ok(())
+    }).unwrap();
+    (session.id,history)
 }
 fn model_response(text: &str, supersedes: &[String]) -> String {
     json!({"upsertItems":[{"id":"session-decision","section":"progress","text":text,"epistemicStatus":"recorded","evidenceIndices":[0],"dependencyItemIds":[]}],"removeItemIds":[],"sourceSummary":{"title":"会话决定","oneLine":text,"summary":text,"bodySections":[{"id":"body","title":"依据","text":text}],"keywords":["决定"]},"sessionStatements":[{"text":text,"kind":"user_decision","operationReceiptId":null}],"supersedesSummaryIds":supersedes}).to_string()
@@ -374,4 +396,94 @@ async fn session_decision_reads_verified_history_publishes_and_supersedes() {
         )
         .await;
     assert!(old_node.is_err());
+}
+
+#[tokio::test]
+async fn contiguous_conversation_is_one_verified_summary_batch() {
+    let f=fixture();
+    let model=MockModel::new();
+    warmup(&f,&model).await;
+    let before=model.calls();
+    let (session_id,history)=three_message_run(&f,true);
+    model.set_response(&json!({
+        "upsertItems":[],"removeItemIds":[],
+        "sourceSummary":{"title":"讨论验收","oneLine":"周五验收","summary":"先计划周四，随后更正为周五。","bodySections":[],"keywords":["验收"]},
+        "sessionStatements":[
+            {"text":"计划周四验收","kind":"user_plan","evidenceIndex":0},
+            {"text":"建议检查数据","kind":"ai_suggestion","evidenceIndex":1},
+            {"text":"更正为周五验收","kind":"user_decision","evidenceIndex":2}
+        ]
+    }).to_string());
+    drive(&f,&model,&history,500).await;
+    assert_eq!(model.calls(),before+1);
+    let (coverage,summaries)=f.store.with_current(|binding,db|Ok((db.agent_overview_maintenance_status(binding,&f.scope)?.coverage,db.agent_session_summary_list(&f.scope,&session_id,10)?))).unwrap();
+    assert!(coverage.processed>=3);
+    let node=summaries.iter().find(|node|node.source_refs.len()==3).expect("one summary spans all three messages");
+    let segment=node.session_summary.as_ref().unwrap();
+    assert_eq!(segment.start_entry_id,"first");
+    assert_eq!(segment.end_entry_id,"third");
+    assert_eq!(segment.statements.len(),3);
+    for (statement,entry) in segment.statements.iter().zip(["first","second","third"]) {
+        assert_eq!(statement.message_refs[0].message_id,message_id(&session_id,entry));
+        assert_eq!(statement.message_refs[0].branch_id,entry);
+    }
+    drive(&f,&model,&history,600).await;
+    assert_eq!(model.calls(),before+1);
+}
+
+#[tokio::test]
+async fn frozen_conversation_draft_replays_without_regeneration() {
+    let f=fixture(); let model=MockModel::new(); warmup(&f,&model).await;
+    let before=model.calls();
+    let (session_id,history)=three_message_run(&f,true);
+    model.set_response(&json!({"upsertItems":[],"removeItemIds":[],"sourceSummary":{"title":"段摘要","oneLine":"讨论验收","summary":"先计划后更正","bodySections":[],"keywords":[]}}).to_string());
+    *model.fail.lock().unwrap()=Some(ErrorCode::RuntimeUnavailable);
+    let mut failed_batch=None;
+    for n in 700..720 {
+        f.store.with_current(|binding,db|db.overview_schedule_request(binding,&f.scope,Utc::now()).map(|_|())).unwrap();
+        let result=step(&f.store,&request(f.store.binding.clone(),&f.scope,format!("freeze-{n}")),&f.scope,&NoUtility,&NoUtility,&model,&history).await;
+        if let Err(error)=result {
+            assert_eq!(error.code,ErrorCode::RuntimeUnavailable);
+            failed_batch=model.batch_ids.lock().unwrap().last().cloned(); break;
+        }
+    }
+    let failed_batch=failed_batch.expect("batch reached model");
+    control(&f.store,&request(f.store.binding.clone(),&f.scope,"resume-frozen".into()),&f.scope,"resume").unwrap();
+    let frozen=f.store.with_current(|binding,db|db.agent_overview_maintenance_prepare(binding,&f.scope,Utc::now())).unwrap().unwrap();
+    assert_eq!(frozen.source_items.len(),2);
+    assert!(frozen.sources_frozen);
+    let draft_request=request(f.store.binding.clone(),&f.scope,"draft-messages".into());
+    f.store.with_current(|binding,db| {
+        let mut refs=Vec::new(); let mut progresses=Vec::new();
+        for source in std::iter::once(&frozen.source).chain(&frozen.source_items) {
+            let object=crate::agent::models::ObjectRef { workspace_id:binding.workspace_id.clone(),scope:f.scope.clone(),kind:ObjectKind::SessionMessage,id:source.object_key.rsplit('/').next().unwrap().into() };
+            let target=crate::source_service::SourceReadTarget { object:object.clone(),revision:None,record_version:None,file_version:None };
+            let record=db.source_session_record(&draft_request,binding,&target)?;
+            refs.push(record.source_ref(binding));
+            progresses.push(OverviewSourceProgress { object,read_target:Some(crate::source_service::SourceReadTarget { revision:Some(record.text_hash),..target }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq });
+        }
+        let coverage=db.agent_overview_maintenance_coverage_many(binding,&f.scope,&progresses)?;
+        db.agent_overview_maintenance_save_draft_many(binding,&f.scope,&frozen.batch_id,&crate::agent::overview::OverviewPublishInput {
+            scope:f.scope.clone(),batch_id:frozen.batch_id.clone(),expected_revision:frozen.expected_revision,target_seq:frozen.target_seq,policy_revision:frozen.policy_revision,correction_revision:frozen.correction_revision,
+            upsert_items:vec![crate::agent::context::OverviewItem { id:"draft-cited".into(),section:crate::agent::context::OverviewSection::Progress,text:"三条讨论已有依据".into(),epistemic_status:EpistemicStatus::Recorded,source_refs:refs,dependency_item_ids:vec![],valid_state:crate::agent::context::ValidState::Current,updated_at:Utc::now().to_rfc3339() }],
+            remove_item_ids:vec![],settled_object_keys:std::iter::once(&frozen.source).chain(&frozen.source_items).map(|source|source.object_key.clone()).collect(),
+            knowledge_upserts:vec![],knowledge_removes:vec![],coverage,source_manifest_hash:"test-frozen-draft".into(),model_profile_id:"mock-profile".into(),
+        },&progresses,Utc::now())
+    }).unwrap();
+    drive(&f,&model,&history,800).await;
+    assert_eq!(model.calls(),before+1,"saved draft must publish without another model call");
+    assert_eq!(model.batch_ids.lock().unwrap().last().unwrap(),&failed_batch);
+    let (head,status)=f.store.with_current(|binding,db|Ok((db.agent_overview_head(&f.scope)?.unwrap(),db.agent_overview_maintenance_status(binding,&f.scope)?))).unwrap();
+    assert!(head.items.iter().any(|item|item.id=="draft-cited" && item.source_refs.len()==3));
+    assert_eq!(status.pending_count,0);
+    assert!(!session_id.is_empty());
+}
+
+#[tokio::test]
+async fn unavailable_assistant_breaks_contiguous_batch() {
+    let f=fixture(); let model=MockModel::new(); warmup(&f,&model).await;
+    let before=model.calls();
+    let (_session_id,history)=three_message_run(&f,false);
+    drive(&f,&model,&history,900).await;
+    assert_eq!(model.calls(),before+2,"the two user messages are processed separately across an unavailable assistant");
 }

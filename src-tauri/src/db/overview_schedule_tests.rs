@@ -1,5 +1,6 @@
 use super::*;
 use crate::models::{ProjectArchiveInput, ProjectCreateInput, ProjectUpdateInput};
+use rusqlite::params;
 
 struct Fixture {
     root: tempfile::TempDir,
@@ -200,81 +201,41 @@ fn persisted_running_worker_is_selected_after_restart() {
 }
 
 #[test]
-fn new_batch_resets_its_allowance_without_resetting_workspace_window() {
+fn repeated_attempts_have_only_a_per_request_input_boundary() {
     let f = fixture();
     let now = at("2026-10-08T12:00:00Z");
-    assert!(f
-        .db
-        .overview_schedule_request(&f.binding, &f.scope, now)
-        .unwrap());
-    for _ in 0..3 {
+    f.db.overview_schedule_request(&f.binding, &f.scope, now)
+        .unwrap();
+    for _ in 0..6 {
         assert!(f
             .db
-            .overview_schedule_reserve(&f.binding, &f.scope, "abandoned", 16_000, now)
+            .overview_schedule_reserve(&f.binding, &f.scope, "same-batch", 30_000, now)
             .unwrap());
     }
-    assert!(!f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "abandoned", 1, now)
-        .unwrap());
     assert!(f
         .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "replacement", 1, now)
+        .overview_schedule_reserve(&f.binding, &f.scope, "replacement", 48_000, now)
         .unwrap());
-    let budget = read_budget(&f.db.conn, &f.binding, now).unwrap();
+    assert_eq!(
+        f.db.overview_schedule_reserve(&f.binding, &f.scope, "replacement", 48_001, now)
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
     let schedule = read_schedule(&f.db.conn, &f.binding, &f.scope)
         .unwrap()
         .unwrap();
-    assert_eq!(budget.calls, 4);
     assert_eq!(schedule.batch_id.as_deref(), Some("replacement"));
-    assert_eq!((schedule.calls, schedule.input_chars), (1, 1));
-}
-
-#[test]
-fn insufficient_remaining_characters_waits_then_allows_a_new_batch() {
-    let f = fixture();
-    let now = at("2026-10-08T12:00:00Z");
-    assert!(f
-        .db
-        .overview_schedule_request(&f.binding, &f.scope, now)
-        .unwrap());
-    assert!(f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "too-large", 30_000, now)
-        .unwrap());
-    assert!(!f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "too-large", 19_000, now)
-        .unwrap());
-    let status =
-        f.db.overview_schedule_status(&f.binding, &f.scope, now)
-            .unwrap();
-    assert!(status.budget_exhausted);
-    assert_eq!(status.next_run_at, Some(now + Duration::minutes(20)));
-    assert!(f
-        .db
-        .overview_schedule_next(&f.binding, now)
-        .unwrap()
-        .is_none());
-    let later = now + Duration::minutes(21);
     assert!(
         !f.db
-            .overview_schedule_status(&f.binding, &f.scope, later)
+            .overview_schedule_status(&f.binding, &f.scope, now)
             .unwrap()
             .budget_exhausted
     );
-    assert_eq!(
-        f.db.overview_schedule_next(&f.binding, later).unwrap(),
-        Some(f.scope.clone())
-    );
-    assert!(f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "next-window", 19_000, later)
-        .unwrap());
 }
 
 #[test]
-fn controller_resumes_quota_paused_pending_batch_after_window_and_keeps_manual_cancel() {
+fn controller_keeps_failed_batch_until_manual_resume_and_preserves_pending() {
     let f = fixture();
     let now = at("2026-10-08T12:00:00Z");
     let project_id = match &f.scope {
@@ -305,60 +266,52 @@ fn controller_resumes_quota_paused_pending_batch_after_window_and_keeps_manual_c
             .pending_count;
     assert!(pending_before > 0);
 
-    // Completed page batches in this Workspace have already spent 19 calls.
-    for page in 0..19 {
+    for attempt in 0..6 {
         assert!(f
             .db
-            .overview_schedule_reserve(&f.binding, &f.scope, &format!("prior-page-{page}"), 1, now)
+            .overview_schedule_reserve(&f.binding, &f.scope, &first.batch_id, 30_000, now)
             .unwrap());
-        f.db.overview_schedule_finished(&f.binding, &f.scope, true, now)
+        f.db.agent_overview_maintenance_fail(
+            &f.binding,
+            &f.scope,
+            &first.batch_id,
+            ErrorCode::IoFailed,
+            now,
+        )
+        .unwrap();
+        f.db.agent_overview_maintenance_resume_waiting(&f.binding, now + Duration::minutes(21))
             .unwrap();
+        let paused =
+            f.db.agent_overview_maintenance_status(&f.binding, &f.scope)
+                .unwrap();
+        assert_eq!(paused.error_code, Some(ErrorCode::IoFailed));
+        assert_eq!(paused.pending_count, pending_before);
+        assert!(f
+            .db
+            .agent_overview_maintenance_prepare(&f.binding, &f.scope, now)
+            .unwrap()
+            .is_none());
+        f.db.agent_overview_maintenance_resume(
+            &f.binding,
+            &f.scope,
+            now + Duration::minutes(attempt),
+        )
+        .unwrap();
+        assert_eq!(
+            f.db.agent_overview_maintenance_prepare(&f.binding, &f.scope, now)
+                .unwrap()
+                .unwrap()
+                .batch_id,
+            first.batch_id
+        );
     }
-    assert!(f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, &first.batch_id, 1, now)
-        .unwrap());
-    assert!(!f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, &first.batch_id, 1, now)
-        .unwrap());
-    f.db.agent_overview_maintenance_fail(
-        &f.binding,
-        &f.scope,
-        &first.batch_id,
-        ErrorCode::RateLimited,
-        now,
-    )
-    .unwrap();
-    f.db.agent_overview_maintenance_resume_waiting(&f.binding, now + Duration::minutes(19))
-        .unwrap();
-    let paused =
-        f.db.agent_overview_maintenance_status(&f.binding, &f.scope)
-            .unwrap();
-    assert_eq!(paused.error_code, Some(ErrorCode::RateLimited));
-    assert_eq!(paused.batch_id.as_deref(), Some(first.batch_id.as_str()));
-    assert_eq!(paused.pending_count, pending_before);
-
-    let later = now + Duration::minutes(21);
-    f.db.agent_overview_maintenance_resume_waiting(&f.binding, later)
-        .unwrap();
-    let resumed =
-        f.db.agent_overview_maintenance_status(&f.binding, &f.scope)
-            .unwrap();
-    assert_eq!(resumed.error_code, None);
-    assert_eq!(resumed.pending_count, pending_before);
     let next =
-        f.db.agent_overview_maintenance_prepare(&f.binding, &f.scope, later)
+        f.db.agent_overview_maintenance_prepare(&f.binding, &f.scope, now)
             .unwrap()
             .unwrap();
-    assert_ne!(next.batch_id, first.batch_id);
     assert_eq!(next.source.object_key, first.source.object_key);
     assert_eq!(next.source_cursor, first.source_cursor);
-    assert!(f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, &next.batch_id, 1, later)
-        .unwrap());
-
+    let later = now + Duration::minutes(21);
     f.db.agent_overview_maintenance_cancel(&f.binding, &f.scope, later)
         .unwrap();
     f.db.agent_overview_maintenance_resume_waiting(&f.binding, later + Duration::minutes(21))
@@ -367,7 +320,7 @@ fn controller_resumes_quota_paused_pending_batch_after_window_and_keeps_manual_c
         f.db.agent_overview_maintenance_status(&f.binding, &f.scope)
             .unwrap();
     assert!(cancelled.cancelled);
-    assert_eq!(cancelled.batch_id.as_deref(), Some(next.batch_id.as_str()));
+    assert_eq!(cancelled.batch_id.as_deref(), Some(first.batch_id.as_str()));
     assert!(f
         .db
         .agent_overview_maintenance_prepare(&f.binding, &f.scope, later + Duration::minutes(21))
@@ -376,31 +329,36 @@ fn controller_resumes_quota_paused_pending_batch_after_window_and_keeps_manual_c
 }
 
 #[test]
-fn reservations_survive_reopen_and_recover_at_window_and_batch_boundary() {
+fn reservations_survive_reopen_and_old_window_wait_does_not_block_new_batch() {
     let f = fixture();
     let now = at("2026-10-08T12:00:00Z");
     assert!(f
         .db
         .overview_schedule_request(&f.binding, &f.scope, now)
         .unwrap());
-    for _ in 0..3 {
+    for _ in 0..6 {
         assert!(f
             .db
-            .overview_schedule_reserve(&f.binding, &f.scope, "batch-one", 16_000, now)
+            .overview_schedule_reserve(&f.binding, &f.scope, "batch-one", 30_000, now)
             .unwrap());
     }
-    assert!(!f
-        .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "batch-one", 1, now)
-        .unwrap());
     let path = f.root.path().join("schedule.sqlite");
     let mut reopened = Database::open(&path, f.root.path(), None).unwrap();
     reopened.bind_native_workspace("schedule-ws").unwrap();
     assert!(
-        reopened
+        !reopened
             .overview_schedule_status(&f.binding, &f.scope, now)
             .unwrap()
             .budget_exhausted
+    );
+    let mut legacy = read_schedule(&reopened.conn, &f.binding, &f.scope)
+        .unwrap()
+        .unwrap();
+    legacy.wait_until = now.timestamp() + 86_400;
+    save_schedule(&reopened.conn, &f.binding, &f.scope, &legacy, now).unwrap();
+    assert_eq!(
+        reopened.overview_schedule_next(&f.binding, now).unwrap(),
+        Some(f.scope.clone())
     );
     reopened
         .overview_schedule_finished(&f.binding, &f.scope, true, now)
@@ -408,8 +366,8 @@ fn reservations_survive_reopen_and_recover_at_window_and_batch_boundary() {
     assert!(reopened
         .overview_schedule_reserve(&f.binding, &f.scope, "batch-two", 1, now)
         .unwrap());
-    // Drive the workspace cap with distinct page batches.
-    for page in 0..16 {
+    // Many successful batches can continue on the same day after a restart.
+    for page in 0..24 {
         reopened
             .overview_schedule_finished(&f.binding, &f.scope, true, now)
             .unwrap();
@@ -417,27 +375,17 @@ fn reservations_survive_reopen_and_recover_at_window_and_batch_boundary() {
             .overview_schedule_reserve(&f.binding, &f.scope, &format!("batch-{page}"), 1, now)
             .unwrap());
     }
-    assert!(!reopened
-        .overview_schedule_reserve(&f.binding, &f.scope, "batch-15", 1, now)
-        .unwrap());
-    let waiting = reopened
+    let status = reopened
         .overview_schedule_status(&f.binding, &f.scope, now)
         .unwrap();
-    assert!(waiting.budget_exhausted);
-    assert_eq!(waiting.next_run_at, Some(now + Duration::minutes(20)));
-    let later = now + Duration::minutes(21);
-    assert!(
-        !reopened
-            .overview_schedule_status(&f.binding, &f.scope, later)
-            .unwrap()
-            .budget_exhausted
-    );
+    assert!(!status.budget_exhausted);
     reopened
-        .overview_schedule_finished(&f.binding, &f.scope, true, later)
+        .overview_schedule_finished(&f.binding, &f.scope, true, now)
         .unwrap();
-    assert!(reopened
-        .overview_schedule_reserve(&f.binding, &f.scope, "new-window", 1, later)
-        .unwrap());
+    assert_eq!(
+        reopened.overview_schedule_next(&f.binding, now).unwrap(),
+        Some(f.scope.clone())
+    );
 }
 
 #[test]
@@ -465,115 +413,176 @@ fn local_slots_handle_dst_fold_and_gap() {
 
 #[test]
 fn clean_overview_schedules_unscanned_and_unseeded_history_only_until_caught_up() {
-    let f=fixture();
-    let first=at("2026-10-08T12:00:00Z");
-    assert_eq!(f.db.overview_schedule_next(&f.binding,first).unwrap(),Some(f.scope.clone()));
-    f.db.overview_schedule_finished(&f.binding,&f.scope,false,first).unwrap();
-    let session="c".repeat(32);
-    let checksum=format!("sha256:{}","a".repeat(64));
-    let checkpoint=serde_json::json!({"checksum":checksum,"entryCount":1}).to_string();
+    let f = fixture();
+    let first = at("2026-10-08T12:00:00Z");
+    assert_eq!(
+        f.db.overview_schedule_next(&f.binding, first).unwrap(),
+        Some(f.scope.clone())
+    );
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, first)
+        .unwrap();
+    let session = "c".repeat(32);
+    let checksum = format!("sha256:{}", "a".repeat(64));
+    let checkpoint = serde_json::json!({"checksum":checksum,"entryCount":1}).to_string();
     f.db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,checkpoint_json,created_at,updated_at) VALUES (?1,?2,'Old history','builtin-pi','active',?3,?4,'now','now')",params![session,f.scope.key(),format!(".project-mind/agent/sessions/{session}/session.jsonl"),checkpoint]).unwrap();
     assert!(f.db.agent_session_maintenance_pending(&f.scope).unwrap());
-    let scan_due=at("2026-10-09T12:00:00Z");
-    assert_eq!(f.db.overview_schedule_next(&f.binding,scan_due).unwrap(),Some(f.scope.clone()));
+    let scan_due = at("2026-10-09T12:00:00Z");
+    assert_eq!(
+        f.db.overview_schedule_next(&f.binding, scan_due).unwrap(),
+        Some(f.scope.clone())
+    );
     f.db.conn.execute("INSERT INTO agent_session_scan_state(session_id,checksum,entry_count,complete) VALUES (?1,?2,1,1)",params![session,checksum]).unwrap();
-    f.db.overview_schedule_finished(&f.binding,&f.scope,false,scan_due).unwrap();
-    let clean_due=at("2026-10-10T12:00:00Z");
-    assert!(f.db.overview_schedule_next(&f.binding,clean_due).unwrap().is_none());
-    let message_id="d".repeat(32);
-    let text_hash=format!("sha256:{}","b".repeat(64));
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, scan_due)
+        .unwrap();
+    let clean_due = at("2026-10-10T12:00:00Z");
+    assert!(f
+        .db
+        .overview_schedule_next(&f.binding, clean_due)
+        .unwrap()
+        .is_none());
+    let message_id = "d".repeat(32);
+    let text_hash = format!("sha256:{}", "b".repeat(64));
     f.db.conn.execute("INSERT INTO agent_session_search_rows(message_id,session_id,runtime_entry_id,ordinal,role,created_at,text_hash,text,total_chars,complete) VALUES (?1,?2,'old-entry',0,'user','now',?3,'legacy',6,1)",params![message_id,session,text_hash]).unwrap();
     assert!(f.db.agent_session_maintenance_pending(&f.scope).unwrap());
-    let seed_due=at("2026-10-11T12:00:00Z");
-    assert_eq!(f.db.overview_schedule_next(&f.binding,seed_due).unwrap(),Some(f.scope.clone()));
-    assert!(!f.db.agent_session_maintenance_seed(&f.binding,&f.scope,200).unwrap());
+    let seed_due = at("2026-10-11T12:00:00Z");
+    assert_eq!(
+        f.db.overview_schedule_next(&f.binding, seed_due).unwrap(),
+        Some(f.scope.clone())
+    );
+    assert!(!f
+        .db
+        .agent_session_maintenance_seed(&f.binding, &f.scope, 200)
+        .unwrap());
     assert!(!f.db.agent_session_maintenance_pending(&f.scope).unwrap());
-    f.db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1",[f.scope.key()]).unwrap();
-    f.db.conn.execute("UPDATE agent_overview_pending_state SET needs_rebuild=0 WHERE scope_key=?1",[f.scope.key()]).unwrap();
-    f.db.overview_schedule_finished(&f.binding,&f.scope,false,seed_due).unwrap();
-    assert!(f.db.overview_schedule_next(&f.binding,at("2026-10-12T12:00:00Z")).unwrap().is_none());
+    f.db.conn
+        .execute(
+            "DELETE FROM agent_overview_pending WHERE scope_key=?1",
+            [f.scope.key()],
+        )
+        .unwrap();
+    f.db.conn
+        .execute(
+            "UPDATE agent_overview_pending_state SET needs_rebuild=0 WHERE scope_key=?1",
+            [f.scope.key()],
+        )
+        .unwrap();
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, seed_due)
+        .unwrap();
+    assert!(f
+        .db
+        .overview_schedule_next(&f.binding, at("2026-10-12T12:00:00Z"))
+        .unwrap()
+        .is_none());
 }
 
-fn session_pending(f:&Fixture,message_id:&str,revision:&str) {
-    let key=format!("{}/{}/session_message/{message_id}",f.binding.workspace_id,f.scope.key());
+fn session_pending(f: &Fixture, message_id: &str, revision: &str) {
+    let key = format!(
+        "{}/{}/session_message/{message_id}",
+        f.binding.workspace_id,
+        f.scope.key()
+    );
     f.db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'session.message.index',?3,'now')",params![key,f.scope.key(),revision]).unwrap();
 }
 
 #[test]
-fn session_summary_daily_five_reservations_and_utc_reset() {
-    let f=fixture();
-    f.db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1",[f.scope.key()]).unwrap();
-    session_pending(&f,&"a".repeat(32),"hash");
-    let now=at("2026-10-08T12:00:00Z");
-    f.db.overview_schedule_request(&f.binding,&f.scope,now).unwrap();
-    let batch=f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().unwrap();
-    assert_eq!(batch.source_object.kind,crate::agent::models::ObjectKind::SessionMessage);
-    for _ in 0..5 {
-        assert!(f.db.overview_schedule_reserve(&f.binding,&f.scope,&batch.batch_id,1,now).unwrap());
-        f.db.overview_schedule_finished(&f.binding,&f.scope,true,now).unwrap();
+fn session_summary_has_no_daily_cap_and_ignores_legacy_quota_row() {
+    let f = fixture();
+    f.db.conn
+        .execute(
+            "DELETE FROM agent_overview_pending WHERE scope_key=?1",
+            [f.scope.key()],
+        )
+        .unwrap();
+    session_pending(&f, &"a".repeat(32), "hash");
+    let now = at("2026-10-08T12:00:00Z");
+    let legacy_key = format!(
+        "overview-session-daily:{}/{}",
+        f.binding.workspace_id,
+        f.scope.key()
+    );
+    f.db.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance',?2,?1,'completed','now','{\"date\":\"2026-10-08\",\"calls\":5}')", params![legacy_key, f.scope.key()]).unwrap();
+    f.db.overview_schedule_request(&f.binding, &f.scope, now)
+        .unwrap();
+    let batch =
+        f.db.agent_overview_maintenance_prepare(&f.binding, &f.scope, now)
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        batch.source_object.kind,
+        crate::agent::models::ObjectKind::SessionMessage
+    );
+    for page in 0..25 {
+        assert!(f
+            .db
+            .overview_schedule_reserve(
+                &f.binding,
+                &f.scope,
+                &format!("session-page-{page}"),
+                1,
+                now
+            )
+            .unwrap());
+        f.db.overview_schedule_finished(&f.binding, &f.scope, true, now)
+            .unwrap();
     }
-    assert_eq!(read_session_daily(&f.db.conn,&f.binding,&f.scope,now).unwrap().calls,5);
-    let blocked=f.db.overview_schedule_status(&f.binding,&f.scope,now).unwrap();
-    assert!(blocked.budget_exhausted);
-    assert_eq!(blocked.next_run_at,Some(at("2026-10-09T00:00:00Z")));
-    assert!(!f.db.overview_schedule_reserve(&f.binding,&f.scope,&batch.batch_id,1,now).unwrap());
-    assert_eq!(f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().map(|v|v.batch_id),None);
-    let tomorrow=at("2026-10-09T00:00:00Z");
-    assert_eq!(f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,tomorrow).unwrap().unwrap().batch_id,batch.batch_id);
-    assert!(f.db.overview_schedule_reserve(&f.binding,&f.scope,&batch.batch_id,1,tomorrow).unwrap());
-    assert_eq!(read_session_daily(&f.db.conn,&f.binding,&f.scope,tomorrow).unwrap().calls,1);
+    assert!(f
+        .db
+        .agent_overview_maintenance_prepare(&f.binding, &f.scope, now)
+        .unwrap()
+        .is_some());
+    assert!(
+        !f.db
+            .overview_schedule_status(&f.binding, &f.scope, now)
+            .unwrap()
+            .budget_exhausted
+    );
 }
 
 #[test]
-fn exhausted_session_quota_selects_business_and_deleted_session_without_charging() {
-    let f=fixture();
-    let now=at("2026-10-08T12:00:00Z");
-    f.db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1",[f.scope.key()]).unwrap();
-    session_pending(&f,&"a".repeat(32),"hash");
-    let business_key=format!("{}/{}/project/{}",f.binding.workspace_id,f.scope.key(),match &f.scope {Scope::Project {project_id}=>*project_id,_=>unreachable!()});
-    f.db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'project.update','changed','now')",params![business_key,f.scope.key()]).unwrap();
-    save_session_daily(&f.db.conn,&f.binding,&f.scope,&SessionDailyBudget{date:now.date_naive().to_string(),calls:5},now).unwrap();
-    f.db.overview_schedule_request(&f.binding,&f.scope,now).unwrap();
-    let batch=f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().unwrap();
-    assert_eq!(batch.source_object.kind,crate::agent::models::ObjectKind::Project);
-    assert!(f.db.overview_schedule_reserve(&f.binding,&f.scope,&batch.batch_id,1,now).unwrap());
-    assert_eq!(read_session_daily(&f.db.conn,&f.binding,&f.scope,now).unwrap().calls,5);
-    assert!(!f.db.overview_schedule_status(&f.binding,&f.scope,now).unwrap().budget_exhausted);
-
-    let other=fixture();
-    other.db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1",[other.scope.key()]).unwrap();
-    let deleted_key=format!("{}/{}/session_message/{}",other.binding.workspace_id,other.scope.key(),"b".repeat(32));
-    other.db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'session.message.delete','deleted','now')",params![deleted_key,other.scope.key()]).unwrap();
-    save_session_daily(&other.db.conn,&other.binding,&other.scope,&SessionDailyBudget{date:now.date_naive().to_string(),calls:5},now).unwrap();
-    let deleted=other.db.agent_overview_maintenance_prepare(&other.binding,&other.scope,now).unwrap().unwrap();
-    assert!(deleted.source.deleted);
-    other.db.overview_schedule_request(&other.binding,&other.scope,now).unwrap();
-    assert!(other.db.overview_schedule_reserve(&other.binding,&other.scope,&deleted.batch_id,1,now).unwrap());
-    assert_eq!(read_session_daily(&other.db.conn,&other.binding,&other.scope,now).unwrap().calls,5);
-}
-
-#[test]
-fn daily_status_does_not_mark_clean_overview_as_globally_exhausted() {
-    let f=fixture();
-    let now=at("2026-10-08T12:00:00Z");
-    save_session_daily(&f.db.conn,&f.binding,&f.scope,&SessionDailyBudget{date:now.date_naive().to_string(),calls:5},now).unwrap();
-    let status=f.db.overview_schedule_status(&f.binding,&f.scope,now).unwrap();
-    assert!(!status.budget_exhausted);
-    assert!(f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().is_none());
-}
-
-#[test]
-fn daily_status_reports_actual_later_periodic_slot() {
-    let f=fixture();
-    let now=at("2026-10-08T12:00:00Z");
-    f.db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1",[f.scope.key()]).unwrap();
-    session_pending(&f,&"e".repeat(32),"hash");
-    save_session_daily(&f.db.conn,&f.binding,&f.scope,&SessionDailyBudget{date:now.date_naive().to_string(),calls:5},now).unwrap();
-    f.db.conn.execute("UPDATE agent_scope_settings SET overview_interval_hours=48 WHERE scope_key=?1",[f.scope.key()]).unwrap();
-    f.db.overview_schedule_finished(&f.binding,&f.scope,false,now).unwrap();
-    let status=f.db.overview_schedule_status(&f.binding,&f.scope,now).unwrap();
-    assert!(status.budget_exhausted);
-    assert_eq!(status.next_run_at,Some(at("2026-10-10T03:00:00Z")));
-    assert!(f.db.overview_schedule_next(&f.binding,at("2026-10-09T00:00:00Z")).unwrap().is_none());
-    assert_eq!(f.db.overview_schedule_next(&f.binding,at("2026-10-10T03:00:00Z")).unwrap(),Some(f.scope));
+fn shared_legacy_workspace_window_does_not_block_another_project() {
+    let f = fixture();
+    let now = at("2026-10-08T12:00:00Z");
+    let second_id =
+        f.db.project_create(ProjectCreateInput {
+            name: "Second".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap()
+        .id;
+    let second = Scope::Project {
+        project_id: second_id,
+    };
+    f.db.conn
+        .execute(
+            "INSERT INTO agent_scope_settings(scope_key,enabled) VALUES (?1,1)",
+            [second.key()],
+        )
+        .unwrap();
+    let legacy_key = format!("overview-budget:{}", f.binding.workspace_id);
+    f.db.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance','workspace',?1,'completed','now','{\"windowStart\":0,\"calls\":20}')", [legacy_key]).unwrap();
+    f.db.overview_schedule_request(&f.binding, &f.scope, now)
+        .unwrap();
+    f.db.overview_schedule_request(&f.binding, &second, now)
+        .unwrap();
+    assert_eq!(
+        f.db.overview_schedule_next(&f.binding, now).unwrap(),
+        Some(f.scope.clone())
+    );
+    for page in 0..21 {
+        assert!(f
+            .db
+            .overview_schedule_reserve(&f.binding, &f.scope, &format!("page-{page}"), 1, now)
+            .unwrap());
+        f.db.overview_schedule_finished(&f.binding, &f.scope, true, now)
+            .unwrap();
+    }
+    assert_eq!(
+        f.db.overview_schedule_next(&f.binding, now).unwrap(),
+        Some(second.clone())
+    );
+    assert!(f
+        .db
+        .overview_schedule_reserve(&f.binding, &second, "new-content", 1, now)
+        .unwrap());
 }

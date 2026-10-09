@@ -188,3 +188,33 @@ pub(crate) fn segment(
         ),
     })
 }
+
+pub(crate) fn segment_batch(
+    messages: &[(SourceReadRecord,ConversationEvidence)],
+    pages: &[crate::source_service::SourceReadPage],
+    cursor: Option<&str>,
+    node_id: &str,
+    revision: u64,
+    summary: &crate::overview_generation::SourceSummaryContent,
+    parsed: &ParsedSessionDelta,
+) -> AgentResult<SessionSummarySegment> {
+    use sha2::{Digest,Sha256};
+    let (first,_) = messages.first().ok_or_else(||crate::agent::errors::AgentError::new(ErrorCode::InvalidArgument,"Session batch is empty"))?;
+    let (last,_) = messages.last().unwrap();
+    let first_page=&pages[0];
+    let last_page=pages.last().unwrap();
+    let start=crate::agent::model_history::history_cursor_offset(cursor,first)? as usize;
+    let end=if messages.len()==1 { start+first_page.text.chars().count() } else { last_page.text.chars().count() };
+    let split=messages.len()==1 && (start!=0 || end!=first.total_chars as usize);
+    let identities=serde_json::to_vec(&messages.iter().map(|(record,_)|(&record.message_id,&record.text_hash)).collect::<Vec<_>>())
+        .map_err(|_|crate::agent::errors::AgentError::new(ErrorCode::InvalidArgument,"Cannot encode session source identities"))?;
+    let input_hash=format!("sha256:{:x}",Sha256::digest(identities));
+    Ok(SessionSummarySegment {
+        id:node_id.into(),session_id:first.session_id.clone(),branch_id:last.runtime_entry_id.clone(),revision,
+        start_entry_id:first.runtime_entry_id.clone(),end_entry_id:last.runtime_entry_id.clone(),
+        start_char:split.then_some(start),end_char:split.then_some(end),
+        summary:summary.summary.clone(),topics:summary.keywords.clone(),statements:parsed.statements.clone(),
+        artifact_refs:messages.iter().flat_map(|(_,conversation)|conversation.operations.iter()).filter(|operation|parsed.statements.iter().any(|statement|statement.operation_receipt_id.as_deref()==Some(operation.operation_id.as_str()))).map(|operation|operation.object.clone()).collect(),
+        supersedes:parsed.supersedes.clone(),input_hash,
+    })
+}

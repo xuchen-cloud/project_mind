@@ -2,6 +2,7 @@
 //! Overview versions remain the sole publication record.
 use super::{agent_operations::io_error, Database};
 use crate::agent::{
+    access::RequestContext,
     context::SourceCoverage,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
@@ -45,8 +46,15 @@ pub(crate) struct OverviewMaintenanceBatch {
     pub source_object: ObjectRef,
     pub source_cursor: Option<String>,
     pub source_read_target: Option<SourceReadTarget>,
+    /// Frozen, contiguous current-branch messages following the primary source.
+    #[serde(default)]
+    pub source_items: Vec<OverviewPendingItem>,
+    #[serde(default)]
+    pub sources_frozen: bool,
     pub draft: Option<OverviewPublishInput>,
     pub next_progress: Option<OverviewSourceProgress>,
+    #[serde(default)]
+    pub next_progresses: Vec<OverviewSourceProgress>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,28 +128,6 @@ fn object_from_key(binding: &WorkspaceBinding, scope: &Scope, key: &str) -> Agen
         id: parts[3].into(),
     })
 }
-pub(super) fn overview_batch_requires_summary(conn: &rusqlite::Connection, scope: &Scope, batch_id: &str) -> AgentResult<bool> {
-    let ledger=read_ledger(conn,scope)?;
-    Ok(ledger.batch.as_ref().is_some_and(|batch| batch.batch_id==batch_id
-        && batch.source_object.kind==ObjectKind::SessionMessage
-        && !batch.source.deleted && !batch.source.excluded))
-}
-
-pub(super) fn overview_only_summary_quota_blocked(conn:&rusqlite::Connection,binding:&WorkspaceBinding,scope:&Scope)->AgentResult<bool> {
-    let ledger=read_ledger(conn,scope)?;
-    if let Some(batch)=ledger.batch {
-        return Ok(batch.draft.is_none() && batch.source_object.kind==ObjectKind::SessionMessage
-            && !batch.source.deleted && !batch.source.excluded);
-    }
-    let scope_prefix=format!("{}/{}/",binding.workspace_id,scope.key());
-    let session_prefix=format!("{scope_prefix}session_message/");
-    let (summary,other):(bool,bool)=conn.query_row("SELECT
-        EXISTS(SELECT 1 FROM agent_overview_pending p WHERE p.scope_key=?1 AND substr(p.object_key,1,length(?2))=?2 AND substr(p.object_key,1,length(?3))=?3 AND p.deleted=0 AND p.excluded=0),
-        EXISTS(SELECT 1 FROM agent_overview_pending p WHERE p.scope_key=?1 AND substr(p.object_key,1,length(?2))=?2 AND (substr(p.object_key,1,length(?3))!=?3 OR p.deleted=1 OR p.excluded=1))",
-        params![scope.key(),scope_prefix,session_prefix],|r|Ok((r.get(0)?,r.get(1)?))).map_err(io_error)?;
-    Ok(summary && !other)
-}
-
 fn read_ledger(conn: &rusqlite::Connection, scope: &Scope) -> AgentResult<Ledger> {
     let raw: Option<String> = conn
         .query_row(
@@ -241,7 +227,7 @@ impl Database {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(io_error)?;
-        let (coverage, deleted_count) = self.maintenance_coverage_read(binding, scope, None)?;
+        let (coverage, deleted_count) = self.maintenance_coverage_read(binding, scope, &[])?;
         Ok(OverviewMaintenanceStatus {
             scope: scope.clone(),
             cancelled: ledger.cancelled,
@@ -260,16 +246,20 @@ impl Database {
         next_progress: Option<&OverviewSourceProgress>,
     ) -> AgentResult<SourceCoverage> {
         check_scope(self, binding, scope)?;
-        self.maintenance_coverage_read(binding, scope, next_progress)
+        self.maintenance_coverage_read(binding, scope, next_progress.map(std::slice::from_ref).unwrap_or(&[]))
             .map(|v| v.0)
+    }
+    pub(crate) fn agent_overview_maintenance_coverage_many(&self, binding: &WorkspaceBinding, scope: &Scope, progresses: &[OverviewSourceProgress]) -> AgentResult<SourceCoverage> {
+        check_scope(self,binding,scope)?;
+        self.maintenance_coverage_read(binding,scope,progresses).map(|v|v.0)
     }
     fn maintenance_coverage_read(
         &self,
         binding: &WorkspaceBinding,
         scope: &Scope,
-        next_progress: Option<&OverviewSourceProgress>,
+        next_progress: &[OverviewSourceProgress],
     ) -> AgentResult<(SourceCoverage, u64)> {
-        if let Some(progress) = next_progress {
+        for progress in next_progress {
             if progress.object.workspace_id != binding.workspace_id
                 || progress.object.scope != *scope
             {
@@ -313,10 +303,9 @@ impl Database {
             .map_err(io_error)?;
         for row in rows {
             let (key, seq, raw) = row.map_err(io_error)?;
-            let progress = if next_progress
-                .is_some_and(|p| p.object.key().ok().as_deref() == Some(key.as_str()))
+            let progress = if let Some(progress) = next_progress.iter().find(|p| p.object.key().ok().as_deref() == Some(key.as_str()))
             {
-                next_progress.cloned()
+                Some(progress.clone())
             } else {
                 raw.map(|raw| decode(&raw)).transpose()?
             };
@@ -358,7 +347,7 @@ impl Database {
         let mut native_count = 0u64;
         for row in native_pending {
             let (key, seq) = row.map_err(io_error)?;
-            let settled = next_progress.is_some_and(|p| {
+            let settled = next_progress.iter().any(|p| {
                 p.state != OverviewSourceState::Partial
                     && p.object.key().ok().as_deref() == Some(key.as_str())
                     && p.handled_seq >= seq as u64
@@ -383,10 +372,7 @@ impl Database {
         if ledger.cancelled || ledger.error_code.is_some() {
             return Ok(None);
         }
-        let session_quota_open=super::overview_schedule::session_daily_available(&tx,binding,scope,now)?;
         if let Some(batch) = ledger.batch {
-            if batch.source_object.kind==ObjectKind::SessionMessage && !batch.source.deleted && !batch.source.excluded
-                && batch.draft.is_none() && !session_quota_open {return Ok(None);}
             return Ok(Some(batch));
         }
         let fresh_target: i64 = tx
@@ -444,7 +430,6 @@ impl Database {
             "SELECT p.object_key,p.first_seq,p.last_seq,p.operation,p.latest_revision,p.deleted,p.excluded
              FROM agent_overview_pending p LEFT JOIN agent_jobs j ON j.kind='overview' AND j.dedupe_key='overview-source:'||p.object_key
              WHERE p.scope_key=?1 AND p.last_seq<=?2 AND p.object_key LIKE ?3
-               AND (?8 OR p.deleted=1 OR p.excluded=1 OR p.object_key NOT LIKE ?9)
              ORDER BY CASE
                  WHEN json_extract(j.payload_json,'$.state')='partial'
                    AND CAST(json_extract(j.payload_json,'$.handledSeq') AS INTEGER)=p.last_seq THEN 0
@@ -452,8 +437,10 @@ impl Database {
                  WHEN p.object_key IN (SELECT value FROM json_each(?5)) THEN 2
                  WHEN EXISTS (SELECT 1 FROM todos t WHERE t.scope='project' AND t.project_id=?6
                    AND t.status='unfinished' AND p.object_key=?7||t.id) THEN 3
-                 ELSE 4 END,p.object_key LIMIT 1",
-            params![scope.key(),target_seq,format!("{}/{}/%",binding.workspace_id,scope.key()),goal_key,pin_keys_json,project_id,format!("{}/{}/todo/",binding.workspace_id,scope.key()),session_quota_open,format!("{}/{}/session_message/%",binding.workspace_id,scope.key())],
+                 ELSE 4 END,
+                 CASE WHEN p.object_key LIKE ?8 THEN COALESCE((SELECT m.ordinal FROM agent_messages m WHERE m.id=substr(p.object_key,length(?9)+1)),9223372036854775807) ELSE 0 END,
+                 p.object_key LIMIT 1",
+            params![scope.key(),target_seq,format!("{}/{}/%",binding.workspace_id,scope.key()),goal_key,pin_keys_json,project_id,format!("{}/{}/todo/",binding.workspace_id,scope.key()),format!("{}/{}/session_message/%",binding.workspace_id,scope.key()),format!("{}/{}/session_message/",binding.workspace_id,scope.key())],
             |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?))
         ).optional().map_err(io_error)?;
         let Some((object_key, first_seq, last_seq, operation, latest_revision, deleted, excluded)) =
@@ -512,14 +499,93 @@ impl Database {
             source_object: object,
             source_cursor: current_partial.as_ref().and_then(|p| p.read_cursor.clone()),
             source_read_target: current_partial.as_ref().and_then(|p| p.read_target.clone()),
+            source_items: vec![],
+            sources_frozen: false,
             draft: None,
             next_progress: None,
+            next_progresses: vec![],
         };
         ledger.batch = Some(batch.clone());
         ledger.continuation_target_seq = Some(target_seq as u64);
         write_ledger(&tx, scope, &ledger, now)?;
         tx.commit().map_err(io_error)?;
         Ok(Some(batch))
+    }
+    /// Candidate succession is determined by current Pi branch ordinal. A
+    /// historical message has no current row, so it remains a single source.
+    pub(crate) fn agent_overview_message_successors(
+        &self,
+        binding: &WorkspaceBinding,
+        batch: &OverviewMaintenanceBatch,
+    ) -> AgentResult<Vec<OverviewPendingItem>> {
+        check_scope(self, binding, &batch.scope)?;
+        if batch.source_object.kind != ObjectKind::SessionMessage || batch.source.deleted || batch.source.excluded || batch.source_cursor.is_some() {
+            return Ok(vec![]);
+        }
+        let mut stmt = self.conn.prepare("SELECT p.object_key,p.first_seq,p.last_seq,p.operation,p.latest_revision,p.deleted,p.excluded,COALESCE(i.total_chars,12000)
+            FROM agent_messages first JOIN agent_messages next ON next.session_id=first.session_id AND next.ordinal>first.ordinal
+            JOIN agent_overview_pending p ON p.object_key=?1||next.id AND p.scope_key=?2
+            LEFT JOIN agent_session_search_rows i ON i.message_id=next.id
+            WHERE first.id=?3 AND p.last_seq<=?4
+            ORDER BY next.ordinal").map_err(io_error)?;
+        let rows = stmt.query_map(params![format!("{}/{}/session_message/",binding.workspace_id,batch.scope.key()),batch.scope.key(),batch.source_object.id,batch.target_seq as i64],|row| Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,String>(3)?,row.get::<_,String>(4)?,row.get::<_,bool>(5)?,row.get::<_,bool>(6)?,row.get::<_,i64>(7)?))).map_err(io_error)?;
+        let mut result = Vec::new();
+        let mut previous = batch.source_object.id.clone();
+        let mut chars=0usize;
+        for row in rows {
+            let (object_key,first_seq,last_seq,operation,latest_revision,deleted,excluded,total_chars)=row.map_err(io_error)?;
+            if deleted || excluded { break; }
+            let object = object_from_key(binding,&batch.scope,&object_key)?;
+            if !self.agent_session_message_precedes_adjacent(&previous,&object.id)? { break; }
+            result.push(OverviewPendingItem { object_key,first_seq:first_seq as u64,last_seq:last_seq as u64,operation,latest_revision,deleted,excluded });
+            previous = object.id;
+            chars=chars.saturating_add(total_chars.max(0) as usize);
+            if chars>=48000 { break; }
+        }
+        Ok(result)
+    }
+    fn agent_session_message_precedes_adjacent(&self, older: &str, newer: &str) -> AgentResult<bool> {
+        self.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_messages a JOIN agent_messages b ON b.session_id=a.session_id AND b.ordinal=a.ordinal+1 WHERE a.id=?1 AND b.id=?2)",params![older,newer],|row|row.get(0)).map_err(io_error)
+    }
+    pub(crate) fn agent_overview_maintenance_validate_sources(&self, request:&RequestContext, binding:&WorkspaceBinding, scope:&Scope, batch_id:&str) -> AgentResult<()> {
+        check_scope(self,binding,scope)?;
+        let ledger=read_ledger(&self.conn,scope)?;
+        let batch=ledger.batch.ok_or_else(||conflict("Overview batch is unavailable"))?;
+        if batch.batch_id!=batch_id || (!batch.sources_frozen && !(batch.draft.is_some() && batch.source_items.is_empty())) { return Err(conflict("Overview batch sources are not frozen")); }
+        let mut predecessor=batch.source_object.id.clone();
+        for source in std::iter::once(&batch.source).chain(&batch.source_items) {
+            let current:Option<(i64,String,bool,bool)>=self.conn.query_row("SELECT last_seq,latest_revision,deleted,excluded FROM agent_overview_pending WHERE scope_key=?1 AND object_key=?2",params![scope.key(),source.object_key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(io_error)?;
+            if current!=Some((source.last_seq as i64,source.latest_revision.clone(),source.deleted,source.excluded)) { return Err(AgentError::new(ErrorCode::SourceChanged,"Overview batch source changed")); }
+            if !source.deleted && !source.excluded {
+                let object=object_from_key(binding,scope,&source.object_key)?;
+                if object.kind==ObjectKind::SessionMessage {
+                    self.source_session_record(request,binding,&SourceReadTarget { object,revision:None,record_version:None,file_version:None })
+                        .map_err(|error| if matches!(error.code,ErrorCode::NotFound|ErrorCode::ObjectWithdrawn|ErrorCode::ScopeDenied) { AgentError::new(ErrorCode::SourceChanged,"Session batch provenance is no longer visible") } else { error })?;
+                }
+            }
+        }
+        for source in &batch.source_items {
+            let object=object_from_key(binding,scope,&source.object_key)?;
+            if !self.agent_session_message_precedes_adjacent(&predecessor,&object.id)? { return Err(AgentError::new(ErrorCode::SourceChanged,"Session batch branch changed")); }
+            predecessor=object.id;
+        }
+        Ok(())
+    }
+    pub(crate) fn agent_overview_maintenance_freeze_sources(&self, binding: &WorkspaceBinding, scope: &Scope, batch_id: &str, sources: Vec<OverviewPendingItem>, now: DateTime<Utc>) -> AgentResult<()> {
+        check_scope(self,binding,scope)?;
+        let tx=Transaction::new_unchecked(&self.conn,TransactionBehavior::Immediate).map_err(io_error)?;
+        let mut ledger=read_ledger(&tx,scope)?;
+        let batch=ledger.batch.as_mut().ok_or_else(||conflict("Overview batch is unavailable"))?;
+        if batch.batch_id!=batch_id || batch.draft.is_some() { return Err(conflict("Overview batch changed")); }
+        if batch.sources_frozen && encode(&batch.source_items)? != encode(&sources)? { return Err(conflict("Overview batch sources already frozen")); }
+        for source in &sources {
+            let current: Option<(i64,String,bool,bool)> = tx.query_row("SELECT last_seq,latest_revision,deleted,excluded FROM agent_overview_pending WHERE object_key=?1 AND scope_key=?2",params![source.object_key,scope.key()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(io_error)?;
+            if current != Some((source.last_seq as i64,source.latest_revision.clone(),false,false)) { return Err(AgentError::new(ErrorCode::SourceChanged,"Overview source changed before batch freeze")); }
+        }
+        batch.source_items=sources;
+        batch.sources_frozen=true;
+        write_ledger(&tx,scope,&ledger,now)?;
+        tx.commit().map_err(io_error)
     }
     pub(crate) fn agent_overview_maintenance_save_draft(
         &self,
@@ -528,6 +594,17 @@ impl Database {
         batch_id: &str,
         publish: &OverviewPublishInput,
         progress: &OverviewSourceProgress,
+        now: DateTime<Utc>,
+    ) -> AgentResult<()> {
+        self.agent_overview_maintenance_save_draft_many(binding,scope,batch_id,publish,std::slice::from_ref(progress),now)
+    }
+    pub(crate) fn agent_overview_maintenance_save_draft_many(
+        &self,
+        binding: &WorkspaceBinding,
+        scope: &Scope,
+        batch_id: &str,
+        publish: &OverviewPublishInput,
+        progresses: &[OverviewSourceProgress],
         now: DateTime<Utc>,
     ) -> AgentResult<()> {
         check_scope(self, binding, scope)?;
@@ -542,6 +619,30 @@ impl Database {
             .batch
             .as_mut()
             .ok_or_else(|| conflict("Overview maintenance batch is unavailable"))?;
+        if progresses.len() != batch.source_items.len()+1 { return Err(conflict("Overview progress count differs from frozen sources")); }
+        for (source,progress) in std::iter::once(&batch.source).chain(&batch.source_items).zip(progresses) {
+            let object=object_from_key(binding,scope,&source.object_key)?;
+            if progress.object!=object || progress.handled_seq!=source.last_seq ||
+                progress.read_target.as_ref().is_some_and(|target| target.object!=object || target.revision.as_ref().is_some_and(|v|v.len()>128)) ||
+                (progress.read_cursor.is_some() && progress.read_target.is_none()) ||
+                (progress.state==OverviewSourceState::Partial && progress.read_cursor.is_none()) ||
+                progress.read_cursor.as_ref().is_some_and(|v|v.len()>4096) {
+                return Err(conflict("Overview batch progress changed"));
+            }
+            let current: Option<(i64,String,bool,bool)> = tx.query_row("SELECT last_seq,latest_revision,deleted,excluded FROM agent_overview_pending WHERE scope_key=?1 AND object_key=?2",params![scope.key(),source.object_key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(io_error)?;
+            if current != Some((source.last_seq as i64,source.latest_revision.clone(),source.deleted,source.excluded)) {
+                return Err(AgentError::new(ErrorCode::SourceChanged,"Overview source changed during batch"));
+            }
+        }
+        let mut predecessor=batch.source_object.id.clone();
+        for source in &batch.source_items {
+            let object=object_from_key(binding,scope,&source.object_key)?;
+            if !self.agent_session_message_precedes_adjacent(&predecessor,&object.id)? {
+                return Err(AgentError::new(ErrorCode::SourceChanged,"Session batch branch changed"));
+            }
+            predecessor=object.id;
+        }
+        let progress=&progresses[0];
         if batch.batch_id != batch_id
             || publish.batch_id != batch_id
             || publish.scope != *scope
@@ -566,23 +667,16 @@ impl Database {
         {
             return Err(conflict("Overview maintenance batch or source changed"));
         }
-        let settles = publish
-            .settled_object_keys
-            .iter()
-            .any(|key| key == &batch.source.object_key);
-        if publish
-            .settled_object_keys
-            .iter()
-            .any(|key| key != &batch.source.object_key)
-            || (progress.state == OverviewSourceState::Partial && settles)
-            || (progress.state != OverviewSourceState::Partial && !settles)
-        {
+        let expected_settled: Vec<_> = progresses.iter().filter(|p|p.state!=OverviewSourceState::Partial).map(|p|p.object.key()).collect::<AgentResult<_>>()?;
+        let mut actual=publish.settled_object_keys.clone(); actual.sort();
+        let mut expected=expected_settled; expected.sort();
+        if actual != expected {
             return Err(invalid(
                 "Overview draft settlement differs from source progress",
             ));
         }
         let preview = self
-            .maintenance_coverage_read(binding, scope, Some(progress))?
+            .maintenance_coverage_read(binding, scope, progresses)?
             .0;
         if serde_json::to_value(&preview).map_err(|_| invalid("Invalid Overview coverage"))?
             != serde_json::to_value(&publish.coverage)
@@ -597,7 +691,7 @@ impl Database {
             let prior_progress = batch.next_progress.as_ref().ok_or_else(|| {
                 AgentError::new(ErrorCode::IoFailed, "Overview draft progress is missing")
             })?;
-            if encode(previous)? == encode(publish)? && encode(prior_progress)? == encode(progress)?
+            if encode(previous)? == encode(publish)? && encode(prior_progress)? == encode(progress)? && encode(&batch.next_progresses)? == encode(&progresses[1..].to_vec())?
             {
                 return Ok(());
             }
@@ -608,6 +702,7 @@ impl Database {
         }
         batch.draft = Some(publish.clone());
         batch.next_progress = Some(progress.clone());
+        batch.next_progresses = progresses[1..].to_vec();
         write_ledger(&tx, scope, &ledger, now)?;
         tx.commit().map_err(io_error)?;
         Ok(())
@@ -653,6 +748,7 @@ impl Database {
             ));
         }
         write_progress(&tx, scope, progress, now)?;
+        for progress in &batch.next_progresses { write_progress(&tx,scope,progress,now)?; }
         ledger.batch = None;
         write_ledger(&tx, scope, &ledger, now)?;
         tx.commit().map_err(io_error)?;
@@ -684,7 +780,7 @@ impl Database {
         let mut ledger = read_ledger(&tx, scope)?;
         if matches!(
             ledger.error_code,
-            Some(ErrorCode::SourceChanged | ErrorCode::RevisionConflict | ErrorCode::RateLimited)
+            Some(ErrorCode::SourceChanged | ErrorCode::RevisionConflict | ErrorCode::RateLimited | ErrorCode::BudgetExceeded)
         ) {
             if let Some(batch) = &ledger.batch {
                 let published: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_versions WHERE scope_key=?1 AND batch_id=?2)",

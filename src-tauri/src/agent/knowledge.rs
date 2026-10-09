@@ -113,7 +113,7 @@ impl KnowledgeNodeWrite {
             || self.aliases.len() > 20
             || self.keywords.len() > 20
             || self.related.len() > 5
-            || self.source_refs.len() > (if self.session_summary.is_some() { 50 } else { 20 })
+            || self.source_refs.len() > (if self.session_summary.is_some() { 256 } else { 20 })
         {
             return Err(invalid("Knowledge metadata exceeds bounds"));
         }
@@ -186,7 +186,6 @@ impl KnowledgeNodeWrite {
                 || segment.statements.iter().any(|statement| {
                     statement.message_refs.is_empty() || statement.message_refs.iter().any(|message| {
                         message.scope != *scope || message.session_id != segment.session_id
-                            || message.branch_id != segment.branch_id
                             || !statement.source_refs.iter().any(|source| {
                                 source.object.kind == ObjectKind::SessionMessage
                                     && source.object.id == message.message_id
@@ -204,8 +203,10 @@ impl KnowledgeNodeWrite {
                     })
                 })
                 || self.source_refs.iter().any(|source| source.object.kind != ObjectKind::SessionMessage
-                    || !matches!(&source.locator, Some(SourceLocator::Messages {session_id, branch_id, ..})
-                        if session_id == &segment.session_id && branch_id == &segment.branch_id))
+                    || !matches!(&source.locator, Some(SourceLocator::Messages {session_id, ..})
+                        if session_id == &segment.session_id))
+                || !matches!(self.source_refs.last().and_then(|source| source.locator.as_ref()),
+                    Some(SourceLocator::Messages { branch_id, .. }) if branch_id == &segment.branch_id)
             {
                 return Err(invalid("Invalid session summary knowledge node"));
             }
