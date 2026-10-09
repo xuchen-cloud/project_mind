@@ -1,6 +1,6 @@
 # 会话记忆：原文检索与派生知识
 
-更新：2026-10-09。状态：GUI 回读与历史树索引已实现；R11b2～b4 的模型访问、增量摘要和 Overview 集成已落到当前工作区源码，仍在集成验证中。交付顺序和验收见[交付计划 R11](requirements/ai-work-context-delivery.md#r11-会话成为可追溯知识--105102)；产品目标和 E5 规则分别见[主规格](requirements/ai-work-context-spec.md)与[工程契约](requirements/ai-work-context-engineering-spec.md#e5)。本文件细化检索先行的切入点。
+更新：2026-10-09。状态：GUI 回读与历史树索引已实现；R11b2～b4 的模型访问、增量摘要和 Overview 集成已完成确定性集成验证，真实模型往返与目标平台验收仍待完成。交付顺序和验收见[交付计划 R11](requirements/ai-work-context-delivery.md#r11-会话成为可追溯知识--105102)；产品目标和 E5 规则分别见[主规格](requirements/ai-work-context-spec.md)与[工程契约](requirements/ai-work-context-engineering-spec.md#e5)。本文件细化检索先行的切入点。
 
 ## 决定与边界
 
@@ -16,7 +16,7 @@ Pi JSONL 是会话原文的唯一权威。R11a GUI 回读已按锚点定位原�
 
 `agent_session_scan_state` 保存已校验 checksum、entry count 与下一页游标。checkpoint 追加后，用原始 JSONL 字节前缀 hash 证明旧进度仍有效，再从原位置继续；历史被改写返回冲突。外部读取期间不持有 Workspace/DB 锁，提交时复核 Workspace、checkpoint、扫描状态和活动 Run。会话删除级联清理索引及游标，当前分支切换保留旧消息。GUI 一次查找推进一页，覆盖不足显示“继续查找”；全部覆盖后才开放结果分页。索引覆盖与查询命中分别表达。
 
-GUI 搜索保留原生已知 Run 身份；未知历史归属保持空值，不把内容或时间猜测当归属证明。`session_message` 的来源身份及策略校验已支持当前和历史分支，要求 `session.read` 与相应来源操作授权；排除不影响可信 GUI 搜索。另有独立的模型 `session.search`、`session.messages.read` 工具，从已授权消息索引定位并从 Pi JSONL 校验回读，不能复用 GUI grant；历史索引缺口有覆盖状态，读取按消息和字符预算分页。R12 的外部 CLI/MCP 尚未接入这两个新模型工具。
+GUI 搜索保留原生已知 Run 身份；未知历史归属保持空值，不把内容或时间猜测当归属证明。`session_message` 的来源身份及策略校验已支持当前和历史分支，要求 `session.read` 与相应来源操作授权；排除不影响可信 GUI 搜索。另有独立的模型 `session.search`、`session.messages.read` 工具，从已授权消息索引定位并从 Pi JSONL 校验回读，不能复用 GUI grant；历史索引缺口有覆盖状态，读取按消息和字符预算分页。R12 外部 CLI/MCP 已接入这两个模型历史工具，调用仍须具备 `session.read` 授权；入口见[工具注册](../src-tauri/src/agent/bridge/registry.rs)、[CLI 路由](../src-tauri/src/agent/bridge/cli.rs)与[MCP 路由测试](../src-tauri/src/agent/bridge/mcp_tests.rs)。
 
 ## 当前实现与待验证边界
 
@@ -26,7 +26,9 @@ R11b3/b4 复用 `agent_change_log` → `source_registry` → Project Overview pe
 
 以上接入已完成确定性集成验证：Rust 全库 795 项通过，3 处失败修正后来源 150 项和会话发布集成 1 项通过；30 个依赖外部运行条件的忽略项仍单列。Node Pi 42 项、协议/worker 16 项、打包原文链路 1 项、相关前端/API 61 项通过；原文卡去重后知识 UI 12 项及 TypeScript 检查通过。生产构建与桌面资源检查通过，实际前端组件的无窗口浏览器单页/分页场景通过（模拟 IPC）。详细证据和验证范围见交付计划 R11。预算复用 R10 的批次和 Workspace 上限；每 Project 每 UTC 日最多 5 次摘要模型调用，失败尝试计入，普通业务与已生成草稿不因摘要配额停止。
 
-仍缺真实供应商往返及 Windows/macOS 目标设备验收；R12 外部 CLI/MCP 尚未接入模型历史工具。因此不把这些确定性结果当作完整 R11 产品验收或关闭关联 Issue。
+仍缺真实供应商往返及 Windows/macOS 目标设备验收；R12 外部 CLI/MCP 已接入 `session.search` 和 `session.messages.read`，使用时仍须具备 `session.read` 授权。因此不把这些确定性结果当作完整 R11 产品验收或关闭关联 Issue。
+
+2026-10-09 [整体审视](requirements/ai-work-context-delivery.md#intent-audit-20261009)另确认一项实现差距：当前每生成批次一条消息/片段、每日最多 5 次摘要调用，尚不能把正常多轮会话高效整理为有上下文的消息段。原文检索可以先回答历史问题，但不能据此宣布摘要维护已达到预期。下一步在现有 R10 批次内合并同会话、同分支、授权一致的有界增量，继续保留来源身份、失败续跑和日额度；不引入第二套记忆存储或独立摘要调度器。
 
 ## 来源、结论和失效
 

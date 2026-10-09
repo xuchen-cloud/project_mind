@@ -21,7 +21,7 @@
 | A15 | M1·部分 | [bridge 传输测试][transport-tests]、[R12a Linux 实际 CLI 记录][delivery] | Linux 已验应用关闭时实际 CLI 错误；仍需 macOS/Windows 实包核机器错误、Workspace 未打开及无临时 DB。 |
 | A16 | M1·部分 | [Pi 会话恢复测试][host-session-tests]、[Host 测试][host-tests] | 真实会话强退后恢复续聊，核历史及已提交工具不重放。 |
 | A17 | M1·部分 | [来源策略测试][source-read-tests]、[引用测试][reference-tests] | 产品中归档/排除/删除原文后，核后续读取及旧引用失效。 |
-| A18 | M1·部分 | [Profile 映射测试][profile-tests]、[Host 策略测试][host-policy-tests] | 真实无凭据、工具缺失、模型不兼容的错误与恢复入口。 |
+| A18 | M1·部分 | [Profile 映射测试][profile-tests]、[Host 策略测试][host-policy-tests] | 真实无凭据、工具缺失、模型不兼容的错误与恢复入口；同时补主规格 §6 的 [G7 会话模型覆盖](ai-work-context-delivery.md#intent-audit-20261009)，验证通用默认/显式覆盖/重开/失效模型及 probe 与实际执行一致。 |
 | A19 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 执行记录][delivery] | macOS/Windows 736/1200/1540、长消息及 reduced-motion 人工交互。 |
 | A20 | M1·待执行 | [CLI 打包提交][cli-bundle-commit]、[安装定向测试][cli-install-tests] | 无 Node/Pi 开发环境的 macOS/Windows 干净安装，含中文/空格路径实测。 |
 | A21 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | Workspace A/B 授权、综合 Record 归属和真实检索/保存。 |
@@ -62,11 +62,11 @@
 | A56 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | Workspace 增量只消费变更的 Project Overview 和直属 Record。 |
 | A57 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 项目归档、明确偏好、兴趣笔记与随口提问的长期记忆边界。 |
 | A58 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 排除、部分授权与停用记忆后派生链过滤及不复生。 |
-| A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests] | 真实 24h/48h、离线、密钥锁定和前台抢占；不以测试时钟充当夜间运行。 |
+| A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests] | [G2 本地设置](ai-work-context-delivery.md#intent-audit-20261009)：首次启用记录本机 IANA 时区，保留旧显式值，提供频率/时间/时区入口并测非 UTC、DST、重开；再验证真实 24h/48h、离线、密钥锁定和前台抢占，不以测试时钟充当夜间运行。 |
 | A60 | M1·部分 | [Overview 维护测试][overview-tests]、[知识维护测试][knowledge-tests] | 大项目、恶意资料、重复摘要真实模型运行，核 partial 和预算续跑。 |
-| A61 | M1·部分 | [会话检索测试][session-search-tests]、[会话摘要测试][session-summary-tests] | 真实旧讨论提问，摘要缺失时有限原文回读与引用定位。 |
-| A62 | M1·部分 | [会话摘要测试][session-summary-tests]、[维护测试][session-maintenance-tests] | 夜间新增决定→Project Overview 批次更新，不生成 Record。 |
-| A63 | M1·部分 | [会话摘要测试][session-summary-tests] | 真实混合建议/计划/决定/失败任务，核分类及短会话覆盖。 |
+| A61 | M1·部分 | [会话检索测试][session-search-tests]、[会话摘要测试][session-summary-tests] | [G3 有界成段摘要](ai-work-context-delivery.md#intent-audit-20261009)须让同会话同分支多条短消息一次处理且跨授权隔离；再用真实旧讨论提问验证摘要缺失时有限原文回读与引用定位。 |
+| A62 | M1·部分 | [会话摘要测试][session-summary-tests]、[维护测试][session-maintenance-tests] | [G3](ai-work-context-delivery.md#intent-audit-20261009)须覆盖新决定多消息批次、失败重放与日配额；再验夜间更新 Project Overview、不生成 Record。 |
+| A63 | M1·部分 | [会话摘要测试][session-summary-tests] | [G3](ai-work-context-delivery.md#intent-audit-20261009)须覆盖同分支短消息合并和长消息续页；真实混合建议/计划/决定/失败任务再核分类及短会话覆盖。 |
 | A64 | M1·部分 | [完整历史索引测试][session-search-tests]、[Pi 分支测试][host-session-tests] | 推翻决定、长会话压缩与重试分支的实际消息身份。 |
 | A65 | M1·部分 | [会话来源测试][session-source-tests]、[连接范围测试][grant-tests] | 删除/排除、无 session.read 与摘要缺口后检索/派生知识负例。 |
 | A66 | M1·部分 | [Host 策略测试][host-policy-tests]、[知识服务测试][knowledge-tests] | 真实空会话首问测注入正文/字符数，不只看工具 schema。 |
@@ -78,8 +78,20 @@
 | A72 | M1·部分 | [Overview 隔离测试][overview-isolation-tests]、[R10 记录][delivery] | 旧 Workspace 升级与重建/恢复 Overview 后检查 QuickNote/summary*。 |
 | A73 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 记录][delivery] | 736/1200/1540 实机下收起/展开、保留 draft/scroll、停止后发送及业务页交互。 |
 | A74 | M1·部分 | [Pi 消息组件测试][pi-message-tests]、[会话面板测试][agent-panel-tests] | 真实两轮回答和异步结果插入，核来源、错误、折叠和滚动归属。 |
-| A75 | M1·部分 | [成果审阅测试][review-tests]、[批量操作测试][batch-tests] | 真实“更新计划并建 3 Todo”任务，按钮/文字确认、补充失效、部分失败及逐项收据。 |
+| A75 | M1·部分 | [成果审阅测试][review-tests]、[批量操作测试][batch-tests] | [G1/P2 确认可用性](ai-work-context-delivery.md#intent-audit-20261009)：唯一待定方案的「同意」「好的」与按钮同一持久决定，含修改/模糊回复不误批，摘要说明已有对象目标与动作；再用真实“更新计划并建 3 Todo”任务验补充失效、部分失败及逐项收据。 |
 | A76 | M1·部分 | [成果卡片测试][output-card-tests]、[File 成果测试][agent-file-tests] | 实机打开实际对象后继续对话/编辑、移除目标；同 File ID 两轮续改与人工后改冲突。 |
+
+## 工程契约补充验收（R13 / #107 / E16）
+
+A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-context-engineering-spec.md#e16)。R13 使用固定 fixture、固定测试机器及轻量脚本记录版本、语料规模和冷/热状态；不新建 benchmark 平台。下列“待测/待核对”表示尚无对应执行记录，不据此判断功能是否已实现。
+
+| 验收项 | 目标与记录方式 | 当前证据状态 |
+| --- | --- | --- |
+| 本地检索延迟 | 3000 条 Record + 200 份文本资料；记录机器、版本、冷热状态；`context.get` 热态 p95≤300ms、search p95≤500ms，不计模型响应。 | 待测。 |
+| 知识状态与流式界面 | 知识状态读取≤200ms；Overview 维护和首模型 token 立即显示进行状态，超过 60s 有明确超时，不设固定完成秒数；流文本 UI 更新≤20 次/秒，非可见项目不更新聊天 DOM。 | 待测。 |
+| 主包边界 | 主入口 chunk≤250KiB、Agent SDK 不进入主包，Agent 面板动态加载；以生产构建和现有边界检查复核。 | [R12 生产构建][delivery]已有主包约 194KiB 及边界检查通过记录；R13 固定版本待核对。 |
+| 本机观测 | 记录检索耗时、来源读取成功率、引用解析失败率、成果保存/冲突、取消耗时与恢复结果；默认不远程上传。 | 待核对日志字段与实际运行记录。 |
+| 真实项目用户任务 | 3 个真实项目，由用户完成历史问题定位、查依据、生成并找回文件；记录每项用时和纠正次数。 | 待执行；不以聊天条数或自动生成 Record 数代替。 |
 
 ## 目标平台执行顺序
 

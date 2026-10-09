@@ -1,6 +1,6 @@
 # AI 工作上下文：产品与开发规格
 
-更新：2026-10-08。本文定义目标产品行为，不代表全部功能已交付。最新实现、待接入与验收状态见[父 Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97)及子 Issue；历史代码审查快照与执行顺序见[交付计划D2](ai-work-context-delivery.md#delivery-audit)。
+更新：2026-10-09。本文定义目标产品行为，不代表全部功能已交付。当前符合性、实现差距与优先级见[整体审视](ai-work-context-delivery.md#intent-audit-20261009)，逐项证据见[验收台账](ai-work-context-acceptance.md)；负责人和关闭状态见[父 Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97)及子 Issue。[最初交付审查](ai-work-context-delivery.md#delivery-audit)保留为历史快照。
 
 本规格定义 Project Mind 的 AI 助手如何理解项目、利用历史知识并直接完成可逆操作。它整合了此前确定的需求；正文按完整产品逻辑组织，不再保留逐轮追加的修订章节。
 
@@ -193,6 +193,8 @@ Project标题区提供“助手”入口；Record/File菜单可“带入助手�
 CLI、MCP与内置助手调用同一业务服务，获得相同范围内的知识与写入能力。读取默认小结果，支持目录、摘要、局部原文和分页；修改使用明确对象ID、预期版本和幂等请求ID。CLI支持结构化结果和schema发现，MCP首期使用本机stdio。
 
 外部连接一次配置作用域和能力，默认推荐 Workspace 协作，覆盖直属内容和所有未归档 Project，新建 Project 自动纳入；也可选择单 Project 协作、只读或自定义。已有连接保持原授权范围，不自动扩权。会话历史读取需要单独选择 session.read；模型维护刷新另有权限，普通读取不隐式产生模型费用。
+
+自定义连接也可仅授权指定 Record/File（最多 50 项），不包含创建、Todo 或会话；范围级摘要可能混合其他资料，因此该模式使用来源搜索和直接对象读取。Workspace 连接预设是外部工具的授权范围，不能当作 Workspace 助手、跨项目 Overview 或长期记忆已交付；这些仍属于 M2。
 
 后续再接入Pi CLI、Claude Code等外部运行时，以及可配置任务菜单。各CLI需单独能力探测，不能假定相同协议，也不能把工作目录当成操作系统隔离。应用关闭后的独立WorkspaceHost单独交付。
 
