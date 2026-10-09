@@ -1,4 +1,4 @@
-//! One durable GUI decision over an exact set; no batch business transaction.
+//! One durable user decision over an exact set; no batch business transaction.
 use super::{agent_operations::io_error, agent_outputs::read_output, Database};
 use crate::agent::{
     access::{Caller, RequestContext},
@@ -8,6 +8,7 @@ use crate::agent::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::HashSet;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,25 +32,61 @@ fn current_result(conn: &Connection, receipt: ReviewReceipt) -> AgentResult<Outp
     })
 }
 impl Database {
+    /// A bounded, read-only snapshot for the next model turn. Candidate bodies
+    /// stay in the native output store; the model receives exact IDs/revisions.
+    pub(crate) fn agent_pending_review_plans(
+        &self, request: &RequestContext, binding: &WorkspaceBinding,
+    ) -> AgentResult<Value> {
+        let Caller::BuiltinRun { run_id } = &request.caller else { return Err(AgentError::new(ErrorCode::ScopeDenied, "Assistant run required")); };
+        let (session_id, scope_key, order): (String, String, i64) = self.conn.query_row(
+            "SELECT r.session_id,s.scope_key,r.rowid FROM agent_runs r JOIN agent_sessions s ON s.id=r.session_id WHERE r.id=?1",
+            [run_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+        ).map_err(io_error)?;
+        let scope = self.agent_output_run_scope(run_id)?;
+        request.authorize(binding, &scope, "output.read")?;
+        let mut stmt = self.conn.prepare("SELECT o.id FROM agent_outputs o JOIN agent_runs r ON r.id=o.run_id JOIN agent_sessions s ON s.id=r.session_id WHERE r.session_id=?1 AND s.scope_key=?2 AND r.rowid<?3 AND json_extract(r.context_manifest_json,'$.mode')='review' AND EXISTS(SELECT 1 FROM agent_messages m WHERE m.session_id=r.session_id AND m.run_id=r.id AND m.role='assistant') AND o.state IN ('staged','failed') AND COALESCE(json_extract(o.payload_json,'$.dismissed'),0)=0 ORDER BY r.rowid,o.ordinal LIMIT 257").map_err(io_error)?;
+        let ids = stmt.query_map(params![session_id,scope_key,order], |r| r.get::<_,String>(0)).map_err(io_error)?
+            .collect::<Result<Vec<_>,_>>().map_err(io_error)?;
+        if ids.len()>256 { return Err(AgentError::new(ErrorCode::BudgetExceeded,"Too many pending review candidates")); }
+        let mut plans:Vec<(String,Vec<Value>)>=Vec::new();
+        for id in ids {
+            let output=read_output(&self.conn,&id)?;
+            let intent=serde_json::to_value(&output.staged.intent).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Cannot read candidate intent"))?;
+            let target= intent.get("title").or_else(||intent.get("content")).or_else(||intent.get("safeName"))
+                .or_else(||intent.get("target")).or_else(||intent.get("patch").and_then(|p|p.get("record").or_else(||p.get("object"))))
+                .or_else(||intent.get("restore").and_then(|p|p.get("object")))
+                .cloned().unwrap_or(Value::Null);
+            let label=target.as_str().map(str::to_owned).unwrap_or_else(|| {
+                let kind=target.get("kind").and_then(Value::as_str).unwrap_or("object");
+                let id=target.get("id").and_then(Value::as_str).unwrap_or("");
+                format!("{kind} {id}")
+            });
+            let clipped:String=label.chars().take(72).collect();
+            let label=if label.chars().count()>72 {format!("{clipped}…")} else {clipped};
+            if plans.last().is_none_or(|(run,_)|run!=&output.staged.run_id) {plans.push((output.staged.run_id.clone(),Vec::new()));}
+            plans.last_mut().unwrap().1.push(json!({"outputId":output.staged.id,"expectedRevision":output.staged.revision,"intent":intent["intent"],"target":label,"state":output.state}));
+        }
+        Ok(json!(plans.into_iter().map(|(run_id,outputs)|json!({"runId":run_id,"outputs":outputs})).collect::<Vec<_>>()))
+    }
     pub(crate) fn agent_output_review(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
         input: &OutputReviewInput,
     ) -> AgentResult<OutputReviewResult> {
-        if !matches!(request.caller, Caller::Gui) {
+        if !matches!(request.caller, Caller::Gui | Caller::BuiltinRun { .. }) {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
-                "Only the local GUI can decide a review plan",
+                "Only the local GUI or bound assistant run can decide a review plan",
             ));
         }
         if input.outputs.is_empty()
             || input.outputs.len() > 256
-            || input.text.as_ref().is_some_and(|s| s.len() > 4096)
+            || input.text.as_ref().is_some_and(|s| s.len() > 65536)
         {
             return Err(AgentError::new(
                 ErrorCode::BudgetExceeded,
-                "Review requires 1–256 candidates and at most 4096 bytes of user text",
+                "Review requires 1–256 candidates and at most 65536 bytes of user text",
             ));
         }
         let scope = self.agent_output_run_scope(&input.run_id)?;
@@ -74,13 +111,34 @@ impl Database {
             return current_result(&self.conn, receipt);
         }
         let receipt=self.agent_atomic_operation(&request.caller.key(),&request.request_id,"output.review",input,|tx| {
-            let row:Option<(String,String,String,String)>=tx.query_row("SELECT r.session_id,r.state,json_extract(r.context_manifest_json,'$.mode'),s.state FROM agent_runs r JOIN agent_sessions s ON s.id=r.session_id WHERE r.id=?1",[&input.run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(io_error)?;
-            let(session_id,state,mode,session_state)=row.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Review run not found"))?;
+            let row:Option<(String,String,String,String,i64)>=tx.query_row("SELECT r.session_id,r.state,json_extract(r.context_manifest_json,'$.mode'),s.state,r.rowid FROM agent_runs r JOIN agent_sessions s ON s.id=r.session_id WHERE r.id=?1",[&input.run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional().map_err(io_error)?;
+            let(session_id,state,mode,session_state,candidate_order)=row.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Review run not found"))?;
             if mode!="review" || session_state!="active" || !matches!(state.as_str(),"completed"|"failed"|"cancelled"|"interrupted") {
                 return Err(AgentError::new(ErrorCode::InvalidRunTransition,"Review waits for the current run to finish"));
             }
             let latest:String=tx.query_row("SELECT id FROM agent_runs WHERE session_id=?1 ORDER BY rowid DESC LIMIT 1",[&session_id],|r|r.get(0)).map_err(io_error)?;
-            if latest!=input.run_id {return Err(conflict("Review plan was superseded by another run"));}
+            match &request.caller {
+                Caller::Gui => {
+                    if input.decision == ReviewDecision::Revise { return Err(conflict("Revision is reserved for a later assistant turn")); }
+                }
+                Caller::BuiltinRun { run_id } => {
+                    let successor: Option<(String, String, String, i64)> = tx.query_row(
+                        "SELECT session_id,state,COALESCE(json_extract(context_manifest_json,'$.prompt'),''),rowid FROM agent_runs WHERE id=?1",
+                        [run_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+                    ).optional().map_err(io_error)?;
+                    let Some((next_session,next_state,user_prompt,next_order)) = successor else { return Err(conflict("Assistant run is missing")); };
+                    if latest != *run_id || next_session != session_id || next_order <= candidate_order
+                        || next_state != "running" || user_prompt.trim().is_empty() {
+                        return Err(conflict("Decision requires a later real user turn in the same active session"));
+                    }
+                    if input.text.as_deref() != Some(user_prompt.as_str()) {
+                        return Err(conflict("Decision text must be the actual later user message"));
+                    }
+                    let presented: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_messages WHERE session_id=?1 AND run_id=?2 AND role='assistant')",params![session_id,input.run_id],|r|r.get(0)).map_err(io_error)?;
+                    if !presented { return Err(conflict("Candidate plan is not present in the current conversation branch")); }
+                }
+                _ => unreachable!(),
+            }
             let committing:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_outputs WHERE run_id=?1 AND state='committing')",[&input.run_id],|r|r.get(0)).map_err(io_error)?;
             if committing {return Err(AgentError::new(ErrorCode::OutputCommitFailed,"Wait for the current save to settle before deciding the remaining plan"));}
             let mut seen=HashSet::new();
@@ -90,10 +148,12 @@ impl Database {
             let mut stmt=tx.prepare("SELECT id,revision FROM agent_outputs WHERE run_id=?1 AND state IN ('staged','failed') AND COALESCE(json_extract(payload_json,'$.dismissed'),0)=0 ORDER BY ordinal").map_err(io_error)?;
             let pending=stmt.query_map([&input.run_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?))).map_err(io_error)?.collect::<Result<Vec<_>,_>>().map_err(io_error)?;
             if pending.len()!=input.outputs.len() || pending.iter().any(|(id,rev)|!input.outputs.iter().any(|item|&item.output_id==id && item.expected_revision==*rev as u64)) {return Err(conflict("Review must match the complete current pending plan"));}
-            let decision=OutputReviewDecision{request_id:request.request_id.clone(),decision:input.decision,text:input.text.clone(),decided_at:chrono::Utc::now().to_rfc3339()};
+            let decision=OutputReviewDecision{request_id:request.request_id.clone(),decision:input.decision,
+                text:if matches!(request.caller,Caller::Gui) {input.text.clone()} else {None},
+                decided_at:chrono::Utc::now().to_rfc3339()};
             let json=serde_json::to_string(&decision).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Cannot persist review decision"))?;
             for (id,revision) in &pending {
-                let changed=if input.decision==ReviewDecision::Cancel {
+                let changed=if input.decision!=ReviewDecision::Confirm {
                     tx.execute("UPDATE agent_outputs SET revision=revision+1,payload_json=json_set(payload_json,'$.reviewDecision',json(?1),'$.dismissed',json('true')) WHERE id=?2 AND revision=?3 AND state IN ('staged','failed') AND COALESCE(json_extract(payload_json,'$.dismissed'),0)=0",params![json,id,revision])
                 } else {
                     tx.execute("UPDATE agent_outputs SET payload_json=CASE WHEN json_extract(payload_json,'$.reviewDecision.decision')='confirm' THEN payload_json ELSE json_set(payload_json,'$.reviewDecision',json(?1)) END WHERE id=?2 AND revision=?3 AND state IN ('staged','failed') AND COALESCE(json_extract(payload_json,'$.dismissed'),0)=0",params![json,id,revision])
@@ -310,6 +370,47 @@ mod tests {
         .unwrap();
     }
     #[test]
+    fn model_decision_requires_a_later_user_turn_and_visible_exact_plan() {
+        let f=fixture();
+        let candidate=stage(&f,"visible.md");
+        settle(&f);
+        let next="b".repeat(32);
+        f.db.agent_run_prepare(&f.gui,&f.binding,&f.session,"next-user-message",&RunPreparation {
+            run_id:next.clone(),context_manifest:serde_json::json!({"scope":Scope::Project{project_id:f.project},"mode":ExecutionMode::Review,"prompt":"请执行刚才的方案"}),
+        }).unwrap();
+        f.db.agent_run_start(&f.gui,&f.binding,&next).unwrap();
+        let request=RequestContext {caller:Caller::BuiltinRun {run_id:next.clone()},request_id:"decide-visible".into(),..f.model.clone()};
+        let decision=OutputReviewInput {run_id:f.run.clone(),outputs:vec![OutputReviewItem {output_id:candidate.staged.id.clone(),expected_revision:1}],decision:ReviewDecision::Confirm,text:Some("请执行刚才的方案".into())};
+        assert_eq!(f.db.agent_output_review(&request,&f.binding,&decision).unwrap_err().code,ErrorCode::RevisionConflict);
+        f.db.conn.execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES ('visible-proposal',?1,?2,'visible-proposal','assistant','{}','complete',0,'2026-10-09T00:00:00Z')",params![f.session,f.run]).unwrap();
+        let mut forged=decision.clone(); forged.text=Some("确认".into());
+        assert_eq!(f.db.agent_output_review(&request,&f.binding,&forged).unwrap_err().code,ErrorCode::RevisionConflict);
+        let mut read_only=request.clone(); read_only.scope_grant.operations.retain(|op|op!="output.commit");
+        assert_eq!(f.db.agent_output_review(&read_only,&f.binding,&decision).unwrap_err().code,ErrorCode::ScopeDenied);
+        let result=f.db.agent_output_review(&request,&f.binding,&decision).unwrap();
+        assert_eq!(result.decision,ReviewDecision::Confirm);
+        assert_eq!(result.outputs.len(),1);
+        assert!(!result.outputs[0].dismissed);
+    }
+    #[test]
+    fn question_keeps_plan_and_later_revision_retires_exact_candidate() {
+        let f=fixture();
+        let candidate=stage(&f,"revise.md");
+        settle(&f);
+        let next="c".repeat(32);
+        f.db.agent_run_prepare(&f.gui,&f.binding,&f.session,"later-message",&RunPreparation {
+            run_id:next.clone(),context_manifest:serde_json::json!({"scope":Scope::Project{project_id:f.project},"mode":ExecutionMode::Review,"prompt":"请修改刚才的方案"}),
+        }).unwrap();
+        assert!(!f.db.agent_output_get(&f.gui,&f.binding,&candidate.staged.id).unwrap().dismissed);
+        f.db.agent_run_start(&f.gui,&f.binding,&next).unwrap();
+        f.db.conn.execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES ('revise-proposal',?1,?2,'revise-proposal','assistant','{}','complete',0,'2026-10-09T00:00:00Z')",params![f.session,f.run]).unwrap();
+        let request=RequestContext {caller:Caller::BuiltinRun {run_id:next},request_id:"revise-plan".into(),..f.model.clone()};
+        let result=f.db.agent_output_review(&request,&f.binding,&OutputReviewInput {run_id:f.run.clone(),outputs:vec![OutputReviewItem {output_id:candidate.staged.id,expected_revision:1}],decision:ReviewDecision::Revise,text:Some("请修改刚才的方案".into())}).unwrap();
+        assert_eq!(result.decision,ReviewDecision::Revise);
+        assert!(result.outputs[0].dismissed);
+        assert_eq!(result.outputs[0].staged.revision,2);
+    }
+    #[test]
     fn review_exact_set_authority_revision_freeze_and_reopen_replay() {
         let mut f = fixture();
         let one = stage(&f, "one.md");
@@ -319,7 +420,7 @@ mod tests {
             f.db.agent_output_review(&f.model, &f.binding, &decision)
                 .unwrap_err()
                 .code,
-            ErrorCode::ScopeDenied
+            ErrorCode::InvalidRunTransition
         );
         assert_eq!(
             f.db.agent_output_review(&f.gui, &f.binding, &decision)
@@ -353,7 +454,7 @@ mod tests {
             ErrorCode::RevisionConflict
         );
         let mut too_long = decision.clone();
-        too_long.text = Some("é".repeat(2049));
+        too_long.text = Some("é".repeat(32769));
         assert_eq!(
             f.db.agent_output_review(&f.gui, &f.binding, &too_long)
                 .unwrap_err()
@@ -522,7 +623,7 @@ mod tests {
         );
     }
     #[test]
-    fn review_new_run_gate_and_same_session_supersession_are_atomic() {
+    fn review_new_run_gate_preserves_undecided_plan_atomically() {
         let f = fixture();
         let one = stage(&f, "old.md");
         settle(&f);
@@ -633,8 +734,8 @@ mod tests {
         let expired =
             f.db.agent_output_get(&f.gui, &f.binding, &one.staged.id)
                 .unwrap();
-        assert!(expired.dismissed);
-        assert_eq!(expired.staged.revision, 2);
+        assert!(!expired.dismissed);
+        assert_eq!(expired.staged.revision, 1);
         assert_eq!(
             expired.review_decision.unwrap().decision,
             ReviewDecision::Confirm
@@ -646,7 +747,7 @@ mod tests {
                 &f.binding,
                 &input(&f, &[one], ReviewDecision::Confirm)
             )
-            .is_err());
+            .is_ok());
     }
     #[test]
     fn review_cancel_and_candidate_edit_share_real_sqlite_cas() {

@@ -197,7 +197,7 @@ mod tests {
             assert_eq!(serde_json::to_value(native).unwrap(), input);
         }
         let inventory = crate::agent::record_write_tools::record_write_tool_descriptions();
-        assert_eq!(inventory.len(), 17);
+        assert_eq!(inventory.len(), 18);
         assert!(serde_json::to_vec(&inventory).unwrap().len() <= 65536);
         std::fs::write(
             "/tmp/project-mind-record-write-tools.json",

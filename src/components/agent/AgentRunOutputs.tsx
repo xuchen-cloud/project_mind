@@ -9,11 +9,11 @@ import { Button } from "../../ui/components";
 import { AgentOutputCard } from "./AgentOutputCard";
 import { agentFailureMessage } from "./useAgentConversation";
 
-export interface AgentRunOutputsProps { binding: AgentWorkspaceBinding; runId: string; active?: boolean; current?: boolean; onReviewChange?: (handle: AgentReviewHandle | null) => void }
+export interface AgentRunOutputsProps { binding: AgentWorkspaceBinding; runId: string; active?: boolean; current?: boolean; refreshToken?: string; onReviewChange?: (handle: AgentReviewHandle | null) => void }
 export function AgentRunOutputs(props: AgentRunOutputsProps) {
   return <RunOutputsBody key={`${props.binding.workspaceId}:${props.binding.generation}:${props.runId}`} {...props} />;
 }
-function RunOutputsBody({ binding, runId, active: runActive = false, current: runCurrent = false, onReviewChange }: AgentRunOutputsProps) {
+function RunOutputsBody({ binding, runId, active: runActive = false, current: runCurrent = false, refreshToken, onReviewChange }: AgentRunOutputsProps) {
   const queryClient = useQueryClient();
   const [outputs, setOutputs] = useState<AgentRuntimeOutput[]>([]);
   const [operations, setOperations] = useState<AgentOperationEntry[]>([]);
@@ -60,7 +60,7 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
     const version = readVersion.current;
     if (!background) { setLoading(true); setError(null); setComplete(false); }
     try {
-      const full = runCurrent && !runActive;
+      const full = !runActive;
       const [page, receipts] = await Promise.all([
         full ? readAllOutputs().then(values => ({ outputs: values, nextCursor: null })) : agentApi.outputList(binding, { runId, cursor: append ? cursor : null, limit: 20 }),
         agentApi.operationList(binding, { runId, limit: 50 }),
@@ -92,7 +92,7 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
       if (mounted.current && refreshPending.current) { refreshPending.current = false; void load(); }
     }
   }
-  useEffect(() => { void load(); }, [runActive, runCurrent]);
+  useEffect(() => { void load(); }, [runActive, runCurrent, refreshToken]);
   useEffect(() => {
     if (!runActive) return;
     const timer = window.setInterval(() => void load(false, true), 2000);
@@ -257,7 +257,7 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
       if (mounted.current) setOperations(previous => mergeOperations(previous, [actual]));
     });
   }
-  const review = useAgentReviewPlan({ binding, runId, current: runCurrent, terminal: !runActive, complete,
+  const review = useAgentReviewPlan({ binding, runId, current: true, terminal: !runActive, complete,
     outputs, commitOutput: commit, readOutputs: readAllOutputs,
     applyOutputs: actual => { if (mounted.current) { if (!undoing.current) readVersion.current++; setOutputs(previous => merge(previous, actual)); } },
   });
@@ -357,7 +357,7 @@ function RunOutputsBody({ binding, runId, active: runActive = false, current: ru
       </div>
     </div> : null}
     {statuses.length ? <p className="agent-message__text" role="status">{operationCursor ? "已显示：" : ""}{statuses.join("，")}。</p> : null}
-    {decisions.map(decision => <p className="agent-panel__hint" key={decision.requestId}>{decision.decision === "confirm" ? "已确认" : "已取消"}{decision.text ? `：${decision.text}` : "。"}</p>)}
+    {decisions.map(decision => <p className="agent-panel__hint" key={decision.requestId}>{decision.decision === "confirm" ? "已确认" : decision.decision === "revise" ? "已调整旧方案" : "已取消"}{decision.text ? `：${decision.text}` : "。"}</p>)}
     {groups.length ? <div className="agent-run-outputs__changes">
       <p className="agent-message__text">{operationCursor ? "本次更改（已显示）：" : "本次更改："}{groups.length} 个对象。</p>
       <div className="agent-output__actions">{linkedOutputs.map(output => card(output, "link"))}</div>

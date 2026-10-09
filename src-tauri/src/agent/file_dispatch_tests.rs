@@ -1,9 +1,10 @@
 //! Integration at the trusted dispatcher: real bytes, Workspace, run and receipts.
 use super::{
     access::{Caller, RequestContext, ScopeGrant},
-    conversation::RunPreparation,
+    conversation::{RunPreparation,RunSettlement},
     errors::{AgentResult, ErrorCode},
     models::{ExecutionMode, ObjectRef, Scope, WorkspaceBinding},
+    runtime::RunState,
     output_tools::dispatch_output,
 };
 use crate::{
@@ -174,6 +175,61 @@ fn fixture(mode: ExecutionMode) -> Fixture {
 }
 fn create(project_id: i64, name: &str) -> Value {
     json!({"intent":{"intent":"file_create","projectId":project_id,"safeName":name,"utf8Content":ORIGINAL},"sources":[]})
+}
+#[tokio::test]
+async fn model_review_tool_confirms_real_file_only_after_later_user_turn() {
+    let f=fixture(ExecutionMode::Review);
+    let staged=call(&f,&f.model,"output.stage",create(f.project_id,"model-review.html")).await;
+    let (candidate_run,session_id)=BoundRecordStore::with_current(&f.store,|binding,db| {
+        let run_id=match &f.model.caller {Caller::BuiltinRun {run_id}=>run_id.clone(),_=>unreachable!()};
+        let run=db.agent_run_get(&f.gui,binding,&run_id)?;
+        db.agent_run_settle(&f.gui,binding,&run_id,&RunSettlement {state:RunState::Failed,runtime_settled:true,projection:None,usage:None,error_code:None})?;
+        Ok((run_id,run.session_id))
+    }).unwrap();
+    rusqlite::Connection::open(&f.store.paths.db_path).unwrap().execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES ('file-proposal',?1,?2,'file-proposal','assistant','{}','complete',0,'2026-10-09T00:00:00Z')",rusqlite::params![session_id,candidate_run]).unwrap();
+    let next="e".repeat(32);
+    BoundRecordStore::with_current(&f.store,|binding,db| {
+        db.agent_run_prepare(&f.gui,binding,&session_id,"later-user-message",&RunPreparation {run_id:next.clone(),context_manifest:json!({"scope":Scope::Project {project_id:f.project_id},"mode":ExecutionMode::Review,"prompt":"确认刚才的文件方案"})})?;
+        db.agent_run_start(&f.gui,binding,&next)?;
+        Ok(())
+    }).unwrap();
+    let model=RequestContext {caller:Caller::BuiltinRun {run_id:next},request_id:"model-confirm".into(),..f.model.clone()};
+    let (_sender,cancel)=tokio::sync::watch::channel(false);
+    let result=super::host::execute_review_decision(&f.store,&NoRecordWorker,&model,
+        json!({"runId":candidate_run,"outputs":[{"outputId":staged["outputId"],"expectedRevision":1}],"decision":"confirm"}),&cancel,None).await.unwrap();
+    assert_eq!(result["savedCount"],1,"{result}");
+    assert_eq!(result["failures"],json!([]));
+    assert_eq!(sql(&f,"SELECT COUNT(*) FROM documents"),1);
+    assert!(result["saved"][0]["operationId"].is_string(),"{result}");
+    assert!(sql(&f,"SELECT COUNT(*) FROM agent_operation_receipts WHERE state='committed'")>=1);
+}
+#[tokio::test]
+async fn model_review_tool_stops_before_next_file_and_cancels_remaining_plan() {
+    let f=fixture(ExecutionMode::Review);
+    let first=call(&f,&f.model,"output.stage",create(f.project_id,"stop-first.html")).await;
+    let second=call(&f,&request(&f,"stop-second"),"output.stage",create(f.project_id,"stop-second.html")).await;
+    let (candidate_run,session_id)=BoundRecordStore::with_current(&f.store,|binding,db| {
+        let run_id=match &f.model.caller {Caller::BuiltinRun {run_id}=>run_id.clone(),_=>unreachable!()};
+        let run=db.agent_run_get(&f.gui,binding,&run_id)?;
+        db.agent_run_settle(&f.gui,binding,&run_id,&RunSettlement {state:RunState::Failed,runtime_settled:true,projection:None,usage:None,error_code:None})?;
+        Ok((run_id,run.session_id))
+    }).unwrap();
+    rusqlite::Connection::open(&f.store.paths.db_path).unwrap().execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES ('stop-proposal',?1,?2,'stop-proposal','assistant','{}','complete',0,'2026-10-09T00:00:00Z')",rusqlite::params![session_id,candidate_run]).unwrap();
+    let next="d".repeat(32);
+    BoundRecordStore::with_current(&f.store,|binding,db| {
+        db.agent_run_prepare(&f.gui,binding,&session_id,"stop-user-message",&RunPreparation {run_id:next.clone(),context_manifest:json!({"scope":Scope::Project {project_id:f.project_id},"mode":ExecutionMode::Review,"prompt":"确认刚才两个文件"})})?;
+        db.agent_run_start(&f.gui,binding,&next)?;
+        Ok(())
+    }).unwrap();
+    let model=RequestContext {caller:Caller::BuiltinRun {run_id:next},request_id:"model-stop".into(),..f.model.clone()};
+    let (_sender,cancel)=tokio::sync::watch::channel(false);
+    let result=super::host::execute_review_decision(&f.store,&NoRecordWorker,&model,
+        json!({"runId":candidate_run,"outputs":[{"outputId":first["outputId"],"expectedRevision":1},{"outputId":second["outputId"],"expectedRevision":1}],"decision":"confirm"}),&cancel,Some(tokio::time::Instant::now())).await.unwrap();
+    assert_eq!(result["savedCount"],0);
+    assert_eq!(result["unexecutedCount"],2);
+    assert_eq!(result["stopped"],true);
+    assert_eq!(sql(&f,"SELECT COUNT(*) FROM documents"),0);
+    assert_eq!(sql(&f,"SELECT COUNT(*) FROM agent_outputs WHERE json_extract(payload_json,'$.dismissed')=1"),2);
 }
 async fn call(f: &Fixture, request: &RequestContext, method: &str, input: Value) -> Value {
     dispatch_output(&f.store, &NoRecordWorker, request, method, input)

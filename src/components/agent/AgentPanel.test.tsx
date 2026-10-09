@@ -310,15 +310,15 @@ function reviewFixture(overrides: Partial<AgentReviewHandle> = {}) {
   mocked.review = handle;
   return handle;
 }
-it.each([["确认", "confirm"], ["确认执行。", "confirm"], ["同意执行！", "confirm"], ["执行吧", "confirm"], ["取消", "cancel"], ["取消执行。", "cancel"], ["不用了！", "cancel"]] as const)("routes the exact decision %s through the same current review handle", async (text, decision) => {
+it.each(["确认", "确认执行。", "同意执行！", "执行吧", "取消", "取消执行。", "不用了！"])("sends %s through the current Pi conversation", async text => {
   const review = reviewFixture();
   await loaded();
-  await waitFor(() => expect(screen.getByText(/输入“确认”执行当前方案/)).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText(/可用方案按钮确认或取消/)).toBeInTheDocument());
   const field = screen.getByRole("textbox", { name: "问题" });
   await userEvent.type(field, ` ${text} `);
   await userEvent.click(screen.getByRole("button", { name: "发送" }));
-  expect(review.decide).toHaveBeenCalledWith(decision, ` ${text} `);
-  expect(state.send).not.toHaveBeenCalled();
+  expect(review.decide).not.toHaveBeenCalled();
+  expect(state.send).toHaveBeenCalledWith(` ${text} `);
   await waitFor(() => expect(field).toHaveValue(""));
 });
 it("sends added requirements as a new run without treating embedded confirmation words as approval", async () => {
@@ -330,16 +330,16 @@ it("sends added requirements as a new run without treating embedded confirmation
   expect(review.decide).not.toHaveBeenCalled();
   expect(state.send).toHaveBeenCalledWith("确认之前先调整期限，取消第二项并补充期限");
 });
-it("keeps a rejected decision draft and surfaces the typed failure", async () => {
+it("keeps a declined model message draft", async () => {
   const review = reviewFixture({ decide: vi.fn(async () => { throw { code: "REVISION_CONFLICT" }; }) });
+  state.send.mockResolvedValueOnce(false);
   await loaded();
   const field = screen.getByRole("textbox", { name: "问题" });
   await userEvent.type(field, "确认");
   await userEvent.click(screen.getByRole("button", { name: "发送" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("内容或助手设置已变化");
   expect(field).toHaveValue("确认");
-  expect(review.decide).toHaveBeenCalledOnce();
-  expect(state.send).not.toHaveBeenCalled();
+  expect(review.decide).not.toHaveBeenCalled();
+  expect(state.send).toHaveBeenCalledWith("确认");
 });
 it("keeps review saves busy until the real stop settles and never queues its draft", async () => {
   let settled!: () => void;
@@ -413,15 +413,14 @@ it("shows an unpersisted question before the Pi stream once, then uses only its 
   expect(screen.getAllByText("当前回答")).toHaveLength(1);
   expect(screen.getAllByTestId(`operations-${run.id}`)).toHaveLength(1);
 });
-it("accepts a displayed native review decision without requesting an unavailable model", async () => {
+it("keeps native review buttons available when the model is unavailable", async () => {
   const review = reviewFixture();
   mocked.aiSettingsGet.mockResolvedValue({ ...modelSnapshot, profiles: [], bindings: [] });
   state.runtimeAvailable = false;
   renderPanel();
-  await waitFor(() => expect(screen.getByText(/输入“确认”执行当前方案/)).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText(/可用方案按钮确认或取消/)).toBeInTheDocument());
   await userEvent.type(screen.getByRole("textbox", { name: "问题" }), "确认");
-  expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
-  await userEvent.click(screen.getByRole("button", { name: "发送" }));
-  expect(review.decide).toHaveBeenCalledWith("confirm", "确认");
+  expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+  expect(review.decide).not.toHaveBeenCalled();
   expect(state.send).not.toHaveBeenCalled();
 });

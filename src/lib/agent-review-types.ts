@@ -1,10 +1,10 @@
 import type { AgentRuntimeOutput } from "./agent-types";
 
 export type AgentReviewDecision = "confirm" | "cancel";
-/** A native GUI decision, retained separately from Pi conversation history. */
+/** A native decision, retained separately from Pi conversation history. */
 export interface AgentOutputReviewDecision {
   requestId: string;
-  decision: AgentReviewDecision;
+  decision: AgentReviewDecision | "revise";
   text?: string;
   decidedAt: string;
 }

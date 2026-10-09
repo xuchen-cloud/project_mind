@@ -241,7 +241,10 @@ fn agent_response_uses_boolean_discriminator_and_reports_native_write_availabili
         assert!(capability.implemented, "{method} uses the native mutation service");
         assert!(!capability.read_only, "{method} must not be advertised as a read");
     }
-    for method in ["reference.list", "context.overview.refresh", "session.summary.get"] {
+    let references = capabilities().into_iter().find(|cap| cap.method == "reference.list").unwrap();
+    assert!(references.implemented && references.read_only);
+    assert_eq!(references.permission, "source.read");
+    for method in ["context.overview.refresh", "session.summary.get"] {
         assert!(!capabilities().iter().find(|cap| cap.method == method).unwrap().implemented);
     }
     for method in [

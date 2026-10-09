@@ -45,7 +45,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
         active.failureCode = 'BUDGET_EXCEEDED';
         complete(undefined, new Error('Tool request timed out'));
         void session.cancel().catch(() => {});
-      }, 30000);
+      }, method === 'review.decide' ? 600000 : 30000);
       const abort = () => complete(undefined, new Error('Tool request cancelled'));
       pendingTools.set(requestId, { active, complete });
       signal?.addEventListener('abort', abort, { once: true });

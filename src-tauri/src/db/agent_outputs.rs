@@ -689,7 +689,7 @@ impl Database {
             &current.scope,
             "output.read",
         )?;
-        let mut stmt=self.conn.prepare("SELECT o.id FROM agent_outputs o JOIN agent_runs r ON r.id=o.run_id WHERE r.session_id=(SELECT session_id FROM agent_runs WHERE id=?1) AND json_extract(o.payload_json,'$.reviewDecision.decision') IN ('confirm','cancel') ORDER BY json_extract(o.payload_json,'$.reviewDecision.decidedAt') DESC,o.rowid DESC LIMIT 21").map_err(io_error)?;
+        let mut stmt=self.conn.prepare("SELECT o.id FROM agent_outputs o JOIN agent_runs r ON r.id=o.run_id WHERE r.session_id=(SELECT session_id FROM agent_runs WHERE id=?1) AND json_extract(o.payload_json,'$.reviewDecision.decision') IN ('confirm','cancel','revise') ORDER BY json_extract(o.payload_json,'$.reviewDecision.decidedAt') DESC,o.rowid DESC LIMIT 21").map_err(io_error)?;
         let ids = stmt
             .query_map([run_id], |row| row.get::<_, String>(0))
             .map_err(io_error)?

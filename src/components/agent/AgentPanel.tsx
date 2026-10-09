@@ -25,11 +25,9 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   const conversation = useAgentConversation(scope, workspaceRoot);
   const [draft, setDraft] = useState("");
   const [review, setReview] = useState<AgentReviewHandle | null>(null);
-  const [decisionPending, setDecisionPending] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
-  const decisionInFlight = useRef(false);
   const currentReview = review?.runId === conversation.run?.id ? review : null;
-  const busy = conversation.busy || !!currentReview?.busy || decisionPending;
+  const busy = conversation.busy || !!currentReview?.busy;
   const onReviewChange = useCallback((handle: AgentReviewHandle | null) => {
     if (handle && handle.runId !== conversation.run?.id) return;
     setReview(handle);
@@ -88,28 +86,15 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
     } else if (stickToBottom.current) viewport.scrollTop = viewport.scrollHeight;
   }, [conversation.messages, conversation.liveText, conversation.pendingPrompt, open]);
 
-  const decisionText = draft.trim().replace(/[。.!！]+$/u, "").trim();
-  const reviewDecision = ["确认", "确认执行", "同意执行", "执行吧"].includes(decisionText) ? "confirm"
-    : ["取消", "取消执行", "不用了"].includes(decisionText) ? "cancel" : null;
-  const sendsDecision = !!reviewDecision && !!currentReview?.pending.length;
-  const canSend = !busy && !conversation.probing && !!draft.trim() && byteLength <= 65536 && !blockedSession && (sendsDecision || !!ready);
+  const canSend = !busy && !conversation.probing && !!draft.trim() && byteLength <= 65536 && !blockedSession && !!ready;
   const send = async () => {
-    if (!canSend || decisionInFlight.current) return;
+    if (!canSend) return;
     const submitted = draft;
-    if (sendsDecision && currentReview && reviewDecision) {
-      decisionInFlight.current = true; setDecisionPending(true); setDecisionError(null);
-      try {
-        await currentReview.decide(reviewDecision, submitted);
-        setDraft(current => current === submitted ? "" : current);
-      } catch (failure) { setDecisionError(agentFailureMessage(failure)); }
-      finally { decisionInFlight.current = false; setDecisionPending(false); }
-      return;
-    }
     setDecisionError(null);
     if (await (discussion ? conversation.send(submitted, discussion.object) : conversation.send(submitted))) setDraft(current => current === submitted ? "" : current);
   };
   const stop = async () => {
-    if (currentReview?.busy || decisionInFlight.current) {
+    if (currentReview?.busy) {
       try { await currentReview?.stop(); }
       catch (failure) { setDecisionError(agentFailureMessage(failure)); }
     } else await conversation.cancel();
@@ -124,7 +109,8 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
       {current && conversation.run?.state === "cancelled" ? <p className="agent-panel__hint" role="status">已停止。已保存的消息仍可继续阅读。</p> : null}
       {current && conversation.run?.state === "interrupted" ? <p className="agent-panel__hint" role="status">运行已中断，可发送新问题继续。</p> : null}
       {conversation.binding && runId ? <AgentRunOutputs binding={conversation.binding} runId={runId}
-        active={current && conversation.busy} current={current} onReviewChange={current ? onReviewChange : undefined} /> : null}
+        active={current && conversation.busy} current={current} refreshToken={!conversation.busy ? `${conversation.run?.id ?? ""}:${conversation.run?.state ?? ""}` : undefined}
+        onReviewChange={current ? onReviewChange : undefined} /> : null}
     </>;
   };
 
@@ -196,7 +182,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
           {conversation.run && !currentRunHasMessages && !conversation.busy && !conversation.liveText ? renderRunControls(conversation.run.id) : null}
         </HomeSidebarList>
         {blockedSession ? <p className="agent-panel__hint">{conversation.session?.state === "archived" ? "该会话已归档，请新建会话。" : "会话历史校验未通过，已保留历史并停止继续运行。"}</p> : null}
-        {currentReview?.pending.length && !currentReview.busy ? <p className="agent-panel__review-hint">{currentReview.confirmed ? "保存未完成，可输入“确认”重试或“取消”剩余项。" : "输入“确认”执行当前方案，输入“取消”放弃，或补充新的要求。"}</p> : null}
+        {currentReview?.pending.length && !currentReview.busy ? <p className="agent-panel__review-hint">{currentReview.confirmed ? "保存未完成，可用方案按钮重试，或向助手说明下一步。" : "可用方案按钮确认或取消，也可向助手提问、确认或提出修改。"}</p> : null}
         <form className="agent-panel__composer" onSubmit={event => { event.preventDefault(); void send(); }}>
           {discussion ? <div className="agent-panel__discussion-target"><span>讨论：{discussion.label}</span>
             <Button size="sm" variant="ghost" type="button" aria-label="移除讨论对象" leadingIcon={<X size={13} />} onClick={clearDiscussionTarget} /></div> : null}

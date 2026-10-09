@@ -335,6 +335,10 @@ pub(super) fn result_sources(
             }
         }
         "session.messages.read" => add_history(db, request, binding, result, &mut out)?,
+        "review.decide" => {
+            let candidate_run = field(result, "runId")?.as_str().ok_or_else(not_ready)?;
+            out.extend(db.agent_run_provenance_sources(request, binding, candidate_run)?.ok_or_else(not_ready)?);
+        }
         "output.stage"
         | "output.update"
         | "output.commit"

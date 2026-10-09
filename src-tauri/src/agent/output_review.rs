@@ -1,4 +1,4 @@
-//! GUI plan decisions persist metadata; existing per-output commits own mutations.
+//! Plan decisions persist metadata; existing per-output commits own mutations.
 use super::{
     access::{Caller, RequestContext},
     errors::{AgentError, ApiResponse, ErrorCode},
@@ -14,6 +14,7 @@ use tauri::State;
 pub(crate) enum ReviewDecision {
     Confirm,
     Cancel,
+    Revise,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -52,7 +53,7 @@ pub(crate) struct OutputReviewCommandInput {
     request_id: String,
     data: OutputReviewInput,
 }
-/// Buttons and explicitly recognized user text use this same trusted GUI path.
+/// Buttons use the same durable decision path as a Host-bound model tool.
 #[tauri::command]
 pub(crate) fn agent_output_review(
     state: State<'_, AppState>,

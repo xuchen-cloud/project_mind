@@ -36,7 +36,12 @@ export function agentReviewPlanSummary(outputs: AgentRuntimeOutput[]): string {
     const intent = output.intent;
     const kind = intent.intent.startsWith("record_") ? "记录" : intent.intent.startsWith("todo_") ? "待办" : "文件";
     const action = intent.intent.endsWith("_create") ? "创建" : intent.intent === "file_restore" ? "恢复" : "更新";
-    const title = intent.intent === "record_create" ? intent.title || "未命名记录" : intent.intent === "todo_create" ? intent.content : intent.intent === "file_create" ? intent.safeName : "";
+    const target = intent.intent === "record_patch" ? intent.patch.record : intent.intent === "todo_update" || intent.intent === "file_update" ? intent.target
+      : intent.intent === "file_patch" ? intent.patch.object : intent.intent === "file_restore" ? intent.restore.object : null;
+    const sourceTitle = target ? output.sources.find(source => source.object.kind === target.kind && source.object.id === target.id)?.title : undefined;
+    const title = intent.intent === "record_create" ? intent.title || "未命名记录" : intent.intent === "todo_create" ? intent.content
+      : intent.intent === "file_create" ? intent.safeName : intent.intent === "todo_update" ? intent.changes.find(change => change.change === "content")?.content || sourceTitle || `待办 ${target?.id}`
+      : sourceTitle || (target ? `${kind} ${target.id}` : "");
     const key = `${action}${kind}`;
     groups.set(key, [...groups.get(key) ?? [], title]);
   }

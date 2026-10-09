@@ -258,6 +258,7 @@ pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
         ),
     );
     add("output.commit","Commit the expected candidate revision using its native Record, Todo or File transaction. A saved output always returns its committed object and receipt.",object(json!({"outputId":id(),"expectedRevision":integer(SAFE_INTEGER)}),&["outputId","expectedRevision"]));
+    add("review.decide", "Decide the complete pending review plan after a later user message in this session. Confirm executes each candidate through its native save; cancel discards it; revise retires the old plan before staging a replacement. Questions need no decision. Copy the exact candidate IDs and revisions from pendingReviewPlans.", object(json!({"runId":id(),"outputs":array(object(json!({"outputId":id(),"expectedRevision":integer(SAFE_INTEGER)}), &["outputId","expectedRevision"]),256),"decision":enum_string(&["confirm","cancel","revise"])}), &["runId","outputs","decision"]));
     add(
         "operation.get",
         "Read a real committed operation receipt within the current scope and caller authority.",
@@ -356,7 +357,7 @@ mod tests {
     #[test]
     fn record_write_schemas_reuse_editor_whitelists_and_bound_recursive_inputs() {
         let descriptions = record_write_tool_descriptions();
-        assert_eq!(descriptions.len(), 17);
+        assert_eq!(descriptions.len(), 18);
         let stage = &descriptions
             .iter()
             .find(|tool| tool.method == "output.stage")

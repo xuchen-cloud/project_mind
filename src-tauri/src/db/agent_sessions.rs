@@ -619,8 +619,8 @@ impl Database {
                 "Wait for the current save to finish before starting another run",
             ));
         }
-        // Supersede only this Session's unstarted plan; preserve committed evidence.
-        tx.execute("UPDATE agent_outputs SET revision=revision+1,payload_json=json_set(payload_json,'$.dismissed',json('true')) WHERE run_id IN (SELECT id FROM agent_runs WHERE session_id=?1) AND state IN ('staged','failed') AND COALESCE(json_extract(payload_json,'$.dismissed'),0)=0",[session_id]).map_err(io_error)?;
+        // A later turn may ask a question about the proposal. Only an explicit
+        // decision or revision retires its exact candidate set.
         let grant = json!({"workspaceId":request.scope_grant.workspace_id,"workspaceContent":request.scope_grant.workspace_content,"projectIds":request.scope_grant.project_ids,"operations":request.scope_grant.operations});
         tx.execute("INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES (?1,?2,?3,'preparing',?4,?5,?6)",params![preparation.run_id,session_id,client_request_id,manifest,json_string(&grant)?,Utc::now().to_rfc3339()]).map_err(io_error)?;
         let run = read_run(&tx, &preparation.run_id)?;

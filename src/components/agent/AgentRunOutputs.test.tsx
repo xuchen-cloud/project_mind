@@ -332,7 +332,7 @@ it("waits for the current save before stopping and cancels only the actual remai
   expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
 });
 
-it("offers no approval handle for an active or historical run", async () => {
+it("waits for an active run, then keeps its pending plan actionable in history", async () => {
   const onReviewChange = vi.fn();
   const client = new QueryClient();
   const wrap = (current: boolean, active: boolean) => <QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current={current} active={active} onReviewChange={onReviewChange} /></QueryClientProvider>;
@@ -342,9 +342,30 @@ it("offers no approval handle for an active or historical run", async () => {
   expect(onReviewChange.mock.calls.at(-1)![0]).toBeNull();
   rendered.rerender(wrap(false, false));
   await waitFor(() => expect(api.outputList).toHaveBeenCalledTimes(2));
-  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
-  expect(onReviewChange.mock.calls.at(-1)![0]).toBeNull();
+  expect(screen.getByRole("button", { name: "确认执行" })).toBeInTheDocument();
   expect(api.outputReview).not.toHaveBeenCalled();
+});
+
+it("refreshes a historical plan once when a later run settles", async () => {
+  const client = new QueryClient();
+  const wrap=(refreshToken: string) => <QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current={false} refreshToken={refreshToken} /></QueryClientProvider>;
+  api.outputList.mockResolvedValueOnce({outputs:[output],nextCursor:null})
+    .mockResolvedValue({outputs:[{...output,state:"committed",object}],nextCursor:null});
+  const rendered=render(wrap("later:running"));
+  await screen.findByRole("button",{name:"确认执行"});
+  rendered.rerender(wrap("later:completed"));
+  await waitFor(() => expect(screen.getByText("out · committed")).toBeInTheDocument());
+  expect(screen.queryByRole("button",{name:"确认执行"})).not.toBeInTheDocument();
+  expect(api.outputList).toHaveBeenCalledTimes(2);
+});
+
+it("does not offer approval after a later revision retires the historical plan", async () => {
+  api.outputList.mockResolvedValue({outputs:[{...output,dismissed:true,revision:2,reviewDecision:{requestId:"revise",decision:"revise",decidedAt:"2026-10-09T00:00:00Z"}}],nextCursor:null});
+  const client=new QueryClient();
+  render(<QueryClientProvider client={client}><AgentRunOutputs binding={binding} runId="run" current={false} /></QueryClientProvider>);
+  await screen.findByText("out · dismissed");
+  expect(screen.queryByRole("button",{name:"确认执行"})).not.toBeInTheDocument();
+  expect(screen.getByText(/已调整旧方案/)).toBeInTheDocument();
 });
 
 it.each([true, false])("reads a deeper original receipt before claiming a saved result after reopening (current=%s)", async current => {
