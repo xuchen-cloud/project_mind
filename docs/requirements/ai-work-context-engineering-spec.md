@@ -250,28 +250,28 @@ Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴�
 
 每份摘要包含`topics、userIntent、decisions、alternativesAndReasons、openQuestions、completedOperations、artifactRefs、messageRefs`。所有有实质判断的条目附原始MessageRef；用户计划、已确认决定、AI建议、实际完成分别标注。实际完成需成功操作收据或明确用户报告，AI说“已完成”本身不充当工具执行证据。引用外部资料的聊天结论还保留资料SourceRef；同一证据经过Record/会话/Overview重复引用不计为多个独立证据。
 
-### 当前 M1 实现映射
+### 当前实现与目标差距
 
-R11 复用 R10 的持久批次和知识版本：每批读一条原始消息或其有界片段，生成 `KnowledgeNode.session_summary` 与 Overview 增量，在同一发布事务中保存。它满足每段至多 50 条/12000 字符的上限，当前不合并多条消息为一次模型调用；没有独立摘要 worker。每 Project 每 UTC 日最多 5 次摘要模型调用，另受 R10 共享额度约束。失败保留旧快照与批次，来源索引及原文回读不依赖摘要成功。实现与实际供应商/平台验收分别记录于 R11 交付表。
+当前 R11 每批只读一条消息或长消息片段，生成 `KnowledgeNode.session_summary` 并与 Overview 原子发布；每 Project 每 UTC 日 5 次摘要调用且失败计入，是待删除的代码现状，不是产品额度。WP4 先恢复 Pi 原生会话管理及目前禁用的原生压缩，在当前作用域、来源权限和 Provider 请求前历史过滤下验证压缩摘要可复用性。WP5 在证据表明仍缺跨会话检索、可追溯决定或结构化知识时才补必要的增量摘要；复用 R10 来源证明与原子发布，不另建会话权威或摘要 worker。删除项目日硬限，盘查并清除同类任意共享额度；保留明确的单请求资源预算和服务故障退避。失败保留旧快照、游标和 pending，成功后才消费进度；不能无限自动重试或把失败计为已覆盖。
 
-2026-10-09 整体审视确认：满足单次上限不等于达到分段维护的实用处理能力。按当前粒度，正常多轮讨论会逐条消耗每日摘要额度；原文检索仍可用，但摘要可能长期落后。后续先将同会话、同分支且通过来源授权的增量消息组成有界段，复用现有批次、来源证明和原子发布；保留 50 条/12000 字符及每日费用限制，不另建 worker 或通过增加调用额度掩盖处理粒度问题。该项尚未实现，工作包与验收见[当前审视 G3](ai-work-context-delivery.md#intent-audit-20261009)。
+50 条消息 / 12000 字符是当前 `session.messages.read` 单页参数，不规定 Pi 压缩长度、摘要批量、摘要正文或产品级固定标准。后续分段按真实模型上下文预算、来源边界和任务效果选择，超长消息保持稳定身份并可续读。详见[WP4～WP6](ai-work-context-delivery.md#confirmed-work-packages-20261009)。
 
 摘要的消息、分支、hash、角色和操作收据来自原生读取；模型只填写受约束的陈述及引用序号。替代仅能指向同会话、当前分支已证明的前序摘要；旧段及 Overview 版本保留，读取时显示经过权限过滤的后继状态。GUI 在已有知识详情内显示陈述类型、历史状态与原文入口；较长摘要逐页读取正文和陈述。
 
 ### 摘要更新
 
-- 新消息持久化只更新dirty/through-entry水位，不每个token总结。满足E5阈值后合并执行；夜间维护先更新有变化的会话摘要，再更新Project Overview，最后Workspace Overview。每个环节都在共享预算内，无需用户点击“结束会话”。
-- 长会话分为有界消息段：按稳定消息顺序至多50条或12000字符一段（超长单消息分片并保持messageId/片段范围），摘要正文≤2500字符；保留旧段及消息引用，不将整个会话永远压成一小段而丢掉早期讨论。当前会话摘要是最近状态/主题索引，段摘要供检索。
+- 新消息持久化只更新dirty/through-entry水位，不每个token总结。满足E5阈值后合并执行；夜间维护先更新有变化的会话摘要，再更新Project Overview，最后Workspace Overview。每个环节都在明确的单请求预算内，无需用户点击“结束会话”。
+- 长会话分为有界消息段：按稳定消息顺序和实际上下文预算分段（超长单消息分片并保持messageId/片段范围），摘要正文由任务所需信息决定；保留旧段及消息引用，不将整个会话永远压成一小段而丢掉早期讨论。当前会话摘要是最近状态/主题索引，段摘要供检索。
 - 增量只读新消息段、相关旧摘要及必要被纠正的原始消息；不每次重读全部会话。更正早期结论时建立supersedes关联，旧段仍保留“当时的判断”，最新入口显示已被取代，历史提问可定位当时版本。
 - 提交摘要同时写source-change/pending事件，把本次内容变化交给E4批次，不立即强制重做Overview。会话无新内容或生成同hash不写新版、不重复触发。没有实质知识的闲聊可标processed/noKnowledge，不塞进Overview。
-- 历史会话原文索引先按预算从当前分支投影及 JSONL 历史分支回填，随后摘要按预算分批建立；分别标明索引与摘要的 coverage。新问题涉及尚未摘要的消息时，搜索已覆盖的原文索引并有限回读；索引也未覆盖时说明缺口，不宣称“未命中=从未谈过”。模型上下文压缩不是该摘要机制，不能依赖Pi compaction代替可检索记忆。
+- 历史会话原文索引先按预算从当前分支投影及 JSONL 历史分支回填，随后摘要按预算分批建立；分别标明索引与摘要的 coverage。新问题涉及尚未摘要的消息时，搜索已覆盖的原文索引并有限回读；索引也未覆盖时说明缺口，不宣称“未命中=从未谈过”。先验证 Pi 原生压缩能否在续聊中复用；跨会话定位仍依赖原文索引，确有缺口再补可追溯摘要。
 - 摘要输入排除系统提示、凭据、无关完整工具日志和未完成文本；工具结果只取成功收据/相关对象引用。失败run的已保存用户表达和已成功产出可在下一批处理，保留run状态，绝不把取消理解成任务完成。
 
 ### 消息身份、权限与删除
 
 `MessageRef { workspaceId, scope, sessionId, branchId, messageId, ordinal, contentHash }`使用持久ID，编辑/重试/分支不能重新指向另一条消息。概览引用同时保留summaryRevision/segmentId与原始消息范围；摘要重建不改变消息链接身份。
 
-Project检索只见同Project会话；Workspace可聚合其授权范围内的会话，Project不反向继承Workspace会话。内置助手默认可读当前scope历史会话；外部连接通过明确展示的“允许读取会话依据”选项单独授予 `session.read`，协作与只读连接均可选择含/不含历史会话。没有session.read时，过滤依赖该会话的摘要/Overview条目正文，不能只藏消息链接却泄露结论。
+Project检索只见同Project会话；Workspace可聚合其授权范围内的会话，Project不反向继承Workspace会话。内置助手在当前已启用 scope 自动配置 `session.read`，无需用户单独授权；外部连接仍按其持久 grant 检查会话读取。没有session.read时，过滤依赖该会话的摘要/Overview条目正文，不能只藏消息链接却泄露结论。
 
 会话或消息被删除/排除时，失效其 AI 可见 summary segments、FTS 与派生 Overview/Workspace 记忆；原会话涉及被排除资料时同样沿依赖失效，不能通过用户/助手的转述旁路恢复。旧 Overview 版本仍需动态权限过滤。AI 来源排除不隐藏可信 GUI 中用户自己的原始会话或 File 历史；真实删除则使原文引用失效。已独立保存的 Record/File 不因删除会话而删除；删除原文与“从所有独立成果忘记此事”是不同操作，不能承诺后者自动发生。外部 Agent 只索引通过适配器明确回传的会话/消息，不扫描其他 CLI 全部私有聊天记录。
 
@@ -281,7 +281,7 @@ Project检索只见同Project会话；Workspace可聚合其授权范围内的会
 - `session.messages.read(sessionId,branchId,fromMessageId,toMessageId,cursor)`只读指定区间，单页≤50条/12000字符，返回hasMore与固定内容修订；`source.read`可解析summary SourceRef，不自动展开整段原始聊天。链接由应用resolver生成，不让模型拼造会话ID。
 - CLI提供`session summary get`、`session messages read`及`search --kind session_summary`；MCP提供对应只读工具。与现有session.get的GUI全会话分页分离，外部读取明确有界。
 
-自动总结阈值：成功run新增≥4条正式消息或≥4000字符合并排队；短会话在定期维护补齐。每Project每日最多5次，超出保留dirty和coverage、轮转续跑；后台阶段摘要不等于正式Record。
+增量整理按待处理变化和实际上下文预算触发；无新内容不重复调用。后台阶段摘要不等于正式 Record，失败保留 dirty 和 coverage，待条件恢复后有界续跑。
 
 <a id="e6"></a>
 
@@ -565,9 +565,9 @@ CLI对应`file source read`、`todo update --patch-file`、`operation list/undo/
 
 - M1 使用仅监听 `127.0.0.1` 的随机端口 HTTP JSON bridge；应用外网不可访问，不提供浏览器 CORS。校验 Host、拒绝带非应用 Origin 的请求，token 必须通过 Authorization header。
 - 本机发现文件保存 runtime 实例、端口和 endpoint version，属于 Local Session，不能复制进 Workspace。连接 secret 只存 OS credential store；CLI 配置包含 grantId，不含明文 secret；同本机用户可读取凭据，不能宣称隔离该用户启动的任意程序。
-- 每个 grant 绑定 Workspace UUID、Project 范围和操作集；创建连接默认推荐“Workspace 协作”，包含直属内容及所有未归档 Project，新建/解除归档 Project 自动纳入。保留“单 Project 协作”“只读”“自定义”；只读预设覆盖整个 Workspace 且无写权限，自定义显式选择 Project 子集及直属内容。持久 `allProjects` 与 `workspaceContent` 分开记录，旧 JSON 缺省 allProjects=false；每次认证解析当前 Project 范围，已有连接不自动扩权。协作包含读取、新建、Record/File/Todo 修改与本连接撤销，排除、撤回与撤权策略照常执行。权限底层分开记录create、record.patch、file.update、todo.update、operation.undo及可选任意历史restore；块删除包含在patch内，整Record/File对象删除、密钥设置、任意路径和shell仍不暴露。
+- 每个 grant 绑定 Workspace UUID、一个明确范围和操作集。新连接默认整个 Workspace（直属内容及当前、未来未归档 Project），可选单 Project；每种范围都可选只读或协作。协作只授予相应原生读写与本连接撤销；范围不能代替实际归属、排除、撤回、版本和权限检查。内部助手的 `session.read` 在已启用 scope 自动配置；外部连接沿用持久 grant 检查。旧 grant 不能因默认值改变而扩权；特别是旧 `objects` 清单连接，在用户明确重新选择范围与模式前，不得映射为全 Workspace 或全 Project。迁移与重选应保留撤权入口及可解释状态。整 Record/File 删除、密钥设置、任意路径和 shell 不暴露。
 - Workspace 切换使运行请求返回 WORKSPACE_CHANGED，不能自动转接新 Workspace。请求超时后客户端查询 receipt，不能自动重复非幂等变更。
-- 自定义连接可限制为 1–50 个明确的 Record/File，持久 `objects` 缺省或 null 保留整范围语义。对象模式不包含动态所有 Project、创建、Todo 修改或会话权限；直接读取、搜索、引用、历史、修改和本连接撤销均按完整对象身份核验。搜索与引用在排序分页前过滤；Project 列表仅返回所选对象父 Project 的名称和 ID。范围级 context、Overview、知识读取明确拒绝，避免把范围外资料带入摘要；外部 Agent 使用来源搜索或直接对象读取。
+- 新连接界面与 API 不提供指定 Record/File 白名单或 50 对象模式。旧 `objects` grant 只按旧范围解释，不能静默放宽；重选后按 Workspace/Project 范围及只读/协作权限生效。保留真实对象归属、来源政策、撤权和受限分页检查。
 - CLI 没有解锁模型密钥的 API；纯数据读写不要求模型密钥解锁，内置模型任务要求解锁。首期 CLI 不开放启动内置 run，避免外部任务隐式产生模型费用。
 
 ### CLI
