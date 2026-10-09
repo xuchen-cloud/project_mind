@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Project Mind AI 增强：现在能做什么，背后怎样工作</title>
+  <style>
+    :root{--paper:#faf9f5;--surface:#fff;--ink:#172b2b;--muted:#526967;--line:#dce7e2;--teal:#087d73;--teal-dark:#075c55;--pale:#e9f5f1;--amber:#8a5b13;--amber-bg:#fff3dc;--gray-bg:#f0f2ef;--shadow:0 16px 50px rgba(29,61,55,.07)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.78 system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif}a{color:var(--teal-dark);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}button{font:inherit;cursor:pointer}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #22a99b;outline-offset:3px}p{margin:.55em 0 1em}h1,h2,h3{line-height:1.32;letter-spacing:-.025em}h2{font-size:clamp(1.55rem,2.4vw,2rem);margin:0 0 1.1rem}h3{font-size:1.1rem;margin:0 0 .6rem}strong{font-weight:720}.eyebrow{color:var(--teal-dark);font-size:.78rem;letter-spacing:.14em;font-weight:750;text-transform:uppercase}.layout{max-width:1500px;margin:auto;display:grid;grid-template-columns:250px minmax(0,1fr);gap:clamp(25px,4vw,70px);padding:0 clamp(20px,4vw,64px)}aside{position:relative}nav{position:sticky;top:20px;margin:28px 0;padding:24px 20px;border:1px solid var(--line);background:rgba(255,255,255,.83);border-radius:18px;box-shadow:var(--shadow)}nav .nav-title{font-size:.78rem;letter-spacing:.12em;color:var(--muted);font-weight:750;margin-bottom:12px}nav a{display:block;text-decoration:none;color:var(--muted);font-size:.88rem;line-height:1.4;padding:9px 10px;border-radius:8px}nav a[aria-current="location"],nav a:hover,nav a:focus-visible{background:var(--pale);color:var(--teal-dark)}main{min-width:0;max-width:1050px;padding-bottom:90px}header{padding:68px 0 42px;border-bottom:1px solid var(--line)}header h1{font-size:clamp(2.45rem,5.3vw,4.35rem);max-width:850px;margin:.22em 0 .36em;line-height:1.16}header .lead{font-size:1.14rem;max-width:760px;color:#345250}.meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}.meta span,.pill{display:inline-flex;align-items:center;border-radius:100px;padding:4px 11px;font-size:.78rem;font-weight:700}.meta span{background:var(--pale);color:var(--teal-dark)}.callout{border-left:4px solid var(--teal);background:var(--pale);padding:16px 21px;border-radius:0 12px 12px 0;margin:24px 0}.callout p:last-child{margin-bottom:0}section{padding:56px 0;border-bottom:1px solid var(--line);scroll-margin-top:24px}.intro{font-size:1.06rem;max-width:810px;color:#3c5754}.trio,.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:22px 0}.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 5px 26px rgba(30,68,60,.035)}.card p:last-child{margin-bottom:0}.number{color:var(--teal);font-weight:800;font-size:.8rem;letter-spacing:.1em}.statusbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:20px 0 14px}.filter{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:999px;padding:6px 13px;font-size:.86rem}.filter[aria-pressed="true"]{background:var(--teal-dark);border-color:var(--teal-dark);color:#fff}.cap-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:13px}.cap{padding:20px;background:#fff;border:1px solid var(--line);border-radius:14px}.cap h3{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.cap[hidden]{display:none}.pill.done{color:#066358;background:#def4ea}.pill.partial{color:#80520b;background:#fff0d0}.pill.future{color:#526762;background:#edf0ed}.note{font-size:.85rem;color:var(--muted)}.flow{counter-reset:step;list-style:none;padding:0;display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.flow li{position:relative;background:#fff;border:1px solid var(--line);padding:16px;border-radius:12px;font-size:.88rem;line-height:1.5}.flow li:before{counter-increment:step;content:counter(step,decimal-leading-zero);display:block;color:var(--teal);font-weight:800;margin-bottom:7px}.flow li:not(:last-child):after{content:'→';position:absolute;right:-11px;top:40%;z-index:1;color:var(--teal);font-weight:900;background:var(--paper);padding:0 2px}.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.modes .card{padding:17px}.simple-list{padding-left:1.3em}.simple-list li{padding-left:.2em;margin:.6em 0}.quote{background:#f1f6f3;border-radius:12px;padding:18px 23px;margin:20px 0;color:#294843}.compare{display:grid;grid-template-columns:repeat(2,1fr);gap:13px}.demo{background:#e8f2ed;border:1px solid #c9ddd2;border-radius:18px;padding:24px;margin:24px 0}.demo-controls{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.demo-controls button{border:1px solid #b7d2c5;background:white;color:var(--teal-dark);padding:8px 14px;border-radius:9px;font-weight:700}.demo-controls button[aria-pressed="true"]{background:var(--teal-dark);color:white;border-color:var(--teal-dark)}.demo-paper{background:#fff;box-shadow:var(--shadow);border-radius:12px;border:1px solid var(--line);padding:23px;min-height:120px}.demo-paper h3{margin-bottom:8px}.demo-paper p{margin:0}.demo-status{font-weight:700;color:var(--teal-dark)}.architecture{display:grid;gap:12px;margin:24px 0}.arch-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}.node{flex:1 1 180px;max-width:330px;border:1px solid #b9d5cb;background:white;border-radius:12px;text-align:center;padding:12px 14px;font-weight:700}.node small{display:block;font-size:.76rem;color:var(--muted);font-weight:400;line-height:1.45}.node.core{background:#dff1e9;border-color:#7ebcaa}.connector{text-align:center;color:var(--teal-dark);font-size:1.25rem;font-weight:700;line-height:1}.boundary{padding:15px;background:#f0f5f0;border:1px dashed #a9c9bd;border-radius:14px}.boundary-label{font-size:.77rem;color:var(--teal-dark);font-weight:750;margin:0 0 9px}.timeline{border-left:3px solid #b5d7cc;padding-left:22px}.timeline article{position:relative;margin:0 0 22px}.timeline article:before{content:'';position:absolute;left:-30px;top:6px;width:12px;height:12px;background:var(--teal);border:3px solid var(--paper);border-radius:50%}.source-list{font-size:.91rem}.source-list li{margin:7px 0}.glossary details{border-top:1px solid var(--line);padding:10px 0}.glossary summary{cursor:pointer;font-weight:700}.footer{font-size:.8rem;color:var(--muted);margin-top:24px}@media(max-width:950px){.layout{display:block}nav{position:static;display:flex;align-items:center;gap:5px;overflow-x:auto;white-space:nowrap;padding:9px;margin:0 -20px;border-radius:0;border-left:0;border-right:0;box-shadow:none}nav .nav-title{display:none}nav a{flex:none}header{padding-top:48px}}@media(max-width:690px){body{font-size:15px}.trio,.grid,.cap-grid,.modes,.compare{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.flow li:not(:last-child):after{content:'↓';right:50%;top:auto;bottom:-17px}.flow li{padding:13px 16px}section{padding:42px 0}header h1{font-size:2.5rem}.demo{padding:17px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}@media print{body{background:#fff;color:#000;font-size:11pt}nav{display:none}.layout{display:block;padding:0}main{max-width:none;padding:0}header{padding:0 0 20px}header h1{font-size:29pt}section{padding:24px 0;break-inside:avoid}a{color:#000}.card,.cap,.node,.demo,.demo-paper{box-shadow:none;break-inside:avoid}.cap[hidden]{display:block!important}.demo-controls{display:none}.demo-paper:after{content:'演示顺序：V1 原版 → V2 修改 → V3 恢复 V1 内容；每一步均保留独立历史。';display:block;font-size:9pt;margin-top:15px;color:#333}.architecture,.flow{break-inside:avoid}details>*{display:block!important}details summary{display:list-item}.pill{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+    .hierarchy{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:24px 0;padding:20px;background:var(--pale);border-radius:14px}.hierarchy span{flex:1;min-width:110px;font-weight:700}.hierarchy small{font-weight:400;color:var(--muted);font-size:.8rem}.hierarchy b{color:var(--teal)}.wide{max-width:none;width:100%}.boundary .node+.node{margin-top:10px}.connector{padding:6px 0}.connector small{font-size:.8rem;font-weight:500;line-height:1.6}.architecture .compare{margin:0}.node{overflow-wrap:anywhere}.source-list a{overflow-wrap:anywhere}header h1{font-size:clamp(2.1rem,4.3vw,3.8rem);text-wrap:balance}.cap h3{line-height:1.55}.skip{position:absolute;left:20px;top:-80px;padding:10px 18px;background:#fff;z-index:5}.skip:focus{top:10px}
+    @media(max-width:950px){nav{mask-image:linear-gradient(to right,rgba(0,0,0,var(--nav-start,1)),#000 12px,#000 calc(100% - 20px),rgba(0,0,0,var(--nav-end,1)))}}
+    @media(max-width:690px){header h1{font-size:2.05rem}.hierarchy{gap:9px}.hierarchy span{min-width:100px}.hierarchy b{display:none}.hierarchy span{border-left:2px solid #a5cbbc;padding-left:12px}.connector{font-size:1rem}}
+    @media print{section{break-inside:auto}.statusbar,.skip{display:none}.compare,.trio,.modes{break-inside:avoid}header h1{font-size:27pt}}
+  </style>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<div class="layout">
+  <aside><nav aria-label="本页目录"><span class="nav-title">阅读路线</span><a href="#overview">01 全貌</a><a href="#capabilities">02 实际能力</a><a href="#journey">03 一项请求</a><a href="#sessions">04 会话</a><a href="#memory">05 记忆</a><a href="#versions">06 版本与撤销</a><a href="#architecture">07 架构</a><a href="#extensions">08 扩展边界</a><a href="#next">09 下一步</a><a href="#sources">10 来源</a></nav></aside>
+  <main id="main">
+    <header><div class="eyebrow">Project Mind / 实现说明 / 2026-10-09</div><h1>理解 AI 增强：<br>能做什么，怎样实现</h1><p class="lead">从一次提问讲起，看助手怎样找资料、记住讨论、保存成果，以及怎样把修改撤回。已实现的能力和还没完成的部分，都会分开说明。</p><div class="meta"><span>代码基线 0b44e2d</span><span>可离线阅读</span><span>示意交互不连接真实项目</span></div><div class="callout"><strong>先看清状态：</strong>主要功能的代码已经接通，但首期版本（M1）尚未完整验收。真实模型、Windows/macOS 安装和 HTML 交互预览仍有待完成的项目。本页按钮仅用于演示。</div></header>
+
+    <section id="overview"><div class="eyebrow">01 / 全貌</div><h2>助手要帮你完成的三件事</h2><p class="intro">先认识三个名字：<strong>工作区（Workspace）</strong>是一整套资料库，<strong>项目（Project）</strong>是其中一项工作的范围；笔记、待办和文件在代码中分别叫 Record、Todo、File。<br><br>当前内置助手围绕项目工作：回答“资料里说了什么”，找回“以前为什么这样决定”，并把这次讨论落实为可继续编辑、可找回、可撤销的成果。普通提问从小范围入口开始，证据不够才继续读取原文。</p><div class="trio"><div class="card"><div class="number">01 / 查资料</div><h3>给答案，也给来处</h3><p>从 Record、File 等已授权材料寻找依据；需要时读对应版本和局部正文。资料不完整就说明覆盖范围，不能把摘录当全文。</p></div><div class="card"><div class="number">02 / 找旧讨论</div><h3>找回决定的上下文</h3><p>先检索会话目录和摘要，再回读相关原话。过去的建议、计划和用户明确决定要分清，不把“提过”说成“定了”。</p></div><div class="card"><div class="number">03 / 留下成果</div><h3>保存成真正的笔记、待办和文件</h3><p>把认可的方案保存为 Record、Todo 或 File，返回可打开的成果，以及实际保存的操作记录。下一轮可以接着改同一对象，历史版本还在。</p></div></div><p>目前这条路线的底层服务和不少界面已存在；“可以调用”“用户在正式安装的应用中顺畅完成”是两个不同结论。下面逐项标出。</p></section>
+
+    <section id="capabilities"><div class="eyebrow">02 / 实际能力</div><h2>现在有哪些，边界在哪里</h2><p>状态指截至本基线可核对的接入程度；“已接通”仍可能缺真实模型或目标系统的产品验收。用下方按钮筛选条目。</p><div class="statusbar" role="group" aria-label="按能力状态筛选"><button class="filter" type="button" data-filter="all" aria-pressed="true">全部</button><button class="filter" type="button" data-filter="done" aria-pressed="false">已接通</button><button class="filter" type="button" data-filter="partial" aria-pressed="false">部分完成</button><button class="filter" type="button" data-filter="future" aria-pressed="false">后续规划</button><span id="filter-count" class="note" role="status" aria-live="polite"></span></div><div class="cap-grid" id="cap-list">
+      <article class="cap" data-status="partial"><h3>资料问答 <span class="pill partial">部分完成</span></h3><p>可以检索项目中的笔记、文件、待办、记事和转写材料，再分段读取、附上来源。扫描 PDF 不等于可读取文字；真实 PDF、旧工作区及模型回答的引用准确性仍需验收。</p></article>
+      <article class="cap" data-status="partial"><h3>会话与历史 <span class="pill partial">部分完成</span></h3><p>Pi 会话原文、列表、搜索、恢复、停止结算和界面展示已有。使用真实模型续聊、强制退出后恢复、长消息显示等仍要在目标系统验证；按会话选择不同模型的后端支持已有，界面入口还缺。</p></article>
+      <article class="cap" data-status="done"><h3>笔记：创建与局部修改 <span class="pill done">已接通</span></h3><p>创建笔记，替换、追加或删除指定正文块；保存前检查是否被人改过，保存后留下版本。可查看历史、恢复旧内容或撤回新建笔记。与原来的笔记编辑服务共用同一套保存规则。</p></article>
+<article class="cap" data-status="done"><h3>待办：把明确行动落下来 <span class="pill done">已接通</span></h3><p>创建待办，修改内容、期限、状态和子行动，保留修改前后的快照。撤销会检查有无后续修改。模型能否始终分清讨论与行动、避免编造日期，仍需真实任务验收。</p></article>
+<article class="cap" data-status="done"><h3>文件：生成、续改与恢复 <span class="pill done">已接通</span></h3><p>新建文件，精确修改文本或替换内容；继续修改保持同一个文件身份，成功修改形成新版本。支持查看旧版、文本比较、恢复和撤回新建文件。真实 Linux 命令行链路已有验证。</p></article>
+      <article class="cap" data-status="partial"><h3>Project Overview 与知识 <span class="pill partial">部分完成</span></h3><p>独立的 AI 概览、来源证明、纠正、排除、预算与维护服务已有。首次启用的本地时区默认值、可见的频率/时区设置、真实日周期与覆盖质量仍待补齐。</p></article>
+      <article class="cap" data-status="done"><h3>CLI / MCP 外部连接 <span class="pill done">已接通</span></h3><p>注册了 38 个工具方法（24 读、14 写），走本机 bridge 与同一业务服务；这不是 38 种独立产品功能。Linux 实际链路已验，macOS/Windows 安装、凭据与外部 Agent 使用仍待验。</p></article>
+      <article class="cap" data-status="partial"><h3>HTML 成果 <span class="pill partial">部分完成</span></h3><p>HTML 作为 File 的源码、历史版本、续改和恢复已接通。应用内可执行、隔离的交互预览仍未交付；当前产品提示“交互预览暂不可用”，脚本错误与资源依赖诊断也待补。</p></article>
+      <article class="cap" data-status="future"><h3>Workspace 助手与长期记忆 <span class="pill future">后续规划</span></h3><p>跨 Project 的分层 Overview、长期条目查看/纠正和 Workspace 助手属于 M2。现有外部连接可授权 Workspace 范围，不能据此说这些体验已经存在。</p></article>
+      <article class="cap" data-status="future"><h3>托管外部运行时与独立 Host <span class="pill future">后续规划</span></h3><p>应用托管 Pi CLI、Claude Code 与任务菜单属于 M3；关闭 GUI 后继续维护的独立 WorkspaceHost 属于 M4。</p></article>
+    </div></section>
+
+    <section id="journey"><div class="eyebrow">03 / 一项请求</div><h2>从一句话到实际保存的成果</h2>
+<p class="intro">例如：“根据会议纪要更新发布计划，再创建三项待办。”下面这条执行链已接入代码，仍需用真实模型和正式安装包走完整个任务。</p>
+<ol class="flow"><li><strong>找依据</strong><br>查会议纪要，读当前计划；先知道要改什么。</li><li><strong>说清方案</strong><br>说明准备更新哪份计划、增加哪些行动，细节按需展开。</li><li><strong>确认一次</strong><br>同一方案只决定一次，不要求你逐段、逐工具审批。</li><li><strong>保存成果</strong><br>应用检查版本后逐项保存，告诉你哪些成功、哪些失败。</li><li><strong>继续或撤销</strong><br>打开真实笔记和待办接着改，也可以恢复任务前的内容。</li></ol>
+<p>模型提出修改方案，<strong>应用自己的保存服务负责真正写入</strong>。只有保存成功的操作记录才算完成。模型说“已经修改”本身不算凭据；中途失败也不能把已经保存的部分说成没发生。</p>
+<div class="modes"><div class="card"><h3>只读</h3><p>可以找资料、分析和回答，不允许创建或修改成果。</p></div><div class="card"><h3>默认：确认后执行</h3><p>先给简短方案，你确认后执行。补充修改要求会让旧方案失效。</p></div><div class="card"><h3>主动选择自动执行</h3><p>你启用这个模式后，助手在已有权限内直接保存；版本和冲突检查仍保留。</p></div></div>
+<div class="callout"><strong>当前还不顺的一处：</strong>“确认”“确认执行”“同意执行”“执行吧”可以走确认路径，但“同意”“好的”会被当作新消息。按钮可以确认，这些常见短回复还需要补齐。带有“先改日期”等要求的回复，仍应先调整方案。</div></section>
+
+    <section id="sessions"><div class="eyebrow">04 / 会话管理</div><h2>一段对话，可以连续完成多次任务</h2>
+<p class="intro">你可以在同一段会话中先问资料，再讨论方案，最后修改成果。每次发起任务，系统会记录一次执行过程，代码里称它为 <strong>Run</strong>。一次会话包含多次任务，一次任务又可以产出多份笔记、待办或文件。</p>
+<div class="hierarchy" aria-label="工作区、项目、会话与任务的关系"><span>工作区<br><small>整套资料库</small></span><b aria-hidden="true">›</b><span>当前项目<br><small>助手工作的范围</small></span><b aria-hidden="true">›</b><span>会话<br><small>围绕一件事持续讨论</small></span><b aria-hidden="true">›</b><span>一次任务<br><small>一轮执行及其成果</small></span></div>
+<div class="compare"><div class="card"><h3>原话保存一份，搜索另外建目录</h3><p>Pi 把对话逐行保存为 JSONL 文件，这是原文。SQLite 数据库保存会话列表和搜索索引，方便快速找到相关消息。搜索到线索后，再读对应原文；不会把一小段搜索摘录当成全部语境。</p></div><div class="card"><h3>收起、停止和继续各有含义</h3><p>收起面板会保留草稿和阅读位置，不会自动停止任务。运行中可以继续写草稿；要发送新消息，先停止，等正在保存的操作处理完再发送。重开会话可以继续，已经保存的成果不能重复写一次。</p></div></div>
+<p>历史列表和搜索让你回到以前的讨论。历史树中的旧分支也能进入索引，但<strong>当前不能据此宣称已有“任意消息分叉编辑”的界面</strong>。模型为长对话压缩上下文，也不能代替下节的历史检索和记忆。</p>
+<p>当前项目的助手按当前项目读取资料；翻看历史或切换业务页面不会自动扩大授权。强制退出后恢复、网络故障后续聊等已有相关实现，真实模型与目标系统下的完整体验仍待验收。</p></section>
+
+    <section id="memory"><div class="eyebrow">05 / 记忆如何形成</div><h2>需要多少依据，就往下读多少</h2><p>新会话不会把整个 Project 塞给模型。助手先看到有限目录，查到相关主题再取概览或分段摘要；没有摘要时也可以直接搜索原文；若问题是“上次原话是什么”，就定位并读取相关消息。证据足够就停止读取，来源失效或只读了摘录就如实说明。没有搜到摘要也不能断言“从未讨论过”。</p><div class="quote"><strong>例子：</strong>问“为什么暂缓权限管理”，读取路线可能是：决定入口 → 相关会话摘要 → 作决定前后的几条原始消息 → 带来源的回答。它不要求通读全部聊天记录。</div><p><strong>用户 QuickNote 与 AI Overview 分开。</strong>QuickNote 是用户自己的临时记事，沿原有编辑保存；Overview 是独立的 AI 派生概览，不改写用户原文。历史索引只是“找得到消息”的目录，也不是总结。会话摘要会区分计划、建议、明确决定、用户报告和实际保存成功的操作，并附可追溯来源。</p><p>资料变化和新消息会进入待整理队列，维护服务分批处理，并记录做到哪里；取消、失败或额度用完时，保留已有结果和进度，之后可以继续。<br><br>目前每批摘要只处理一条消息或一段长消息；每个项目每天最多 5 次摘要调用（按 UTC 日计数，失败尝试也计入），正常多轮对话容易积压。读取接口的单次 <strong>50 条消息 / 12000 字符</strong>上限为后续“同会话、同分支、同授权”的有界成段整理提供边界，不能误说现已合并处理。模型失败或额度用完时，原文搜索仍可用。</p><p>AI 排除、删除和授权缩小会过滤搜索、原文读取和派生结论；不能只藏来源链接却继续露出由它推得的结论。用户在应用界面查看自己的原始历史另有规则。已经发给外部模型提供方的内容无法追溯撤回。</p></section>
+
+    <section id="versions"><div class="eyebrow">06 / 版本与撤销</div><h2>恢复旧内容，也保留发生过的修改</h2><p>下面是一份虚构稿件。点击版本看内容变化；它只改这份页面里的示意文字，不查询 Project、也不保存数据。真正恢复文件时，会检查当前版本和内容指纹（hash），然后把旧内容写成<strong>新版本</strong>，保留中间历史。</p><div class="demo" aria-label="版本恢复示意"><strong>演示：同一个 File 的三个版本</strong><div class="demo-controls" role="group" aria-label="选择示意版本"><button type="button" data-version="0" aria-pressed="true">V1 原版</button><button type="button" data-version="1" aria-pressed="false">V2 修改</button><button type="button" data-version="2" aria-pressed="false">V3 恢复 V1</button></div><div class="demo-paper" aria-live="polite" aria-atomic="true"><div class="demo-status" id="version-label">V1 · 初稿</div><h3 id="version-title">项目介绍</h3><p id="version-text">展示三项核心能力，使用单选筛选。</p></div><p class="note">演示状态：V3 的内容与 V1 相同，但 V2 仍在历史里。示意交互不连接真实项目。</p></div><p>人工在助手读完后又改了同一对象，旧基线不能静默盖掉新内容；需要提示冲突、核对目标。一次任务里同一个对象连续改几次，成组撤销以<strong>任务开始前</strong>的版本为恢复目标，每个对象分别恢复；如果部分失败，就分别显示结果，不会假装所有更改都已撤回。新建对象撤回后保留身份和历史，后续仍可恢复。</p><p>Record 有正文版本和块差异；File 保存真实字节版本，HTML 的 JS/CSS 也在其中；Todo 则以状态、期限、子项等<strong>修订快照</strong>处理，不能把它当作 File 的字节版本。三者都通过应用原有的保存服务，记录实际执行结果，而不是只靠助手一句“已完成”。</p></section>
+
+    <section id="architecture"><div class="eyebrow">07 / 架构</div><h2>界面负责交流，模型负责推理，应用负责执行</h2>
+<p class="intro">可以把它理解成三个角色：聊天界面接收你的要求；模型判断下一步要读什么、改什么；应用核对权限和版本后，才真正读取或保存数据。</p>
+<div class="architecture" aria-label="界面、统一服务、模型进程与本地存储的关系">
+<div class="arch-row"><div class="node">应用内的聊天界面<small>React + Pi 消息展示<br>你的输入、回答、来源和操作结果</small></div><div class="node">外部命令行 / MCP 客户端<small>经本机连接桥进入应用<br>使用系统保存的连接凭据</small></div></div>
+<div class="connector">↓ <small>两个入口，共用同一套业务规则</small></div>
+<div class="arch-row"><div class="node core wide">应用的统一业务服务 · Rust / Tauri<small>核对范围与权限 → 检查当前版本 → 读取或保存 → 记录结果</small></div></div>
+<div class="compare">
+<div class="boundary"><div class="boundary-label">模型这一边 · 由应用管理</div><div class="node wide">独立的 Pi 运行进程<small>Node + Pi SDK：接收任务，组织对话和工具调用<br>Pi JSONL：保存会话原文与恢复历史</small></div><div class="connector">↕ <small>按配置调用模型，接收回答和工具请求</small></div><div class="node wide">配置的模型服务<small>模型提出“读取资料”或“提交修改”的请求<br>请求仍须返回 Rust 服务检查和执行</small></div></div>
+<div class="boundary"><div class="boundary-label">资料这一边 · 由统一服务操作</div><div class="node wide">本地数据库 · SQLite<small>笔记/待办等数据、会话索引、知识和操作记录</small></div><div class="node wide">笔记与文件的原有保存机制<small>笔记正文规范化处理（Record worker）<br>文件字节、版本和故障恢复日志（journal）</small></div><div class="node wide">资料提取进程<small>从支持的文件提取文字，记录已读范围<br>提取文字不等于模型已理解全部内容</small></div></div>
+</div></div>
+<div class="quote"><strong>一次工具调用：</strong>模型提出请求 → Rust 检查权限、目标和版本 → 调用相应业务服务 → 把结果交回模型 → 界面展示回答与真实操作记录。</div>
+<p>因此，模型没有直接绕开应用去写数据库。内置助手与外部工具都要遵守相同的对象归属、版本和保存规则，修改失败时也使用同一套恢复机制。</p>
+<p class="note">项目资料保存在本地；调用配置的模型时，获准使用的上下文会发送给模型服务，因此 AI 功能并不等于完全离线。这个 HTML 说明页本身不调用模型、不发送项目资料。</p></section>
+
+    <section id="extensions"><div class="eyebrow">08 / 扩展与边界</div><h2>外部连接能访问什么，由授权决定</h2><p><strong>CLI</strong> 是终端里的命令行工具；<strong>MCP</strong> 是让其他 AI 客户端发现并调用这些工具的接口。它们让外部助手也能使用 Project Mind 的资料和保存能力。</p><p>CLI/MCP 的 38 个已注册工具方法（24 读、14 写）通过同一 Rust 服务工作。连接凭据交给操作系统凭据机制管理；工具要先有范围与能力授权，普通读取不会顺手启动付费模型维护。外部 CLI 只调用数据工具，不自动启动模型；应用未打开时连接不可用。用户可以自行在 MCP 客户端配置模型，但这不等于本应用托管外部运行时。新建连接默认推荐 Workspace 协作：包括直属内容与未归档 Project，新建 Project 随范围纳入；也可选单 Project、只读或自定义。<strong>旧连接不会自动扩权。</strong></p><p>自定义连接可只指定最多 50 个 Record/File；这种授权不包含创建、Todo 或会话历史。读取历史还要单独给 <code>session.read</code>。指定对象模式也不能借混合了其他来源的范围级摘要绕过边界。模型正文、提示词或工作目录都不能扩大连接授权。</p><div class="callout"><strong>Workspace 范围不等于 Workspace 助手。</strong>外部连接现在可以按 Workspace 授权；跨 Project 分层概览、Workspace 级长期记忆及其查看/纠正/抑制仍是 M2。应用托管 Pi CLI / Claude Code 与任务菜单是 M3；GUI 关闭后继续维护的独立后台 Host 是 M4。当前随应用运行的 Host 不能冒充 M4。</div><p>会话展示复用的 Pi Web UI 源码固定在 0.75.3，只负责消息呈现；实际模型运行时 SDK 是 0.99.1。两者版本不同是有意的职责拆分，不表示旧展示组件接管业务存储或模型凭据。</p></section>
+
+    <section id="next"><div class="eyebrow">09 / 缺口与下一步</div><h2>接下来，先把日常使用做顺</h2><div class="timeline"><article><h3>让确认和方案说明更自然</h3><p>让唯一待定方案下“同意”“好的”等简短明确回复与按钮共用同一次确认；含修改要求的回复仍生成新方案。确认卡对已有对象要说清目标和动作。</p></article><article><h3>按本地时间整理资料</h3><p>首次启用采用电脑的本地时区，让维护默认在当地 03:00；补 24/48 小时频率、本地时刻、时区的可见设置。现默认 UTC 03:00，上海用户对应当地 11:00，并非凌晨；应用未运行时不会准时执行。</p></article><article><h3>一次整理一段讨论</h3><p>把同会话、同分支、授权一致的多条短消息在现有限额内合为一批；复用来源证明、预算与一起保存，不靠提高每日五次额度掩盖积压。</p></article><article><h3>让会话可以选择模型</h3><p>后端已支持为会话指定模型配置，界面尚无选择/展示入口；选择后，界面显示、连接验证和实际执行要使用同一个模型。</p></article><article><h3>补齐 HTML 预览，完成真实使用验收</h3><p>完成隔离的脚本交互预览、响应式宽度与依赖/脚本错误诊断，再在 macOS 和 Windows 应用实际使用的浏览器组件（WebKit / WebView2）中验证。可用的真实模型配置、macOS arm64/x64、Windows x64 的无开发环境安装、性能测量和三个真实项目的使用任务都还要实际执行、记录结果。</p></article></div><p>这条顺序是当前优先级，不把 M2～M4 从承诺中删掉。现有 Linux 确定性测试和浏览器夹具可证明接入，不能替代真实模型服务 与目标平台的结果。</p></section>
+
+    <section id="sources"><div class="eyebrow">10 / 来源</div><h2>可以回查的依据</h2><p>本页按固定提交 <strong>0b44e2d</strong> 的文档与关键实现整理；文档中的既有测试记录是接入证据，不等于完整产品验收。链接需要联网打开仓库，阅读本页本身无需网络。</p><ul class="source-list"><li><a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/docs/requirements/ai-work-context-spec.md">产品主规格：目标、确认、成果、会话和外部连接</a></li><li><a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/docs/requirements/ai-work-context-engineering-spec.md">工程契约：来源、版本、权限、存储和恢复</a></li><li><a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/docs/requirements/ai-work-context-delivery.md#intent-audit-20261009">2026-10-09 意图审视与 R01～R16 对照</a></li><li><a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/docs/requirements/ai-work-context-acceptance.md">A01～A76 逐项验收台账</a></li><li><a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/docs/conversation-memory.md">会话原文、索引、摘要与来源规则</a></li><li><a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/src/components/agent/AgentPanel.tsx">会话面板与短语确认入口</a> · <a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/src-tauri/src/agent/bridge/registry.rs">CLI/MCP 工具注册</a> · <a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/src-tauri/src/overview_maintenance.rs">知识维护批次</a> · <a href="https://github.com/xuchen-cloud/project_mind/blob/0b44e2d/src/components/agent/pi-ui/UPSTREAM.md">Pi 展示来源</a></li></ul><div class="glossary"><h3>按需展开的小字典</h3><details><summary>Run、Profile、Provider 分别是什么？</summary><p>Run 是会话里的一次任务；Profile 是应用中配置的模型及调用设置；Provider 是提供模型服务的外部供应方。</p></details><details><summary>CAS、journal、JSONL 是什么？</summary><p>CAS 是保存时比较“我读取的版本是否还是当前版本”，用于阻止旧稿覆盖人工新改；journal 记录 File 写入过程供故障恢复；JSONL 是逐行保存的会话原始记录格式。</p></details><details><summary>Overview、QuickNote、MCP 是什么？</summary><p>Overview 是 AI 从授权来源整理出的可追溯项目概览；QuickNote 是用户自己编辑的记事；MCP 是外部客户端调用本机工具的一种接口方式。</p></details></div><p class="footer">实现说明 · 2026-10-09 · 示例交互与真实 Project 完全分离</p></section>
+  </main>
+</div>
+<script>
+  (() => {
+    const nav = document.querySelector('nav');
+    function updateNavEdges() {
+      nav.style.setProperty('--nav-start', String(1 - Math.min(1, nav.scrollLeft / 20)));
+      nav.style.setProperty('--nav-end', String(1 - Math.min(1, Math.max(0, nav.scrollWidth - nav.clientWidth - nav.scrollLeft) / 20)));
+    }
+    nav.addEventListener('scroll', updateNavEdges, { passive: true });
+    new ResizeObserver(updateNavEdges).observe(nav);
+    updateNavEdges();
+    const navLinks = [...nav.querySelectorAll('a')];
+    const sectionObserver = new IntersectionObserver(entries => {
+      const entered = entries.find(entry => entry.isIntersecting);
+      if (!entered) return;
+      navLinks.forEach(link => {
+        if (link.hash === '#' + entered.target.id) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+    }, { rootMargin: '-5% 0px -75% 0px' });
+    document.querySelectorAll('main section').forEach(section => sectionObserver.observe(section));
+    let printDetails = [];
+    window.addEventListener('beforeprint', () => {
+      printDetails = [...document.querySelectorAll('details:not([open])')];
+      printDetails.forEach(item => { item.open = true; });
+    });
+    window.addEventListener('afterprint', () => printDetails.forEach(item => { item.open = false; }));
+    const filters = [...document.querySelectorAll('[data-filter]')];
+    const cards = [...document.querySelectorAll('.cap[data-status]')];
+    const count = document.getElementById('filter-count');
+    function filterBy(status) {
+      filters.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.filter === status)));
+      let visible = 0;
+      cards.forEach(card => { const show = status === 'all' || card.dataset.status === status; card.hidden = !show; if (show) visible++; });
+      count.textContent = `显示 ${visible} 项`;
+    }
+    filters.forEach(button => button.addEventListener('click', () => filterBy(button.dataset.filter)));
+    filterBy('all');
+
+    const versions = [
+      {label:'V1 · 初稿', title:'项目介绍', text:'展示三项核心能力，使用单选筛选。'},
+      {label:'V2 · 修改版', title:'项目介绍', text:'展示三项核心能力，把筛选改为多选，并补充使用说明。'},
+      {label:'V3 · 恢复版', title:'项目介绍', text:'展示三项核心能力，使用单选筛选。'}
+    ];
+    const buttons = [...document.querySelectorAll('[data-version]')];
+    buttons.forEach(button => button.addEventListener('click', () => {
+      const version = versions[Number(button.dataset.version)];
+      buttons.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      document.getElementById('version-label').textContent = version.label;
+      document.getElementById('version-title').textContent = version.title;
+      document.getElementById('version-text').textContent = version.text;
+    }));
+  })();
+</script>
+</body>
+</html>
