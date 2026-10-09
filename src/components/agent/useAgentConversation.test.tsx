@@ -52,6 +52,60 @@ beforeEach(() => {
 });
 
 describe("assistant conversation lifecycle", () => {
+  it("uses the selected profile for creation and probe, then keeps the created session binding", async () => {
+    const overridden = { ...session, profileOverrideId: 2 };
+    api.sessionCreate.mockResolvedValueOnce(overridden);
+    const view = await ready();
+    act(() => view.result.current.selectProfileOverride(2));
+    await act(async () => { await view.result.current.probe(); });
+    expect(api.profileProbe).toHaveBeenCalledWith(binding, { profileOverrideId: 2 });
+    await act(async () => { await view.result.current.send("覆盖模型问题"); });
+    expect(api.sessionCreate).toHaveBeenCalledWith(binding, { scope, title: "覆盖模型问题", profileOverrideId: 2 });
+    expect(view.result.current.session?.profileOverrideId).toBe(2);
+    act(() => view.result.current.selectProfileOverride(null));
+    expect(view.result.current.profileOverrideId).toBe(2);
+  });
+  it("probes a restored session's binding independently of the next-session selection", async () => {
+    const overridden = { ...session, profileOverrideId: 2 };
+    api.sessionsList.mockResolvedValue({ sessions: [overridden], nextCursor: null });
+    api.sessionGet.mockResolvedValue({ session: overridden, latestRun: null, checkpoint: null, messages: [], nextOrdinal: null });
+    localStorage.setItem("project-mind:agent:last-session:workspace:project:1", session.id);
+    const view = await ready();
+    await act(async () => { await view.result.current.probe(); });
+    expect(api.profileProbe).toHaveBeenCalledWith(binding, { profileOverrideId: 2 });
+    await act(async () => { await view.result.current.selectSession(""); await view.result.current.probe(); });
+    expect(api.profileProbe).toHaveBeenLastCalledWith(binding, {});
+  });
+  it("invalidates verification when the next-session profile changes", async () => {
+    const view = await ready();
+    await act(async () => { await view.result.current.probe(); });
+    expect(view.result.current.verified).toBe(true);
+    act(() => view.result.current.selectProfileOverride(2));
+    expect(view.result.current.verified).toBe(false);
+  });
+  it("clears a pending model selection when the scope changes", async () => {
+    const view = renderHook(({ currentScope }) => useAgentConversation(currentScope, "/workspace"), {
+      initialProps: { currentScope: scope as { kind: "project"; projectId: number } },
+    });
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    act(() => view.result.current.selectProfileOverride(2));
+    expect(view.result.current.profileOverrideId).toBe(2);
+    view.rerender({ currentScope: { kind: "project", projectId: 2 } });
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(view.result.current.profileOverrideId).toBeNull();
+    await act(async () => { await view.result.current.probe(); });
+    expect(api.profileProbe).toHaveBeenLastCalledWith(binding, {});
+  });
+  it("ignores a probe result after switching to another session", async () => {
+    let finishProbe!: (value: { verified: boolean }) => void;
+    api.profileProbe.mockImplementationOnce(() => new Promise(resolve => { finishProbe = resolve; }));
+    const view = await ready();
+    let probing!: Promise<void>;
+    act(() => { probing = view.result.current.probe(); });
+    await act(async () => { await view.result.current.selectSession(session.id); });
+    await act(async () => { finishProbe({ verified: true }); await probing; });
+    expect(view.result.current.verified).toBe(false);
+  });
   it("uses the device timezone on first enable and preserves previously saved UTC", async () => {
     api.settingsGet.mockResolvedValueOnce({ ...settings, enabled: false, revision: 0 });
     const resolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;

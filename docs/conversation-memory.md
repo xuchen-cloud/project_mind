@@ -38,6 +38,8 @@ AI 检索/读取边界由可信 Host 的调用者身份与 Scope Grant 决定，
 
 ## 外部证据与复用判断
 
+2026-10-09 补充：长期记忆另核对了 Hermes 官方固定提交的写入、纠正、审阅和压缩机制，见[Hermes 源码参考](technical/hermes-memory-reference.md)。下表保留先前会话检索方案的一手依据；长期记忆借鉴与当前已实现会话能力须分别判断。
+
 | 来源 | 已核对的机制 | 对本项目的取舍 |
 | --- | --- | --- |
 | [Hermes `session_search_tool.py`，固定提交 `3b0dc776`](https://github.com/NousResearch/hermes-agent/blob/3b0dc776b6602b0dd05429d7842bb143d73434b7/tools/session_search_tool.py) | FTS 发现、会话归并/降权、锚点附近窗口和更深层读取分开；返回命中和有限上下文。 | 借鉴“发现→有界回读”与噪音降权；不复制其会话 DB/谱系规则，Mind 以真实 Project/Workspace 授权为准。 |

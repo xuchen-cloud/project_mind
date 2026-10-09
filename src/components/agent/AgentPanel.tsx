@@ -49,10 +49,14 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   const openSettings = useUiStore(state => state.openSettings);
   const aiSettings = useQuery({ queryKey: queryKeys.aiSettings, queryFn: projectMindApi.aiSettingsGet, enabled: open });
   const general = aiSettings.data ? bindingForCapability(aiSettings.data, "default") : null;
-  const profile = aiSettings.data ? findAiProfile(aiSettings.data.profiles, general?.profileId) : null;
-  const model = general?.model || profile?.defaultModel;
-  const modelIdentity = JSON.stringify([profile?.id, profile?.updatedAt, model]);
-  const modelReady = !!profile?.enabled && profile.hasStoredKey && profile.supportsText && aiSettings.data?.aiSecretsUnlocked !== false;
+  const overrideId = conversation.session ? conversation.session.profileOverrideId : conversation.profileOverrideId;
+  const profile = aiSettings.data ? findAiProfile(aiSettings.data.profiles, overrideId ?? general?.profileId) : null;
+  const model = overrideId === null ? general?.model?.trim() || profile?.defaultModel : profile?.defaultModel;
+  const modelIdentity = JSON.stringify([overrideId, profile?.id, profile?.updatedAt, model, general?.updatedAt, aiSettings.data?.aiSecretsUnlocked]);
+  const modelReady = !!profile?.enabled && profile.providerFamily === "openai_compatible"
+    && profile.hasStoredKey && profile.supportsText && !!model?.trim() && aiSettings.data?.aiSecretsUnlocked !== false;
+  const modelLabel = overrideId !== null && !profile ? "所选模型配置已删除或不可用"
+    : profile ? `${profile.name} · ${model || "未配置模型"}${!modelReady ? "（不可用）" : ""}` : "尚未配置通用模型";
   const blockedSession = !!conversation.session && conversation.session.state !== "active";
   const ready = conversation.settings?.enabled && conversation.binding && conversation.runtimeAvailable && modelReady && !blockedSession;
   const byteLength = new TextEncoder().encode(draft).byteLength;
@@ -156,7 +160,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
             启用{scope.kind === "project" ? "本项目" : "工作区"}助手</label>
           <Button size="sm" variant="ghost" onClick={() => openSettings("ai-models")}>模型设置</Button>
         </div>
-        <p className="agent-panel__hint">{profile ? `通用模型：${profile.name}${model ? ` · ${model}` : ""}` : "尚未配置通用模型"}</p>
+        <p className="agent-panel__hint">{overrideId === null ? "通用模型" : "会话模型"}：{modelLabel}</p>
         <AgentScheduleSettings settings={conversation.settings} saving={conversation.savingSettings}
           disabled={conversation.loading || busy} onSave={conversation.setSchedule} />
         <div className="agent-panel__setting-row">
@@ -194,7 +198,16 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
             disabled={blockedSession} placeholder="向助手提问…" rows={3}
             onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
           <div className="agent-panel__composer-options">
-            <span className="agent-panel__model" title={profile ? `${profile.name} · ${model ?? ""}` : "尚未配置通用模型"}>{model ?? "未配置模型"}</span>
+            {conversation.session ? <span className="agent-panel__model" title={modelLabel}>{modelLabel}</span>
+              : <label className="agent-panel__mode"><span className="sr-only">会话模型</span><select aria-label="会话模型"
+                value={conversation.profileOverrideId ?? "default"} disabled={conversation.loading || busy || conversation.probing}
+                onChange={event => conversation.selectProfileOverride(event.target.value === "default" ? null : Number(event.target.value))}>
+                <option value="default">沿用通用模型{general?.model ? ` · ${general.model}` : ""}</option>
+                {aiSettings.data?.profiles.filter(item => item.enabled && item.providerFamily === "openai_compatible" && item.supportsText)
+                  .map(item => <option key={item.id} value={item.id}>{item.name} · {item.defaultModel}</option>)}
+                {overrideId !== null && !aiSettings.data?.profiles.some(item => item.id === overrideId && item.enabled && item.providerFamily === "openai_compatible" && item.supportsText)
+                  ? <option value={overrideId} disabled>所选模型配置已删除或不可用</option> : null}
+              </select></label>}
             <label className="agent-panel__mode"><span className="sr-only">执行模式</span><select aria-label="执行模式" value={conversation.settings?.executionMode ?? "review"}
               disabled={!conversation.settings || conversation.loading || conversation.savingSettings || busy}
               onChange={event => void conversation.setMode(event.target.value as "collaborate" | "review" | "read_only")}>

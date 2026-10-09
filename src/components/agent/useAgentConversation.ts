@@ -17,7 +17,7 @@ export function agentFailureMessage(error: unknown): string {
   const messages: Record<string, string> = {
     RUN_BUSY: "工作区已有正在运行的助手，请先停止或等待完成。",
     TOOL_CALL_UNSUPPORTED: "请先验证当前模型的工具能力；验证失败时，可在模型设置中更换兼容模型。",
-    PROFILE_UNAVAILABLE: "请先在模型设置中配置可用的通用模型。",
+    PROFILE_UNAVAILABLE: "当前会话模型配置不可用，请在模型设置中检查配置；新会话可选择其他模型。",
     SECRETS_LOCKED: "请先解锁 AI 密钥，再使用助手。",
     WORKSPACE_CHANGED: "工作区已切换，请重新打开助手。",
     RUNTIME_UNAVAILABLE: "内置助手运行资源不可用，请检查应用安装。",
@@ -78,10 +78,13 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
   const [savingSettings, setSavingSettings] = useState(false);
   const [probing, setProbing] = useState(false);
   const [verified, setVerified] = useState(false);
+  const [profileOverrideId, setProfileOverrideId] = useState<number | null>(null);
   const [runtimeAvailable, setRuntimeAvailable] = useState(false);
   const epoch = useRef(0);
   const bindingRef = useRef<AgentWorkspaceBinding | null>(null);
   const sessionRef = useRef<AgentSessionMetadata | null>(null);
+  const profileOverrideRef = useRef<number | null>(null);
+  const selectionVersion = useRef(0);
   const runRef = useRef<AgentStoredRun | null>(null);
   const startingRef = useRef(false);
   const lastSeq = useRef(0);
@@ -201,6 +204,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     if (target && !sameAgentScope(target.object.scope, scope)) useAgentPanelStore.getState().clearDiscussionTarget();
     let unlisten: (() => void) | undefined;
     bindingRef.current = null; sessionRef.current = null; runRef.current = null;
+    profileOverrideRef.current = null; selectionVersion.current++; setProfileOverrideId(null);
     startingRef.current = false; lastSeq.current = 0; buffered.current = [];
     setBinding(null); setSession(null); setRun(null); setMessages([]);
     setPendingPrompt(""); setLiveText(""); setSettings(null); setSessions([]); setError(null); setLoading(true);
@@ -287,7 +291,13 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     else localStorage.removeItem(preferenceKey(binding));
     setSession(selected); setRun(null); setMessages([]); setNextOrdinal(null); setReading(false);
     setPendingPrompt(""); setLiveText(""); setError(null); checksum.current = null;
+    selectionVersion.current++; setVerified(false);
     if (selected) await loadMessages(binding, selected.id);
+  };
+  const selectProfileOverride = (id: number | null) => {
+    if (sessionRef.current || startingRef.current || isAgentRunActive(runRef.current) || probing) return;
+    profileOverrideRef.current = id; selectionVersion.current++;
+    setProfileOverrideId(id); setVerified(false); setError(null);
   };
   const send = async (prompt: string, target?: AgentObjectRef | null): Promise<boolean> => {
     if (!binding || !settings?.enabled || startingRef.current || isAgentRunActive(runRef.current) || !prompt.trim()) return false;
@@ -297,7 +307,8 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     try {
       let selected = sessionRef.current;
       if (!selected) {
-        selected = await agentApi.sessionCreate(bound, { scope, title: prompt.trim().slice(0, 60) });
+        selected = await agentApi.sessionCreate(bound, { scope, title: prompt.trim().slice(0, 60),
+          ...(profileOverrideRef.current !== null ? { profileOverrideId: profileOverrideRef.current } : {}) });
         if (!valid(token, bound)) return false;
         sessionRef.current = selected; setSession(selected); setSessions(history => [selected!, ...history]);
         localStorage.setItem(preferenceKey(bound), selected.id);
@@ -365,15 +376,17 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
   };
   const probe = async () => {
     if (!binding || probing || isAgentRunActive(runRef.current)) return;
-    const token = epoch.current; setProbing(true); setVerified(false); setError(null);
+    const token = epoch.current; const version = selectionVersion.current;
+    const overrideId = sessionRef.current ? sessionRef.current.profileOverrideId : profileOverrideRef.current;
+    setProbing(true); setVerified(false); setError(null);
     try {
-      const result = await agentApi.profileProbe(binding);
-      if (valid(token, binding)) setVerified(result.verified);
-    } catch (failure) { if (valid(token, binding)) setError(agentFailureMessage(failure)); }
+      const result = await agentApi.profileProbe(binding, overrideId === null ? {} : { profileOverrideId: overrideId });
+      if (valid(token, binding) && version === selectionVersion.current) setVerified(result.verified);
+    } catch (failure) { if (valid(token, binding) && version === selectionVersion.current) setError(agentFailureMessage(failure)); }
     finally { if (valid(token, binding)) setProbing(false); }
   };
   return {
-    binding, settings, sessions, sessionCursor, session, messages, nextOrdinal, run, liveText,
+    binding, settings, sessions, sessionCursor, session, profileOverrideId, selectProfileOverride, messages, nextOrdinal, run, liveText,
     pendingPrompt, toolActivity, error, loading, starting, reading, savingSettings, probing, verified,
     runtimeAvailable, busy: starting || isAgentRunActive(run), setEnabled: (enabled: boolean) => updateSettings({ enabled }),
     setMode: (executionMode: AgentScopeSettings["executionMode"]) => updateSettings({ executionMode }), selectSession, send, cancel,

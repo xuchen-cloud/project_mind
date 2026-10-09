@@ -48,13 +48,23 @@ WP4/WP5 决策依据：Pi 原生 `CompactionEntry` 只有自由文本 `summary`�
 | S7 / R14c | #109：有来源长期条目的查看、纠正、停用和持久抑制 | 区分推断与确认；撤权/删除过滤，停用后不自动复生，复用现有知识存储。 |
 | S8 | 最终有效验证、文档/工单与提交推送 | 明确本地完成及外部验收缺口；R15/R16 保持暂缓，不关闭尚未满足交付条件的父 Issue。 |
 
-当前执行：S1 已提交 `6ac4f4d`，S2 实施中；各包完成后直接进入下一包。主 agent 负责架构和最终检查，明确实现委派 GPT-6 Sol；Rust 编译/测试串行，避免共享测试二进制被替换。
+当前执行：S1 已提交 `6ac4f4d`，S2 已完成本地验证，进入 S3；各包完成后直接进入下一包。主 agent 负责架构和最终检查，明确实现委派 GPT-6 Sol；Rust 编译/测试串行，避免共享测试二进制被替换。
 
 补充要求：实施 S7/R14 长期记忆前，核对 NousResearch/Hermes Agent 官方当前源码的记忆写入、检索、纠正/删除及压缩边界；记录固定提交和一手引用，再决定借鉴方式。参考设计思想，仍保留 ProjectMind 的 Workspace/Project 授权、原始来源和用户停用不复生契约，不直接复制不适用的全局提示注入方式。
 
 S1 验证：前端 AgentPanel/useAgentConversation 39 项、Rust 调度 12 项和 TypeScript 检查通过。首次启用使用设备时区；设置变更在同一事务中重算未来待执行时间，保留已到期和运行中的任务。
 
 Hermes 源码核对已完成，见[固定版本源码参考](../technical/hermes-memory-reference.md)。S7 采用的设计方向：短记忆仅放稳定且经来源支持的信息，历史讨论继续按需搜索和回读；模型通过工具提出/维护条目，纠正针对已有条目及版本。自动提取不等于用户确认，Pi 上下文压缩也不等于长期知识维护。ProjectMind 的来源过滤、派生依赖失效和用户停用的持久抑制仍需自身实现；不能从 Hermes 的文件 `remove` 推断已满足这些要求。上游参考完成不代表 S7 产品交付完成。
+
+S2 验证：AgentPanel/useAgentConversation 受影响测试共 48 项通过（未改动的面板结果复用，最后新增 probe 竞态后重跑 hook 17 项），TypeScript 检查通过。新会话可选择已有模型或通用绑定，已有会话按保存的绑定显示；验证与创建使用同一配置，失效配置不静默回退。主 agent 完成 Standards/Spec 自查；真实 Provider 验收仍需凭据。
+
+#### S3 实施边界：按模型容量准备摘要输入
+
+关联 #102/#105，依赖现有 Pi Host、来源分段读取和原子发布。复用 SDK 自带模型目录解析已知模型的上下文与输出容量，不另建模型名称表、不调用 Provider 做容量探测。目录不能唯一确定的自定义别名明确使用默认容量，不能称为读取到了服务端实际限制。普通会话和维护调用采用同一容量解析。
+
+维护先取得选定配置的容量与指纹，再分页读取和拼装输入；生成前重新核对同一配置，配置变更时重新准备，不能拿大模型的预算发给小模型。输入预算扣除实际输出上限、系统提示与请求余量，并保留进程协议帧的独立工程边界；中文不能直接把字符数乘四当作准确 token 容量。现有来源单页上限仍是读取边界，批次可由多页短消息组成；较小模型缩小页面，大模型允许较大合批。已经保存的发布草稿直接按来源和版本核验重放，不为重试重复调用模型。
+
+验收：小/大容量、未知别名、配置在准备与执行之间改变、长消息继续分页、同会话同分支合批及已保存草稿恢复。非目标：新增累计/每日调用配额、嵌入服务、自动猜测 Provider 限制、改写 Pi 压缩机制。只运行受影响 Rust/Node/SDK 协议测试，前端 S2 结果在未改动时复用。
 
 ### Rust 测试清理（2026-10-09，关联 #97/#107）
 
@@ -70,7 +80,7 @@ Hermes 源码核对已完成，见[固定版本源码参考](../technical/hermes
 
 本包不把所有边界测试称为“防御性编程”，也不把短测试或没有直接业务写入的契约测试一概删除。938 是上一轮执行结果，不是全部 AI 场景或全部 Rust 测试的数量；默认跳过的专用运行时/子进程夹具不是可随意删除的空测试。
 
-已完成：删除 2 个完整测试，精简 7 个测试文件，无产品代码变更。受影响模块及上述保留的数据库覆盖共 44 项通过、0 失败、926 项过滤；本轮没有重跑全量，不能把 936 写成新一轮全量通过数。验证命令为 `cargo test --lib --quiet -- agent::tests agent::file_tools::tests agent::record_write_tools::tests agent::tools::tests agent::bridge::registry::tests agent::bridge::mcp::tests db::agent_run_provenance::tests db::overview_context::tests::l0_no_overview_keeps_independent_identity_and_not_built db::tests::fresh_workspace_schema_omits_legacy_domain_tables_and_columns`。环境本地日志 `/workspace/project-mind-env/rust-test-cleanup.log`；相对上轮全量日志无新增编译警告，diff 检查通过。主 agent 完成删除依据及 Standards/Spec 自查，未启动 review agent；既有未变产品验证继续有效。
+已完成：删除 2 个完整测试，精简 7 个测试文件，无产品代码变更。受影响模块共 44 项通过、0 失败、926 项过滤；本轮没有重跑全量，不能把 936 写成新一轮全量通过数。验证命令为 `cargo test --lib --quiet -- agent::tests agent::file_tools::tests agent::record_write_tools::tests agent::tools::tests agent::bridge::registry::tests agent::bridge::mcp::tests db::agent_run_provenance::tests db::overview_context::tests::l0_no_overview_keeps_independent_identity_and_not_built db::tests::fresh_workspace_schema_omits_legacy_domain_tables_and_columns`。其中 L0 用例的原过滤路径漏了 `agent` 模块，未包含在这 44 项中；S1 收口时已按精确测试名 `l0_no_overview_keeps_independent_identity_and_not_built` 单独补跑，1 项通过。环境本地日志 `/workspace/project-mind-env/rust-test-cleanup.log`；相对上轮全量日志无新增编译警告，diff 检查通过。主 agent 完成删除依据及 Standards/Spec 自查，未启动 review agent；既有未变产品验证继续有效。
 
 | 批次 | 交付范围 | 工单 | 验收 |
 | --- | --- | --- | --- |

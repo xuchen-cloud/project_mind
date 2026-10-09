@@ -36,7 +36,7 @@ const session: AgentSessionMetadata = { id: "a".repeat(32), scope, title: "已�
 const settings: AgentScopeSettings = { scope, enabled: true, goalRecordId: null, pinnedRefs: [], summaryPolicy: "on_success", overviewIntervalHours: 24, overviewLocalTime: "03:00", overviewTimezone: "UTC", executionMode: "collaborate", revision: 1 };
 const run: AgentStoredRun = { id: "b".repeat(32), sessionId: session.id, clientRequestId: "client", state: "running", contextManifest: {}, startedAt: "now", finishedAt: null, usage: null, errorCode: null };
 const modelSnapshot = {
-  profiles: [{ id: 1, name: "通用配置", defaultModel: "model", enabled: true, supportsText: true, hasStoredKey: true }],
+  profiles: [{ id: 1, name: "通用配置", providerFamily: "openai_compatible", defaultModel: "model", enabled: true, supportsText: true, hasStoredKey: true }],
   bindings: [{ capability: "default", profileId: 1, model: "model" }], aiSecretsUnlocked: true,
 } as AiSettingsSnapshot;
 let state: ReturnType<typeof useAgentConversation>;
@@ -50,13 +50,13 @@ function message(id: string, runId: string, role: AgentConversationMessage["role
 }
 async function loaded() {
   const view = renderPanel();
-  await waitFor(() => expect(screen.getByText("model")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "会话模型" })).toBeInTheDocument());
   return view;
 }
 beforeEach(() => {
   vi.clearAllMocks(); mocked.review = null; useAgentPanelStore.getState().clearWorkspace();
   state = {
-    binding, settings, sessions: [session], sessionCursor: null, session: null, messages: [], nextOrdinal: null,
+    binding, settings, sessions: [session], sessionCursor: null, session: null, profileOverrideId: null, selectProfileOverride: vi.fn(), messages: [], nextOrdinal: null,
     run: null, liveText: "", pendingPrompt: "", toolActivity: "", error: null, loading: false,
     starting: false, reading: false, savingSettings: false, probing: false, verified: false, runtimeAvailable: true, busy: false,
     setEnabled: vi.fn(async () => true), setMode: vi.fn(async () => true), setSchedule: vi.fn(async () => true), selectSession: vi.fn(async () => {}), send: vi.fn(async () => true),
@@ -67,6 +67,45 @@ beforeEach(() => {
   mocked.aiSettingsGet.mockResolvedValue(modelSnapshot);
 });
 describe("Project assistant panel", () => {
+  it("offers usable compatible profiles and locks the selection while busy", async () => {
+    mocked.aiSettingsGet.mockResolvedValue({ ...modelSnapshot, profiles: [
+      ...modelSnapshot.profiles, { ...modelSnapshot.profiles[0], id: 2, name: "备用模型", defaultModel: "alternate" },
+      { ...modelSnapshot.profiles[0], id: 3, name: "停用模型", enabled: false },
+    ] });
+    const view = await loaded();
+    const selector = screen.getByRole("combobox", { name: "会话模型" });
+    expect(await screen.findByRole("option", { name: "备用模型 · alternate" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /停用模型/ })).not.toBeInTheDocument();
+    fireEvent.change(selector, { target: { value: "2" } });
+    expect(state.selectProfileOverride).toHaveBeenCalledWith(2);
+    state.busy = true; view.rerender(<QueryClientProvider client={new QueryClient()}><AgentPanel open onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>);
+    expect(screen.getByRole("combobox", { name: "会话模型" })).toBeDisabled();
+  });
+  it("shows a restored override and blocks sending if its profile is unavailable", async () => {
+    state.session = { ...session, profileOverrideId: 42 };
+    await renderPanel();
+    await waitFor(() => expect(screen.getByText("所选模型配置已删除或不可用")).toBeInTheDocument());
+    expect(screen.queryByRole("combobox", { name: "会话模型" })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "问题" }), "问题");
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
+    expect(screen.getByRole("button", { name: "验证工具能力" })).toBeDisabled();
+  });
+  it("shows the general binding model on an existing default session", async () => {
+    state.session = session;
+    mocked.aiSettingsGet.mockResolvedValue({ ...modelSnapshot, bindings: [{ capability: "default", profileId: 1, model: "binding-model" }] });
+    await renderPanel();
+    expect(await screen.findByText("通用配置 · binding-model")).toBeInTheDocument();
+  });
+  it("shows an existing override's profile model instead of the general binding model", async () => {
+    state.session = { ...session, profileOverrideId: 2 };
+    mocked.aiSettingsGet.mockResolvedValue({ ...modelSnapshot,
+      profiles: [...modelSnapshot.profiles, { ...modelSnapshot.profiles[0], id: 2, name: "会话配置", defaultModel: "override-model" }],
+      bindings: [{ capability: "default", profileId: 1, model: "binding-model" }],
+    });
+    await renderPanel();
+    expect(await screen.findByText("会话配置 · override-model")).toBeInTheDocument();
+  });
   it("requires an explicit model probe and reads knowledge only after choosing its tab", async () => {
     await loaded();
     expect(state.probe).not.toHaveBeenCalled(); expect(mocked.knowledge).not.toHaveBeenCalled();
