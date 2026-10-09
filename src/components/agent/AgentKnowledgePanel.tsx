@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AgentScope, AgentSourceCoverage, AgentWorkspaceBinding, AiOverviewItem, KnowledgeSearchCard, OverviewCorrections } from "../../lib/agent-types";
+import type { AgentScope, AgentSessionMessageRef, AgentSourceCoverage, AgentSourceRef, AgentWorkspaceBinding, AiOverviewItem, KnowledgeGetPage, KnowledgeSearchCard, OverviewCorrections, SessionSummarySegment, SessionSummaryStatement } from "../../lib/agent-types";
 import { agentQueryKeys } from "../../lib/agent-query-keys";
 import { formatDateTime } from "../../lib/formatters";
 import { getErrorMessage } from "../../lib/errors";
@@ -14,6 +14,50 @@ const sections: Record<AiOverviewItem["section"], string> = { profile: "项目�
 const statuses = { not_built: "尚未整理", partial: "部分覆盖", ready: "已整理", stale: "资料有更新" };
 const validStates = { current: "当前依据", stale: "依据已变化", disputed: "有争议", unsupported: "缺少依据" };
 const queryOptions = { retry: false, refetchOnWindowFocus: false } as const;
+const statementLabels = { user_plan: "用户计划", user_decision: "用户决定", ai_suggestion: "助手建议",
+  completed_operation: "已执行操作", user_reported_completion: "用户报告已完成" } as const;
+
+function discussionSource(ref: AgentSessionMessageRef): AgentSourceRef {
+  return { object: { workspaceId: ref.workspaceId, scope: ref.scope, kind: "session_message", id: ref.messageId },
+    revision: ref.contentHash, fileVersion: null, recordVersion: null, blockId: null,
+    locator: { kind: "messages", sessionId: ref.sessionId, branchId: ref.branchId,
+      startMessageId: ref.messageId, endMessageId: ref.messageId },
+    title: "原始讨论", excerpt: "" };
+}
+
+function statementSources(statement: SessionSummaryStatement): AgentSourceRef[] {
+  const key = (source: AgentSourceRef) => JSON.stringify([source.object.workspaceId, source.object.scope.kind,
+    source.object.scope.kind === "project" ? source.object.scope.projectId : null,
+    source.object.kind, source.object.id, source.revision]);
+  const sources = new Map(statement.sourceRefs.map(source => [key(source), source] as const));
+  for (const ref of statement.messageRefs) {
+    const source = discussionSource(ref);
+    if (!sources.has(key(source))) sources.set(key(source), source);
+  }
+  return [...sources.values()];
+}
+
+function DiscussionSummary({ segment, binding }: { segment: SessionSummarySegment; binding: AgentWorkspaceBinding }) {
+  return <div className="space-y-2">
+    {segment.topics.length > 0 && <p className="text-caption text-text-muted">讨论主题：{segment.topics.join("、")}</p>}
+    {segment.supersededBy.length > 0 && <p className="text-caption text-text-muted">已被后续结论替代</p>}
+    {segment.statements.map((statement, index) => <div key={`${segment.id}:${index}`} className="space-y-1">
+      <p className="whitespace-pre-wrap break-words text-body text-text"><span className="font-medium">{statementLabels[statement.kind]}：</span>{statement.text}</p>
+      {statementSources(statement).map((source, sourceIndex) => <AgentSourceCard key={sourceIndex} source={source} binding={binding} />)}
+    </div>)}
+  </div>;
+}
+
+function joinedSummary(pages: KnowledgeGetPage[]): string {
+  let text = "";
+  for (const page of pages) {
+    if (!page.summary) continue;
+    const chunk = Array.from(page.summary);
+    const overlap = Math.max(0, text.length ? Array.from(text).length - page.summaryOffset : 0);
+    text += chunk.slice(overlap).join("");
+  }
+  return text;
+}
 
 export function AgentKnowledgePanel({ open = true, ...props }: AgentKnowledgePanelProps) {
   if (!open) return null;
@@ -210,11 +254,24 @@ function KnowledgeNode({ binding, scope, card }: { binding: AgentWorkspaceBindin
   const trigger = useRef<HTMLButtonElement>(null);
   const base = [...agentQueryKeys.scope(binding, scope), "knowledge-node", card.nodeId, card.revision];
   const summary = useInfiniteQuery({ queryKey: [...base, "summary"], enabled: expanded, initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => agentApi.knowledgeGet(binding, { scope, nodeId: card.nodeId, version: card.revision, view: "summary", cursor: pageParam, budgetChars: 2000 }),
+    queryFn: ({ pageParam }) => agentApi.knowledgeGet(binding, { scope, nodeId: card.nodeId, version: card.revision, view: "summary", cursor: pageParam, budgetChars: 8000 }),
     getNextPageParam: page => page.nextCursor ?? undefined, ...queryOptions });
   const outline = useInfiniteQuery({ queryKey: [...base, "outline"], enabled: expanded, initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => agentApi.knowledgeGet(binding, { scope, nodeId: card.nodeId, version: card.revision, view: "outline", cursor: pageParam, budgetChars: 1000 }),
     getNextPageParam: page => page.nextCursor ?? undefined, ...queryOptions });
+  const pages = summary.data?.pages ?? [];
+  const prose = joinedSummary(pages);
+  const metadata = pages.find(page => page.sessionSummary)?.sessionSummary;
+  const numberedStatements = new Map<number, SessionSummaryStatement>();
+  for (const page of pages) {
+    const segment = page.sessionSummary;
+    if (segment) segment.statements.forEach((statement, index) => {
+      numberedStatements.set(segment.statementOffset + index, statement);
+    });
+  }
+  const sessionSummary = metadata && { ...metadata, statements: [...numberedStatements].sort(([a], [b]) => a - b).map(([, statement]) => statement) };
+  const summarySources = [...new Map(pages.flatMap(page => page.sourceRefs).map(source =>
+    [JSON.stringify([source.object, source.revision, source.locator]), source] as const)).values()];
   return <SurfaceCard className="p-3" data-disclosure-list>
     <button ref={trigger} type="button" className="w-full text-left text-ui font-medium text-text" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{card.title}</button>
     {card.stale && <StatusBadge tone="warning">依据已变化</StatusBadge>}
@@ -222,11 +279,12 @@ function KnowledgeNode({ binding, scope, card }: { binding: AgentWorkspaceBindin
     <DisclosurePresence open={expanded} triggerRef={trigger} className="mt-3 space-y-3">
       {summary.isLoading && <p className="text-caption text-text-muted">正在读取摘要…</p>}
       <Failure error={summary.error || outline.error} />
-      {summary.data?.pages.map((page, index) => <div key={index} className="space-y-2">
-        <p className="whitespace-pre-wrap break-words text-body text-text">{page.summary}</p>
-        <Coverage value={page.coverage} />
-        {page.sourceRefs.map((source, sourceIndex) => <AgentSourceCard key={sourceIndex} source={source} binding={binding} />)}
-      </div>)}
+      {pages.length > 0 && <div className="space-y-2">
+        {prose && <p className="whitespace-pre-wrap break-words text-body text-text">{prose}</p>}
+        {sessionSummary && <DiscussionSummary segment={sessionSummary} binding={binding} />}
+        <Coverage value={pages[0].coverage} />
+        {summarySources.map((source, sourceIndex) => <AgentSourceCard key={sourceIndex} source={source} binding={binding} />)}
+      </div>}
       {summary.hasNextPage && <Button size="sm" disabled={summary.isFetchingNextPage} onClick={() => void summary.fetchNextPage()}>更多摘要</Button>}
       {outline.data?.pages.flatMap(page => page.sections).map(section => <KnowledgeSection key={section.id} binding={binding} scope={scope} card={card} id={section.id} title={section.title} />)}
       {outline.hasNextPage && <Button size="sm" disabled={outline.isFetchingNextPage} onClick={() => void outline.fetchNextPage()}>更多章节</Button>}

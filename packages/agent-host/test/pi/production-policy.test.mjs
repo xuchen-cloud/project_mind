@@ -38,6 +38,26 @@ test('production rejects unregistered discovery, duplicate tools and unbounded s
   assert.ok(!JSON.stringify(frames).includes('pipe-only-key'));
 });
 
+test('only explicit production session policy installs the Native history check', async () => {
+  const profile = { providerFamily: 'openai_compatible', enabled: true, supportsText: true,
+    baseUrl: 'https://fixture.example/v1', defaultModel: 'fixture' };
+  for (const [probe, flag, enabled] of [[false, true, true], [false, false, false], [true, true, false]]) {
+    const frames = [];
+    let policy;
+    const host = createHostProtocol({ workspaceRoot: '/tmp/workspace', probe,
+      write: (value) => frames.push(value),
+      makeSession: async (options) => {
+        policy = options.historyPolicy;
+        return { activeTools: () => [], dispose: async () => {} };
+      } });
+    await host.handle(frame('initialize', { workspaceRoot: '/tmp/workspace', systemPrompt: 'Trusted prompt', tools: [descriptor] }));
+    await host.handle(frame('session.open', { sessionId: 'a'.repeat(32), apiKey: 'private-fixture-key',
+      profile, toolCallingVerified: true, hostOwnedHistoryPolicy: flag }));
+    assert.equal(frames.at(-1).ok, true);
+    assert.equal(typeof policy === 'function', enabled);
+  }
+});
+
 test('trusted File input schemas bound large source text and base64 chunks without enabling primitive writes', () => {
   const tool = { ...descriptor, method: 'output.stage', parameters: { type: 'object', properties: { utf8Content: { type: 'string', maxLength: 2 * 1024 * 1024 } }, required: ['utf8Content'], additionalProperties: false } };
   assert.deepEqual(validateToolDescriptors([tool]), [tool]);

@@ -35,6 +35,7 @@ pub mod service;
 pub mod sessions;
 pub mod settings;
 pub(crate) mod source_navigation;
+pub(crate) mod source_trace;
 pub(crate) mod tools;
 pub(crate) mod todo_outputs;
 pub(crate) mod todo_tools;
@@ -47,3 +48,5 @@ mod tests;
 
 #[cfg(test)]
 mod file_dispatch_tests;
+
+pub(crate) mod model_history;

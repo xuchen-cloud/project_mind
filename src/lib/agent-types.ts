@@ -198,6 +198,27 @@ export interface KnowledgeRelatedCard {
   relation: "related" | "supports" | "contradicts";
   reason: string;
 }
+export type SessionSummaryStatementKind = "user_plan" | "user_decision" | "ai_suggestion" | "completed_operation" | "user_reported_completion";
+export interface SessionSummaryStatement {
+  text: string;
+  kind: SessionSummaryStatementKind;
+  messageRefs: AgentSessionMessageRef[];
+  sourceRefs: AgentSourceRef[];
+  operationReceiptId: string | null;
+}
+export interface SessionSummarySegment {
+  id: string;
+  sessionId: string;
+  branchId: string;
+  revision: number;
+  startEntryId: string;
+  endEntryId: string;
+  topics: string[];
+  statements: SessionSummaryStatement[];
+  statementOffset: number;
+  statementTotal: number;
+  supersededBy: Array<{ nodeId: KnowledgeNodeId; revision: number }>;
+}
 export interface KnowledgeGetPage {
   scope: AgentScope;
   nodeId: KnowledgeNodeId;
@@ -209,6 +230,7 @@ export interface KnowledgeGetPage {
   summaryOffset: number;
   sections: KnowledgeReadSection[];
   sourceRefs: AgentSourceRef[];
+  sessionSummary?: SessionSummarySegment | null;
   related: KnowledgeRelatedCard[];
   coverage: AgentSourceCoverage;
   stale: boolean;

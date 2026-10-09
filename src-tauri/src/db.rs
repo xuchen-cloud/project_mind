@@ -1,8 +1,13 @@
 pub(crate) mod agent;
 mod agent_profiles;
 mod agent_sessions;
+mod agent_session_maintenance;
+mod agent_session_summary;
 pub(crate) mod agent_session_search;
 mod agent_session_search_schema;
+pub(crate) mod agent_run_provenance;
+pub(crate) mod agent_session_model_search;
+mod agent_run_provenance_schema;
 mod agent_runtime_schema;
 mod agent_operations;
 mod agent_operation_batches;
@@ -127,7 +132,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = agent_session_search_schema::AGENT_SESSION_SEARCH_SCHEMA_VERSION;
+const CURRENT_SCHEMA_VERSION: i64 = agent_run_provenance_schema::AGENT_RUN_PROVENANCE_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -842,6 +847,7 @@ impl Database {
         self.ensure_todo_revision_schema()?;
         self.ensure_file_output_schema()?;
         self.ensure_agent_session_search_schema()?;
+        self.ensure_agent_run_provenance_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -9119,6 +9125,8 @@ mod tests {
     /// declares an old version; production migrations retain strict CREATE.
     fn remove_later_agent_schema_fixture(database: &Database) {
         database.conn.execute_batch(r#"
+DROP TABLE agent_run_source_dependencies;
+DROP TABLE agent_run_provenance;
 DROP TABLE agent_session_scan_state;
 DROP INDEX agent_session_search_rows_session;
 DROP TRIGGER agent_session_search_row_delete;

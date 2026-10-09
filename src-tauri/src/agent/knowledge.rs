@@ -2,8 +2,9 @@
 use super::{
     context::{EpistemicStatus, SourceCoverage, ValidState},
     errors::{AgentError, AgentResult, ErrorCode},
-    models::{Scope, SourceRef},
+    models::{ObjectKind, Scope, SourceLocator, SourceRef},
     overview::{invalid, validate_id},
+    sessions::SessionSummarySegment,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -53,6 +54,8 @@ pub struct KnowledgeNodeWrite {
     pub epistemic_status: EpistemicStatus,
     pub coverage: SourceCoverage,
     pub related: Vec<KnowledgeRelated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_summary: Option<SessionSummarySegment>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,6 +74,8 @@ pub struct KnowledgeNode {
     pub epistemic_status: EpistemicStatus,
     pub coverage: SourceCoverage,
     pub related: Vec<KnowledgeRelated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_summary: Option<SessionSummarySegment>,
     pub updated_at: String,
     pub valid_state: ValidState,
 }
@@ -95,6 +100,7 @@ impl KnowledgeNodeWrite {
                 .iter()
                 .map(|r| r.reason.chars().count())
                 .sum::<usize>()
+            + self.session_summary.as_ref().map_or(0, |segment| segment.summary.chars().count() + segment.statements.iter().map(|statement| statement.text.chars().count()).sum::<usize>())
     }
     pub(crate) fn validate(&self, scope: &Scope) -> AgentResult<()> {
         validate_id(&self.node_id)?;
@@ -102,12 +108,12 @@ impl KnowledgeNodeWrite {
             || self.title.is_empty()
             || self.title.chars().count() > 200
             || self.one_line.chars().count() > 300
-            || self.summary.chars().count() > 2000
+            || self.summary.chars().count() > (if self.session_summary.is_some() { 2500 } else { 2000 })
             || self.body_sections.len() > 20
             || self.aliases.len() > 20
             || self.keywords.len() > 20
             || self.related.len() > 5
-            || self.source_refs.len() > 20
+            || self.source_refs.len() > (if self.session_summary.is_some() { 50 } else { 20 })
         {
             return Err(invalid("Knowledge metadata exceeds bounds"));
         }
@@ -164,7 +170,7 @@ impl KnowledgeNodeWrite {
                 return Err(invalid("Knowledge source metadata exceeds bounds or scope"));
             }
         }
-        if self.kind == KnowledgeKind::SourceSummary {
+        if self.kind == KnowledgeKind::SourceSummary && self.session_summary.is_none() {
             let sources = self
                 .source_refs
                 .iter()
@@ -173,6 +179,37 @@ impl KnowledgeNodeWrite {
             if sources.len() != 1 {
                 return Err(invalid("Source summary requires one source object"));
             }
+        }
+        if let Some(segment) = &self.session_summary {
+            if self.kind != KnowledgeKind::SourceSummary || self.source_refs.is_empty() || segment.summary != self.summary
+                || segment.id != self.node_id || segment.revision != self.expected_revision + 1
+                || segment.statements.iter().any(|statement| {
+                    statement.message_refs.is_empty() || statement.message_refs.iter().any(|message| {
+                        message.scope != *scope || message.session_id != segment.session_id
+                            || message.branch_id != segment.branch_id
+                            || !statement.source_refs.iter().any(|source| {
+                                source.object.kind == ObjectKind::SessionMessage
+                                    && source.object.id == message.message_id
+                                    && source.object.workspace_id == message.workspace_id
+                                    && source.object.scope == message.scope
+                                    && source.revision == message.content_hash
+                                    && self.source_refs.iter().any(|node_source| node_source.object == source.object && node_source.revision == source.revision
+                                        && matches!(&node_source.locator, Some(SourceLocator::Messages {session_id, branch_id, start_message_id, end_message_id})
+                                            if session_id == &message.session_id && branch_id == &message.branch_id
+                                            && start_message_id == &message.message_id && end_message_id == &message.message_id))
+                                    && matches!(&source.locator, Some(SourceLocator::Messages {session_id, branch_id, start_message_id, end_message_id})
+                                        if session_id == &message.session_id && branch_id == &message.branch_id
+                                        && start_message_id == &message.message_id && end_message_id == &message.message_id)
+                            })
+                    })
+                })
+                || self.source_refs.iter().any(|source| source.object.kind != ObjectKind::SessionMessage
+                    || !matches!(&source.locator, Some(SourceLocator::Messages {session_id, branch_id, ..})
+                        if session_id == &segment.session_id && branch_id == &segment.branch_id))
+            {
+                return Err(invalid("Invalid session summary knowledge node"));
+            }
+            segment.validate()?;
         }
         let mut related = HashSet::new();
         for edge in &self.related {
@@ -204,6 +241,7 @@ impl KnowledgeNodeWrite {
             epistemic_status: self.epistemic_status.clone(),
             coverage: self.coverage.clone(),
             related: self.related.clone(),
+            session_summary: self.session_summary.clone(),
             updated_at,
             valid_state: ValidState::Current,
         }

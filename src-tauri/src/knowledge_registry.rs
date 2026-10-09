@@ -6,6 +6,7 @@ use crate::{
         errors::{AgentError, AgentResult, ErrorCode},
         models::{Scope, WorkspaceBinding},
         overview::validate_id,
+        source_trace::derived_source_visible,
     },
     db::Database,
     knowledge_service::{
@@ -136,6 +137,7 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
                 title: title(&item.section),
                 view: input.view,
                 summary: None,
+                session_summary: None,
                 summary_offset: 0,
                 sections: vec![KnowledgeReadSection {
                     id: "body".into(),
@@ -202,6 +204,7 @@ impl<'a, S: BoundSourceStore> KnowledgeRegistry<'a, S> {
             title: section_title,
             view: input.view,
             summary,
+            session_summary: None,
             summary_offset: if input.view == KnowledgeView::Summary {
                 read.text_offset
             } else {
@@ -413,12 +416,13 @@ fn overview_current(
         .collect();
     for item in &snapshot.items {
         for reference in &item.source_refs {
-            match db.source_read_object(&source_request, binding, &reference.object) {
+            match derived_source_visible(db, &source_request, binding, reference) {
                 Ok(_) => (),
                 Err(error)
                     if matches!(
                         error.code,
                         ErrorCode::NotFound | ErrorCode::ScopeDenied | ErrorCode::SourceNotReady
+                            | ErrorCode::SourceChanged | ErrorCode::ObjectWithdrawn
                     ) =>
                 {
                     hidden.insert(item.id.clone());
@@ -631,6 +635,7 @@ mod tests {
                 epistemic_status: EpistemicStatus::Recorded,
                 coverage: coverage.clone(),
                 related: vec![],
+                session_summary: None,
             })
             .collect();
         let input = OverviewPublishInput {

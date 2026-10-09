@@ -47,6 +47,8 @@ pub(crate) fn request(
                 "context.read",
                 "knowledge.write",
                 "source.read",
+                "session.read",
+                "operation.read",
             ]
             .map(str::to_owned)
             .to_vec(),
@@ -152,6 +154,7 @@ pub(crate) async fn step<
     R: crate::record_document_service::DocumentUtility,
     F: SourceUtility,
     M: OverviewModel,
+    H: crate::source_session_read::SessionHistoryUtility,
 >(
     store: &S,
     request: &RequestContext,
@@ -159,8 +162,15 @@ pub(crate) async fn step<
     record: &R,
     file: &F,
     model: &M,
+    history: &H,
 ) -> AgentResult<bool> {
     store.with_current(|binding, db| active(db, binding, request, scope))?;
+    if history.advance_index(&request.binding, request, scope).await? {
+        return Ok(true);
+    }
+    if store.with_current(|binding, db| db.agent_session_maintenance_seed(binding, scope, 200))? {
+        return Ok(true);
+    }
     let service = OverviewService::new(store);
     let inventory_complete = store.with_current(|binding, db| {
         Ok(db
@@ -186,7 +196,7 @@ pub(crate) async fn step<
     let mut batch_request = request.clone();
     batch_request.request_id = format!("overview-{}", batch.batch_id);
     let result = {
-        let work = process_batch(store, &batch_request, &batch, record, file, model);
+        let work = process_batch(store, &batch_request, &batch, record, file, model, history);
         tokio::pin!(work);
         loop {
             tokio::select! {
@@ -225,6 +235,7 @@ async fn process_batch<
     R: crate::record_document_service::DocumentUtility,
     F: SourceUtility,
     M: OverviewModel,
+    H: crate::source_session_read::SessionHistoryUtility,
 >(
     store: &S,
     request: &RequestContext,
@@ -232,6 +243,7 @@ async fn process_batch<
     record: &R,
     file: &F,
     model: &M,
+    history: &H,
 ) -> AgentResult<()> {
     let service = OverviewService::new(store);
     // A crash after publish must not charge another model call or reread a source
@@ -253,10 +265,21 @@ async fn process_batch<
         state: OverviewSourceState::Processed,
         handled_seq: batch.source.last_seq,
     };
+    let conversation_data = if !batch.source.deleted && !batch.source.excluded {
+        crate::overview_session::input(store, request, &batch.source_read_target.clone().unwrap_or(SourceReadTarget {
+            object: batch.source_object.clone(), revision: None, record_version: None, file_version: None,
+        }))?
+    } else { None };
     if batch.source.deleted {
         progress.state = OverviewSourceState::Deleted;
     } else if batch.source.excluded {
         progress.state = OverviewSourceState::Excluded;
+    } else if batch.source_object.kind == ObjectKind::SessionSummary {
+        // Summary policy events are metadata invalidations. Its original
+        // messages own generation; never summarize a summary again.
+        progress.state = OverviewSourceState::Processed;
+    } else if batch.source_object.kind == ObjectKind::SessionMessage && conversation_data.is_none() {
+        progress.state = OverviewSourceState::Unsupported;
     } else {
         let target = batch
             .source_read_target
@@ -274,8 +297,11 @@ async fn process_batch<
             cursor: batch.source_cursor.clone(),
             budget_chars: Some(12000),
         };
-        let (page, proof) =
-            crate::overview_evidence::capture(store, request, &input, record, file).await?;
+        let (page, proof) = if batch.source_object.kind == ObjectKind::SessionMessage {
+            crate::overview_evidence::capture_session(store, request, &input, history).await?
+        } else {
+            crate::overview_evidence::capture(store, request, &input, record, file).await?
+        };
         progress.read_target = Some(SourceReadTarget {
             revision: Some(page.source_ref.revision.clone()),
             ..input.source
@@ -364,6 +390,9 @@ async fn process_batch<
                 .map(|item| item.id.clone())
                 .collect(),
         };
+        if let Some((record, _, _)) = &conversation_data {
+            allowed.affected_ids.extend(crate::overview_session::predecessors(store, record, old_items)?);
+        }
         loop {
             let before = allowed.affected_ids.len();
             let children: Vec<_> = old_items
@@ -422,7 +451,8 @@ async fn process_batch<
                 relevant_items: &relevant,
                 corrections: &corrections,
                 source_pages: &pages,
-                prior_source_summary: None,
+                prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
+                conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
             })?;
             model.ready()?;
             let reserved = store.with_current(|binding, db| {
@@ -443,12 +473,12 @@ async fn process_batch<
             }
             let generated = model.generate(&batch.batch_id, &prompt).await?;
             let refs: Vec<_> = evidence.iter().map(|v| v.reference().clone()).collect();
-            let delta = crate::overview_generation::parse_delta(
-                &generated.text,
-                &allowed,
-                &refs,
-                &Utc::now().to_rfc3339(),
-            )?;
+            let parsed_session = conversation_data.as_ref().map(|(_, conversation, _)| {
+                crate::overview_generation::parse_session_delta(&generated.text, &allowed, &refs, &Utc::now().to_rfc3339(), conversation)
+            }).transpose()?;
+            let delta = if let Some(parsed) = &parsed_session { parsed.overview.clone() } else {
+                crate::overview_generation::parse_delta(&generated.text, &allowed, &refs, &Utc::now().to_rfc3339())?
+            };
             publish.model_profile_id = generated.model_profile_id;
             publish.upsert_items = delta.upsert_items;
             publish.remove_item_ids = delta.remove_item_ids;
@@ -461,10 +491,16 @@ async fn process_batch<
                 );
                 let previous = store
                     .with_current(|_, db| db.agent_knowledge_get(&batch.scope, &node_id, None))?;
+                let expected_revision = previous.map_or(0, |v| v.revision);
+                let session_summary = match (&conversation_data, &parsed_session) {
+                    (Some((record, conversation, _)), Some(parsed)) => Some(crate::overview_session::segment(record, batch.source_cursor.as_deref(), &pages[0].text, &node_id, expected_revision + 1, &summary, parsed, conversation)?),
+                    _ => None,
+                };
                 publish.knowledge_upserts.push(KnowledgeNodeWrite {
                     node_id,
-                    expected_revision: previous.map_or(0, |v| v.revision),
+                    expected_revision,
                     kind: KnowledgeKind::SourceSummary,
+                    session_summary,
                     title: summary.title,
                     one_line: summary.one_line,
                     summary: summary.summary,
@@ -552,7 +588,10 @@ pub(crate) fn start(app: &tauri::AppHandle) {
                     format!("overview-inventory-{:032x}", rand::random::<u128>()),
                 );
                 let model = crate::overview_model::AppOverviewModel::new(app.clone(), binding);
-                if let Err(error) = step(&*state, &request, &scope, &record, &file, &model).await {
+                let runtime = crate::lock_mutex(&state.current_workspace).clone();
+                let Some(runtime) = runtime.filter(|runtime| runtime.agent_binding == request.binding) else { continue; };
+                let history = crate::agent::model_history::AppSessionHistoryUtility { app: app.clone(), runtime };
+                if let Err(error) = step(&*state, &request, &scope, &record, &file, &model, &history).await {
                     if !matches!(
                         error.code,
                         ErrorCode::Cancelled

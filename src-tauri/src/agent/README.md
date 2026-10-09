@@ -28,7 +28,7 @@ Project 有已发布 Overview 时，L0 返回首个可见 profile 的 ≤300 字
 | `settings.rs` / `instructions.rs` / `changes.rs` | 用户 scope 配置、上下文说明、授权分页变更补读 | AI-02 |
 | `context.rs` | AI Overview 独立 DTO、L0 上限、每 run 字符预算 | AI-04 |
 | `maintenance.rs` | 来源变化、水位批次与成功后确认的 repository 契约 | AI-03/04/11/12 |
-| `sessions.rs` | 持久会话元信息、带原始消息证据的分段摘要契约 | AI-05/08 |
+| `sessions.rs` / `model_history.rs` / `source_trace.rs` | Pi 原文搜索回读、可信输入来源账本、分段摘要契约 | AI-05/08 |
 | `runtime.rs` | Run 状态机、运行时适配器、带 Workspace 代际的事件 | AI-01/05/13 |
 | `outputs.rs` | 正文树块操作、CAS、File Version 基线、成果及收据契约 | AI-07/16/17/19 |
 | `capabilities.rs` | 操作权限与实现状态的共同发现入口 | AI-09 |
@@ -36,6 +36,12 @@ Project 有已发布 Overview 时，L0 返回首个可见 profile 的 ≤300 字
 | `../../../packages/agent-host` | 独立 Node 包，JSONL 帧验证、握手和关闭 | AI-01/05 |
 | `../../../src/services/agentApi.ts` | typed Tauri API、结构化错误 | AI-06 |
 | `../../../src/lib/agent-query-keys.ts` | Workspace + generation + scope 的查询隔离 | AI-06 |
+
+## 会话记忆接入
+
+`session.search` → `session.messages.read` 从独立历史索引定位，再经 Pi checkpoint 校验读取原文。schema 35 记录 Host 实际交付给 Run 的来源依赖；每次 provider 请求前调用内部 `session.context.check`，过滤无权历史并检查当前 Run 已观察来源。该内部检查不暴露为模型工具，也不占业务工具次数。
+
+R10 维护批次从原始消息生成 `KnowledgeNode.session_summary`，与 Overview 同事务发布；`source.search`/`source.read` 支持 `session_summary`。用户通过已有知识详情查看计划、建议、决定、操作收据及替代状态。来源排除同时影响派生读取与继续会话，可信 GUI 的原文查看保留。实现边界、开源依据与验收状态见[会话记忆设计](../../../docs/conversation-memory.md)；CLI/MCP transport 仍由 R12 接入。
 
 ## 不应绕过的边界
 

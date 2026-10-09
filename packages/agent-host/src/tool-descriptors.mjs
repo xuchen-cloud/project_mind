@@ -1,5 +1,5 @@
 // This is a second, small allowlist; Rust still owns grants and argument checks.
-export const READ_METHODS = new Set(['context.get', 'context.overview.get', 'knowledge.search', 'knowledge.get', 'source.search', 'source.read', 'todo.get', 'file.source.read', 'file.versions.list', 'file.versions.get']);
+export const READ_METHODS = new Set(['context.get', 'context.overview.get', 'knowledge.search', 'knowledge.get', 'source.search', 'source.read', 'todo.get', 'file.source.read', 'file.versions.list', 'file.versions.get', 'session.search', 'session.messages.read']);
 // Registration is supplied by the trusted Host after its mode/grant checks.
 // Business mutations still execute in Rust and require durable undo receipts.
 const RECORD_METHODS = new Set(['record.blocks.get', 'output.stage', 'output.get', 'output.list', 'output.commit', 'operation.get', 'operation.list', 'operation.undo', 'operation.restore_created', 'file.content.begin', 'file.content.chunk', 'file.content.complete', 'file.content.status']);

@@ -343,6 +343,7 @@ mod tests {
             epistemic_status: EpistemicStatus::Inferred,
             coverage: coverage(),
             related: vec![],
+            session_summary: None,
         }
     }
     fn input(db: &Database, scope: &Scope, revision: u64) -> OverviewPublishInput {

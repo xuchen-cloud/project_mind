@@ -5,14 +5,17 @@ use crate::{
         context::{serialized_chars, EpistemicStatus, SourceCoverage, ValidState},
         errors::{AgentError, AgentResult, ErrorCode},
         knowledge::{KnowledgeKind, KnowledgeNode, KnowledgeRelation},
-        models::{Scope, SourceRef, WorkspaceBinding},
+        models::{ObjectKind,ObjectRef,Scope, SourceRef, WorkspaceBinding},
         overview::validate_id,
         repository::ContextRepository,
+        sessions::{SessionSummarySegment,SummaryStatement},
         settings::SettingsRepository,
+        source_trace::derived_source_visible,
     },
     db::Database,
     overview_evidence::{reference_file_plan, reference_state, FileReferenceProof},
     source_service::BoundSourceStore,
+    source_session_summary::SupersedingSummary,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
@@ -62,6 +65,26 @@ pub(crate) struct KnowledgeRelatedCard {
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct SessionSummaryView {
+    pub id:String,
+    pub session_id:String,
+    pub branch_id:String,
+    pub revision:u64,
+    pub start_entry_id:String,
+    pub end_entry_id:String,
+    pub topics:Vec<String>,
+    pub statements:Vec<SummaryStatement>,
+    pub statement_offset:usize,
+    pub statement_total:usize,
+    pub superseded_by:Vec<SupersedingSummary>,
+}
+impl SessionSummaryView {
+    fn from_segment(value:&SessionSummarySegment,start:usize)->Self {
+        Self {id:value.id.clone(),session_id:value.session_id.clone(),branch_id:value.branch_id.clone(),revision:value.revision,start_entry_id:value.start_entry_id.clone(),end_entry_id:value.end_entry_id.clone(),topics:value.topics.clone(),statements:vec![],statement_offset:start,statement_total:value.statements.len(),superseded_by:vec![]}
+    }
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct KnowledgeGetPage {
     pub scope: Scope,
     pub node_id: String,
@@ -70,6 +93,9 @@ pub(crate) struct KnowledgeGetPage {
     pub title: String,
     pub view: KnowledgeView,
     pub summary: Option<String>,
+    /// Present only on the first summary page for a source-backed session summary node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_summary: Option<SessionSummaryView>,
     pub summary_offset: usize,
     pub sections: Vec<KnowledgeReadSection>,
     pub source_refs: Vec<SourceRef>,
@@ -224,8 +250,21 @@ fn visible_metadata(
     binding: &WorkspaceBinding,
     node: &KnowledgeNode,
 ) -> AgentResult<bool> {
+    if node.session_summary.is_some() {
+        match request.authorize(binding,&node.scope,"session.read") {
+            Ok(())=>(),
+            Err(error) if unavailable(&error)=>return Ok(false),
+            Err(error)=>return Err(error),
+        }
+        let object=ObjectRef {workspace_id:binding.workspace_id.clone(),scope:node.scope.clone(),kind:ObjectKind::SessionSummary,id:node.node_id.clone()};
+        match db.source_read_object(request,binding,&object) {
+            Ok(_)=>(),
+            Err(error) if unavailable(&error)=>return Ok(false),
+            Err(error)=>return Err(error),
+        }
+    }
     for reference in &node.source_refs {
-        match db.source_read_object(request, binding, &reference.object) {
+        match derived_source_visible(db, request, binding, reference) {
             Ok(_) => (),
             Err(error) if unavailable(&error) => return Ok(false),
             Err(error) => return Err(error),
@@ -413,11 +452,14 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
                 }
             }
             let cards = related(db, &source_request, binding, &snapshot)?;
-            let visibility = hash(&(&snapshot.source_refs, &cards, stale))?;
+            let superseders=if input.view==KnowledgeView::Summary && snapshot.session_summary.is_some() {
+                crate::source_session_summary::superseded_by(db,&source_request,binding,&snapshot)?
+            } else {vec![]};
+            let visibility = hash(&(&snapshot.source_refs, &cards, stale, &superseders))?;
             if cursor.as_ref().is_some_and(|c| c.v != visibility) {
                 return Err(changed());
             }
-            project(
+            project_with_superseders(
                 input,
                 &snapshot,
                 cards,
@@ -426,6 +468,7 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
                 &visibility,
                 cursor.as_ref(),
                 budget,
+                &superseders,
             )
         })
     }
@@ -580,7 +623,71 @@ fn trim_related(page: &mut KnowledgeGetPage, budget: usize) -> AgentResult<()> {
     }
     Ok(())
 }
-fn project(
+fn project_session_summary(
+    input:&KnowledgeGetInput,node:&KnowledgeNode,segment:&SessionSummarySegment,
+    mut page:KnowledgeGetPage,selection:&str,visibility:&str,cursor:Option<&ReadCursor>,budget:usize,
+    superseders:&[SupersedingSummary],
+)->AgentResult<KnowledgeGetPage> {
+    let (start,offset)=cursor.map_or((0,0),|c|(c.i,c.o));
+    let chars:Vec<char>=node.summary.chars().collect();
+    let count=segment.statements.len();
+    if start>count || offset>chars.len() || (start>0 && offset!=chars.len())
+        || cursor.is_some() && start==count && offset==chars.len() {
+        return Err(invalid("Invalid session summary cursor"));
+    }
+    let next=|index,offset|encode(&ReadCursor {s:input.scope.clone(),n:node.node_id.clone(),r:node.revision,q:selection.into(),v:visibility.into(),i:index,o:offset});
+    // Statements carry their own source cards. A prose-only segment still
+    // needs its node-level original-message sources in the read response.
+    if count>0 {page.source_refs.clear();}
+    page.summary_offset=offset;
+    if offset<chars.len() {
+        if cursor.is_none() {
+            let mut view=SessionSummaryView::from_segment(segment,0);
+            view.superseded_by=superseders.to_vec();
+            page.session_summary=Some(view);
+        }
+        let remaining=chars.len()-offset;
+        let mut full=page.clone();
+        full.summary=Some(chars[offset..].iter().collect());
+        if count>start {
+            let view=full.session_summary.get_or_insert_with(||SessionSummaryView::from_segment(segment,start));
+            view.statements.extend(segment.statements[start..].iter().cloned());
+        }
+        full.next_cursor=None;
+        if trim_related(&mut full,budget).is_ok() {return Ok(full);}
+        let mut full=page.clone();
+        full.summary=Some(chars[offset..].iter().collect());
+        full.next_cursor=(count>start).then(||next(start,chars.len())).transpose()?;
+        if trim_related(&mut full,budget).is_ok() {return Ok(full);}
+        page.summary=Some(chars[offset..offset+1].iter().collect());
+        page.next_cursor=Some(next(start,offset+1)?);
+        trim_related(&mut page,budget)?;
+        let mut low=1usize;
+        let mut high=remaining;
+        while low<high {
+            let len=low+(high-low+1)/2;
+            page.summary=Some(chars[offset..offset+len].iter().collect());
+            page.next_cursor=if len<remaining || start<count {Some(next(start,offset+len)?)} else {None};
+            if serialized_chars(&page)?<=budget {low=len;} else {high=len-1;}
+        }
+        page.summary=Some(chars[offset..offset+low].iter().collect());
+        page.next_cursor=if low<remaining || start<count {Some(next(start,offset+low)?)} else {None};
+        return Ok(page);
+    }
+    page.summary=None;
+    let mut view=SessionSummaryView::from_segment(segment,start);
+    if cursor.is_none() {view.superseded_by=superseders.to_vec();}
+    page.session_summary=Some(view);
+    if count==0 {trim_related(&mut page,budget)?;return Ok(page);}
+    for (index,statement) in segment.statements.iter().enumerate().skip(start) {
+        let mut candidate=page.clone();
+        candidate.session_summary.as_mut().unwrap().statements.push(statement.clone());
+        candidate.next_cursor=(index+1<count).then(||next(index+1,chars.len())).transpose()?;
+        if trim_related(&mut candidate,budget).is_ok() {page=candidate;} else if index==start {return Err(budget_error());} else {break;}
+    }
+    Ok(page)
+}
+fn project_with_superseders(
     input: &KnowledgeGetInput,
     node: &KnowledgeNode,
     related: Vec<KnowledgeRelatedCard>,
@@ -589,6 +696,7 @@ fn project(
     visibility: &str,
     cursor: Option<&ReadCursor>,
     budget: usize,
+    superseders:&[SupersedingSummary],
 ) -> AgentResult<KnowledgeGetPage> {
     let (start, offset) = cursor.map_or((0, 0), |c| (c.i, c.o));
     let next = |index, offset| {
@@ -610,6 +718,7 @@ fn project(
         title: node.title.clone(),
         view: input.view,
         summary: None,
+        session_summary: None,
         summary_offset: 0,
         sections: vec![],
         source_refs: if input.view == KnowledgeView::Outline {
@@ -628,6 +737,11 @@ fn project(
         },
         next_cursor: None,
     };
+    if input.view==KnowledgeView::Summary {
+        if let Some(segment)=node.session_summary.as_ref() {
+            return project_session_summary(input,node,segment,page,selection,visibility,cursor,budget,superseders);
+        }
+    }
     if input.view == KnowledgeView::Summary {
         let chars: Vec<char> = node.summary.chars().collect();
         if start != 0 || offset > chars.len() {
@@ -797,6 +911,11 @@ fn project(
         return Err(budget_error());
     }
     Ok(page)
+}
+
+#[cfg(test)]
+fn project(input:&KnowledgeGetInput,node:&KnowledgeNode,related:Vec<KnowledgeRelatedCard>,stale:bool,selection:&str,visibility:&str,cursor:Option<&ReadCursor>,budget:usize)->AgentResult<KnowledgeGetPage> {
+    project_with_superseders(input,node,related,stale,selection,visibility,cursor,budget,&[])
 }
 
 #[cfg(test)]
@@ -988,6 +1107,7 @@ mod tests {
                 pending: 0,
             },
             related: vec![],
+            session_summary: None,
         }
     }
     async fn publish(f: &Fixture, nodes: Vec<KnowledgeNodeWrite>, request_id: &str) {
@@ -1115,6 +1235,88 @@ mod tests {
             service.get(&request, &read).await.unwrap_err().code,
             ErrorCode::SourceChanged
         );
+    }
+    #[tokio::test]
+    async fn session_summary_metadata_uses_summary_page_budget_once() {
+        let f = fixture().await;
+        let mut draft = node(&f, "session", 0);
+        draft.summary = "摘要🙂".repeat(500);
+        draft.session_summary = Some(SessionSummarySegment {
+            id: "session".into(), session_id: "session-id".into(), branch_id: "branch".into(),
+            revision: 1, start_entry_id: "first".into(), end_entry_id: "last".into(),
+            start_char: None, end_char: None, summary: draft.summary.clone(), topics: vec![],
+            statements: vec![], artifact_refs: vec![], supersedes: vec![],
+            input_hash: format!("sha256:{}", "a".repeat(64)),
+        });
+        let snapshot = draft.snapshot(&f.scope,"now".into());
+        let mut read = input(&f,"session");
+        read.budget_chars = Some(1200);
+        let first = project(&read,&snapshot,vec![],false,"selection","visibility",None,1200).unwrap();
+        assert!(first.session_summary.is_some());
+        assert_eq!(first.source_refs.len(),1,"prose-only summary retains its original source");
+        assert!(serialized_chars(&first).unwrap() <= 1200);
+        let cursor: ReadCursor = decode(first.next_cursor.as_deref().expect("summary should continue")).unwrap();
+        assert!(cursor.o > 0);
+        let later = project(&read,&snapshot,vec![],false,"selection","visibility",Some(&cursor),1200).unwrap();
+        assert!(later.session_summary.is_none());
+        assert!(serialized_chars(&later).unwrap() <= 1200);
+        read.view = KnowledgeView::Content;
+        let content = project(&read,&snapshot,vec![],false,"selection","visibility",None,5000).unwrap();
+        assert!(content.session_summary.is_none());
+    }
+    #[tokio::test]
+    async fn session_summary_statements_page_without_losing_sources() {
+        use crate::agent::{models::MessageRef,sessions::{StatementKind,SummaryStatement}};
+        let f=fixture().await;
+        let mut draft=node(&f,"session-many",0);
+        draft.summary="中文讨论摘要".repeat(100);
+        let statements:(Vec<SummaryStatement>)=(0..50).map(|index|SummaryStatement {
+            text:format!("决定 {index}: {}","原始证据内容".repeat(12)),
+            kind:StatementKind::UserDecision,
+            message_refs:vec![MessageRef {workspace_id:"w".into(),scope:f.scope.clone(),session_id:"1".repeat(32),branch_id:"old-branch".into(),message_id:format!("{index:032x}"),ordinal:index as u64,content_hash:format!("sha256:{}","a".repeat(64))}],
+            source_refs:vec![f.evidence[0].reference().clone()],
+            operation_receipt_id:None,
+        }).collect();
+        draft.session_summary=Some(SessionSummarySegment {id:"many".into(),session_id:"1".repeat(32),branch_id:"old-branch".into(),revision:1,start_entry_id:"first".into(),end_entry_id:"last".into(),start_char:None,end_char:None,summary:draft.summary.clone(),topics:vec!["可追溯讨论".into()],statements:statements.clone(),artifact_refs:vec![],supersedes:vec![],input_hash:format!("sha256:{}","a".repeat(64))});
+        let snapshot=draft.snapshot(&f.scope,"now".into());
+        let mut read=input(&f,"session-many");read.budget_chars=Some(8000);
+        let mut small=snapshot.clone();
+        small.session_summary.as_mut().unwrap().statements.truncate(1);
+        let one=project(&read,&small,vec![],false,"selection","visibility",None,8000).unwrap();
+        assert!(one.summary.as_ref().is_some_and(|text|!text.is_empty()));
+        assert_eq!(one.session_summary.as_ref().unwrap().statements.len(),1);
+        assert!(one.next_cursor.is_none());
+        assert!(serialized_chars(&one).unwrap()<=8000);
+        let successor=SupersedingSummary {node_id:"newer-summary".into(),revision:2};
+        let first_with_successor=project_with_superseders(&read,&snapshot,vec![],false,"selection","visibility",None,8000,&[successor.clone()]).unwrap();
+        assert_eq!(first_with_successor.session_summary.as_ref().unwrap().superseded_by[0].node_id,"newer-summary");
+        assert_ne!(hash(&(&snapshot.source_refs,&Vec::<KnowledgeRelatedCard>::new(),false,&vec![successor])) .unwrap(),hash(&(&snapshot.source_refs,&Vec::<KnowledgeRelatedCard>::new(),false,&Vec::<SupersedingSummary>::new())).unwrap());
+        let mut cursor:Option<ReadCursor>=None;
+        let mut collected=vec![];
+        let mut pages=0;
+        loop {
+            let page=project(&read,&snapshot,vec![],false,"selection","visibility",cursor.as_ref(),8000).unwrap();
+            assert!(serialized_chars(&page).unwrap()<=8000);
+            if let Some(summary)=&page.session_summary {
+                assert_eq!(summary.statement_offset,collected.len());
+                collected.extend(summary.statements.clone());
+            }
+            pages+=1;
+            if let Some(next)=page.next_cursor {cursor=Some(decode(&next).unwrap());} else {break;}
+            assert!(pages<20,"cursor did not make progress");
+        }
+        assert!(pages>1);
+        assert_eq!(collected.len(),50);
+        for (actual,expected) in collected.iter().zip(statements.iter()) {
+            assert_eq!(actual.text,expected.text);
+            assert_eq!(actual.message_refs[0].message_id,expected.message_refs[0].message_id);
+            assert_eq!(actual.source_refs[0].revision,expected.source_refs[0].revision);
+        }
+        let bad=ReadCursor {s:f.scope.clone(),n:snapshot.node_id.clone(),r:snapshot.revision,q:"selection".into(),v:"visibility".into(),i:51,o:draft.summary.chars().count()};
+        assert_eq!(project(&read,&snapshot,vec![],false,"selection","visibility",Some(&bad),8000).unwrap_err().code,ErrorCode::InvalidArgument);
+        let skip_text=ReadCursor {i:1,o:0,..bad};
+        assert_eq!(project(&read,&snapshot,vec![],false,"selection","visibility",Some(&skip_text),8000).unwrap_err().code,ErrorCode::InvalidArgument);
+        read.cursor=None;
     }
     #[tokio::test]
     async fn knowledge_alias_chinese_search_filters_and_navigation_never_recurses() {

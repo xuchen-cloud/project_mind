@@ -27,8 +27,8 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
   function dispatchTool({ method, toolCallId, payload, signal }) {
     const active = run;
     if (!active || active.cancelled || signal?.aborted) return Promise.reject(new Error('Tool request cancelled'));
-    if (!tools.some((tool) => tool.method === method)) return Promise.reject(new Error('Tool method is not active'));
-    if (++active.toolCount > 30) {
+    if (method !== 'session.context.check' && !tools.some((tool) => tool.method === method)) return Promise.reject(new Error('Tool method is not active'));
+    if (method !== 'session.context.check' && ++active.toolCount > 30) {
       active.failureCode = 'BUDGET_EXCEEDED';
       void session.cancel().catch(() => {});
       return Promise.reject(new Error('Tool call limit reached'));
@@ -159,7 +159,8 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
           if (!restored && loadCheckpoint?.exists && await loadCheckpoint.exists(data.sessionId)) throw Object.assign(new Error('Resume required'), { code: 'RUNTIME_INCOMPATIBLE' });
           sessionId = data.sessionId;
           session = await makeSession({ workspaceRoot, sessionId, ...mapped, apiKey: data.apiKey,
-            checkpoint, tools, systemPrompt, dispatchTool, onEvent: sdkEvent });
+            checkpoint, tools, systemPrompt, dispatchTool, onEvent: sdkEvent,
+            historyPolicy: !probe && data.hostOwnedHistoryPolicy === true ? dispatchTool : undefined });
           messages = checkpoint ? projectCheckpoint(checkpoint, workspaceRoot, sessionId) : [];
           committed = checkpoint ? { ...checkpoint, jsonl: undefined } : undefined;
           write(success(requestId, { sessionId, tools: session.activeTools(), activeTools: session.activeTools(),

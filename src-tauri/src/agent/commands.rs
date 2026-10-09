@@ -65,7 +65,7 @@ pub(crate) fn agent_context_get(
                 Scope::Project { project_id } => vec![project_id],
                 _ => vec![],
             },
-            operations: vec!["context.read".into()],
+            operations: vec!["context.read".into(), "session.read".into()],
         };
         // This is the trusted local GUI adapter. Connections must resolve their own
         // persisted grant; never reuse this GUI grant builder for bridge/Pi requests.
@@ -103,7 +103,7 @@ pub(crate) async fn agent_overview_get(
                 Scope::Project { project_id } => vec![project_id],
                 _ => vec![],
             },
-            operations: vec!["context.read".into()],
+            operations: vec!["context.read".into(), "session.read".into()],
         },
     };
     let result = crate::overview_service::OverviewService::new(state.inner())
@@ -119,7 +119,7 @@ fn gui_knowledge_request(binding: &WorkspaceBinding, request_id: &str, scope: &S
             workspace_id: binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
             project_ids: match scope { Scope::Project { project_id } => vec![*project_id], _ => vec![] },
-            operations: vec!["context.read".into()],
+            operations: vec!["context.read".into(), "session.read".into()],
         },
     }
 }

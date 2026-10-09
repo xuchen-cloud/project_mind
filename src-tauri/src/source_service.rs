@@ -656,9 +656,46 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         if budget == 0 {
             return Err(invalid("Source search budget must be positive"));
         }
-        let candidates = self
-            .store
-            .with_current(|binding, db| db.source_search_candidates(request, binding, input))?;
+        let limit = input.limit.unwrap_or(8);
+        if !(1..=50).contains(&limit) { return Err(invalid("Invalid source search limit")); }
+        let wants_summary = (input.kinds.is_empty() && request.scope_grant.operations.iter().any(|op| op == "session.read"))
+            || input.kinds.contains(&ObjectKind::SessionSummary);
+        let native_kinds: Vec<_> = input.kinds.iter().copied().filter(|kind| *kind != ObjectKind::SessionSummary).collect();
+        let native_selected: Vec<_> = input.selected.iter().filter(|object| object.kind != ObjectKind::SessionSummary).cloned().collect();
+        let wants_native = (input.kinds.is_empty() || !native_kinds.is_empty())
+            && (input.selected.is_empty() || !native_selected.is_empty());
+        let candidates = self.store.with_current(|binding, db| {
+            request.authorize(binding, &input.scope, "source.read")?;
+            for selected in &input.selected {
+                if selected.workspace_id != binding.workspace_id || selected.scope != input.scope {
+                    return Err(AgentError::new(ErrorCode::ScopeDenied, "Selected source is outside this search scope"));
+                }
+                selected.key()?;
+            }
+            let mut candidates = if wants_native {
+                let mut native_input = input.clone();
+                native_input.kinds = native_kinds;
+                native_input.selected = native_selected;
+                db.source_search_candidates(request, binding, &native_input)?
+            } else {
+                crate::source_search_index::SearchPage { items: vec![], has_more: false }
+            };
+            if wants_summary {
+                let summary = crate::source_session_summary::search(db, request, binding, input)?;
+                candidates.has_more |= summary.has_more;
+                let native = std::mem::take(&mut candidates.items);
+                let mut native = native.into_iter();
+                let mut summary = summary.items.into_iter();
+                loop {
+                    match (native.next(), summary.next()) {
+                        (None, None) => break,
+                        (a, b) => { candidates.items.extend(a); candidates.items.extend(b); }
+                    }
+                }
+            }
+            if candidates.items.len() > limit { candidates.has_more = true; candidates.items.truncate(limit); }
+            Ok(candidates)
+        })?;
         let mut page = SourceSearchPage {
             items: vec![],
             has_more: false,
@@ -722,6 +759,13 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                     }
                     .await
                 }
+                ObjectKind::SessionSummary => self.store.with_current(|binding, db| {
+                    let node = db.agent_knowledge_get(&source.object.scope, &source.object.id, None)?
+                        .ok_or_else(changed)?;
+                    if node.revision.to_string() != source.revision.as_deref().unwrap_or_default() || candidate.title != node.title.chars().take(1000).collect::<String>()
+                        || !crate::source_session_summary::visible(db, request, binding, &node)? { return Err(changed()); }
+                    Ok(None)
+                }),
                 _ => continue,
             };
             match verified {

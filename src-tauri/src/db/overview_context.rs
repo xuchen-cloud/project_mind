@@ -8,7 +8,8 @@ use crate::{
             ScopeIdentity, ValidState,
         },
         errors::{AgentError, AgentResult, ErrorCode},
-        models::{Scope, WorkspaceBinding},
+        models::{ObjectKind,ObjectRef,Scope,SourceRef, WorkspaceBinding},
+        source_trace::derived_source_visible,
         settings::SettingsRepository,
     },
     db::Database,
@@ -22,6 +23,7 @@ fn hidden_source(error: &AgentError) -> bool {
             | ErrorCode::ObjectWithdrawn
             | ErrorCode::ScopeDenied
             | ErrorCode::SourceNotReady
+            | ErrorCode::SourceChanged
     )
 }
 impl Database {
@@ -72,7 +74,7 @@ impl Database {
             .collect();
         for item in &snapshot.items {
             for reference in &item.source_refs {
-                match self.source_read_object(&source_request, binding, &reference.object) {
+                match derived_source_visible(self, &source_request, binding, reference) {
                     Ok(_) => (),
                     Err(error) if hidden_source(&error) => {
                         hidden.insert(item.id.clone());
@@ -118,10 +120,36 @@ impl Database {
         let node_stale =
             self.agent_knowledge_stale_ids(&binding.workspace_id, &input.scope, &candidate_ids)?;
         let mut extra_nodes = false;
+        let candidate_sources: std::collections::HashMap<_, _> = candidates
+            .iter()
+            .map(|node| {
+                let mut refs=node.source_refs.clone();
+                if node.session_summary.is_some() {
+                    refs.push(SourceRef {object:ObjectRef {workspace_id:binding.workspace_id.clone(),scope:node.scope.clone(),kind:ObjectKind::SessionSummary,id:node.node_id.clone()},revision:node.revision.to_string(),file_version:None,record_version:None,block_id:None,locator:None,title:String::new(),excerpt:String::new()});
+                }
+                (format!("node:{}",node.node_id),refs)
+            })
+            .collect();
         for node in candidates {
             let mut visible = true;
+            if node.session_summary.is_some() {
+                match request.authorize(binding,&node.scope,"session.read") {
+                    Ok(())=>(),
+                    Err(error) if hidden_source(&error)=>visible=false,
+                    Err(error)=>return Err(error),
+                }
+                if visible {
+                    let object=ObjectRef {workspace_id:binding.workspace_id.clone(),scope:node.scope.clone(),kind:ObjectKind::SessionSummary,id:node.node_id.clone()};
+                    match self.source_read_object(&source_request,binding,&object) {
+                        Ok(_)=>(),
+                        Err(error) if hidden_source(&error)=>visible=false,
+                        Err(error)=>return Err(error),
+                    }
+                }
+            }
+            if !visible {continue;}
             for reference in &node.source_refs {
-                match self.source_read_object(&source_request, binding, &reference.object) {
+                match derived_source_visible(self, &source_request, binding, reference) {
                     Ok(_) => (),
                     Err(error) if hidden_source(&error) => {
                         visible = false;
@@ -197,8 +225,39 @@ impl Database {
                 "knowledge.get".into(),
                 "knowledge.search".into(),
             ],
+            source_refs: vec![],
         };
-        entry.bounded(input.budget_chars)
+        let mut entry = entry.bounded(input.budget_chars)?;
+        // Collect after bounding: removed cards and an entirely removed positioning
+        // have not been exposed to the Run.
+        let mut selected = Vec::new();
+        if entry
+            .positioning
+            .as_ref()
+            .is_some_and(|text| !text.is_empty())
+        {
+            if let Some(profile) = profile {
+                selected.push(profile.id.clone());
+            }
+        }
+        for card in &entry.nodes {
+            if let Some(id) = card.node_id.strip_prefix("overview:") {
+                selected.push(id.to_string());
+            } else if let Some(refs) = candidate_sources.get(&card.node_id) {
+                entry.source_refs.extend(refs.iter().cloned());
+            }
+        }
+        let mut seen = HashSet::new();
+        while let Some(id) = selected.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(item) = snapshot.items.iter().find(|item| item.id == id) {
+                entry.source_refs.extend(item.source_refs.iter().cloned());
+                selected.extend(item.dependency_item_ids.iter().cloned());
+            }
+        }
+        Ok(entry)
     }
 }
 
@@ -417,11 +476,85 @@ mod tests {
         assert_eq!(f.request.scope_grant.operations, vec!["context.read"]);
     }
     #[test]
+    fn l0_trace_keeps_profile_dependency_after_card_is_trimmed() {
+        let f = fixture();
+        publish(&f);
+        let mut input = f.input.clone();
+        input.budget_chars = Some(550);
+        let entry = get(&f, &f.request, input);
+        assert!(entry.positioning.is_some());
+        assert_eq!(entry.source_refs.len(), 1);
+        assert_eq!(entry.source_refs[0].object, f.source.object);
+        assert!(!serde_json::to_string(&entry)
+            .unwrap()
+            .contains("sourceRefs"));
+    }
+    #[test]
+    fn l0_trace_omits_sources_when_all_derived_text_is_trimmed() {
+        let f = fixture();
+        publish(&f);
+        let mut found = false;
+        for budget in 300..550 {
+            let mut input = f.input.clone();
+            input.budget_chars = Some(budget);
+            let Ok(entry) = f.db.agent_overview_context_entry(
+                &f.request,
+                &f.binding,
+                &input,
+                ScopeIdentity {
+                    scope: input.scope.clone(),
+                    name: "独立项目名称".into(),
+                    archived: false,
+                },
+            ) else {
+                continue;
+            };
+            if entry.positioning.is_none() && entry.nodes.is_empty() {
+                assert!(entry.source_refs.is_empty());
+                found = true;
+                break;
+            }
+        }
+        assert!(found);
+    }
+    #[test]
+    fn derived_message_visibility_follows_original_run_source_policy() {
+        use crate::agent::models::SourceLocator;
+        use rusqlite::params;
+        use sha2::{Digest, Sha256};
+        let f = fixture();
+        let session = "11111111111111111111111111111111";
+        let run = "22222222222222222222222222222222";
+        let message = "33333333333333333333333333333333";
+        let body = "助手据旧来源形成的结论";
+        let hash = format!("sha256:{:x}", Sha256::digest(body.as_bytes()));
+        f.db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,checkpoint_json,created_at,updated_at) VALUES (?1,?2,'session','builtin-pi','active',?3,'{}','now','now')", params![session,f.input.scope.key(),format!(".project-mind/agent/sessions/{session}/session.jsonl")]).unwrap();
+        f.db.conn.execute("INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES (?1,?2,'old','completed','{}','{}','now')", params![run,session]).unwrap();
+        f.db.conn.execute("INSERT INTO agent_session_search_rows(message_id,session_id,runtime_entry_id,ordinal,role,created_at,run_id,text_hash,text,total_chars,complete) VALUES (?1,?2,'branch',0,'assistant','now',?3,?4,?5,?6,1)",params![message,session,run,hash,body,body.chars().count() as i64]).unwrap();
+        f.db.conn.execute("INSERT INTO agent_run_provenance(run_id) VALUES (?1)",[run]).unwrap();
+        f.db.conn.execute("INSERT INTO agent_run_source_dependencies(run_id,object_key,object_json,revision) VALUES (?1,?2,?3,?4)",params![run,f.source.object.key().unwrap(),serde_json::to_string(&f.source.object).unwrap(),f.source.revision]).unwrap();
+        let message_ref = SourceRef { object: ObjectRef { workspace_id: "w".into(), scope: f.input.scope.clone(), kind: ObjectKind::SessionMessage, id: message.into() }, revision: hash, file_version: None, record_version: None, block_id: None, locator: Some(SourceLocator::Messages { session_id: session.into(), branch_id: "branch".into(), start_message_id: message.into(), end_message_id: message.into() }), title: "历史讨论".into(), excerpt: String::new() };
+        let mut request = f.request.clone();
+        request.scope_grant.operations.extend(["session.read".into(),"source.read".into()]);
+        assert!(derived_source_visible(&f.db,&request,&f.binding,&message_ref).is_ok());
+        let deps = crate::agent::source_trace::expand_sources(&f.db,&request,&f.binding,vec![crate::db::agent_run_provenance::ObservedSource {object: message_ref.object.clone(),revision: Some(message_ref.revision.clone())}]).unwrap();
+        assert_eq!(deps.len(),2);
+        assert_eq!(deps[0].object,f.source.object);
+        f.db.conn.execute("INSERT INTO source_access_policies(object_key,excluded,revision) VALUES (?1,1,1)",[f.source.object.key().unwrap()]).unwrap();
+        assert!(derived_source_visible(&f.db,&request,&f.binding,&message_ref).is_err());
+        f.db.conn.execute("DELETE FROM source_access_policies WHERE object_key=?1",[f.source.object.key().unwrap()]).unwrap();
+        f.db.conn.execute("UPDATE agent_session_search_rows SET text_hash='sha256:new' WHERE message_id=?1",[message]).unwrap();
+        assert_eq!(derived_source_visible(&f.db,&request,&f.binding,&message_ref).unwrap_err().code,ErrorCode::SourceChanged);
+    }
+    #[test]
     fn l0_deleted_source_hides_dependent_positioning() {
         let f = fixture();
         publish(&f);
-        f.db.todo_delete(TodoDeleteInput { expected_revision: f.db.todo_record(f.todo_id).unwrap().revision, todo_id: f.todo_id })
-            .unwrap();
+        f.db.todo_delete(TodoDeleteInput {
+            expected_revision: f.db.todo_record(f.todo_id).unwrap().revision,
+            todo_id: f.todo_id,
+        })
+        .unwrap();
         let entry = get(&f, &f.request, f.input.clone());
         assert!(entry.positioning.is_none());
         assert!(matches!(entry.status, KnowledgeStatus::Stale));
@@ -436,7 +569,8 @@ mod tests {
             .agent_overview_stale_items("w", &f.input.scope)
             .unwrap()
             .is_empty());
-        f.db.todo_update_content(TodoUpdateContentInput { expected_revision: f.db.todo_record(f.todo_id).unwrap().revision,
+        f.db.todo_update_content(TodoUpdateContentInput {
+            expected_revision: f.db.todo_record(f.todo_id).unwrap().revision,
             todo_id: f.todo_id,
             content: "变更后的依据".into(),
             due_date: None,

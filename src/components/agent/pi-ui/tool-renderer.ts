@@ -5,6 +5,7 @@ const labels: Record<string, string> = {
   mind_context_get: "整理上下文", mind_context_overview_get: "查看工作概览",
   mind_knowledge_search: "查找知识", mind_knowledge_get: "读取知识",
   mind_source_search: "查找来源", mind_source_read: "读取来源",
+  mind_session_search: "查找历史讨论", mind_session_messages_read: "回读历史讨论",
   mind_record_blocks_get: "读取记录", mind_todo_get: "读取待办",
   mind_output_stage: "准备操作建议", mind_output_get: "读取操作结果", mind_output_list: "查看操作结果", mind_output_commit: "执行操作",
   mind_operation_get: "读取操作记录", mind_operation_list: "查看操作记录", mind_operation_undo: "撤销操作", mind_operation_restore_created: "恢复对象",

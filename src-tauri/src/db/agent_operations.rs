@@ -258,7 +258,11 @@ impl Database {
             ObjectKind::File => project_scope("SELECT project_id FROM documents WHERE id=?1", numeric_id()?)?,
             ObjectKind::Transcript => project_scope("SELECT notes.project_id FROM voice_records LEFT JOIN notes ON notes.id=voice_records.project_note_id WHERE voice_records.id=?1", numeric_id()?)?,
             ObjectKind::SessionMessage => self.conn.query_row("SELECT s.scope_key FROM agent_sessions s WHERE s.id=COALESCE((SELECT m.session_id FROM agent_messages m WHERE m.id=?1),(SELECT i.session_id FROM agent_session_search_rows i WHERE i.message_id=?1))", [&object.id], |row| row.get::<_, String>(0)).optional().map_err(io_error)?.map(|key| parse_scope_key(&key)).transpose()?,
-            ObjectKind::SessionSummary => return Err(AgentError::new(ErrorCode::SourceNotReady, "Session summaries are not available yet")),
+            ObjectKind::SessionSummary => {
+                let current = self.agent_knowledge_get(&object.scope, &object.id, None)?;
+                current.filter(|node| node.session_summary.is_some())
+                    .map(|node| node.scope)
+            },
         };
         Ok(scope.map(|scope| ObjectRef {
             workspace_id: workspace_id.into(),

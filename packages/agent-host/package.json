@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/index.mjs",
     "probe": "node src/probe-entry.mjs",
-    "check": "node --check src/index.mjs && node --check src/host-entry.mjs && node --check src/protocol.mjs && node --check src/host-protocol.mjs && node --check src/session-history.mjs && node --check src/session-history-scan.mjs && node --check src/overview-generation.mjs && node --check src/pi-spike.mjs && node --check src/session-codec.mjs && node --check src/probe-protocol.mjs && node --check src/probe-entry.mjs && node --check src/session-store.mjs && node --check src/profile-map.mjs && node --check src/record-worker-entry.mjs",
+    "check": "node --check src/index.mjs && node --check src/host-entry.mjs && node --check src/protocol.mjs && node --check src/host-protocol.mjs && node --check src/session-history.mjs && node --check src/session-history-scan.mjs && node --check src/overview-generation.mjs && node --check src/pi-spike.mjs && node --check src/context-policy.mjs && node --check src/session-codec.mjs && node --check src/probe-protocol.mjs && node --check src/probe-entry.mjs && node --check src/session-store.mjs && node --check src/profile-map.mjs && node --check src/record-worker-entry.mjs",
     "test": "node --test test/*.test.mjs",
     "test:pi": "node --test test/pi/*.test.mjs",
     "prepare:runtime": "node scripts/prepare-runtime.mjs",

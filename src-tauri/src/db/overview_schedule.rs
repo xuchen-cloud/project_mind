@@ -14,6 +14,7 @@ const WINDOW_SECONDS: i64 = 20 * 60;
 const WORKSPACE_CALLS: u8 = 20;
 const BATCH_CALLS: u8 = 3;
 const BATCH_CHARS: u32 = 48_000;
+const PROJECT_SESSION_DAILY_CALLS: u8 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -47,6 +48,13 @@ struct Budget {
     calls: u8,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionDailyBudget {
+    date: String,
+    calls: u8,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OverviewScheduleStatus {
@@ -65,6 +73,25 @@ fn schedule_key(binding: &WorkspaceBinding, scope: &Scope) -> String {
 }
 fn budget_key(binding: &WorkspaceBinding) -> String {
     format!("overview-budget:{}", binding.workspace_id)
+}
+fn session_daily_key(binding: &WorkspaceBinding, scope: &Scope) -> String {
+    format!("overview-session-daily:{}/{}", binding.workspace_id, scope.key())
+}
+fn read_session_daily(conn: &rusqlite::Connection, binding: &WorkspaceBinding, scope: &Scope, now: DateTime<Utc>) -> AgentResult<SessionDailyBudget> {
+    let raw:Option<String>=conn.query_row("SELECT payload_json FROM agent_jobs WHERE kind='maintenance' AND dedupe_key=?1",[session_daily_key(binding,scope)],|r|r.get(0)).optional().map_err(io)?;
+    let date=now.date_naive().to_string();
+    let stored=raw.map(|raw|decode::<SessionDailyBudget>(&raw)).transpose()?;
+    if stored.as_ref().is_some_and(|budget| budget.calls>PROJECT_SESSION_DAILY_CALLS
+        || NaiveDate::parse_from_str(&budget.date,"%Y-%m-%d").ok().is_none_or(|day|day.to_string()!=budget.date)) {return Err(invalid());}
+    Ok(stored.filter(|budget|budget.date==date).unwrap_or(SessionDailyBudget {date,calls:0}))
+}
+pub(super) fn session_daily_available(conn: &rusqlite::Connection,binding:&WorkspaceBinding,scope:&Scope,now:DateTime<Utc>)->AgentResult<bool> {
+    Ok(read_session_daily(conn,binding,scope,now)?.calls<PROJECT_SESSION_DAILY_CALLS)
+}
+fn save_session_daily(conn:&rusqlite::Connection,binding:&WorkspaceBinding,scope:&Scope,budget:&SessionDailyBudget,now:DateTime<Utc>)->AgentResult<()> {
+    let key=session_daily_key(binding,scope);
+    conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance',?2,?1,'completed',?3,?4) ON CONFLICT(dedupe_key) DO UPDATE SET state='completed',not_before=excluded.not_before,payload_json=excluded.payload_json",params![key,scope.key(),stamp(now),encode(budget)?]).map_err(io)?;
+    Ok(())
 }
 fn worker_key(scope: &Scope) -> String {
     format!("overview-maintenance:{}", scope.key())
@@ -175,8 +202,9 @@ fn next_slot(db: &Database, scope: &Scope, now: DateTime<Utc>) -> AgentResult<i6
         + Duration::days(i64::from(settings.overview_interval_hours) / 24);
     Ok(local_slot(date, time, zone)?.timestamp())
 }
-fn dirty(conn: &rusqlite::Connection, scope: &Scope) -> AgentResult<bool> {
-    conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_pending WHERE scope_key=?1) OR EXISTS(SELECT 1 FROM agent_overview_pending_state WHERE scope_key=?1 AND needs_rebuild=1)", [scope.key()], |r| r.get(0)).map_err(io)
+fn dirty(db: &Database, scope: &Scope) -> AgentResult<bool> {
+    let overview_dirty:bool=db.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_pending WHERE scope_key=?1) OR EXISTS(SELECT 1 FROM agent_overview_pending_state WHERE scope_key=?1 AND needs_rebuild=1)", [scope.key()], |r| r.get(0)).map_err(io)?;
+    Ok(overview_dirty || db.agent_session_maintenance_pending(scope)?)
 }
 fn time_at(timestamp: i64) -> AgentResult<DateTime<Utc>> {
     DateTime::from_timestamp(timestamp, 0).ok_or_else(invalid)
@@ -268,7 +296,7 @@ impl Database {
         }
         candidates.sort_by_key(|item| (item.0, item.1.key()));
         for (_, scope, mut ledger, initial) in candidates {
-            if !initial && !ledger.active && !dirty(&self.conn, &scope)? {
+            if !initial && !ledger.active && !dirty(self, &scope)? {
                 ledger.due_at = next_slot(self, &scope, now)?;
                 save_schedule(&self.conn, binding, &scope, &ledger, now)?;
                 continue;
@@ -331,6 +359,11 @@ impl Database {
             ledger.input_chars = 0;
             ledger.wait_until = 0;
         }
+        let summary_call=super::overview_maintenance::overview_batch_requires_summary(&tx,scope,batch_id)?;
+        let mut session_daily=if summary_call {Some(read_session_daily(&tx,binding,scope,now)?)} else {None};
+        if session_daily.as_ref().is_some_and(|daily|daily.calls>=PROJECT_SESSION_DAILY_CALLS) {
+            return Ok(false);
+        }
         if budget.calls >= WORKSPACE_CALLS
             || ledger.calls >= BATCH_CALLS
             || ledger
@@ -352,6 +385,10 @@ impl Database {
             0
         };
         budget.calls += 1;
+        if let Some(daily)=session_daily.as_mut() {
+            daily.calls+=1;
+            save_session_daily(&tx,binding,scope,daily,now)?;
+        }
         save_schedule(&tx, binding, scope, &ledger, now)?;
         save_budget(&tx, binding, &budget, now)?;
         tx.commit().map_err(io)?;
@@ -400,11 +437,17 @@ impl Database {
         let ledger = read_schedule(&self.conn, binding, scope)?.unwrap_or_default();
         let budget = read_budget(&self.conn, binding, now)?;
         let quota_until = budget.window_start.saturating_add(WINDOW_SECONDS);
+        let daily_blocked=!session_daily_available(&self.conn,binding,scope,now)?
+            && super::overview_maintenance::overview_only_summary_quota_blocked(&self.conn,binding,scope)?;
+        let next_utc_day=if daily_blocked {
+            now.date_naive().succ_opt().and_then(|day|day.and_hms_opt(0,0,0))
+                .map(|day|day.and_utc().timestamp()).ok_or_else(invalid)?
+        } else {0};
         let blocked_until = ledger.wait_until.max(if budget.calls >= WORKSPACE_CALLS {
             quota_until
         } else {
             0
-        });
+        }).max(next_utc_day);
         let exhausted = blocked_until > now.timestamp();
         let due = ledger.due_at.max(if exhausted { blocked_until } else { 0 });
         Ok(OverviewScheduleStatus {

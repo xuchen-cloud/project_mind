@@ -120,6 +120,28 @@ fn object_from_key(binding: &WorkspaceBinding, scope: &Scope, key: &str) -> Agen
         id: parts[3].into(),
     })
 }
+pub(super) fn overview_batch_requires_summary(conn: &rusqlite::Connection, scope: &Scope, batch_id: &str) -> AgentResult<bool> {
+    let ledger=read_ledger(conn,scope)?;
+    Ok(ledger.batch.as_ref().is_some_and(|batch| batch.batch_id==batch_id
+        && batch.source_object.kind==ObjectKind::SessionMessage
+        && !batch.source.deleted && !batch.source.excluded))
+}
+
+pub(super) fn overview_only_summary_quota_blocked(conn:&rusqlite::Connection,binding:&WorkspaceBinding,scope:&Scope)->AgentResult<bool> {
+    let ledger=read_ledger(conn,scope)?;
+    if let Some(batch)=ledger.batch {
+        return Ok(batch.draft.is_none() && batch.source_object.kind==ObjectKind::SessionMessage
+            && !batch.source.deleted && !batch.source.excluded);
+    }
+    let scope_prefix=format!("{}/{}/",binding.workspace_id,scope.key());
+    let session_prefix=format!("{scope_prefix}session_message/");
+    let (summary,other):(bool,bool)=conn.query_row("SELECT
+        EXISTS(SELECT 1 FROM agent_overview_pending p WHERE p.scope_key=?1 AND substr(p.object_key,1,length(?2))=?2 AND substr(p.object_key,1,length(?3))=?3 AND p.deleted=0 AND p.excluded=0),
+        EXISTS(SELECT 1 FROM agent_overview_pending p WHERE p.scope_key=?1 AND substr(p.object_key,1,length(?2))=?2 AND (substr(p.object_key,1,length(?3))!=?3 OR p.deleted=1 OR p.excluded=1))",
+        params![scope.key(),scope_prefix,session_prefix],|r|Ok((r.get(0)?,r.get(1)?))).map_err(io_error)?;
+    Ok(summary && !other)
+}
+
 fn read_ledger(conn: &rusqlite::Connection, scope: &Scope) -> AgentResult<Ledger> {
     let raw: Option<String> = conn
         .query_row(
@@ -361,7 +383,10 @@ impl Database {
         if ledger.cancelled || ledger.error_code.is_some() {
             return Ok(None);
         }
+        let session_quota_open=super::overview_schedule::session_daily_available(&tx,binding,scope,now)?;
         if let Some(batch) = ledger.batch {
+            if batch.source_object.kind==ObjectKind::SessionMessage && !batch.source.deleted && !batch.source.excluded
+                && batch.draft.is_none() && !session_quota_open {return Ok(None);}
             return Ok(Some(batch));
         }
         let fresh_target: i64 = tx
@@ -419,6 +444,7 @@ impl Database {
             "SELECT p.object_key,p.first_seq,p.last_seq,p.operation,p.latest_revision,p.deleted,p.excluded
              FROM agent_overview_pending p LEFT JOIN agent_jobs j ON j.kind='overview' AND j.dedupe_key='overview-source:'||p.object_key
              WHERE p.scope_key=?1 AND p.last_seq<=?2 AND p.object_key LIKE ?3
+               AND (?8 OR p.deleted=1 OR p.excluded=1 OR p.object_key NOT LIKE ?9)
              ORDER BY CASE
                  WHEN json_extract(j.payload_json,'$.state')='partial'
                    AND CAST(json_extract(j.payload_json,'$.handledSeq') AS INTEGER)=p.last_seq THEN 0
@@ -427,7 +453,7 @@ impl Database {
                  WHEN EXISTS (SELECT 1 FROM todos t WHERE t.scope='project' AND t.project_id=?6
                    AND t.status='unfinished' AND p.object_key=?7||t.id) THEN 3
                  ELSE 4 END,p.object_key LIMIT 1",
-            params![scope.key(),target_seq,format!("{}/{}/%",binding.workspace_id,scope.key()),goal_key,pin_keys_json,project_id,format!("{}/{}/todo/",binding.workspace_id,scope.key())],
+            params![scope.key(),target_seq,format!("{}/{}/%",binding.workspace_id,scope.key()),goal_key,pin_keys_json,project_id,format!("{}/{}/todo/",binding.workspace_id,scope.key()),session_quota_open,format!("{}/{}/session_message/%",binding.workspace_id,scope.key())],
             |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?))
         ).optional().map_err(io_error)?;
         let Some((object_key, first_seq, last_seq, operation, latest_revision, deleted, excluded)) =

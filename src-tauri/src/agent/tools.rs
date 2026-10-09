@@ -2,7 +2,7 @@
 //! arguments never construct a caller, binding or grant. Services own source
 //! ownership, exclusion, revision checks and response pagination.
 use super::{
-    access::RequestContext,
+    access::{Caller, RequestContext},
     context::ContextGetInput,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, WorkspaceBinding},
@@ -66,7 +66,21 @@ where
             store.with_current_context(|binding, db, workspace_name| {
                 let repository =
                     crate::db::agent::WorkspaceContextRepository { db, workspace_name };
-                encode(AgentDomainService::new(binding, &repository).context_get(request, input)?)
+                let entry =
+                    AgentDomainService::new(binding, &repository).context_get(request, input)?;
+                if matches!(&request.caller, Caller::BuiltinRun { .. }) {
+                    let observed = entry
+                        .source_refs
+                        .iter()
+                        .map(|source| crate::db::agent_run_provenance::ObservedSource {
+                            object: source.object.clone(),
+                            revision: Some(source.revision.clone()),
+                        })
+                        .collect::<Vec<_>>();
+                    let observed = super::source_trace::expand_sources(db, request, binding, observed)?;
+                    db.agent_run_provenance_observe(request, binding, &observed)?;
+                }
+                encode(entry)
             })
         }
         "context.overview.get" => {
@@ -109,6 +123,7 @@ where
                 ObjectKind::Project | ObjectKind::Todo | ObjectKind::Transcript => {
                     service.read_native(request, &input)?
                 }
+                ObjectKind::SessionSummary => crate::source_session_summary::read(store, request, &input)?,
                 _ => {
                     return Err(AgentError::new(
                         ErrorCode::ToolCallUnsupported,
@@ -188,7 +203,7 @@ fn validate_bounds(method: &str, arguments: &Value) -> AgentResult<()> {
         }
     }
     for (key, max) in [
-        ("kinds", if method == "source.search" { 6 } else { 3 }),
+        ("kinds", if method == "source.search" { 7 } else { 3 }),
         ("selected", 50),
         ("sections", 5),
         ("itemIds", 100),
@@ -292,7 +307,7 @@ pub(super) fn scope_schema() -> Value {
     json!({"oneOf":[object(json!({"kind":{"type":"string","maxLength":9,"const":"workspace"}}), &["kind"]),object(json!({"kind":{"type":"string","maxLength":7,"const":"project"},"projectId":integer(9_007_199_254_740_991)}), &["kind","projectId"])]})
 }
 fn source_kinds() -> Value {
-    json!({"type":"string","maxLength":32,"enum":["project","quick_note","record","todo","file","transcript"]})
+    json!({"type":"string","maxLength":32,"enum":["project","quick_note","record","todo","file","transcript","session_summary"]})
 }
 pub(super) fn object_ref_schema() -> Value {
     let identity =
@@ -341,7 +356,7 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
     add("context.overview.get", "Read Overview directory by default; select sections or itemIds for bounded content, and reuse nextCursor for continuation.", json!({"scope":scope,"version":version,"sections":array(sections,5),"itemIds":array(id.clone(),100),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(8000))}), &["scope"]);
     add("knowledge.search", "Search authorized knowledge cards. If sourceFallbackRequired is true, use source.search to find original evidence.", json!({"scope":scope,"query":text(2000),"kinds":array(knowledge_kinds,3),"cursor":nullable(text(8192)),"limit":nullable(integer(50)),"budgetChars":nullable(integer(3000))}), &["scope","query"]);
     add("knowledge.get", "Read a node: or overview: navigation ID. Default view is summary; use content and sectionIds for selective bounded reading.", json!({"scope":scope,"nodeId":id,"version":version,"view":{"type":"string","maxLength":32,"enum":["outline","summary","content"]},"sectionIds":array(text(128),20),"cursor":nullable(text(8192)),"budgetChars":nullable(integer(8000))}), &["scope","nodeId"]);
-    add("source.search", "Search indexed original sources in a granted scope, optionally limited to selected objects. Results are rechecked against actual source ownership, policy and revisions.", json!({"scope":scope,"query":text(256),"kinds":array(source_kinds(),6),"selected":array(object_ref_schema(),50),"includeHistory":{"type":"boolean"},"limit":nullable(integer(50)),"budgetChars":nullable(integer(12000))}), &["scope","query"]);
+    add("source.search", "Search indexed original sources and session summary segments in a granted scope, optionally limited to selected objects. Results are rechecked against actual source ownership, policy and revisions.", json!({"scope":scope,"query":text(256),"kinds":array(source_kinds(),7),"selected":array(object_ref_schema(),50),"includeHistory":{"type":"boolean"},"limit":nullable(integer(50)),"budgetChars":nullable(integer(12000))}), &["scope","query"]);
     let target = object(
         json!({"object":object_ref_schema(),"revision":nullable(text(128)),"recordVersion":nullable(integer(u32::MAX.into())),"fileVersion":nullable(integer(u32::MAX.into()))}),
         &["object"],
@@ -351,6 +366,12 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
         &[],
     );
     add("source.read", "Read original evidence with fixed-revision pagination. Full view omits selection; range view requires a blockId or source locator. Reuse sourceRef and nextCursor when continuing; source metadata may report unsupported or incomplete extraction.", json!({"source":target,"view":{"type":"string","maxLength":32,"enum":["full","range"]},"selection":nullable(selection),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(12000))}), &["source","view"]);
+    add("session.search", "Find authorized earlier user and assistant discussion in this scope. Results can be incomplete; use nextCursor for continuation and session.messages.read to verify original wording.", json!({"scope":scope,"query":text(256),"sessionId":nullable(text(32)),"afterMessageId":nullable(text(32)),"limit":integer(20),"budgetChars":integer(12000)}), &["scope","query"]);
+    let history_cursor = object(
+        json!({"branchId":text(128),"fromMessageId":nullable(text(32)),"toMessageId":nullable(text(32)),"messageId":text(32),"charOffset":{"type":"integer","minimum":0,"maximum":u32::MAX}}),
+        &["branchId", "messageId", "charOffset"],
+    );
+    add("session.messages.read", "Read an authorized exact historical message from Pi history. Use sessionId/messageId returned by session.search. Long originals return nextCursor; reuse it unchanged to continue.", json!({"sessionId":text(32),"messageId":text(32),"cursor":nullable(history_cursor),"budgetChars":integer(12000)}), &["sessionId","messageId"]);
     result
 }
 

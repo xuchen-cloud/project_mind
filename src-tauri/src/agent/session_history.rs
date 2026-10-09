@@ -37,26 +37,26 @@ pub(crate) struct HistoryCommandInput {
     data: HistoryRequest,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct HistoryCursor {
-    branch_id: String,
-    from_message_id: Option<String>,
-    to_message_id: Option<String>,
-    message_id: String,
-    char_offset: u32,
+    pub(super) branch_id: String,
+    pub(super) from_message_id: Option<String>,
+    pub(super) to_message_id: Option<String>,
+    pub(super) message_id: String,
+    pub(super) char_offset: u32,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct HistoryRequest {
-    session_id: String,
-    branch_id: Option<String>,
-    from_message_id: Option<String>,
-    to_message_id: Option<String>,
-    cursor: Option<HistoryCursor>,
-    limit: Option<u16>,
-    max_chars: Option<u32>,
+    pub(super) session_id: String,
+    pub(super) branch_id: Option<String>,
+    pub(super) from_message_id: Option<String>,
+    pub(super) to_message_id: Option<String>,
+    pub(super) cursor: Option<HistoryCursor>,
+    pub(super) limit: Option<u16>,
+    pub(super) max_chars: Option<u32>,
 }
 
 impl HistoryRequest {
@@ -135,16 +135,16 @@ enum HistoryRole {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HistoryMessage {
-    message_id: String,
-    runtime_entry_id: String,
-    ordinal: u64,
+    pub(super) message_id: String,
+    pub(super) runtime_entry_id: String,
+    pub(super) ordinal: u64,
     role: HistoryRole,
     created_at: String,
-    text: String,
-    content_hash: String,
-    char_start: u32,
-    char_end: u32,
-    total_chars: u32,
+    pub(super) text: String,
+    pub(super) content_hash: String,
+    pub(super) char_start: u32,
+    pub(super) char_end: u32,
+    pub(super) total_chars: u32,
     message_ref: MessageRef,
 }
 
@@ -163,8 +163,8 @@ struct RuntimePage {
 pub(crate) struct HistoryPage {
     session_id: String,
     branch_id: Option<String>,
-    messages: Vec<HistoryMessage>,
-    next_cursor: Option<HistoryCursor>,
+    pub(super) messages: Vec<HistoryMessage>,
+    pub(super) next_cursor: Option<HistoryCursor>,
     has_more: bool,
 }
 
@@ -354,7 +354,7 @@ async fn exchange(
         .ok_or_else(|| incompatible("History response data is missing"))
 }
 
-async fn read_runtime(
+pub(super) async fn read_runtime(
     app: tauri::AppHandle,
     runtime: Arc<WorkspaceRuntime>,
     request: &HistoryRequest,

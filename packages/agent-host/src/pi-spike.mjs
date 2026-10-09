@@ -1,5 +1,6 @@
 // Shared restricted Pi SDK adapter. The probe below only supplies acceptance fixtures.
 import { encodeSession, decodeSession } from './session-codec.mjs';
+import { installContextPolicy } from './context-policy.mjs';
 
 import { DEFAULT_SYSTEM_PROMPT, PROBE_TOOLS, validateToolDescriptors } from './tool-descriptors.mjs';
 
@@ -66,7 +67,7 @@ function restrictedResources(systemPrompt, createExtensionRuntime) {
 
 export async function createPiSession({ workspaceRoot, sessionId, baseUrl, modelId, apiKey,
   dispatchTool, checkpoint, tools: descriptors = [], systemPrompt = DEFAULT_SYSTEM_PROMPT,
-  maxTokens = 4096, contextWindow = 32768, onEvent = () => {} }) {
+  maxTokens = 4096, contextWindow = 32768, onEvent = () => {}, historyPolicy }) {
   const { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager }
     = await import('@earendil-works/pi-coding-agent');
   const providerId = 'project-mind-compatible';
@@ -109,6 +110,7 @@ export async function createPiSession({ workspaceRoot, sessionId, baseUrl, model
       thinkingLevel: 'off', sessionManager: manager, settingsManager: settings,
       resourceLoader: restrictedResources(systemPrompt, createExtensionRuntime), noTools: 'builtin', tools: descriptors.map((tool) => tool.name), customTools: tools });
     disposableSession = session;
+    const contextPolicy = historyPolicy ? installContextPolicy(session, manager, historyPolicy) : undefined;
     // A restored transcript can declare old tools. Reapply the allowlist explicitly.
     session.setActiveToolsByName(descriptors.map((tool) => tool.name));
     const unsubscribe = session.subscribe(onEvent);
@@ -117,6 +119,7 @@ export async function createPiSession({ workspaceRoot, sessionId, baseUrl, model
       activeTools: () => session.getActiveToolNames(),
       checkpoint: snapshot,
       async prompt(text) {
+        contextPolicy?.beginRun();
         await session.prompt(text, { expandPromptTemplates: false });
         await session.waitForIdle();
         return snapshot();
@@ -125,7 +128,7 @@ export async function createPiSession({ workspaceRoot, sessionId, baseUrl, model
       async dispose() {
         try { await session.abort(); await session.waitForIdle(); }
         finally {
-          try { unsubscribe(); session.dispose(); }
+          try { contextPolicy?.dispose(); unsubscribe(); session.dispose(); }
           finally { credentials.clear(); }
         }
       },

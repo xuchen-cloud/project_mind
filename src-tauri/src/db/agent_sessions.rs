@@ -156,6 +156,7 @@ fn projection_validate(projection: &VerifiedSessionProjection) -> AgentResult<()
 }
 fn projection_write(
     tx: &Transaction<'_>,
+    workspace_id: &str,
     session_id: &str,
     run_id: Option<&str>,
     projection: &VerifiedSessionProjection,
@@ -203,7 +204,7 @@ fn projection_write(
                 )
             });
         tx.execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES (?1,?2,?3,?4,?5,?6,'complete',?7,?8) ON CONFLICT(session_id,runtime_entry_id) DO UPDATE SET role=excluded.role,content_json=excluded.content_json,state='complete',ordinal=excluded.ordinal,created_at=excluded.created_at",params![id,session_id,attribution,message.runtime_entry_id,message.role.sql(),json_string(message)?,message.ordinal as i64,message.created_at]).map_err(io_error)?;
-        super::agent_session_search::projection_index_message(tx, session_id, &id, message)?;
+        super::agent_session_search::projection_index_message(tx, workspace_id, session_id, &id, message)?;
     }
     for (_, (id, _)) in previous {
         tx.execute("DELETE FROM agent_messages WHERE id=?1", [id])
@@ -546,6 +547,8 @@ impl Database {
                 "Session has an active run",
             ));
         }
+        // Full historical rows are source identities even when no longer on the current branch.
+        super::agent_session_maintenance::session_messages_deleted(&tx,&current.workspace_id,id)?;
         // Receipts deliberately have no session FK and survive this cascade.
         let deleted = tx
             .execute("DELETE FROM agent_sessions WHERE id=?1", [id])
@@ -705,7 +708,7 @@ impl Database {
         let run = read_run(&tx, id)?;
         run.state.transition(settlement.state)?;
         if let Some(projection) = &settlement.projection {
-            projection_write(&tx, &run.session_id, Some(id), projection)?;
+            projection_write(&tx, &current.workspace_id, &run.session_id, Some(id), projection)?;
         }
         let error = settlement.error_code.map(|code| {
             serde_json::to_value(code)
@@ -759,7 +762,7 @@ impl Database {
                 "Cannot rebuild history during an active run",
             ));
         }
-        projection_write(&tx, id, None, projection)?;
+        projection_write(&tx, &current.workspace_id, id, None, projection)?;
         tx.commit().map_err(io_error)
     }
     pub(crate) fn agent_session_mark_read_only(

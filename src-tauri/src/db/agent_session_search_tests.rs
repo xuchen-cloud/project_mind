@@ -354,6 +354,13 @@ fn search_requires_gui_current_binding_and_session_read() {
         db.agent_session_search(&r, &b, &input).unwrap_err().code,
         ErrorCode::ScopeDenied
     );
+    r.caller = Caller::Connection {
+        grant_id: "connection".into(),
+    };
+    assert_eq!(
+        db.agent_session_search(&r, &b, &input).unwrap_err().code,
+        ErrorCode::ScopeDenied
+    );
     let decoded: AgentSessionSearchInput =
         serde_json::from_value(json!({"scope":{"kind":"workspace"},"query":"needle"})).unwrap();
     assert_eq!(decoded.limit, 20);
@@ -482,7 +489,7 @@ fn schema_33_upgrade_reopens_and_preserves_index() {
             [SESSION],
         )
         .unwrap();
-    db.conn.execute_batch("DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts;").unwrap();
+    db.conn.execute_batch("DROP TABLE agent_run_source_dependencies; DROP TABLE agent_run_provenance; DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts;").unwrap();
     db.conn
         .execute_batch(include_str!("agent_session_search.sql"))
         .unwrap();
@@ -491,7 +498,10 @@ fn schema_33_upgrade_reopens_and_preserves_index() {
     db.conn.execute_batch("PRAGMA user_version=33").unwrap();
     drop(db);
     let reopened = Database::open(&path, root.path(), None).unwrap();
-    assert_eq!(reopened.schema_version().unwrap(), 34);
+    assert_eq!(
+        reopened.schema_version().unwrap(),
+        super::super::CURRENT_SCHEMA_VERSION
+    );
     assert_eq!(
         reopened
             .conn
@@ -833,4 +843,69 @@ fn empty_scan_page_must_advance_within_entries() {
         },
     )
     .unwrap();
+}
+
+#[test]
+fn scan_accepts_own_active_run_but_respects_scope_and_other_runs() {
+    let (db, gui, binding) = fixture();
+    db.agent_session_restore_projection(&gui, &binding, SESSION, &projection(vec![], "entry"))
+        .unwrap();
+    let run_id = "a".repeat(32);
+    db.conn.execute("INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES (?1,?2,'scan-run','running','{}','{}','now')",params![run_id,SESSION]).unwrap();
+    let mut own = gui.clone();
+    own.caller = Caller::BuiltinRun {
+        run_id: run_id.clone(),
+    };
+    let work = db
+        .agent_session_scan_work(&own, &binding, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    let mut denied = own.clone();
+    denied.scope_grant.workspace_content = false;
+    assert_eq!(
+        db.agent_session_scan_work(&denied, &binding, &Scope::Workspace, Some(SESSION))
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeDenied
+    );
+    let page = SessionScanPage {
+        session_id: SESSION.into(),
+        checksum: work.checksum.clone(),
+        entry_count: 0,
+        messages: vec![],
+        next_cursor: None,
+        complete: true,
+    };
+    assert_eq!(
+        db.agent_session_scan_commit(&denied, &binding, &work, &page)
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeDenied
+    );
+    let mut other = own.clone();
+    other.caller = Caller::BuiltinRun {
+        run_id: "b".repeat(32),
+    };
+    assert!(db
+        .agent_session_scan_work(&other, &binding, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .is_none());
+    db.agent_session_scan_commit(&own, &binding, &work, &page)
+        .unwrap();
+    db.conn
+        .execute(
+            "UPDATE agent_runs SET state='cancelling' WHERE id=?1",
+            [&run_id],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "DELETE FROM agent_session_scan_state WHERE session_id=?1",
+            [SESSION],
+        )
+        .unwrap();
+    assert!(db
+        .agent_session_scan_work(&own, &binding, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .is_none());
 }

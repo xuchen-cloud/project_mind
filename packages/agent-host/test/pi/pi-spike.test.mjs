@@ -4,7 +4,9 @@ import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createPiProbe } from '../../src/pi-spike.mjs';
+import { createPiProbe, createPiSession } from '../../src/pi-spike.mjs';
+import { PROBE_TOOLS } from '../../src/tool-descriptors.mjs';
+import { decodeSession, encodeSession } from '../../src/session-codec.mjs';
 
 async function fixture(handler) {
   const requests = [];
@@ -102,6 +104,128 @@ test('Pi abort waits for settlement and retains the cancelled prompt', { timeout
     assert.ok(checkpoint.jsonl.includes('aborted'));
   } finally {
     await probe.dispose();
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('provider context checks each round and leaves the original checkpoint intact', { timeout: 15000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mind-pi-context-'));
+  const provider = await fixture((_request, response, round) => {
+    if (round === 1 || round === 3) sse(response, { role: 'assistant',
+      content: round === 1 ? 'OLD PUBLIC TEXT' : undefined, tool_calls: [{ index: 0,
+      id: round === 1 ? 'call-old' : 'call-current', type: 'function', function: { name: 'mind_source_read',
+        arguments: JSON.stringify({ payload: round === 1 ? 'old-tool' : 'current-tool' }) } }] }, 'tool_calls');
+    else sse(response, { role: 'assistant', content: round === 2 ? 'OLD PRIVATE ANSWER' : 'Current answer' }, 'stop');
+  });
+  const sessionId = '3'.repeat(32);
+  const options = { workspaceRoot: root, sessionId, baseUrl: provider.baseUrl,
+    modelId: 'fixture', apiKey: 'fixture-secret', tools: [PROBE_TOOLS[0]],
+    dispatchTool: async (call) => ({ text: call.toolCallId === 'call-old'
+      ? 'OLD PRIVATE TOOL RESULT' : 'CURRENT TOOL RESULT' }) };
+  let session;
+  try {
+    session = await createPiSession(options);
+    const saved = await session.prompt('Historical authorized user text');
+    await session.dispose();
+    session = undefined;
+    const entries = decodeSession(saved.jsonl, root, sessionId, saved.checksum);
+    const userId = entries.find((entry) => entry.type === 'message' && entry.message.role === 'user').id;
+    const oldCallId = entries.find((entry) => entry.type === 'message' && entry.message.role === 'assistant'
+      && entry.message.content.some((part) => part.type === 'toolCall')).id;
+    const oldResultId = entries.find((entry) => entry.type === 'message' && entry.message.role === 'toolResult').id;
+    const summaryId = 'synthetic-branch-summary';
+    entries.push({ type: 'branch_summary', id: summaryId, parentId: saved.leafId,
+      timestamp: new Date().toISOString(), fromId: userId, summary: 'SYNTHETIC PRIVATE SUMMARY' });
+    const checkpoint = { ...encodeSession(entries, root), leafId: summaryId };
+    const checks = [];
+    session = await createPiSession({ ...options, checkpoint, historyPolicy: async (call) => {
+      checks.push(call);
+      return { allowedEntryIds: checks.length === 1 ? [userId, oldCallId] : [userId, oldResultId] };
+    } });
+    const result = await session.prompt('Fresh prompt');
+    assert.equal(checks.length, 2);
+    assert.deepEqual(checks.map((call) => call.method), ['session.context.check', 'session.context.check']);
+    assert.deepEqual(checks.map((call) => call.toolCallId), ['context-check-1', 'context-check-2']);
+    const expectedCandidates = entries.filter((entry) => entry.type === 'message').map((entry) => entry.id);
+    for (const check of checks) {
+      assert.deepEqual(check.payload.entryIds, expectedCandidates);
+      assert.ok(!check.payload.entryIds.includes(summaryId));
+    }
+    for (const request of provider.requests.slice(2)) {
+      const context = JSON.stringify(request.messages);
+      assert.ok(context.includes('Historical authorized user text'));
+      assert.ok(context.includes('Fresh prompt'));
+      assert.ok(!context.includes('OLD PRIVATE ANSWER'));
+      assert.ok(!context.includes('OLD PRIVATE TOOL RESULT'));
+      assert.ok(!context.includes('call-old'));
+      assert.ok(!context.includes('SYNTHETIC PRIVATE SUMMARY'));
+    }
+    assert.ok(JSON.stringify(provider.requests[2].messages).includes('OLD PUBLIC TEXT'));
+    assert.ok(JSON.stringify(provider.requests[3].messages).includes('CURRENT TOOL RESULT'));
+    assert.equal(result.jsonl.slice(0, checkpoint.jsonl.length), checkpoint.jsonl);
+  } finally {
+    await session?.dispose();
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('failed context check blocks the provider request', { timeout: 10000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mind-pi-context-fail-'));
+  const provider = await fixture((_request, response) => sse(response, { role: 'assistant', content: 'old' }, 'stop'));
+  const options = { workspaceRoot: root, sessionId: '4'.repeat(32), baseUrl: provider.baseUrl,
+    modelId: 'fixture', apiKey: 'fixture-secret', dispatchTool: async () => ({}) };
+  let session;
+  try {
+    session = await createPiSession(options);
+    const checkpoint = await session.prompt('Old user');
+    await session.dispose();
+    session = await createPiSession({ ...options, checkpoint, historyPolicy: async () => {
+      throw new Error('Native denied history');
+    } });
+    await session.prompt('New user');
+    assert.equal(provider.requests.length, 1);
+  } finally {
+    await session?.dispose();
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('compacted history check lists only messages still loaded for context', { timeout: 10000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mind-pi-compacted-'));
+  const provider = await fixture((_request, response) => sse(response, { role: 'assistant', content: 'Old retained answer' }, 'stop'));
+  const options = { workspaceRoot: root, sessionId: '5'.repeat(32), baseUrl: provider.baseUrl,
+    modelId: 'fixture', apiKey: 'fixture-secret', dispatchTool: async () => ({}) };
+  let session;
+  try {
+    session = await createPiSession(options);
+    const saved = await session.prompt('Old compacted user');
+    await session.dispose();
+    session = undefined;
+    const entries = decodeSession(saved.jsonl, root, options.sessionId, saved.checksum);
+    const retainedId = entries.find((entry) => entry.type === 'message' && entry.message.role === 'assistant').id;
+    const compactionId = 'synthetic-compaction';
+    entries.push({ type: 'compaction', id: compactionId, parentId: saved.leafId,
+      timestamp: new Date().toISOString(), summary: 'SYNTHETIC COMPACTION SUMMARY',
+      firstKeptEntryId: retainedId, tokensBefore: 100 });
+    const checkpoint = { ...encodeSession(entries, root), leafId: compactionId };
+    const checks = [];
+    session = await createPiSession({ ...options, checkpoint, historyPolicy: async (call) => {
+      checks.push(call);
+      return { allowedEntryIds: [retainedId] };
+    } });
+    const result = await session.prompt('New prompt');
+    assert.deepEqual(checks.map((call) => call.payload.entryIds), [[retainedId]], result.jsonl.slice(checkpoint.jsonl.length));
+    assert.equal(provider.requests.length, 2, result.jsonl.slice(checkpoint.jsonl.length));
+    const context = JSON.stringify(provider.requests[1].messages);
+    assert.ok(context.includes('Old retained answer'));
+    assert.ok(context.includes('New prompt'));
+    assert.ok(!context.includes('Old compacted user'));
+    assert.ok(!context.includes('SYNTHETIC COMPACTION SUMMARY'));
+  } finally {
+    await session?.dispose();
     await provider.close();
     await rm(root, { recursive: true, force: true });
   }

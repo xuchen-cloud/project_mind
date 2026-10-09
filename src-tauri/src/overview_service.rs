@@ -13,6 +13,7 @@ use crate::{
             OverviewPublishInput,
         },
         repository::ContextRepository,
+        source_trace::derived_source_visible,
     },
     db::Database,
     overview_evidence::{
@@ -520,12 +521,12 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                         hidden.insert(item.id.clone());
                         continue;
                     }
-                    let state = if wanted.contains(&item.id) {
-                        reference_state(db, &read_request, binding, reference)
-                    } else {
-                        db.source_read_object(&read_request, binding, &reference.object)
-                            .map(|_| false)
-                    };
+                    let state = derived_source_visible(db, &read_request, binding, reference)
+                        .and_then(|_| if wanted.contains(&item.id) {
+                            reference_state(db, &read_request, binding, reference)
+                        } else {
+                            Ok(false)
+                        });
                     let state = state.and_then(|stale| {
                         if let Some((_, proof)) =
                             proofs.iter().find(|(candidate, _)| candidate == &key)
@@ -1342,6 +1343,7 @@ mod tests {
             epistemic_status: EpistemicStatus::Recorded,
             coverage: input.coverage.clone(),
             related: vec![],
+            session_summary: None,
         });
         let service = OverviewService::new(&store);
         input.knowledge_upserts[0].source_refs[0].excerpt = "伪造节点依据".into();

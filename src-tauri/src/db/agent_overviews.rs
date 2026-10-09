@@ -458,7 +458,7 @@ impl Database {
 mod tests {
     // Remove schema31/30 additions before this fixture simulates an older file.
     const REMOVE_LATER_AGENT_SCHEMA: &str = r#"
-DROP TABLE agent_session_scan_state;
+DROP TABLE agent_run_source_dependencies; DROP TABLE agent_run_provenance; DROP TABLE agent_session_scan_state;
 DROP INDEX agent_session_search_rows_session;
 DROP TRIGGER agent_session_search_row_delete;
 DROP TABLE agent_session_search_rows;

@@ -119,6 +119,9 @@ pub struct ContextEntry {
     pub has_more: bool,
     /// Only methods that are implemented and authorized may appear here.
     pub available_reads: Vec<String>,
+    /// Exact underlying sources for the visible L0 text; never sent to callers.
+    #[serde(skip)]
+    pub(crate) source_refs: Vec<SourceRef>,
 }
 
 impl ContextEntry {
@@ -140,13 +143,16 @@ impl ContextEntry {
             nodes: vec![],
             has_more: truncated,
             available_reads: vec![],
+            source_refs: vec![],
         };
         entry = entry.bounded(Some(budget))?;
         Ok(entry)
     }
     /// Enforce L0's total serialized budget, including escaped Unicode metadata.
     pub(crate) fn bounded(mut self, budget_chars: Option<usize>) -> AgentResult<Self> {
-        let budget = budget_chars.unwrap_or(CONTEXT_DEFAULT_CHARS).min(CONTEXT_MAX_CHARS);
+        let budget = budget_chars
+            .unwrap_or(CONTEXT_DEFAULT_CHARS)
+            .min(CONTEXT_MAX_CHARS);
         if self.identity.name.chars().count() > 300 {
             self.identity.name = self.identity.name.chars().take(300).collect();
             self.has_more = true;
@@ -163,11 +169,24 @@ impl ContextEntry {
         }
         while serialized_chars(&self)? > budget {
             self.has_more = true;
-            if self.nodes.pop().is_some() { continue; }
-            if self.positioning.as_mut().is_some_and(|text| text.pop().is_some()) { continue; }
+            if self.nodes.pop().is_some() {
+                continue;
+            }
+            if self
+                .positioning
+                .as_mut()
+                .is_some_and(|text| text.pop().is_some())
+            {
+                continue;
+            }
             self.positioning = None;
-            if self.identity.name.pop().is_some() { continue; }
-            return Err(AgentError::new(ErrorCode::InvalidArgument, "budgetChars cannot fit entry metadata"));
+            if self.identity.name.pop().is_some() {
+                continue;
+            }
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "budgetChars cannot fit entry metadata",
+            ));
         }
         Ok(self)
     }

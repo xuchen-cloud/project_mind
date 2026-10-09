@@ -40,7 +40,7 @@ mod tests {
             project_id: project.id, source_path: source.to_string_lossy().into(),
             is_starred: false, tag_ids: None,
         }).unwrap();
-        db.conn.execute_batch("DROP VIEW agent_visible_files; DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts;").unwrap();
+        db.conn.execute_batch("DROP VIEW agent_visible_files; DROP TABLE agent_run_source_dependencies; DROP TABLE agent_run_provenance; DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts;").unwrap();
         db.set_schema_version(31).unwrap();
         let before: i64 = db.conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0)).unwrap();
         db.ensure_file_output_schema().unwrap();

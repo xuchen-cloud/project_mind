@@ -182,18 +182,12 @@ fn checkpoint_checksum(checkpoint: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn authorize_search(
+fn authorize_index(
     db: &Database,
     request: &RequestContext,
     current: &WorkspaceBinding,
     scope: &Scope,
 ) -> AgentResult<()> {
-    if !matches!(request.caller, Caller::Gui) {
-        return Err(AgentError::new(
-            ErrorCode::ScopeDenied,
-            "History search is GUI only",
-        ));
-    }
     scope.validate()?;
     if db
         .native_workspace_id
@@ -210,6 +204,7 @@ fn authorize_search(
 
 fn index_message(
     tx: &Transaction<'_>,
+    workspace_id: &str,
     session_id: &str,
     message_id: &str,
     message: &ProjectionMessage,
@@ -275,16 +270,18 @@ fn index_message(
         params![message_id, text],
     )
     .map_err(io_error)?;
+    super::agent_session_maintenance::session_message_changed(tx,workspace_id,session_id,message_id,&hash)?;
     Ok(())
 }
 
 pub(super) fn projection_index_message(
     tx: &Transaction<'_>,
+    workspace_id: &str,
     session_id: &str,
     message_id: &str,
     message: &ProjectionMessage,
 ) -> AgentResult<()> {
-    index_message(tx, session_id, message_id, message)
+    index_message(tx, workspace_id, session_id, message_id, message)
 }
 
 impl Database {
@@ -296,7 +293,13 @@ impl Database {
         current: &WorkspaceBinding,
         input: &AgentSessionSearchInput,
     ) -> AgentResult<AgentSessionSearchPage> {
-        authorize_search(self, request, current, &input.scope)?;
+        if !matches!(request.caller, Caller::Gui) {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "History search is GUI only",
+            ));
+        }
+        authorize_index(self, request, current, &input.scope)?;
         input.validate()?;
         let scope_key = input.scope.key();
         if let Some(session_id) = &input.session_id {
@@ -407,7 +410,7 @@ impl Database {
         scope: &Scope,
         session_id: Option<&str>,
     ) -> AgentResult<Option<SessionScanWork>> {
-        authorize_search(self, request, current, scope)?;
+        authorize_index(self, request, current, scope)?;
         if session_id.is_some_and(|id| !id_valid(id)) {
             return Err(invalid("Invalid session ID"));
         }
@@ -426,9 +429,15 @@ impl Database {
                 return Err(AgentError::new(ErrorCode::NotFound, "Session not found"));
             }
         }
+        // A model tool may scan its own settled checkpoint while its current
+        // run waits for the tool response. Other active sessions stay deferred.
+        let own_run = match &request.caller {
+            Caller::BuiltinRun { run_id } => Some(run_id.as_str()),
+            _ => None,
+        };
         let row: Option<(String,String,Option<String>,Option<i64>,Option<String>,Option<i64>)> = self.conn.query_row(
-            "SELECT s.id,json_extract(s.checkpoint_json,'$.checksum'),st.checksum,st.entry_count,st.cursor_json,st.complete FROM agent_sessions s LEFT JOIN agent_session_scan_state st ON st.session_id=s.id WHERE s.scope_key=?1 AND (?2 IS NULL OR s.id=?2) AND s.runtime_id='builtin-pi' AND s.checkpoint_json IS NOT NULL AND json_extract(s.checkpoint_json,'$.checksum') IS NOT NULL AND (st.session_id IS NULL OR st.checksum!=json_extract(s.checkpoint_json,'$.checksum') OR st.complete=0) AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.session_id=s.id AND r.state IN ('preparing','running','cancelling')) ORDER BY s.updated_at DESC,s.id LIMIT 1",
-            params![scope_key,session_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)),
+            "SELECT s.id,json_extract(s.checkpoint_json,'$.checksum'),st.checksum,st.entry_count,st.cursor_json,st.complete FROM agent_sessions s LEFT JOIN agent_session_scan_state st ON st.session_id=s.id WHERE s.scope_key=?1 AND (?2 IS NULL OR s.id=?2) AND s.runtime_id='builtin-pi' AND s.checkpoint_json IS NOT NULL AND json_extract(s.checkpoint_json,'$.checksum') IS NOT NULL AND (st.session_id IS NULL OR st.checksum!=json_extract(s.checkpoint_json,'$.checksum') OR st.complete=0) AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.session_id=s.id AND r.state IN ('preparing','running','cancelling') AND (?3 IS NULL OR r.id!=?3 OR r.state='cancelling')) ORDER BY s.updated_at DESC,s.id LIMIT 1",
+            params![scope_key,session_id,own_run],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)),
         ).optional().map_err(io_error)?;
         row.map(
             |(session_id, checksum, old_checksum, old_count, old_cursor, old_complete)| {
@@ -502,7 +511,7 @@ impl Database {
             return Err(AgentError::new(ErrorCode::NotFound, "Session not found"));
         };
         let scope = parse_scope_key(&scope_key)?;
-        authorize_search(self, request, current, &scope)?;
+        authorize_index(self, request, current, &scope)?;
         if runtime_id != "builtin-pi"
             || checkpoint
                 .as_deref()
@@ -527,7 +536,11 @@ impl Database {
                 "Session scan advanced",
             ));
         }
-        let active: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs WHERE session_id=?1 AND state IN ('preparing','running','cancelling'))",[&work.session_id],|r|r.get(0)).map_err(io_error)?;
+        let own_run = match &request.caller {
+            Caller::BuiltinRun { run_id } => Some(run_id.as_str()),
+            _ => None,
+        };
+        let active: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs WHERE session_id=?1 AND state IN ('preparing','running','cancelling') AND (?2 IS NULL OR id!=?2 OR state='cancelling'))",params![work.session_id,own_run],|r|r.get(0)).map_err(io_error)?;
         if active {
             return Err(AgentError::new(
                 ErrorCode::RevisionConflict,
@@ -642,6 +655,7 @@ impl Database {
                     params![message.message_id, text],
                 )
                 .map_err(io_error)?;
+                super::agent_session_maintenance::session_message_changed(&tx,&current.workspace_id,&work.session_id,&message.message_id,&message.content_hash)?;
             }
         }
         if page.complete {

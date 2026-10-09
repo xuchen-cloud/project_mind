@@ -60,11 +60,12 @@ pub fn capabilities() -> Vec<Capability> {
         ("reference.list", "source.read", true, false, "AI-03"),
         ("session.create", "session.write", false, true, "AI-05"),
         ("session.summary.get", "session.read", true, false, "AI-08"),
+        ("session.search", "session.read", true, true, "AI-08"),
         (
             "session.messages.read",
             "session.read",
             true,
-            false,
+            true,
             "AI-08",
         ),
         ("run.start", "run.start", false, true, "AI-05"),

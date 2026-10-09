@@ -12,6 +12,7 @@ use crate::{
         BoundSourceStore, SourceReadInput, SourceReadPage, SourceReadTarget, SourceService,
         SourceUtility,
     },
+    source_session_read::SessionHistoryUtility,
 };
 use std::sync::Mutex;
 
@@ -57,7 +58,8 @@ fn revision(
                 .source_native_snapshot(request, binding, source)?
                 .revision)
         }
-        ObjectKind::SessionSummary | ObjectKind::SessionMessage => Err(not_ready()),
+        ObjectKind::SessionMessage => Ok(db.source_session_record(request,binding,source)?.text_hash),
+        ObjectKind::SessionSummary => Err(not_ready()),
     }
 }
 struct FileEvidence {
@@ -172,6 +174,15 @@ pub(crate) async fn capture<S: BoundSourceStore, R: DocumentUtility, F: SourceUt
     evidence.verify_file().await?;
     store.with_current(|binding, db| evidence.verify(db, request, binding))?;
     Ok((page, evidence))
+}
+
+/// Capture a message only after an authorized read of its original Pi JSONL.
+pub(crate) async fn capture_session<S:BoundSourceStore,U:SessionHistoryUtility>(store:&S,request:&RequestContext,input:&SourceReadInput,utility:&U)->AgentResult<(SourceReadPage,CapturedEvidence)> {
+    if input.source.object.kind!=ObjectKind::SessionMessage {return Err(not_ready());}
+    let page=SourceService::new(store).read_session(request,input,utility).await?;
+    let evidence=CapturedEvidence {binding:request.binding.clone(),caller:request.caller.key(),reference:page.source_ref.clone(),file:None};
+    store.with_current(|binding,db|evidence.verify(db,request,binding))?;
+    Ok((page,evidence))
 }
 /// Authorize the retained version first; compare with the current semantic head.
 /// File bytes require an external FileReferenceProof before releasing body.

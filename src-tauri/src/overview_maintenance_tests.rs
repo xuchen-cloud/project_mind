@@ -62,6 +62,11 @@ impl SourceUtility for NoUtility {
         panic!("native Todo and QuickNote must not invoke File conversion")
     }
 }
+impl crate::source_session_read::SessionHistoryUtility for NoUtility {
+    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
+        panic!("Business source fixture does not read sessions")
+    }
+}
 struct MockModel {
     response: Mutex<String>,
     fail: Mutex<Option<ErrorCode>>,
@@ -185,7 +190,7 @@ async fn next(f: &Fixture, model: &impl OverviewModel, index: usize) -> AgentRes
         &f.scope,
         format!("maintenance-step-{index}"),
     );
-    step(&f.store, &request, &f.scope, &NoUtility, &NoUtility, model).await
+    step(&f.store, &request, &f.scope, &NoUtility, &NoUtility, model, &NoUtility).await
 }
 async fn warmup(f: &Fixture, model: &MockModel) {
     for index in 0..12 {
@@ -228,6 +233,9 @@ fn edit_todo(f: &Fixture, content: String) {
     })
     .unwrap();
 }
+
+#[path = "overview_session_tests.rs"]
+mod session_tests;
 
 #[tokio::test]
 async fn fifty_todo_edits_generate_once_from_latest_native_source_and_leave_quick_note() {

@@ -33,7 +33,7 @@ impl Database {
                 "Source is outside this Workspace",
             ));
         }
-        if object.kind == ObjectKind::SessionMessage {
+        if matches!(object.kind, ObjectKind::SessionMessage | ObjectKind::SessionSummary) {
             request.authorize(binding, &object.scope, "session.read")?;
             let resolved = self
                 .agent_resolve_object(object, &binding.workspace_id)?
@@ -51,6 +51,7 @@ impl Database {
                 | ObjectKind::Todo
                 | ObjectKind::QuickNote
                 | ObjectKind::Transcript
+                | ObjectKind::SessionSummary
         ) {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,
@@ -547,6 +548,14 @@ impl Database {
                         input.include_history,
                         &candidate.title,
                     )?;
+                }
+                ObjectKind::SessionSummary => {
+                    let node = self.agent_knowledge_get(&target.object.scope, &target.object.id, None)?
+                        .ok_or_else(|| AgentError::new(ErrorCode::SourceChanged, "Session summary changed"))?;
+                    if node.revision.to_string() != target.revision.as_deref().unwrap_or_default()
+                        || !crate::source_session_summary::visible(self, request, binding, &node)? {
+                        return Err(AgentError::new(ErrorCode::SourceChanged, "Session summary changed"));
+                    }
                 }
                 _ => {
                     return Err(AgentError::new(

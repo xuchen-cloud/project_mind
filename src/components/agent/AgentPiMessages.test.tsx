@@ -42,6 +42,19 @@ it("shows a paginated orphan's real result/error and source without manufacturin
   expect(container.querySelector("details")).not.toHaveAttribute("open");
 });
 
+it.each([
+  ["mind_session_search", "查找历史讨论"],
+  ["mind_session_messages_read", "回读历史讨论"],
+])("shows the historical discussion label for %s", async (toolName, label) => {
+  const callId = `call-${toolName}`;
+  const call: AgentConversationMessage = { ...assistant, id: `assistant-${toolName}`,
+    content: [{ type: "toolCall", id: callId, name: toolName, arguments: {} }] };
+  const toolResult: AgentConversationMessage = { ...result, id: `result-${toolName}`,
+    toolCallId: callId, toolName, content: [{ type: "text", text: "{}" }] };
+  render(<AgentPiMessages binding={binding} messages={[call, toolResult]} />);
+  expect(await screen.findByText(`${label}完成`)).toBeInTheDocument();
+});
+
 it("preserves all historical user text blocks and full long assistant text through the safe Markdown leaf", async () => {
   const long = "正文".repeat(8000) + "历史最后一句";
   const { container } = render(<AgentPiMessages binding={binding} messages={[{ ...base, id: "u", role: "user", content: [{ type: "text", text: "第一块" }, { type: "text", text: "第二块" }] }, { ...base, id: "long", content: long }]} />);

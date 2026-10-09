@@ -6,7 +6,8 @@ import { AgentKnowledgePanel } from "./AgentKnowledgePanel";
 
 const mocks = vi.hoisted(() => ({ contextGet: vi.fn(), overviewGet: vi.fn(), knowledgeSearch: vi.fn(), knowledgeGet: vi.fn(), sourceMaintenance: vi.fn(), overviewMaintenance: vi.fn(), overviewCorrectionsGet: vi.fn(), overviewCorrectionUpsert: vi.fn(), overviewCorrectionDelete: vi.fn() }));
 vi.mock("../../services/agentApi", () => ({ agentApi: mocks }));
-vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: ({ source }: { source: { title: string } }) => <div>{source.title}</div> }));
+vi.mock("./AgentSourceCard", () => ({ AgentSourceCard: ({ source }: { source: { title: string; object: { id: string }; locator: unknown } }) =>
+  <div data-testid={`source-${source.object.id}`} data-locator={JSON.stringify(source.locator)}>{source.title}</div> }));
 const binding = { workspaceId: "w1", generation: "g1" };
 const scope: AgentScope = { kind: "project", projectId: 7 };
 const coverage = { processed: 3, partial: 1, pending: 2, excluded: 1, unsupported: 0 };
@@ -137,6 +138,104 @@ it("loads selected Knowledge sections and further body pages only on explicit ex
   fireEvent.click(await screen.findByRole("button", { name: "继续读取正文" }));
   expect(await screen.findByText("后续片段")).toBeVisible();
   expect(mocks.knowledgeGet).toHaveBeenLastCalledWith(binding, expect.objectContaining({ cursor: "body-next", sectionIds: ["choice"], budgetChars: 2000 }));
+});
+
+it("shows structured discussion statements with their original message location in knowledge details", async () => {
+  mocks.knowledgeGet.mockImplementation(async (_binding: unknown, input: KnowledgeGetInput) => ({
+    scope, nodeId: card.nodeId, revision: 3, kind: "source_summary", title: "范围决策", view: input.view,
+    summary: input.view === "summary" ? "这次讨论确定了范围。" : null, summaryOffset: 0,
+    sections: [], sourceRefs: [], related: [], coverage, stale: false, epistemicStatus: "recorded", validState: "current", nextCursor: null,
+    sessionSummary: input.view === "summary" ? {
+      id: "summary-1", sessionId: "session-1", branchId: "branch-1", revision: 1,
+      startEntryId: "entry-1", endEntryId: "entry-2", topics: ["产品范围"], statementOffset: 0, statementTotal: 4, supersededBy: [],
+      statements: [
+        { kind: "user_decision", text: "先完成历史检索。", messageRefs: [{ workspaceId: binding.workspaceId, scope,
+          sessionId: "session-1", branchId: "branch-1", messageId: "m1", ordinal: 1, contentHash: "sha256:private" }], sourceRefs: [], operationReceiptId: null },
+        { kind: "ai_suggestion", text: "建议核对原文。", messageRefs: [], sourceRefs: [], operationReceiptId: null },
+        { kind: "completed_operation", text: "已保存记录。", messageRefs: [], sourceRefs: [], operationReceiptId: "receipt-1" },
+        { kind: "user_reported_completion", text: "用户说已经完成。", messageRefs: [], sourceRefs: [], operationReceiptId: null },
+      ],
+    } : null,
+  }));
+  panel({ binding, scope });
+  fireEvent.click(await screen.findByRole("button", { name: "范围决策" }));
+  expect(await screen.findByText("讨论主题：产品范围")).toBeVisible();
+  expect(mocks.knowledgeGet).toHaveBeenCalledWith(binding, { scope, nodeId: card.nodeId, version: card.revision,
+    view: "summary", cursor: null, budgetChars: 8000 });
+  for (const label of ["用户决定：", "助手建议：", "已执行操作：", "用户报告已完成："]) expect(screen.getByText(label)).toBeVisible();
+  expect(screen.getByText("这次讨论确定了范围。")).toBeVisible();
+  expect(screen.getAllByText("这次讨论确定了范围。")).toHaveLength(1);
+  expect(screen.getByTestId("source-m1")).toHaveAttribute("data-locator", JSON.stringify({ kind: "messages",
+    sessionId: "session-1", branchId: "branch-1", startMessageId: "m1", endMessageId: "m1" }));
+  expect(screen.queryByText(/sha256:private|receipt-1/)).not.toBeInTheDocument();
+  expect(screen.queryByText("已被后续结论替代")).not.toBeInTheDocument();
+});
+
+it("uses the full native discussion source once when a statement also carries its message reference", async () => {
+  const ref = (messageId: string) => ({ workspaceId: binding.workspaceId, scope,
+    sessionId: "session-1", branchId: "branch-1", messageId, ordinal: 1, contentHash: "sha256:original" });
+  mocks.knowledgeGet.mockImplementation(async (_binding: unknown, input: KnowledgeGetInput) => ({
+    scope, nodeId: card.nodeId, revision: 3, kind: "source_summary", title: "范围决策", view: input.view,
+    summary: input.view === "summary" ? "已核对原始讨论。" : null, summaryOffset: 0,
+    sections: [], sourceRefs: [], related: [], coverage, stale: false, epistemicStatus: "recorded", validState: "current", nextCursor: null,
+    sessionSummary: input.view === "summary" ? { id: "summary-1", sessionId: "session-1", branchId: "branch-1", revision: 1,
+      startEntryId: "entry-1", endEntryId: "entry-2", topics: [], statementOffset: 0, statementTotal: 1, supersededBy: [],
+      statements: [{ kind: "user_decision", text: "先核对原文。", messageRefs: [ref("m1"), ref("m2")],
+        sourceRefs: [{ object: { workspaceId: binding.workspaceId, scope, kind: "session_message", id: "m1" },
+          revision: "sha256:original", fileVersion: null, recordVersion: null, blockId: null,
+          locator: { kind: "messages", sessionId: "session-1", branchId: "branch-1", startMessageId: "m1", endMessageId: "m1" },
+          title: "真实原始讨论", excerpt: "保留的原文片段" }], operationReceiptId: null }],
+    } : null,
+  }));
+  panel({ binding, scope });
+  fireEvent.click(await screen.findByRole("button", { name: "范围决策" }));
+  expect(await screen.findByText("先核对原文。")).toBeVisible();
+  expect(screen.getAllByTestId("source-m1")).toHaveLength(1);
+  expect(screen.getByTestId("source-m1")).toHaveTextContent("真实原始讨论");
+  expect(screen.getByTestId("source-m2")).toHaveTextContent("原始讨论");
+});
+
+it("merges paged summary text and later statements into one knowledge detail", async () => {
+  const segment = { id: "summary-1", sessionId: "session-1", branchId: "branch-1", revision: 1,
+    startEntryId: "entry-1", endEntryId: "entry-2", topics: ["产品范围"], statementTotal: 2,
+    supersededBy: [{ nodeId: "node:later-conclusion", revision: 2 }] };
+  const statement = (text: string, messageId: string) => ({ kind: "user_decision", text,
+    messageRefs: [{ workspaceId: binding.workspaceId, scope, sessionId: "session-1", branchId: "branch-1",
+      messageId, ordinal: 1, contentHash: `sha256:${messageId}` }], sourceRefs: [], operationReceiptId: null });
+  mocks.knowledgeGet.mockImplementation(async (_binding: unknown, input: KnowledgeGetInput) => {
+    const cursor = input.cursor;
+    const summaryPage = input.view === "summary";
+    return { scope, nodeId: card.nodeId, revision: 3, kind: "source_summary", title: "范围决策", view: input.view,
+      summary: summaryPage ? cursor === null ? "前半句，" : cursor === "prose-next" ? "后半句。" : null : null,
+      summaryOffset: cursor === null ? 0 : 4,
+      sections: [], sourceRefs: [], related: [], coverage, stale: false, epistemicStatus: "recorded", validState: "current",
+      nextCursor: summaryPage ? cursor === null ? "prose-next" : cursor === "prose-next" ? "statement-1"
+        : cursor === "statement-1" ? "statement-2" : null : null,
+      sessionSummary: !summaryPage || cursor === "prose-next" ? null : cursor === null
+        ? { ...segment, statementOffset: 0, statements: [] }
+        : cursor === "statement-1" ? { ...segment, statementOffset: 0, statements: [statement("先完成检索。", "m1")] }
+          : { ...segment, statementOffset: 1, statements: [statement("再核对原文。", "m2")] },
+    };
+  });
+  panel({ binding, scope });
+  fireEvent.click(await screen.findByRole("button", { name: "范围决策" }));
+  expect(await screen.findByText("前半句，")).toBeVisible();
+  expect(screen.getByText("已被后续结论替代")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "更多摘要" }));
+  expect(await screen.findByText("前半句，后半句。")).toBeVisible();
+  expect(screen.getAllByText("讨论主题：产品范围")).toHaveLength(1);
+  expect(screen.getAllByText("已被后续结论替代")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "更多摘要" }));
+  expect(await screen.findByText("先完成检索。")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "更多摘要" }));
+  expect(await screen.findByText("再核对原文。")).toBeVisible();
+  expect(screen.getAllByText("前半句，后半句。")).toHaveLength(1);
+  expect(screen.getAllByText("讨论主题：产品范围")).toHaveLength(1);
+  expect(screen.getAllByText("用户决定：")).toHaveLength(2);
+  expect(screen.getByTestId("source-m1")).toBeVisible();
+  expect(screen.getByTestId("source-m2")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "更多摘要" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/later-conclusion/)).not.toBeInTheDocument();
 });
 
 it("keeps old metadata responses outside the new Workspace binding", async () => {
