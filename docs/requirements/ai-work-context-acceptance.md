@@ -52,7 +52,7 @@
 | A46 | M1·部分 | [Record 撤回测试][withdraw-tests]、[File 撤销测试][file-undo-tests] | 真实创建→撤回→恢复，核搜索/计数/引用和 File 原字节。 |
 | A47 | M1·部分 | [批量撤销测试][batch-tests]、[Record 撤销测试][record-undo-tests] | 人工后改/新增引用后实际撤销，核冲突与后续工作保留。 |
 | A48 | M1·部分 | [批量操作测试][batch-tests]、[成果审阅测试][review-tests] | 真实多成果任务中断、重试及重复撤销，核部分结果与独立操作。 |
-| A49 | M1·部分 | [审阅测试][review-tests]、[连接授权测试][grant-tests] | 新旧执行模式、冻结任务确认、外部连接和只读负例的实机核验。 |
+| A49 | M1·部分 | [审阅测试][review-tests]、[连接授权测试][grant-tests] | 新旧执行模式、冻结任务确认、外部连接和只读负例的实机核验；review 模式验证同会话模型决定工具只作用于 Host 绑定的当前候选及方案后真实用户回复，不以引用/工具文字授权，按钮与工具共用持久结果。 |
 | A50 | M1·部分 | [批量撤销测试][batch-tests] | 真实同对象连改、新建后改、互引及并发冲突的成组撤销。 |
 | A51 | M1·部分 | [知识服务测试][knowledge-tests]、[R10 记录][delivery] | 未进入首页直接经助手与 MCP 提问，核同 Project 渐进读取轨迹。 |
 | A52 | M1·部分 | [Overview 维护测试][overview-tests] | 50 次改动后次日维护，核真实模型调用数和最终受影响条目。 |
@@ -78,7 +78,7 @@
 | A72 | M1·部分 | [Overview 隔离测试][overview-isolation-tests]、[R10 记录][delivery] | 旧 Workspace 升级与重建/恢复 Overview 后检查 QuickNote/summary*。 |
 | A73 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 记录][delivery] | 736/1200/1540 实机下收起/展开、保留 draft/scroll、停止后发送及业务页交互。 |
 | A74 | M1·部分 | [Pi 消息组件测试][pi-message-tests]、[会话面板测试][agent-panel-tests] | 真实两轮回答和异步结果插入，核来源、错误、折叠和滚动归属。 |
-| A75 | M1·部分 | [成果审阅测试][review-tests]、[批量操作测试][batch-tests] | [G1/P2 确认可用性](ai-work-context-delivery.md#intent-audit-20261009)：唯一待定方案的「同意」「好的」与按钮同一持久决定，含修改/模糊回复不误批，摘要说明已有对象目标与动作；再用真实“更新计划并建 3 Todo”任务验补充失效、部分失败及逐项收据。 |
+| A75 | M1·部分 | [成果审阅测试][review-tests]、[批量操作测试][batch-tests] | [G1/P2 会话模型决定](ai-work-context-delivery.md#intent-audit-20261009)：真实 Provider 连续会话覆盖「这个方案可以，照这个做」、改日期、只批准部分、含糊回复、问句、取消、引用内确认指令及多个目标；核方案后的新用户回复才可确认，普通回复/澄清保留待定方案，修改先废旧版再重提。应用侧核候选/版本/回复身份严格匹配、重复工具调用一次保存、旧版拒绝、按钮与模型工具同结果；模型自然说明业务方案，卡片附真实目标/范围/状态。mock 工具仅验调用链，不证明语言判断；再用真实“更新计划并建 3 Todo”任务验部分失败和逐项收据。 |
 | A76 | M1·部分 | [成果卡片测试][output-card-tests]、[File 成果测试][agent-file-tests] | 实机从成果链接打开实际对象后继续对话/编辑、移除目标；同 File ID 两轮源码续改与人工后改冲突；文件预览另归 #118。 |
 
 ## 工程契约补充验收（R13 / #107 / E16）

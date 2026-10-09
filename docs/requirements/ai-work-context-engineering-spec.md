@@ -332,9 +332,10 @@ run events与业务change events是两条流：前者用于会话展示，后者
 
 - 两个任务入口只是提示模板，不隐式改变权限。Agent根据用户任务选择Record、Todo或File，不要求先选成果类型或保存复选框。默认review先提出同任务一次业务方案，确认后提交；主动选择collaborate则直接提交。纯问答可只回答，明确只讨论时不写入。
 - `output.stage`保存完整候选并校验类型、引用、目标和基线，不提交流式半成品。review中的同任务相关候选按所属轮次合并为简短业务摘要和一个确认/取消入口；collaborate在stage验证后由Host提交，read_only拒绝写工具。实际模式使用run/output冻结值，不能以当前设置改写旧方案。
-- 按钮决定与明确文字确认/取消调用同一可信候选决定路径，绑定Workspace代际、会话/任务身份、所展示候选ID与expectedRevision；决定持久可恢复，不伪造Pi模型消息。含糊指代先澄清，引用/工具正文中的“确认”不是用户授权。附带修改的回复先使旧方案失效，经候选CAS更新或替换后重新确认，旧按钮/请求不得继续提交。
+- 所有自然语言用户回复进入既有 Pi 会话模型，包括确认、取消、修改、疑问和新任务；不在 GUI/Host 以短语表、正则或另建 LLM 分类链判断意图。Host 向本会话模型提供唯一当前待定方案的候选身份/版本及真正最新用户消息的身份，模型理解会话后在需要时调用最小方案决定工具；复用现有 `output.review` 持久决定及原生成果提交服务，不预设必须增加三个新工具。按钮仍直接调用原生决定路径，与模型工具共用同一方案、决定和提交结果。应用验证 Workspace 代际、scope、会话、方案/候选 ID、expectedRevision 与决定所依据的新用户回复身份，拒绝跨会话/跨 Run 任意候选和旧版本；引用、工具结果、模型自己提出方案的轮次均不能充当用户授权。决定持久可恢复，不伪造 Pi 模型消息。
+- 模型提出方案后，必须有新的用户回复才能确认；仅向模型提供 Host 绑定的待定计划，不允许模型从文档或工具正文提取候选授权。含糊指代、部分批准或多个目标不明确时先澄清；疑问和普通回复保留待定方案，不能在新 Run 建立时无条件 dismiss。修改先通过候选 CAS 使旧版不可执行，再生成或更新候选并重新确认；旧按钮/请求不得继续提交。取消由模型决定工具或按钮持久保存，不把澄清问句视作取消。
 - 确认一次覆盖所展示的同任务候选集合，不能自动批准之后新增或修改的候选；确认与取消竞争以持久决定/CAS为准。按对象逐项调用现有原子服务，不宣称跨DB/文件系统全局原子。取消阻止未开始的提交；已开始commit仍结算并保留实际收据。重试只处理未成功项，已提交收据不重复执行。
-- 成功结果在所属轮次只显示一次业务摘要和可点的实际对象，详情按需展开“已创建/已修改”、版本、来源、真实差异及打开/撤销。失败或部分成功在会话中明确显示，模型说“完成”不能替代native receipt。现有GUI与原生对象刷新复用业务事件，不另造成果管理区。
+- 方案的业务说明由模型结合目标自然表达，卡片附原生候选的真实目标、范围和状态；不能以固定句式计数替代模型说明。成功结果在所属轮次只显示一次业务摘要和可点的实际对象，详情按需展开“已创建/已修改”、版本、来源、真实差异及打开/撤销。失败或部分成功在会话中明确显示，模型说“完成”不能替代native receipt。现有GUI与原生对象刷新复用业务事件，不另造成果管理区。
 - `output.update`编辑staged候选使用expectedRevision，服务端重校验；修改后使旧确认失效。未提交候选的完整正文、来源与真实diff仅在显式查看详情时读取，不预读所有历史成果body，不另开审阅Dialog。
 - 新建同名File加后缀；继续修改绑定已有File ID与基线版本，每次成功修改新增File Version。同名不是修改身份，多个同名目标有实质歧义时才询问。
 - File 成果链接实际已提交对象与版本；“继续修改”明确带入同一 File ID 与当前源码/版本，见 E11。查看成果时仍可继续对话，可移除讨论对象提示，不静默变更 scope。格式预览/编辑入口由独立需求 #118 决定。
@@ -509,7 +510,8 @@ E11 保留稳定编号锚点。AI #97 负责用户任务授权后的 File 内容
 | `run.cancel/get/events` | runId、afterSeq? | 状态/事件补读；cancel 幂等 |
 | `output.stage` | runId、ordinal、kind、title、body、citations | staged output；仅当前 runtime 可调用 |
 | `output.update` | outputId、expectedRevision、title/body/safeName | 仅GUI可编辑staged成果；服务端重新校验引用/格式并revision+1 |
-| `output.commit` | outputId、requestId、expectedOutputRevision | objectRef + receipt；GUI按任务持久决定提交，collaborate下Host直接提交；须符合冻结模式、候选CAS与grant |
+| `output.review`（现有持久决定，目标接入模型） | 当前候选/方案身份、expectedRevision、决定、新用户回复身份 | review 模式由按钮直接调用或同会话模型工具调用；Host 校验当前唯一待定方案、真实回复及权限，持久决定后复用原生提交；当前代码仅支持可信 GUI 调用，模型工具接入属 G1 待办 |
+| `output.commit` | outputId、requestId、expectedOutputRevision | objectRef + receipt；review 须经同一持久决定，collaborate 下 Host 直接提交；须符合冻结模式、候选CAS与grant |
 | `record.create` / `todo.create` | scope、body/title、citations、requestId | 对外 create 操作，走同一 canonical converter/业务事务；Record 输入 document 或 markdown 二选一，稳定 ID 绑定原始输入 |
 | `record.create.preview` | input（document 或 markdown）、budgetChars? | content.create 授权，纯校验和有界正文/元信息预览，无持久对象身份或收据 |
 | `file.create` | projectId、safeName、utf8Content、citations、requestId | 首期≤2 MiB、md/txt/html/htm；不接受任意绝对路径 |
