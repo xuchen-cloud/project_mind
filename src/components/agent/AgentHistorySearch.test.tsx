@@ -17,7 +17,7 @@ const match: AgentSessionSearchMatch = {
   createdAt: "2026-10-09T10:00:00Z", contentHash: "sha256:abc", branchLeafId: "leaf", snippet: "讨论摘录", sessionTitle: "阶段会话",
 };
 const page = (matches: AgentSessionSearchMatch[], complete: boolean, nextCursor: string | null = null): AgentSessionSearchPage => ({
-  matches, nextCursor, coverage: { indexedMessages: 20, remainingMessages: complete ? 0 : 10, backfilledThisRequest: 10, complete },
+  matches, nextCursor, coverage: { indexedMessages: 20, remainingMessages: complete ? 0 : 10, backfilledThisRequest: 10, pendingSessions: complete ? 0 : 1, complete },
 });
 const open = vi.fn();
 function view(currentBinding = binding, currentScope = scope, busySession = false) {

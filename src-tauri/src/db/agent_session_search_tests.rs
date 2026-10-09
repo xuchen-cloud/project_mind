@@ -17,6 +17,8 @@ fn fixture() -> (Database, RequestContext, WorkspaceBinding) {
         .unwrap();
     conn.execute_batch(include_str!("agent_session_search.sql"))
         .unwrap();
+    conn.execute_batch(include_str!("agent_session_search_34.sql"))
+        .unwrap();
     let db = Database {
         conn,
         workspace_root: PathBuf::new(),
@@ -24,7 +26,7 @@ fn fixture() -> (Database, RequestContext, WorkspaceBinding) {
         native_workspace_id: Some("workspace-a".into()),
     };
     for (id, scope) in [(SESSION, "workspace"), (OTHER, "project:2")] {
-        db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,created_at,updated_at) VALUES (?1,?2,'Search title','pi','active',?3,'now','now')",params![id,scope,format!(".project-mind/agent/sessions/{id}/session.jsonl")]).unwrap();
+        db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,created_at,updated_at) VALUES (?1,?2,'Search title','builtin-pi','active',?3,'now','now')",params![id,scope,format!(".project-mind/agent/sessions/{id}/session.jsonl")]).unwrap();
     }
     let binding = WorkspaceBinding {
         workspace_id: "workspace-a".into(),
@@ -152,7 +154,7 @@ fn chinese_infix_literal_like_scope_and_role_selection() {
         literal.matches[0].content_hash,
         format!("sha256:{:x}", Sha256::digest("中文讨论%_结束".as_bytes()))
     );
-    assert_eq!(literal.matches[0].branch_leaf_id, "tool");
+    assert_eq!(literal.matches[0].branch_leaf_id, "user");
     assert_eq!(
         search(&db, &r, &b, Scope::Workspace, None, "_")
             .matches
@@ -244,9 +246,12 @@ fn projection_replacement_deletion_and_failure_roll_back_index() {
         ),
     )
     .unwrap();
-    assert!(search(&db, &r, &b, Scope::Workspace, None, "beta")
-        .matches
-        .is_empty());
+    assert_eq!(
+        search(&db, &r, &b, Scope::Workspace, None, "beta")
+            .matches
+            .len(),
+        1
+    );
     db.conn
         .execute("DELETE FROM agent_sessions WHERE id=?1", [SESSION])
         .unwrap();
@@ -260,34 +265,58 @@ fn projection_replacement_deletion_and_failure_roll_back_index() {
 }
 
 #[test]
-fn lazy_backfill_is_bounded_resumable_and_reports_coverage() {
+fn current_projection_does_not_claim_tree_complete() {
     let (db, r, b) = fixture();
-    let messages = (0..205)
-        .map(|n| {
-            message(
-                &format!("entry-{n}"),
-                n,
-                MessageRole::User,
-                json!(format!("needle {n}")),
-                None,
-            )
-        })
-        .collect::<Vec<_>>();
-    db.agent_session_restore_projection(&r, &b, SESSION, &projection(messages, "entry-204"))
+    db.agent_session_restore_projection(
+        &r,
+        &b,
+        SESSION,
+        &projection(
+            vec![message("one", 0, MessageRole::User, json!("needle"), None)],
+            "one",
+        ),
+    )
+    .unwrap();
+    let page = search(&db, &r, &b, Scope::Workspace, None, "needle");
+    assert_eq!(page.matches.len(), 1);
+    assert!(!page.coverage.complete);
+    assert_eq!(page.coverage.pending_sessions, 1);
+    let work = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
         .unwrap();
-    db.conn
-        .execute("DELETE FROM agent_session_search_rows", [])
-        .unwrap();
-    let first = search(&db, &r, &b, Scope::Workspace, None, "needle");
-    assert_eq!(first.coverage.backfilled_this_request, 200);
-    assert_eq!(first.coverage.remaining_messages, 5);
-    assert!(!first.coverage.complete);
-    assert!(first.next_cursor.is_none());
-    let second = search(&db, &r, &b, Scope::Workspace, None, "needle");
-    assert_eq!(second.coverage.backfilled_this_request, 5);
-    assert!(second.coverage.complete);
-    assert_eq!(second.coverage.indexed_messages, 205);
-    assert!(second.next_cursor.is_some());
+    let text = "needle";
+    db.agent_session_scan_commit(
+        &r,
+        &b,
+        &work,
+        &SessionScanPage {
+            session_id: SESSION.into(),
+            checksum: work.checksum.clone(),
+            entry_count: 1,
+            messages: vec![SessionScanMessage {
+                message_id: page.matches[0].message_id.clone(),
+                runtime_entry_id: "one".into(),
+                branch_id: "one".into(),
+                ordinal: 0,
+                role: MessageRole::User,
+                created_at: "2026-10-08T00:00:00Z".into(),
+                text: text.into(),
+                content_hash: format!("sha256:{:x}", Sha256::digest(text.as_bytes())),
+                char_start: 0,
+                char_end: 6,
+                total_chars: 6,
+            }],
+            next_cursor: None,
+            complete: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        search(&db, &r, &b, Scope::Workspace, None, "needle")
+            .coverage
+            .complete
+    );
 }
 
 #[test]
@@ -346,6 +375,48 @@ fn complete_keyset_pages_once_and_snippets_obey_unicode_budget() {
         .collect();
     db.agent_session_restore_projection(&r, &b, SESSION, &projection(messages, "entry-51"))
         .unwrap();
+    let work = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    let fragments = (0..52)
+        .map(|n| {
+            let entry = format!("entry-{n}");
+            let text = format!("{} needle {}", "界".repeat(300), n);
+            let count = text.chars().count() as u32;
+            SessionScanMessage {
+                message_id: format!(
+                    "{:x}",
+                    Sha256::digest(format!("{SESSION}:{entry}").as_bytes())
+                )[..32]
+                    .into(),
+                runtime_entry_id: entry.clone(),
+                branch_id: entry,
+                ordinal: n,
+                role: MessageRole::User,
+                created_at: "2026-10-08T00:00:00Z".into(),
+                content_hash: format!("sha256:{:x}", Sha256::digest(text.as_bytes())),
+                text,
+                char_start: 0,
+                char_end: count,
+                total_chars: count,
+            }
+        })
+        .collect();
+    db.agent_session_scan_commit(
+        &r,
+        &b,
+        &work,
+        &SessionScanPage {
+            session_id: SESSION.into(),
+            checksum: work.checksum.clone(),
+            entry_count: 52,
+            messages: fragments,
+            next_cursor: None,
+            complete: true,
+        },
+    )
+    .unwrap();
     let mut after = None;
     let mut ids = std::collections::HashSet::new();
     loop {
@@ -382,62 +453,12 @@ fn complete_keyset_pages_once_and_snippets_obey_unicode_budget() {
 }
 
 #[test]
-fn damaged_legacy_projection_rolls_back_entire_backfill_batch() {
-    let (db, r, b) = fixture();
-    db.agent_session_restore_projection(
-        &r,
-        &b,
-        SESSION,
-        &projection(
-            vec![
-                message("first", 0, MessageRole::User, json!("needle first"), None),
-                message("second", 1, MessageRole::User, json!("needle second"), None),
-            ],
-            "second",
-        ),
-    )
-    .unwrap();
-    db.conn
-        .execute("DELETE FROM agent_session_search_rows", [])
-        .unwrap();
-    db.conn
-        .execute(
-            "UPDATE agent_messages SET content_json='{}' WHERE runtime_entry_id='second'",
-            [],
-        )
-        .unwrap();
-    assert!(db
-        .agent_session_search(
-            &r,
-            &b,
-            &AgentSessionSearchInput {
-                scope: Scope::Workspace,
-                session_id: None,
-                query: "needle".into(),
-                after_message_id: None,
-                limit: 50
-            }
-        )
-        .is_err());
-    let indexed: i64 = db
-        .conn
-        .query_row(
-            "SELECT count(*) FROM agent_session_search_rows",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(indexed, 0);
-}
-
-#[test]
-fn schema_32_upgrade_reopens_without_eager_message_reads() {
+fn schema_33_upgrade_reopens_and_preserves_index() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("test.sqlite");
     let db = Database::open(&path, root.path(), None).unwrap();
-    assert_eq!(db.schema_version().unwrap(), 33);
     let (_unused, r, b) = fixture();
-    db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,created_at,updated_at) VALUES (?1,'workspace','Old title','pi','active',?2,'now','now')",params![SESSION,format!(".project-mind/agent/sessions/{SESSION}/session.jsonl")]).unwrap();
+    db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,created_at,updated_at) VALUES (?1,'workspace','Old title','builtin-pi','active',?2,'now','now')",params![SESSION,format!(".project-mind/agent/sessions/{SESSION}/session.jsonl")]).unwrap();
     db.agent_session_restore_projection(
         &r,
         &b,
@@ -447,36 +468,369 @@ fn schema_32_upgrade_reopens_without_eager_message_reads() {
                 "old",
                 0,
                 MessageRole::User,
-                json!("旧库检索%_"),
+                json!("检索前缀\u{0}🙂文"),
                 None,
             )],
             "old",
         ),
     )
     .unwrap();
-    db.conn.execute_batch("DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts; PRAGMA user_version=32;").unwrap();
+    db.conn.execute("INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES ('legacy-run',?1,'legacy-request','completed','{}','{}','now')",[SESSION]).unwrap();
+    db.conn
+        .execute(
+            "UPDATE agent_messages SET run_id='legacy-run' WHERE session_id=?1",
+            [SESSION],
+        )
+        .unwrap();
+    db.conn.execute_batch("DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts;").unwrap();
+    db.conn
+        .execute_batch(include_str!("agent_session_search.sql"))
+        .unwrap();
+    let legacy_text = "检索前缀\u{0}🙂文";
+    db.conn.execute("INSERT INTO agent_session_search_rows(message_id,text_hash,text) SELECT id,?1,?2 FROM agent_messages",params![format!("sha256:{:x}",Sha256::digest(legacy_text.as_bytes())),legacy_text]).unwrap();
+    db.conn.execute_batch("PRAGMA user_version=33").unwrap();
     drop(db);
     let reopened = Database::open(&path, root.path(), None).unwrap();
-    assert_eq!(reopened.schema_version().unwrap(), 33);
+    assert_eq!(reopened.schema_version().unwrap(), 34);
     assert_eq!(
         reopened
             .conn
-            .query_row("SELECT count(*) FROM agent_session_search_rows", [], |r| {
-                r.get::<_, i64>(0)
-            })
+            .query_row(
+                "SELECT total_chars FROM agent_session_search_rows",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
             .unwrap(),
-        0
+        "检索前缀\u{0}🙂文".chars().count() as i64
     );
-    let page = search(&reopened, &r, &b, Scope::Workspace, None, "检索");
-    assert_eq!(page.matches.len(), 1);
-    assert_eq!(page.coverage.backfilled_this_request, 1);
-    drop(reopened);
-    let reopened = Database::open(&path, root.path(), None).unwrap();
-    assert_eq!(reopened.schema_version().unwrap(), 33);
+    assert_eq!(
+        reopened
+            .conn
+            .query_row("SELECT run_id FROM agent_session_search_rows", [], |row| {
+                row.get::<_, Option<String>>(0)
+            })
+            .unwrap()
+            .as_deref(),
+        Some("legacy-run")
+    );
     assert_eq!(
         search(&reopened, &r, &b, Scope::Workspace, None, "检索")
-            .coverage
-            .backfilled_this_request,
-        0
+            .matches
+            .len(),
+        1
     );
+    drop(reopened);
+    let again = Database::open(&path, root.path(), None).unwrap();
+    assert_eq!(
+        search(&again, &r, &b, Scope::Workspace, None, "检索")
+            .matches
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn partial_unicode_resume_hash_and_atomic_rejection() {
+    let (db, r, b) = fixture();
+    db.agent_session_restore_projection(&r, &b, SESSION, &projection(vec![], "entry"))
+        .unwrap();
+    // The verified checkpoint includes one tree entry, outside the current branch.
+    db.conn.execute("UPDATE agent_sessions SET checkpoint_json=json_set(checkpoint_json,'$.entryCount',1) WHERE id=?1",[SESSION]).unwrap();
+    let work = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    let full = "甲😀乙";
+    let hash = format!("sha256:{:x}", Sha256::digest(full.as_bytes()));
+    let id = format!(
+        "{:x}",
+        Sha256::digest(format!("{SESSION}:entry").as_bytes())
+    )[..32]
+        .to_owned();
+    let fragment = |text: &str, start, end| SessionScanMessage {
+        message_id: id.clone(),
+        runtime_entry_id: "entry".into(),
+        branch_id: "entry".into(),
+        ordinal: 0,
+        role: MessageRole::User,
+        created_at: "now".into(),
+        text: text.into(),
+        content_hash: hash.clone(),
+        char_start: start,
+        char_end: end,
+        total_chars: 3,
+    };
+    db.agent_session_scan_commit(
+        &r,
+        &b,
+        &work,
+        &SessionScanPage {
+            session_id: SESSION.into(),
+            checksum: work.checksum.clone(),
+            entry_count: 1,
+            messages: vec![fragment("甲😀", 0, 2)],
+            next_cursor: Some(ScanCursor {
+                entry_offset: 0,
+                char_offset: 2,
+            }),
+            complete: false,
+        },
+    )
+    .unwrap();
+    assert!(search(&db, &r, &b, Scope::Workspace, None, "甲")
+        .matches
+        .is_empty());
+    assert_eq!(
+        db.agent_session_scan_commit(
+            &r,
+            &b,
+            &work,
+            &SessionScanPage {
+                session_id: SESSION.into(),
+                checksum: work.checksum.clone(),
+                entry_count: 1,
+                messages: vec![],
+                next_cursor: Some(ScanCursor {
+                    entry_offset: 1,
+                    char_offset: 0
+                }),
+                complete: false
+            }
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::RevisionConflict
+    );
+    let next = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        next.cursor,
+        Some(ScanCursor {
+            entry_offset: 0,
+            char_offset: 2
+        })
+    );
+    assert!(db
+        .agent_session_scan_commit(
+            &r,
+            &b,
+            &next,
+            &SessionScanPage {
+                session_id: SESSION.into(),
+                checksum: next.checksum.clone(),
+                entry_count: 1,
+                messages: vec![fragment("错", 2, 3)],
+                next_cursor: None,
+                complete: true
+            }
+        )
+        .is_err());
+    assert!(search(&db, &r, &b, Scope::Workspace, None, "甲")
+        .matches
+        .is_empty());
+    db.agent_session_scan_commit(
+        &r,
+        &b,
+        &next,
+        &SessionScanPage {
+            session_id: SESSION.into(),
+            checksum: next.checksum.clone(),
+            entry_count: 1,
+            messages: vec![fragment("乙", 2, 3)],
+            next_cursor: None,
+            complete: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        search(&db, &r, &b, Scope::Workspace, None, "😀乙")
+            .matches
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn scan_rejects_checkpoint_change_and_session_deletion() {
+    let (db, r, b) = fixture();
+    db.agent_session_restore_projection(&r, &b, SESSION, &projection(vec![], "entry"))
+        .unwrap();
+    let work = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    db.conn.execute("UPDATE agent_sessions SET checkpoint_json=json_set(checkpoint_json,'$.checksum',?2) WHERE id=?1",params![SESSION,format!("sha256:{}","b".repeat(64))]).unwrap();
+    let page = SessionScanPage {
+        session_id: SESSION.into(),
+        checksum: work.checksum.clone(),
+        entry_count: 0,
+        messages: vec![],
+        next_cursor: None,
+        complete: true,
+    };
+    assert_eq!(
+        db.agent_session_scan_commit(&r, &b, &work, &page)
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    db.conn
+        .execute("DELETE FROM agent_sessions WHERE id=?1", [SESSION])
+        .unwrap();
+    assert_eq!(
+        db.agent_session_scan_commit(&r, &b, &work, &page)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+}
+
+#[test]
+fn nonsearchable_projection_messages_do_not_hold_coverage_open() {
+    let (db, r, b) = fixture();
+    let messages = vec![
+        message("tool", 0, MessageRole::Tool, json!("hidden"), None),
+        message(
+            "failed",
+            1,
+            MessageRole::Assistant,
+            json!("hidden"),
+            Some("error"),
+        ),
+        message(
+            "thinking",
+            2,
+            MessageRole::Assistant,
+            json!("hidden"),
+            Some("thinking"),
+        ),
+    ];
+    db.agent_session_restore_projection(&r, &b, SESSION, &projection(messages, "thinking"))
+        .unwrap();
+    let work = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    db.agent_session_scan_commit(
+        &r,
+        &b,
+        &work,
+        &SessionScanPage {
+            session_id: SESSION.into(),
+            checksum: work.checksum.clone(),
+            entry_count: 3,
+            messages: vec![],
+            next_cursor: None,
+            complete: true,
+        },
+    )
+    .unwrap();
+    let page = search(&db, &r, &b, Scope::Workspace, None, "hidden");
+    assert!(page.matches.is_empty());
+    assert_eq!(page.coverage.remaining_messages, 0);
+    assert_eq!(page.coverage.pending_sessions, 0);
+    assert!(page.coverage.complete);
+}
+
+#[test]
+fn identical_projection_does_not_write_index_and_failed_revision_removes_it() {
+    let (db, r, b) = fixture();
+    let good = projection(
+        vec![message(
+            "one",
+            0,
+            MessageRole::Assistant,
+            json!("needle"),
+            Some("stop"),
+        )],
+        "one",
+    );
+    db.agent_session_restore_projection(&r, &b, SESSION, &good)
+        .unwrap();
+    db.conn.execute_batch("CREATE TRIGGER forbid_same_update BEFORE UPDATE ON agent_session_search_rows BEGIN SELECT RAISE(ABORT,'unexpected update'); END; CREATE TRIGGER forbid_same_insert BEFORE INSERT ON agent_session_search_rows BEGIN SELECT RAISE(ABORT,'unexpected index insert'); END;").unwrap();
+    db.agent_session_restore_projection(&r, &b, SESSION, &good)
+        .unwrap();
+    db.conn
+        .execute_batch("DROP TRIGGER forbid_same_update; DROP TRIGGER forbid_same_insert")
+        .unwrap();
+    db.agent_session_restore_projection(
+        &r,
+        &b,
+        SESSION,
+        &projection(
+            vec![message(
+                "one",
+                0,
+                MessageRole::Assistant,
+                json!("needle"),
+                Some("error"),
+            )],
+            "one",
+        ),
+    )
+    .unwrap();
+    assert!(search(&db, &r, &b, Scope::Workspace, None, "needle")
+        .matches
+        .is_empty());
+}
+
+#[test]
+fn empty_scan_page_must_advance_within_entries() {
+    let (db, r, b) = fixture();
+    db.agent_session_restore_projection(&r, &b, SESSION, &projection(vec![], "entry"))
+        .unwrap();
+    db.conn.execute("UPDATE agent_sessions SET checkpoint_json=json_set(checkpoint_json,'$.entryCount',2) WHERE id=?1",[SESSION]).unwrap();
+    let work = db
+        .agent_session_scan_work(&r, &b, &Scope::Workspace, Some(SESSION))
+        .unwrap()
+        .unwrap();
+    for cursor in [
+        ScanCursor {
+            entry_offset: 0,
+            char_offset: 0,
+        },
+        ScanCursor {
+            entry_offset: 2,
+            char_offset: 0,
+        },
+        ScanCursor {
+            entry_offset: 2,
+            char_offset: 1,
+        },
+    ] {
+        assert!(db
+            .agent_session_scan_commit(
+                &r,
+                &b,
+                &work,
+                &SessionScanPage {
+                    session_id: SESSION.into(),
+                    checksum: work.checksum.clone(),
+                    entry_count: 2,
+                    messages: vec![],
+                    next_cursor: Some(cursor),
+                    complete: false
+                }
+            )
+            .is_err());
+    }
+    db.agent_session_scan_commit(
+        &r,
+        &b,
+        &work,
+        &SessionScanPage {
+            session_id: SESSION.into(),
+            checksum: work.checksum.clone(),
+            entry_count: 2,
+            messages: vec![],
+            next_cursor: Some(ScanCursor {
+                entry_offset: 1,
+                char_offset: 0,
+            }),
+            complete: false,
+        },
+    )
+    .unwrap();
 }

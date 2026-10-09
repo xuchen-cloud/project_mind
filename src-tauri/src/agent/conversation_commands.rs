@@ -7,8 +7,8 @@ use super::{
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
     models::{Scope, WorkspaceBinding},
 };
-use crate::{db::Database, lock_mutex, AppState};
 use crate::db::agent_session_search::{AgentSessionSearchInput, AgentSessionSearchPage};
+use crate::{db::Database, lock_mutex, AppState};
 use serde::Deserialize;
 use tauri::State;
 
@@ -162,15 +162,83 @@ pub(crate) fn agent_sessions_list(
 /// User-owned history search. Model tools must use the separate AI source
 /// policy boundary before this projection can be exposed to a run.
 #[tauri::command]
-pub(crate) fn agent_session_search(
+pub(crate) async fn agent_session_search(
     state: State<'_, AppState>,
     input: ConversationCommandInput<AgentSessionSearchInput>,
-) -> ApiResponse<AgentSessionSearchPage> {
-    let result = with_conversation(&state, &input.binding, |db, current| {
+) -> Result<ApiResponse<AgentSessionSearchPage>, String> {
+    let result = async {
+        input.data.validate()?;
         let request = gui_scope_request(&input.binding, &input.request_id, &input.data.scope);
-        db.agent_session_search(&request, current, &input.data)
-    });
-    ApiResponse::from_result(input.request_id, result)
+        // Retain the runtime identity across the external reader. Database and
+        // Workspace locks are held only for the short selection/commit phases.
+        let (runtime, work) = {
+            let current = lock_mutex(&state.current_workspace);
+            let runtime = current.as_ref().ok_or_else(|| {
+                AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
+            })?;
+            if runtime.agent_binding != input.binding {
+                return Err(AgentError::new(
+                    ErrorCode::WorkspaceChanged,
+                    "Workspace binding changed",
+                ));
+            }
+            let db = lock_mutex(&runtime.db);
+            request.authorize(&runtime.agent_binding, &input.data.scope, "session.read")?;
+            let work = if input.data.after_message_id.is_none() {
+                db.agent_session_scan_work(
+                    &request,
+                    &runtime.agent_binding,
+                    &input.data.scope,
+                    input.data.session_id.as_deref(),
+                )?
+            } else {
+                None
+            };
+            (runtime.clone(), work)
+        };
+        let page = if let Some(work) = &work {
+            let value = super::session_history::history_runtime_request(
+                state.app_handle.clone(),
+                runtime.clone(),
+                "session.history.scan",
+                serde_json::json!({"sessionId":work.session_id,"expectedChecksum":work.checksum,
+                    "cursor":work.cursor,"previousCheckpoint":work.previous_checkpoint}),
+            )
+            .await?;
+            Some(
+                serde_json::from_value::<crate::db::agent_session_search::SessionScanPage>(value)
+                    .map_err(|_| {
+                    AgentError::new(
+                        ErrorCode::RuntimeIncompatible,
+                        "Invalid history scan response",
+                    )
+                })?,
+            )
+        } else {
+            None
+        };
+        let current = lock_mutex(&state.current_workspace);
+        let selected = current.as_ref().ok_or_else(|| {
+            AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
+        })?;
+        if selected.agent_binding != input.binding || !std::sync::Arc::ptr_eq(selected, &runtime) {
+            return Err(AgentError::new(
+                ErrorCode::WorkspaceChanged,
+                "Workspace binding changed",
+            ));
+        }
+        let db = lock_mutex(&runtime.db);
+        if let (Some(work), Some(page)) = (&work, &page) {
+            db.agent_session_scan_commit(&request, &runtime.agent_binding, work, page)?;
+        }
+        let mut result = db.agent_session_search(&request, &runtime.agent_binding, &input.data)?;
+        if let Some(page) = page {
+            result.coverage.backfilled_this_request = page.messages.len() as u16;
+        }
+        Ok(result)
+    }
+    .await;
+    Ok(ApiResponse::from_result(input.request_id, result))
 }
 #[tauri::command]
 pub(crate) fn agent_session_get(

@@ -385,7 +385,7 @@ export interface AgentSessionSearchMatch {
 export interface AgentSessionSearchPage {
   matches: AgentSessionSearchMatch[];
   nextCursor: string | null;
-  coverage: { indexedMessages: number; remainingMessages: number; backfilledThisRequest: number; complete: boolean };
+  coverage: { indexedMessages: number; remainingMessages: number; backfilledThisRequest: number; pendingSessions: number; complete: boolean };
 }
 export interface AgentSessionCheckpoint {
   schemaVersion: number;

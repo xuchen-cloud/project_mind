@@ -151,6 +151,11 @@ fn decode_json<T: serde::de::DeserializeOwned>(text: &str) -> rusqlite::Result<T
 mod tests {
     // Remove schema31/30 additions before this fixture simulates an older file.
     const REMOVE_LATER_AGENT_SCHEMA: &str = r#"
+DROP TABLE agent_session_scan_state;
+DROP INDEX agent_session_search_rows_session;
+DROP TRIGGER agent_session_search_row_delete;
+DROP TABLE agent_session_search_rows;
+DROP TABLE agent_session_search_fts;
 DROP VIEW agent_visible_files;
 DROP VIEW agent_visible_todos;
 DROP TABLE todo_revision_heads;

@@ -7,6 +7,7 @@ import { mapCompatibleProfile } from './profile-map.mjs';
 import { failure, PROTOCOL_VERSION, MAX_FRAME_BYTES } from './protocol.mjs';
 import { createOverviewGeneration } from './overview-generation.mjs';
 import { readSessionHistory } from './session-history.mjs';
+import { scanSessionHistory } from './session-history-scan.mjs';
 
 const idPattern = /^[0-9a-f]{32}$/;
 export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, loadCheckpoint, makeSession = createPiSession, probe = false }) {
@@ -123,6 +124,13 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
           if (!loadCheckpoint) throw Object.assign(new Error('Checkpoint loader unavailable'), { code: 'RUNTIME_INCOMPATIBLE' });
           write(success(requestId, await readSessionHistory(data, { loadCheckpoint, workspaceRoot })));
         } catch (error) { fail(error.code ?? 'RUNTIME_FAILED', 'Cannot read session history'); }
+        return;
+      }
+      if (method === 'session.history.scan') {
+        try {
+          if (!loadCheckpoint) throw Object.assign(new Error('Checkpoint loader unavailable'), { code: 'RUNTIME_INCOMPATIBLE' });
+          write(success(requestId, await scanSessionHistory(data, { loadCheckpoint, workspaceRoot })));
+        } catch (error) { fail(error.code ?? 'RUNTIME_FAILED', 'Cannot scan session history'); }
         return;
       }
       if (method === 'overview.generate') {

@@ -361,6 +361,21 @@ async fn read_runtime(
     binding: &WorkspaceBinding,
     scope: &Scope,
 ) -> AgentResult<HistoryPage> {
+    let data = serde_json::to_value(request).map_err(|_| invalid("History request is invalid"))?;
+    let page = history_runtime_request(app, runtime, "session.history.read", data).await?;
+    let page = serde_json::from_value(page)
+        .map_err(|_| incompatible("History response shape is invalid"))?;
+    convert_page(page, request, binding, scope)
+}
+
+/// Both original-message reads and index scans use the credential-free reader.
+/// This is an internal Host call; no model can supply its method or data.
+pub(super) async fn history_runtime_request(
+    app: tauri::AppHandle,
+    runtime: Arc<WorkspaceRuntime>,
+    method: &'static str,
+    data: Value,
+) -> AgentResult<Value> {
     let end = Instant::now() + READ_LIMIT;
     let root = runtime
         .paths
@@ -382,10 +397,7 @@ async fn read_runtime(
         if init["runtimeAvailable"] != true || init["activeTools"] != json!([]) {
             return Err(incompatible("History runtime initialized with unexpected tools"));
         }
-        let data = serde_json::to_value(request).map_err(|_| invalid("History request is invalid"))?;
-        let page = exchange(&mut process, "history-read", "session.history.read", data, end).await?;
-        let page: RuntimePage = serde_json::from_value(page).map_err(|_| incompatible("History response shape is invalid"))?;
-        convert_page(page, request, binding, scope)
+        exchange(&mut process, "history-read", method, data, end).await
     }.await;
     let cleanup_end = Instant::now() + CLEANUP_LIMIT;
     let cleanup = async {

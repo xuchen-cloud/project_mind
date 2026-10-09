@@ -203,7 +203,7 @@ fn projection_write(
                 )
             });
         tx.execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES (?1,?2,?3,?4,?5,?6,'complete',?7,?8) ON CONFLICT(session_id,runtime_entry_id) DO UPDATE SET role=excluded.role,content_json=excluded.content_json,state='complete',ordinal=excluded.ordinal,created_at=excluded.created_at",params![id,session_id,attribution,message.runtime_entry_id,message.role.sql(),json_string(message)?,message.ordinal as i64,message.created_at]).map_err(io_error)?;
-        super::agent_session_search::projection_index_message(tx, &id, message)?;
+        super::agent_session_search::projection_index_message(tx, session_id, &id, message)?;
     }
     for (_, (id, _)) in previous {
         tx.execute("DELETE FROM agent_messages WHERE id=?1", [id])
@@ -996,6 +996,8 @@ mod tests {
             .unwrap();
         conn.execute_batch(include_str!("agent_session_search.sql"))
             .unwrap();
+        conn.execute_batch(include_str!("agent_session_search_34.sql"))
+            .unwrap();
         let db = Database {
             conn,
             workspace_root: PathBuf::new(),
@@ -1295,6 +1297,14 @@ mod tests {
                 .message_count,
             4
         );
+        let old_id=&original.messages[0].id;
+        let mut switched=projection(1);
+        switched.messages[0].runtime_entry_id="new-branch".into();
+        switched.checkpoint.leaf_id=Some("new-branch".into());
+        db.agent_session_restore_projection(&r,&b,&s.id,&switched).unwrap();
+        assert_eq!(db.conn.query_row("SELECT run_id FROM agent_session_search_rows WHERE message_id=?1",[old_id],|row|row.get::<_,Option<String>>(0)).unwrap().as_deref(),Some(run.id.as_str()));
+        assert_eq!(db.conn.query_row("SELECT count(*) FROM agent_messages WHERE id=?1",[old_id],|row|row.get::<_,i64>(0)).unwrap(),0);
+        assert_eq!(db.conn.query_row("SELECT run_id FROM agent_session_search_rows WHERE runtime_entry_id='new-branch'",[],|row|row.get::<_,Option<String>>(0)).unwrap(),None);
     }
     #[test]
     fn sessions_messages_and_events_have_bounded_deterministic_pages() {
@@ -1388,6 +1398,9 @@ mod tests {
             .unwrap();
         db.conn
             .execute_batch(include_str!("agent_session_search.sql"))
+            .unwrap();
+        db.conn
+            .execute_batch(include_str!("agent_session_search_34.sql"))
             .unwrap();
         let s = session(&db, &r, &b, Scope::Workspace);
         let run = prepare(&db, &r, &b, &s, "interrupted");

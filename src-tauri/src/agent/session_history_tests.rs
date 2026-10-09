@@ -199,22 +199,38 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
     let root = workspace.path().canonicalize().unwrap();
     let db = Database::open(&root.join("workspace.sqlite"), &root, None).unwrap();
     let gui = RequestContext {
-        binding: binding(), request_id: "history-search".into(), caller: Caller::Gui,
+        binding: binding(),
+        request_id: "history-search".into(),
+        caller: Caller::Gui,
         scope_grant: ScopeGrant {
-            workspace_id: binding().workspace_id, workspace_content: true,
-            project_ids: vec![], operations: vec!["session.read".into(), "session.write".into()],
+            workspace_id: binding().workspace_id,
+            workspace_content: true,
+            project_ids: vec![],
+            operations: vec!["session.read".into(), "session.write".into()],
         },
     };
-    let session_id = db.agent_session_create(
-        &gui, &binding(), &Scope::Workspace, "原文定位", "builtin-pi", None,
-    ).unwrap().id;
+    let session_id = db
+        .agent_session_create(
+            &gui,
+            &binding(),
+            &Scope::Workspace,
+            "原文定位",
+            "builtin-pi",
+            None,
+        )
+        .unwrap()
+        .id;
     let sessions = root.join(".project-mind/agent/sessions").join(&session_id);
     fs::create_dir_all(&sessions).unwrap();
     let header = json!({"type":"session","version":3,"id":session_id,
         "timestamp":"2026-10-09T00:00:00Z","cwd":"workspace:."});
     let entry = json!({"type":"message","id":"entry1","parentId":null,
         "timestamp":"2026-10-09T00:00:00Z","message":{"role":"user","content":[{"type":"text","text":"中🙂"}]}});
-    let jsonl = format!("{}\n{}\n", header, entry);
+    let old_branch = json!({"type":"message","id":"old-branch","parentId":"entry1",
+        "timestamp":"2026-10-09T00:00:01Z","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"旧决定"}]}});
+    let new_branch = json!({"type":"message","id":"new-branch","parentId":"entry1",
+        "timestamp":"2026-10-09T00:00:02Z","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"新决定"}]}});
+    let jsonl = format!("{}\n{}\n{}\n{}\n", header, entry, old_branch, new_branch);
     let checksum = format!("sha256:{:x}", Sha256::digest(jsonl.as_bytes()));
     fs::write(sessions.join("session.jsonl"), &jsonl).unwrap();
     fs::write(
@@ -223,22 +239,41 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
             "{}\n",
             json!({
                 "schemaVersion":1,"checksum":checksum,"bytes":jsonl.len(),"offset":jsonl.len(),
-                "leafId":"entry1","entryCount":1,"messageCount":1
+                "leafId":"new-branch","entryCount":3,"messageCount":2
             })
         ),
     )
     .unwrap();
-    let checkpoint = serde_json::from_slice(&fs::read(sessions.join("checkpoint.json")).unwrap()).unwrap();
+    let checkpoint =
+        serde_json::from_slice(&fs::read(sessions.join("checkpoint.json")).unwrap()).unwrap();
     let projection_message = serde_json::from_value(json!({
         "runtimeEntryId":"entry1","ordinal":0,"createdAt":"2026-10-09T00:00:00Z",
         "role":"user","content":[{"type":"text","text":"中🙂"}]
-    })).unwrap();
-    db.agent_session_restore_projection(&gui, &binding(), &session_id,
-        &crate::agent::conversation::VerifiedSessionProjection { checkpoint, messages: vec![projection_message] },
-    ).unwrap();
-    let found = db.agent_session_search(&gui, &binding(),
-        &serde_json::from_value(json!({"scope":{"kind":"workspace"},"query":"🙂"})).unwrap(),
-    ).unwrap();
+    }))
+    .unwrap();
+    let new_projection_message = serde_json::from_value(json!({
+        "runtimeEntryId":"new-branch","parentId":"entry1","ordinal":1,
+        "createdAt":"2026-10-09T00:00:02Z","role":"assistant","stopReason":"stop",
+        "content":[{"type":"text","text":"新决定"}]
+    }))
+    .unwrap();
+    db.agent_session_restore_projection(
+        &gui,
+        &binding(),
+        &session_id,
+        &crate::agent::conversation::VerifiedSessionProjection {
+            checkpoint,
+            messages: vec![projection_message, new_projection_message],
+        },
+    )
+    .unwrap();
+    let found = db
+        .agent_session_search(
+            &gui,
+            &binding(),
+            &serde_json::from_value(json!({"scope":{"kind":"workspace"},"query":"🙂"})).unwrap(),
+        )
+        .unwrap();
     assert_eq!(found.matches.len(), 1);
     let hit = &found.matches[0];
     let packaged = PackagedAgentRuntime::bundled(
@@ -257,9 +292,74 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
     .await
     .unwrap();
     assert_eq!(initialized["activeTools"], json!([]));
-    let request: HistoryRequest =
-        serde_json::from_value(json!({"sessionId":hit.session_id,"branchId":hit.branch_leaf_id,
-            "fromMessageId":hit.message_id,"toMessageId":hit.message_id,"maxChars":1})).unwrap();
+    let old_search =
+        serde_json::from_value(json!({"scope":{"kind":"workspace"},"query":"旧决定"})).unwrap();
+    assert!(db
+        .agent_session_search(&gui, &binding(), &old_search)
+        .unwrap()
+        .matches
+        .is_empty());
+    let mut scan_pages = 0;
+    while let Some(work) = db
+        .agent_session_scan_work(&gui, &binding(), &Scope::Workspace, None)
+        .unwrap()
+    {
+        scan_pages += 1;
+        assert!(scan_pages <= 10, "bounded fixture scan must make progress");
+        let page = exchange(
+            &mut process,
+            "scan",
+            "session.history.scan",
+            json!({"sessionId":work.session_id,"expectedChecksum":work.checksum,
+                "cursor":work.cursor,"previousCheckpoint":work.previous_checkpoint,"maxChars":2}),
+            end,
+        )
+        .await
+        .unwrap();
+        let page = serde_json::from_value(page).unwrap();
+        db.agent_session_scan_commit(&gui, &binding(), &work, &page)
+            .unwrap();
+    }
+    assert!(
+        scan_pages > 1,
+        "fixture must exercise persisted fragment continuation"
+    );
+    let old_result = db
+        .agent_session_search(&gui, &binding(), &old_search)
+        .unwrap();
+    assert!(old_result.coverage.complete);
+    assert_eq!(old_result.matches.len(), 1);
+    let old_hit = &old_result.matches[0];
+    assert_eq!(old_hit.branch_leaf_id, "old-branch");
+    let old_request: HistoryRequest = serde_json::from_value(json!({
+        "sessionId":old_hit.session_id,"branchId":old_hit.branch_leaf_id,
+        "fromMessageId":old_hit.message_id,"toMessageId":old_hit.message_id
+    }))
+    .unwrap();
+    let old_page = exchange(
+        &mut process,
+        "old-read",
+        "session.history.read",
+        serde_json::to_value(&old_request).unwrap(),
+        end,
+    )
+    .await
+    .unwrap();
+    let old_page = convert_page(
+        serde_json::from_value(old_page).unwrap(),
+        &old_request,
+        &binding(),
+        &Scope::Workspace,
+    )
+    .unwrap();
+    assert_eq!(old_page.messages[0].text, "旧决定");
+    assert_eq!(old_page.messages[0].content_hash, old_hit.content_hash);
+    assert_eq!(old_page.messages[0].ordinal, old_hit.ordinal);
+    let request: HistoryRequest = serde_json::from_value(
+        json!({"sessionId":hit.session_id,"branchId":hit.branch_leaf_id,
+            "fromMessageId":hit.message_id,"toMessageId":hit.message_id,"maxChars":1}),
+    )
+    .unwrap();
     let runtime_page = exchange(
         &mut process,
         "read",

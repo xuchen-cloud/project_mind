@@ -1,14 +1,22 @@
 # 会话记忆：原文检索与派生知识
 
-更新：2026-10-09。状态：R11 后续实施契约与外部源码研究结论，**不是后续工作已交付记录**。交付顺序和验收见[交付计划 R11](requirements/ai-work-context-delivery.md#r11-会话成为可追溯知识--105102)；产品目标和 E5 规则分别见[主规格](requirements/ai-work-context-spec.md)与[工程契约](requirements/ai-work-context-engineering-spec.md#e5)。本文件细化检索先行的切入点。
+更新：2026-10-09。状态：原文 GUI 回读及历史树索引已实现；模型检索、增量摘要和 Overview 接入仍按下述契约推进。交付顺序和验收见[交付计划 R11](requirements/ai-work-context-delivery.md#r11-会话成为可追溯知识--105102)；产品目标和 E5 规则分别见[主规格](requirements/ai-work-context-spec.md)与[工程契约](requirements/ai-work-context-engineering-spec.md#e5)。本文件细化检索先行的切入点。
 
 ## 决定与边界
 
-Pi JSONL 是会话原文的唯一权威。R11a GUI 回读已按锚点定位原始讨论（`a645733`）；现有数据库也有经过校验的**当前分支** Pi 消息投影。首批搜索索引从该投影按预算回填；R11b1 完整验收还须从 JSONL 回填历史分支，不能以当前分支投影证明所有分支已覆盖。SQLite 索引是**可删除、可重建的搜索投影**，记录可检索的用户/助手正文及必要元数据。搜索命中后仍从经过校验的 JSONL 读取原文，不拿索引摘录当事实。索引和摘要都能在来源变化后重建，重试不制造新的原始消息身份；压缩、重试分支不改旧引用。分段摘要、当前结论和 Project Overview 是后续可选择的派生层，模型调用失败时原文检索仍可工作。
+Pi JSONL 是会话原文的唯一权威。R11a GUI 回读已按锚点定位原始讨论（`a645733`）；现有数据库也有经过校验的**当前分支** Pi 消息投影。搜索索引先从该投影建立；schema 34 将索引归属改为会话，并从 JSONL 分批回填完整历史树，切换当前分支不会清除旧分支索引。SQLite 索引是**可删除、可重建的搜索投影**，记录可检索的用户/助手正文及必要元数据。搜索命中后仍从经过校验的 JSONL 读取原文，不拿索引摘录当事实。索引和摘要都能在来源变化后重建，重试不制造新的原始消息身份；压缩、重试分支不改旧引用。分段摘要、当前结论和 Project Overview 是后续可选择的派生层，模型调用失败时原文检索仍可工作。
 
 每个可引用范围带 `workspaceId、scope、sessionId、branchId、messageId、ordinal/片段范围、contentHash`；范围 hash 用于发现原文改变或引用失效，不能只用一个短内容 hash 当全局身份。增量游标表示**处理进度**，不是结论的证据。读取单页上限 50 条消息、12000 字符；超长消息切片并保留消息 ID、片段范围和全文 hash。搜索返回少量标题/摘录/命中身份、覆盖状态和下一步读取线索，工具不允许模型扩大页大小或搜索作用域。直接引用精确决定、原话或执行结果时回读相应原文与实际 Operation Receipt。
 
-索引沿用已有 SQLite FTS5 trigram 与中文短词 `LIKE` 回退路径，必须在中文短词、句中匹配和混合文字上有效；[SQLite trigram 文档](https://www.sqlite.org/fts5.html#the_trigram_tokenizer)说明少于三个 Unicode 字符的完整查询不能由该 tokenizer 匹配，不能把默认 FTS 命中当作中文可用性的证明。现有实现参考 [SourceIndex 检索](https://github.com/xuchen-cloud/project_mind/blob/main/src-tauri/src/source_search_index.rs)。当前分支消息先按预算回填，历史分支仍从 JSONL 分批补齐并持久记账；新增消息按稳定 ID 增量对账。索引损坏或版本变更可从原文重建。未覆盖、索引失败、原文失效分别返回真实状态，未命中不能推断“从未讨论”。搜索排序和显示不应让工具/自动运行日志压过用户讨论。先用原文定位让 A61 可用，再逐段添加摘要。
+索引沿用已有 SQLite FTS5 trigram 与中文短词 `LIKE` 回退路径，必须在中文短词、句中匹配和混合文字上有效；[SQLite trigram 文档](https://www.sqlite.org/fts5.html#the_trigram_tokenizer)说明少于三个 Unicode 字符的完整查询不能由该 tokenizer 匹配，不能把默认 FTS 命中当作中文可用性的证明。现有实现参考 [SourceIndex 检索](https://github.com/xuchen-cloud/project_mind/blob/main/src-tauri/src/source_search_index.rs)。新投影消息同事务摄入，历史分支从 JSONL 分批补齐并持久记账；新增消息按稳定 ID 增量对账。索引损坏或版本变更可从原文重建。未覆盖、索引失败、原文失效分别返回真实状态，未命中不能推断“从未讨论”。搜索排序和显示不应让工具/自动运行日志压过用户讨论。先用原文定位让 A61 可用，再逐段添加摘要。
+
+## 历史树索引的已实现边界
+
+内部 `session.history.scan` 不打开模型会话，不要求 Profile。它校验 Pi checkpoint，按 JSONL 顺序返回各分支的用户/助手正文；不索引工具结果、思考内容及失败助手文本。消息自己的 entry ID 是可回读分支锚点，ordinal 按该分支祖先链计算。单次响应至多 200 个片段、262144 个 Unicode 字符，游标持久保存 entry offset 和消息内字符位置；完整消息 hash 校验通过后才进入 FTS。每页输出遍历最多 1000 个条目，但 checkpoint 仍按现有文件上限完整读取与校验，不宣称流式文件扫描。
+
+`agent_session_scan_state` 保存已校验 checksum、entry count 与下一页游标。checkpoint 追加后，用原始 JSONL 字节前缀 hash 证明旧进度仍有效，再从原位置继续；历史被改写返回冲突。外部读取期间不持有 Workspace/DB 锁，提交时复核 Workspace、checkpoint、扫描状态和活动 Run。会话删除级联清理索引及游标，当前分支切换保留旧消息。GUI 一次查找推进一页，覆盖不足显示“继续查找”；全部覆盖后才开放结果分页。索引覆盖与查询命中分别表达。
+
+这是 GUI 搜索路径。模型工具仍须完成下一节的来源排除及混合来源依赖校验，不能把 GUI grant 直接复用为模型权限。
 
 ## 来源、结论和失效
 

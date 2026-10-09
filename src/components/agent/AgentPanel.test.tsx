@@ -141,7 +141,7 @@ describe("Project assistant panel", () => {
       matches: [{ sessionId: session.id, messageId: "message", runtimeEntryId: "entry", ordinal: 1,
         role: "user", createdAt: "2026-10-09T10:00:00Z", contentHash: "sha256:abc", branchLeafId: "leaf",
         snippet: "找到的讨论", sessionTitle: "相关会话" }], nextCursor: null,
-      coverage: { indexedMessages: 1, remainingMessages: 0, backfilledThisRequest: 1, complete: true },
+      coverage: { indexedMessages: 1, remainingMessages: 0, backfilledThisRequest: 1, pendingSessions: 0, complete: true },
     });
     await loaded();
     const draft = screen.getByRole("textbox", { name: "问题" });

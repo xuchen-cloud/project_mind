@@ -14,7 +14,7 @@ export function historyMessageId(sessionId, runtimeEntryId) {
   return createHash('sha256').update(`${sessionId}:${runtimeEntryId}`).digest('hex').slice(0, 32);
 }
 
-function textOf(message) {
+export function textOf(message) {
   if (message.role !== 'user' && message.role !== 'assistant') return '';
   if (message.role === 'assistant' && !['stop', 'toolUse'].includes(message.stopReason)) return '';
   if (typeof message.content === 'string') return message.content;

@@ -9119,6 +9119,11 @@ mod tests {
     /// declares an old version; production migrations retain strict CREATE.
     fn remove_later_agent_schema_fixture(database: &Database) {
         database.conn.execute_batch(r#"
+DROP TABLE agent_session_scan_state;
+DROP INDEX agent_session_search_rows_session;
+DROP TRIGGER agent_session_search_row_delete;
+DROP TABLE agent_session_search_rows;
+DROP TABLE agent_session_search_fts;
 DROP VIEW agent_visible_files;
 DROP VIEW agent_visible_todos;
 DROP TABLE todo_revision_heads;

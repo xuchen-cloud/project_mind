@@ -12,16 +12,22 @@ export async function runHostEntry({ probe = false } = {}) {
   };
   let protocol;
   let store;
-  let pending = Buffer.alloc(0);
+  let pending = [];
+  let pendingBytes = 0;
   let stopped = false;
   try {
     for await (const chunk of process.stdin) {
-      pending = Buffer.concat([pending, chunk]);
+      let offset = 0;
       let newline;
-      while ((newline = pending.indexOf(10)) >= 0) {
-        const bytes = pending.subarray(0, newline);
-        pending = pending.subarray(newline + 1);
-        if (bytes.length > MAX_FRAME_BYTES) throw new Error('Oversized frame');
+      while ((newline = chunk.indexOf(10, offset)) >= 0) {
+        const frameBytes = pendingBytes + newline - offset;
+        if (frameBytes > MAX_FRAME_BYTES) throw new Error('Oversized frame');
+        const bytes = pendingBytes
+          ? Buffer.concat([...pending, chunk.subarray(offset, newline)], frameBytes)
+          : chunk.subarray(offset, newline);
+        pending = [];
+        pendingBytes = 0;
+        offset = newline + 1;
         let frame;
         try { frame = parseFrame(bytes.toString('utf8')); }
         catch { write(failure('', 'INVALID_ARGUMENT', 'Malformed Host frame')); continue; }
@@ -45,10 +51,15 @@ export async function runHostEntry({ probe = false } = {}) {
         finally { if (frame.data?.apiKey !== undefined) delete frame.data.apiKey; }
         if (frame.method === 'shutdown') { stopped = true; break; }
       }
-      if (!stopped && pending.length > MAX_FRAME_BYTES) throw new Error('Oversized frame');
       if (stopped) break;
+      const remainder = chunk.subarray(offset);
+      if (pendingBytes + remainder.length > MAX_FRAME_BYTES) throw new Error('Oversized frame');
+      if (remainder.length) {
+        pending.push(remainder);
+        pendingBytes += remainder.length;
+      }
     }
-    if (!stopped && pending.length) throw new Error('Incomplete frame');
+    if (!stopped && pendingBytes) throw new Error('Incomplete frame');
   } catch {
     write(failure('', 'INVALID_ARGUMENT', 'Cannot process Host frame'));
     process.exitCode = 2;
