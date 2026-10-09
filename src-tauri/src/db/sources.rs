@@ -33,6 +33,16 @@ impl Database {
                 "Source is outside this Workspace",
             ));
         }
+        if object.kind == ObjectKind::SessionMessage {
+            request.authorize(binding, &object.scope, "session.read")?;
+            let resolved = self
+                .agent_resolve_object(object, &binding.workspace_id)?
+                .ok_or_else(|| {
+                    AgentError::new(ErrorCode::NotFound, "Source is no longer present")
+                })?;
+            request.authorize_object(binding, object, &resolved, operation)?;
+            return Ok(resolved);
+        }
         if !matches!(
             object.kind,
             ObjectKind::Record

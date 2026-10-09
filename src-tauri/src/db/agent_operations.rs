@@ -257,7 +257,7 @@ impl Database {
             ObjectKind::Todo => project_scope("SELECT project_id FROM todos WHERE id=?1", numeric_id()?)?,
             ObjectKind::File => project_scope("SELECT project_id FROM documents WHERE id=?1", numeric_id()?)?,
             ObjectKind::Transcript => project_scope("SELECT notes.project_id FROM voice_records LEFT JOIN notes ON notes.id=voice_records.project_note_id WHERE voice_records.id=?1", numeric_id()?)?,
-            ObjectKind::SessionMessage => self.conn.query_row("SELECT s.scope_key FROM agent_messages m JOIN agent_sessions s ON s.id=m.session_id WHERE m.id=?1", [&object.id], |row| row.get::<_, String>(0)).optional().map_err(io_error)?.map(|key| parse_scope_key(&key)).transpose()?,
+            ObjectKind::SessionMessage => self.conn.query_row("SELECT s.scope_key FROM agent_sessions s WHERE s.id=COALESCE((SELECT m.session_id FROM agent_messages m WHERE m.id=?1),(SELECT i.session_id FROM agent_session_search_rows i WHERE i.message_id=?1))", [&object.id], |row| row.get::<_, String>(0)).optional().map_err(io_error)?.map(|key| parse_scope_key(&key)).transpose()?,
             ObjectKind::SessionSummary => return Err(AgentError::new(ErrorCode::SourceNotReady, "Session summaries are not available yet")),
         };
         Ok(scope.map(|scope| ObjectRef {
@@ -268,6 +268,10 @@ impl Database {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "agent_operations_session_message_tests.rs"]
+mod session_message_tests;
 
 impl crate::agent::changes::ChangeRepository for Database {
     fn agent_changes_list(
