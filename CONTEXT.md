@@ -202,9 +202,9 @@ Project Overview 的维护作业在 `agent_jobs` 中持久保存 `batchId`、来
 可信适配器绑定到 Workspace 和明确 Project/Workspace 范围的操作权限；资料正文或工具参数不能扩大它。
 _Avoid_：当前页面、模型声明的授权
 
-外部连接通过本机随机端口 bridge 访问当前打开的 Workspace；凭据保存在系统凭据服务，Workspace 仅保存授权范围和凭据摘要。每次请求重新检查连接撤销和 Workspace 代际，切换后不自动转接。当前已接通的外部读取为 Project 列表、有界上下文、Overview、知识和来源，以及会话检索/原文、Record 正文、块和历史、Todo、File 版本/源码及上传状态；CLI 不打开第二份数据库、不启动内置模型任务。这些读取通过 stdio MCP 暴露，设置可复制配置。外部 Record、Todo、File 写入和本连接收据读取/撤销/恢复复用原生 CAS、版本、journal 与恢复服务，注册表为 37 项（23 读 / 14 写）；设置显式选择实际写权限，已有只读连接保持只读，CLI/MCP 正式写入共用稳定请求 ID，不伪造内置 Run。`record.create` 接受 canonical 文档或 Markdown 二选一，原始 Markdown 与稳定请求 ID 绑定幂等；`record.create.preview` 在 `content.create` 授权下预览新内容而不创建持久对象、版本、收据或事件。`record.patch.preview` 只预览已保存的 canonical Record，仍需 `record.patch` 权限；预览不刷新编辑器、不写版本或收据，正式提交重新核验版本、来源和引用，预览结果不是提交保证。File 字节上传由 CLI 在本地读取文件后分阶段传送，服务端不读取客户端路径。
+外部连接通过本机随机端口 bridge 访问当前打开的 Workspace；凭据保存在系统凭据服务，Workspace 仅保存授权范围和凭据摘要。每次请求重新检查连接撤销和 Workspace 代际，切换后不自动转接。当前已接通的外部读取为 Project 列表、有界上下文、Overview、知识和来源，以及会话检索/原文、Record 正文、块和历史、Todo、File 版本/源码及上传状态、原生内容入链/出链；CLI 不打开第二份数据库、不启动内置模型任务。这些读取通过 stdio MCP 暴露，设置可复制配置。外部 Record、Todo、File 写入和本连接收据读取/撤销/恢复复用原生 CAS、版本、journal 与恢复服务，注册表为 38 项（24 读 / 14 写）；设置显式选择实际写权限，已有只读连接保持只读，CLI/MCP 正式写入共用稳定请求 ID，不伪造内置 Run。`record.create` 接受 canonical 文档或 Markdown 二选一，原始 Markdown 与稳定请求 ID 绑定幂等；`record.create.preview` 在 `content.create` 授权下预览新内容而不创建持久对象、版本、收据或事件。`record.patch.preview` 只预览已保存的 canonical Record，仍需 `record.patch` 权限；预览不刷新编辑器、不写版本或收据，正式提交重新核验版本、来源和引用，预览结果不是提交保证。File 字节上传由 CLI 在本地读取文件后分阶段传送，服务端不读取客户端路径。
 
-设置中的 Workspace 协作预设已接通：默认范围为 Workspace 直属内容及所有当前未归档 Project，未来新增 Project 随每次认证动态纳入（`allProjects: true`、`workspaceContent: true`），不保存 Project 快照。另有单 Project 协作、全 Workspace 只读及自定义显式 Project 子集；会话依据须独立勾选，任意历史版本恢复权限仅在自定义预设选择。旧 grant 缺少 `allProjects` 时默认为 false，仍按原显式范围授权。对象级限制、其他 dry-run、引用工具与 CLI 安装仍按后续工作包推进。
+设置中的 Workspace 协作预设已接通：默认范围为 Workspace 直属内容及所有当前未归档 Project，未来新增 Project 随每次认证动态纳入（`allProjects: true`、`workspaceContent: true`），不保存 Project 快照。另有单 Project 协作、全 Workspace 只读及自定义显式 Project 子集；会话依据须独立勾选，任意历史版本恢复权限仅在自定义预设选择。旧 grant 缺少 `allProjects` 时默认为 false，仍按原显式范围授权。对象级限制、其他 dry-run 与 CLI 安装仍按后续工作包推进。
 
 **Context Instruction**：
 用户明确保存的作用域上下文说明，与模型生成知识、QuickNote 分离；模型不能自行修改。

@@ -1026,7 +1026,7 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(todo_value["snapshot"]["priority"], "not_urgent_not_important");
     assert_eq!(todo_value["snapshot"]["dueDate"], Value::Null);
 
-    let cli_markdown = format!("# 发布记录\n\n- 第一项\n- 第二项\n\n{}",
+    let cli_markdown = format!("# 发布记录\n\n- 第一项\n- 第二项\n\n{}\n来源：[[note:{record_id}|来源记录]]\n",
         "- 附注中文用于分页。\n".repeat(20));
     let cli_markdown_path = root.path().join("cli-record-create.md");
     std::fs::write(&cli_markdown_path, cli_markdown.as_bytes()).unwrap();
@@ -1101,6 +1101,48 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(handler.db.lock().unwrap()
         .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len(), records_before_create + 1);
 
+    let markdown_object = json!({"workspaceId":binding.workspace_id,
+        "scope":{"kind":"project","projectId":project_id},"kind":"record","id":markdown_target.record_id.to_string()});
+    let original_object = json!({"workspaceId":binding.workspace_id,
+        "scope":{"kind":"project","projectId":project_id},"kind":"record","id":record_id.to_string()});
+    for (direction, object, expected) in [
+        ("outgoing", &markdown_object, &original_object),
+        ("incoming", &original_object, &markdown_object),
+    ] {
+        let result = mcp_client.peer().call_tool(
+            CallToolRequestParams::new("mind_reference_list")
+                .with_arguments(json!({"object":object,"direction":direction}).as_object().unwrap().clone())
+        ).await.unwrap();
+        assert_eq!(result.is_error, Some(false), "{result:?}");
+        let page = &result.structured_content.as_ref().unwrap()["data"];
+        assert!(page["items"].as_array().unwrap().iter().any(|item| item["object"] == *expected));
+
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let source_id = object["id"].as_str().unwrap().to_owned();
+        let direction = direction.to_owned();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["reference", "list", "--kind", "record", "--id"])
+                .arg(source_id)
+                .arg("--direction").arg(direction)
+                .arg("--project").arg(project_id.to_string())
+                .arg("--workspace").arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI reference list: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert!(response["data"]["items"].as_array().unwrap().iter().any(|item| item["object"] == *expected));
+    }
+
     let mut cursor: Option<String> = None;
     let mut source_revision: Option<String> = None;
     let mut cli_read_text = String::new();
@@ -1148,7 +1190,14 @@ async fn real_keyring_client_roundtrip() {
         assert!(read_pages < 100, "CLI Record paging exceeded 100 pages after {} chars; last page had {page_chars} chars", cli_read_text.chars().count());
     }
     assert!(read_pages > 1);
-    assert_eq!(cli_read_text, saved_markdown.projection.text);
+    let sdk_record = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_get")
+            .with_arguments(json!({"record":markdown_object,"budgetChars":12000}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(sdk_record.is_error, Some(false), "{sdk_record:?}");
+    assert_eq!(cli_read_text, sdk_record.structured_content.as_ref().unwrap()["data"]["text"]);
+    assert!(cli_read_text.starts_with(&saved_markdown.projection.text));
+    assert!(cli_read_text.ends_with("来源：来源记录"));
 
     std::fs::write(&cli_markdown_path, b"# changed body\n").unwrap();
     let binary = cli_binary.clone();

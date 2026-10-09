@@ -583,6 +583,59 @@ async fn record_get_matches_source_read_pages_and_checks_current_authority() {
     assert_eq!(f.read("revoked-record", "record.get", json!({"record":object}), &utility).await.unwrap_err().code, ErrorCode::ScopeDenied);
 }
 
+#[tokio::test]
+async fn reference_list_navigates_visible_links_in_both_directions() {
+    let f = Fixture::new();
+    let utility = TextUtility::immediate();
+    let foreign = f.store.db.lock().unwrap().project_record_upsert(ProjectRecordUpsertInput {
+        project_id: f.other_project_id, note_id: None, title: Some("Foreign Record".into()),
+        markdown: "Foreign".into(), html: "<p>Foreign</p>".into(),
+        default_code_language: None, tag_ids: vec![],
+    }).unwrap();
+    let hidden = f.store.db.lock().unwrap().todo_create(TodoCreateInput {
+        scope: TodoScope::Project, project_id: Some(f.project_id),
+        content: "Hidden Todo".into(), priority: "normal".into(), due_date: None, tag_ids: vec![],
+    }).unwrap();
+    let markdown = format!("[[note:{}|Evidence]] [[todo:{}|Visible]] [[todo:{}|Hidden]] [[note:{}|Foreign]]",
+        f.record.id, f.todo.id, hidden.id, foreign.id);
+    let source = f.store.db.lock().unwrap().project_record_upsert(ProjectRecordUpsertInput {
+        project_id: f.project_id, note_id: None, title: Some("Linking Record".into()),
+        markdown: markdown.clone(), html: format!("<p>{markdown}</p>"),
+        default_code_language: None, tag_ids: vec![],
+    }).unwrap();
+    let source_object = ObjectRef { workspace_id: f.binding.workspace_id.clone(), scope: f.scope(),
+        kind: ObjectKind::Record, id: source.id.to_string() };
+    let hidden_object = ObjectRef { workspace_id: f.binding.workspace_id.clone(), scope: f.scope(),
+        kind: ObjectKind::Todo, id: hidden.id.to_string() };
+    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-reference-endpoint".into(),
+        scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
+            project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
+    f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate {
+        object: hidden_object, expected_revision: 0, excluded: true,
+    }).unwrap();
+    let outgoing = f.read("links-out", "reference.list", json!({
+        "object":source_object,"direction":"outgoing","limit":20,"budgetChars":4000,
+    }), &utility).await.unwrap();
+    assert_eq!(outgoing["object"], json!(source_object));
+    assert_eq!(outgoing["direction"], "outgoing");
+    assert_eq!(outgoing["complete"], true);
+    let items = outgoing["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert!(items.iter().any(|item| item["object"] == json!(f.record) && item["title"] == "Bridge Record"));
+    assert!(items.iter().any(|item| item["object"] == json!(f.todo) && item["title"] == "Bridge Todo"));
+
+    let incoming = f.read("links-in", "reference.list", json!({
+        "object":f.record,"direction":"incoming",
+    }), &utility).await.unwrap();
+    assert_eq!(incoming["object"], json!(f.record));
+    assert!(incoming["items"].as_array().unwrap().iter().any(|item| item["object"] == json!(source_object)));
+    let denied = f.read("foreign-reference-source", "reference.list", json!({
+        "object":{"workspaceId":f.binding.workspace_id,"scope":{"kind":"project","projectId":f.other_project_id},"kind":"record","id":foreign.id.to_string()},
+        "direction":"incoming",
+    }), &utility).await.unwrap_err();
+    assert_eq!(denied.code, ErrorCode::ScopeDenied);
+}
+
 impl crate::source_session_read::SessionHistoryUtility for UnusedDocument {
     async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
         panic!("This fixture does not read session history")

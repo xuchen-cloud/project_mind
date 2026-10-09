@@ -513,7 +513,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 | `source.read` | ObjectRef、revision?、locator?、cursor? | 受限正文 + SourceRefs；每页≤12000字 |
 | `source.policy.update` | ObjectRef、excluded | GUI 专用；立即影响后续工具调用 |
 | `source.reindex` | scope/ObjectRef | jobIds，已相同 hash 直接返回 ready |
-| `reference.list` | ObjectRef、direction、cursor | 作用域内的入/出链；无权目标不泄露标题/数量 |
+| `reference.list` | ObjectRef、direction、cursor、limit、budgetChars | 当前原生内容入/出链（含 Record 附件）；两端按来源授权，隐藏对象不泄露身份/标题/数量；知识来源依赖使用知识接口 |
 | `session.create/list/get/archive/delete` | scope、cursor/id | 元信息/消息；归属创建后不可改 |
 | `session.summary.get/refresh` | sessionId、branchId、revision? | 当前摘要/分段目录或更新job；scope校验，不获取全部原始历史 |
 | `run.start` | sessionId、clientRequestId、text、selectedRefs、mode、savePolicy | runId；mode/savePolicy从用户设置派生，模型不可提升；预检全部完成后才发模型请求 |

@@ -6,6 +6,7 @@ use crate::{
         errors::{AgentError, AgentResult, ErrorCode},
         file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
         record_get::{self, RecordGetInput},
+        references::ReferenceListInput,
         record_blocks::{RecordBlocksInput, RecordBlocksService},
         todo_tools::TodoGetInput,
     },
@@ -46,6 +47,12 @@ pub(crate) async fn execute<S: BoundSourceStore, W: DocumentUtility>(
     utility: &W,
 ) -> AgentResult<Value> {
     match method {
+        "reference.list" => {
+            let input: ReferenceListInput = decode(arguments)?;
+            store.with_current(|binding, db| {
+                encode(db.agent_reference_list(request, binding, &input)?)
+            })
+        }
         "record.get" => {
             let input: RecordGetInput = decode(arguments)?;
             encode(record_get::get(store, request, &input, utility).await?)

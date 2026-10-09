@@ -12,7 +12,7 @@ use std::{io::Read, path::PathBuf};
 #[path = "cli_upload.rs"]
 mod cli_upload;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json\n  mind record get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash SHA256 --request-id ID --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record restore --id ID --version VERSION_ID --base-revision N (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create --input-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. record get reads one bounded body page; pass its nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind reference list --kind record|todo|file|quick_note --id ID --direction incoming|outgoing (--project ID | --workspace-scope) [--cursor TOKEN] [--limit N] [--budget-chars N] --workspace PATH --connection ID --json\n  mind reference list --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json\n  mind record get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash SHA256 --request-id ID --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record restore --id ID --version VERSION_ID --base-revision N (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create --input-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. record get reads one bounded body page; pass its nextCursor with --cursor to continue. reference list returns one page (default 20 items, 4000 characters); pass nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
@@ -45,6 +45,9 @@ struct Options {
     expected_hash: Option<String>,
     revision: Option<String>,
     cursor: Option<String>,
+    kind: Option<String>,
+    direction: Option<String>,
+    limit: Option<usize>,
     dry_run: bool,
     json: bool,
 }
@@ -116,6 +119,13 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             "--expected-hash" if options.expected_hash.is_none() => options.expected_hash = Some(value.clone()),
             "--revision" if options.revision.is_none() => options.revision = Some(value.clone()),
             "--cursor" if options.cursor.is_none() => options.cursor = Some(value.clone()),
+            "--kind" if options.kind.is_none() => options.kind = Some(value.clone()),
+            "--direction" if options.direction.is_none() => options.direction = Some(value.clone()),
+            "--limit" if options.limit.is_none() => {
+                let limit = value.parse::<usize>().map_err(|_| invalid("Invalid reference limit"))?;
+                if !(1..=50).contains(&limit) { return Err(invalid("Invalid reference limit")); }
+                options.limit = Some(limit);
+            }
             _ => return Err(invalid("Unknown or duplicate option")),
         }
         cursor += 2;
@@ -340,6 +350,33 @@ fn record_get_params(options: &Options, record_id: i64, scope: Scope, binding: &
         "revision":options.revision.as_deref(),"cursor":options.cursor.as_deref(),"budgetChars":options.budget_chars})
 }
 
+fn reference_list_identity(options: &Options) -> AgentResult<(i64, Scope, &str, &str)> {
+    if options.query.is_some() { return Err(invalid("reference list does not accept --query")); }
+    if options.cursor.as_deref().is_some_and(|value| value.is_empty() || value.len() > 2048) {
+        return Err(invalid("Invalid reference cursor"));
+    }
+    let kind = options.kind.as_deref().ok_or_else(|| invalid("--kind is required"))?;
+    if !matches!(kind, "record" | "todo" | "file" | "quick_note") {
+        return Err(invalid("--kind must be record, todo, file or quick_note"));
+    }
+    let direction = options.direction.as_deref().ok_or_else(|| invalid("--direction is required"))?;
+    if !matches!(direction, "incoming" | "outgoing") {
+        return Err(invalid("--direction must be incoming or outgoing"));
+    }
+    let id = positive_object_id(options)?;
+    let scope = scoped(options)?;
+    if kind == "file" && matches!(&scope, Scope::Workspace) {
+        return Err(invalid("File references require --project"));
+    }
+    Ok((id, scope, kind, direction))
+}
+
+fn reference_list_params(options: &Options, id: i64, scope: Scope, kind: &str, direction: &str, binding: &WorkspaceBinding) -> Value {
+    json!({"object":{"workspaceId":binding.workspace_id.clone(),"scope":scope,"kind":kind,"id":id.to_string()},
+        "direction":direction,"cursor":options.cursor.as_deref(),"limit":options.limit.unwrap_or(20),
+        "budgetChars":options.budget_chars.unwrap_or(4000)})
+}
+
 fn file_create_params(options: &Options) -> AgentResult<Value> {
     if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some()
         || options.priority.is_some() || options.due_date.is_some() {
@@ -443,6 +480,7 @@ pub fn run(args: &[String]) -> CliOutput {
         ["source", "read", ..] => ("source.read", &args[2..], None),
         ["session", "search", ..] => ("session.search", &args[2..], None),
         ["session", "messages", "read", ..] => ("session.messages.read", &args[3..], None),
+        ["reference", "list", ..] => ("reference.list", &args[2..], None),
         ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..], None),
         ["record", "get", id, ..] if !id.starts_with("--") => ("record.get", &args[3..], Some(*id)),
         ["record", "get", ..] => ("record.get", &args[2..], None),
@@ -497,11 +535,17 @@ pub fn run(args: &[String]) -> CliOutput {
         if file_update_flags && command != "file.update" {
             return Err(invalid("--source-file and expected baseline options are only supported by file update"));
         }
-        if options.object_id.is_some() && !matches!(command, "record.restore" | "file.update") {
-            return Err(invalid("--id is only supported by record restore and file update"));
+        if options.object_id.is_some() && !matches!(command, "record.restore" | "file.update" | "reference.list") {
+            return Err(invalid("--id is only supported by record restore, file update and reference list"));
         }
-        if (options.revision.is_some() || options.cursor.is_some()) && command != "record.get" {
-            return Err(invalid("--revision and --cursor are only supported by record get"));
+        if options.revision.is_some() && command != "record.get" {
+            return Err(invalid("--revision is only supported by record get"));
+        }
+        if options.cursor.is_some() && !matches!(command, "record.get" | "reference.list") {
+            return Err(invalid("--cursor is only supported by record get and reference list"));
+        }
+        if (options.kind.is_some() || options.direction.is_some() || options.limit.is_some()) && command != "reference.list" {
+            return Err(invalid("--kind, --direction and --limit are only supported by reference list"));
         }
         if options.input_file.is_some() && (restore_flags || file_update_flags || options.object_id.is_some()) {
             return Err(invalid("--input-file cannot be combined with shorthand object options"));
@@ -568,6 +612,15 @@ pub fn run(args: &[String]) -> CliOutput {
             registry::validate("record.get", &params)?;
             return client.call(connection, &binding, "record.get", params, &request_id);
         }
+        if command == "reference.list" && options.input_file.is_none() {
+            if options.body_file.is_some() { return Err(invalid("reference list does not accept --body-file")); }
+            let (id, scope, kind, direction) = reference_list_identity(&options)?;
+            let client = BridgeClient::discover(connection)?;
+            let binding = client.connect(connection, workspace, &request_id)?;
+            let params = reference_list_params(&options, id, scope, kind, direction, &binding);
+            registry::validate("reference.list", &params)?;
+            return client.call(connection, &binding, "reference.list", params, &request_id);
+        }
         if options.body_file.is_some() && !matches!(command, "file.create" | "todo.create" | "record.create") {
             return Err(invalid("--body-file is only supported by file upload, file create, todo create and record create"));
         }
@@ -594,6 +647,14 @@ pub fn run(args: &[String]) -> CliOutput {
                     return Err(invalid("Record get --input-file cannot be combined with scope, revision, cursor, query or budget options"));
                 }
                 read_input(options.input_file.as_deref().ok_or_else(|| invalid("Record ID or --input-file is required"))?)?
+            }
+            "reference.list" => {
+                if options.project.is_some() || options.workspace_scope || options.object_id.is_some()
+                    || options.kind.is_some() || options.direction.is_some() || options.cursor.is_some()
+                    || options.limit.is_some() || options.budget_chars.is_some() || options.query.is_some() {
+                    return Err(invalid("reference list --input-file cannot be combined with shorthand options"));
+                }
+                read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
             }
             "file.create" if options.body_file.is_some() => file_create_params(&options)?,
             "todo.create" if options.body_file.is_some() => todo_create_params(&options)?,
@@ -1058,6 +1119,60 @@ mod tests {
             "revision":null,"cursor":null,"budgetChars":4000});
         std::fs::write(file.path(), serde_json::to_vec(&params).unwrap()).unwrap();
         let args = ["record", "get", "--input-file", file.path().to_str().unwrap(),
+            "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_ne!(out.exit_code, 2, "{}", out.stderr);
+    }
+    #[test]
+    fn reference_list_shorthand_builds_bound_dto_and_defaults() {
+        let options = Options { object_id: Some("42".into()), kind: Some("record".into()),
+            direction: Some("incoming".into()), project: Some(7), ..Options::default() };
+        let (id, scope, kind, direction) = reference_list_identity(&options).unwrap();
+        let binding = WorkspaceBinding { workspace_id: "bound-workspace".into(), generation: "g".into() };
+        let params = reference_list_params(&options, id, scope, kind, direction, &binding);
+        assert_eq!(params["object"], json!({"workspaceId":"bound-workspace","scope":{"kind":"project","projectId":7},"kind":"record","id":"42"}));
+        assert_eq!(params["direction"], "incoming");
+        assert_eq!(params["limit"], 20);
+        assert_eq!(params["budgetChars"], 4000);
+        assert!(params["cursor"].is_null());
+        registry::validate("reference.list", &params).unwrap();
+        let custom = Options { limit: Some(50), budget_chars: Some(12000), cursor: Some("next".into()), ..options };
+        let (id, scope, kind, direction) = reference_list_identity(&custom).unwrap();
+        let params = reference_list_params(&custom, id, scope, kind, direction, &binding);
+        assert_eq!(params["limit"], 50);
+        assert_eq!(params["budgetChars"], 12000);
+        assert_eq!(params["cursor"], "next");
+    }
+    #[test]
+    fn reference_list_rejects_unsupported_kind_scope_and_mixed_flags() {
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let check = |words: &[&str], expected: &str| {
+            let mut args = words.to_vec();
+            args.extend(common);
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2, "{words:?}: {}", out.stderr);
+            assert!(out.stderr.contains(expected), "{words:?}: {}", out.stderr);
+        };
+        check(&["reference", "list", "--id", "1", "--direction", "incoming", "--project", "1"], "--kind is required");
+        check(&["reference", "list", "--kind", "other", "--id", "1", "--direction", "incoming", "--project", "1"], "--kind must be");
+        check(&["reference", "list", "--kind", "record", "--id", "0", "--direction", "incoming", "--project", "1"], "Invalid object ID");
+        check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "both", "--project", "1"], "--direction must be");
+        check(&["reference", "list", "--kind", "file", "--id", "1", "--direction", "outgoing", "--workspace-scope"], "File references require --project");
+        check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming"], "Choose exactly one");
+        check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--limit", "51"], "Invalid reference limit");
+        check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--cursor", &"x".repeat(2049)], "Invalid reference cursor");
+        check(&["reference", "list", "--input-file", "refs.json", "--kind", "record"], "cannot be combined");
+        check(&["reference", "list", "--input-file", "refs.json", "--limit", "10"], "cannot be combined");
+        check(&["record", "get", "1", "--project", "1", "--kind", "record"], "only supported by reference list");
+        check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--revision", "r"], "--revision is only supported by record get");
+    }
+    #[test]
+    fn reference_list_input_file_accepts_registered_dto() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let params = json!({"object":{"workspaceId":"w","scope":{"kind":"workspace"},"kind":"todo","id":"9"},
+            "direction":"outgoing","cursor":null,"limit":10,"budgetChars":3000});
+        std::fs::write(file.path(), serde_json::to_vec(&params).unwrap()).unwrap();
+        let args = ["reference", "list", "--input-file", file.path().to_str().unwrap(),
             "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
         let out = invoke(&args);
         assert_ne!(out.exit_code, 2, "{}", out.stderr);

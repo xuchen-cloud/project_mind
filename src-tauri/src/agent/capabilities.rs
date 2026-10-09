@@ -57,7 +57,7 @@ pub fn capabilities() -> Vec<Capability> {
         ("knowledge.get", "context.read", true, true, "AI-04"),
         ("source.search", "source.read", true, true, "AI-03"),
         ("source.read", "source.read", true, true, "AI-03"),
-        ("reference.list", "source.read", true, false, "AI-03"),
+        ("reference.list", "source.read", true, true, "AI-03"),
         ("session.create", "session.write", false, true, "AI-05"),
         ("session.summary.get", "session.read", true, false, "AI-08"),
         ("session.search", "session.read", true, true, "AI-08"),

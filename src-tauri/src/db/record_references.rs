@@ -137,6 +137,21 @@ fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolve
             kind: object_kind,
         }))
 }
+pub(super) fn resolve_reference_object(
+    conn: &Connection,
+    kind: &str,
+    id: i64,
+    workspace_id: &str,
+) -> AgentResult<Option<ObjectRef>> {
+    Ok(resolve(conn, kind, id)?.and_then(|resolved| {
+        Some(ObjectRef {
+            workspace_id: workspace_id.into(),
+            scope: resolved.scope?,
+            kind: resolved.kind?,
+            id: id.to_string(),
+        })
+    }))
+}
 impl super::Database {
     /// Resolve the concrete source objects using the same parser and native
     /// identity lookup as the reference edge writer. Missing references remain
@@ -148,13 +163,7 @@ impl super::Database {
     ) -> AgentResult<Vec<ObjectRef>> {
         let mut objects = Vec::new();
         for (kind, id) in reference_identities(document)? {
-            let Some(target) = resolve(&self.conn, kind, id)? else {
-                continue;
-            };
-            if let (Some(scope), Some(kind)) = (target.scope, target.kind) {
-                let object = ObjectRef {
-                    workspace_id: workspace_id.into(), scope, kind, id: id.to_string(),
-                };
+            if let Some(object) = resolve_reference_object(&self.conn, kind, id, workspace_id)? {
                 if !objects.contains(&object) {
                     objects.push(object);
                 }

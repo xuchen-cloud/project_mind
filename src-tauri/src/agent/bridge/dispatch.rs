@@ -118,7 +118,8 @@ where
                 .await?,
             );
         }
-        "record.get"
+        "reference.list"
+        | "record.get"
         | "record.blocks.get"
         | "record.versions.list"
         | "record.versions.get"
