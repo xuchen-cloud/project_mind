@@ -96,7 +96,7 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 - `agent_overviews(scope_key PK,current_revision,as_of_seq,status,coverage_json,policy_revision,updated_at)`与`agent_overview_versions(scope_key,revision,items_json,source_manifest_json,as_of_seq,model_profile_id,created_at)`保存不可变快照，旧overview不递归成为独立source；快照随Workspace备份，首期不自动裁剪。
 - `agent_overview_dependencies(scope_key,item_id,source_object_key,source_revision,parent_overview_scope,parent_item_id,parent_revision)`支持原始依赖与逐层失效；来源权限每次读取仍校验。
 - `agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision)`与业务outbox同事务更新；Overview自身写入只通知父Workspace，不再将自己当Project业务变化，防止无限更新循环。
-- `agent_memory_items(id,scope_key,kind,text,source_refs_json,confirmation,status,suppression_key,revision,last_supported_at)`在M2建立；用户纠正/抑制独立保存，不由模型覆盖。以上为规划数据结构，不修改现有领域事实基线。
+- M2 长期条目复用现有知识节点、正文及不可变版本，增加记忆类别、确认程度、状态与支持时间；不再另建一张重复保存正文的 `agent_memory_items` 表。用户确认、纠正和抑制策略由原生服务独立保存，模型维护不得覆盖。抑制依据为原始来源身份及记忆类别，不依赖模型生成的标题或条目 ID。以上为 S7 规划，尚不是已交付数据结构。
 
 - `agent_session_summary_segments(id,session_id,branch_id,start_entry_id,end_entry_id,revision,summary_json,message_refs_json,source_refs_json,coverage,input_hash,status)`保存分段当前摘要；历史版本独立保留，唯一(session,branch,range,inputHash)。FTS按segment索引，最新状态与历史时态可区分。
 
