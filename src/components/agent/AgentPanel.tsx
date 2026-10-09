@@ -14,6 +14,7 @@ import { AgentPiMessages } from "./AgentPiMessages";
 import { AgentKnowledgePanel } from "./AgentKnowledgePanel";
 import { AgentHistorySearch } from "./AgentHistorySearch";
 import { AgentRunOutputs } from "./AgentRunOutputs";
+import { AgentScheduleSettings } from "./AgentScheduleSettings";
 import { agentFailureMessage, useAgentConversation } from "./useAgentConversation";
 import "../home/home.css";
 import "./agent.css";
@@ -156,6 +157,8 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
           <Button size="sm" variant="ghost" onClick={() => openSettings("ai-models")}>模型设置</Button>
         </div>
         <p className="agent-panel__hint">{profile ? `通用模型：${profile.name}${model ? ` · ${model}` : ""}` : "尚未配置通用模型"}</p>
+        <AgentScheduleSettings settings={conversation.settings} saving={conversation.savingSettings}
+          disabled={conversation.loading || busy} onSave={conversation.setSchedule} />
         <div className="agent-panel__setting-row">
           <Button size="sm" disabled={!conversation.binding || !modelReady || !conversation.runtimeAvailable || busy || conversation.probing}
             onClick={() => { verificationProfile.current = modelIdentity; void conversation.probe(); }}>{conversation.probing ? "正在验证…" : "验证工具能力"}</Button>

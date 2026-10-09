@@ -14,6 +14,12 @@
 .agent-panel__setting-row,.agent-panel__history,.agent-panel__composer-actions { display:flex; align-items:center; gap:8px; }
 .agent-panel__setting-row,.agent-panel__composer-actions { justify-content:space-between; }
 .agent-panel__enable { display:flex; align-items:center; gap:6px; font-size:var(--text-ui); }
+.agent-panel__schedule { display:grid; gap:7px; margin:12px 0; padding:12px 0; border-block:1px solid var(--color-border); }
+.agent-panel__schedule strong { font-size:var(--text-ui); }
+.agent-panel__schedule-fields { display:grid; grid-template-columns:1fr 1fr; gap:8px; min-width:0; }
+.agent-panel__schedule-fields label { display:grid; gap:4px; min-width:0; font-size:var(--type-caption-size); color:var(--color-text-muted); }
+.agent-panel__schedule-fields label:last-child { grid-column:1 / -1; }
+.agent-panel__schedule-fields input,.agent-panel__schedule-fields select { min-width:0; width:100%; padding:5px 7px; border:1px solid var(--color-border); border-radius:var(--radius-6); background:var(--color-bg); color:var(--color-text); font-size:var(--text-ui); }
 .agent-panel__hint { color:var(--color-text-muted); font-size:var(--type-caption-size); line-height:1.5; margin:4px 0; }
 .agent-panel__history { flex:none; height:min(330px,38dvh); min-height:0; padding:10px 16px; align-items:stretch; border-bottom:1px solid var(--color-border); }
 .agent-panel__history .home-side__list > div { gap:4px; }

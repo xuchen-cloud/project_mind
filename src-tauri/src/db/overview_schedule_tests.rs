@@ -55,6 +55,33 @@ fn dirty(f: &Fixture) {
 }
 
 #[test]
+fn saving_schedule_retimes_future_due_and_survives_reopen() {
+    use crate::agent::settings::SettingsUpdate;
+    let f = fixture();
+    let now = Utc::now();
+    f.db.overview_schedule_next(&f.binding, now).unwrap();
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, now).unwrap();
+    let old_due = f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at.unwrap();
+    let mut settings = f.db.agent_settings_get(&f.scope).unwrap();
+    settings.overview_interval_hours = 48;
+    settings.overview_timezone = "Asia/Shanghai".into();
+    let expected_revision = settings.revision;
+    let saved = f.db.agent_settings_update("schedule-test", "retime", &SettingsUpdate { settings, expected_revision }).unwrap();
+    assert_eq!(saved.overview_interval_hours, 48);
+    let due = f.db.overview_schedule_status(&f.binding, &f.scope, Utc::now()).unwrap().next_run_at.unwrap();
+    assert_ne!(due, old_due);
+    let local = due.with_timezone(&chrono_tz::Asia::Shanghai);
+    assert_eq!(local.format("%H:%M").to_string(), "03:00");
+    assert_eq!(local.date_naive(), now.with_timezone(&chrono_tz::Asia::Shanghai).date_naive() + chrono::Duration::days(2));
+    let root = f.root.path().to_path_buf();
+    drop(f.db);
+    let mut reopened = Database::open(&root.join("schedule.sqlite"), &root, None).unwrap();
+    reopened.bind_native_workspace("schedule-ws").unwrap();
+    assert_eq!(reopened.agent_settings_get(&f.scope).unwrap().overview_timezone, "Asia/Shanghai");
+    assert_eq!(reopened.overview_schedule_status(&f.binding, &f.scope, Utc::now()).unwrap().next_run_at, Some(due));
+}
+
+#[test]
 fn zero_dirty_skips_model_and_missed_days_coalesce_to_one_due_cycle() {
     for interval in [24, 48] {
         let f = fixture();

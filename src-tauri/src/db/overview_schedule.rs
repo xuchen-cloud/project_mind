@@ -106,14 +106,30 @@ fn local_slot(date: NaiveDate, time: NaiveTime, zone: chrono_tz::Tz) -> AgentRes
     }
     Err(invalid())
 }
-fn next_slot(db: &Database, scope: &Scope, now: DateTime<Utc>) -> AgentResult<i64> {
-    let settings = db.agent_settings_get(scope)?;
+fn slot_for_settings(settings: &crate::agent::settings::AgentScopeSettings, now: DateTime<Utc>) -> AgentResult<i64> {
     let zone: chrono_tz::Tz = settings.overview_timezone.parse().map_err(|_| invalid())?;
     let time =
         NaiveTime::parse_from_str(&settings.overview_local_time, "%H:%M").map_err(|_| invalid())?;
     let date = now.with_timezone(&zone).date_naive()
         + Duration::days(i64::from(settings.overview_interval_hours) / 24);
     Ok(local_slot(date, time, zone)?.timestamp())
+}
+fn next_slot(db: &Database, scope: &Scope, now: DateTime<Utc>) -> AgentResult<i64> {
+    slot_for_settings(&db.agent_settings_get(scope)?, now)
+}
+
+pub(super) fn retime_schedule(
+    conn: &rusqlite::Connection,
+    workspace_id: &str,
+    settings: &crate::agent::settings::AgentScopeSettings,
+    now: DateTime<Utc>,
+) -> AgentResult<()> {
+    if !settings.enabled || !matches!(settings.scope, Scope::Project { .. }) { return Ok(()); }
+    let binding = WorkspaceBinding { workspace_id: workspace_id.into(), generation: String::new() };
+    let Some(mut ledger) = read_schedule(conn, &binding, &settings.scope)? else { return Ok(()); };
+    if ledger.active || ledger.due_at <= now.timestamp() { return Ok(()); }
+    ledger.due_at = slot_for_settings(settings, now)?;
+    save_schedule(conn, &binding, &settings.scope, &ledger, now)
 }
 fn dirty(db: &Database, scope: &Scope) -> AgentResult<bool> {
     let overview_dirty:bool=db.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_pending WHERE scope_key=?1) OR EXISTS(SELECT 1 FROM agent_overview_pending_state WHERE scope_key=?1 AND needs_rebuild=1)", [scope.key()], |r| r.get(0)).map_err(io)?;

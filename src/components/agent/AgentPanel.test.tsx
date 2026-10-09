@@ -59,7 +59,7 @@ beforeEach(() => {
     binding, settings, sessions: [session], sessionCursor: null, session: null, messages: [], nextOrdinal: null,
     run: null, liveText: "", pendingPrompt: "", toolActivity: "", error: null, loading: false,
     starting: false, reading: false, savingSettings: false, probing: false, verified: false, runtimeAvailable: true, busy: false,
-    setEnabled: vi.fn(async () => {}), setMode: vi.fn(async () => {}), selectSession: vi.fn(async () => {}), send: vi.fn(async () => true),
+    setEnabled: vi.fn(async () => true), setMode: vi.fn(async () => true), setSchedule: vi.fn(async () => true), selectSession: vi.fn(async () => {}), send: vi.fn(async () => true),
     cancel: vi.fn(async () => {}), refresh: vi.fn(async () => {}), moreSessions: vi.fn(async () => {}),
     probe: vi.fn(async () => {}), loadMore: vi.fn(async () => {}),
   };
@@ -88,6 +88,15 @@ describe("Project assistant panel", () => {
     expect(state.setMode).toHaveBeenCalledWith("review");
     await userEvent.click(screen.getByRole("button", { name: "模型设置" }));
     expect(mocked.openSettings).toHaveBeenCalledWith("ai-models"); expect(closed).not.toHaveBeenCalled();
+  });
+  it("edits and confirms the persisted maintenance schedule", async () => {
+    await loaded();
+    await userEvent.click(screen.getByRole("button", { name: "更多", exact: true }));
+    fireEvent.change(screen.getByRole("combobox", { name: "维护频率" }), { target: { value: "48" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "维护时区" }), { target: { value: "Asia/Shanghai" } });
+    await userEvent.click(screen.getByRole("button", { name: "保存维护设置" }));
+    expect(state.setSchedule).toHaveBeenCalledWith({ overviewIntervalHours: 48, overviewLocalTime: "03:00", overviewTimezone: "Asia/Shanghai" });
+    expect(await screen.findByText("维护设置已保存")).toBeInTheDocument();
   });
   it("sends with Enter and retains the question when startup is rejected", async () => {
     await loaded();

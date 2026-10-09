@@ -266,14 +266,17 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     return () => { stopped = true; window.clearInterval(timer); };
   }, [binding, run?.id, run?.state, catchUpEvents, loadMessages, valid]);
 
-  const updateSettings = async (patch: Partial<Pick<AgentScopeSettings, "enabled" | "executionMode">>) => {
-    if (!binding || !settings || savingSettings) return;
+  const updateSettings = async (patch: Partial<Pick<AgentScopeSettings, "enabled" | "executionMode" | "overviewIntervalHours" | "overviewLocalTime" | "overviewTimezone">>): Promise<boolean> => {
+    if (!binding || !settings || savingSettings) return false;
     const token = epoch.current; setSavingSettings(true); setError(null);
     try {
-      const saved = await agentApi.settingsUpdate(binding, { settings: { ...settings, ...patch }, expectedRevision: settings.revision });
-      if (valid(token, binding)) setSettings(saved);
+      const firstEnable = patch.enabled === true && !settings.enabled && settings.revision === 0;
+      const next = { ...settings, ...(firstEnable ? { overviewTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {}), ...patch };
+      const saved = await agentApi.settingsUpdate(binding, { settings: next, expectedRevision: settings.revision });
+      if (valid(token, binding)) { setSettings(saved); return true; }
     } catch (failure) { if (valid(token, binding)) setError(agentFailureMessage(failure)); }
     finally { if (valid(token, binding)) setSavingSettings(false); }
+    return false;
   };
   const selectSession = async (id: string) => {
     if (!binding || startingRef.current || isAgentRunActive(runRef.current)) return;
@@ -374,6 +377,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     pendingPrompt, toolActivity, error, loading, starting, reading, savingSettings, probing, verified,
     runtimeAvailable, busy: starting || isAgentRunActive(run), setEnabled: (enabled: boolean) => updateSettings({ enabled }),
     setMode: (executionMode: AgentScopeSettings["executionMode"]) => updateSettings({ executionMode }), selectSession, send, cancel,
+    setSchedule: (schedule: Pick<AgentScopeSettings, "overviewIntervalHours" | "overviewLocalTime" | "overviewTimezone">) => updateSettings(schedule),
     refresh, moreSessions, probe, loadMore: () => binding && session && nextOrdinal !== null
       ? loadMessages(binding, session.id, nextOrdinal) : Promise.resolve(),
   };

@@ -99,7 +99,11 @@ impl crate::agent::settings::SettingsRepository for Database {
         use rusqlite::params;
         input.validate()?;
         self.agent_atomic_operation(caller_id, request_id, "context.settings.update", input, |tx| {
-            let revision: i64 = tx.query_row("SELECT revision FROM agent_scope_settings WHERE scope_key=?1", [input.settings.scope.key()], |row| row.get(0)).optional().map_err(io_error)?.unwrap_or(0);
+            let previous: Option<(i64, bool, u8, String, String)> = tx.query_row(
+                "SELECT revision,enabled,overview_interval_hours,overview_local_time,overview_timezone FROM agent_scope_settings WHERE scope_key=?1",
+                [input.settings.scope.key()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            ).optional().map_err(io_error)?;
+            let revision = previous.as_ref().map(|row| row.0).unwrap_or(0);
             if revision as u64 != input.expected_revision {
                 let current = self.agent_settings_get(&input.settings.scope)?;
                 return Err(AgentError::new(ErrorCode::RevisionConflict, "Assistant settings changed; reload before saving").with_details(serde_json::json!({ "current": current })));
@@ -110,6 +114,11 @@ impl crate::agent::settings::SettingsRepository for Database {
             let mode = serde_json::to_value(saved.execution_mode).unwrap();
             tx.execute("INSERT INTO agent_scope_settings(scope_key,enabled,goal_record_id,pinned_refs_json,summary_policy,overview_interval_hours,overview_local_time,overview_timezone,execution_mode,revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(scope_key) DO UPDATE SET enabled=excluded.enabled,goal_record_id=excluded.goal_record_id,pinned_refs_json=excluded.pinned_refs_json,summary_policy=excluded.summary_policy,overview_interval_hours=excluded.overview_interval_hours,overview_local_time=excluded.overview_local_time,overview_timezone=excluded.overview_timezone,execution_mode=excluded.execution_mode,revision=excluded.revision",
                 params![saved.scope.key(),saved.enabled,saved.goal_record_id,pins,policy.as_str(),saved.overview_interval_hours,saved.overview_local_time,saved.overview_timezone,mode.as_str(),saved.revision as i64]).map_err(io_error)?;
+            if previous.as_ref().is_some_and(|old| old.1 != saved.enabled || old.2 != saved.overview_interval_hours || old.3 != saved.overview_local_time || old.4 != saved.overview_timezone) {
+                if let Some(workspace_id) = self.native_workspace_id.as_deref() {
+                    super::overview_schedule::retime_schedule(tx, workspace_id, &saved, chrono::Utc::now())?;
+                }
+            }
             let change = OperationChange { object_key: format!("agent_settings/{}",saved.scope.key()), scope: saved.scope.clone(), revision: saved.revision.to_string() };
             Ok((saved, Some(change)))
         })

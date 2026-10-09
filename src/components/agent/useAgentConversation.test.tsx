@@ -52,6 +52,38 @@ beforeEach(() => {
 });
 
 describe("assistant conversation lifecycle", () => {
+  it("uses the device timezone on first enable and preserves previously saved UTC", async () => {
+    api.settingsGet.mockResolvedValueOnce({ ...settings, enabled: false, revision: 0 });
+    const resolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
+    const timezone = vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockImplementation(function (this: Intl.DateTimeFormat) { return { ...resolvedOptions.call(this), timeZone: "Asia/Shanghai" }; });
+    const view = await ready();
+    await act(async () => { await view.result.current.setEnabled(true); });
+    expect(api.settingsUpdate).toHaveBeenCalledWith(binding, {
+      settings: { ...settings, enabled: true, revision: 0, overviewTimezone: "Asia/Shanghai" }, expectedRevision: 0,
+    });
+    api.settingsUpdate.mockClear();
+    api.settingsGet.mockResolvedValueOnce({ ...settings, enabled: false, revision: 2 });
+    await act(async () => { await view.result.current.refresh(); });
+    await act(async () => { await view.result.current.setEnabled(true); });
+    expect(api.settingsUpdate).toHaveBeenCalledWith(binding, {
+      settings: { ...settings, enabled: true, revision: 2 }, expectedRevision: 2,
+    });
+    timezone.mockRestore();
+  });
+  it("saves a schedule with CAS and retains the previous values on failure", async () => {
+    const view = await ready();
+    const schedule = { overviewIntervalHours: 48 as const, overviewLocalTime: "04:30", overviewTimezone: "Asia/Shanghai" };
+    await act(async () => { expect(await view.result.current.setSchedule(schedule)).toBe(true); });
+    expect(api.settingsUpdate).toHaveBeenCalledWith(binding, { settings: { ...settings, ...schedule }, expectedRevision: 1 });
+    api.settingsGet.mockResolvedValueOnce({ ...settings, ...schedule, revision: 2 });
+    await act(async () => { await view.result.current.refresh(); });
+    expect(view.result.current.settings?.overviewTimezone).toBe("Asia/Shanghai");
+    api.settingsUpdate.mockRejectedValueOnce(new AgentApiError({ code: "INVALID_ARGUMENT", message: "Invalid assistant settings", retryable: false }));
+    await act(async () => { expect(await view.result.current.setSchedule({ ...schedule, overviewTimezone: "Invalid/Zone" })).toBe(false); });
+    expect(view.result.current.settings?.overviewTimezone).toBe("Asia/Shanghai");
+    expect(view.result.current.error).toBeTruthy();
+  });
   it("passes an explicitly selected object separately without rewriting the question", async () => {
     const view = await ready();
     const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope, kind: "todo", id: "42" };
