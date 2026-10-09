@@ -58,33 +58,36 @@ pub(crate) struct SourceFileExtraction {
     pub(super) plan: crate::source_file_snapshot::FileReadPlan,
     pub(super) snapshot: crate::source_file_snapshot::FileByteSnapshot,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SourceReadTarget {
     pub object: ObjectRef,
+    #[schemars(length(max = 128))]
     pub revision: Option<String>,
     pub record_version: Option<u32>,
     pub file_version: Option<u32>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SourceReadView {
     Full,
     Range,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SourceSelection {
     pub block_id: Option<String>,
     pub locator: Option<SourceLocator>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SourceReadInput {
     pub source: SourceReadTarget,
     pub view: SourceReadView,
     pub selection: Option<SourceSelection>,
+    #[schemars(length(max = 2048))]
     pub cursor: Option<String>,
+    #[schemars(range(min = 1, max = 12000))]
     pub budget_chars: Option<usize>,
 }
 #[derive(Debug, Serialize)]
@@ -121,18 +124,23 @@ pub(crate) struct SourcePolicy {
     pub revision: u64,
     pub excluded: bool,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SourceSearchInput {
     pub scope: Scope,
+    #[schemars(length(max = 256))]
     pub query: String,
     #[serde(default)]
+    #[schemars(length(max = 7))]
     pub kinds: Vec<crate::agent::models::ObjectKind>,
     #[serde(default)]
+    #[schemars(length(max = 50))]
     pub selected: Vec<ObjectRef>,
     #[serde(default)]
     pub include_history: bool,
+    #[schemars(range(min = 1, max = 50))]
     pub limit: Option<usize>,
+    #[schemars(range(min = 1, max = 12000))]
     pub budget_chars: Option<usize>,
 }
 #[derive(Debug, Serialize)]

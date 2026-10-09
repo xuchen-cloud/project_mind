@@ -26,16 +26,22 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OverviewReadInput {
     pub scope: Scope,
+    /// Optional snapshot version. Continue with nextCursor to read the same revision.
+    #[schemars(range(min = 1, max = 9007199254740991_u64))]
     pub version: Option<u64>,
     #[serde(default)]
+    #[schemars(length(max = 5))]
     pub sections: Vec<OverviewSection>,
     #[serde(default)]
+    #[schemars(length(max = 100))]
     pub item_ids: Vec<String>,
+    #[schemars(length(max = 2048))]
     pub cursor: Option<String>,
+    #[schemars(range(min = 1, max = 8000))]
     pub budget_chars: Option<usize>,
 }
 #[derive(Debug, Serialize)]

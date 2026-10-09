@@ -37,7 +37,7 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前只暴露 `project.list` 与 `context.get` 两项读取。`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。外部写命令、完整 MCP 工具集及对象级限制留待后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
+bridge 注册表当前暴露 `project.list`、`context.get`、`context.overview.get`、`knowledge.search/get` 和 `source.search/read` 七项读取；后五项复用内置助手的共享有界读取 dispatcher。异步提取前后，每个存储阶段重新核验当前连接和 Workspace binding。CLI 的新读取命令在下一子步接入，`schema METHOD` 与 MCP 已使用扩展注册表。`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。外部写命令、完整 MCP 工具集及对象级限制留待后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
 
 ## 不应绕过的边界
 

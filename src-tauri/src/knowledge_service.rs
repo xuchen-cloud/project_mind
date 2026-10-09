@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum KnowledgeView {
     Outline,
@@ -30,17 +30,22 @@ pub(crate) enum KnowledgeView {
     Summary,
     Content,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct KnowledgeGetInput {
     pub scope: Scope,
+    #[schemars(length(max = 128))]
     pub node_id: String,
+    #[schemars(range(min = 1, max = 9007199254740991_u64))]
     pub version: Option<u64>,
     #[serde(default)]
     pub view: KnowledgeView,
     #[serde(default)]
+    #[schemars(length(max = 20))]
     pub section_ids: Vec<String>,
+    #[schemars(length(max = 8192))]
     pub cursor: Option<String>,
+    #[schemars(range(min = 1, max = 8000))]
     pub budget_chars: Option<usize>,
 }
 #[derive(Debug, Clone, Serialize)]
@@ -106,15 +111,20 @@ pub(crate) struct KnowledgeGetPage {
     pub valid_state: ValidState,
     pub next_cursor: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct KnowledgeSearchInput {
     pub scope: Scope,
+    #[schemars(length(max = 2000))]
     pub query: String,
     #[serde(default)]
+    #[schemars(length(max = 3))]
     pub kinds: Vec<KnowledgeKind>,
+    #[schemars(length(max = 8192))]
     pub cursor: Option<String>,
+    #[schemars(range(min = 1, max = 50))]
     pub limit: Option<u16>,
+    #[schemars(range(min = 1, max = 3000))]
     pub budget_chars: Option<usize>,
 }
 #[derive(Debug, Clone, Serialize)]

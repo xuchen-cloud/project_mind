@@ -1,4 +1,4 @@
-//! Stdio MCP adapter for the two reads exposed by the local bridge.
+//! Stdio MCP adapter for reads exposed by the local bridge registry.
 use super::{client::BridgeClient, registry};
 use crate::agent::{
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
@@ -89,23 +89,7 @@ fn tools() -> Vec<Tool> {
 
 fn validate(method: &str, arguments: Option<Map<String, Value>>) -> Result<Value, AgentError> {
     let params = Value::Object(arguments.unwrap_or_default());
-    match method {
-        "project.list" => {
-            serde_json::from_value::<registry::ProjectListInput>(params.clone()).map_err(|_| {
-                AgentError::new(
-                    ErrorCode::InvalidArgument,
-                    "Invalid project.list parameters",
-                )
-            })?;
-        }
-        "context.get" => {
-            serde_json::from_value::<crate::agent::context::ContextGetInput>(params.clone())
-                .map_err(|_| {
-                    AgentError::new(ErrorCode::InvalidArgument, "Invalid context.get parameters")
-                })?;
-        }
-        _ => unreachable!("only registered tools reach validation"),
-    }
+    registry::validate(method, &params)?;
     Ok(params)
 }
 

@@ -45,7 +45,15 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
             .iter()
             .map(|tool| tool.name.as_ref())
             .collect::<Vec<_>>(),
-        vec!["mind_project_list", "mind_context_get"]
+        vec![
+            "mind_project_list",
+            "mind_context_get",
+            "mind_context_overview_get",
+            "mind_knowledge_search",
+            "mind_knowledge_get",
+            "mind_source_search",
+            "mind_source_read",
+        ]
     );
     for tool in &listed.tools {
         assert_eq!(
@@ -67,32 +75,23 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
         .iter()
         .all(|tool| tool.name != "mind_run_start"));
 
-    let project = client
-        .peer()
-        .call_tool(CallToolRequestParams::new("mind_project_list"))
-        .await
-        .unwrap();
-    assert_eq!(project.is_error, Some(false));
-    assert_eq!(
-        project.structured_content.as_ref().unwrap()["data"]["method"],
-        "project.list"
-    );
-    let context = client
-        .peer()
-        .call_tool(
-            CallToolRequestParams::new("mind_context_get").with_arguments(
-                json!({"scope":{"kind":"workspace"}, "budgetChars": 100})
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            ),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        context.structured_content.as_ref().unwrap()["data"]["method"],
-        "context.get"
-    );
+    let workspace_scope = json!({"kind":"workspace"});
+    let reads = [
+        ("mind_project_list", "project.list", json!({})),
+        ("mind_context_get", "context.get", json!({"scope":workspace_scope.clone(),"budgetChars":100})),
+        ("mind_context_overview_get", "context.overview.get", json!({"scope":workspace_scope.clone(),"budgetChars":100})),
+        ("mind_knowledge_search", "knowledge.search", json!({"scope":workspace_scope.clone(),"query":"plan","budgetChars":100})),
+        ("mind_knowledge_get", "knowledge.get", json!({"scope":workspace_scope.clone(),"nodeId":"node-1","budgetChars":100})),
+        ("mind_source_search", "source.search", json!({"scope":workspace_scope.clone(),"query":"plan","budgetChars":100})),
+        ("mind_source_read", "source.read", json!({"source":{"object":{"workspaceId":"test","scope":workspace_scope,"kind":"record","id":"1"}},"view":"full","budgetChars":100})),
+    ];
+    for (name, method, arguments) in reads {
+        let called = client.peer().call_tool(
+            CallToolRequestParams::new(name).with_arguments(arguments.as_object().unwrap().clone())
+        ).await.unwrap();
+        assert_eq!(called.is_error, Some(false), "{name}");
+        assert_eq!(called.structured_content.as_ref().unwrap()["data"]["method"], method);
+    }
 
     let malformed = client
         .peer()
@@ -111,6 +110,14 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
         malformed.structured_content.as_ref().unwrap()["error"]["code"],
         "INVALID_ARGUMENT"
     );
+    let over_budget = client.peer().call_tool(
+        CallToolRequestParams::new("mind_source_search").with_arguments(
+            json!({"scope":{"kind":"workspace"},"query":"plan","budgetChars":12001})
+                .as_object().unwrap().clone(),
+        ),
+    ).await.unwrap();
+    assert_eq!(over_budget.is_error, Some(true));
+    assert_eq!(over_budget.structured_content.as_ref().unwrap()["error"]["code"], "INVALID_ARGUMENT");
     assert!(client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_run_start"))

@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{
     protocol::{CallInput, ConnectInput, Discovery},
-    transport::{self, BridgeHandler},
+    transport::{self, BridgeCallFuture, BridgeHandler},
 };
 use crate::agent::{errors::AgentResult, models::WorkspaceBinding};
 
@@ -29,12 +29,14 @@ impl BridgeHandler for FakeHandler {
         })
     }
 
-    fn call(&self, token: &str, input: CallInput) -> AgentResult<Value> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push((token.into(), input.method));
-        Ok(json!({"echo": input.params}))
+    fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((token.into(), input.method));
+            Ok(json!({"echo": input.params}))
+        })
     }
 }
 

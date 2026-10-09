@@ -13,11 +13,13 @@ pub const RUN_MAX_CHARS: usize = 60_000;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextGetInput {
     pub scope: Scope,
+    #[schemars(length(max = 2000))]
     pub query: Option<String>,
+    #[schemars(range(min = 1, max = 3000))]
     pub budget_chars: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum OverviewSection {
     Profile,

@@ -1,5 +1,7 @@
 use std::{
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -29,9 +31,11 @@ use crate::agent::{
 
 const MAX_BODY_BYTES: usize = 64 * 1024;
 
+pub type BridgeCallFuture<'a> = Pin<Box<dyn Future<Output = AgentResult<Value>> + Send + 'a>>;
+
 pub trait BridgeHandler: Send + Sync + 'static {
     fn connect(&self, token: &str, input: ConnectInput) -> AgentResult<WorkspaceBinding>;
-    fn call(&self, token: &str, input: CallInput) -> AgentResult<Value>;
+    fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a>;
 }
 
 struct BridgeState {
@@ -195,7 +199,7 @@ async fn call(State(state): State<Arc<BridgeState>>, request: Request<Body>) -> 
     json_response(
         StatusCode::OK,
         request_id,
-        state.handler.call(&token, input),
+        state.handler.call(&token, input).await,
     )
 }
 

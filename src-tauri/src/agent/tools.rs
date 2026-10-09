@@ -156,7 +156,7 @@ fn encode(value: impl Serialize) -> AgentResult<Value> {
 
 // Bounds advertised to models are enforced at this boundary as well. Existing
 // services retain their semantic validation and serialized response budgets.
-fn validate_bounds(method: &str, arguments: &Value) -> AgentResult<()> {
+pub(crate) fn validate_bounds(method: &str, arguments: &Value) -> AgentResult<()> {
     let (max_budget, max_query, max_cursor) = match method {
         "context.get" => (3000, 2000, 0),
         "context.overview.get" => (8000, 0, 2048),

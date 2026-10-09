@@ -1,6 +1,7 @@
 //! Local adapters share the currently open Workspace and its native services.
 pub mod cli;
 pub mod client;
+mod connection_store;
 pub(crate) mod commands;
 pub mod credentials;
 pub mod mcp;
@@ -27,3 +28,6 @@ pub fn local_data_dir() -> AgentResult<PathBuf> {
 mod transport_tests;
 #[cfg(test)]
 mod dispatch_tests;
+
+#[cfg(test)]
+mod read_tests;

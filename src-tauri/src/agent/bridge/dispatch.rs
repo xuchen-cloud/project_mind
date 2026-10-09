@@ -1,19 +1,22 @@
 use super::{
+    connection_store::ConnectionStore,
     protocol::{CallInput, ConnectInput},
     registry,
-    transport::BridgeHandler,
+    transport::{BridgeCallFuture, BridgeHandler},
 };
 use crate::{
     agent::{
         errors::{AgentError, AgentResult, ErrorCode},
         models::WorkspaceBinding,
-        service::AgentDomainService,
+        tools::BoundReadContextStore,
     },
-    db::{agent::WorkspaceContextRepository, Database},
-    lock_mutex, AppState,
+    lock_mutex,
+    record_document_service::DocumentUtility,
+    source_service::SourceUtility,
+    AppState,
 };
 use serde_json::Value;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 pub(crate) struct AppBridge(pub tauri::AppHandle);
@@ -25,61 +28,96 @@ fn unavailable() -> AgentError {
     )
 }
 
-pub(crate) fn execute(
-    db: &Database,
-    current: &WorkspaceBinding,
-    workspace_name: &str,
+pub(crate) async fn execute<S, R, F>(
+    store: &S,
+    enabled: &AtomicBool,
     token: &str,
     input: CallInput,
-) -> AgentResult<Value> {
-    if input.binding != *current {
-        return Err(AgentError::new(
-            ErrorCode::WorkspaceChanged,
-            "Workspace changed; reconnect explicitly",
-        ));
-    }
-    let request =
-        db.agent_connection_authenticate(current, &input.grant_id, token, &input.request_id)?;
-    let value = match input.method.as_str() {
-        "project.list" => {
-            serde_json::from_value::<registry::ProjectListInput>(input.params).map_err(|_| {
-                AgentError::new(
-                    ErrorCode::InvalidArgument,
-                    "Invalid project.list parameters",
-                )
-            })?;
-            serde_json::to_value(db.agent_connection_projects(&request, current)?)
-        }
-        "context.get" => {
-            let params: crate::agent::context::ContextGetInput =
-                serde_json::from_value(input.params).map_err(|_| {
-                    AgentError::new(ErrorCode::InvalidArgument, "Invalid context.get parameters")
-                })?;
-            if let crate::agent::models::Scope::Project { project_id } = &params.scope {
-                db.source_read_object(
-                    &request,
-                    current,
-                    &crate::agent::models::ObjectRef {
-                        workspace_id: current.workspace_id.clone(),
-                        scope: params.scope.clone(),
-                        kind: crate::agent::models::ObjectKind::Project,
-                        id: project_id.to_string(),
-                    },
-                )?;
-            }
-            let repository = WorkspaceContextRepository { db, workspace_name };
-            serde_json::to_value(
-                AgentDomainService::new(current, &repository).context_get(&request, params)?,
-            )
-        }
-        _ => {
-            return Err(AgentError::new(
-                ErrorCode::ToolCallUnsupported,
-                "Method is not available through this connection",
-            ))
-        }
+    record: &R,
+    source: &F,
+) -> AgentResult<Value>
+where
+    S: BoundReadContextStore,
+    R: DocumentUtility,
+    F: SourceUtility,
+{
+    let connection = ConnectionStore {
+        inner: store,
+        enabled,
+        token,
+        input: &input,
     };
-    value.map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot encode connection result"))
+    if matches!(input.method.as_str(), "project.list" | "context.get") {
+        return connection.with_authenticated(|binding, db, workspace_name, request| {
+            registry::validate(&input.method, &input.params)?;
+            let value = if input.method == "project.list" {
+                serde_json::to_value(db.agent_connection_projects(&request, binding)?)
+            } else {
+                let params: crate::agent::context::ContextGetInput =
+                    serde_json::from_value(input.params.clone()).expect("validated context input");
+                // L0 includes project identity: check its source policy and read
+                // the context under one lock, just like the initial bridge.
+                if let crate::agent::models::Scope::Project { project_id } = &params.scope {
+                    db.source_read_object(
+                        &request,
+                        binding,
+                        &crate::agent::models::ObjectRef {
+                            workspace_id: binding.workspace_id.clone(),
+                            scope: params.scope.clone(),
+                            kind: crate::agent::models::ObjectKind::Project,
+                            id: project_id.to_string(),
+                        },
+                    )?;
+                }
+                let repository =
+                    crate::db::agent::WorkspaceContextRepository { db, workspace_name };
+                serde_json::to_value(
+                    crate::agent::service::AgentDomainService::new(binding, &repository)
+                        .context_get(&request, params)?,
+                )
+            };
+            value.map_err(|_| {
+                AgentError::new(ErrorCode::IoFailed, "Cannot encode connection result")
+            })
+        });
+    }
+    let request = connection.with_authenticated(|_, _, _, request| Ok(request))?;
+    crate::agent::tools::dispatch_read(
+        &connection,
+        record,
+        source,
+        &request,
+        &input.method,
+        input.params.clone(),
+    )
+    .await
+}
+
+/// Resolve packaged extraction resources only when a File read needs them.
+struct AppSourceUtility(tauri::AppHandle);
+impl SourceUtility for AppSourceUtility {
+    async fn request(
+        &self,
+        workspace_id: &str,
+        request_id: &str,
+        format: &str,
+        bytes: &[u8],
+    ) -> AgentResult<Value> {
+        let app = self.0.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            crate::source_extraction_worker::SourceExtractionWorker::for_app(&app)
+        })
+        .await
+        .map_err(|_| {
+            AgentError::new(
+                ErrorCode::RuntimeUnavailable,
+                "Cannot prepare source reader",
+            )
+        })??;
+        worker
+            .request(workspace_id, request_id, format, bytes)
+            .await
+    }
 }
 
 impl BridgeHandler for AppBridge {
@@ -114,25 +152,18 @@ impl BridgeHandler for AppBridge {
         Ok(runtime.agent_binding.clone())
     }
 
-    fn call(&self, token: &str, input: CallInput) -> AgentResult<Value> {
-        let state = self.0.state::<AppState>();
-        if !state.external_bridge.enabled.load(Ordering::Acquire) {
-            return Err(AgentError::new(
-                ErrorCode::RuntimeUnavailable,
-                "External connections are disabled",
-            ));
-        }
-        // Synchronous read holds the same Workspace/DB locks used by GUI writes.
-        // Workspace switches and grant revocation cannot interleave with this read.
-        let current = lock_mutex(&state.current_workspace);
-        let runtime = current.as_ref().ok_or_else(unavailable)?;
-        let db = lock_mutex(&runtime.db);
-        execute(
-            &db,
-            &runtime.agent_binding,
-            &runtime.summary.display_name,
-            token,
-            input,
-        )
+    fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
+        Box::pin(async move {
+            let state = self.0.state::<AppState>();
+            execute(
+                &*state,
+                &state.external_bridge.enabled,
+                token,
+                input,
+                &crate::record_document_service::AppDocumentUtility(self.0.clone()),
+                &AppSourceUtility(self.0.clone()),
+            )
+            .await
+        })
     }
 }

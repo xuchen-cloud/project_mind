@@ -10,6 +10,7 @@ pub enum Scope {
     Workspace,
     Project {
         #[serde(rename = "projectId")]
+        #[schemars(range(min = 1, max = 9007199254740991_i64))]
         project_id: i64,
     },
 }
@@ -40,7 +41,7 @@ pub struct WorkspaceBinding {
     pub generation: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ObjectKind {
     Project,
@@ -53,7 +54,7 @@ pub enum ObjectKind {
     SessionMessage,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectRef {
     pub workspace_id: String,
@@ -62,7 +63,7 @@ pub struct ObjectRef {
     pub id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
