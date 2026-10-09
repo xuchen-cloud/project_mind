@@ -6,7 +6,7 @@ import type { AgentScope } from "../../lib/agent-types";
 import { bindingForCapability, findAiProfile } from "../../lib/ai";
 import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
-import { sameAgentScope, useAgentPanelStore } from "../../state/agent-panel-store";
+import { canDiscussObject, useAgentPanelStore } from "../../state/agent-panel-store";
 import { useUiStore } from "../../state/ui-store";
 import { Button } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
@@ -46,7 +46,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   const discussion = discussionTarget && conversation.binding
     && discussionTarget.binding.workspaceId === conversation.binding.workspaceId
     && discussionTarget.binding.generation === conversation.binding.generation
-    && sameAgentScope(discussionTarget.object.scope, scope) ? discussionTarget : null;
+    && canDiscussObject(scope, discussionTarget.object.scope) ? discussionTarget : null;
   const openSettings = useUiStore(state => state.openSettings);
   const aiSettings = useQuery({ queryKey: queryKeys.aiSettings, queryFn: projectMindApi.aiSettingsGet, enabled: open });
   const general = aiSettings.data ? bindingForCapability(aiSettings.data, "default") : null;

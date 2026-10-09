@@ -206,6 +206,8 @@ Project Overview 的维护作业在 `agent_jobs` 中持久保存 `batchId`、来
 可信适配器绑定到 Workspace 和明确 Project/Workspace 范围的操作权限；资料正文或工具参数不能扩大它。
 _Avoid_：当前页面、模型声明的授权
 
+S5 Workspace 助手已在本地接通 WorkspacePage 入口与既有业务工具。每轮 Run 开始时冻结当前活动 Project ID 集合；`project.list` 走原生有界 keyset 分页，返回的项目名称和 ID 写入该 Run 的来源账本。后续排除或归档会使旧 Run 中相关来源不再向 AI 可见。`context.get` 和原文读取按需渐进进行，不默认注入全部项目概览。Workspace 会话可继续讨论已授权 Project 的 Record、Todo、File 并按真实归属创建或修改；跨项目综合 Record/Todo 默认归 Workspace，没有 Workspace File。Project 会话仍只访问自身。确认提交前复核冻结 grant 与当前可用状态；归档后不能提交目标操作，但待定方案仍可取消或修订。GUI 撤销/恢复依据持久成功收据、实际目标、当前状态与 CAS 执行，删除聊天不删除撤销凭据；外部连接的持久 grant 语义不变。此为 S5 本地接通，不等于 S6 的 Workspace 增量知识维护或 S7 长期记忆已交付。
+
 外部连接通过本机随机端口 bridge 访问当前打开的 Workspace；凭据保存在系统凭据服务，Workspace 仅保存授权范围和凭据摘要。每次请求重新检查连接撤销和 Workspace 代际，切换后不自动转接。当前已接通的外部读取为 Project 列表、有界上下文、Overview、知识和来源，以及会话检索/原文、Record 正文、块和历史、Todo、File 版本/源码及上传状态、原生内容入链/出链；CLI 不打开第二份数据库、不启动内置模型任务。这些读取通过 stdio MCP 暴露，设置可复制配置。外部 Record、Todo、File 写入和本连接收据读取/撤销/恢复复用原生 CAS、版本、journal 与恢复服务，注册表为 38 项（24 读 / 14 写）；设置显式选择实际写权限，已有只读连接保持只读，CLI/MCP 正式写入共用稳定请求 ID，不伪造内置 Run。`record.create` 接受 canonical 文档或 Markdown 二选一，原始 Markdown 与稳定请求 ID 绑定幂等；`record.create.preview` 在 `content.create` 授权下预览新内容而不创建持久对象、版本、收据或事件。`record.patch.preview` 只预览已保存的 canonical Record，仍需 `record.patch` 权限；预览不刷新编辑器、不写版本或收据，正式提交重新核验版本、来源和引用，预览结果不是提交保证。File 字节上传由 CLI 在本地读取文件后分阶段传送，服务端不读取客户端路径。
 
 连接新建代码现已改为默认 Workspace、可选 Project，任一范围均可只读或协作。协作包含 `record.restore` 和 `file.restore`，设置明确告知；旧 grant 不静默扩权，旧对象清单 grant 拒绝并提示重新创建。内置助手在当前已启用 scope 内自动配置 `session.read`，外部连接仍按持久 grant 检查。WP3 已提交 `561ee0d`；新旧权限 Rust 组、前端 12 项和 TypeScript 检查通过，真实连接与目标平台验收待完成。

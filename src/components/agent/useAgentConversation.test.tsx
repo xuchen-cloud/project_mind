@@ -52,6 +52,16 @@ beforeEach(() => {
 });
 
 describe("assistant conversation lifecycle", () => {
+  it("retains a same-binding Project discussion target when the Workspace conversation initializes", async () => {
+    const workspaceScope = { kind: "workspace" } as const;
+    const target: AgentObjectRef = { workspaceId: binding.workspaceId, scope, kind: "record", id: "42" };
+    useAgentPanelStore.getState().openPanel("/workspace", workspaceScope);
+    expect(useAgentPanelStore.getState().setDiscussionTarget(binding, target, "项目记录")).toBe(true);
+    const view = renderHook(() => useAgentConversation(workspaceScope, "/workspace"));
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    expect(useAgentPanelStore.getState().discussionTarget?.object).toEqual(target);
+    view.unmount();
+  });
   it("coalesces separate high-frequency deltas, flushes the tail, and pauses while hidden", async () => {
     const view = renderHook(({ visible }) => useAgentConversation(scope, "/workspace", visible), { initialProps: { visible: true } });
     await waitFor(() => expect(view.result.current.loading).toBe(false));

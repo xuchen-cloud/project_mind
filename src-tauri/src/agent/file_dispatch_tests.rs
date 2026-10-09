@@ -90,6 +90,9 @@ struct Fixture {
     gui: RequestContext,
 }
 fn fixture(mode: ExecutionMode) -> Fixture {
+    fixture_scope(mode, false)
+}
+fn fixture_scope(mode: ExecutionMode, workspace_run: bool) -> Fixture {
     let root = tempfile::tempdir().unwrap();
     let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
     let db = Database::open(&paths.db_path, root.path(), None).unwrap();
@@ -111,7 +114,7 @@ fn fixture(mode: ExecutionMode) -> Fixture {
         scope_grant: ScopeGrant {
             object_keys: None,
             workspace_id: binding.workspace_id.clone(),
-            workspace_content: false,
+            workspace_content: workspace_run,
             project_ids: vec![project.id],
             operations: [
                 "session.read",
@@ -134,8 +137,8 @@ fn fixture(mode: ExecutionMode) -> Fixture {
             .collect(),
         },
     };
-    let scope = Scope::Project {
-        project_id: project.id,
+    let scope = if workspace_run { Scope::Workspace } else {
+        Scope::Project { project_id: project.id }
     };
     let session = db
         .agent_session_create(&gui, &binding, &scope, "Files", "pi", None)
@@ -172,6 +175,15 @@ fn fixture(mode: ExecutionMode) -> Fixture {
         model,
         gui,
     }
+}
+#[tokio::test]
+async fn workspace_run_commits_file_only_to_explicit_granted_project() {
+    let f = fixture_scope(ExecutionMode::Collaborate, true);
+    let created = call(&f, &f.model, "output.stage",
+        create(f.project_id, "workspace-project.html")).await;
+    assert_eq!(created["state"], "committed");
+    assert_eq!(created["object"]["scope"], json!({"kind":"project","projectId":f.project_id}));
+    assert_eq!(sql(&f, "SELECT COUNT(*) FROM documents"), 1);
 }
 fn create(project_id: i64, name: &str) -> Value {
     json!({"intent":{"intent":"file_create","projectId":project_id,"safeName":name,"utf8Content":ORIGINAL},"sources":[]})

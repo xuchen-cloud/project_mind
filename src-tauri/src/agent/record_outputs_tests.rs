@@ -269,28 +269,30 @@ async fn record_output_review_stages_without_writing_and_gui_commits() {
 
 #[tokio::test]
 async fn workspace_project_candidate_keeps_stage_when_project_archives_before_commit() {
-    let (_directory, store, utility, request, gui) = setup(ExecutionMode::Review);
+    let (directory, store, utility, request, gui) = setup(ExecutionMode::Review);
     let service = RecordOutputService::new(&store, &utility);
     let mut input = candidate();
     if let OutputIntent::RecordCreate { scope, .. } = &mut input.intent {
         *scope = Scope::Project { project_id: 1 };
     }
     let staged = service.stage_record(&request, &input).await.unwrap();
-    store.db.lock().unwrap().conn.execute(
-        "UPDATE projects SET is_archived=1 WHERE id=1", []).unwrap();
+    store.db.lock().unwrap().project_set_archive(crate::models::ProjectArchiveInput {
+        project_id: 1, is_archived: true,
+    }).unwrap();
     assert_eq!(service.commit_record(&gui, &staged.staged.id, staged.staged.revision)
         .await.unwrap_err().code, ErrorCode::ScopeDenied);
     let db = store.db.lock().unwrap();
     assert_eq!(db.agent_output_get(&request, &gui.binding, &staged.staged.id).unwrap().state,
         OutputState::Staged);
-    let count: i64 = db.conn.query_row("SELECT COUNT(*) FROM notes WHERE project_id=1", [],
+    let conn = rusqlite::Connection::open(directory.path().join("outputs.sqlite")).unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM notes WHERE project_id=1", [],
         |row| row.get(0)).unwrap();
     assert_eq!(count, 0);
 }
 
 #[tokio::test]
 async fn workspace_run_can_commit_explicitly_granted_project_record() {
-    let (_directory, store, utility, request, gui) = setup(ExecutionMode::Review);
+    let (directory, store, utility, request, gui) = setup(ExecutionMode::Review);
     let mut input = candidate();
     if let OutputIntent::RecordCreate { scope, .. } = &mut input.intent {
         *scope = Scope::Project { project_id: 2 };
@@ -300,7 +302,8 @@ async fn workspace_run_can_commit_explicitly_granted_project_record() {
     let saved = service.commit_record(&gui, &staged.staged.id, staged.staged.revision)
         .await.unwrap();
     assert_eq!(saved.output.object.unwrap().scope, Scope::Project { project_id: 2 });
-    let count: i64 = store.db.lock().unwrap().conn.query_row(
+    let conn = rusqlite::Connection::open(directory.path().join("outputs.sqlite")).unwrap();
+    let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM notes WHERE project_id=2", [], |row| row.get(0)).unwrap();
     assert_eq!(count, 1);
 }
@@ -309,7 +312,7 @@ async fn workspace_run_can_commit_explicitly_granted_project_record() {
 async fn workspace_record_can_reference_two_frozen_project_sources() {
     let (_directory, store, mut utility, request, gui) = setup(ExecutionMode::Review);
     let ids = {
-        let db = store.db.lock().unwrap();
+        let mut db = store.db.lock().unwrap();
         [1, 2].map(|project_id| db.project_record_upsert(
             crate::models::ProjectRecordUpsertInput {
                 project_id, note_id: None, title: Some(format!("Source {project_id}")),
@@ -327,6 +330,21 @@ async fn workspace_record_can_reference_two_frozen_project_sources() {
     let staged = service.stage_record(&request, &candidate()).await.unwrap();
     let saved = service.commit_record(&gui, &staged.staged.id, staged.staged.revision).await.unwrap();
     assert_eq!(saved.output.object.unwrap().scope, Scope::Workspace);
+}
+
+#[test]
+fn workspace_run_can_commit_explicit_project_todo() {
+    let (_directory, store, _utility, request, _gui) = setup(ExecutionMode::Collaborate);
+    let output = crate::agent::todo_outputs::TodoOutputService::new(&store).stage_and_execute(
+        &request, &StageRecordInput {
+            intent: OutputIntent::TodoCreate { scope: Scope::Project { project_id: 2 },
+                content: "Project action".into(), priority: "urgent_important".into(),
+                due_date: None, tag_ids: vec![], children: vec![],
+                dedupe_key: "project-action".into() },
+            sources: vec![],
+        }).unwrap();
+    assert_eq!(output.output.object.unwrap().scope, Scope::Project { project_id: 2 });
+    assert!(matches!(output.output.state, OutputState::Committed));
 }
 
 #[tokio::test]

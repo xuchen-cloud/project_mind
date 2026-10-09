@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { queryKeys } from "../../lib/queryKeys";
 
 const apiMocks = vi.hoisted(() => ({
@@ -110,6 +111,7 @@ function renderPage(initialEntries: string[] = ["/"]) {
 describe("WorkspacePage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    useAgentPanelStore.getState().clearWorkspace();
     apiMocks.projectsList.mockReset();
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
@@ -172,6 +174,14 @@ describe("WorkspacePage", () => {
       updatedAt: "2026-04-06T08:00:00.000Z",
     });
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("opens the existing global assistant shell in Workspace scope", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "助手" }));
+    expect(useAgentPanelStore.getState()).toMatchObject({
+      open: true, binding: { workspaceRoot: "/tmp/workspace", scope: { kind: "workspace" } },
+    });
   });
 
   it("uses a static overview skeleton only for a cold workspace entry", async () => {

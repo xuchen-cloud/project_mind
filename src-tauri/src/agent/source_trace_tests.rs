@@ -50,7 +50,9 @@ fn listed_project_names_enter_run_provenance_and_disappear_when_hidden() {
     db.source_policy_update(&unexclude, &binding, &SourcePolicyUpdate {
         object, expected_revision: 1, excluded: false }).unwrap();
     assert!(db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
-    db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=?1", [first.id]).unwrap();
+    db.project_set_archive(crate::models::ProjectArchiveInput {
+        project_id: first.id, is_archived: true,
+    }).unwrap();
     assert!(!db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
 }
 

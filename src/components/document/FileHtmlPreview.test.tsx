@@ -124,6 +124,17 @@ it("keeps the preview and existing same-scope chat while explicitly selecting th
   expect(screen.getByRole("region", { name: "完整原始源码" })).toBeInTheDocument();
 });
 
+it("keeps an existing Workspace conversation when selecting its project's verified File", async () => {
+  const store = useAgentPanelStore.getState();
+  store.openPanel(request.workspaceRoot, { kind: "workspace" });
+  const previousBinding = useAgentPanelStore.getState().binding;
+  view(); await screen.findByLabelText("完整原始源码文本");
+  fireEvent.click(screen.getByRole("button", { name: "继续修改" }));
+  await waitFor(() => expect(useAgentPanelStore.getState().discussionTarget).toEqual({ binding, object, label: "实际计划.html" }));
+  expect(useAgentPanelStore.getState().binding).toBe(previousBinding);
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
+});
+
 it("preserves an existing different scope and refuses target selection after a generation switch", async () => {
   useAgentPanelStore.getState().openPanel(request.workspaceRoot, { kind: "project", projectId: 9 });
   const rendered = view(); await screen.findByLabelText("完整原始源码文本");

@@ -6,6 +6,10 @@ export interface AgentDiscussionTarget { binding: AgentWorkspaceBinding; object:
 export function sameAgentScope(a: AgentScope, b: AgentScope) {
   return a.kind === b.kind && (a.kind === "workspace" || (b.kind === "project" && a.projectId === b.projectId));
 }
+/** The panel may discuss a target in its own scope; Workspace can also discuss a project's object. */
+export function canDiscussObject(panelScope: AgentScope, objectScope: AgentScope) {
+  return panelScope.kind === "workspace" || sameAgentScope(panelScope, objectScope);
+}
 interface AgentPanelState {
   binding: AgentPanelBinding | null;
   open: boolean;
@@ -26,7 +30,7 @@ export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
   setDiscussionTarget: (binding, object, label) => {
     const panel = get().binding;
     if (!panel || !["record", "todo", "file"].includes(object.kind)
-      || binding.workspaceId !== object.workspaceId || !sameAgentScope(panel.scope, object.scope)) return false;
+      || binding.workspaceId !== object.workspaceId || !canDiscussObject(panel.scope, object.scope)) return false;
     set({ discussionTarget: { binding: { ...binding }, object: { ...object, scope: { ...object.scope } }, label } });
     return true;
   },

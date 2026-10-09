@@ -86,7 +86,7 @@ fn discussion_target_start_dto_accepts_omission_and_null_without_authority_field
 
 #[test]
 fn discussion_target_resolves_record_todo_file_and_rejects_forged_ownership() {
-    let f = fixture();
+    let mut f = fixture();
     assert!(
         validate_discussion_target(&f.db, &f.request, &f.binding, &f.scope, None)
             .unwrap()

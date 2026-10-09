@@ -9,7 +9,7 @@ import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { commitDocumentVersion } from "../../services/documentVersionAction";
-import { useAgentPanelStore, sameAgentScope } from "../../state/agent-panel-store";
+import { useAgentPanelStore, canDiscussObject } from "../../state/agent-panel-store";
 import { Button } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import FileVersions from "./FileVersions";
@@ -108,8 +108,8 @@ function PreviewBody({ request, onClose }: FileHtmlPreviewProps) {
     const reference = await actualFile();
     if (!reference || !object || !binding || !mounted.current) return;
     const panel = useAgentPanelStore.getState();
-    if (panel.binding && (panel.binding.workspaceRoot !== request.workspaceRoot || !sameAgentScope(panel.binding.scope, object.scope))) throw new Error("请先在此文件所属项目打开助手，再继续修改。现有草稿会保留。");
-    panel.openPanel(request.workspaceRoot, object.scope);
+    if (panel.binding && (panel.binding.workspaceRoot !== request.workspaceRoot || !canDiscussObject(panel.binding.scope, object.scope))) throw new Error("请先在此文件所属范围打开助手，再继续修改。现有草稿会保留。");
+    panel.openPanel(request.workspaceRoot, panel.binding?.scope ?? object.scope);
     if (!useAgentPanelStore.getState().setDiscussionTarget(binding, object, reference.label)) throw new Error("未能选择此文件，请在所属项目打开助手后重试。");
   }
   async function changed() {

@@ -3,6 +3,7 @@ import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
 import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
+import { AgentLauncher } from "../agent/AgentLauncher";
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
@@ -529,6 +530,7 @@ export function WorkspacePage({
         <div className="project-overview-focus__scroll" data-testid="workspace-overview-focus-scroll">
           <div className="home-content">
             <HomeCover identityKey={`workspace:${currentWorkspace.rootPath}`} defaultIcon="House" title={currentWorkspace.displayName || "我的工作区"} />
+            <AgentLauncher scope={{ kind: "workspace" }} workspaceRoot={currentWorkspace.rootPath} visible={visible} />
             <HomeQuickNote
             pageTitle={currentWorkspace.displayName || "我的工作区"}
             pageIcon={<HomeIdentityIcon name="House" size={20} />}

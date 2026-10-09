@@ -443,6 +443,18 @@ it("shows and sends a matching discussion object separately, and allows removing
   expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
   expect(field).toHaveValue("保留这个草稿");
 });
+it("sends a selected Project target through the Workspace conversation", async () => {
+  const workspaceScope = { kind: "workspace" } as const;
+  const object = { workspaceId: binding.workspaceId, scope, kind: "todo" as const, id: "42" };
+  useAgentPanelStore.getState().openPanel("/workspace", workspaceScope);
+  expect(useAgentPanelStore.getState().setDiscussionTarget(binding, object, "项目待办")).toBe(true);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><AgentPanel open onClose={closed} scope={workspaceScope} workspaceRoot="/workspace" /></QueryClientProvider>);
+  expect(screen.getByText("讨论：项目待办")).toBeInTheDocument();
+  await userEvent.type(screen.getByRole("textbox", { name: "问题" }), "补充说明");
+  await userEvent.click(screen.getByRole("button", { name: "发送" }));
+  expect(state.send).toHaveBeenCalledWith("补充说明", object);
+});
 it("does not display or send a discussion target from another binding generation or scope", async () => {
   useAgentPanelStore.getState().openPanel("/workspace", scope);
   const object = { workspaceId: binding.workspaceId, scope, kind: "todo" as const, id: "42" };

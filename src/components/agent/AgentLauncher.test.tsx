@@ -43,8 +43,13 @@ describe("assistant workspace entry", () => {
     await userEvent.click(screen.getByRole("button", { name: "助手" }));
     expect(screen.getByRole("textbox", { name: "草稿" })).toBe(field);
     expect(field).toHaveValue("已有草稿");
+    useAgentPanelStore.getState().setDiscussionTarget(
+      { workspaceId: "workspace", generation: "generation" },
+      { workspaceId: "workspace", scope, kind: "record", id: "42" }, "旧工作区记录",
+    );
     view.rerender(shell("/another-workspace", true));
     expect(useAgentPanelStore.getState().binding).toBeNull();
+    expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
     expect(screen.queryByText("助手面板")).not.toBeInTheDocument();
   });
   it("does not close or rebind when its resident launcher becomes inactive", async () => {

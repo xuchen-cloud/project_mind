@@ -48,7 +48,7 @@ WP4/WP5 决策依据：Pi 原生 `CompactionEntry` 只有自由文本 `summary`�
 | S7 / R14c | #109：有来源长期条目的查看、纠正、停用和持久抑制 | 区分推断与确认；撤权/删除过滤，停用后不自动复生，复用现有知识存储。 |
 | S8 | 最终有效验证、文档/工单与提交推送 | 明确本地完成及外部验收缺口；R15/R16 保持暂缓，不关闭尚未满足交付条件的父 Issue。 |
 
-当前执行：S1 已提交 `6ac4f4d`，S2 已提交 `90b33d5`，S3 已提交 `655bc9c`；S4 的本地实现与确定性验证完成，正在接入 S5 Workspace 助手；S6 调度与来源索引轮换子步已有独立分支代码，尚待顺序整合和运行测试，不能提前视为交付。各包完成后直接进入下一包。主 agent 负责架构和最终检查，明确实现委派 GPT-6 Sol；Rust 编译/测试串行，避免共享测试二进制被替换。
+当前执行：S1 已提交 `6ac4f4d`，S2 已提交 `90b33d5`，S3 已提交 `655bc9c`；S4 已提交并推送 `b402509`。S5 后端 `37c987e`、`b3344f7` 已集成，本轮提交包含前端与四个测试文件的修正；本地实现和受影响定向验证完成，真实模型和目标平台验收未完成。S6 正在实现，Workspace 增量知识维护尚未交付；S7 长期记忆亦未交付。各包完成后直接进入下一包。主 agent 负责架构和最终检查，明确实现委派 GPT-6 Sol；Rust 编译/测试串行，避免共享测试二进制被替换。
 
 补充要求：实施 S7/R14 长期记忆前，核对 NousResearch/Hermes Agent 官方当前源码的记忆写入、检索、纠正/删除及压缩边界；记录固定提交和一手引用，再决定借鉴方式。参考设计思想，仍保留 ProjectMind 的 Workspace/Project 授权、原始来源和用户停用不复生契约，不直接复制不适用的全局提示注入方式。
 
@@ -673,6 +673,10 @@ R12b4 已完成（2026-10-09）：注册表 38 项（24 读 / 14 写）；原生
 关联 #108，复用 S1～S4 的面板、Host、连接授权和原生业务服务。Workspace 页面提供助手入口；GUI 的 Workspace 会话可读取当前工作区的活动项目和直属资料，实际项目集合在每轮 Run 开始时冻结。外部连接仍只见其持久授权集合，Project 会话仍限自身项目；不把 `workspace_content` 单独解释为全部项目权限。
 
 先用已有项目列表和小入口找相关项目，再逐步读取，默认不把所有项目概览塞进系统提示。Workspace 综合 Record/Todo 默认归 Workspace；明确指向授权项目已有对象或 Project File 的操作复用原生目标归属、冻结 grant、确认、版本和撤销，不能仅因会话是 Workspace 就绕过目标检查。没有 Workspace File。验收包括 Workspace 入口、A/B 可见而 C 不可见、跨项目来源形成直属 Record、Project 不能反读 Workspace 记忆，以及目标项目操作仍按同一次确认与原生收据执行。只开放已有服务真正支持的行为，不把尚未接通的 Workspace 知识维护提前标完成。
+
+S5 本地实现与定向证据（2026-10-09）：后端 `37c987e`、`b3344f7` 已集成；本轮提交包含 WorkspacePage 入口、相关前端及四个测试文件的修正。每轮 Run 冻结当前活动 Project ID，`project.list` 使用原生 keyset 分页，并把返回的 Project 名称/ID 写入 Run 来源账本；项目排除或归档后，旧 Run 对应来源不再向 AI 可见。`context.get`/原文读取渐进进行，不默认塞入所有项目概览。Workspace 可继续讨论授权 Project 的 Record/Todo/File 并按实际归属创建或修改；跨项目综合 Record/Todo 默认直属 Workspace，没有 Workspace File，Project 仍限自身。Confirm 重新核对冻结 grant 和当前状态；归档后不能提交，但可 Cancel/Revise。GUI 撤销/恢复按持久成功收据的实际目标、当前状态及 CAS 执行，删除聊天仍可撤销；外部 grant 不扩权。
+
+Rust 定向组分别通过：Workspace 58/58、review 33 通过（1 ignored）、File dispatch 5、Record output 9、Agent output 14、Agent operation 6、discussion target 3、connection 7、File undo 16、Todo undo 16、source trace 3、agent tools 4、agent host 6；另有分页、来源追溯、删会话撤销、归档 Todo 撤销和外部真实 socket `project.list` 等定向通过。这些是重叠的定向组，不相加作为唯一测试总数；当前 S5 代码未运行 987 项 Rust 全量。前端六文件 95 项首跑 94 通过、1 超时（WorkspacePage 旧 empty archived 用例）；超时项独立重跑 1 通过、21 skipped，因此受影响 95 项最终均有通过证据，不称单次 95 项全通过。TypeScript、生产构建、UI 标准、可移植路径及 bundle 边界通过（主入口 195 KiB / 250 KiB）；主 agent Standards/Spec 自查通过。S4 浏览器夹具不能作为 Workspace 真实体验验收；真实 Provider 和目标平台仍待验证。A21 只有本地定向部分证据，真实模型跨项目任务尚缺；A22/A56～58 仍属 S6/S7 未交付。
 
 冻结 Run 授权用于候选、确认和正式提交。GUI 撤销/恢复则是用户针对已保存原生收据的新操作，按收据实际目标、当前工作区和项目状态及版本检查执行，不依赖聊天会话仍然存在；删除会话不能使已保存成果失去撤销能力。外部连接的撤销仍受连接当前授权限制。
 

@@ -37,4 +37,16 @@ describe("explicit assistant discussion target", () => {
     state.setDiscussionTarget(binding, object, "记录"); state.clearDiscussionTarget();
     expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
   });
+  it("lets a Workspace panel discuss project objects from its binding while Project panels stay local", () => {
+    const state = useAgentPanelStore.getState();
+    state.openPanel("/workspace", { kind: "workspace" });
+    for (const kind of ["record", "todo", "file"] as const) {
+      expect(state.setDiscussionTarget(binding, { ...object, kind, scope: { kind: "project", projectId: 2 } }, kind)).toBe(true);
+    }
+    expect(state.setDiscussionTarget(binding, { ...object, workspaceId: "other" }, "别的工作区")).toBe(false);
+    state.openPanel("/workspace", scope);
+    expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
+    expect(state.setDiscussionTarget(binding, { ...object, scope: { kind: "workspace" } }, "直属记录")).toBe(false);
+    expect(state.setDiscussionTarget(binding, { ...object, scope: { kind: "project", projectId: 2 } }, "别的项目")).toBe(false);
+  });
 });

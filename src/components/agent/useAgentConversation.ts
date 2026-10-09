@@ -6,7 +6,7 @@ import type {
 import { getErrorMessage } from "../../lib/errors";
 import { AgentApiError, agentApi } from "../../services/agentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
-import { sameAgentScope, useAgentPanelStore } from "../../state/agent-panel-store";
+import { canDiscussObject, useAgentPanelStore } from "../../state/agent-panel-store";
 
 export const CONVERSATION_PAGE_SIZE = 50;
 const activeStates = new Set(["preparing", "running", "cancelling"]);
@@ -235,7 +235,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string, 
   useEffect(() => {
     const token = ++epoch.current;
     const target = useAgentPanelStore.getState().discussionTarget;
-    if (target && !sameAgentScope(target.object.scope, scope)) useAgentPanelStore.getState().clearDiscussionTarget();
+    if (target && !canDiscussObject(scope, target.object.scope)) useAgentPanelStore.getState().clearDiscussionTarget();
     let unlisten: (() => void) | undefined;
     clearStream();
     bindingRef.current = null; sessionRef.current = null; runRef.current = null;
