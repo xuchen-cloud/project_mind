@@ -107,8 +107,8 @@ impl Database {
             "file.update"
         };
         request.authorize_object(binding, target, &actual, permission)?;
-        captured.authorize(binding, &actual.scope, permission)?;
-        captured.authorize(binding, &actual.scope, "source.read")?;
+        captured.authorize_object(binding, target, &actual, permission)?;
+        captured.authorize_object(binding, target, &actual, "source.read")?;
         self.agent_connection_require_live(request, binding, &actual.scope, permission)?;
         self.agent_connection_require_live(captured, binding, &actual.scope, permission)?;
         let document_id: i64 = actual
@@ -457,6 +457,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "fixture".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![project],

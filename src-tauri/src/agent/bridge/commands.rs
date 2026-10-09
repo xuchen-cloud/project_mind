@@ -1,7 +1,7 @@
-use super::{credentials, dispatch::AppBridge, protocol::DISCOVERY_FILE, transport};
+use super::{cli_install, credentials, dispatch::AppBridge, protocol::DISCOVERY_FILE, transport};
 use crate::{
     agent::{
-        connections::{ConnectionCreateInput, ConnectionGrant},
+        connections::{ConnectionCreateInput, ConnectionGrant, ConnectionObjectsInput, ConnectionObjectPage},
         errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
         models::WorkspaceBinding,
     },
@@ -51,11 +51,25 @@ pub(crate) struct ConnectionStatus {
     binding: Option<WorkspaceBinding>,
     cli_path: Option<String>,
     cli_shell: &'static str,
+    cli_installation: cli_install::CliInstallationStatus,
     workspace_path: Option<String>,
     connections: Vec<ConnectionGrant>,
 }
 
-async fn snapshot(state: &AppState) -> AgentResult<ConnectionStatus> {
+enum CliAction { Status, Install, Uninstall }
+static CLI_INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+async fn snapshot(state: &AppState, action: CliAction) -> AgentResult<ConnectionStatus> {
+    let local_dir = state.local_session_path.parent().ok_or_else(io_error)?.to_path_buf();
+    // Local filesystem work has no Workspace authority and holds no business DB lock.
+    let cli_installation = tauri::async_runtime::spawn_blocking(move || {
+        let _guard = CLI_INSTALL_LOCK.lock().map_err(|_| io_error())?;
+        match action {
+            CliAction::Status => cli_install::status(&local_dir),
+            CliAction::Install => cli_install::install(&local_dir),
+            CliAction::Uninstall => cli_install::uninstall(&local_dir),
+        }
+    }).await.map_err(|_| io_error())??;
     let running = state.external_bridge.running.lock().await.as_ref().is_some_and(|server| server.is_running());
     let current = lock_mutex(&state.current_workspace);
     let (binding, workspace_path, connections) = if let Some(runtime) = current.as_ref() {
@@ -68,14 +82,7 @@ async fn snapshot(state: &AppState) -> AgentResult<ConnectionStatus> {
     } else {
         (None, None, vec![])
     };
-    let cli_path = std::env::current_exe().ok().and_then(|exe| {
-        let candidate = exe
-            .parent()?
-            .join(if cfg!(windows) { "mind.exe" } else { "mind" });
-        candidate
-            .is_file()
-            .then(|| candidate.to_string_lossy().into_owned())
-    });
+    let cli_path = cli_installation.source_path.clone();
     let enabled = state.external_bridge.enabled.load(Ordering::Acquire);
     Ok(ConnectionStatus {
         enabled,
@@ -83,6 +90,7 @@ async fn snapshot(state: &AppState) -> AgentResult<ConnectionStatus> {
         binding,
         cli_path,
         cli_shell: if cfg!(windows) { "powershell" } else { "posix" },
+        cli_installation,
         workspace_path,
         connections,
     })
@@ -143,7 +151,7 @@ pub(crate) async fn agent_connections_status(
     state: State<'_, AppState>,
     request_id: String,
 ) -> Result<ApiResponse<ConnectionStatus>, String> {
-    Ok(ApiResponse::from_result(request_id, snapshot(&state).await))
+    Ok(ApiResponse::from_result(request_id, snapshot(&state, CliAction::Status).await))
 }
 #[tauri::command]
 pub(crate) async fn agent_connections_enable(
@@ -152,10 +160,26 @@ pub(crate) async fn agent_connections_enable(
     enabled: bool,
 ) -> Result<ApiResponse<ConnectionStatus>, String> {
     let result = match set_enabled(&state, enabled).await {
-        Ok(()) => snapshot(&state).await,
+        Ok(()) => snapshot(&state, CliAction::Status).await,
         Err(error) => Err(error),
     };
     Ok(ApiResponse::from_result(request_id, result))
+}
+
+#[tauri::command]
+pub(crate) async fn agent_cli_install(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> Result<ApiResponse<ConnectionStatus>, String> {
+    Ok(ApiResponse::from_result(request_id, snapshot(&state, CliAction::Install).await))
+}
+
+#[tauri::command]
+pub(crate) async fn agent_cli_uninstall(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> Result<ApiResponse<ConnectionStatus>, String> {
+    Ok(ApiResponse::from_result(request_id, snapshot(&state, CliAction::Uninstall).await))
 }
 
 #[derive(Deserialize)]
@@ -188,6 +212,17 @@ fn with_bound<T>(
     }
     let db = lock_mutex(&runtime.db);
     action(&db)
+}
+
+#[tauri::command]
+pub(crate) fn agent_connection_objects(
+    state: State<'_, AppState>,
+    input: ConnectionCommand<ConnectionObjectsInput>,
+) -> ApiResponse<ConnectionObjectPage> {
+    let result = with_bound(&state, &input.binding, |db| {
+        db.agent_connection_objects(&input.binding, &input.data)
+    });
+    ApiResponse::from_result(input.request_id, result)
 }
 
 #[tauri::command]

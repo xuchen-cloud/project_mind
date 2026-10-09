@@ -92,6 +92,7 @@ fn fixture(project: bool) -> Fixture {
         caller: Caller::Gui,
         request_id: "recover".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: true,
             project_ids: project_id.into_iter().collect(),

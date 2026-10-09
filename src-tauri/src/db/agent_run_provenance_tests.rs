@@ -21,6 +21,7 @@ fn setup() -> (
         request_id: "gui".into(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: true,
             project_ids: vec![],

@@ -109,6 +109,7 @@ fn setup(
         caller: Caller::Gui,
         request_id: "create-session".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: true,
             project_ids: vec![],

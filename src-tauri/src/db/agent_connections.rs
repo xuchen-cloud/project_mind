@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
 const MAX_PROJECTS: usize = 100;
+const MAX_OBJECTS: usize = 50;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
 const WRITE_OPERATIONS: [&str; 7] = [
@@ -32,6 +33,8 @@ struct StoredScope {
     project_ids: Vec<i64>,
     #[serde(default)]
     all_projects: bool,
+    #[serde(default)]
+    objects: Option<Vec<ObjectRef>>,
     token_hash: String,
 }
 
@@ -80,6 +83,7 @@ fn public_grant(stored: StoredGrant, scope: StoredScope) -> AgentResult<Connecti
         workspace_content: scope.workspace_content,
         project_ids: scope.project_ids,
         all_projects: scope.all_projects,
+        objects: scope.objects,
         operations: decode(&stored.operations_json)?,
         enabled: stored.enabled,
         created_at: stored.created_at,
@@ -89,6 +93,14 @@ fn public_grant(stored: StoredGrant, scope: StoredScope) -> AgentResult<Connecti
 
 fn valid_hex(value: &str, len: usize) -> bool {
     value.len() == len && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn object_keys(objects: Option<&[ObjectRef]>) -> AgentResult<Option<Vec<String>>> {
+    objects.map(|objects| {
+        let mut keys = objects.iter().map(ObjectRef::key).collect::<AgentResult<Vec<_>>>()?;
+        keys.sort();
+        Ok(keys)
+    }).transpose()
 }
 
 /// Compare fixed-size SHA-256 hex digests without an early return on mismatch.
@@ -146,7 +158,8 @@ impl Database {
         if request.scope_grant.workspace_id != actual.workspace_id
             || request.scope_grant.workspace_content != actual.workspace_content
             || (!actual.all_projects && request.scope_grant.project_ids != actual.project_ids)
-            || request.scope_grant.operations != operations {
+            || request.scope_grant.operations != operations
+            || request.scope_grant.object_keys != object_keys(actual.objects.as_deref())? {
             return Err(denied());
         }
         if actual.all_projects {
@@ -214,6 +227,16 @@ impl Database {
                 "Too many connection projects",
             ));
         }
+        if let Some(objects) = &input.objects {
+            if objects.is_empty() || objects.len() > MAX_OBJECTS {
+                return Err(AgentError::new(ErrorCode::InvalidArgument, "Select 1–50 connection objects"));
+            }
+            if input.all_projects || input.session_read || input.write_operations.iter().any(|op| {
+                matches!(op.as_str(), "content.create" | "todo.update")
+            }) {
+                return Err(AgentError::new(ErrorCode::InvalidArgument, "Object grants cannot include broad scope or create/Todo permissions"));
+            }
+        }
         if !valid_hex(grant_id, 32) || !valid_hex(token, 64) {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
@@ -240,6 +263,29 @@ impl Database {
                 "Unsupported connection operation",
             ));
         }
+        if let Some(objects) = &input.objects {
+            let mut seen = HashSet::new();
+            let selection = RequestContext {
+                binding: binding.clone(),
+                caller: Caller::Gui,
+                request_id: "connection-object-selection".into(),
+                scope_grant: ScopeGrant {
+                    workspace_id: binding.workspace_id.clone(),
+                    workspace_content: input.workspace_content,
+                    project_ids: projects.clone(),
+                    operations: vec!["source.read".into()],
+                    object_keys: None,
+                },
+            };
+            for object in objects {
+                if !matches!(object.kind, ObjectKind::Record | ObjectKind::File)
+                    || object.workspace_id != binding.workspace_id
+                    || !seen.insert(object.key()?) {
+                    return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid or duplicate connection object"));
+                }
+                self.source_read_object(&selection, binding, object)?;
+            }
+        }
         if !selected.is_empty() {
             operations.push("operation.read".into());
         }
@@ -256,6 +302,7 @@ impl Database {
             workspace_content: input.workspace_content,
             project_ids: projects.clone(),
             all_projects: input.all_projects,
+            objects: input.objects.clone(),
             token_hash: format!("{:x}", Sha256::digest(token.as_bytes())),
         };
         let scope_json = serde_json::to_string(&scope).map_err(io_error)?;
@@ -303,6 +350,7 @@ impl Database {
             workspace_content: input.workspace_content,
             project_ids: projects,
             all_projects: input.all_projects,
+            objects: input.objects.clone(),
             operations,
             enabled: true,
             created_at,
@@ -378,6 +426,7 @@ impl Database {
         {
             return Err(denied());
         }
+        let object_keys = object_keys(scope.objects.as_deref())?;
         let project_ids = if scope.all_projects {
             let mut statement = self.conn.prepare(
                 "SELECT id FROM projects WHERE is_archived=0 ORDER BY id",
@@ -394,6 +443,7 @@ impl Database {
                 workspace_content: scope.workspace_content,
                 project_ids,
                 operations: decode(&stored.operations_json)?,
+                object_keys,
             },
             caller: Caller::Connection {
                 grant_id: grant_id.into(),
@@ -424,7 +474,16 @@ impl Database {
         }
         let mut seen = HashSet::new();
         let mut projects = Vec::new();
+        let selected_parents: Option<HashSet<i64>> = request.scope_grant.object_keys.as_ref().map(|keys| {
+            keys.iter().filter_map(|key| {
+                let scope = key.split('/').nth(1)?;
+                scope.strip_prefix("project:")?.parse::<i64>().ok()
+            }).collect()
+        });
         for id in &request.scope_grant.project_ids {
+            if selected_parents.as_ref().is_some_and(|parents| !parents.contains(id)) {
+                continue;
+            }
             if !seen.insert(*id) {
                 continue;
             }
@@ -450,7 +509,12 @@ impl Database {
                     kind: ObjectKind::Project,
                     id: id.to_string(),
                 };
-                match self.source_read_object(request, binding, &object) {
+                // Project name/id is parent metadata for explicitly selected
+                // objects. Clear the object allowlist only for this policy check;
+                // never use this clone to read Project content.
+                let mut metadata_request = request.clone();
+                metadata_request.scope_grant.object_keys = None;
+                match self.source_read_object(&metadata_request, binding, &object) {
                     Ok(_) => projects.push(project),
                     Err(error)
                         if matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) => {}

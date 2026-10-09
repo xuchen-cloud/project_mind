@@ -45,9 +45,11 @@ bridge 注册表当前包含 38 个方法（24 读 / 14 写）。读取包括原
 
 新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 
-`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。指定对象限制、其他 dry-run 及用户 PATH 安装仍按后续子包推进；共享服务已有其他工具不意味着外部连接有权调用。
+`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。其他尚未注册的共享工具不会因内部服务存在就授予外部连接，其他 dry-run 仍按后续子包推进。
 
 设置预设已接通：默认「Workspace 协作」授予 Workspace 直属内容和所有当前未归档 Project（`workspaceContent: true`、`allProjects: true`），每次认证动态纳入新 Project；「单 Project 协作」仅授予所选 Project，「只读」覆盖同样的动态范围但无写权限，「自定义」使用显式 Project 子集及可选 Workspace 内容。会话依据 `session.read` 始终单独选择；任意历史版本恢复权限只在自定义预设中可选。旧 JSON 和旧 grant 的 `allProjects` 默认为 false，原有显式范围不会自动扩张。
+
+「自定义」可在显式范围内选择 1–50 个当前可读的 Record/File，设置中的对象选择器只列当前可见元信息。`objects: null` 或旧 grant 缺少 `objects` 时保留范围授权语义；非空列表才启用对象限制，旧连接不会自动扩权。对象限制不能与 `allProjects`、`session.read`、创建或 Todo 修改组合；范围级 `context.get`、Overview 和知识读取被拒绝。来源搜索及直接读取、Record/File 修改、引用和历史只返回或作用于被选对象，仍按真实归属、归档、来源排除与撤回状态复核；选中 Project 的名称仅作为父级元信息出现，不扩张内容读取。
 
 ## Record 写入与撤销
 
@@ -89,7 +91,7 @@ Markdown 快捷命令为 `mind record create --title TITLE --body-file PATH|- (-
 
 正式构建使用 `npm run build:tauri -- --target <Rust target triple>`；两个发布 workflow 使用相同的 `src-tauri/tauri.release.conf.json`。release 钩子在既有后端资源准备之后执行 `prepare:cli`，按同一 target 构建 `mind` 并交由 Tauri externalBin 打包。独立暂存命令为 `npm run prepare:cli -- <Rust target triple>`。开发/测试基础配置不要求发行用 sidecar，`npm run tauri build` 的基础配置不包含该 CLI；发行必须采用上述 release 入口。
 
-CLI 在应用可执行文件同目录检测，设置复制其绝对路径及 MCP 配置。用户 PATH 安装/撤销尚未实现；当前无需修改 PATH 即可使用复制的命令。Linux 已验证暂存和 Tauri 构建脚本的 sidecar 复制，macOS/Windows 最终签名、安装落位和干净安装仍须目标平台验收。
+CLI 在应用可执行文件同目录检测，设置复制其绝对路径及 MCP 配置。设置另提供显式的用户级终端命令安装、更新和卸载，事先显示命令及将修改的 PATH 配置位置。Unix 安装 `~/.local/bin/mind` 链接；bash 修改 Linux 的 `.bashrc` 或 macOS 的 `.bash_profile`，zsh 使用 `ZDOTDIR` 下的 `.zshrc`，fish 写专用 `conf.d` 文件。Windows 复制到应用数据目录的 `cli/mind.exe`，调整当前用户的 `HKCU\Environment\Path` 并通知环境变更。已有 PATH 项不重复添加；未知 shell 不猜测启动文件，而显示手动配置提示。安装收据限定应用可更新或卸载的命令及受管 PATH 内容，发现同名外来命令或被改写的受管配置会报冲突并保留用户修改。卸载不要求原打包 CLI 仍存在。Linux 已验证暂存和 Tauri 构建脚本的 sidecar 复制；macOS/Windows 最终签名、安装落位和干净安装仍须目标平台验收。
 
 ## 不应绕过的边界
 
@@ -101,6 +103,6 @@ CLI 在应用可执行文件同目录检测，设置复制其绝对路径及 MCP
 
 ## 验收
 
-当前工作包和平台验收结果见[执行计划](../../../docs/requirements/ai-work-context-delivery.md)。
+当前工作包和平台验收结果见[执行计划](../../../docs/requirements/ai-work-context-delivery.md)。本阶段已通过 CLI 安装、对象授权、搜索/引用过滤及前端定向验证；生产 CLI 与真实 Linux 系统凭据链路也已通过指定对象读写/撤销/重放验证。具体数量与命令范围见执行计划；macOS/Windows 原生实包与真实模型仍未验证。
 
 MCP SDK 依据：[Rust SDK](https://github.com/modelcontextprotocol/rust-sdk)、[rmcp 3.5.1](https://docs.rs/rmcp/3.5.1/rmcp/)、[MCP 2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)。工具参数来自与 CLI 相同的 Rust DTO schema；连接授权仍由应用服务执行，工具提示本身不授予权限。

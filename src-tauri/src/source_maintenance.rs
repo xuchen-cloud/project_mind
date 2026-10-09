@@ -20,6 +20,7 @@ pub(crate) fn request(
 ) -> RequestContext {
     RequestContext {
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
             project_ids: match scope {

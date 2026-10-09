@@ -485,6 +485,7 @@ mod tests {
             request_id: "queue".into(),
             caller: Caller::Gui,
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: true,
                 project_ids: vec![],

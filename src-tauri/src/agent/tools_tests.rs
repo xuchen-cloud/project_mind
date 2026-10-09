@@ -136,6 +136,7 @@ fn fixture(project_scope: bool) -> (tempfile::TempDir, Store, RequestContext, So
         },
         request_id: "read-tools".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: true,
             project_ids: match scope {

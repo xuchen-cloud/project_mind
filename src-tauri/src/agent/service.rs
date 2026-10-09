@@ -24,6 +24,7 @@ impl<'a, R: ContextRepository> AgentDomainService<'a, R> {
         input: ContextGetInput,
     ) -> AgentResult<ContextEntry> {
         request.authorize(self.binding, &input.scope, "context.read")?;
+        request.require_scope_context()?;
         if input
             .query
             .as_ref()

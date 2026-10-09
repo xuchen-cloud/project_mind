@@ -576,6 +576,7 @@ CLI对应`file source read`、`todo update --patch-file`、`operation list/undo/
 - 本机发现文件保存 runtime 实例、端口和 endpoint version，属于 Local Session，不能复制进 Workspace。连接 secret 只存 OS credential store；CLI 配置包含 grantId，不含明文 secret；同本机用户可读取凭据，不能宣称隔离该用户启动的任意程序。
 - 每个 grant 绑定 Workspace UUID、Project 范围和操作集；创建连接默认推荐“Workspace 协作”，包含直属内容及所有未归档 Project，新建/解除归档 Project 自动纳入。保留“单 Project 协作”“只读”“自定义”；只读预设覆盖整个 Workspace 且无写权限，自定义显式选择 Project 子集及直属内容。持久 `allProjects` 与 `workspaceContent` 分开记录，旧 JSON 缺省 allProjects=false；每次认证解析当前 Project 范围，已有连接不自动扩权。协作包含读取、新建、Record/File/Todo 修改与本连接撤销，排除、撤回与撤权策略照常执行。权限底层分开记录create、record.patch、file.update、todo.update、operation.undo及可选任意历史restore；块删除包含在patch内，整Record/File对象删除、密钥设置、任意路径和shell仍不暴露。
 - Workspace 切换使运行请求返回 WORKSPACE_CHANGED，不能自动转接新 Workspace。请求超时后客户端查询 receipt，不能自动重复非幂等变更。
+- 自定义连接可限制为 1–50 个明确的 Record/File，持久 `objects` 缺省或 null 保留整范围语义。对象模式不包含动态所有 Project、创建、Todo 修改或会话权限；直接读取、搜索、引用、历史、修改和本连接撤销均按完整对象身份核验。搜索与引用在排序分页前过滤；Project 列表仅返回所选对象父 Project 的名称和 ID。范围级 context、Overview、知识读取明确拒绝，避免把范围外资料带入摘要；外部 Agent 使用来源搜索或直接对象读取。
 - CLI 没有解锁模型密钥的 API；纯数据读写不要求模型密钥解锁，内置模型任务要求解锁。首期 CLI 不开放启动内置 run，避免外部任务隐式产生模型费用。
 
 ### CLI
@@ -598,6 +599,8 @@ mind mcp serve --workspace <path> --connection <grantId>
 `--body-file -` 读 stdin，文本不经 shell 拼接；`--dry-run` 只校验和预览，不创建任何业务对象，正式写仍须重新校验。JSON stdout 只含结果；诊断 stderr。exit code：0成功、2参数、3连接/Workspace、4权限、5冲突、6可重试故障、130用户取消。body 文件由 CLI 本地读取成内容；服务端不接受模型指定的任意路径。
 
 CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到用户 PATH 的可逆操作，不静默写 shell 配置。不将机器相关路径写入 Workspace 文档。
+
+用户级安装在 Unix 创建 `~/.local/bin/mind` 链接，在 Windows 将命令复制到应用本地数据目录的 `cli/mind.exe`。设置先显示目标及 PATH 配置位置；bash/zsh 使用管理块、fish 使用专属 conf.d 文件，Windows 只修改 HKCU 用户 PATH。安装收据保存在本机，更新与卸载仅处理应用拥有且未被用户替换的命令和配置；未知 shell 提供手动说明。安装不依赖打开 Workspace，MCP 仍使用包内绝对路径。
 
 ### MCP
 

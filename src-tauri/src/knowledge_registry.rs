@@ -390,6 +390,7 @@ fn overview_current(
     version: Option<u64>,
 ) -> AgentResult<Option<(AiOverview, Vec<OverviewItem>)>> {
     request.authorize(binding, scope, "context.read")?;
+    request.require_scope_context()?;
     let snapshot = match version {
         Some(version) => db.agent_overview_version(scope, version)?,
         None => db.agent_overview_head(scope)?,
@@ -555,6 +556,7 @@ mod tests {
             request_id: "registry-read".into(),
             caller: Caller::Gui,
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![project.id],

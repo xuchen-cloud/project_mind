@@ -295,6 +295,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             caller: Caller::Gui,
             request_id: "prepare-review".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: true,
                 project_ids: vec![],
@@ -384,6 +385,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             caller: Caller::Gui,
             request_id: "configure".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: true,
                 project_ids: vec![],
@@ -531,6 +533,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
         db.conn.execute_batch("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES ('A','project:1','record.patch','1','2030-01-01T00:00:00+00:00'),('secret B','project:2','record.patch','2','2030-01-01T00:00:00+00:00'),('workspace','workspace','record.patch','3','2030-01-01T00:00:00+00:00'),('A2','project:1','record.patch','4','2030-01-01T00:00:00+00:00');").unwrap();
         let grant = ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: false,
             project_ids: vec![1],
@@ -604,6 +607,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             caller: Caller::Gui,
             request_id: "save".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: true,
                 project_ids: vec![1],

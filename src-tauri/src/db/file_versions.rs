@@ -2141,6 +2141,7 @@ mod tests {
         let grant_id = "abcdefabcdefabcdefabcdefabcdefab";
         let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         db.agent_connection_create(&binding, &crate::agent::connections::ConnectionCreateInput {
+                objects: None,
                 all_projects: false,
             client_label: "File writer fixture".into(), workspace_content: false,
             project_ids: vec![project.id], session_read: false,

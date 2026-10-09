@@ -318,6 +318,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "l0-read".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: true,
                 project_ids: vec![project.id],

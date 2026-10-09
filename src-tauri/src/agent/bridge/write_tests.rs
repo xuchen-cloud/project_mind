@@ -128,6 +128,7 @@ impl Fixture {
             (OTHER, vec!["content.create", "record.patch", "record.restore", "operation.undo"]),
         ] {
             db.agent_connection_create(&binding, &ConnectionCreateInput {
+                objects: None,
                 all_projects: false,
                 client_label: id.into(), workspace_content: false, project_ids: vec![project.id],
                 session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
@@ -260,7 +261,9 @@ async fn policy_and_editor_busy_reject_patch_without_commit() {
     f.store.editor_busy.store(true, Ordering::SeqCst);
     assert_eq!(f.call(GRANT, "busy", "record.patch", patch("busy"), &worker).await.unwrap_err().code, ErrorCode::EditorBusy);
     f.store.editor_busy.store(false, Ordering::SeqCst);
-    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude".into(), scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false, project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
+    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude".into(), scope_grant: ScopeGrant {
+        object_keys: None,
+        workspace_id: f.binding.workspace_id.clone(), workspace_content: false, project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
     f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate { object: object.clone(), expected_revision: 0, excluded: true }).unwrap();
     assert_eq!(f.call(GRANT, "excluded", "record.patch", patch("excluded"), &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
     let target = RecordTarget { scope: f.scope(), record_id: object.id.parse().unwrap() };
@@ -328,7 +331,9 @@ async fn preview_rejects_readonly_cross_scope_and_excluded_record() {
     let mut wrong_scope = input.clone();
     wrong_scope["record"]["scope"] = json!({"kind":"project","projectId":foreign.id});
     assert_eq!(f.call(GRANT, "wrong-scope-preview", "record.patch.preview", wrong_scope, &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
-    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-preview".into(), scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false, project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
+    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-preview".into(), scope_grant: ScopeGrant {
+        object_keys: None,
+        workspace_id: f.binding.workspace_id.clone(), workspace_content: false, project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
     f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate { object: object.clone(), expected_revision: 0, excluded: true }).unwrap();
     assert_eq!(f.call(GRANT, "excluded-preview", "record.patch.preview", input, &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
 }

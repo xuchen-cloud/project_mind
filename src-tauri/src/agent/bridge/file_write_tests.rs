@@ -91,6 +91,7 @@ impl Fixture {
             (OTHER, vec!["content.create", "file.update", "file.restore", "operation.undo"]),
         ] {
             db.agent_connection_create(&binding, &ConnectionCreateInput {
+                objects: None,
                 all_projects: false,
                 client_label: id.into(), workspace_content: false, project_ids: vec![project.id],
                 session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
@@ -259,6 +260,7 @@ async fn cross_project_and_excluded_file_cannot_be_mutated() {
     let gui = RequestContext {
         binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
             project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()],
         },
@@ -295,6 +297,7 @@ async fn upload_staging_stops_after_withdrawal_or_source_exclusion() {
             let gui = RequestContext {
                 binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude".into(),
                 scope_grant: ScopeGrant {
+                    object_keys: None,
                     workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
                     project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()],
                 },

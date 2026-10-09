@@ -108,6 +108,7 @@ fn fixture(mode: ExecutionMode) -> Fixture {
         caller: Caller::Gui,
         request_id: "gui-request".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: false,
             project_ids: vec![project.id],

@@ -24,6 +24,7 @@ fn request() -> RequestContext {
         },
         request_id: "r1".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w1".into(),
             workspace_content: false,
             project_ids: vec![7],

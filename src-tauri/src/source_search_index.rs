@@ -289,10 +289,18 @@ impl<'a> SourceIndex<'a> {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|_| invalid("Invalid source kinds"))?;
+        let allowed_keys_json = request
+            .scope_grant
+            .object_keys
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| invalid("Invalid granted objects"))?;
         // Apply scope/policy/current-version constraints before materializing
         // candidates, including the short-query fallback.
         let source_filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current)
             AND (?9 IS NULL OR json_extract(s.object_json,'$.kind') IN (SELECT value FROM json_each(?9)))
+            AND (?11 IS NULL OR s.object_key IN (SELECT value FROM json_each(?11)))
             AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1)";
         let filters = format!("{source_filters} AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')");
         let matches = if long.is_empty() {
@@ -331,7 +339,8 @@ impl<'a> SourceIndex<'a> {
                     selected_json,
                     limit.min(50) as i64 + 1,
                     kinds_json,
-                    title_terms_json
+                    title_terms_json,
+                    allowed_keys_json
                 ],
                 |row| {
                     Ok((
@@ -426,6 +435,7 @@ mod tests {
         RequestContext {
             binding: binding(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "source-workspace".into(),
                 workspace_content: true,
                 project_ids: vec![1],
@@ -1053,5 +1063,34 @@ mod tests {
                 &other.object.key().unwrap()
             ]
         );
+    }
+    #[test]
+    fn object_limited_search_filters_before_rank_and_limit() {
+        let conn = Connection::open_in_memory().unwrap();
+        let index = SourceIndex::prepare(&conn).unwrap();
+        let scope = Scope::Project { project_id: 1 };
+        let allowed = source(1, scope.clone(), "Allowed evidence", "evidence");
+        let hidden = source(2, scope.clone(), "evidence", "evidence evidence");
+        index.replace(&allowed).unwrap();
+        index.replace(&hidden).unwrap();
+        let mut restricted = request();
+        restricted.scope_grant.object_keys = Some(vec![allowed.object.key().unwrap()]);
+        let page = index.search(&restricted, &binding(), &scope, "evidence",
+            &[hidden.object.key().unwrap()], false, 1, None).unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].object_key, allowed.object.key().unwrap());
+        assert!(!page.has_more);
+
+        let title_only = IndexSource {
+            chunks: vec![],
+            coverage: IndexCoverage { chars: 0, complete: false },
+            ..allowed
+        };
+        index.replace(&title_only).unwrap();
+        let page = index.search(&restricted, &binding(), &scope, "Allowed",
+            &[hidden.object.key().unwrap()], false, 1, None).unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].object_key, title_only.object.key().unwrap());
+        assert!(!page.has_more);
     }
 }

@@ -1417,6 +1417,7 @@ mod tests {
             request_id: "open-record".into(),
             caller: Caller::Gui,
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: true,
                 project_ids: vec![],

@@ -1,4 +1,15 @@
-import type { AgentWorkspaceBinding } from "./agent-types";
+import type { AgentObjectRef, AgentScope, AgentWorkspaceBinding } from "./agent-types";
+
+export interface ConnectionObjectPage {
+  items: { object: AgentObjectRef; title: string }[];
+  nextCursor: string | null;
+}
+
+export interface ConnectionObjectsInput {
+  scope: AgentScope;
+  query: string;
+  cursor: string | null;
+}
 
 export interface ConnectionGrant {
   id: string;
@@ -7,6 +18,7 @@ export interface ConnectionGrant {
   workspaceContent: boolean;
   allProjects: boolean;
   projectIds: number[];
+  objects: AgentObjectRef[] | null;
   operations: string[];
   enabled: boolean;
   createdAt: string;
@@ -18,6 +30,16 @@ export interface ExternalConnectionsStatus {
   running: boolean;
   binding: AgentWorkspaceBinding | null;
   cliPath: string | null;
+  cliInstallation: {
+    sourcePath: string | null;
+    commandPath: string;
+    profilePath: string | null;
+    installed: boolean;
+    pathConfigured: boolean;
+    needsUpdate: boolean;
+    conflict: string | null;
+    manualInstruction: string | null;
+  };
   cliShell: "powershell" | "posix";
   workspacePath: string | null;
   connections: ConnectionGrant[];
@@ -30,4 +52,5 @@ export interface ConnectionCreateData {
   projectIds: number[];
   sessionRead: boolean;
   writeOperations: string[];
+  objects: AgentObjectRef[] | null;
 }

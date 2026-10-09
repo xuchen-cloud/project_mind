@@ -222,6 +222,7 @@ fn authorize(
     scope: &Scope,
 ) -> AgentResult<RequestContext> {
     request.authorize(binding, scope, "context.read")?;
+    request.require_scope_context()?;
     if !matches!(scope, Scope::Project { .. }) {
         return Err(AgentError::new(
             ErrorCode::SourceNotReady,
@@ -1036,6 +1037,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "knowledge-capture".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: false,
                 project_ids: vec![project.id],

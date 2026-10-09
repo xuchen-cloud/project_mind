@@ -26,6 +26,7 @@ use crate::{
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const GRANT: &str = "0123456789abcdef0123456789abcdef";
+const OBJECT_GRANT: &str = "fedcba9876543210fedcba9876543210";
 const EVIDENCE: &str = "Bridge File evidence";
 
 struct Store {
@@ -191,6 +192,7 @@ impl Fixture {
         db.agent_connection_create(
             &binding,
             &ConnectionCreateInput {
+                objects: None,
                 all_projects: false,
                 client_label: "Read Integration".into(),
                 workspace_content: false,
@@ -260,6 +262,15 @@ impl Fixture {
             &UnusedDocument,
         )
         .await
+    }
+    async fn read_grant(
+        &self, grant: &str, id: &str, method: &str, params: Value,
+        utility: &TextUtility,
+    ) -> AgentResult<Value> {
+        let mut input = self.input(id, method, params);
+        input.grant_id = grant.into();
+        dispatch::execute(&*self.store, &self.enabled, TOKEN, input,
+            &UnusedDocument, utility, &UnusedDocument).await
     }
     fn scope(&self) -> Scope {
         Scope::Project {
@@ -497,6 +508,7 @@ async fn object_reads_return_native_versions_bodies_and_enforce_current_policy()
         binding: f.binding.clone(), caller: Caller::Gui,
         request_id: "gui-exclude-file".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
             project_ids: vec![f.project_id],
             operations: vec!["settings.write".into(), "source.read".into()],
@@ -573,7 +585,9 @@ async fn record_get_matches_source_read_pages_and_checks_current_authority() {
     foreign.scope = Scope::Project { project_id: f.other_project_id };
     assert_eq!(f.read("foreign-record", "record.get", json!({"record":foreign}), &utility).await.unwrap_err().code, ErrorCode::ScopeDenied);
     let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-record-get".into(),
-        scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
+        scope_grant: ScopeGrant {
+            object_keys: None,
+            workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
             project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
     f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate {
         object: f.record.clone(), expected_revision: 0, excluded: true,
@@ -608,7 +622,9 @@ async fn reference_list_navigates_visible_links_in_both_directions() {
     let hidden_object = ObjectRef { workspace_id: f.binding.workspace_id.clone(), scope: f.scope(),
         kind: ObjectKind::Todo, id: hidden.id.to_string() };
     let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-reference-endpoint".into(),
-        scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
+        scope_grant: ScopeGrant {
+            object_keys: None,
+            workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
             project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
     f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate {
         object: hidden_object, expected_revision: 0, excluded: true,
@@ -634,6 +650,48 @@ async fn reference_list_navigates_visible_links_in_both_directions() {
         "direction":"incoming",
     }), &utility).await.unwrap_err();
     assert_eq!(denied.code, ErrorCode::ScopeDenied);
+}
+
+#[tokio::test]
+async fn object_grant_reads_selected_objects_but_no_scope_summary_or_hidden_references() {
+    let f = Fixture::new();
+    let utility = TextUtility::immediate();
+    let source = f.store.db.lock().unwrap().project_record_upsert(ProjectRecordUpsertInput {
+        project_id: f.project_id, note_id: None, title: Some("Links".into()),
+        markdown: format!("[[note:{}|Selected]] [[todo:{}|Hidden]]", f.record.id, f.todo.id),
+        html: String::new(), default_code_language: None, tag_ids: vec![],
+    }).unwrap();
+    let source_object = ObjectRef { workspace_id: f.binding.workspace_id.clone(), scope: f.scope(),
+        kind: ObjectKind::Record, id: source.id.to_string() };
+    f.store.db.lock().unwrap().agent_connection_create(&f.binding, &ConnectionCreateInput {
+        objects: Some(vec![f.record.clone(), f.file.clone(), source_object.clone()]),
+        all_projects: false, client_label: "Object read test".into(), workspace_content: false,
+        project_ids: vec![f.project_id], session_read: false, write_operations: vec![],
+    }, OBJECT_GRANT, TOKEN).unwrap();
+    let file = f.read_grant(OBJECT_GRANT, "object-file", "source.read", f.file_input(), &utility).await.unwrap();
+    assert_eq!(file["text"], EVIDENCE);
+    let record = f.read_grant(OBJECT_GRANT, "object-record", "record.get", json!({"record":f.record}), &utility).await.unwrap();
+    assert_eq!(record["text"], "Record evidence");
+    let outgoing = f.read_grant(OBJECT_GRANT, "object-links", "reference.list", json!({
+        "object":source_object,"direction":"outgoing",
+    }), &utility).await.unwrap();
+    assert_eq!(outgoing["items"].as_array().unwrap().len(), 1);
+    assert_eq!(outgoing["items"][0]["object"], json!(f.record));
+    let incoming = f.read_grant(OBJECT_GRANT, "object-incoming", "reference.list", json!({
+        "object":f.record,"direction":"incoming",
+    }), &utility).await.unwrap();
+    assert_eq!(incoming["items"][0]["object"], json!(source_object));
+    for (method, params) in [
+        ("context.get", json!({"scope":f.scope()})),
+        ("context.overview.get", json!({"scope":f.scope()})),
+        ("knowledge.search", json!({"scope":f.scope(),"query":"Record"})),
+        ("knowledge.get", json!({"scope":f.scope(),"nodeId":"node:missing"})),
+        ("source.read", json!({"source":{"object":f.todo},"view":"full"})),
+        ("reference.list", json!({"object":f.todo,"direction":"incoming"})),
+    ] {
+        assert_eq!(f.read_grant(OBJECT_GRANT, &format!("object-denied-{method}"), method, params, &utility).await.unwrap_err().code,
+            ErrorCode::ScopeDenied, "{method}");
+    }
 }
 
 impl crate::source_session_read::SessionHistoryUtility for UnusedDocument {

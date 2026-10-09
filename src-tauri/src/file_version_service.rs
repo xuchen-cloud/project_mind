@@ -1358,6 +1358,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "exact-patch".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![input.project_id],
@@ -1878,6 +1879,7 @@ mod tests {
             caller: crate::agent::access::Caller::Gui,
             request_id: "exact-patch".into(),
             scope_grant: crate::agent::access::ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![match patch.object.scope {
@@ -2611,6 +2613,7 @@ mod tests {
             caller: crate::agent::access::Caller::Gui,
             request_id: "upload-begin".into(),
             scope_grant: crate::agent::access::ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![match begin.object.scope {
@@ -3634,6 +3637,7 @@ mod tests {
             caller: crate::agent::access::Caller::Gui,
             request_id: "restore-v1".into(),
             scope_grant: crate::agent::access::ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![match restore.object.scope {

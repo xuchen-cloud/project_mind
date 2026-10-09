@@ -60,7 +60,7 @@ windows = { version = "=0.61.3", features = ["Win32_Media_Audio", "Win32_System_
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
 winreg = "0.55.0"
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 font-kit = "0.14.3"

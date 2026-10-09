@@ -3349,6 +3349,7 @@ mod tests {
             .unwrap();
         drop(database);
         let grant = ScopeGrant {
+            object_keys: None,
             workspace_id: "workspace-test".into(),
             workspace_content: true,
             project_ids: vec![],

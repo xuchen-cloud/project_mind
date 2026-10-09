@@ -103,6 +103,7 @@ fn fixture(text: &str) -> (tempfile::TempDir, Store, RequestContext, SourceReadI
         },
         request_id: "r".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: true,
             project_ids: vec![],

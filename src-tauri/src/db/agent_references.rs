@@ -42,6 +42,7 @@ fn scope_hash(request: &RequestContext) -> AgentResult<String> {
         "workspaceContent":request.scope_grant.workspace_content,
         "projectIds":request.scope_grant.project_ids,
         "operations":request.scope_grant.operations,
+        "objectKeys":request.scope_grant.object_keys,
     })).map_err(|_| error(ErrorCode::IoFailed, "Cannot encode reference scope"))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
@@ -99,7 +100,8 @@ WITH source(key,body,kind,id) AS (
  WHERE f.storage_mode!='managed_note_image' AND EXISTS(SELECT 1 FROM json_each(?2) g WHERE g.value=f.project_id)
 ), visible AS (
  SELECT s.key,s.body,s.kind,s.id FROM source s
- WHERE NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.key AND x.excluded=1)
+ WHERE (?8 IS NULL OR s.key IN (SELECT value FROM json_each(?8)))
+   AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.key AND x.excluded=1)
 )
 "#;
 const INCOMING: &str = r#"
@@ -161,9 +163,10 @@ impl Database {
     }
     fn incoming_candidates(&self, request: &RequestContext, object: &ObjectRef, after: &str) -> AgentResult<Vec<String>> {
         let projects = serde_json::to_string(&request.scope_grant.project_ids).map_err(|_| invalid())?;
+        let allowed_keys = request.scope_grant.object_keys.as_ref().map(serde_json::to_string).transpose().map_err(|_| invalid())?;
         let sql = format!("{VISIBLE}{INCOMING}");
         let mut statement = self.conn.prepare(&sql).map_err(io_error)?;
-        let rows = statement.query_map(params![object.workspace_id,projects,request.scope_grant.workspace_content,object.key()?,link_kind(object).unwrap_or(""),after,object.id],|r|r.get(0)).map_err(io_error)?;
+        let rows = statement.query_map(params![object.workspace_id,projects,request.scope_grant.workspace_content,object.key()?,link_kind(object).unwrap_or(""),after,object.id,allowed_keys],|r|r.get(0)).map_err(io_error)?;
         rows.collect::<rusqlite::Result<_>>().map_err(io_error)
     }
     fn outgoing_candidates(&self, request: &RequestContext, object: &ObjectRef, after: &str, remaining: &mut usize) -> AgentResult<Vec<String>> {
@@ -178,9 +181,10 @@ impl Database {
         }
         let keys = serde_json::to_string(&legacy).map_err(|_| invalid())?;
         let projects = serde_json::to_string(&request.scope_grant.project_ids).map_err(|_| invalid())?;
+        let allowed_keys = request.scope_grant.object_keys.as_ref().map(serde_json::to_string).transpose().map_err(|_| invalid())?;
         let sql = format!("{VISIBLE}{OUTGOING}");
         let mut statement = self.conn.prepare(&sql).map_err(io_error)?;
-        let rows = statement.query_map(params![object.workspace_id,projects,request.scope_grant.workspace_content,object.key()?,keys,after],|r|r.get(0)).map_err(io_error)?;
+        let rows = statement.query_map(params![object.workspace_id,projects,request.scope_grant.workspace_content,object.key()?,keys,after,rusqlite::types::Null,allowed_keys],|r|r.get(0)).map_err(io_error)?;
         rows.collect::<rusqlite::Result<_>>().map_err(io_error)
     }
     pub fn agent_reference_list(&self, request: &RequestContext, binding: &WorkspaceBinding, input: &ReferenceListInput) -> AgentResult<ReferenceListPage> {
@@ -293,7 +297,7 @@ mod tests {
         db.conn.execute("INSERT INTO todo_progresses(id,todo_id,content,progress_date,created_at) VALUES(1,1,'[[note:0001|目标]]','2026-01-01','now')",[]).unwrap();
         db.conn.execute("INSERT INTO documents(id,project_id,name,original_path,managed_path,storage_mode,mime_type,created_at,updated_at) VALUES(1,1,'附件.txt','original','managed','managed','text/plain','now','now')",[]).unwrap();
         let binding=WorkspaceBinding{workspace_id:"workspace-r".into(),generation:"open-1".into()};
-        let grant=db.agent_connection_create(&binding,&ConnectionCreateInput{
+        let grant=db.agent_connection_create(&binding,&ConnectionCreateInput{ objects: None,
             client_label:"Reference reader".into(),workspace_content:true,project_ids:vec![1],all_projects:false,
             session_read:false,write_operations:vec![],
         },&"a".repeat(32),&"b".repeat(64)).unwrap();

@@ -801,6 +801,7 @@ mod tests {
             request_id: "queue".into(),
             caller: Caller::Gui,
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: metadata.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![file.project_id],

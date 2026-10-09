@@ -145,6 +145,7 @@ fn gui_request<T>(
         request_id: input.request_id.clone(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: runtime.agent_binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
             project_ids: match scope {

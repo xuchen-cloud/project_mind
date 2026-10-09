@@ -141,6 +141,7 @@ fn fixture() -> (
         },
         request_id: "version-read".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: true,
             project_ids: vec![],
@@ -380,6 +381,7 @@ async fn foreign_scope_and_excluded_record_reject_history() {
         caller: Caller::Gui,
         request_id: "exclude".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: true,
             project_ids: vec![],

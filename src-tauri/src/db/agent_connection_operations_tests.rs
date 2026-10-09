@@ -31,6 +31,7 @@ fn fixture() -> Fixture {
         binding: binding.clone(), caller: Caller::Connection { grant_id: "mine".into() },
         request_id: "history-list".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(), workspace_content: false,
             project_ids: vec![project.id], operations: vec!["operation.read".into(), "source.read".into()],
         },

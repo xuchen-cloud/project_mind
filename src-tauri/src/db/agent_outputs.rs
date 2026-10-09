@@ -94,6 +94,7 @@ fn read_run(conn: &Connection, id: &str) -> AgentResult<OutputRun> {
         state: decode(&encode(&row.2)?)?,
         session_state: row.1,
         grant: ScopeGrant {
+            object_keys: None,
             workspace_id: grant.workspace_id,
             workspace_content: grant.workspace_content,
             project_ids: grant.project_ids,
@@ -422,6 +423,7 @@ impl Database {
             return Err(denied());
         }
         Ok(ScopeGrant {
+            object_keys: None,
             operations: operations.iter().map(|s| (*s).to_owned()).collect(),
             ..run.grant
         })
@@ -1435,6 +1437,7 @@ mod tests {
             generation: "generation".into(),
         };
         let grant = ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: true,
             project_ids: vec![],

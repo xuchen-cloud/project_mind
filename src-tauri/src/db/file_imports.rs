@@ -889,6 +889,7 @@ mod tests {
             caller: crate::agent::access::Caller::Gui,
             request_id: "agent-original-create-request".into(),
             scope_grant: crate::agent::access::ScopeGrant {
+                object_keys: None,
                 workspace_id: workspace_id.into(),
                 workspace_content: false,
                 project_ids: vec![project_id],

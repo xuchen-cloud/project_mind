@@ -129,6 +129,7 @@ pub(crate) fn agent_source_resolve(
         request_id: input.request_id.clone(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: input.data.object.workspace_id.clone(),
             workspace_content: input.data.object.scope == Scope::Workspace,
             project_ids: match input.data.object.scope {

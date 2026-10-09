@@ -181,6 +181,7 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
         .agent_connection_create(
             &binding,
             &ConnectionCreateInput {
+                objects: None,
                 client_label: "External Test".into(),
                 workspace_content: false,
                 all_projects: false,
@@ -384,6 +385,7 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
     let gui = RequestContext {
         binding: binding.clone(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: false,
             project_ids: vec![included.id],
@@ -504,6 +506,7 @@ async fn real_keyring_client_roundtrip() {
     db.agent_connection_create(
         &binding,
         &ConnectionCreateInput {
+            objects: None,
             client_label: "Keyring Client".into(),
             workspace_content: true,
             all_projects: true,
@@ -1221,6 +1224,217 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(conflict["error"]["code"], "IDEMPOTENCY_CONFLICT");
     assert_eq!(handler.db.lock().unwrap()
         .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len(), records_before_create + 1);
+
+    // A second, object-limited grant coexists with the Workspace-wide grant.
+    // It sees the original Record and File, but not the linking Record that
+    // points at the original. Its searches and reference pages must be filtered
+    // before result ranking and pagination.
+    let object_grant = format!("{:032x}", rand::random::<u128>());
+    let object_token = format!("{:032x}{:032x}", rand::random::<u128>(), rand::random::<u128>());
+    let _object_cleanup = CredentialCleanup(object_grant.clone());
+    let selected_record: ObjectRef = serde_json::from_value(original_object.clone()).unwrap();
+    let selected_file = ObjectRef { workspace_id: binding.workspace_id.clone(),
+        scope: Scope::Project { project_id }, kind: ObjectKind::File, id: file_id.to_string() };
+    handler.db.lock().unwrap().agent_connection_create(&binding, &ConnectionCreateInput {
+        objects: Some(vec![selected_record.clone(), selected_file.clone()]),
+        all_projects: false, client_label: "Object-limited keyring client".into(),
+        workspace_content: false, project_ids: vec![project_id], session_read: false,
+        write_operations: vec!["record.patch".into(), "file.update".into(), "operation.undo".into()],
+    }, &object_grant, &object_token).unwrap();
+    credentials::save(&object_grant, &object_token).unwrap();
+    let index_request = handler.db.lock().unwrap().agent_connection_authenticate(
+        &binding, &grant_id, &token, "keyring-object-index",
+    ).unwrap();
+    for object in [selected_record.clone(), serde_json::from_value(markdown_object.clone()).unwrap()] {
+        crate::source_service::SourceService::new(&*handler).index_record(&index_request,
+            &crate::source_service::SourceReadTarget { object, revision: None,
+                record_version: None, file_version: None },
+            crate::source_service::SourceIndexBudget::default()).unwrap();
+    }
+    let restricted_path = discovery_path.clone();
+    let restricted_workspace = workspace_path.clone();
+    let restricted_grant = object_grant.clone();
+    let restricted_record = original_object.clone();
+    let hidden_record = markdown_object.clone();
+    let (restricted_client, restricted_binding) = tokio::task::spawn_blocking(move || {
+        let client = BridgeClient::from_discovery(&restricted_path, &restricted_grant)?;
+        let bound = client.connect(&restricted_grant, &restricted_workspace, "object-connect")?;
+        let selected = client.call(&restricted_grant, &bound, "record.get",
+            json!({"record":restricted_record}), "object-selected-record")?;
+        assert_eq!(selected["text"], "Saved through MCP");
+        let hidden = client.call(&restricted_grant, &bound, "record.get",
+            json!({"record":hidden_record}), "object-hidden-record").unwrap_err();
+        assert_eq!(hidden.code, ErrorCode::ScopeDenied);
+        let context = client.call(&restricted_grant, &bound, "context.get", context(project_id),
+            "object-context").unwrap_err();
+        assert_eq!(context.code, ErrorCode::ScopeDenied);
+        let search = client.call(&restricted_grant, &bound, "source.search",
+            json!({"scope":{"kind":"project","projectId":project_id},"query":"CLI Markdown","limit":1}),
+            "object-hidden-search")?;
+        assert!(search["items"].as_array().unwrap().is_empty(), "{search}");
+        let search = client.call(&restricted_grant, &bound, "source.search",
+            json!({"scope":{"kind":"project","projectId":project_id},"query":"Saved through MCP","limit":1,
+                "selected":[hidden_record]}),
+            "object-selected-search")?;
+        assert_eq!(search["items"][0]["sourceRef"]["object"], restricted_record, "{search}");
+        let references = client.call(&restricted_grant, &bound, "reference.list",
+            json!({"object":restricted_record,"direction":"incoming"}), "object-hidden-reference")?;
+        assert!(references["items"].as_array().unwrap().is_empty(), "{references}");
+        let creation = client.call(&restricted_grant, &bound, "record.create.preview",
+            json!({"input":{"scope":{"kind":"project","projectId":project_id},
+                "title":"Denied","tagIds":[],"markdown":"# New","codeLanguage":null}}),
+            "object-create-preview").unwrap_err();
+        assert_eq!(creation.code, ErrorCode::ScopeDenied);
+        Ok::<_, AgentError>((client, bound))
+    }).await.unwrap().unwrap();
+    assert_eq!(restricted_binding, binding);
+    let restricted_mcp = MindMcp::bound(restricted_client, restricted_binding, object_grant.clone());
+    let (restricted_server_io, restricted_client_io) = tokio::io::duplex(64 * 1024);
+    let (restricted_server, restricted_mcp_client) = tokio::join!(
+        restricted_mcp.serve(restricted_server_io),
+        serve_client_with_lifecycle((), restricted_client_io, ClientLifecycleMode::Initialize)
+    );
+    let mut restricted_server = restricted_server.unwrap();
+    let restricted_mcp_client = restricted_mcp_client.unwrap();
+    let selected = restricted_mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_get")
+            .with_arguments(json!({"record":original_object}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(selected.is_error, Some(false), "{selected:?}");
+    let hidden = restricted_mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_get")
+            .with_arguments(json!({"record":markdown_object}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(hidden.is_error, Some(true), "{hidden:?}");
+    assert_eq!(hidden.structured_content.as_ref().unwrap()["error"]["code"], "SCOPE_DENIED");
+    let file = restricted_mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_versions_list")
+            .with_arguments(json!({"object":selected_file}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(file.is_error, Some(false), "{file:?}");
+    let selected_head = handler.db.lock().unwrap().record_document_head(&record_target).unwrap().unwrap();
+    let selected_block = &selected_head.projection.document["content"][0];
+    let selected_patch = json!({"record":original_object,"baseRevision":selected_head.head_revision,
+        "requestId":"object-record-patch","operations":[{"op":"append_inline",
+            "blockId":selected_block["attrs"]["blockId"],
+            "expectedBlockHash":crate::record_documents::record_block_hash(selected_block).unwrap(),
+            "text":" object edit"}]});
+    let hidden_block = &saved_markdown.projection.document["content"][0];
+    let hidden_patch = json!({"record":markdown_object,"baseRevision":saved_markdown.head_revision,
+        "requestId":"object-hidden-patch","operations":[{"op":"append_inline",
+            "blockId":hidden_block["attrs"]["blockId"],
+            "expectedBlockHash":crate::record_documents::record_block_hash(hidden_block).unwrap(),
+            "text":" hidden"}]});
+    let restricted_path = discovery_path.clone();
+    let restricted_workspace = workspace_path.clone();
+    let restricted_grant = object_grant.clone();
+    let hidden_record = markdown_object.clone();
+    let selected_record = selected_record.clone();
+    let selected_file = selected_file.clone();
+    let hidden_file = ObjectRef { workspace_id: binding.workspace_id.clone(),
+        scope: Scope::Project { project_id }, kind: ObjectKind::File,
+        id: cli_created_file_id.to_string() };
+    let hidden_file_hash = cli_created_file["result"]["contentHash"].as_str().unwrap().to_owned();
+    let object_file_baseline = tokio::task::spawn_blocking(move || {
+        let client = BridgeClient::from_discovery(&restricted_path, &restricted_grant)?;
+        let bound = client.connect(&restricted_grant, &restricted_workspace, "object-write-connect")?;
+        let hidden = client.call(&restricted_grant, &bound, "record.patch", hidden_patch,
+            "object-hidden-patch").unwrap_err();
+        assert_eq!(hidden.code, ErrorCode::ScopeDenied);
+        let historical = client.call(&restricted_grant, &bound, "record.versions.list",
+            json!({"record":hidden_record}), "object-hidden-history").unwrap_err();
+        assert_eq!(historical.code, ErrorCode::ScopeDenied);
+        let hidden_file_versions = client.call(&restricted_grant, &bound, "file.versions.list",
+            json!({"object":hidden_file}), "object-hidden-file-history").unwrap_err();
+        assert_eq!(hidden_file_versions.code, ErrorCode::ScopeDenied);
+        let hidden_file_patch = json!({"requestId":"object-hidden-file-patch","input":{
+            "object":hidden_file,"expectedVersionNumber":1,
+            "expectedContentHash":hidden_file_hash,"appendText":"hidden"}});
+        let hidden_file_write = client.call(&restricted_grant, &bound, "file.patch",
+            hidden_file_patch, "object-hidden-file-patch").unwrap_err();
+        assert_eq!(hidden_file_write.code, ErrorCode::ScopeDenied);
+        let patched = client.call(&restricted_grant, &bound, "record.patch", selected_patch.clone(),
+            "object-record-patch")?;
+        assert_eq!(client.call(&restricted_grant, &bound, "record.patch", selected_patch,
+            "object-record-patch")?, patched);
+        let operation_id = patched["operation"]["operationId"].as_str().unwrap();
+        let receipt = client.call(&restricted_grant, &bound, "operation.get",
+            json!({"operationId":operation_id}), "object-operation-get")?;
+        assert_eq!(receipt["operationId"], operation_id);
+        let undo = json!({"requestId":"object-record-undo","input":{
+            "operationId":operation_id,"expectedHeadRevision":patched["result"]["afterRevision"]}});
+        let undone = client.call(&restricted_grant, &bound, "operation.undo", undo.clone(),
+            "object-record-undo")?;
+        assert_eq!(client.call(&restricted_grant, &bound, "operation.undo", undo,
+            "object-record-undo")?, undone);
+        let restored = client.call(&restricted_grant, &bound, "record.get",
+            json!({"record":selected_record}), "object-record-after-undo")?;
+        assert_eq!(restored["text"], "Saved through MCP");
+        let versions = client.call(&restricted_grant, &bound, "file.versions.list",
+            json!({"object":selected_file}), "object-file-baseline")?;
+        Ok::<_, AgentError>(versions)
+    }).await.unwrap().unwrap();
+    let object_update_bytes = b"object grant file update\0\xff".to_vec();
+    let object_update_path = root.path().join("object-grant-update.bin");
+    std::fs::write(&object_update_path, &object_update_bytes).unwrap();
+    let object_update_hash = format!("sha256:{:x}", Sha256::digest(&object_update_bytes));
+    let object_file_version = object_file_baseline["currentVersionNumber"].as_u64().unwrap();
+    let object_file_hash = object_file_baseline["currentContentHash"].as_str().unwrap().to_owned();
+    let mut first_object_update = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let source_path = object_update_path.clone();
+        let workspace = workspace_path.clone();
+        let connection = object_grant.clone();
+        let expected_hash = object_file_hash.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["file", "update", "--id"]).arg(file_id.to_string())
+                .arg("--source-file").arg(source_path)
+                .arg("--project").arg(project_id.to_string())
+                .arg("--expected-version").arg(object_file_version.to_string())
+                .arg("--expected-hash").arg(expected_hash)
+                .args(["--request-id", "object-file-update", "--workspace"])
+                .arg(workspace).arg("--connection").arg(connection).arg("--json")
+                .env("XDG_DATA_HOME", data_home).output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "object File update: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["data"]["result"]["receipt"]["contentHash"], object_update_hash);
+        if let Some(first) = &first_object_update { assert_eq!(&response["data"], first); }
+        else { first_object_update = Some(response["data"].clone()); }
+    }
+    let object_receipt: crate::db::file_versions::CommittedVersion = serde_json::from_value(
+        first_object_update.unwrap()["result"]["receipt"].clone()).unwrap();
+    let committed_path = handler.db.lock().unwrap().file_version_committed_path(&object_receipt).unwrap().unwrap();
+    assert_eq!(std::fs::read(committed_path).unwrap(), object_update_bytes);
+    for (record, allowed) in [(record_id, true), (markdown_target.record_id, false)] {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let workspace = workspace_path.clone();
+        let connection = object_grant.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["record", "get"]).arg(record.to_string())
+                .arg("--project").arg(project_id.to_string())
+                .arg("--workspace").arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if allowed {
+            assert!(output.status.success(), "{response}");
+            assert_eq!(response["data"]["text"], "Saved through MCP");
+        } else {
+            assert_eq!(response["error"]["code"], "SCOPE_DENIED", "{response}");
+        }
+    }
+    restricted_mcp_client.cancel().await.unwrap();
+    restricted_server.cancel().await.unwrap();
 
     let rejected_request = handler.db.lock().unwrap().agent_connection_authenticate(
         &binding, &grant_id, &token, "keyring-after-revoke",

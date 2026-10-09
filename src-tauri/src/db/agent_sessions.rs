@@ -278,6 +278,7 @@ impl Database {
             request_id: request_id.into(),
             caller: Caller::Gui,
             scope_grant: crate::agent::access::ScopeGrant {
+                object_keys: None,
                 workspace_id: current.workspace_id.clone(),
                 workspace_content: true,
                 project_ids: vec![],
@@ -935,6 +936,7 @@ impl Database {
             request_id: "agent-startup-recovery".into(),
             caller: Caller::Gui,
             scope_grant: crate::agent::access::ScopeGrant {
+                object_keys: None,
                 workspace_id: current.workspace_id.clone(),
                 workspace_content,
                 project_ids,
@@ -1014,6 +1016,7 @@ mod tests {
         let request = RequestContext {
             binding: binding.clone(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: true,
                 project_ids: vec![1, 2],

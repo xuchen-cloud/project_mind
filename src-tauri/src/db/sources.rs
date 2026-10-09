@@ -659,6 +659,7 @@ mod tests {
             revision: None, record_version: Some(1), file_version: None,
         };
         let grant = ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(), workspace_content: false,
             project_ids: vec![project.id], operations: vec!["source.read".into()],
         };
@@ -720,6 +721,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "archive-source".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![project.id],
@@ -888,6 +890,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "scope-search".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![visible.id],

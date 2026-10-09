@@ -140,6 +140,7 @@ fn original_authority(
         caller: request.caller.clone(),
         request_id: request.request_id.clone(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: grant.workspace_id,
             workspace_content: grant.workspace_content,
             project_ids: grant.project_ids,

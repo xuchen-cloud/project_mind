@@ -88,6 +88,7 @@ fn operation_grant(
         }
     }
     ScopeGrant {
+        object_keys: None,
         workspace_id: binding.workspace_id.clone(),
         workspace_content: scopes.contains(&Scope::Workspace),
         project_ids,

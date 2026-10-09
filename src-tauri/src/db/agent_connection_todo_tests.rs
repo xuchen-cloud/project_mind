@@ -21,6 +21,7 @@ fn fixture() -> Fixture {
         binding: binding.clone(), caller: Caller::Connection { grant_id: "todo-writer".into() },
         request_id: "output:external-todo".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(), workspace_content: true, project_ids: vec![],
             operations: ["content.create","todo.update","source.read","operation.undo","operation.restore_created"]
                 .into_iter().map(str::to_owned).collect(),

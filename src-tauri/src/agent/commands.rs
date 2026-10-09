@@ -59,6 +59,7 @@ pub(crate) fn agent_context_get(
             AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
         })?;
         let scope_grant = ScopeGrant {
+            object_keys: None,
             workspace_id: runtime.agent_binding.workspace_id.clone(),
             workspace_content: matches!(input.context.scope, Scope::Workspace),
             project_ids: match input.context.scope {
@@ -97,6 +98,7 @@ pub(crate) async fn agent_overview_get(
         request_id: input.request_id.clone(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: input.binding.workspace_id.clone(),
             workspace_content: matches!(input.data.scope, Scope::Workspace),
             project_ids: match input.data.scope {
@@ -116,6 +118,7 @@ fn gui_knowledge_request(binding: &WorkspaceBinding, request_id: &str, scope: &S
     RequestContext {
         binding: binding.clone(), request_id: request_id.into(), caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
             project_ids: match scope { Scope::Project { project_id } => vec![*project_id], _ => vec![] },
@@ -204,6 +207,7 @@ fn with_gui_service<T>(
         request_id: request_id.into(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: runtime.agent_binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
             project_ids: match scope {

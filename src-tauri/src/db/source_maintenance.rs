@@ -391,6 +391,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "maintenance".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w".into(),
                 workspace_content: true,
                 project_ids: vec![],

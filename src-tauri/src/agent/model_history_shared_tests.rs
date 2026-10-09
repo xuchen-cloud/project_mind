@@ -105,6 +105,7 @@ fn fixture() -> (tempfile::TempDir, Store, RequestContext, PiFixture) {
     let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g".into() };
     for (grant_id, token, session_read) in [(GRANT, TOKEN, true), (NO_HISTORY_GRANT, NO_HISTORY_TOKEN, false)] {
         db.agent_connection_create(&binding, &ConnectionCreateInput {
+                objects: None,
                 all_projects: false,
             client_label: "History test".into(), workspace_content: true, project_ids: vec![], session_read, write_operations: vec![],
         }, grant_id, token).unwrap();
@@ -114,6 +115,7 @@ fn fixture() -> (tempfile::TempDir, Store, RequestContext, PiFixture) {
         caller: Caller::Connection { grant_id: "grant".into() },
         request_id: "history-test".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: true,
             project_ids: vec![],

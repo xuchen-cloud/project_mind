@@ -228,6 +228,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "resolve-source".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id,
                 workspace_content: scope == Scope::Workspace,
                 project_ids: match scope {

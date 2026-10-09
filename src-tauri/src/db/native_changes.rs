@@ -620,6 +620,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "native-test".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: workspace_id.into(),
                 workspace_content: true,
                 project_ids,

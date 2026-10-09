@@ -10,6 +10,7 @@ pub struct ScopeGrant {
     pub workspace_content: bool,
     pub project_ids: Vec<i64>,
     pub operations: Vec<String>,
+    pub object_keys: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,7 +82,33 @@ impl RequestContext {
                 "Object is outside the granted scope",
             ));
         }
-        self.authorize(current, &resolved.scope, operation)
+        self.authorize(current, &resolved.scope, operation)?;
+        self.require_object_allowed(resolved)
+    }
+
+    /// Only the object allowlist check. Callers must first resolve and authorize
+    /// the object's actual scope and ownership from native storage.
+    pub(crate) fn require_object_allowed(&self, object: &ObjectRef) -> AgentResult<()> {
+        if let Some(keys) = &self.scope_grant.object_keys {
+            if !keys.contains(&object.key()?) {
+                return Err(AgentError::new(
+                    ErrorCode::ScopeDenied,
+                    "Object is outside the granted connection objects",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Scope summaries can include objects outside an object-limited grant.
+    pub fn require_scope_context(&self) -> AgentResult<()> {
+        if self.scope_grant.object_keys.is_some() {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Object-limited connection: use source.search or direct Record/File reads",
+            ));
+        }
+        Ok(())
     }
 }
 

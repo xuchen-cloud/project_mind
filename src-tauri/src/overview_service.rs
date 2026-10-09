@@ -107,6 +107,9 @@ fn authorize(
     operation: &str,
 ) -> AgentResult<()> {
     request.authorize(binding, scope, operation)?;
+    if operation == "context.read" {
+        request.require_scope_context()?;
+    }
     if !matches!(scope, Scope::Project { .. }) {
         return Err(AgentError::new(
             ErrorCode::SourceNotReady,
@@ -873,6 +876,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "publish-one".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
                 project_ids: vec![project.id],

@@ -128,6 +128,7 @@ fn gui_session_scope_comes_from_stored_session_and_deletion_is_rechecked() {
         request_id: "fixture".into(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: true,
             project_ids: vec![],
@@ -203,6 +204,7 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
         request_id: "history-search".into(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding().workspace_id,
             workspace_content: true,
             project_ids: vec![],

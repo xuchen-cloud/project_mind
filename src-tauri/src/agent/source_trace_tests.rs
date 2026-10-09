@@ -44,6 +44,7 @@ fn knowledge_namespaces_use_immutable_revision_and_overview_dependency_closure()
         caller: Caller::Gui,
         request_id: "trace".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: false,
             project_ids: vec![project.id],
@@ -190,6 +191,7 @@ fn native_fields_ignore_json_embedded_in_titles_and_bodies() {
         caller: Caller::Gui,
         request_id: "trace".into(),
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: "w".into(),
             workspace_content: true,
             project_ids: vec![],

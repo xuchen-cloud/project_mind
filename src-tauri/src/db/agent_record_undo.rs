@@ -113,6 +113,7 @@ pub(super) fn authorize(
         ));
     }
     request.authorize(binding, &entry.object.scope, permission)?;
+    request.require_object_allowed(&entry.object)?;
     match &request.caller {
         Caller::Gui => Ok(()),
         Caller::BuiltinRun { run_id } if entry.run_id.as_deref() == Some(run_id) => Ok(()),
@@ -754,6 +755,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "session".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: true,
                 project_ids: vec![],

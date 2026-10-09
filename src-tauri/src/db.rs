@@ -1,5 +1,6 @@
 pub(crate) mod agent;
 mod agent_connections;
+mod agent_connection_objects;
 mod agent_references;
 mod agent_connection_operations;
 mod agent_profiles;

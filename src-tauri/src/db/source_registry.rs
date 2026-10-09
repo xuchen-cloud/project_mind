@@ -144,6 +144,7 @@ impl Database {
         object: &ObjectRef,
     ) -> AgentResult<Option<SourceRegistryEntry>> {
         request.authorize(binding, &object.scope, "source.read")?;
+        request.require_object_allowed(object)?;
         if object.workspace_id != binding.workspace_id {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
@@ -197,6 +198,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "registry".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: metadata.workspace_id.clone(),
                 workspace_content: true,
                 project_ids: vec![],
@@ -469,6 +471,7 @@ mod tests {
             caller: Caller::Gui,
             request_id: "dependency".into(),
             scope_grant: ScopeGrant {
+                object_keys: None,
                 workspace_id: "w_1".into(),
                 workspace_content: true,
                 project_ids: vec![],

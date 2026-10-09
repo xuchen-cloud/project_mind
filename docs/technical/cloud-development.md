@@ -30,6 +30,8 @@ bash scripts/cloud/setup.sh > ../project-mind-setup.log 2>&1
 
 正式桌面发行改用 `npm run build:tauri -- --target <triple>`：release overlay 通过 `build:desktop:release` 在现有资源链之后构建/暂存同目标 `mind` sidecar。直接运行基础 `npm run tauri build` 不包含 CLI。`prepare:cli` 使用 Cargo metadata 的实际 target_directory，支持独立 CARGO_TARGET_DIR；子 Cargo 只移除 inherited externalBin，避免 CLI 依赖复制自身。基础 Cargo/test 不要求预先暂存发行 sidecar；生成的 `src-tauri/binaries/` 不入库。
 
+设置中的用户级 CLI 安装另由应用显式执行，不在构建或开发环境 setup 时自动修改 PATH。Unix 链接到 `~/.local/bin/mind`，按 bash、zsh 或 fish 的实际配置写入受管 PATH；Windows 复制到应用数据目录的 `cli/mind.exe`，只修改当前用户的 `HKCU\Environment\Path`。安装收据用于安全更新及卸载，未知 shell 给出手动配置提示。本环境已通过临时用户目录的 CLI 安装/卸载、真实 bash 执行与对象授权验证；生产 CLI、独立 Secret Service 及实际 socket 的读写/撤销链路通过，前端类型、构建与无窗口浏览器检查通过。详细证据见[执行计划](../requirements/ai-work-context-delivery.md)；Linux 结果不代替 macOS/Windows 原生实包或真实模型验收。
+
 
 首次 Rust 冷编译和前端全量建议串行运行，避免页面驻留测试在 CPU 竞争下超时；不因此放宽用例超时或断言。
 

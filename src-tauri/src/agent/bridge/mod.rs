@@ -1,5 +1,6 @@
 //! Local adapters share the currently open Workspace and its native services.
 pub mod cli;
+pub(crate) mod cli_install;
 pub mod client;
 mod connection_store;
 mod object_reads;

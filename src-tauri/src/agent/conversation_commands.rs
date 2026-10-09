@@ -106,6 +106,7 @@ fn gui_scope_request(
         request_id: request_id.into(),
         caller: Caller::Gui,
         scope_grant: ScopeGrant {
+            object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
             project_ids: match scope {
