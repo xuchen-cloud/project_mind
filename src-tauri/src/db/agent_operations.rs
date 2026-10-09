@@ -176,6 +176,7 @@ impl Database {
             request_id,
             operation,
             &result_json,
+            self.native_workspace_id.as_deref(),
         )?;
         super::agent_todo_outputs::agent_todo_output_receipt_committed(
             tx,

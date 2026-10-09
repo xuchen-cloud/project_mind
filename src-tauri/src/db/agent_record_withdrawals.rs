@@ -46,7 +46,7 @@ pub(crate) struct RecordWithdrawalInput {
     pub creation_operation_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordRestoreInput {
     pub creation_operation_id: String,
@@ -122,7 +122,7 @@ fn creation(
             "Workspace binding is no longer current",
         ));
     }
-    let (_caller,run_id,object,head,context,undo_operation_id):(String,Option<String>,String,String,String,Option<String>)=conn.query_row("SELECT caller_id,run_id,target_ref_json,result_json,output_context_json,undo_operation_id FROM agent_operation_receipts WHERE operation_id=?1 AND operation='record.create' AND state='committed' AND undo_state IN ('available','undone')",[&input.creation_operation_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Recoverable Record creation receipt is unavailable"))?;
+    let (caller,run_id,object,head,context,undo_operation_id):(String,Option<String>,String,String,String,Option<String>)=conn.query_row("SELECT caller_id,run_id,target_ref_json,result_json,output_context_json,undo_operation_id FROM agent_operation_receipts WHERE operation_id=?1 AND operation='record.create' AND state='committed' AND undo_state IN ('available','undone')",[&input.creation_operation_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Recoverable Record creation receipt is unavailable"))?;
     let object: ObjectRef = decode(&object)?;
     let head: RecordCommittedHead = decode(&head)?;
     if object.kind != ObjectKind::Record
@@ -139,6 +139,7 @@ fn creation(
     match &request.caller {
         Caller::Gui => {}
         Caller::BuiltinRun { run_id: own } if run_id.as_deref() == Some(own.as_str()) => {}
+        Caller::Connection { .. } if run_id.is_none() && request.caller.key() == caller => {}
         _ => {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,

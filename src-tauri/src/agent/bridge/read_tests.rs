@@ -61,6 +61,26 @@ impl DocumentUtility for UnusedDocument {
     }
 }
 
+struct PausedCompare {
+    entered: Mutex<Option<oneshot::Sender<()>>>,
+    resume: Semaphore,
+}
+impl DocumentUtility for PausedCompare {
+    async fn request(&self, _: &str, method: &str, data: Value) -> AgentResult<Value> {
+        assert_eq!(method, "record.compare");
+        assert_eq!(data["document"], data["otherDocument"]);
+        assert_eq!(data["document"]["content"][0]["content"][0]["text"], "Record evidence");
+        if let Some(sender) = self.entered.lock().unwrap().take() {
+            let _ = sender.send(());
+        }
+        self.resume.acquire().await.unwrap().forget();
+        Ok(json!({
+            "added": [], "deleted": [],
+            "modified": ["1234567890abcdef1234567890abcdef"], "moved": [],
+        }))
+    }
+}
+
 struct TextUtility {
     entered: Mutex<Option<oneshot::Sender<()>>>,
     resume: Semaphore,
@@ -175,6 +195,7 @@ impl Fixture {
                 workspace_content: false,
                 project_ids: vec![project.id],
                 session_read: false,
+                write_operations: vec![],
             },
             GRANT,
             TOKEN,
@@ -497,5 +518,61 @@ async fn object_reads_return_native_versions_bodies_and_enforce_current_policy()
 impl crate::source_session_read::SessionHistoryUtility for UnusedDocument {
     async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
         panic!("This fixture does not read session history")
+    }
+}
+
+#[tokio::test]
+async fn record_version_reads_return_exact_source_and_compare_rechecks_revocation() {
+    let f = Fixture::new();
+    let utility = TextUtility::immediate();
+    let listed = f.read("record-versions", "record.versions.list", json!({"record": f.record}), &utility).await.unwrap();
+    assert_eq!(listed["object"], json!(f.record));
+    assert_eq!(listed["versions"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["versions"][0]["versionNumber"], 1);
+    assert_eq!(listed["versions"][0]["headRevision"], 1);
+    let version_id = listed["versions"][0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(version_id.len(), 32);
+    let hash = listed["versions"][0]["bodyHash"].as_str().unwrap().to_owned();
+    assert!(hash.starts_with("sha256:"));
+
+    let version = f.read("record-version", "record.versions.get", json!({"record": f.record, "versionId": version_id}), &utility).await.unwrap();
+    assert_eq!(version["version"]["id"], version_id);
+    assert_eq!(version["version"]["bodyHash"], hash);
+    assert_eq!(version["source"]["object"], json!(f.record));
+    assert_eq!(version["source"]["recordVersion"], 1);
+    assert!(version["source"]["revision"].as_str().unwrap().starts_with("sha256:"));
+    let body = f.read("record-source", "source.read", json!({"source": version["source"], "view": "full"}), &utility).await.unwrap();
+    assert_eq!(body["text"], "Record evidence");
+    assert_eq!(body["sourceRef"]["object"], json!(f.record));
+
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let compare = PausedCompare { entered: Mutex::new(Some(entered_tx)), resume: Semaphore::new(0) };
+    let read = dispatch::execute(
+        &*f.store, &f.enabled, TOKEN,
+        f.input("record-compare", "record.versions.compare", json!({
+            "record": f.record, "beforeVersionId": version_id, "afterVersionId": version_id,
+        })),
+        &compare, &utility, &UnusedDocument,
+    );
+    let intervene = async {
+        entered_rx.await.unwrap();
+        f.store.db.lock().unwrap().agent_connection_revoke(&f.binding, GRANT).unwrap();
+        compare.resume.add_permits(1);
+    };
+    let (result, ()) = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        async { tokio::join!(read, intervene) },
+    ).await.expect("Record comparison must reach the document utility");
+    let error = result.unwrap_err();
+    assert_eq!(error.code, ErrorCode::ScopeDenied);
+    assert!(!error.message.contains("Record evidence"));
+}
+
+// This headless transport fixture has no registered editors.
+impl crate::record_document_service::BoundRecordStore for Store {
+    async fn flush_editors(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<()> { Ok(()) }
+    async fn submission_lock(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> { Ok(None) }
+    fn with_current<T>(&self, action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>) -> AgentResult<T> {
+        crate::source_service::BoundSourceStore::with_current(self, action)
     }
 }

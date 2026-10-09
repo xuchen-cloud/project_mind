@@ -1272,7 +1272,9 @@ pub(crate) fn agent_output_record_committed(
     operation: &str,
     result_json: &str,
 ) -> AgentResult<()> {
-    if !matches!(operation, "record.create" | "record.patch") || !request_id.starts_with("output:")
+    if caller.starts_with("connection:")
+        || !matches!(operation, "record.create" | "record.patch")
+        || !request_id.starts_with("output:")
     {
         return Ok(());
     }

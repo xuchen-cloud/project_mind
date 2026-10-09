@@ -3,6 +3,7 @@ pub mod cli;
 pub mod client;
 mod connection_store;
 mod object_reads;
+mod record_writes;
 pub(crate) mod commands;
 pub mod credentials;
 pub mod mcp;
@@ -32,3 +33,5 @@ mod dispatch_tests;
 
 #[cfg(test)]
 mod read_tests;
+#[cfg(test)]
+mod write_tests;

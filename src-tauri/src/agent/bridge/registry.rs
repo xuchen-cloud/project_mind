@@ -2,16 +2,23 @@
 //! same Rust inputs that the bridge deserializes.
 use crate::{
     agent::{
+        connection_operations::ConnectionOperationListInput,
         context::ContextGetInput,
         errors::{AgentError, AgentResult, ErrorCode},
         file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
         model_history::ModelHistoryReadInput,
+        operations::{OperationGetInput, OperationUndoInput},
+        outputs::RecordPatch,
         record_blocks::RecordBlocksInput,
         todo_tools::TodoGetInput,
     },
+    agent::bridge::record_writes::MutationInput,
+    db::agent_record_withdrawals::RecordRestoreInput as CreatedRecordRestoreInput,
     db::agent_session_model_search::ModelHistorySearchInput,
     knowledge_service::{KnowledgeGetInput, KnowledgeSearchInput},
     overview_service::OverviewReadInput,
+    record_version_reads::{RecordVersionsCompareInput, RecordVersionsGetInput, RecordVersionsListInput},
+    record_documents::{RecordCreate, RecordRestoreInput},
     source_service::{SourceReadInput, SourceSearchInput},
 };
 use schemars::{schema_for, JsonSchema};
@@ -117,6 +124,66 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             read_only: true,
             parameters: serde_json::to_value(schema_for!(FileSourceReadInput)).expect("static schema"),
         },
+        RegisteredMethod {
+            method: "record.versions.list",
+            description: "List bounded metadata for retained versions of an authorized Record with source.read. Continue with nextCursor and keep each page within budgetChars.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordVersionsListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.versions.get",
+            description: "Read one retained Record version's metadata and the precise source.read target for its body; this read does not restore a version.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordVersionsGetInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.versions.compare",
+            description: "Compare two retained Record revisions by bounded block ID differences. Continue with nextCursor within budgetChars; this read does not restore either version.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordVersionsCompareInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.create",
+            description: "Create one Record in the explicitly granted scope with content.create. Supply a stable requestId for safe retry; the native service validates document and metadata.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<RecordCreate>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.patch",
+            description: "Apply a bounded block patch to an authorized Record with record.patch. Supply baseRevision and stable requestId; the native service checks the current revision.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(RecordPatch)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.restore",
+            description: "Restore the body of an authorized Record from an exact retained version with record.restore. Supply baseRevision and stable requestId; this creates a new version.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<RecordRestoreInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "operation.get",
+            description: "Read one operation receipt owned by this connection with operation.read. This does not grant access to another caller's results.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(OperationGetInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "operation.list",
+            description: "List this connection's operation receipts within an authorized scope with operation.read. Cursor, limit and budgetChars bound each page.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ConnectionOperationListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "operation.undo",
+            description: "Undo one operation owned by this connection with operation.undo. Supply expectedHeadRevision and stable requestId; current heads are checked before commit.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<OperationUndoInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "operation.restore_created",
+            description: "Recover this connection's withdrawn newly created Record with the derived operation.restore_created permission. Supply expectedWithdrawalRevision and stable requestId.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<CreatedRecordRestoreInput>)).expect("static schema"),
+        },
     ]
 }
 
@@ -125,7 +192,21 @@ pub fn schema(method: &str) -> Option<Value> {
 }
 
 pub fn is_registered(method: &str) -> bool {
-    matches!(method, "project.list" | "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read" | "session.search" | "session.messages.read" | "record.blocks.get" | "todo.get" | "file.versions.list" | "file.versions.get" | "file.source.read")
+    is_read_only(method).is_some()
+}
+
+pub fn is_read_only(method: &str) -> Option<bool> {
+    match method {
+        "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
+        | "knowledge.get" | "source.search" | "source.read" | "session.search"
+        | "session.messages.read" | "record.blocks.get" | "todo.get"
+        | "file.versions.list" | "file.versions.get" | "file.source.read"
+        | "record.versions.list" | "record.versions.get" | "record.versions.compare"
+        | "operation.get" | "operation.list" => Some(true),
+        "record.create" | "record.patch" | "record.restore" | "operation.undo"
+        | "operation.restore_created" => Some(false),
+        _ => None,
+    }
 }
 
 /// Validate exactly the DTO that dispatch will consume, plus the shared read
@@ -134,12 +215,12 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
     fn decode<T: serde::de::DeserializeOwned>(parameters: &Value) -> AgentResult<()> {
         serde_json::from_value::<T>(parameters.clone())
             .map(|_| ())
-            .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Arguments do not match the read input DTO"))
+            .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Arguments do not match the method input DTO"))
     }
     if matches!(method, "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read") {
         crate::agent::tools::validate_bounds(method, parameters)?;
     }
-    match method {
+    let decoded = match method {
         "project.list" => decode::<ProjectListInput>(parameters),
         "context.get" => decode::<ContextGetInput>(parameters),
         "context.overview.get" => decode::<OverviewReadInput>(parameters),
@@ -158,8 +239,28 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "file.versions.list" => decode::<FileVersionsListInput>(parameters),
         "file.versions.get" => decode::<FileVersionsGetInput>(parameters),
         "file.source.read" => decode::<FileSourceReadInput>(parameters),
-        _ => Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Read method is not registered")),
+        "record.versions.list" => decode::<RecordVersionsListInput>(parameters),
+        "record.versions.get" => decode::<RecordVersionsGetInput>(parameters),
+        "record.versions.compare" => decode::<RecordVersionsCompareInput>(parameters),
+        "record.create" => decode::<MutationInput<RecordCreate>>(parameters),
+        "record.patch" => decode::<RecordPatch>(parameters),
+        "record.restore" => decode::<MutationInput<RecordRestoreInput>>(parameters),
+        "operation.get" => decode::<OperationGetInput>(parameters),
+        "operation.list" => decode::<ConnectionOperationListInput>(parameters),
+        "operation.undo" => decode::<MutationInput<OperationUndoInput>>(parameters),
+        "operation.restore_created" => decode::<MutationInput<CreatedRecordRestoreInput>>(parameters),
+        _ => Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Method is not registered")),
+    };
+    decoded?;
+    if is_read_only(method) == Some(false)
+        && !parameters
+            .get("requestId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| !id.is_empty() && id.len() <= 128)
+    {
+        return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid mutation requestId"));
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -167,15 +268,21 @@ mod tests {
     use super::*;
     use crate::agent::models::Scope;
     #[test]
-    fn registry_contains_only_exposed_reads() {
+    fn registry_contains_only_exposed_methods() {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
             "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read", "session.search",
             "session.messages.read", "record.blocks.get", "todo.get",
             "file.versions.list", "file.versions.get", "file.source.read",
+            "record.versions.list", "record.versions.get", "record.versions.compare",
+            "record.create", "record.patch", "record.restore", "operation.get",
+            "operation.list", "operation.undo", "operation.restore_created",
         ]);
-        assert!(registered_methods().iter().all(|entry| entry.read_only));
-        assert!(!is_registered("record.create"));
+        assert_eq!(registered_methods().len(), 24);
+        assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
+        assert_eq!(is_read_only("record.patch"), Some(false));
+        assert_eq!(is_read_only("operation.list"), Some(true));
+        assert_eq!(is_read_only("file.content.begin"), None);
         assert!(!is_registered("run.start"));
     }
     #[test]
@@ -217,7 +324,8 @@ mod tests {
         assert_eq!(validate("project.list", &serde_json::json!({"limit":1})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("knowledge.search", &serde_json::json!({"scope":{"kind":"workspace"},"query":"x","budgetChars":3001})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("source.search", &serde_json::json!({"scope":{"kind":"workspace"},"query":"x","selected":[{"kind":"project"}]})).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert_eq!(validate("record.create", &serde_json::json!({})).unwrap_err().code, ErrorCode::ToolCallUnsupported);
+        assert_eq!(validate("record.create", &serde_json::json!({})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("file.update", &serde_json::json!({})).unwrap_err().code, ErrorCode::ToolCallUnsupported);
     }
 
     #[test]
@@ -244,7 +352,59 @@ mod tests {
         assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"  "})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"x","limit":21})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("file.versions.list", &serde_json::json!({"object":object("file"),"path":"/tmp/file"})).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert!(!is_registered("record.restore"));
+        assert!(!is_registered("record.delete"));
+        assert!(!is_registered("file.content.begin"));
+    }
+
+    #[test]
+    fn record_version_schemas_follow_the_real_read_inputs() {
+        let record = serde_json::json!({
+            "workspaceId":"workspace-a",
+            "scope":{"kind":"project","projectId":1},
+            "kind":"record",
+            "id":"1"
+        });
+        let before = "a".repeat(32);
+        let after = "b".repeat(32);
+        let cases = [
+            ("record.versions.list", serde_json::json!({"record":record,"limit":8,"budgetChars":4000})),
+            ("record.versions.get", serde_json::json!({"record":record,"versionId":before,"budgetChars":4000})),
+            ("record.versions.compare", serde_json::json!({"record":record,"beforeVersionId":before,"afterVersionId":after,"budgetChars":4000})),
+        ];
+        for (method, value) in cases {
+            validate(method, &value).unwrap();
+            let schema = schema(method).unwrap();
+            assert_eq!(schema["additionalProperties"], false, "{method}");
+            let fields = schema["properties"].as_object().unwrap();
+            assert!(value.as_object().unwrap().keys().all(|name| fields.contains_key(name)), "{method}");
+        }
+        assert_eq!(validate("record.versions.get", &serde_json::json!({"record":record,"versionId":before,"restore":true})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert!(!is_registered("file.update"));
+    }
+
+    #[test]
+    fn write_schemas_are_native_and_require_stable_request_identity() {
+        for method in [
+            "record.create", "record.patch", "record.restore", "operation.get",
+            "operation.list", "operation.undo", "operation.restore_created",
+        ] {
+            let schema = schema(method).unwrap();
+            assert_eq!(schema["additionalProperties"], false, "{method}");
+            assert!(schema["properties"].is_object(), "{method}");
+        }
+        let patch = |request_id: Value| serde_json::json!({
+            "record":{"workspaceId":"workspace-a","scope":{"kind":"project","projectId":1},"kind":"record","id":"1"},
+            "baseRevision":1,
+            "requestId":request_id,
+            "operations":[]
+        });
+        assert!(validate("record.patch", &patch(serde_json::json!("stable-1"))).is_ok());
+        for bad in [serde_json::json!(""), serde_json::json!("x".repeat(129)), serde_json::json!(7)] {
+            assert_eq!(validate("record.patch", &patch(bad)).unwrap_err().code, ErrorCode::InvalidArgument);
+        }
+        let mut missing = patch(serde_json::json!("stable-1"));
+        missing.as_object_mut().unwrap().remove("requestId");
+        assert_eq!(validate("record.patch", &missing).unwrap_err().code, ErrorCode::InvalidArgument);
         assert!(!is_registered("file.content.begin"));
     }
 }

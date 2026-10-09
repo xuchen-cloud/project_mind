@@ -9,6 +9,11 @@ use crate::{
         todo_tools::TodoGetInput,
     },
     file_source_read::FileSourceReadService,
+    record_document_service::DocumentUtility,
+    record_version_reads::{
+        RecordVersionReadService, RecordVersionsCompareInput, RecordVersionsGetInput,
+        RecordVersionsListInput,
+    },
     source_service::BoundSourceStore,
 };
 use serde::{de::DeserializeOwned, Serialize};
@@ -32,13 +37,30 @@ fn encode(result: impl Serialize) -> AgentResult<Value> {
     })
 }
 
-pub(crate) async fn execute<S: BoundSourceStore>(
+pub(crate) async fn execute<S: BoundSourceStore, W: DocumentUtility>(
     store: &S,
     request: &RequestContext,
     method: &str,
     arguments: Value,
+    utility: &W,
 ) -> AgentResult<Value> {
     match method {
+        "record.versions.list" => {
+            let input: RecordVersionsListInput = decode(arguments)?;
+            encode(RecordVersionReadService::new(store, utility).list(request, &input)?)
+        }
+        "record.versions.get" => {
+            let input: RecordVersionsGetInput = decode(arguments)?;
+            encode(RecordVersionReadService::new(store, utility).get(request, &input)?)
+        }
+        "record.versions.compare" => {
+            let input: RecordVersionsCompareInput = decode(arguments)?;
+            encode(
+                RecordVersionReadService::new(store, utility)
+                    .compare(request, &input)
+                    .await?,
+            )
+        }
         "record.blocks.get" => {
             let input: RecordBlocksInput = decode(arguments)?;
             encode(RecordBlocksService::new(store).get(request, &input)?)

@@ -159,6 +159,53 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         for scope in db.record_reference_scopes(document)? {
             request.authorize(&request.binding, &scope, operation)?;
         }
+        if matches!(request.caller, Caller::Connection { .. }) {
+            Self::authorize_connection_references(request, db, document)?;
+        }
+        Ok(())
+    }
+    /// A scope grant alone does not expose an excluded or withdrawn source.
+    /// Resolve the concrete objects in the same database phase as the write.
+    fn authorize_connection_references(
+        request: &RequestContext,
+        db: &Database,
+        document: &Value,
+    ) -> AgentResult<()> {
+        for object in db.record_reference_objects(document, &request.binding.workspace_id)? {
+            db.source_read_object(request, &request.binding, &object)?;
+        }
+        Ok(())
+    }
+    fn authorize_connection_scope(
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        db: &Database,
+        scope: &crate::agent::models::Scope,
+    ) -> AgentResult<()> {
+        if let (Caller::Connection { .. }, crate::agent::models::Scope::Project { project_id }) = (&request.caller, scope) {
+            db.source_read_object(request, binding, &ObjectRef {
+                workspace_id: binding.workspace_id.clone(),
+                scope: scope.clone(),
+                kind: ObjectKind::Project,
+                id: project_id.to_string(),
+            })?;
+        }
+        Ok(())
+    }
+    fn authorize_connection_target(
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        db: &Database,
+        target: &RecordTarget,
+    ) -> AgentResult<()> {
+        if matches!(request.caller, Caller::Connection { .. }) {
+            db.source_read_object(request, binding, &ObjectRef {
+                workspace_id: binding.workspace_id.clone(),
+                scope: target.scope.clone(),
+                kind: ObjectKind::Record,
+                id: target.record_id.to_string(),
+            })?;
+        }
         Ok(())
     }
     pub(crate) fn authorize_target(
@@ -188,13 +235,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
     ) -> AgentResult<RecordCommittedHead> {
         let operation = match request.caller {
             Caller::Gui => "record.write",
-            Caller::BuiltinRun { .. } => "content.create",
-            _ => {
-                return Err(AgentError::new(
-                    ErrorCode::ScopeDenied,
-                    "Caller cannot create Records",
-                ))
-            }
+            Caller::BuiltinRun { .. } | Caller::Connection { .. } => "content.create",
         };
         let (previous, portable) = self.with_current(request, |binding, db| {
             request.authorize(binding, &input.scope, operation)?;
@@ -210,6 +251,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             if previous.is_some() {
                 return Ok((previous, None));
             }
+            Self::authorize_connection_scope(request, binding, db, &input.scope)?;
             Ok((
                 None,
                 Some(db.record_document_scope_from_gui(&input.scope, &input.document)?),
@@ -239,6 +281,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             if matches!(request.caller, Caller::Gui) {
                 request.authorize(binding, &input.scope, "record.metadata.write")?;
             }
+            Self::authorize_connection_scope(request, binding, db, &input.scope)?;
             Self::authorize_references(request, db, &projection.document, operation)?;
             db.record_create(
                 &request.caller.key(),
@@ -435,6 +478,11 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 .agent_resolve_object(&claimed, &binding.workspace_id)?
                 .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Record is missing"))?;
             request.authorize_object(binding, &claimed, &actual, operation)?;
+            if matches!(request.caller, Caller::Connection { .. })
+                && matches!(operation, "record.patch" | "record.restore")
+            {
+                Self::authorize_connection_target(request, binding, db, target)?;
+            }
             action(db)
         })
     }
@@ -821,6 +869,9 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             let _submission = if entry.undo_state == "undone" {
                 None
             } else {
+                self.access(request, &target, "operation.undo", |db| {
+                    Self::authorize_connection_target(request, &request.binding, db, &target)
+                })?;
                 self.flush_editors(request, &target, "operation.undo")
                     .await?;
                 self.store
@@ -828,6 +879,12 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                     .await?
             };
             return self.with_current(request, |binding, db| {
+                let current = db.agent_operation_access(
+                    request, binding, &input.operation_id, "operation.undo",
+                )?;
+                if current.undo_state != "undone" {
+                    Self::authorize_connection_target(request, binding, db, &target)?;
+                }
                 db.agent_record_creation_withdraw(
                     request,
                     binding,
@@ -862,6 +919,9 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 AgentError::new(ErrorCode::UndoConflict, "Invalid Record receipt target")
             })?,
         };
+        self.access(request, &target, "operation.undo", |db| {
+            Self::authorize_connection_target(request, &request.binding, db, &target)
+        })?;
         let version = self
             .regenerated_version(
                 request,
@@ -879,6 +939,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &target)
             .await?;
         self.access(request, &target, "operation.undo", |db| {
+            Self::authorize_connection_target(request, &request.binding, db, &target)?;
             Self::authorize_references(
                 request,
                 db,
@@ -911,6 +972,9 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 AgentError::new(ErrorCode::UndoConflict, "Invalid Record receipt target")
             })?,
         };
+        self.access(request, &target, "operation.undo", |db| {
+            Self::authorize_connection_target(request, &request.binding, db, &target)
+        })?;
         let version = self
             .regenerated_version(
                 request,
@@ -932,6 +996,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &target)
             .await?;
         self.access(request, &target, "operation.undo", |db| {
+            Self::authorize_connection_target(request, &request.binding, db, &target)?;
             Self::authorize_references(
                 request,
                 db,
@@ -1327,6 +1392,7 @@ mod tests {
             1
         );
         request.scope_grant.project_ids.push(project_id);
+        request.scope_grant.operations.push("source.read".into());
         RecordDocumentService::<Store, Utility>::authorize_references(
             &request,
             &db,
@@ -2406,6 +2472,8 @@ mod tests {
             4
         );
     }
+
+    include!("record_connection_service_tests.rs");
 }
 
 #[cfg(test)]

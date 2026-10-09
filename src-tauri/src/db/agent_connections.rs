@@ -14,6 +14,12 @@ use std::collections::HashSet;
 const MAX_PROJECTS: usize = 100;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
+const RECORD_WRITE_OPERATIONS: [&str; 4] = [
+    "content.create",
+    "record.patch",
+    "record.restore",
+    "operation.undo",
+];
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +164,24 @@ impl Database {
         let mut operations: Vec<String> = READ_OPERATIONS.iter().map(|s| (*s).into()).collect();
         if input.session_read {
             operations.push("session.read".into());
+        }
+        let selected: HashSet<&str> = input.write_operations.iter().map(String::as_str).collect();
+        if selected.iter().any(|operation| !RECORD_WRITE_OPERATIONS.contains(operation)) {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Unsupported connection operation",
+            ));
+        }
+        if !selected.is_empty() {
+            operations.push("operation.read".into());
+        }
+        for operation in RECORD_WRITE_OPERATIONS {
+            if selected.contains(operation) {
+                operations.push(operation.into());
+            }
+        }
+        if selected.contains("operation.undo") {
+            operations.push("operation.restore_created".into());
         }
         let scope = StoredScope {
             workspace_id: binding.workspace_id.clone(),

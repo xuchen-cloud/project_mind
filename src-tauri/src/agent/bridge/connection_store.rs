@@ -72,3 +72,35 @@ impl<S: CommittedChangePublisher> CommittedChangePublisher for ConnectionStore<'
         self.inner.publish_committed(changes);
     }
 }
+
+impl<S: BoundReadContextStore + crate::record_document_service::BoundRecordStore + Sync>
+    crate::record_document_service::BoundRecordStore for ConnectionStore<'_, S>
+{
+    async fn flush_editors(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &crate::record_documents::RecordTarget,
+    ) -> AgentResult<()> {
+        self.with_authenticated(|_, _, _, _| Ok(()))?;
+        self.inner.flush_editors(binding, target).await?;
+        self.with_authenticated(|_, _, _, _| Ok(()))
+    }
+
+    async fn submission_lock(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &crate::record_documents::RecordTarget,
+    ) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> {
+        self.with_authenticated(|_, _, _, _| Ok(()))?;
+        let guard = self.inner.submission_lock(binding, target).await?;
+        self.with_authenticated(|_, _, _, _| Ok(()))?;
+        Ok(guard)
+    }
+
+    fn with_current<T>(
+        &self,
+        action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        self.with_authenticated(|binding, db, _, _| action(binding, db))
+    }
+}

@@ -3,6 +3,7 @@ pub mod access;
 pub mod capabilities;
 pub mod bridge;
 pub mod connections;
+pub(crate) mod connection_operations;
 pub mod changes;
 pub(crate) mod commands;
 pub mod context;

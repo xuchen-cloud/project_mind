@@ -36,6 +36,7 @@ struct WorkspaceHandler {
     db: Mutex<Database>,
     binding: Mutex<WorkspaceBinding>,
     path: PathBuf,
+    record_worker: Option<crate::record_document_worker::RecordDocumentWorker>,
 }
 
 impl BridgeHandler for WorkspaceHandler {
@@ -58,16 +59,15 @@ impl BridgeHandler for WorkspaceHandler {
 
     fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
         Box::pin(async move {
-            dispatch::execute(
-                self,
-                &AtomicBool::new(true),
-                token,
-                input,
-                &NoUtility,
-                &NoUtility,
-                &NoUtility,
-            )
-            .await
+            if let Some(worker) = &self.record_worker {
+                dispatch::execute(
+                    self, &AtomicBool::new(true), token, input, worker, &NoUtility, &NoUtility,
+                ).await
+            } else {
+                dispatch::execute(
+                    self, &AtomicBool::new(true), token, input, &NoUtility, &NoUtility, &NoUtility,
+                ).await
+            }
         })
     }
 }
@@ -180,6 +180,7 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
                 workspace_content: false,
                 project_ids: vec![included.id],
                 session_read: false,
+                write_operations: vec![],
             },
             "0123456789abcdef0123456789abcdef",
             TOKEN,
@@ -189,6 +190,7 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
         db: Mutex::new(db),
         binding: Mutex::new(binding.clone()),
         path: workspace_path.clone(),
+        record_worker: None,
     });
     let bridge = transport::start(handler.clone(), root.path().join("agent-bridge.json"))
         .await
@@ -497,6 +499,7 @@ async fn real_keyring_client_roundtrip() {
             workspace_content: false,
             project_ids: vec![project_id],
             session_read: false,
+            write_operations: vec!["content.create".into(), "record.patch".into(), "operation.undo".into()],
         },
         &grant_id,
         &token,
@@ -509,6 +512,7 @@ async fn real_keyring_client_roundtrip() {
         db: Mutex::new(db),
         binding: Mutex::new(binding.clone()),
         path: workspace_path.clone(),
+        record_worker: Some(crate::record_document_worker::RecordDocumentWorker::development().unwrap()),
     });
     let bridge = transport::start(handler.clone(), discovery_path.clone())
         .await
@@ -516,7 +520,7 @@ async fn real_keyring_client_roundtrip() {
     let client_path = discovery_path.clone();
     let client_grant = grant_id.clone();
     let client_workspace = workspace_path.clone();
-    let (client, connected, listed, context) = tokio::task::spawn_blocking(move || {
+    let (client, connected, listed, context_result) = tokio::task::spawn_blocking(move || {
         let client = BridgeClient::from_discovery(&client_path, &client_grant)?;
         let connected = client.connect(&client_grant, &client_workspace, "keyring-connect")?;
         let listed = client.call(
@@ -543,7 +547,7 @@ async fn real_keyring_client_roundtrip() {
         listed,
         json!([{"id": project_id, "name": "Keyring Project"}])
     );
-    assert_eq!(context["identity"]["name"], "Keyring Project");
+    assert_eq!(context_result["identity"]["name"], "Keyring Project");
 
     let mcp = MindMcp::bound(client, connected.clone(), grant_id.clone());
     let (server_io, client_io) = tokio::io::duplex(64 * 1024);
@@ -554,7 +558,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 14);
+    assert_eq!(tools.tools.len(), 24);
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))
@@ -565,6 +569,51 @@ async fn real_keyring_client_roundtrip() {
         mcp_list.structured_content.as_ref().unwrap()["data"],
         listed
     );
+    let mcp_context = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_context_get")
+            .with_arguments(context(project_id).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(mcp_context.is_error, Some(false));
+    assert_eq!(mcp_context.structured_content.as_ref().unwrap()["data"]["identity"]["name"], "Keyring Project");
+
+    let create = json!({
+        "requestId":"keyring-create",
+        "input":{
+            "scope":{"kind":"project","projectId":project_id},
+            "title":"MCP saved",
+            "tagIds":[],
+            "document":{"type":"doc","content":[{
+                "type":"paragraph",
+                "attrs":{"blockId":"33333333333333333333333333333333"},
+                "content":[{"type":"text","text":"Saved through MCP"}]
+            }]},
+            "codeLanguage":null
+        }
+    });
+    let create_tool = || CallToolRequestParams::new("mind_record_create")
+        .with_arguments(create.as_object().unwrap().clone());
+    let created = mcp_client.peer().call_tool(create_tool()).await.unwrap();
+    assert_eq!(created.is_error, Some(false), "{created:?}");
+    let created = created.structured_content.unwrap();
+    assert_eq!(created["requestId"], "keyring-create");
+    let saved = &created["data"];
+    assert_eq!(saved["operation"]["requestId"], "keyring-create");
+    assert!(saved["operation"]["operationId"].as_str().is_some());
+    let record_id = saved["result"]["target"]["recordId"].as_i64().unwrap();
+    let retried = mcp_client.peer().call_tool(create_tool()).await.unwrap();
+    assert_eq!(retried.is_error, Some(false), "{retried:?}");
+    assert_eq!(retried.structured_content.as_ref().unwrap()["data"], *saved);
+    {
+        let mut db = handler.db.lock().unwrap();
+        let page = db.project_page_get(crate::models::ProjectIdInput { project_id }).unwrap();
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].id, record_id);
+        assert_eq!(page.records[0].title.as_deref(), Some("MCP saved"));
+    }
+
+    let rejected_request = handler.db.lock().unwrap().agent_connection_authenticate(
+        &binding, &grant_id, &token, "keyring-after-revoke",
+    ).unwrap();
 
     handler
         .db
@@ -582,6 +631,26 @@ async fn real_keyring_client_roundtrip() {
         mcp_rejected.structured_content.as_ref().unwrap()["error"]["code"],
         "SCOPE_DENIED"
     );
+    let mut rejected_create = create.clone();
+    rejected_create["requestId"] = json!("keyring-after-revoke");
+    rejected_create["input"]["title"] = json!("Must not save");
+    let rejected_write = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_create")
+            .with_arguments(rejected_create.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(rejected_write.is_error, Some(true));
+    assert_eq!(rejected_write.structured_content.as_ref().unwrap()["error"]["code"], "SCOPE_DENIED");
+    {
+        let mut db = handler.db.lock().unwrap();
+        let page = db.project_page_get(crate::models::ProjectIdInput { project_id }).unwrap();
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(
+            db.agent_connection_operation_for_request(&rejected_request, &binding)
+                .unwrap_err().code,
+            ErrorCode::IoFailed,
+            "a rejected write must have no committed operation receipt",
+        );
+    }
     let client_path = discovery_path.clone();
     let client_grant = grant_id.clone();
     let rejected = tokio::task::spawn_blocking(move || {
@@ -609,5 +678,14 @@ async fn real_keyring_client_roundtrip() {
 impl crate::source_session_read::SessionHistoryUtility for NoUtility {
     async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
         panic!("This fixture does not read session history")
+    }
+}
+
+// This headless transport fixture has no registered editors.
+impl crate::record_document_service::BoundRecordStore for WorkspaceHandler {
+    async fn flush_editors(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<()> { Ok(()) }
+    async fn submission_lock(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> { Ok(None) }
+    fn with_current<T>(&self, action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>) -> AgentResult<T> {
+        crate::source_service::BoundSourceStore::with_current(self, action)
     }
 }

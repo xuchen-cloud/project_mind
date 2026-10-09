@@ -39,7 +39,7 @@ pub(crate) async fn execute<S, R, F, H>(
     history: &H,
 ) -> AgentResult<Value>
 where
-    S: BoundReadContextStore,
+    S: BoundReadContextStore + crate::record_document_service::BoundRecordStore + Sync,
     R: DocumentUtility,
     F: SourceUtility,
     H: SessionHistoryUtility,
@@ -86,6 +86,10 @@ where
     }
     let request = connection.with_authenticated(|_, _, _, request| Ok(request))?;
     match input.method.as_str() {
+        "record.create" | "record.patch" | "record.restore" | "operation.get"
+        | "operation.list" | "operation.undo" | "operation.restore_created" => {
+            return super::record_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
+        }
         "session.search" => {
             let params = decode(input.params.clone())?;
             return encode(
@@ -110,13 +114,20 @@ where
                 .await?,
             );
         }
-        "record.blocks.get" | "todo.get" | "file.versions.list" | "file.versions.get"
+        "record.blocks.get"
+        | "record.versions.list"
+        | "record.versions.get"
+        | "record.versions.compare"
+        | "todo.get"
+        | "file.versions.list"
+        | "file.versions.get"
         | "file.source.read" => {
             return super::object_reads::execute(
                 &connection,
                 &request,
                 &input.method,
                 input.params.clone(),
+                record,
             )
             .await;
         }

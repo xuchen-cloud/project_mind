@@ -1,4 +1,4 @@
-//! Stdio MCP adapter for reads exposed by the local bridge registry.
+//! Stdio MCP adapter for methods exposed by the local bridge registry.
 use super::{client::BridgeClient, registry};
 use crate::agent::{
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
@@ -140,10 +140,17 @@ impl ServerHandler for MindMcp {
                 None,
             ));
         };
-        let request_id = new_request_id();
+        let validation_id = new_request_id();
         let params = match validate(method, request.arguments) {
             Ok(params) => params,
-            Err(error) => return Ok(result(request_id, Err(error)).into()),
+            Err(error) => return Ok(result(validation_id, Err(error)).into()),
+        };
+        let request_id = if registry::is_read_only(method) == Some(false) {
+            // The caller's stable ID is the native mutation receipt identity.
+            // Registry validation already requires 1–128 bytes for every write.
+            params["requestId"].as_str().expect("validated write requestId").to_owned()
+        } else {
+            validation_id
         };
         let call = Arc::clone(&self.call);
         let method = method.to_owned();

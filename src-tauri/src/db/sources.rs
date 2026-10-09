@@ -132,7 +132,7 @@ impl Database {
     ) -> AgentResult<ObjectRef> {
         self.source_read_object_inner(request, binding, object, false)
     }
-    pub(super) fn source_read_historical_record(
+    pub(crate) fn source_read_historical_record(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,

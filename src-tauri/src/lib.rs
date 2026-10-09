@@ -26,6 +26,7 @@ mod knowledge_service;
 mod knowledge_registry;
 mod utility_process;
 mod record_document_service;
+mod record_version_reads;
 mod record_document_commands;
 mod file_document_commands;
 mod file_version_service;

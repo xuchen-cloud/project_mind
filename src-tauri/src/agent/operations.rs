@@ -3,7 +3,7 @@
 use crate::{agent::models::ObjectRef, record_documents::RecordCommittedHead};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OperationGetInput {
     pub operation_id: String,
@@ -16,7 +16,7 @@ pub(crate) struct OperationListInput {
     #[serde(default = "operation_limit")]
     pub limit: u16,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OperationUndoInput {
     pub operation_id: String,

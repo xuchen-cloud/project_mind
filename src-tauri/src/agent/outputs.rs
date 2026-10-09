@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Canonical editor node input. AI-16 supplies the shared whitelist validator;
 /// these DTOs alone do not make a node safe to write.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BlockInput {
     #[serde(rename = "type")]
@@ -21,7 +21,7 @@ pub struct BlockInput {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<MarkInput>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MarkInput {
     #[serde(rename = "type")]
@@ -29,13 +29,13 @@ pub struct MarkInput {
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub attrs: serde_json::Map<String, serde_json::Value>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AppendPosition {
     Start,
     End,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(
     tag = "op",
     rename_all = "snake_case",
@@ -68,7 +68,7 @@ pub enum BlockEdit {
         text: String,
     },
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordPatch {
     pub record: ObjectRef,

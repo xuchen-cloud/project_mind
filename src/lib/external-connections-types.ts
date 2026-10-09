@@ -27,4 +27,5 @@ export interface ConnectionCreateData {
   workspaceContent: boolean;
   projectIds: number[];
   sessionRead: boolean;
+  writeOperations: string[];
 }

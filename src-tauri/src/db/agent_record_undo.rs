@@ -103,7 +103,7 @@ pub(super) fn authorize(
     request: &RequestContext,
     binding: &WorkspaceBinding,
     entry: &OperationEntry,
-    _caller: &str,
+    caller: &str,
     permission: &str,
 ) -> AgentResult<()> {
     if entry.object.workspace_id != binding.workspace_id {
@@ -116,9 +116,11 @@ pub(super) fn authorize(
     match &request.caller {
         Caller::Gui => Ok(()),
         Caller::BuiltinRun { run_id } if entry.run_id.as_deref() == Some(run_id) => Ok(()),
+        Caller::Connection { .. }
+            if entry.run_id.is_none() && request.caller.key() == caller => Ok(()),
         _ => Err(AgentError::new(
             ErrorCode::ScopeDenied,
-            "Only the owning Run or local interface can access this operation",
+            "Only the owning caller or local interface can access this operation",
         )),
     }
 }
@@ -446,7 +448,7 @@ impl Database {
         {
             return Err(conflict());
         }
-        if entry.kind != "record.patch"
+        if !matches!(entry.kind.as_str(), "record.patch" | "record.version.restore")
             || entry.object.kind != ObjectKind::Record
             || !matches!(entry.undo_state.as_str(), "available" | "undone")
         {
@@ -585,7 +587,78 @@ pub(crate) fn agent_record_undo_receipt_committed(
     request_id: &str,
     operation: &str,
     result_json: &str,
+    workspace_id: Option<&str>,
 ) -> AgentResult<()> {
+    if caller.starts_with("connection:")
+        && matches!(operation, "record.create" | "record.patch" | "record.version.restore")
+    {
+        let workspace_id = workspace_id.ok_or_else(|| AgentError::new(
+            ErrorCode::WorkspaceChanged,
+            "Connection Record receipt has no bound Workspace",
+        ))?;
+        let (head, object, id, before_revision, before_snapshot, after_snapshot, undo) =
+            match operation {
+                "record.create" => {
+                    let head: crate::record_documents::RecordCommittedHead = decode(result_json)?;
+                    let object = ObjectRef {
+                        workspace_id: workspace_id.into(),
+                        scope: head.target.scope.clone(),
+                        kind: ObjectKind::Record,
+                        id: head.target.record_id.to_string(),
+                    };
+                    (head, object, random_id(), None, None, None, "available")
+                }
+                "record.patch" => {
+                    let result: crate::record_documents::RecordPatchResult = decode(result_json)?;
+                    if result.receipt.object.workspace_id != workspace_id
+                        || result.receipt.request_id != request_id
+                        || result.after_revision != result.head.head_revision
+                    {
+                        return Err(invalid("Connection Record receipt identity differs"));
+                    }
+                    let undo = if result.no_change { "unavailable" } else { "available" };
+                    (result.head, result.receipt.object, result.receipt.operation_id,
+                        Some(result.before_revision), Some(result.before_version),
+                        result.after_version, undo)
+                }
+                _ => {
+                    let result: crate::record_documents::RecordCommitResult = decode(result_json)?;
+                    let object = ObjectRef {
+                        workspace_id: workspace_id.into(),
+                        scope: result.head.target.scope.clone(),
+                        kind: ObjectKind::Record,
+                        id: result.head.target.record_id.to_string(),
+                    };
+                    let before_revision = if result.no_change { result.head.head_revision } else {
+                        result.head.head_revision.checked_sub(1).ok_or_else(conflict)?
+                    };
+                    let undo = if result.no_change { "unavailable" } else { "available" };
+                    (result.head, object, random_id(), Some(before_revision),
+                        Some(result.before_version), result.after_version, undo)
+                }
+            };
+        if object.scope != head.target.scope || object.id != head.target.record_id.to_string() {
+            return Err(invalid("Connection Record receipt target differs"));
+        }
+        let after_snapshot = match after_snapshot {
+            Some(id) => id,
+            None => tx.query_row(
+                "SELECT id FROM record_versions WHERE record_key=?1 AND head_revision=?2 AND body_hash=?3 ORDER BY version_number DESC LIMIT 1",
+                params![head.target.key()?, head.head_revision as i64, head.body_hash],
+                |row| row.get::<_, String>(0),
+            ).optional().map_err(io_error)?.ok_or_else(conflict)?,
+        };
+        let metadata = super::record_documents::metadata(tx, &head.target)?;
+        let context = json!({"afterMetadata":metadata,"afterBodyHash":head.body_hash});
+        let changed = tx.execute(
+            "UPDATE agent_operation_receipts SET operation_id=?1,target_ref_json=?2,before_revision=?3,after_revision=?4,before_snapshot_ref=?5,after_snapshot_ref=?6,output_context_json=?7,undo_state=?8 WHERE caller_id=?9 AND request_id=?10 AND operation=?11 AND state='committed'",
+            params![id,encode(&object)?,before_revision.map(|v|v as i64),head.head_revision as i64,before_snapshot,after_snapshot,encode(&context)?,undo,caller,request_id,operation],
+        ).map_err(io_error)?;
+        if changed != 1 {
+            return Err(AgentError::new(ErrorCode::IoFailed, "Connection Record receipt is missing"));
+        }
+        return Ok(());
+    }
     if operation != "record.undo" {
         return Ok(());
     }

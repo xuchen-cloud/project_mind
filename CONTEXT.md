@@ -202,7 +202,7 @@ Project Overview 的维护作业在 `agent_jobs` 中持久保存 `batchId`、来
 可信适配器绑定到 Workspace 和明确 Project/Workspace 范围的操作权限；资料正文或工具参数不能扩大它。
 _Avoid_：当前页面、模型声明的授权
 
-外部连接通过本机随机端口 bridge 访问当前打开的 Workspace；凭据保存在系统凭据服务，Workspace 仅保存授权范围和凭据摘要。每次请求重新检查连接撤销和 Workspace 代际，切换后不自动转接。当前已接通的外部读取为 Project 列表、有界上下文、Overview、知识和来源，以及会话检索/原文、Record 块、Todo 与 File 版本/源码；CLI 不打开第二份数据库、不启动内置模型任务。同一只读入口已通过 stdio MCP 暴露，设置可复制配置；其余外部工具、写操作和对象级授权尚待后续接入。
+外部连接通过本机随机端口 bridge 访问当前打开的 Workspace；凭据保存在系统凭据服务，Workspace 仅保存授权范围和凭据摘要。每次请求重新检查连接撤销和 Workspace 代际，切换后不自动转接。当前已接通的外部读取为 Project 列表、有界上下文、Overview、知识和来源，以及会话检索/原文、Record 块、Todo 与 File 版本/源码；CLI 不打开第二份数据库、不启动内置模型任务。这些读取及 Record 历史列表/定位/比较通过 stdio MCP 暴露，设置可复制配置。外部 Record 创建、块修改、历史恢复及本连接收据读取/撤销/恢复已接到原生服务；设置显式选择写权限，已有只读连接保持只读，CLI/MCP 写入共用稳定请求 ID。Todo/File 写入、完整协作预设和对象级授权仍按后续工作包接入。
 
 **Context Instruction**：
 用户明确保存的作用域上下文说明，与模型生成知识、QuickNote 分离；模型不能自行修改。

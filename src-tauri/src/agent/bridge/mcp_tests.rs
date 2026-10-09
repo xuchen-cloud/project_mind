@@ -1,16 +1,19 @@
 use super::*;
 use rmcp::{serve_client_with_lifecycle, ClientLifecycleMode};
 use serde_json::json;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[tokio::test]
-async fn sdk_client_negotiates_and_calls_registered_reads() {
+async fn sdk_client_negotiates_and_calls_registered_methods() {
     let revoked = Arc::new(AtomicBool::new(false));
     let changed = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new(AtomicUsize::new(0));
     let server = MindMcp::with_call(Arc::new({
         let revoked = Arc::clone(&revoked);
         let changed = Arc::clone(&changed);
-        move |method, params, _| {
+        let calls = Arc::clone(&calls);
+        move |method, params, request_id| {
+            calls.fetch_add(1, Ordering::SeqCst);
             if changed.load(Ordering::SeqCst) {
                 return Err(AgentError::new(
                     ErrorCode::WorkspaceChanged,
@@ -23,7 +26,7 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
                     "Connection revoked",
                 ));
             }
-            Ok(json!({"method": method, "params": params}))
+            Ok(json!({"method": method, "params": params, "bridgeRequestId": request_id}))
         }
     }));
     let (server_io, client_io) = tokio::io::duplex(64 * 1024);
@@ -39,7 +42,7 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
     );
 
     let listed = client.peer().list_tools(None).await.unwrap();
-    assert_eq!(listed.tools.len(), 14);
+    assert_eq!(listed.tools.len(), 24);
     assert_eq!(
         listed.tools.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>(),
         registry::registered_methods().iter().map(|entry| format!("mind_{}", entry.method.replace('.', "_"))).collect::<Vec<_>>(),
@@ -47,7 +50,7 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
     for tool in &listed.tools {
         assert_eq!(
             tool.annotations.as_ref().unwrap().read_only_hint,
-            Some(true)
+            registry::is_read_only(method_for_tool(&tool.name).unwrap())
         );
         let method = method_for_tool(&tool.name).unwrap();
         assert_eq!(
@@ -82,6 +85,9 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
         ("mind_session_search", "session.search", json!({"scope":project_scope,"query":"plan","sessionId":session_id})),
         ("mind_session_messages_read", "session.messages.read", json!({"sessionId":session_id,"messageId":message_id})),
         ("mind_record_blocks_get", "record.blocks.get", json!({"record":record})),
+        ("mind_record_versions_list", "record.versions.list", json!({"record":record})),
+        ("mind_record_versions_get", "record.versions.get", json!({"record":record,"versionId":"a".repeat(32)})),
+        ("mind_record_versions_compare", "record.versions.compare", json!({"record":record,"beforeVersionId":"a".repeat(32),"afterVersionId":"b".repeat(32)})),
         ("mind_todo_get", "todo.get", json!({"target":todo})),
         ("mind_file_versions_list", "file.versions.list", json!({"object":file})),
         ("mind_file_versions_get", "file.versions.get", json!({"object":file,"versionId":"1"})),
@@ -94,6 +100,40 @@ async fn sdk_client_negotiates_and_calls_registered_reads() {
         assert_eq!(called.is_error, Some(false), "{name}");
         assert_eq!(called.structured_content.as_ref().unwrap()["data"]["method"], method);
     }
+
+    let patch = |request_id: &str| json!({
+        "record":{"workspaceId":"test","scope":{"kind":"project","projectId":1},"kind":"record","id":"1"},
+        "baseRevision":1,
+        "requestId":request_id,
+        "operations":[]
+    });
+    for _ in 0..2 {
+        let supplied = "stable-record-patch-1";
+        let called = client.peer().call_tool(
+            CallToolRequestParams::new("mind_record_patch")
+                .with_arguments(patch(supplied).as_object().unwrap().clone())
+        ).await.unwrap();
+        assert_eq!(called.is_error, Some(false));
+        assert_eq!(called.structured_content.as_ref().unwrap()["requestId"], supplied);
+        assert_eq!(called.structured_content.as_ref().unwrap()["data"]["bridgeRequestId"], supplied);
+    }
+    let calls_before_invalid = calls.load(Ordering::SeqCst);
+    for invalid in ["", &"x".repeat(129)] {
+        let called = client.peer().call_tool(
+            CallToolRequestParams::new("mind_record_patch")
+                .with_arguments(patch(invalid).as_object().unwrap().clone())
+        ).await.unwrap();
+        assert_eq!(called.is_error, Some(true));
+        assert_eq!(called.structured_content.as_ref().unwrap()["error"]["code"], "INVALID_ARGUMENT");
+    }
+    let mut missing = patch("stable-record-patch-1");
+    missing.as_object_mut().unwrap().remove("requestId");
+    let missing = client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_patch")
+            .with_arguments(missing.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(missing.is_error, Some(true));
+    assert_eq!(calls.load(Ordering::SeqCst), calls_before_invalid);
 
     let malformed = client
         .peer()

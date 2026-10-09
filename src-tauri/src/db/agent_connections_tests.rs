@@ -25,6 +25,7 @@ fn create(db: &Database, binding: &WorkspaceBinding) -> ConnectionGrant {
             workspace_content: true,
             project_ids: vec![1],
             session_read: false,
+            write_operations: vec![],
         },
         "0123456789abcdef0123456789abcdef",
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -136,6 +137,7 @@ fn invalid_scopes_and_other_workspace_cannot_obtain_grants() {
         workspace_content: false,
         project_ids: vec![3],
         session_read: false,
+        write_operations: vec![],
     };
     assert_eq!(
         db.agent_connection_create(&binding, &invalid, &"a".repeat(32), &"b".repeat(64))
@@ -202,4 +204,82 @@ fn authenticate_rejects_invalid_request_id_before_bridge_dispatch() {
             ErrorCode::InvalidArgument,
         );
     }
+}
+
+#[test]
+fn selected_record_writes_are_canonical_and_persisted_exactly() {
+    let (_root, db, binding) = fixture();
+    let token = "c".repeat(64);
+    let grant = db.agent_connection_create(
+        &binding,
+        &ConnectionCreateInput {
+            client_label: "Record editor".into(),
+            workspace_content: false,
+            project_ids: vec![1],
+            session_read: true,
+            write_operations: vec![
+                "record.restore".into(),
+                "content.create".into(),
+                "record.restore".into(),
+                "operation.undo".into(),
+            ],
+        },
+        &"d".repeat(32),
+        &token,
+    ).unwrap();
+    let expected = vec![
+        "context.read", "source.read", "session.read", "operation.read",
+        "content.create", "record.restore", "operation.undo",
+        "operation.restore_created",
+    ];
+    assert_eq!(grant.operations, expected);
+    let stored: String = db.conn.query_row(
+        "SELECT operations_json FROM agent_connection_grants WHERE id=?1",
+        [&grant.id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(serde_json::from_str::<Vec<String>>(&stored).unwrap(), expected);
+    let request = db.agent_connection_authenticate(&binding, &grant.id, &token, "write-check").unwrap();
+    assert_eq!(request.scope_grant.operations, expected);
+    assert!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "record.restore").is_ok());
+    assert!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "operation.restore_created").is_ok());
+    assert_eq!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(request.authorize(&binding, &Scope::Project { project_id: 2 }, "record.restore").unwrap_err().code, ErrorCode::ScopeDenied);
+    let patch_grant = db.agent_connection_create(
+        &binding,
+        &ConnectionCreateInput {
+            client_label: "Patch only".into(),
+            workspace_content: false,
+            project_ids: vec![1],
+            session_read: false,
+            write_operations: vec!["record.patch".into()],
+        },
+        &"e".repeat(32),
+        &"f".repeat(64),
+    ).unwrap();
+    assert_eq!(patch_grant.operations, vec!["context.read", "source.read", "operation.read", "record.patch"]);
+}
+
+#[test]
+fn unsupported_writes_fail_and_old_json_remains_read_only() {
+    let (_root, db, binding) = fixture();
+    let mut input: ConnectionCreateInput = serde_json::from_value(serde_json::json!({
+        "clientLabel":"Old client",
+        "workspaceContent":false,
+        "projectIds":[1],
+        "sessionRead":false
+    })).unwrap();
+    assert!(input.write_operations.is_empty());
+    let grant = db.agent_connection_create(&binding, &input, &"a".repeat(32), &"b".repeat(64)).unwrap();
+    assert_eq!(grant.operations, vec!["context.read", "source.read"]);
+    for operation in ["file.update", "todo.update", "operation.read", "operation.restore_created", "record.delete"] {
+        input.write_operations = vec![operation.into()];
+        assert_eq!(
+            db.agent_connection_create(&binding, &input, &"c".repeat(32), &"d".repeat(64))
+                .unwrap_err().code,
+            ErrorCode::InvalidArgument,
+        );
+    }
+    let count: i64 = db.conn.query_row("SELECT count(*) FROM agent_connection_grants", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 1);
 }

@@ -1,4 +1,4 @@
-//! Argument handling and JSON output for local read commands.
+//! Argument handling and JSON output for local bridge commands.
 use super::{client::BridgeClient, mcp::MindMcp, registry};
 use crate::agent::{
     capabilities::capabilities,
@@ -9,7 +9,7 @@ use crate::agent::{
 use serde_json::{json, Value};
 use std::{io::Read, path::PathBuf};
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 64 KiB). Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record create|patch|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 64 KiB). Write inputs require a stable requestId; reuse the same ID when retrying. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 64 * 1024;
 
 pub struct CliOutput {
@@ -145,6 +145,16 @@ fn reject_scope_options(options: &Options) -> AgentResult<()> {
     }
 }
 
+fn write_request_id(options: &Options, params: &Value) -> AgentResult<String> {
+    let payload_id = params.get("requestId").and_then(Value::as_str)
+        .filter(|id| !id.is_empty() && id.len() <= 128)
+        .ok_or_else(|| invalid("Write input requires requestId"))?;
+    if options.request_id.as_deref().is_some_and(|id| id != payload_id) {
+        return Err(invalid("--request-id must match input requestId"));
+    }
+    Ok(payload_id.to_owned())
+}
+
 /// Stdio owns stdout for its entire lifetime. Diagnostics go only to stderr.
 pub fn run_mcp(args: &[String]) -> i32 {
     let parsed = (|| {
@@ -212,17 +222,27 @@ pub fn run(args: &[String]) -> CliOutput {
         ["session", "search", ..] => ("session.search", &args[2..], None),
         ["session", "messages", "read", ..] => ("session.messages.read", &args[3..], None),
         ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..], None),
+        ["record", "create", ..] => ("record.create", &args[2..], None),
+        ["record", "patch", ..] => ("record.patch", &args[2..], None),
+        ["record", "restore", ..] => ("record.restore", &args[2..], None),
+        ["record", "versions", "list", ..] => ("record.versions.list", &args[3..], None),
+        ["record", "versions", "get", ..] => ("record.versions.get", &args[3..], None),
+        ["record", "versions", "compare", ..] => ("record.versions.compare", &args[3..], None),
         ["todo", "get", ..] => ("todo.get", &args[2..], None),
         ["file", "versions", "list", ..] => ("file.versions.list", &args[3..], None),
         ["file", "versions", "get", ..] => ("file.versions.get", &args[3..], None),
         ["file", "source", "read", ..] => ("file.source.read", &args[3..], None),
+        ["operation", "get", ..] => ("operation.get", &args[2..], None),
+        ["operation", "list", ..] => ("operation.list", &args[2..], None),
+        ["operation", "undo", ..] => ("operation.undo", &args[2..], None),
+        ["operation", "restore-created", ..] => ("operation.restore_created", &args[2..], None),
         _ => return response(request_id(), Err(invalid("Unknown command; see mind --help"))),
     };
     let options = match parse_options(option_args) {
         Ok(options) => options,
         Err(error) => return response(request_id(), Err(error)),
     };
-    let request_id = options.request_id.clone().unwrap_or_else(request_id);
+    let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
         let method = if command == "search" { "source.search" } else { command };
@@ -243,12 +263,15 @@ pub fn run(args: &[String]) -> CliOutput {
                 json!({"scope":scoped(&options)?,"query":search_query.expect("search query"),"budgetChars":options.budget_chars})
             }
             _ => {
-                if !registry::is_registered(method) { return Err(invalid("Unknown read method")); }
+                if !registry::is_registered(method) { return Err(invalid("Unknown bridge method")); }
                 reject_scope_options(&options)?;
                 read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
             }
         };
         if command != "doctor" { registry::validate(method, &params)?; }
+        if registry::is_read_only(method) == Some(false) {
+            request_id = write_request_id(&options, &params)?;
+        }
         let client = BridgeClient::discover(connection)?;
         let binding = client.connect(connection, workspace, &request_id)?;
         if command == "doctor" {
@@ -317,7 +340,7 @@ mod tests {
         let args = ["file", "source", "read", "--input-file", file.path().to_str().unwrap(), "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
         let out = invoke(&args);
         assert_eq!(out.exit_code, 2);
-        assert!(out.stderr.contains("read input DTO"));
+        assert!(out.stderr.contains("method input DTO"));
         let mixed = invoke(&["source", "read", "--input-file", file.path().to_str().unwrap(), "--project", "1", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
         assert_eq!(mixed.exit_code, 2);
         assert!(mixed.stderr.contains("cannot accompany --input-file"));
@@ -329,5 +352,48 @@ mod tests {
         let out = invoke(&args);
         assert_eq!(out.exit_code, 2);
         assert!(out.stderr.contains("declared bounds"));
+    }
+    #[test]
+    fn record_history_commands_route_to_their_registered_dtos() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"unexpected":"field"}"#).unwrap();
+        for subcommand in ["list", "get", "compare"] {
+            let args = ["record", "versions", subcommand, "--input-file", file.path().to_str().unwrap(), "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2, "{subcommand}");
+            assert!(out.stderr.contains("method input DTO"), "{subcommand}");
+        }
+    }
+    #[test]
+    fn write_request_id_is_stable_and_must_match_override() {
+        let input = json!({"requestId":"stable-operation-1","input":{}});
+        assert_eq!(write_request_id(&Options::default(), &input).unwrap(), "stable-operation-1");
+        let matched = Options { request_id: Some("stable-operation-1".into()), ..Options::default() };
+        assert_eq!(write_request_id(&matched, &input).unwrap(), "stable-operation-1");
+        let mismatched = Options { request_id: Some("different".into()), ..Options::default() };
+        assert_eq!(write_request_id(&mismatched, &input).unwrap_err().message, "--request-id must match input requestId");
+        assert_eq!(write_request_id(&Options::default(), &json!({"input":{}})).unwrap_err().message, "Write input requires requestId");
+    }
+    #[test]
+    fn write_commands_require_an_input_file_before_connection() {
+        for words in [
+            vec!["record", "create"], vec!["record", "patch"], vec!["record", "restore"],
+            vec!["operation", "undo"], vec!["operation", "restore-created"],
+        ] {
+            let mut args = words;
+            args.extend(["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2);
+            assert!(out.stderr.contains("--input-file is required"));
+        }
+    }
+    #[test]
+    fn write_override_mismatch_is_rejected_before_discovery() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"requestId":"stable-1","input":{"scope":{"kind":"workspace"},"title":null,"tagIds":[],"document":{},"codeLanguage":null}}"#).unwrap();
+        let args = ["record", "create", "--input-file", file.path().to_str().unwrap(), "--request-id", "different", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_eq!(out.exit_code, 2);
+        assert!(out.stderr.contains("must match input requestId"));
     }
 }

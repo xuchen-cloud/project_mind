@@ -6,7 +6,7 @@
 
 GUI 通过 Tauri 命令进入当前 Workspace 的共享服务。会话侧栏、Pi Host、run、来源读取、Overview/知识、Record/Todo/File 成果与收据服务已有各自的真实调用路径；每项能力仍按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
 
-R12a 的本机外部读取路径为：
+本机外部调用路径为：
 
 ```text
 mind CLI
@@ -31,17 +31,25 @@ mind CLI
 | `bridge/client.rs`、`bridge/cli.rs`、`bridge/registry.rs`、`../bin/mind.rs` | 本机客户端、参数/JSON 输出、外部方法注册和命令入口 |
 | `capabilities.rs` | 共享能力的实现状态；不等同于外部 bridge 的可调用清单 |
 
-## R12a 外部调用范围
+## 当前外部调用范围
 
 `mind --version` 和 `mind --help` 可离线使用。`mind capabilities --json` 区分共享能力清单与 bridge 已注册方法；共享能力的 `implemented` 只表示内部服务状态。`mind schema project.list --json` 与 `mind schema context.get --json` 从请求 DTO 生成参数 schema，与 MCP 工具发现共用。
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前暴露 `project.list`、`context.get`、`context.overview.get`、`knowledge.search/get`、`source.search/read`、`session.search/messages.read`、`record.blocks.get`、`todo.get`、`file.versions.list/get` 和 `file.source.read` 十四项读取；复用内置助手的共享有界读取服务。异步提取前后，每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 注册表当前包含 24 个方法：原有十四项读取，加上 `record.versions.list/get/compare`、`operation.get/list` 五项读取，以及 `record.create/patch/restore`、`operation.undo/restore_created` 五项写入。历史列表、比较和收据读取均有预算/分页；版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
 
 新增读取命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，最多 64 KiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 
-`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。外部写命令、完整 MCP 工具集及对象级限制留待后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
+`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。Todo/File 写入、完整工具集、协作预设及对象级限制仍按后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
+
+## Record 写入与撤销
+
+设置中显式选择创建、块修改、历史恢复或本连接撤销权限，已有只读连接不会自动获得写权限。原生编辑器有未确认预览或正在提交时，外部修改会明确失败；成功提交沿用不可变版本、CAS、收据和应用变更通知。
+
+写命令仍通过 `--input-file PATH|-` 接收实际 DTO。`record.patch` 使用已有包含 `requestId` 的补丁；其他写方法使用 `{ "requestId": "稳定请求 ID", "input": { ... } }` 包含对应原生输入。`schema METHOD` 给出完整字段。CLI 和 MCP 都把该 ID 用作原生幂等身份；CLI 另传 `--request-id` 时必须一致。成功结果包含 `result` 与 `operation`，可直接取得撤销基线。同一 ID 重试不重复写入，不同内容不能复用成功请求的 ID。
+
+`operation.get/list` 只返回本连接的收据；修改撤销把修改前内容保存为新版本，历史恢复本身也可按收据撤销。新建撤销只撤回可见性，`operation.restore_created` 恢复同一对象。撤销不能覆盖后续人工修改，也不能作用于其他连接或内置任务的操作。CLI 命令为 `operation restore-created`，MCP 名称为 `mind_operation_restore_created`。
 
 ## 不应绕过的边界
 

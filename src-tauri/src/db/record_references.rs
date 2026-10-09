@@ -138,6 +138,35 @@ fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolve
         }))
 }
 impl super::Database {
+    /// Resolve the concrete source objects using the same parser and native
+    /// identity lookup as the reference edge writer. Missing references remain
+    /// the responsibility of validate_references, which knows retained history.
+    pub(crate) fn record_reference_objects(
+        &self,
+        document: &Value,
+        workspace_id: &str,
+    ) -> AgentResult<Vec<ObjectRef>> {
+        let mut objects = Vec::new();
+        for (kind, id) in reference_identities(document)? {
+            let Some(target) = resolve(&self.conn, kind, id)? else {
+                continue;
+            };
+            if let (Some(scope), Some(kind)) = (target.scope, target.kind) {
+                let object = ObjectRef {
+                    workspace_id: workspace_id.into(), scope, kind, id: id.to_string(),
+                };
+                if !objects.contains(&object) {
+                    objects.push(object);
+                }
+            }
+        }
+        objects.sort_by(|a, b| {
+            a.scope.key().cmp(&b.scope.key())
+                .then_with(|| format!("{:?}", a.kind).cmp(&format!("{:?}", b.kind)))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(objects)
+    }
     pub(crate) fn record_reference_scopes(&self, document: &Value) -> AgentResult<Vec<Scope>> {
         let identities = reference_identities(document)?;
         let mut scopes = Vec::new();

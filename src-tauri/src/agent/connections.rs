@@ -8,6 +8,9 @@ pub struct ConnectionCreateInput {
     pub workspace_content: bool,
     pub project_ids: Vec<i64>,
     pub session_read: bool,
+    /// Explicit trusted GUI selection; the Host accepts only implemented Record operations.
+    #[serde(default)]
+    pub write_operations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

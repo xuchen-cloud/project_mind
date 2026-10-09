@@ -105,7 +105,7 @@ fn fixture() -> (tempfile::TempDir, Store, RequestContext, PiFixture) {
     let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g".into() };
     for (grant_id, token, session_read) in [(GRANT, TOKEN, true), (NO_HISTORY_GRANT, NO_HISTORY_TOKEN, false)] {
         db.agent_connection_create(&binding, &ConnectionCreateInput {
-            client_label: "History test".into(), workspace_content: true, project_ids: vec![], session_read,
+            client_label: "History test".into(), workspace_content: true, project_ids: vec![], session_read, write_operations: vec![],
         }, grant_id, token).unwrap();
     }
     let request = RequestContext {
@@ -271,4 +271,12 @@ async fn workspace_switch_during_scan_rejects_fixed_binding() {
         )
     }).await.unwrap();
     assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged);
+}
+
+impl crate::record_document_service::BoundRecordStore for Store {
+    async fn flush_editors(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<()> { Ok(()) }
+    async fn submission_lock(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> { Ok(None) }
+    fn with_current<T>(&self, action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>) -> AgentResult<T> {
+        BoundSourceStore::with_current(self, action)
+    }
 }

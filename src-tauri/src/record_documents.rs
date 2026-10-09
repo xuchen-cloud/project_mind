@@ -12,7 +12,7 @@ use std::{
     sync::OnceLock,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordTarget {
     pub scope: Scope,
@@ -48,7 +48,7 @@ pub(crate) struct RecordMetadataApply {
     pub new_tags: Vec<RecordMetadataNewTag>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordCreate {
     pub scope: Scope,
@@ -266,7 +266,7 @@ pub(crate) struct RecordVersionPage {
     pub versions: Vec<RecordVersionSummary>,
     pub next_before: Option<u64>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordRestoreInput {
     pub target: RecordTarget,
