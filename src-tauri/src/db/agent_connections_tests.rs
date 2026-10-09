@@ -24,6 +24,7 @@ fn create(db: &Database, binding: &WorkspaceBinding) -> ConnectionGrant {
             client_label: "  Test CLI  ".into(),
             workspace_content: true,
             project_ids: vec![1],
+            all_projects: false,
             session_read: false,
             write_operations: vec![],
         },
@@ -136,6 +137,7 @@ fn invalid_scopes_and_other_workspace_cannot_obtain_grants() {
         client_label: "bad".into(),
         workspace_content: false,
         project_ids: vec![3],
+        all_projects: false,
         session_read: false,
         write_operations: vec![],
     };
@@ -216,6 +218,7 @@ fn selected_record_writes_are_canonical_and_persisted_exactly() {
             client_label: "Record editor".into(),
             workspace_content: false,
             project_ids: vec![1],
+            all_projects: false,
             session_read: true,
             write_operations: vec![
                 "record.restore".into(),
@@ -251,6 +254,7 @@ fn selected_record_writes_are_canonical_and_persisted_exactly() {
             client_label: "Patch only".into(),
             workspace_content: false,
             project_ids: vec![1],
+            all_projects: false,
             session_read: false,
             write_operations: vec!["record.patch".into()],
         },
@@ -270,8 +274,22 @@ fn unsupported_writes_fail_and_old_json_remains_read_only() {
         "sessionRead":false
     })).unwrap();
     assert!(input.write_operations.is_empty());
+    assert!(!input.all_projects);
     let grant = db.agent_connection_create(&binding, &input, &"a".repeat(32), &"b".repeat(64)).unwrap();
+    assert!(!grant.all_projects);
     assert_eq!(grant.operations, vec!["context.read", "source.read"]);
+    let stored: String = db.conn.query_row(
+        "SELECT scope_grant_json FROM agent_connection_grants WHERE id=?1",
+        [&grant.id], |row| row.get(0),
+    ).unwrap();
+    let mut old_scope: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    old_scope.as_object_mut().unwrap().remove("allProjects");
+    db.conn.execute(
+        "UPDATE agent_connection_grants SET scope_grant_json=?1 WHERE id=?2",
+        params![old_scope.to_string(), grant.id],
+    ).unwrap();
+    assert!(!db.agent_connection_list(&binding).unwrap()[0].all_projects);
+    assert_eq!(db.agent_connection_authenticate(&binding, &grant.id, &"b".repeat(64), "old-scope").unwrap().scope_grant.project_ids, vec![1]);
     for operation in ["operation.read", "operation.restore_created", "record.delete"] {
         input.write_operations = vec![operation.into()];
         assert_eq!(
@@ -292,7 +310,7 @@ fn native_file_preflight_and_transaction_recheck_persisted_connection_grant() {
         &binding,
         &ConnectionCreateInput {
             client_label: "File editor".into(), workspace_content: false,
-            project_ids: vec![1], session_read: false,
+            project_ids: vec![1], all_projects: false, session_read: false,
             write_operations: vec!["content.create".into(), "file.update".into(), "file.restore".into()],
         },
         &"8".repeat(32), &token,
@@ -330,6 +348,7 @@ fn todo_update_grant_persists_without_changing_prior_read_only_grants() {
             client_label: "Todo editor".into(),
             workspace_content: false,
             project_ids: vec![1],
+            all_projects: false,
             session_read: false,
             write_operations: vec!["todo.update".into(), "content.create".into(), "todo.update".into()],
         },
@@ -350,4 +369,81 @@ fn todo_update_grant_persists_without_changing_prior_read_only_grants() {
     let request = db.agent_connection_authenticate(&binding, &grant.id, &"8".repeat(64), "todo-auth").unwrap();
     assert!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "todo.update").is_ok());
     assert_eq!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
+}
+
+#[test]
+fn all_projects_resolves_current_projects_without_expanding_workspace_content() {
+    let (_root, db, binding) = fixture();
+    let input = ConnectionCreateInput {
+        client_label: "All project reader".into(),
+        workspace_content: false,
+        project_ids: vec![],
+        all_projects: true,
+        session_read: false,
+        write_operations: vec![],
+    };
+    let token = "b".repeat(64);
+    let grant = db.agent_connection_create(&binding, &input, &"a".repeat(32), &token).unwrap();
+    assert!(grant.all_projects);
+    assert!(grant.project_ids.is_empty());
+    assert!(!grant.workspace_content);
+    assert_eq!(grant.operations, vec!["context.read", "source.read"]);
+    let public = serde_json::to_value(&grant).unwrap();
+    assert_eq!(public["allProjects"], true);
+    assert_eq!(public["projectIds"], serde_json::json!([]));
+    assert_eq!(db.agent_connection_list(&binding).unwrap()[0].all_projects, true);
+
+    let first = db.agent_connection_authenticate(&binding, &grant.id, &token, "all-first").unwrap();
+    assert_eq!(first.scope_grant.project_ids, vec![1, 2]);
+    assert_eq!(first.authorize(&binding, &Scope::Workspace, "context.read").unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(first.authorize(&binding, &Scope::Project { project_id: 1 }, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
+    db.conn.execute(
+        "INSERT INTO projects(id,name,root_path,is_archived,created_at,updated_at) VALUES(4,'New','workspace:project-4',0,'now','now')",
+        [],
+    ).unwrap();
+    assert_eq!(first.authorize(&binding, &Scope::Project { project_id: 4 }, "context.read").unwrap_err().code, ErrorCode::ScopeDenied);
+    let second = db.agent_connection_authenticate(&binding, &grant.id, &token, "all-second").unwrap();
+    assert_eq!(second.scope_grant.project_ids, vec![1, 2, 4]);
+    assert!(second.authorize(&binding, &Scope::Project { project_id: 4 }, "context.read").is_ok());
+    db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=2", []).unwrap();
+    let third = db.agent_connection_authenticate(&binding, &grant.id, &token, "all-third").unwrap();
+    assert_eq!(third.scope_grant.project_ids, vec![1, 4]);
+    assert_eq!(db.agent_connection_projects(&third, &binding).unwrap().into_iter().map(|item| item.id).collect::<Vec<_>>(), vec![1, 4]);
+
+    let other = WorkspaceBinding { workspace_id: "workspace-b".into(), generation: binding.generation.clone() };
+    assert_eq!(db.agent_connection_authenticate(&other, &grant.id, &token, "other").unwrap_err().code, ErrorCode::WorkspaceChanged);
+    db.agent_connection_revoke(&binding, &grant.id).unwrap();
+    assert_eq!(db.agent_connection_authenticate(&binding, &grant.id, &token, "revoked").unwrap_err().code, ErrorCode::ScopeDenied);
+}
+
+#[test]
+fn all_projects_rejects_explicit_ids_and_native_file_recheck_uses_target() {
+    let (_root, db, binding) = fixture();
+    let mut input = ConnectionCreateInput {
+        client_label: "All project File writer".into(),
+        workspace_content: true,
+        project_ids: vec![1],
+        all_projects: true,
+        session_read: false,
+        write_operations: vec!["file.update".into()],
+    };
+    let token = "d".repeat(64);
+    assert_eq!(db.agent_connection_create(&binding, &input, &"c".repeat(32), &token).unwrap_err().code, ErrorCode::InvalidArgument);
+    input.project_ids.clear();
+    let grant = db.agent_connection_create(&binding, &input, &"c".repeat(32), &token).unwrap();
+    assert!(grant.all_projects && grant.workspace_content && grant.project_ids.is_empty());
+    let request = db.agent_connection_authenticate(&binding, &grant.id, &token, "file-all").unwrap();
+    db.conn.execute(
+        "INSERT INTO projects(id,name,root_path,is_archived,created_at,updated_at) VALUES(4,'New','workspace:project-4',0,'now','now')",
+        [],
+    ).unwrap();
+    db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=2", []).unwrap();
+    db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "file.update").unwrap();
+    assert_eq!(db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 2 }, "file.update").unwrap_err().code, ErrorCode::ScopeDenied);
+    let fresh = db.agent_connection_authenticate(&binding, &grant.id, &token, "file-new").unwrap();
+    db.agent_connection_require_live(&fresh, &binding, &Scope::Project { project_id: 4 }, "file.update").unwrap();
+    db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=4", []).unwrap();
+    assert_eq!(db.agent_connection_require_live(&fresh, &binding, &Scope::Project { project_id: 4 }, "file.update").unwrap_err().code, ErrorCode::ScopeDenied);
+    db.agent_connection_revoke(&binding, &grant.id).unwrap();
+    assert_eq!(db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "file.update").unwrap_err().code, ErrorCode::ScopeDenied);
 }

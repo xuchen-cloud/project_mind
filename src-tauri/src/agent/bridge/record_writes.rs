@@ -8,10 +8,25 @@ use crate::{
     },
     committed_changes::capture_committed,
     record_document_service::{BoundRecordStore, DocumentUtility, RecordDocumentService},
-    record_documents::{RecordCreate, RecordPatchPreviewInput, RecordRestoreInput},
+    record_documents::{RecordCreate, RecordMarkdownCreate, RecordPatchPreviewInput, RecordRestoreInput},
 };
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
+
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub(crate) enum ConnectionRecordCreate {
+    Document(RecordCreate),
+    Markdown(RecordMarkdownCreate),
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordCreatePreviewInput {
+    pub input: ConnectionRecordCreate,
+    #[schemars(range(min = 1, max = 12000))]
+    pub budget_chars: Option<usize>,
+}
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -47,8 +62,17 @@ pub(crate) async fn execute<S: BoundRecordStore + crate::file_version_service::B
     let service = RecordDocumentService::new(store, worker);
     let result = match method {
         "record.create" => {
-            let input = decode::<MutationInput<RecordCreate>>(params)?.bind(request)?;
-            json!(service.create(request, &input).await?)
+            match decode::<MutationInput<ConnectionRecordCreate>>(params)?.bind(request)? {
+                ConnectionRecordCreate::Document(input) => json!(service.create(request, &input).await?),
+                ConnectionRecordCreate::Markdown(input) => json!(service.create_markdown(request, &input).await?),
+            }
+        }
+        "record.create.preview" => {
+            let preview: RecordCreatePreviewInput = decode(params)?;
+            return Ok(match preview.input {
+                ConnectionRecordCreate::Document(input) => json!(service.create_preview(request, &input, preview.budget_chars).await?),
+                ConnectionRecordCreate::Markdown(input) => json!(service.create_markdown_preview(request, &input, preview.budget_chars).await?),
+            });
         }
         "record.patch" => {
             let input: RecordPatch = decode(params)?;

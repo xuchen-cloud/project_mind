@@ -13,7 +13,7 @@ use crate::{
         record_blocks::RecordBlocksInput,
         todo_tools::TodoGetInput,
     },
-    agent::bridge::record_writes::MutationInput,
+    agent::bridge::record_writes::{ConnectionRecordCreate, MutationInput, RecordCreatePreviewInput},
     db::agent_record_withdrawals::RecordRestoreInput as CreatedRecordRestoreInput,
     db::agent_session_model_search::ModelHistorySearchInput,
     db::file_imports::AgentFileCreateInput,
@@ -23,7 +23,7 @@ use crate::{
     knowledge_service::{KnowledgeGetInput, KnowledgeSearchInput},
     overview_service::OverviewReadInput,
     record_version_reads::{RecordVersionsCompareInput, RecordVersionsGetInput, RecordVersionsListInput},
-    record_documents::{RecordCreate, RecordPatchPreviewInput, RecordRestoreInput},
+    record_documents::{RecordPatchPreviewInput, RecordRestoreInput},
     source_service::{SourceReadInput, SourceSearchInput},
 };
 use schemars::{schema_for, JsonSchema};
@@ -149,9 +149,15 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "record.create",
-            description: "Create one Record in the explicitly granted scope with content.create. Supply a stable requestId for safe retry; the native service validates document and metadata.",
+            description: "Create one Record in the explicitly granted scope with content.create. Supply a stable requestId for safe retry; the native service validates canonical document or Markdown and metadata.",
             read_only: false,
-            parameters: serde_json::to_value(schema_for!(MutationInput<RecordCreate>)).expect("static schema"),
+            parameters: serde_json::to_value(schema_for!(MutationInput<ConnectionRecordCreate>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.create.preview",
+            description: "Validate and preview a new Record from canonical document or Markdown with content.create permission. budgetChars bounds text; no object, version or receipt is written. Creation revalidates the input.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordCreatePreviewInput)).expect("static schema"),
         },
         RegisteredMethod {
             method: "record.patch",
@@ -273,7 +279,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         | "session.messages.read" | "record.blocks.get" | "todo.get"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
-        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" => Some(true),
+        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" => Some(true),
         "record.create" | "record.patch" | "record.restore" | "operation.undo"
         | "operation.restore_created" | "todo.create" | "todo.update"
         | "file.create" | "file.patch" | "file.version.restore" | "file.update"
@@ -315,7 +321,8 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "record.versions.list" => decode::<RecordVersionsListInput>(parameters),
         "record.versions.get" => decode::<RecordVersionsGetInput>(parameters),
         "record.versions.compare" => decode::<RecordVersionsCompareInput>(parameters),
-        "record.create" => decode::<MutationInput<RecordCreate>>(parameters),
+        "record.create" => decode::<MutationInput<ConnectionRecordCreate>>(parameters),
+        "record.create.preview" => decode::<RecordCreatePreviewInput>(parameters),
         "record.patch" => decode::<RecordPatch>(parameters),
         "record.patch.preview" => decode::<RecordPatchPreviewInput>(parameters),
         "record.restore" => decode::<MutationInput<RecordRestoreInput>>(parameters),
@@ -375,14 +382,14 @@ mod tests {
             "session.messages.read", "record.blocks.get", "todo.get",
             "file.versions.list", "file.versions.get", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
-            "record.create", "record.patch", "record.patch.preview", "record.restore", "operation.get",
+            "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",
             "file.content.begin", "file.content.chunk", "file.content.complete",
             "file.content.status",
         ]);
-        assert_eq!(registered_methods().len(), 35);
+        assert_eq!(registered_methods().len(), 36);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         assert_eq!(is_read_only("record.patch"), Some(false));
         assert_eq!(is_read_only("operation.list"), Some(true));
@@ -490,7 +497,7 @@ mod tests {
     #[test]
     fn write_schemas_are_native_and_require_stable_request_identity() {
         for method in [
-            "record.create", "record.patch", "record.patch.preview", "record.restore", "operation.get",
+            "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",
@@ -515,6 +522,18 @@ mod tests {
         missing.as_object_mut().unwrap().remove("requestId");
         assert_eq!(validate("record.patch", &missing).unwrap_err().code, ErrorCode::InvalidArgument);
         assert!(!is_registered("file.delete"));
+    }
+
+    #[test]
+    fn record_creation_accepts_one_content_format_and_preview_has_no_mutation_id() {
+        let input = serde_json::json!({"scope":{"kind":"workspace"},"title":"Plan","tagIds":[],"markdown":"# Plan","codeLanguage":null});
+        validate("record.create", &serde_json::json!({"requestId":"stable", "input":input})).unwrap();
+        validate("record.create.preview", &serde_json::json!({"input":input})).unwrap();
+        let mut ambiguous = input.clone();
+        ambiguous["document"] = serde_json::json!({"type":"doc","content":[]});
+        assert!(validate("record.create.preview", &serde_json::json!({"input":ambiguous})).is_err());
+        assert!(validate("record.create.preview", &serde_json::json!({"input":input,"requestId":"write-id"})).is_err());
+        assert_eq!(is_read_only("record.create.preview"), Some(true));
     }
 
     #[test]

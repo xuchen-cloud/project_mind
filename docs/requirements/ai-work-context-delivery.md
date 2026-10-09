@@ -399,13 +399,27 @@ File 当前验证：设置定向 8 项、TypeScript、生产前端构建与路�
 
 验收：Markdown 标题/列表/引用由真实 worker 转换，创建后可正常编辑、读取和撤销；相同原始请求重试仅一个对象，改变 Markdown 的同 ID 请求冲突。创建预览与正式提交正文一致且零持久化；元信息、引用、排除和 worker 期间撤权都复用实际约束。验证 native 创建/预览、bridge/CLI/MCP schema、真实 worker 和生产 CLI 链路；无 GUI 改动复用前端证据。
 
-### R12c 第一子步：明确的连接授权预设 / #106
+第三子步已完成（2026-10-09）：注册表 36 项（22 读 / 14 写），bridge/CLI/MCP 65 项通过（另 2 项 ignored）；原生 Record 首轮 59 项通过，1 项测试混用了跨 Project 引用与非法标题，拆开合法夹具后失败项复查通过（另 7 项 ignored）。真实 worker 验证 Markdown 标题、列表结构及预览/提交正文一致；首次断言误将输入的 `-` 当作固定导出符，按既有 `*` 导出规则改为结构断言后通过，未改转换器。生产 CLI 构建通过，独立 Linux 系统凭据→socket→MCP/实际 CLI 的预览零创建、正式创建、同 ID 重放及变更正文冲突通过；集成夹具遗漏的工具数量由 35 修正为 36 后复查通过。主 agent Standards/Spec 自查通过。
 
-依赖：b3b 已接通 Record/Todo/File 实际写权限，现有持久 grant 仍为唯一执行依据。本子步与 b3c 的 CLI 参数工作无共享源码，可独立实施。新建连接提供“单 Project 协作（推荐）”“只读”“自定义”三个明确选项。协作固定一个 Project，授予读取、新建、Record/Todo/File 修改和本连接撤销；不自动包含任意历史恢复或 Workspace 内容。只读预设不传写权限；自定义沿用已实现操作集，允许明确选择 Project 子集及 Workspace 直属内容。会话依据读取保持单独显式选项。
+### R12c 第一子步：Workspace 优先的连接授权预设 / #106
 
-非目标：不迁移或自动扩大已有连接，不把 UI 预设名存成新的授权规则，不在尚未贯穿执行边界前显示对象级限制已可用。创建前展示简短范围/权限说明，切 Workspace 清空用户可选授权和旧 Project；无可用 Project 时协作不可创建。
+依赖：b3b 原生写入及持久 grant。用户补充（2026-10-09）：主流连接以整个 Workspace 为工作边界，因此推荐“Workspace 协作”，同时保留“单 Project 协作”“只读”“自定义”。Workspace 协作包含直属内容及所有未归档 Project，新建/解除归档的 Project 自动纳入；已有连接绝不自动扩权。协作授予读取、新建、Record/Todo/File 修改与本连接撤销，不自动包含任意历史恢复；会话依据读取保持独立显式选项。
 
-验收：三个预设实际 create DTO 与说明一致，切预设无残留写权限，历史恢复仅自定义明确选择；旧只读连接显示及执行语义不变。设置组件/SettingsDialog、TypeScript、生产前端构建及边界检查，1200/720 普通和长名称无窗口浏览器验证；无 Rust 改动复用 b3b 持久 grant 测试。主 agent Standards/Spec 自查。
+持久 scope JSON 增加 `allProjects`（缺省 false），与既有 `workspaceContent` 直属内容标志分开；全项目模式不同时携带显式 projectIds。每次连接认证从同一 Workspace 当前未归档 Project 解析真实 ScopeGrant，业务读取/写入及衍生来源继续执行原有实际归属、排除、撤回与权限检查。无需数据库 schema 迁移，不把预设名称当授权规则；旧 JSON 保持原语义。原生 File 的跨 I/O live grant 检查识别全项目模式，不能因无关新 Project 出现而把合法提交误判为撤权。
+
+只读默认整个 Workspace，写权限固定为空；自定义明确选择 Project 子集及 Workspace 直属内容。切预设清除不适用选项，切 Workspace 清除旧 Project 及额外选择。创建前显示简短覆盖说明，明确未来新项目自动纳入；没有 Project 时仍可创建 Workspace 协作/只读。对象级限制尚未贯穿执行边界前不显示可用。
+
+验收：新旧 grant JSON、当前/新增/归档 Project、同名不同 Workspace、排除/撤回/撤权；全 Workspace 与单 Project 的实际读写一致地按边界执行，动态纳入不改变已有连接。各预设 create DTO 与展示一致，历史恢复仅自定义明确选择。Rust 授权/bridge 定向及真实调用；设置组件、TypeScript、前端生产构建与边界检查，1200/720 普通/长名称及长列表滚动遮罩浏览器验证。主 agent Standards/Spec 自查，不把未完成对象限制视为已交付。
+
+第一子步已完成（2026-10-09）：授权定向 11 项通过，覆盖旧 JSON、动态新增/归档、跨 Workspace、只读/直属内容独立权限及 File 提交边界；真实系统凭据链路使用全 Workspace grant，创建连接之后再建 Project，SDK MCP 即时列出且生产 CLI 成功在其中创建 Todo，撤销连接后读写被拒绝。设置/SettingsDialog 11 项及 TypeScript、生产构建、路径/UI/主包边界检查通过；主包约 194 KiB。无窗口浏览器实际组件/模拟 IPC 的 7 组场景、19 张截图验证四预设、无项目创建、1200/720 普通/长名称以及 20 项列表滚动遮罩。主 agent Standards/Spec 自查通过；对象限制、引用读取及 CLI 安装继续后续子包，目标平台/真实模型验收未完成，#106 保持 OPEN。
+
+### R12b3c 第四子步：Record 恢复与 File 替换的 CLI 参数 / #106
+
+依赖：已接通的原生历史恢复、File 分段上传与稳定收据。`record restore --id ID --version VERSION_ID --base-revision N` 配合显式 Project/Workspace 范围与稳定请求 ID，直接组装现有恢复 DTO；`--version` 使用历史列表返回的版本身份，不把版本序号猜成身份。`file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash HASH` 在本地读取字节，复用既有分段上传及最终提交。ObjectRef 的 workspaceId 只来自当前连接握手，不能从本地路径猜测。
+
+非目标：不增加服务器方法、权限、自动重试或文件读取接口；不改变原 JSON 命令、版本恢复语义和上传预算。`record get` 必须遵守 E12 的 source.read 正文语义，另子步接入，不能用块结构读取冒充。
+
+验收：非法/互斥参数在连接前报错；JSON 入口保持可用；真实 CLI 对历史恢复和本地文件替换成功，同请求重放不重复写版本，CAS 冲突按原契约返回，路径不离开 CLI。运行 CLI/upload 定向测试、生产 CLI 构建和既有真实凭据/应用 socket 链路；纯 Rust 参数适配复用当前前端和原生业务验证。
 
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
 

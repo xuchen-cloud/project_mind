@@ -183,6 +183,7 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
             &ConnectionCreateInput {
                 client_label: "External Test".into(),
                 workspace_content: false,
+                all_projects: false,
                 project_ids: vec![included.id],
                 session_read: false,
                 write_operations: vec![],
@@ -504,8 +505,9 @@ async fn real_keyring_client_roundtrip() {
         &binding,
         &ConnectionCreateInput {
             client_label: "Keyring Client".into(),
-            workspace_content: false,
-            project_ids: vec![project_id],
+            workspace_content: true,
+            all_projects: true,
+            project_ids: vec![],
             session_read: false,
             write_operations: vec!["content.create".into(), "record.patch".into(), "file.update".into(), "file.restore".into(), "operation.undo".into()],
         },
@@ -568,7 +570,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 35);
+    assert_eq!(tools.tools.len(), 36);
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))
@@ -852,6 +854,14 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(std::fs::read(cli_created_path).unwrap(), cli_file_body.as_bytes());
     assert_eq!(cli_created_file["result"]["versionNumber"], 1);
 
+    // This Project did not exist when the whole-Workspace grant was created.
+    let later_project = handler.db.lock().unwrap().project_create(ProjectCreateInput {
+        name: "Later Project".into(), summary: None, status: None,
+    }).unwrap();
+    let listed_later = mcp_client.peer().call_tool(CallToolRequestParams::new("mind_project_list")).await.unwrap();
+    assert_eq!(listed_later.is_error, Some(false));
+    assert!(listed_later.structured_content.as_ref().unwrap()["data"].as_array().unwrap()
+        .iter().any(|project| project["id"] == later_project.id));
     let cli_todo_body = "核对发布\n$(echo literal) `backticks`\n";
     let mut first_created_todo = None;
     for _ in 0..2 {
@@ -863,7 +873,7 @@ async fn real_keyring_client_roundtrip() {
         let output = tokio::task::spawn_blocking(move || {
             let mut child = std::process::Command::new(binary)
                 .args(["todo", "create", "--body-file", "-", "--project"])
-                .arg(project_id.to_string())
+                .arg(later_project.id.to_string())
                 .args(["--request-id", "keyring-cli-todo-create", "--workspace"])
                 .arg(workspace)
                 .arg("--connection").arg(connection)
@@ -901,6 +911,103 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(todo_value["snapshot"]["priority"], "not_urgent_not_important");
     assert_eq!(todo_value["snapshot"]["dueDate"], Value::Null);
 
+    let cli_markdown = "# 发布记录\n\n- 第一项\n- 第二项\n";
+    let cli_markdown_path = root.path().join("cli-record-create.md");
+    std::fs::write(&cli_markdown_path, cli_markdown.as_bytes()).unwrap();
+    let records_before_create = handler.db.lock().unwrap()
+        .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len();
+    let binary = cli_binary.clone();
+    let data_home = cli_data_home.clone();
+    let body_path = cli_markdown_path.clone();
+    let workspace = workspace_path.clone();
+    let connection = grant_id.clone();
+    let preview_output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(binary)
+            .args(["record", "create", "--title", "CLI Markdown", "--body-file"])
+            .arg(body_path)
+            .arg("--project").arg(project_id.to_string())
+            .args(["--dry-run", "--workspace"])
+            .arg(workspace)
+            .arg("--connection").arg(connection)
+            .arg("--json")
+            .env("XDG_DATA_HOME", data_home)
+            .output()
+    }).await.unwrap().unwrap();
+    assert!(preview_output.status.success(), "CLI Record preview: {:?}, stdout: {}, stderr: {}",
+        preview_output.status.code(), String::from_utf8_lossy(&preview_output.stdout), String::from_utf8_lossy(&preview_output.stderr));
+    assert!(preview_output.stderr.is_empty());
+    let preview_response: Value = serde_json::from_slice(&preview_output.stdout).unwrap();
+    assert_eq!(preview_response["ok"], true, "{preview_response}");
+    assert_eq!(preview_response["data"]["normalizedTitle"], "CLI Markdown");
+    assert_eq!(preview_response["data"]["previewTruncated"], false);
+    let preview_text = preview_response["data"]["previewText"].as_str().unwrap().to_owned();
+    assert!(preview_text.contains("发布记录") && preview_text.contains("第一项") && preview_text.contains("第二项"));
+    assert_eq!(handler.db.lock().unwrap()
+        .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len(), records_before_create);
+
+    let mut first_markdown_create = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let body_path = cli_markdown_path.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["record", "create", "--title", "CLI Markdown", "--body-file"])
+                .arg(body_path)
+                .arg("--project").arg(project_id.to_string())
+                .args(["--request-id", "keyring-cli-record-create", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI Record create: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["requestId"], "keyring-cli-record-create");
+        assert_eq!(response["data"]["operation"]["requestId"], "keyring-cli-record-create");
+        if let Some(first) = &first_markdown_create { assert_eq!(&response["data"], first); }
+        else { first_markdown_create = Some(response["data"].clone()); }
+    }
+    let markdown_created = first_markdown_create.unwrap();
+    let markdown_target = crate::record_documents::RecordTarget {
+        scope: crate::agent::models::Scope::Project { project_id },
+        record_id: markdown_created["result"]["target"]["recordId"].as_i64().unwrap(),
+    };
+    let saved_markdown = handler.db.lock().unwrap().record_document_head(&markdown_target).unwrap().unwrap();
+    assert_eq!(saved_markdown.head_revision, 1);
+    assert_eq!(saved_markdown.projection.text, preview_text);
+    assert_eq!(handler.db.lock().unwrap()
+        .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len(), records_before_create + 1);
+
+    std::fs::write(&cli_markdown_path, b"# changed body\n").unwrap();
+    let binary = cli_binary.clone();
+    let data_home = cli_data_home.clone();
+    let workspace = workspace_path.clone();
+    let connection = grant_id.clone();
+    let conflict_output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(binary)
+            .args(["record", "create", "--title", "CLI Markdown", "--body-file"])
+            .arg(cli_markdown_path)
+            .arg("--project").arg(project_id.to_string())
+            .args(["--request-id", "keyring-cli-record-create", "--workspace"])
+            .arg(workspace)
+            .arg("--connection").arg(connection)
+            .arg("--json")
+            .env("XDG_DATA_HOME", data_home)
+            .output()
+    }).await.unwrap().unwrap();
+    assert_eq!(conflict_output.status.code(), Some(5));
+    let conflict: Value = serde_json::from_slice(&conflict_output.stdout).unwrap();
+    assert_eq!(conflict["error"]["code"], "IDEMPOTENCY_CONFLICT");
+    assert_eq!(handler.db.lock().unwrap()
+        .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len(), records_before_create + 1);
+
     let rejected_request = handler.db.lock().unwrap().agent_connection_authenticate(
         &binding, &grant_id, &token, "keyring-after-revoke",
     ).unwrap();
@@ -936,7 +1043,7 @@ async fn real_keyring_client_roundtrip() {
     {
         let mut db = handler.db.lock().unwrap();
         let page = db.project_page_get(crate::models::ProjectIdInput { project_id }).unwrap();
-        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records.len(), records_before_create + 1);
         assert_eq!(
             db.agent_connection_operation_for_request(&rejected_request, &binding)
                 .unwrap_err().code,

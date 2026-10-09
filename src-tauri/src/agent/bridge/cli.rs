@@ -12,7 +12,7 @@ use std::{io::Read, path::PathBuf};
 #[path = "cli_upload.rs"]
 mod cli_upload;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record patch --dry-run previews without writing and may omit requestId; --budget-chars applies only to this preview (1–12000, default 4000). --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body file paths stay local; UTF-8 content is sent to the bound application, and generated JSON is limited to 2 MiB. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create --input-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body file paths stay local; UTF-8 content is sent to the bound application, and generated JSON is limited to 2 MiB. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
@@ -34,6 +34,7 @@ struct Options {
     patch_file: Option<String>,
     body_file: Option<String>,
     name: Option<String>,
+    title: Option<String>,
     priority: Option<String>,
     due_date: Option<String>,
     dry_run: bool,
@@ -88,6 +89,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             "--patch-file" if options.patch_file.is_none() => options.patch_file = Some(value.clone()),
             "--body-file" if options.body_file.is_none() => options.body_file = Some(value.clone()),
             "--name" if options.name.is_none() => options.name = Some(value.clone()),
+            "--title" if options.title.is_none() => options.title = Some(value.clone()),
             "--priority" if options.priority.is_none() => options.priority = Some(value.clone()),
             "--due-date" if options.due_date.is_none() => options.due_date = Some(value.clone()),
             _ => return Err(invalid("Unknown or duplicate option")),
@@ -202,11 +204,48 @@ fn preview_patch_params(mut params: Value, budget_chars: Option<usize>) -> Agent
     Ok(params)
 }
 
+fn preview_create_params(params: Value, budget_chars: Option<usize>) -> AgentResult<Value> {
+    let mut object = params.as_object().ok_or_else(|| invalid("Record create input must be a JSON object"))?.clone();
+    if object.keys().any(|key| key != "requestId" && key != "input") {
+        return Err(invalid("Record create preview accepts only input and optional requestId"));
+    }
+    if object.get("requestId").is_some_and(|id| !id.is_string()) {
+        return Err(invalid("Record create requestId must be a string"));
+    }
+    let input = object.remove("input").ok_or_else(|| invalid("Record create preview requires input"))?;
+    let mut preview = json!({"input": input});
+    if let Some(budget) = budget_chars { preview["budgetChars"] = json!(budget); }
+    Ok(preview)
+}
+
 fn bridge_method(command: &str, dry_run: bool) -> &str {
     match (command, dry_run) {
         ("search", _) => "source.search",
         ("record.patch", true) => "record.patch.preview",
+        ("record.create", true) => "record.create.preview",
         _ => command,
+    }
+}
+
+fn record_create_params(options: &Options) -> AgentResult<Value> {
+    if options.name.is_some() || options.query.is_some() || options.priority.is_some() || options.due_date.is_some() {
+        return Err(invalid("Record creation accepts --title, scope and --body-file"));
+    }
+    if !options.dry_run && options.budget_chars.is_some() {
+        return Err(invalid("--budget-chars is only supported by record create --dry-run"));
+    }
+    let scope = scoped(options)?;
+    let title = options.title.as_deref().ok_or_else(|| invalid("--title is required for record create"))?;
+    let request_id = if options.dry_run { None } else {
+        Some(options.request_id.as_deref().ok_or_else(|| invalid("--request-id is required for record create"))?)
+    };
+    let markdown = read_text_body(options.body_file.as_deref().ok_or_else(|| invalid("--body-file is required"))?)?;
+    if markdown.len() > 1024 * 1024 { return Err(invalid("Record Markdown exceeds 1 MiB")); }
+    let input = json!({"scope":scope,"title":title,"tagIds":[],"markdown":markdown,"codeLanguage":null});
+    if let Some(request_id) = request_id {
+        bounded_generated_params(json!({"requestId":request_id,"input":input}))
+    } else {
+        bounded_generated_params(preview_create_params(json!({"input":input}), options.budget_chars)?)
     }
 }
 
@@ -314,6 +353,7 @@ pub fn run(args: &[String]) -> CliOutput {
         ["session", "search", ..] => ("session.search", &args[2..], None),
         ["session", "messages", "read", ..] => ("session.messages.read", &args[3..], None),
         ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..], None),
+        ["record", "create", "preview", ..] => ("record.create.preview", &args[3..], None),
         ["record", "create", ..] => ("record.create", &args[2..], None),
         ["record", "patch", "preview", ..] => ("record.patch.preview", &args[3..], None),
         ["record", "patch", ..] => ("record.patch", &args[2..], None),
@@ -359,19 +399,22 @@ pub fn run(args: &[String]) -> CliOutput {
         if options.patch_file.is_some() && !matches!(command, "record.patch" | "file.patch" | "todo.update") {
             return Err(invalid("--patch-file is only supported by record patch, file patch and todo update"));
         }
-        if options.dry_run && command != "record.patch" {
-            return Err(invalid("--dry-run is only supported by record patch"));
+        if options.dry_run && !matches!(command, "record.patch" | "record.create") {
+            return Err(invalid("--dry-run is only supported by record patch or record create"));
+        }
+        if options.title.is_some() && command != "record.create" {
+            return Err(invalid("--title is only supported by record create"));
         }
         if options.name.is_some() && command != "file.create"
             || (options.priority.is_some() || options.due_date.is_some()) && command != "todo.create" {
             return Err(invalid("Creation options are only supported by file create or todo create"));
         }
-        if options.input_file.is_some() && matches!(command, "file.create" | "todo.create")
-            && (options.name.is_some() || options.priority.is_some() || options.due_date.is_some()) {
+        if options.input_file.is_some() && matches!(command, "file.create" | "todo.create" | "record.create")
+            && (options.name.is_some() || options.title.is_some() || options.priority.is_some() || options.due_date.is_some()) {
             return Err(invalid("Creation options cannot accompany --input-file"));
         }
-        if matches!(command, "file.create" | "todo.create") && options.body_file.is_none()
-            && (options.name.is_some() || options.priority.is_some() || options.due_date.is_some()) {
+        if matches!(command, "file.create" | "todo.create" | "record.create") && options.body_file.is_none()
+            && (options.name.is_some() || options.title.is_some() || options.priority.is_some() || options.due_date.is_some()) {
             return Err(invalid("--body-file is required with creation options"));
         }
         if command == "file.upload" {
@@ -388,8 +431,8 @@ pub fn run(args: &[String]) -> CliOutput {
             let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
             return cli_upload::upload(&transport, target, &bytes, &request_id);
         }
-        if options.body_file.is_some() && !matches!(command, "file.create" | "todo.create") {
-            return Err(invalid("--body-file is only supported by file upload, file create and todo create"));
+        if options.body_file.is_some() && !matches!(command, "file.create" | "todo.create" | "record.create") {
+            return Err(invalid("--body-file is only supported by file upload, file create, todo create and record create"));
         }
         let method = bridge_method(command, options.dry_run);
         let params = match command {
@@ -410,6 +453,7 @@ pub fn run(args: &[String]) -> CliOutput {
             }
             "file.create" if options.body_file.is_some() => file_create_params(&options)?,
             "todo.create" if options.body_file.is_some() => todo_create_params(&options)?,
+            "record.create" if options.body_file.is_some() => record_create_params(&options)?,
             _ => {
                 if !registry::is_registered(method) { return Err(invalid("Unknown bridge method")); }
                 if command == "record.patch" {
@@ -423,6 +467,15 @@ pub fn run(args: &[String]) -> CliOutput {
                         .ok_or_else(|| invalid("--patch-file or --input-file is required"))?;
                     let params = read_input(source)?;
                     if options.dry_run { preview_patch_params(params, options.budget_chars)? } else { params }
+                } else if command == "record.create" {
+                    if options.project.is_some() || options.workspace_scope || options.query.is_some() {
+                        return Err(invalid("Scope and query options cannot accompany --input-file"));
+                    }
+                    if !options.dry_run && options.budget_chars.is_some() {
+                        return Err(invalid("--budget-chars is only supported by record create --dry-run"));
+                    }
+                    let params = read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?;
+                    if options.dry_run { preview_create_params(params, options.budget_chars)? } else { params }
                 } else {
                     reject_scope_options(&options)?;
                     read_input(options.patch_file.as_deref().or(options.input_file.as_deref())
@@ -696,5 +749,75 @@ mod tests {
             let out = invoke(&args);
             assert_ne!(out.exit_code, 2, "{}", out.stderr);
         }
+    }
+    #[test]
+    fn record_create_body_builds_native_markdown_and_preview_without_mutation_id() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let markdown = "# Title\n`$HOME` $(touch never) \\ literal\n";
+        std::fs::write(file.path(), markdown).unwrap();
+        let body_file = file.path().to_str().unwrap().to_owned();
+        let options = Options { workspace_scope: true, title: Some("A note".into()),
+            body_file: Some(body_file), request_id: Some("record-stable".into()), ..Options::default() };
+        let write = record_create_params(&options).unwrap();
+        assert_eq!(write["requestId"], "record-stable");
+        assert_eq!(write["input"]["markdown"], markdown);
+        assert_eq!(write["input"]["tagIds"], json!([]));
+        assert!(write["input"]["codeLanguage"].is_null());
+        registry::validate("record.create", &write).unwrap();
+        let preview_options = Options { dry_run: true, budget_chars: Some(12000), request_id: None, ..options };
+        let preview = record_create_params(&preview_options).unwrap();
+        assert_eq!(bridge_method("record.create", true), "record.create.preview");
+        assert!(preview.get("requestId").is_none());
+        assert_eq!(preview["budgetChars"], 12000);
+        assert_eq!(preview["input"]["markdown"], markdown);
+        registry::validate("record.create.preview", &preview).unwrap();
+    }
+    #[test]
+    fn record_create_wrapper_preview_preserves_input_and_rejects_unknown_fields() {
+        let input = json!({"scope":{"kind":"workspace"},"title":"Native","tagIds":[],
+            "markdown":"hello","codeLanguage":null});
+        let preview = preview_create_params(json!({"requestId":"stable","input":input.clone()}), Some(4000)).unwrap();
+        assert_eq!(preview["input"]["markdown"], "hello");
+        assert_eq!(preview["budgetChars"], 4000);
+        assert!(preview.get("requestId").is_none());
+        registry::validate("record.create.preview", &preview).unwrap();
+        assert!(preview_create_params(json!({"input":input.clone(),"surprise":true}), None).is_err());
+        assert!(preview_create_params(json!({"input":input,"requestId":5}), None).is_err());
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), serde_json::to_vec(&json!({"input":preview["input"]})).unwrap()).unwrap();
+        let args = ["record", "create", "--input-file", file.path().to_str().unwrap(), "--dry-run",
+            "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_ne!(out.exit_code, 2, "{}", out.stderr);
+        std::fs::write(file.path(), serde_json::to_vec(&preview).unwrap()).unwrap();
+        let args = ["record", "create", "preview", "--input-file", file.path().to_str().unwrap(),
+            "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_ne!(out.exit_code, 2, "{}", out.stderr);
+    }
+    #[test]
+    fn record_create_flags_are_explicit_and_markdown_is_bounded() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), "# note").unwrap();
+        let path = file.path().to_str().unwrap();
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let check = |words: &[&str], expected: &str| {
+            let mut args = words.to_vec();
+            args.extend(common);
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2, "{words:?}: {}", out.stderr);
+            assert!(out.stderr.contains(expected), "{words:?}: {}", out.stderr);
+        };
+        check(&["record", "create", "--input-file", path, "--body-file", path], "cannot be combined");
+        check(&["record", "create", "--input-file", path, "--title", "Note"], "cannot accompany --input-file");
+        check(&["record", "create", "--title", "Note", "--workspace-scope"], "--body-file is required");
+        check(&["record", "create", "--title", "Note", "--body-file", path, "--workspace-scope", "--budget-chars", "4000"], "only supported by record create --dry-run");
+        check(&["record", "create", "preview", "--input-file", path, "--dry-run"], "only supported by record patch or record create");
+        check(&["todo", "create", "--input-file", path, "--title", "Note"], "--title is only supported by record create");
+        let large = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(large.path(), vec![b'x'; 1024 * 1024 + 1]).unwrap();
+        let options = Options { workspace_scope: true, title: Some("Note".into()), dry_run: true,
+            body_file: Some(large.path().to_str().unwrap().into()), ..Options::default() };
+        assert_eq!(record_create_params(&options).unwrap_err().message, "Record Markdown exceeds 1 MiB");
     }
 }

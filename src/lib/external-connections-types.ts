@@ -5,6 +5,7 @@ export interface ConnectionGrant {
   clientLabel: string;
   workspaceId: string;
   workspaceContent: boolean;
+  allProjects: boolean;
   projectIds: number[];
   operations: string[];
   enabled: boolean;
@@ -25,6 +26,7 @@ export interface ExternalConnectionsStatus {
 export interface ConnectionCreateData {
   clientLabel: string;
   workspaceContent: boolean;
+  allProjects: boolean;
   projectIds: number[];
   sessionRead: boolean;
   writeOperations: string[];

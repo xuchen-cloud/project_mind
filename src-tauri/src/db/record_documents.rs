@@ -393,6 +393,17 @@ impl Database {
         projection: &RecordDocumentProjection,
         workspace_id: &str,
     ) -> AgentResult<RecordCommittedHead> {
+        self.record_create_from_intent(caller, request_id, input, projection, input, workspace_id)
+    }
+    pub(crate) fn record_create_from_intent<T: serde::Serialize>(
+        &self,
+        caller: &str,
+        request_id: &str,
+        input: &RecordCreate,
+        projection: &RecordDocumentProjection,
+        original_payload: &T,
+        workspace_id: &str,
+    ) -> AgentResult<RecordCommittedHead> {
         input.scope.validate()?;
         projection.validate()?;
         self.record_document_scope_from_gui(&input.scope, &projection.document)?;
@@ -403,7 +414,7 @@ impl Database {
             },
             projection,
         )?;
-        self.agent_atomic_operation(caller, request_id, "record.create", input, |tx| {
+        self.agent_atomic_operation(caller, request_id, "record.create", original_payload, |tx| {
             validate_references(tx, &input.scope, &projection.document, &Default::default(), workspace_id)?;
             let timestamp = Utc::now().to_rfc3339();
             match input.scope {
@@ -423,6 +434,25 @@ impl Database {
             snapshot(tx, &initial, &saved_metadata.title, &RecordVersionOrigin::Baseline, &if caller=="gui" {json!({"kind":"gui"})}else{json!({"kind":"agent","caller":caller})}, request_id, None)?;
             Ok((RecordCommittedHead::from(&initial), Some(OperationChange { object_key: target.object_key(workspace_id)?, scope: target.scope, revision: projection.body_hash.clone() })))
         })
+    }
+    /// Pure creation checks shared by previews and the native insert path.
+    pub(crate) fn record_create_preview_validate(
+        &self,
+        input: &RecordCreate,
+        projection: &RecordDocumentProjection,
+        workspace_id: &str,
+    ) -> AgentResult<(Option<String>, Vec<i64>)> {
+        input.scope.validate()?;
+        projection.validate()?;
+        self.record_document_scope_from_gui(&input.scope, &projection.document)?;
+        self.record_compatibility_html(&RecordTarget {
+            scope: input.scope.clone(), record_id: 1,
+        }, projection)?;
+        let metadata = self.validated_record_metadata(&input.scope, &input.title, &input.tag_ids)?;
+        validate_references(
+            &self.conn, &input.scope, &projection.document, &Default::default(), workspace_id,
+        )?;
+        Ok(metadata)
     }
     pub(crate) fn record_quick_note_source(
         &self,
@@ -614,29 +644,13 @@ impl Database {
         input: &RecordMetadataUpdate,
         workspace_id: &str,
     ) -> AgentResult<(RecordMetadata, Option<OperationChange>)> {
-        if !input.expected_revision.starts_with("sha256:")
-            || input.expected_revision.len() != 71
-            || input.tag_ids.len() > 1000
-            || input.tag_ids.iter().any(|id| *id <= 0)
-            || input
-                .title
-                .as_ref()
-                .is_some_and(|title| title.len() > 64 * 1024 || title.contains(['\n', '\r', '\0']))
-        {
+        if !input.expected_revision.starts_with("sha256:") || input.expected_revision.len() != 71 {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Invalid Record metadata",
             ));
         }
-        let title = input
-            .title
-            .as_deref()
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .map(str::to_string);
-        let mut tag_ids = input.tag_ids.clone();
-        tag_ids.sort_unstable();
-        tag_ids.dedup();
+        let (title, tag_ids) = self.validated_record_metadata(&input.target.scope, &input.title, &input.tag_ids)?;
 
         let current = metadata(tx, &input.target)?;
         if current.revision != input.expected_revision {
@@ -645,15 +659,6 @@ impl Database {
                 "Record metadata changed before save",
             )
             .with_details(json!({"current":current})));
-        }
-        let project_id = match input.target.scope {
-            Scope::Workspace => None,
-            Scope::Project { project_id } => Some(project_id),
-        };
-        for id in &tag_ids {
-            self.scoped_file_tag_record(project_id, *id).map_err(|_| {
-                AgentError::new(ErrorCode::ScopeDenied, "Record tag is outside this scope")
-            })?;
         }
         if current.title == title && current.tag_ids == tag_ids {
             return Ok((current, None));
@@ -691,6 +696,28 @@ impl Database {
             revision: saved.revision.clone(),
         };
         Ok((saved, Some(change)))
+    }
+    fn validated_record_metadata(
+        &self,
+        scope: &Scope,
+        title: &Option<String>,
+        tags: &[i64],
+    ) -> AgentResult<(Option<String>, Vec<i64>)> {
+        if tags.len() > 1000 || tags.iter().any(|id| *id <= 0)
+            || title.as_ref().is_some_and(|title| title.len() > 64 * 1024 || title.contains(['\n', '\r', '\0'])) {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid Record metadata"));
+        }
+        let title = title.as_deref().map(str::trim).filter(|title| !title.is_empty()).map(str::to_string);
+        let mut tag_ids = tags.to_vec();
+        tag_ids.sort_unstable();
+        tag_ids.dedup();
+        let project_id = match scope { Scope::Workspace => None, Scope::Project { project_id } => Some(*project_id) };
+        for id in &tag_ids {
+            self.scoped_file_tag_record(project_id, *id).map_err(|_| {
+                AgentError::new(ErrorCode::ScopeDenied, "Record tag is outside this scope")
+            })?;
+        }
+        Ok((title, tag_ids))
     }
     pub(crate) fn record_metadata_apply(
         &self,
@@ -2897,6 +2924,38 @@ mod tests {
             )
             .unwrap();
         (project.id, database.conn.last_insert_rowid())
+    }
+    #[test]
+    fn create_preview_uses_native_metadata_and_cross_project_reference_checks_without_writes() {
+        let (_directory, mut database, _, _) = setup();
+        let (owner, _) = reference_target(&mut database, "Preview owner");
+        let (_, foreign) = reference_target(&mut database, "Preview foreign");
+        let document = json!({"type":"doc","content":[{
+            "type":"paragraph","attrs":{"blockId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "content":[{"type":"internalReference","attrs":{
+                "refKind":"note","refId":foreign,"label":"Foreign"
+            }}]
+        }]});
+        let projection = RecordDocumentProjection {
+            schema_version: 1, body_hash: body_hash(&document, &None), document: document.clone(),
+            html: "<p>Foreign</p>".into(), markdown: "Foreign".into(),
+            text: "Foreign".into(), code_language: None,
+        };
+        let input = RecordCreate {
+            scope: Scope::Project { project_id: owner }, title: Some("  Valid  ".into()),
+            tag_ids: vec![], document, code_language: None,
+        };
+        let before: i64 = database.conn.query_row("SELECT count(*) FROM record_document_heads", [], |row| row.get(0)).unwrap();
+        assert_eq!(database.record_create_preview_validate(&input, &projection, "workspace-test").unwrap_err().code, ErrorCode::ScopeDenied);
+        let mut valid_projection = projection.clone();
+        valid_projection.document["content"][0]["content"] = json!([{"type":"text","text":"Foreign"}]);
+        valid_projection.body_hash = body_hash(&valid_projection.document, &valid_projection.code_language);
+        let mut invalid = input;
+        invalid.document = valid_projection.document.clone();
+        invalid.title = Some("line\nbreak".into());
+        assert_eq!(database.record_create_preview_validate(&invalid, &valid_projection, "workspace-test").unwrap_err().code, ErrorCode::InvalidArgument);
+        let after: i64 = database.conn.query_row("SELECT count(*) FROM record_document_heads", [], |row| row.get(0)).unwrap();
+        assert_eq!(after, before);
     }
     #[test]
     fn record_autosave_receipts_store_commit_credentials_without_body_copies() {

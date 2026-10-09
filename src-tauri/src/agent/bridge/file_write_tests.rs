@@ -91,6 +91,7 @@ impl Fixture {
             (OTHER, vec!["content.create", "file.update", "file.restore", "operation.undo"]),
         ] {
             db.agent_connection_create(&binding, &ConnectionCreateInput {
+                all_projects: false,
                 client_label: id.into(), workspace_content: false, project_ids: vec![project.id],
                 session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
             }, id, TOKEN).unwrap();

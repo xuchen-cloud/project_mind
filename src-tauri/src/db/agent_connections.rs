@@ -30,6 +30,8 @@ struct StoredScope {
     workspace_id: String,
     workspace_content: bool,
     project_ids: Vec<i64>,
+    #[serde(default)]
+    all_projects: bool,
     token_hash: String,
 }
 
@@ -77,6 +79,7 @@ fn public_grant(stored: StoredGrant, scope: StoredScope) -> AgentResult<Connecti
         workspace_id: scope.workspace_id,
         workspace_content: scope.workspace_content,
         project_ids: scope.project_ids,
+        all_projects: scope.all_projects,
         operations: decode(&stored.operations_json)?,
         enabled: stored.enabled,
         created_at: stored.created_at,
@@ -124,8 +127,8 @@ pub(crate) fn connection_caller_live(
 }
 
 impl Database {
-    /// Checks that a trusted connection request still matches its persisted
-    /// grant, including exact scope and operations, before native File I/O.
+    /// Checks the persisted grant and target before native File I/O. Dynamic
+    /// all-project grants keep the authenticated request's project snapshot.
     pub(crate) fn agent_connection_require_live(
         &self,
         request: &RequestContext,
@@ -142,9 +145,18 @@ impl Database {
         let operations: Vec<String> = decode(&stored.operations_json)?;
         if request.scope_grant.workspace_id != actual.workspace_id
             || request.scope_grant.workspace_content != actual.workspace_content
-            || request.scope_grant.project_ids != actual.project_ids
+            || (!actual.all_projects && request.scope_grant.project_ids != actual.project_ids)
             || request.scope_grant.operations != operations {
             return Err(denied());
+        }
+        if actual.all_projects {
+            if let Scope::Project { project_id } = scope {
+                let active: bool = self.conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND is_archived=0)",
+                    [project_id], |row| row.get(0),
+                ).map_err(io_error)?;
+                if !active { return Err(denied()); }
+            }
         }
         Ok(())
     }
@@ -184,10 +196,16 @@ impl Database {
                 "Invalid connection label",
             ));
         }
-        if !input.workspace_content && input.project_ids.is_empty() {
+        if !input.workspace_content && !input.all_projects && input.project_ids.is_empty() {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Select at least one scope",
+            ));
+        }
+        if input.all_projects && !input.project_ids.is_empty() {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "allProjects cannot include projectIds",
             ));
         }
         if input.project_ids.len() > MAX_PROJECTS {
@@ -237,6 +255,7 @@ impl Database {
             workspace_id: binding.workspace_id.clone(),
             workspace_content: input.workspace_content,
             project_ids: projects.clone(),
+            all_projects: input.all_projects,
             token_hash: format!("{:x}", Sha256::digest(token.as_bytes())),
         };
         let scope_json = serde_json::to_string(&scope).map_err(io_error)?;
@@ -283,6 +302,7 @@ impl Database {
             workspace_id: binding.workspace_id.clone(),
             workspace_content: input.workspace_content,
             project_ids: projects,
+            all_projects: input.all_projects,
             operations,
             enabled: true,
             created_at,
@@ -358,12 +378,21 @@ impl Database {
         {
             return Err(denied());
         }
+        let project_ids = if scope.all_projects {
+            let mut statement = self.conn.prepare(
+                "SELECT id FROM projects WHERE is_archived=0 ORDER BY id",
+            ).map_err(io_error)?;
+            let rows = statement.query_map([], |row| row.get(0)).map_err(io_error)?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>().map_err(io_error)?
+        } else {
+            scope.project_ids
+        };
         Ok(RequestContext {
             binding: binding.clone(),
             scope_grant: ScopeGrant {
                 workspace_id: scope.workspace_id,
                 workspace_content: scope.workspace_content,
-                project_ids: scope.project_ids,
+                project_ids,
                 operations: decode(&stored.operations_json)?,
             },
             caller: Caller::Connection {

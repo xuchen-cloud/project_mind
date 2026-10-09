@@ -191,6 +191,7 @@ impl Fixture {
         db.agent_connection_create(
             &binding,
             &ConnectionCreateInput {
+                all_projects: false,
                 client_label: "Read Integration".into(),
                 workspace_content: false,
                 project_ids: vec![project.id],

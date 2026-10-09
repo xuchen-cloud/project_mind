@@ -90,7 +90,7 @@ where
         | "file.content.begin" | "file.content.chunk" | "file.content.complete" | "file.content.status" => {
             return super::file_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
         }
-        "record.create" | "record.patch" | "record.patch.preview" | "record.restore" | "todo.create" | "todo.update" | "operation.get"
+        "record.create" | "record.create.preview" | "record.patch" | "record.patch.preview" | "record.restore" | "todo.create" | "todo.update" | "operation.get"
         | "operation.list" | "operation.undo" | "operation.restore_created" => {
             return super::record_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
         }

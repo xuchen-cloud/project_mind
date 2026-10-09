@@ -128,6 +128,7 @@ impl Fixture {
             (OTHER, vec!["content.create", "record.patch", "record.restore", "operation.undo"]),
         ] {
             db.agent_connection_create(&binding, &ConnectionCreateInput {
+                all_projects: false,
                 client_label: id.into(), workspace_content: false, project_ids: vec![project.id],
                 session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
             }, id, TOKEN).unwrap();
@@ -360,4 +361,21 @@ async fn preview_rechecks_revocation_and_concurrent_head_change_after_worker() {
         assert_eq!(f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, if revoke { 1 } else { 2 });
         assert_eq!(f.store.published.load(Ordering::SeqCst), events + usize::from(!revoke));
     }
+}
+
+#[tokio::test]
+async fn create_preview_requires_create_grant_and_does_not_consume_write_identity() {
+    let f = Fixture::new();
+    let worker = DocumentWorker::ready();
+    let create = f.create_input("create-after-preview", "Preview create");
+    let preview = json!({"input":create["input"],"budgetChars":3});
+    let events = f.store.published.load(Ordering::SeqCst);
+    assert_eq!(f.call(READ_ONLY, "read-only-preview", "record.create.preview", preview.clone(), &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
+    let result = f.call(GRANT, "create-after-preview", "record.create.preview", preview, &worker).await.unwrap();
+    assert_eq!(result["previewText"], "Alp");
+    assert_eq!(result["previewTruncated"], true);
+    assert_eq!(f.store.published.load(Ordering::SeqCst), events);
+    let created = f.call(GRANT, "create-after-preview", "record.create", create, &worker).await.unwrap();
+    assert_eq!(created["result"]["headRevision"], 1);
+    assert_eq!(f.store.published.load(Ordering::SeqCst), events + 1);
 }

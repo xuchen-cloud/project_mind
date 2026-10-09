@@ -7,6 +7,9 @@ pub struct ConnectionCreateInput {
     pub client_label: String,
     pub workspace_content: bool,
     pub project_ids: Vec<i64>,
+    /// Resolve all current, unarchived Projects when each request authenticates.
+    #[serde(default)]
+    pub all_projects: bool,
     pub session_read: bool,
     /// Explicit trusted GUI selection; the Host accepts only implemented Record operations.
     #[serde(default)]
@@ -21,6 +24,8 @@ pub struct ConnectionGrant {
     pub workspace_id: String,
     pub workspace_content: bool,
     pub project_ids: Vec<i64>,
+    #[serde(default)]
+    pub all_projects: bool,
     pub operations: Vec<String>,
     pub enabled: bool,
     pub created_at: String,

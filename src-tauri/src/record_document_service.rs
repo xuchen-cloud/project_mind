@@ -9,7 +9,8 @@ use crate::{
     db::Database,
     record_documents::{
         record_patch_target, RecordCheckpointInput, RecordCheckpointResult, RecordCommitResult,
-        RecordCommittedHead, RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection,
+        RecordCommittedHead, RecordCreate, RecordCreatePreview, RecordMarkdownCreate,
+        RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection,
         RecordEditorState, RecordMetadata, RecordMetadataUpdate, RecordPatchMetadata,
         RecordPatchPreparation, RecordPatchPreview, RecordPatchPreviewInput, RecordPatchResult,
         RecordQuickNoteTransfer, RecordRestoreInput,
@@ -232,7 +233,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
     pub(crate) async fn create(
         &self,
         request: &RequestContext,
-        input: &crate::record_documents::RecordCreate,
+        input: &RecordCreate,
     ) -> AgentResult<RecordCommittedHead> {
         let operation = match request.caller {
             Caller::Gui => "record.write",
@@ -292,6 +293,129 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
                 &request.binding.workspace_id,
             )
         })
+    }
+    fn create_permission(request: &RequestContext) -> &'static str {
+        match request.caller {
+            Caller::Gui => "record.write",
+            Caller::BuiltinRun { .. } | Caller::Connection { .. } => "content.create",
+        }
+    }
+    fn authorize_create(
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        db: &Database,
+        scope: &crate::agent::models::Scope,
+    ) -> AgentResult<()> {
+        let operation = Self::create_permission(request);
+        request.authorize(binding, scope, operation)?;
+        if matches!(request.caller, Caller::Gui) {
+            request.authorize(binding, scope, "record.metadata.write")?;
+        }
+        Self::authorize_connection_scope(request, binding, db, scope)
+    }
+    async fn create_projection(
+        &self,
+        request: &RequestContext,
+        method: &str,
+        data: Value,
+    ) -> AgentResult<RecordDocumentProjection> {
+        let converted = self.utility.request(&request.request_id, method, data).await?;
+        let projection: RecordDocumentProjection = serde_json::from_value(converted).map_err(|_| {
+            AgentError::new(ErrorCode::RuntimeIncompatible, "Invalid new Record projection")
+        })?;
+        projection.validate()?;
+        Ok(projection)
+    }
+    pub(crate) async fn create_markdown(
+        &self,
+        request: &RequestContext,
+        input: &RecordMarkdownCreate,
+    ) -> AgentResult<RecordCommittedHead> {
+        if input.markdown.len() > 1024 * 1024 {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Record Markdown exceeds 1 MiB"));
+        }
+        let previous = self.with_current(request, |binding, db| {
+            Self::authorize_create(request, binding, db, &input.scope)?;
+            db.agent_operation_replay(&request.caller.key(), &request.request_id, "record.create", input)
+        })?;
+        if let Some(previous) = previous { return Ok(previous); }
+        let projection = self.create_projection(request, "record.initialize", json!({
+            "markdown":input.markdown,"codeLanguage":input.code_language,
+        })).await?;
+        let canonical = RecordCreate {
+            scope: input.scope.clone(), title: input.title.clone(), tag_ids: input.tag_ids.clone(),
+            document: projection.document.clone(), code_language: input.code_language.clone(),
+        };
+        self.with_current(request, |binding, db| {
+            Self::authorize_create(request, binding, db, &input.scope)?;
+            Self::authorize_references(request, db, &projection.document, Self::create_permission(request))?;
+            db.record_create_from_intent(
+                &request.caller.key(), &request.request_id, &canonical, &projection,
+                input, &binding.workspace_id,
+            )
+        })
+    }
+    fn preview_budget(budget_chars: Option<usize>) -> AgentResult<usize> {
+        let budget = budget_chars.unwrap_or(4000);
+        if !(1..=12000).contains(&budget) {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid preview character budget"));
+        }
+        Ok(budget)
+    }
+    fn finish_create_preview(
+        &self,
+        request: &RequestContext,
+        input: &RecordCreate,
+        projection: RecordDocumentProjection,
+        budget: usize,
+    ) -> AgentResult<RecordCreatePreview> {
+        let (normalized_title, tag_ids) = self.with_current(request, |binding, db| {
+            Self::authorize_create(request, binding, db, &input.scope)?;
+            Self::authorize_references(request, db, &projection.document, Self::create_permission(request))?;
+            db.record_create_preview_validate(input, &projection, &binding.workspace_id)
+        })?;
+        let full_text_chars = projection.text.chars().count();
+        Ok(RecordCreatePreview {
+            scope: input.scope.clone(), normalized_title, tag_ids,
+            preview_text: projection.text.chars().take(budget).collect(),
+            full_text_chars, preview_truncated: full_text_chars > budget,
+        })
+    }
+    pub(crate) async fn create_preview(
+        &self,
+        request: &RequestContext,
+        input: &RecordCreate,
+        budget_chars: Option<usize>,
+    ) -> AgentResult<RecordCreatePreview> {
+        let budget = Self::preview_budget(budget_chars)?;
+        let portable = self.with_current(request, |binding, db| {
+            Self::authorize_create(request, binding, db, &input.scope)?;
+            db.record_document_scope_from_gui(&input.scope, &input.document)
+        })?;
+        let projection = self.create_projection(request, "record.create", json!({
+            "document":portable,"codeLanguage":input.code_language,
+        })).await?;
+        self.finish_create_preview(request, input, projection, budget)
+    }
+    pub(crate) async fn create_markdown_preview(
+        &self,
+        request: &RequestContext,
+        input: &RecordMarkdownCreate,
+        budget_chars: Option<usize>,
+    ) -> AgentResult<RecordCreatePreview> {
+        let budget = Self::preview_budget(budget_chars)?;
+        if input.markdown.len() > 1024 * 1024 {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Record Markdown exceeds 1 MiB"));
+        }
+        self.with_current(request, |binding, db| Self::authorize_create(request, binding, db, &input.scope))?;
+        let projection = self.create_projection(request, "record.initialize", json!({
+            "markdown":input.markdown,"codeLanguage":input.code_language,
+        })).await?;
+        let canonical = RecordCreate {
+            scope: input.scope.clone(), title: input.title.clone(), tag_ids: input.tag_ids.clone(),
+            document: projection.document.clone(), code_language: input.code_language.clone(),
+        };
+        self.finish_create_preview(request, &canonical, projection, budget)
     }
     pub(crate) async fn quick_note_transfer(
         &self,
@@ -1545,6 +1669,115 @@ mod tests {
                 .len(),
             2
         );
+    }
+    #[tokio::test]
+    async fn markdown_create_replays_original_payload_and_rejects_changed_retry() {
+        let (_directory, store, utility, mut request, _target) = setup();
+        request.scope_grant.operations.push("record.metadata.write".into());
+        request.request_id = "markdown-stable".into();
+        let input = RecordMarkdownCreate {
+            scope: Scope::Workspace, title: Some("  Markdown title  ".into()),
+            tag_ids: vec![], markdown: "# Heading\n\n- item".into(), code_language: None,
+        };
+        let service = RecordDocumentService::new(&store, &utility);
+        let before = store.db.lock().unwrap().workspace_page_get().unwrap().records.len();
+        let created = service.create_markdown(&request, &input).await.unwrap();
+        let calls = utility.calls.load(Ordering::Relaxed);
+        let replay = service.create_markdown(&request, &input).await.unwrap();
+        assert_eq!(replay.target.record_id, created.target.record_id);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), calls);
+        assert_eq!(store.db.lock().unwrap().workspace_page_get().unwrap().records.len(), before + 1);
+        let mut changed = input;
+        changed.markdown.push_str(" changed");
+        assert_eq!(service.create_markdown(&request, &changed).await.unwrap_err().code, ErrorCode::IdempotencyConflict);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), calls);
+    }
+    #[tokio::test]
+    async fn create_previews_bound_text_and_never_write_or_flush() {
+        let (directory, store, utility, mut request, _target) = setup();
+        request.scope_grant.operations.push("record.metadata.write".into());
+        request.request_id = "create-preview".into();
+        let input = RecordCreate {
+            scope: Scope::Workspace, title: Some("  Trimmed  ".into()), tag_ids: vec![],
+            document: utility.projection.document.clone(), code_language: None,
+        };
+        let connection = rusqlite::Connection::open(directory.path().join("app.sqlite")).unwrap();
+        let counts = || -> (i64, i64, i64) { (
+            connection.query_row("SELECT count(*) FROM workspace_notes WHERE note_kind='workspace_note'", [], |row| row.get(0)).unwrap(),
+            connection.query_row("SELECT count(*) FROM agent_operation_receipts", [], |row| row.get(0)).unwrap(),
+            connection.query_row("SELECT count(*) FROM agent_change_log", [], |row| row.get(0)).unwrap(),
+        ) };
+        let before = counts();
+        let service = RecordDocumentService::new(&store, &utility);
+        let preview = service.create_preview(&request, &input, Some(3)).await.unwrap();
+        assert_eq!(preview.normalized_title.as_deref(), Some("Trimmed"));
+        assert_eq!(preview.preview_text.chars().count(), 3);
+        assert!(preview.preview_truncated);
+        assert_eq!(preview.full_text_chars, utility.projection.text.chars().count());
+        let markdown = RecordMarkdownCreate {
+            scope: Scope::Workspace, title: Some("  Markdown  ".into()),
+            tag_ids: vec![], markdown: "# heading".into(), code_language: None,
+        };
+        let markdown_preview = service.create_markdown_preview(&request, &markdown, Some(4)).await.unwrap();
+        assert_eq!(markdown_preview.normalized_title.as_deref(), Some("Markdown"));
+        assert_eq!(markdown_preview.preview_text.chars().count(), 4);
+        assert_eq!(counts(), before);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 0);
+        let mut invalid = input;
+        invalid.title = Some("bad\nname".into());
+        assert_eq!(service.create_preview(&request, &invalid, None).await.unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(service.create_markdown_preview(&request, &markdown, Some(12001)).await.unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(counts(), before);
+    }
+    #[tokio::test]
+    async fn create_preview_rechecks_workspace_after_worker() {
+        let (_directory, store, mut utility, mut request, _target) = setup();
+        request.scope_grant.operations.push("record.metadata.write".into());
+        request.request_id = "create-preview-switch".into();
+        let input = RecordMarkdownCreate {
+            scope: Scope::Workspace, title: None, tag_ids: vec![],
+            markdown: "# heading".into(), code_language: None,
+        };
+        let binding = store.binding.clone();
+        utility.on_request = Some(Box::new(move || binding.lock().unwrap().generation = "reopened".into()));
+        let before = store.db.lock().unwrap().workspace_page_get().unwrap().records.len();
+        assert_eq!(RecordDocumentService::new(&store, &utility)
+            .create_markdown_preview(&request, &input, None).await.unwrap_err().code,
+            ErrorCode::WorkspaceChanged);
+        assert_eq!(store.db.lock().unwrap().workspace_page_get().unwrap().records.len(), before);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 0);
+    }
+    #[tokio::test]
+    #[ignore = "requires prepared fixed Node runtime and built Record worker"]
+    async fn markdown_create_preview_matches_real_heading_and_list_conversion() {
+        let (_directory, store, _utility, mut request, _target) = setup();
+        request.scope_grant.operations.push("record.metadata.write".into());
+        request.request_id = "real-markdown-create".into();
+        let utility = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let service = RecordDocumentService::new(&store, &utility);
+        let input = RecordMarkdownCreate {
+            scope: Scope::Workspace, title: Some("Outline".into()), tag_ids: vec![],
+            markdown: "# Heading\n\n- first\n- second".into(), code_language: None,
+        };
+        let before = store.db.lock().unwrap().workspace_page_get().unwrap().records.len();
+        let preview = service.create_markdown_preview(&request, &input, None).await.unwrap();
+        assert_eq!(store.db.lock().unwrap().workspace_page_get().unwrap().records.len(), before);
+        assert!(preview.preview_text.contains("Heading"));
+        assert!(preview.preview_text.contains("first"));
+        assert!(preview.preview_text.contains("second"));
+        let created = service.create_markdown(&request, &input).await.unwrap();
+        let head = store.db.lock().unwrap().record_document_head(&created.target).unwrap().unwrap();
+        assert_eq!(head.projection.text, preview.preview_text);
+        assert!(head.projection.markdown.contains("# Heading"));
+        let blocks = head.projection.document["content"].as_array().unwrap();
+        let heading = blocks.iter().find(|block| block["type"] == "heading").unwrap();
+        assert_eq!(heading["content"][0]["text"], "Heading");
+        let list = blocks.iter().find(|block| block["type"] == "bulletList").unwrap();
+        let items = list["content"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item["type"] == "listItem"));
+        assert_eq!(items[0]["content"][0]["content"][0]["text"], "first");
+        assert_eq!(items[1]["content"][0]["content"][0]["text"], "second");
     }
     #[tokio::test]
     #[ignore = "requires prepared fixed Node runtime and built Record worker"]

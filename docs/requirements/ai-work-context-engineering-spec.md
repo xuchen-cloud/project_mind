@@ -269,7 +269,7 @@ R11 复用 R10 的持久批次和知识版本：每批读一条原始消息或�
 
 `MessageRef { workspaceId, scope, sessionId, branchId, messageId, ordinal, contentHash }`使用持久ID，编辑/重试/分支不能重新指向另一条消息。概览引用同时保留summaryRevision/segmentId与原始消息范围；摘要重建不改变消息链接身份。
 
-Project检索只见同Project会话；Workspace可聚合其授权范围内的会话，Project不反向继承Workspace会话。内置助手默认可读当前scope历史会话；外部“单Project协作”连接预设包含明确展示的`session.read`，只读连接可选择含/不含历史会话。没有session.read时，过滤依赖该会话的摘要/Overview条目正文，不能只藏消息链接却泄露结论。
+Project检索只见同Project会话；Workspace可聚合其授权范围内的会话，Project不反向继承Workspace会话。内置助手默认可读当前scope历史会话；外部连接通过明确展示的“允许读取会话依据”选项单独授予 `session.read`，协作与只读连接均可选择含/不含历史会话。没有session.read时，过滤依赖该会话的摘要/Overview条目正文，不能只藏消息链接却泄露结论。
 
 会话或消息被删除/排除时，失效其 AI 可见 summary segments、FTS 与派生 Overview/Workspace 记忆；原会话涉及被排除资料时同样沿依赖失效，不能通过用户/助手的转述旁路恢复。旧 Overview 版本仍需动态权限过滤。AI 来源排除不隐藏可信 GUI 中用户自己的原始会话或 File 历史；真实删除则使原文引用失效。已独立保存的 Record/File 不因删除会话而删除；删除原文与“从所有独立成果忘记此事”是不同操作，不能承诺后者自动发生。外部 Agent 只索引通过适配器明确回传的会话/消息，不扫描其他 CLI 全部私有聊天记录。
 
@@ -521,7 +521,8 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 | `output.stage` | runId、ordinal、kind、title、body、citations | staged output；仅当前 runtime 可调用 |
 | `output.update` | outputId、expectedRevision、title/body/safeName | 仅GUI可编辑staged成果；服务端重新校验引用/格式并revision+1 |
 | `output.commit` | outputId、requestId、expectedOutputRevision | objectRef + receipt；GUI按任务持久决定提交，collaborate下Host直接提交；须符合冻结模式、候选CAS与grant |
-| `record.create` / `todo.create` | scope、body/title、citations、requestId | 对外 create 操作，走同一 canonical converter/业务事务 |
+| `record.create` / `todo.create` | scope、body/title、citations、requestId | 对外 create 操作，走同一 canonical converter/业务事务；Record 输入 document 或 markdown 二选一，稳定 ID 绑定原始输入 |
+| `record.create.preview` | input（document 或 markdown）、budgetChars? | content.create 授权，纯校验和有界正文/元信息预览，无持久对象身份或收据 |
 | `file.create` | projectId、safeName、utf8Content、citations、requestId | 首期≤2 MiB、md/txt/html/htm；不接受任意绝对路径 |
 | `connection.create/revoke/list` | scopeGrant、operations、clientLabel | GUI 专用；仅创建时交付本机凭据引用 |
 | `changes.list` | afterSeq、limit≤200 | 应用补读已提交变更，过滤权限 |
@@ -573,7 +574,7 @@ CLI对应`file source read`、`todo update --patch-file`、`operation list/undo/
 
 - M1 使用仅监听 `127.0.0.1` 的随机端口 HTTP JSON bridge；应用外网不可访问，不提供浏览器 CORS。校验 Host、拒绝带非应用 Origin 的请求，token 必须通过 Authorization header。
 - 本机发现文件保存 runtime 实例、端口和 endpoint version，属于 Local Session，不能复制进 Workspace。连接 secret 只存 OS credential store；CLI 配置包含 grantId，不含明文 secret；同本机用户可读取凭据，不能宣称隔离该用户启动的任意程序。
-- 每个 grant 绑定 Workspace UUID、可见 Project 集合和操作集；创建连接时默认推荐“单Project协作”预设，含读取、新建、Record/File/Todo修改与本连接操作撤销；用户可选择只读或自定义。Workspace 级授权用户显式选择。权限底层分开记录create、record.patch、file.update、todo.update、operation.undo及可选任意历史restore；块删除包含在patch内，整Record/File对象删除、密钥设置、任意路径和shell仍不暴露。
+- 每个 grant 绑定 Workspace UUID、Project 范围和操作集；创建连接默认推荐“Workspace 协作”，包含直属内容及所有未归档 Project，新建/解除归档 Project 自动纳入。保留“单 Project 协作”“只读”“自定义”；只读预设覆盖整个 Workspace 且无写权限，自定义显式选择 Project 子集及直属内容。持久 `allProjects` 与 `workspaceContent` 分开记录，旧 JSON 缺省 allProjects=false；每次认证解析当前 Project 范围，已有连接不自动扩权。协作包含读取、新建、Record/File/Todo 修改与本连接撤销，排除、撤回与撤权策略照常执行。权限底层分开记录create、record.patch、file.update、todo.update、operation.undo及可选任意历史restore；块删除包含在patch内，整Record/File对象删除、密钥设置、任意路径和shell仍不暴露。
 - Workspace 切换使运行请求返回 WORKSPACE_CHANGED，不能自动转接新 Workspace。请求超时后客户端查询 receipt，不能自动重复非幂等变更。
 - CLI 没有解锁模型密钥的 API；纯数据读写不要求模型密钥解锁，内置模型任务要求解锁。首期 CLI 不开放启动内置 run，避免外部任务隐式产生模型费用。
 

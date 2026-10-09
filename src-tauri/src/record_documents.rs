@@ -57,6 +57,25 @@ pub(crate) struct RecordCreate {
     pub document: Value,
     pub code_language: Option<String>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordMarkdownCreate {
+    pub scope: Scope,
+    pub title: Option<String>,
+    pub tag_ids: Vec<i64>,
+    pub markdown: String,
+    pub code_language: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordCreatePreview {
+    pub scope: Scope,
+    pub normalized_title: Option<String>,
+    pub tag_ids: Vec<i64>,
+    pub preview_text: String,
+    pub full_text_chars: usize,
+    pub preview_truncated: bool,
+}
 
 #[derive(Serialize)]
 #[serde(untagged)]
