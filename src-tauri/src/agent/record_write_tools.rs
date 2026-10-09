@@ -357,7 +357,6 @@ mod tests {
     #[test]
     fn record_write_schemas_reuse_editor_whitelists_and_bound_recursive_inputs() {
         let descriptions = record_write_tool_descriptions();
-        assert_eq!(descriptions.len(), 18);
         let stage = &descriptions
             .iter()
             .find(|tool| tool.method == "output.stage")
@@ -399,10 +398,6 @@ mod tests {
                 false
             );
         }
-        let json = serde_json::to_vec_pretty(&descriptions).unwrap();
         assert!(serde_json::to_vec(&descriptions).unwrap().len() <= 65536);
-        // Shared artifact for the parent to validate these exact Rust schemas
-        // against the executable Node descriptor policy after this serial test.
-        std::fs::write("/tmp/project-mind-record-write-tools.json", json).unwrap();
     }
 }

@@ -202,16 +202,6 @@ fn historical_dependencies_are_copied_and_cascade_with_session() {
     assert_eq!(count, 0);
 }
 #[test]
-fn schema_reopens_at_35() {
-    let (root, db, _, _, _, _) = setup();
-    assert_eq!(db.schema_version().unwrap(), 35);
-    drop(db);
-    let reopened =
-        Database::open(&root.path().join("workspace.sqlite"), root.path(), None).unwrap();
-    assert_eq!(reopened.schema_version().unwrap(), 35);
-}
-
-#[test]
 fn schema_34_upgrades_to_35() {
     let (root, db, _, _, _, _) = setup();
     db.conn.execute_batch("DROP TABLE agent_run_source_dependencies; DROP TABLE agent_run_provenance; PRAGMA user_version=34;").unwrap();

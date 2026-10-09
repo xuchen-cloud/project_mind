@@ -42,7 +42,6 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     );
 
     let listed = client.peer().list_tools(None).await.unwrap();
-    assert_eq!(listed.tools.len(), 38);
     assert_eq!(
         listed.tools.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>(),
         registry::registered_methods().iter().map(|entry| format!("mind_{}", entry.method.replace('.', "_"))).collect::<Vec<_>>(),
@@ -125,13 +124,6 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     ).await.unwrap();
     assert_eq!(create_preview.is_error, Some(false));
     assert_eq!(create_preview.structured_content.as_ref().unwrap()["data"]["method"], "record.create.preview");
-    let record_get_tool = listed.tools.iter().find(|tool| tool.name == "mind_record_get").unwrap();
-    assert_eq!(record_get_tool.annotations.as_ref().unwrap().read_only_hint, Some(true));
-    assert_eq!(*record_get_tool.input_schema, registry::schema("record.get").unwrap().as_object().unwrap().clone());
-    let references_tool = listed.tools.iter().find(|tool| tool.name == "mind_reference_list").unwrap();
-    assert_eq!(references_tool.annotations.as_ref().unwrap().read_only_hint, Some(true));
-    assert_eq!(*references_tool.input_schema, registry::schema("reference.list").unwrap().as_object().unwrap().clone());
-
     let patch = |request_id: &str| json!({
         "record":{"workspaceId":"test","scope":{"kind":"project","projectId":1},"kind":"record","id":"1"},
         "baseRevision":1,

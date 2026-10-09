@@ -33,6 +33,22 @@ WP4/WP5 决策依据：Pi 原生 `CompactionEntry` 只有自由文本 `summary`�
 
 ## D1 交付批次与顺序
 
+### Rust 测试清理（2026-10-09，关联 #97/#107）
+
+用户要求检查上一轮 938 个通过的 Rust 测试，删除无效覆盖。本包只清理测试：删除已被真实数据库路径覆盖的重复冒烟用例、重复工具数量/内部交付标签断言，以及无人消费的测试临时文件输出；不按目标数量删测试，不改产品代码。权限、CAS、幂等、来源证明、迁移失败与崩溃恢复保留。主 agent 逐项判断删除依据，确定性编辑委派实施。验收：记录被删内容与保留的覆盖，受影响 Rust 测试通过、无新增警告、diff 检查通过；既有未变前端和产品验证复用。
+
+| 删除内容 | 判断依据与保留覆盖 |
+| --- | --- |
+| `schema_reopens_at_35` 整条测试 | 只断言新库/重开的版本号。`fresh_workspace_schema_omits_legacy_domain_tables_and_columns` 已覆盖同一行为并检查真实表结构；34→35 迁移测试保留。 |
+| `agent_l0_is_small_and_never_invents_a_built_overview` 整条测试 | 使用假仓库验证空入口，真实数据库的 `l0_no_overview_keeps_independent_identity_and_not_built` 与 dispatcher 的可信名称测试已覆盖空入口。独立 Unicode/JSON 输入预算及授权前不访问存储的测试保留。 |
+| 工具数量、内部 delivery 标签及重复权限名单断言 | 保留精确公开方法清单、MCP 对注册表逐项比对、读写性质/权限和 DTO/schema 行为；工具增减不再要求维护多个无独立意义的数量常量，工单标签不作为产品行为。 |
+| 两处固定 `/tmp/project-mind-record-write-tools.json` 写入 | 仅历史人工调试产物，仓库无消费者，且并行测试重复写同一路径。保留 File DTO 往返、编辑器 schema 一致性和一次序列化大小检查。 |
+| MCP 中 Record/Reference 的重复 schema 和只读检查 | 同一测试开头已经遍历全部已公布工具检查相同性质；实际工具调用、参数和结果检查保留。 |
+
+本包不把所有边界测试称为“防御性编程”，也不把短测试或没有直接业务写入的契约测试一概删除。938 是上一轮执行结果，不是全部 AI 场景或全部 Rust 测试的数量；默认跳过的专用运行时/子进程夹具不是可随意删除的空测试。
+
+已完成：删除 2 个完整测试，精简 7 个测试文件，无产品代码变更。受影响模块及上述保留的数据库覆盖共 44 项通过、0 失败、926 项过滤；本轮没有重跑全量，不能把 936 写成新一轮全量通过数。验证命令为 `cargo test --lib --quiet -- agent::tests agent::file_tools::tests agent::record_write_tools::tests agent::tools::tests agent::bridge::registry::tests agent::bridge::mcp::tests db::agent_run_provenance::tests db::overview_context::tests::l0_no_overview_keeps_independent_identity_and_not_built db::tests::fresh_workspace_schema_omits_legacy_domain_tables_and_columns`。环境本地日志 `/workspace/project-mind-env/rust-test-cleanup.log`；相对上轮全量日志无新增编译警告，diff 检查通过。主 agent 完成删除依据及 Standards/Spec 自查，未启动 review agent；既有未变产品验证继续有效。
+
 | 批次 | 交付范围 | 工单 | 验收 |
 | --- | --- | --- | --- |
 | M0 | Pi、模型、工具与安装包技术验证 | AI-01 | 无开发环境的安装包与受限工具验证 |

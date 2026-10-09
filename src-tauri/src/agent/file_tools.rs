@@ -181,7 +181,7 @@ pub(crate) fn file_tool_descriptions() -> Vec<ReadToolDescription> {
 mod tests {
     use super::*;
     #[test]
-    fn file_stage_schemas_match_native_intents_and_export_exact_inventory() {
+    fn file_stage_intents_round_trip_native_dtos() {
         use crate::agent::outputs::OutputIntent;
         let target = json!({"workspaceId":"workspace","scope":{"kind":"project","projectId":1},"kind":"file","id":"1"});
         let hash = format!("sha256:{}", "a".repeat(64));
@@ -196,13 +196,5 @@ mod tests {
             let native: OutputIntent = serde_json::from_value(input.clone()).unwrap();
             assert_eq!(serde_json::to_value(native).unwrap(), input);
         }
-        let inventory = crate::agent::record_write_tools::record_write_tool_descriptions();
-        assert_eq!(inventory.len(), 18);
-        assert!(serde_json::to_vec(&inventory).unwrap().len() <= 65536);
-        std::fs::write(
-            "/tmp/project-mind-record-write-tools.json",
-            serde_json::to_vec_pretty(&inventory).unwrap(),
-        )
-        .unwrap();
     }
 }

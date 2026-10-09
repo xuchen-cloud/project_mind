@@ -407,9 +407,6 @@ mod tests {
             "file.content.begin", "file.content.chunk", "file.content.complete",
             "file.content.status",
         ]);
-        assert_eq!(registered_methods().len(), 38);
-        assert_eq!(registered_methods().iter().filter(|entry| entry.read_only).count(), 24);
-        assert_eq!(registered_methods().iter().filter(|entry| !entry.read_only).count(), 14);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         assert_eq!(is_read_only("record.patch"), Some(false));
         assert_eq!(is_read_only("operation.list"), Some(true));

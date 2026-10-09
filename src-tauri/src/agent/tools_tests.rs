@@ -390,7 +390,6 @@ async fn shared_read_dispatcher_l0_uses_trusted_workspace_name_and_rejects_argum
 #[test]
 fn shared_read_dispatcher_descriptors_expose_only_callable_bounded_dtos() {
     let tools = read_tool_descriptions();
-    assert_eq!(tools.len(), 8);
     let source = tools
         .iter()
         .find(|tool| tool.method == "source.read")

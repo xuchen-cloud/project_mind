@@ -119,30 +119,6 @@ fn agent_object_scope_cannot_be_forged_and_restore_is_a_separate_permission() {
 }
 
 #[test]
-fn agent_l0_is_small_and_never_invents_a_built_overview() {
-    let repo = SpyRepository {
-        reads: Cell::new(0),
-    };
-    let current = binding();
-    let entry = AgentDomainService::new(&current, &repo)
-        .context_get(
-            &request(),
-            ContextGetInput {
-                scope: Scope::Project { project_id: 7 },
-                query: Some("之前讨论了什么".into()),
-                budget_chars: None,
-            },
-        )
-        .unwrap();
-    let data = serde_json::to_value(entry).unwrap();
-    assert_eq!(data["status"], "not_built");
-    assert!(data["positioning"].is_null());
-    assert_eq!(data["nodes"], serde_json::json!([]));
-    assert_eq!(repo.reads.get(), 1);
-    assert!(serialized_chars(&data).unwrap() <= 2000);
-}
-
-#[test]
 fn agent_budget_counts_unicode_and_json_escaping_and_rejects_impossible_budget() {
     let entry = ContextEntry::not_built(
         ScopeIdentity {
@@ -211,28 +187,6 @@ fn agent_response_uses_boolean_discriminator_and_reports_native_write_availabili
     assert_eq!(json["ok"], false);
     assert!(json.get("data").is_none());
     assert_eq!(json["error"]["code"], "SCOPE_DENIED");
-    assert!(capabilities()
-        .iter()
-        .filter(|cap| cap.implemented)
-        .all(|cap| cap.read_only
-            || matches!(
-                cap.permission,
-                "settings.write"
-                    | "session.write"
-                    | "run.start"
-                    | "run.cancel"
-                    | "output.stage"
-                    | "output.update"
-                    | "output.commit"
-                    | "content.create"
-                    | "record.patch"
-                    | "record.restore"
-                    | "file.update"
-                    | "file.restore"
-                    | "todo.update"
-                    | "operation.undo"
-                    | "operation.restore_created"
-            )));
     for method in [
         "record.create", "record.patch", "record.restore", "file.create", "file.patch",
         "file.update", "file.version.restore", "todo.create", "todo.update",
@@ -259,11 +213,7 @@ fn agent_response_uses_boolean_discriminator_and_reports_native_write_availabili
             .into_iter()
             .find(|cap| cap.method == method)
             .unwrap();
-        assert!(
-            capability.implemented
-                && !capability.read_only
-                && capability.delivery.ends_with(":Record/Todo/File")
-        );
+        assert!(capability.implemented && !capability.read_only);
     }
     let todo_get = capabilities()
         .into_iter()
@@ -271,7 +221,6 @@ fn agent_response_uses_boolean_discriminator_and_reports_native_write_availabili
         .unwrap();
     assert!(todo_get.implemented && todo_get.read_only);
     assert_eq!(todo_get.permission, "source.read");
-    assert_eq!(todo_get.delivery, "AI-19:Todo");
 }
 
 #[test]
