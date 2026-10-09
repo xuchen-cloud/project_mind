@@ -2,7 +2,7 @@
 //! independently validates bounded structure, stable IDs and portable references.
 use crate::agent::{
     errors::{AgentError, AgentResult, ErrorCode},
-    models::Scope,
+    models::{ObjectRef, Scope},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -290,6 +290,29 @@ pub(crate) struct RecordPatchMetadata {
     pub deleted_block_ids: Vec<String>,
     pub normalizations: Vec<RecordPatchNormalization>,
     pub no_change: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecordPatchPreviewInput {
+    pub record: ObjectRef,
+    pub base_revision: u64,
+    pub operations: Vec<crate::agent::outputs::BlockEdit>,
+    #[schemars(range(min = 1, max = 12000))]
+    pub budget_chars: Option<usize>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordPatchPreview {
+    pub target: RecordTarget,
+    pub base_revision: u64,
+    pub base_body_hash: String,
+    pub created_block_count: usize,
+    pub deleted_block_count: usize,
+    pub normalization_count: usize,
+    pub no_change: bool,
+    pub preview_text: String,
+    pub preview_truncated: bool,
+    pub full_text_chars: usize,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

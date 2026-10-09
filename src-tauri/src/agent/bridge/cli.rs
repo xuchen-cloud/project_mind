@@ -11,7 +11,7 @@ use std::{io::Read, path::PathBuf};
 #[path = "cli_upload.rs"]
 mod cli_upload;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|patch|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record patch --dry-run previews without writing and may omit requestId; --budget-chars applies only to this preview (1–12000, default 4000). --patch-file accepts native RecordPatch JSON and cannot be combined with --input-file. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
@@ -30,7 +30,9 @@ struct Options {
     budget_chars: Option<usize>,
     request_id: Option<String>,
     input_file: Option<String>,
+    patch_file: Option<String>,
     body_file: Option<String>,
+    dry_run: bool,
     json: bool,
 }
 
@@ -55,6 +57,12 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             cursor += 1;
             continue;
         }
+        if flag == "--dry-run" {
+            if options.dry_run { return Err(invalid("Duplicate --dry-run")); }
+            options.dry_run = true;
+            cursor += 1;
+            continue;
+        }
         let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing option value"))?;
         if value.starts_with("--") { return Err(invalid("Missing option value")); }
         match flag {
@@ -73,6 +81,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             }
             "--request-id" if options.request_id.is_none() && !value.is_empty() => options.request_id = Some(value.clone()),
             "--input-file" if options.input_file.is_none() => options.input_file = Some(value.clone()),
+            "--patch-file" if options.patch_file.is_none() => options.patch_file = Some(value.clone()),
             "--body-file" if options.body_file.is_none() => options.body_file = Some(value.clone()),
             _ => return Err(invalid("Unknown or duplicate option")),
         }
@@ -159,6 +168,21 @@ fn write_request_id(options: &Options, params: &Value) -> AgentResult<String> {
     Ok(payload_id.to_owned())
 }
 
+fn preview_patch_params(mut params: Value, budget_chars: Option<usize>) -> AgentResult<Value> {
+    let object = params.as_object_mut().ok_or_else(|| invalid("--patch-file must contain a RecordPatch JSON object"))?;
+    object.remove("requestId");
+    if let Some(budget) = budget_chars { object.insert("budgetChars".into(), json!(budget)); }
+    Ok(params)
+}
+
+fn bridge_method(command: &str, dry_run: bool) -> &str {
+    match (command, dry_run) {
+        ("search", _) => "source.search",
+        ("record.patch", true) => "record.patch.preview",
+        _ => command,
+    }
+}
+
 /// Stdio owns stdout for its entire lifetime. Diagnostics go only to stderr.
 pub fn run_mcp(args: &[String]) -> i32 {
     let parsed = (|| {
@@ -227,6 +251,7 @@ pub fn run(args: &[String]) -> CliOutput {
         ["session", "messages", "read", ..] => ("session.messages.read", &args[3..], None),
         ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..], None),
         ["record", "create", ..] => ("record.create", &args[2..], None),
+        ["record", "patch", "preview", ..] => ("record.patch.preview", &args[3..], None),
         ["record", "patch", ..] => ("record.patch", &args[2..], None),
         ["record", "restore", ..] => ("record.restore", &args[2..], None),
         ["record", "versions", "list", ..] => ("record.versions.list", &args[3..], None),
@@ -258,9 +283,18 @@ pub fn run(args: &[String]) -> CliOutput {
         Ok(options) => options,
         Err(error) => return response(request_id(), Err(error)),
     };
+    if options.input_file.is_some() && options.patch_file.is_some() {
+        return response(request_id(), Err(invalid("--input-file and --patch-file cannot be combined")));
+    }
     let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
+        if options.patch_file.is_some() && command != "record.patch" {
+            return Err(invalid("--patch-file is only supported by record patch"));
+        }
+        if options.dry_run && command != "record.patch" {
+            return Err(invalid("--dry-run is only supported by record patch"));
+        }
         if command == "file.upload" {
             reject_scope_options(&options)?;
             let target_path = options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?;
@@ -276,7 +310,7 @@ pub fn run(args: &[String]) -> CliOutput {
             return cli_upload::upload(&transport, target, &bytes, &request_id);
         }
         if options.body_file.is_some() { return Err(invalid("--body-file is only supported by file upload")); }
-        let method = if command == "search" { "source.search" } else { command };
+        let method = bridge_method(command, options.dry_run);
         let params = match command {
             "doctor" | "project.list" => {
                 if options.input_file.is_some() || options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
@@ -295,12 +329,28 @@ pub fn run(args: &[String]) -> CliOutput {
             }
             _ => {
                 if !registry::is_registered(method) { return Err(invalid("Unknown bridge method")); }
-                reject_scope_options(&options)?;
-                read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
+                if command == "record.patch" {
+                    if options.project.is_some() || options.workspace_scope || options.query.is_some() {
+                        return Err(invalid("Scope and query options cannot accompany record patch"));
+                    }
+                    if !options.dry_run && options.budget_chars.is_some() {
+                        return Err(invalid("--budget-chars is only supported by record patch --dry-run"));
+                    }
+                    let source = options.patch_file.as_deref().or(options.input_file.as_deref())
+                        .ok_or_else(|| invalid("--patch-file or --input-file is required"))?;
+                    let params = read_input(source)?;
+                    if options.dry_run { preview_patch_params(params, options.budget_chars)? } else { params }
+                } else {
+                    reject_scope_options(&options)?;
+                    read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
+                }
             }
         };
+        if command == "record.patch" && !options.dry_run {
+            request_id = write_request_id(&options, &params)?;
+        }
         if command != "doctor" { registry::validate(method, &params)?; }
-        if registry::is_read_only(method) == Some(false) {
+        if registry::is_read_only(method) == Some(false) && command != "record.patch" {
             request_id = write_request_id(&options, &params)?;
         }
         let client = BridgeClient::discover(connection)?;
@@ -408,7 +458,7 @@ mod tests {
     #[test]
     fn write_commands_require_an_input_file_before_connection() {
         for words in [
-            vec!["record", "create"], vec!["record", "patch"], vec!["record", "restore"],
+            vec!["record", "create"], vec!["record", "restore"],
             vec!["operation", "undo"], vec!["operation", "restore-created"],
             vec!["todo", "create"], vec!["todo", "update"],
         ] {
@@ -436,5 +486,60 @@ mod tests {
         let missing_id = invoke(&["file", "upload", "--input-file", "target.json", "--body-file", "body.bin", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
         assert_eq!(missing_id.exit_code, 2);
         assert!(missing_id.stderr.contains("--request-id is required"));
+    }
+
+    #[test]
+    fn patch_preview_removes_mutation_identity_and_cannot_route_to_write() {
+        assert_eq!(bridge_method("record.patch", true), "record.patch.preview");
+        assert_eq!(bridge_method("record.patch", false), "record.patch");
+        assert_eq!(bridge_method("record.patch.preview", false), "record.patch.preview");
+        let input = json!({"record":{"workspaceId":"w","scope":{"kind":"workspace"},"kind":"record","id":"r"},"baseRevision":1,"operations":[],"requestId":"stable-1"});
+        let preview = preview_patch_params(input.clone(), Some(12000)).unwrap();
+        assert!(preview.get("requestId").is_none());
+        assert_eq!(preview["budgetChars"], 12000);
+        registry::validate("record.patch.preview", &preview).unwrap();
+        assert_eq!(input["requestId"], "stable-1");
+        assert!(preview_patch_params(json!([]), None).is_err());
+    }
+    #[test]
+    fn patch_flags_are_explicit_and_never_silently_ignored() {
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"record":{"workspaceId":"w","scope":{"kind":"workspace"},"kind":"record","id":"r"},"baseRevision":1,"operations":[],"requestId":"stable-1"}"#).unwrap();
+        let path = file.path().to_str().unwrap();
+        let check = |words: &[&str], expected: &str| {
+            let mut args = words.to_vec();
+            args.extend(common);
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2, "{words:?}: {}", out.stderr);
+            assert!(out.stderr.contains(expected), "{words:?}: {}", out.stderr);
+        };
+        check(&["record", "patch", "--patch-file", path, "--input-file", path], "cannot be combined");
+        check(&["record", "create", "--patch-file", path], "only supported by record patch");
+        check(&["record", "patch", "preview", "--dry-run", "--input-file", path], "only supported by record patch");
+        check(&["record", "patch", "--patch-file", path, "--budget-chars", "100"], "only supported by record patch --dry-run");
+        check(&["record", "patch", "--patch-file", path, "--project", "1"], "Scope and query options");
+        check(&["record", "patch", "--patch-file", path, "--request-id", "different"], "must match input requestId");
+        check(&["record", "patch", "--patch-file", path, "--dry-run", "--budget-chars", "12001"], "Invalid character budget");
+    }
+    #[test]
+    fn patch_file_requires_stable_id_for_writes_but_not_preview() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"record":{"workspaceId":"w","scope":{"kind":"workspace"},"kind":"record","id":"r"},"baseRevision":1,"operations":[]}"#).unwrap();
+        let path = file.path().to_str().unwrap();
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let mut write_args = vec!["record", "patch", "--patch-file", path];
+        write_args.extend(common);
+        let write = invoke(&write_args);
+        assert_eq!(write.exit_code, 2);
+        assert!(write.stderr.contains("requestId"));
+        let mut preview_args = vec!["record", "patch", "--patch-file", path, "--dry-run"];
+        preview_args.extend(common);
+        let preview = invoke(&preview_args);
+        assert_ne!(preview.exit_code, 2, "{}", preview.stderr);
+        let mut explicit_preview_args = vec!["record", "patch", "preview", "--input-file", path];
+        explicit_preview_args.extend(common);
+        let explicit_preview = invoke(&explicit_preview_args);
+        assert_ne!(explicit_preview.exit_code, 2, "{}", explicit_preview.stderr);
     }
 }

@@ -107,6 +107,7 @@ pub fn capabilities() -> Vec<Capability> {
             "AI-07:Record/Todo/File",
         ),
         ("record.patch", "record.patch", false, true, "AI-16"),
+        ("record.patch.preview", "record.patch", true, true, "AI-16"),
         ("record.restore", "record.restore", false, true, "AI-16"),
         ("file.create", "content.create", false, true, "AI-07"),
         ("file.patch", "file.update", false, true, "AI-17"),

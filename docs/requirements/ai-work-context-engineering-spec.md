@@ -537,7 +537,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 | 方法 | 关键输入/返回 |
 | --- | --- |
 | `record.blocks.get` | RecordRef、revision?、cursor；返回block树/ID/hash/headRevision，默认整段定位不按DOM offset |
-| `record.patch.preview` / `record.patch` | RecordPatch；preview无正文副作用，apply需record.patch授权与二次CAS |
+| `record.patch.preview` / `record.patch` | preview 使用 record/baseRevision/operations/budgetChars，无 mutation requestId；返回基线、变更计数和有界正文，不初始化/flush/持久化。preview 与 apply 均需 record.patch 授权，apply 仍需稳定 requestId 与二次 CAS |
 | `record.versions.list/get/compare` | RecordRef、versionIds、cursor；含来源和按块diff |
 | `record.version.restore` | RecordRef、versionId、baseRevision、requestId；创建新正文版本 |
 | `file.patch_text` | FileRef、expectedVersion/hash、edits或appendText、requestId；返回新File Version或noChange |
@@ -549,7 +549,7 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 CLI增加 `record blocks get`、`record patch --patch-file ... [--dry-run]`、`record versions list/get/compare`、`record restore --version ... --base-revision ...`；File增加 `file patch --patch-file ...`、`file update --id ... --source-file ... --expected-version ... --expected-hash ...`、`file versions list/get`、`file restore`。这些命令继承workspace/project/connection/request-id参数；file update的本地source-file在CLI进程读出上传，不把任意路径交给server读取。
 
-MCP新增 `mind_record_blocks_get`、`mind_record_patch`（dryRun）、`mind_record_versions_list/get/compare`、`mind_record_version_restore`、`mind_file_patch_text`、`mind_file_content_stage`（分块）、`mind_file_update`、`mind_file_versions_list/get`、`mind_file_version_restore`；每个斜杠展开为独立工具；与E10/E12节统一从注册表生成CLI/MCP schema。工具write/destructive hints如实标注，权限仍由Host验证；没有record.restore授权的patch不能以伪造operation触发历史恢复。
+MCP新增 `mind_record_blocks_get`、`mind_record_patch_preview`（只读预览）、`mind_record_patch`（正式应用）、`mind_record_versions_list/get/compare`、`mind_record_version_restore`、`mind_file_patch_text`、`mind_file_content_stage`（分块）、`mind_file_update`、`mind_file_versions_list/get`、`mind_file_version_restore`；每个斜杠展开为独立工具；与E10/E12节统一从注册表生成CLI/MCP schema。工具write/destructive hints如实标注，权限仍由Host验证；没有record.restore授权的patch不能以伪造operation触发历史恢复。
 
 ### Todo与撤销接口
 

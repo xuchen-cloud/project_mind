@@ -11,7 +11,8 @@ use crate::{
         record_patch_target, RecordCheckpointInput, RecordCheckpointResult, RecordCommitResult,
         RecordCommittedHead, RecordDocumentCommit, RecordDocumentHead, RecordDocumentProjection,
         RecordEditorState, RecordMetadata, RecordMetadataUpdate, RecordPatchMetadata,
-        RecordPatchPreparation, RecordPatchResult, RecordQuickNoteTransfer, RecordRestoreInput,
+        RecordPatchPreparation, RecordPatchPreview, RecordPatchPreviewInput, RecordPatchResult,
+        RecordQuickNoteTransfer, RecordRestoreInput,
         RecordTarget, RecordVersion, RecordVersionCapacity, RecordVersionOrigin, RecordVersionPage,
     },
 };
@@ -689,6 +690,71 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             )
         })
     }
+    async fn convert_patch(
+        &self,
+        request: &RequestContext,
+        base: &RecordDocumentHead,
+        operations: &[crate::agent::outputs::BlockEdit],
+    ) -> AgentResult<(RecordDocumentProjection, RecordPatchMetadata)> {
+        let mut converted = self.utility.request(&request.request_id, "record.patch", json!({
+            "document":base.projection.document,
+            "codeLanguage":base.projection.code_language,
+            "operations":operations,
+        })).await?;
+        let metadata: RecordPatchMetadata = converted
+            .as_object_mut()
+            .and_then(|object| object.remove("patch"))
+            .and_then(|metadata| serde_json::from_value(metadata).ok())
+            .ok_or_else(|| AgentError::new(
+                ErrorCode::RuntimeIncompatible, "Invalid document utility patch metadata"
+            ))?;
+        let projection: RecordDocumentProjection = serde_json::from_value(converted).map_err(|_| {
+            AgentError::new(ErrorCode::RuntimeIncompatible, "Invalid document utility projection")
+        })?;
+        projection.validate()?;
+        Ok((projection, metadata))
+    }
+    pub(crate) async fn patch_preview(
+        &self,
+        request: &RequestContext,
+        input: &RecordPatchPreviewInput,
+    ) -> AgentResult<RecordPatchPreview> {
+        let budget = input.budget_chars.unwrap_or(4000);
+        if !(1..=12000).contains(&budget) {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid preview character budget"));
+        }
+        let patch = crate::agent::outputs::RecordPatch {
+            record: input.record.clone(),
+            base_revision: input.base_revision,
+            request_id: request.request_id.clone(),
+            operations: input.operations.clone(),
+        };
+        let target = record_patch_target(&patch)?;
+        if patch.record.workspace_id != request.binding.workspace_id {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Patch identity does not match the request"));
+        }
+        let base = self.access(request, &target, "record.patch", |db| {
+            db.record_patch_preview_base(&patch)
+        })?;
+        let (projection, metadata) = self.convert_patch(request, &base, &patch.operations).await?;
+        self.access(request, &target, "record.patch", |db| {
+            Self::authorize_references(request, db, &projection.document, "record.patch")?;
+            db.record_patch_preview_validate(&patch, &projection, &metadata)
+        })?;
+        let full_text_chars = projection.text.chars().count();
+        Ok(RecordPatchPreview {
+            target,
+            base_revision: input.base_revision,
+            base_body_hash: base.projection.body_hash,
+            created_block_count: metadata.created_block_ids.len(),
+            deleted_block_count: metadata.deleted_block_ids.len(),
+            normalization_count: metadata.normalizations.len(),
+            no_change: metadata.no_change,
+            preview_text: projection.text.chars().take(budget).collect(),
+            preview_truncated: full_text_chars > budget,
+            full_text_chars,
+        })
+    }
     pub(crate) async fn patch(
         &self,
         request: &RequestContext,
@@ -710,25 +776,7 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             RecordPatchPreparation::Replay(previous) => return Ok(previous),
             RecordPatchPreparation::Base(base) => base,
         };
-        let mut converted = self.utility.request(&request.request_id, "record.patch", json!({"document":base.projection.document,"codeLanguage":base.projection.code_language,"operations":patch.operations})).await?;
-        let metadata: RecordPatchMetadata = converted
-            .as_object_mut()
-            .and_then(|object| object.remove("patch"))
-            .and_then(|metadata| serde_json::from_value(metadata).ok())
-            .ok_or_else(|| {
-                AgentError::new(
-                    ErrorCode::RuntimeIncompatible,
-                    "Invalid document utility patch metadata",
-                )
-            })?;
-        let projection: RecordDocumentProjection =
-            serde_json::from_value(converted).map_err(|_| {
-                AgentError::new(
-                    ErrorCode::RuntimeIncompatible,
-                    "Invalid document utility projection",
-                )
-            })?;
-        projection.validate()?;
+        let (projection, metadata) = self.convert_patch(request, &base, &patch.operations).await?;
         // Coordinate after pure conversion and before the submission lock:
         // editor autosave needs that same lock to flush its committed draft.
         self.flush_editors(request, &target, "record.patch").await?;
@@ -2063,6 +2111,72 @@ mod tests {
         result
     }
     #[tokio::test]
+    async fn patch_preview_is_bounded_and_leaves_no_native_write_or_editor_flush() {
+        let (directory, store, mut utility, mut request, target) = setup();
+        let base = RecordDocumentService::new(&store, &utility).head_get(&request, &target).await.unwrap();
+        utility.projection = suffix_projection(&base.projection);
+        request.request_id = "preview-only".into();
+        let patch = append_patch(&request, &target, &base.projection);
+        let input = RecordPatchPreviewInput {
+            record: patch.record, base_revision: patch.base_revision,
+            operations: patch.operations, budget_chars: Some(4),
+        };
+        let connection = rusqlite::Connection::open(directory.path().join("app.sqlite")).unwrap();
+        let counts = || -> (i64, i64, i64) {
+            (
+                connection.query_row("SELECT count(*) FROM record_versions", [], |row| row.get(0)).unwrap(),
+                connection.query_row("SELECT count(*) FROM agent_operation_receipts", [], |row| row.get(0)).unwrap(),
+                connection.query_row("SELECT count(*) FROM agent_change_log", [], |row| row.get(0)).unwrap(),
+            )
+        };
+        let before = counts();
+        store.events.lock().unwrap().clear();
+        let preview = RecordDocumentService::new(&store, &utility).patch_preview(&request, &input).await.unwrap();
+        assert_eq!(preview.target.key().unwrap(), target.key().unwrap());
+        assert_eq!(preview.base_revision, 1);
+        assert_eq!(preview.base_body_hash, base.projection.body_hash);
+        assert_eq!(preview.preview_text.chars().count(), 4);
+        assert!(preview.preview_truncated);
+        assert_eq!(preview.full_text_chars, utility.projection.text.chars().count());
+        assert_eq!(preview.created_block_count, 0);
+        assert_eq!(preview.deleted_block_count, 0);
+        assert_eq!(preview.normalization_count, 0);
+        assert!(!preview.no_change);
+        assert_eq!(counts(), before);
+        assert_eq!(store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, 1);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 0);
+        assert!(store.events.lock().unwrap().is_empty());
+        let mut invalid = input.clone();
+        invalid.budget_chars = Some(12001);
+        assert_eq!(RecordDocumentService::new(&store, &utility).patch_preview(&request, &invalid).await.unwrap_err().code, ErrorCode::InvalidArgument);
+        invalid.budget_chars = Some(0);
+        assert_eq!(RecordDocumentService::new(&store, &utility).patch_preview(&request, &invalid).await.unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(counts(), before);
+    }
+
+    #[tokio::test]
+    async fn patch_preview_rechecks_binding_after_worker_and_requires_patch_grant() {
+        let (_directory, store, mut utility, mut request, target) = setup();
+        let base = RecordDocumentService::new(&store, &utility).head_get(&request, &target).await.unwrap();
+        utility.projection = suffix_projection(&base.projection);
+        request.request_id = "preview-race".into();
+        let patch = append_patch(&request, &target, &base.projection);
+        let input = RecordPatchPreviewInput {
+            record: patch.record, base_revision: patch.base_revision,
+            operations: patch.operations, budget_chars: None,
+        };
+        let binding = store.binding.clone();
+        utility.on_request = Some(Box::new(move || binding.lock().unwrap().generation = "switched".into()));
+        assert_eq!(RecordDocumentService::new(&store, &utility).patch_preview(&request, &input).await.unwrap_err().code, ErrorCode::WorkspaceChanged);
+        assert_eq!(store.flush_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, 1);
+        *store.binding.lock().unwrap() = request.binding.clone();
+        request.scope_grant.operations.retain(|op| op != "record.patch");
+        let calls = utility.calls.load(Ordering::Relaxed);
+        assert_eq!(RecordDocumentService::new(&store, &utility).patch_preview(&request, &input).await.unwrap_err().code, ErrorCode::ScopeDenied);
+        assert_eq!(utility.calls.load(Ordering::Relaxed), calls);
+    }
+    #[tokio::test]
     async fn shared_record_patch_requires_editor_acknowledgement_before_writing() {
         for code in [ErrorCode::EditorReviewPending, ErrorCode::EditorBusy] {
             let (_directory, store, mut utility, mut request, target) = setup();
@@ -2351,6 +2465,14 @@ mod tests {
                 text: " with agent".into(),
             }],
         };
+        let preview = service.patch_preview(&request, &RecordPatchPreviewInput {
+            record: patch.record.clone(), base_revision: patch.base_revision,
+            operations: patch.operations.clone(), budget_chars: None,
+        }).await.unwrap();
+        assert!(!preview.preview_truncated);
+        assert_eq!(preview.preview_text, "Manual change with agent");
+        assert_eq!(preview.full_text_chars, preview.preview_text.chars().count());
+        assert_eq!(store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, 2);
         let result = service.patch(&request, &patch).await.unwrap();
         assert_eq!(result.after_revision, 3);
         assert_eq!(

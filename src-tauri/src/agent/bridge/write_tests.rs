@@ -89,13 +89,13 @@ impl DocumentUtility for DocumentWorker {
         if let Some(entered) = self.entered.lock().unwrap().take() { let _ = entered.send(()); }
         let _permit = self.resume.acquire().await.unwrap();
         let mut doc = data["document"].clone();
-        if method == "record.patch" {
+        if method == "record.patch" || method == "record.patch.preview" {
             let suffix = data["operations"][0]["text"].as_str().expect("append_inline text");
             let text = doc["content"][0]["content"][0]["text"].as_str().unwrap().to_owned() + suffix;
             doc["content"][0]["content"][0]["text"] = json!(text);
         }
         let mut result = serde_json::to_value(projection(doc)).unwrap();
-        if method == "record.patch" {
+        if method == "record.patch" || method == "record.patch.preview" {
             result["patch"] = json!({"createdBlockIds":[],"deletedBlockIds":[],"normalizations":[],"noChange":false});
         }
         Ok(result)
@@ -269,5 +269,95 @@ async fn policy_and_editor_busy_reject_patch_without_commit() {
 impl crate::file_version_service::BoundFileCommitStore for Store {
     fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
         panic!("This fixture does not perform File mutations")
+    }
+}
+
+fn preview_input(object: &ObjectRef) -> Value {
+    json!({"record":object,"baseRevision":1,"operations":[{
+        "op":"append_inline","blockId":BLOCK,
+        "expectedBlockHash":record_block_hash(&document("Alpha")["content"][0]).unwrap(),
+        "text":" beta"
+    }],"budgetChars":4000})
+}
+
+#[tokio::test]
+async fn preview_uses_real_connection_without_committing_or_flushing_editors() {
+    let f = Fixture::new();
+    let worker = DocumentWorker::ready();
+    let created = f.call(GRANT, "create-preview", "record.create", f.create_input("create-preview", "Preview"), &worker).await.unwrap();
+    let object = f.object(&created);
+    let target = RecordTarget { scope: f.scope(), record_id: object.id.parse().unwrap() };
+    let before = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    let events = f.store.published.load(Ordering::SeqCst);
+    f.store.editor_busy.store(true, Ordering::SeqCst);
+    let preview = f.call(GRANT, "preview-id", "record.patch.preview", preview_input(&object), &worker).await.unwrap();
+    assert_eq!(preview["target"]["recordId"], before.target.record_id);
+    assert_eq!(preview["baseRevision"], 1);
+    assert_eq!(preview["baseBodyHash"], before.projection.body_hash);
+    assert_eq!(preview["previewText"], "Alpha beta");
+    assert_eq!(preview["previewTruncated"], false);
+    assert_eq!(preview["fullTextChars"], 10);
+    assert_eq!(preview["noChange"], false);
+    assert_eq!(preview["createdBlockCount"], 0);
+    assert_eq!(preview["deletedBlockCount"], 0);
+    let unchanged = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    assert_eq!(unchanged.head_revision, 1);
+    assert_eq!(unchanged.projection.body_hash, before.projection.body_hash);
+    assert_eq!(f.store.db.lock().unwrap().record_versions_list(&target, None, 10).unwrap().versions.len(), 1);
+    assert_eq!(f.store.published.load(Ordering::SeqCst), events);
+
+    f.store.editor_busy.store(false, Ordering::SeqCst);
+    let mut patch = preview_input(&object);
+    patch.as_object_mut().unwrap().remove("budgetChars");
+    patch["requestId"] = json!("preview-id");
+    let committed = f.call(GRANT, "preview-id", "record.patch", patch, &worker).await.unwrap();
+    assert_eq!(committed["result"]["afterRevision"], 2);
+    assert_eq!(f.store.published.load(Ordering::SeqCst), events + 1);
+}
+
+#[tokio::test]
+async fn preview_rejects_readonly_cross_scope_and_excluded_record() {
+    let f = Fixture::new();
+    let worker = DocumentWorker::ready();
+    let created = f.call(GRANT, "create", "record.create", f.create_input("create", "Preview"), &worker).await.unwrap();
+    let object = f.object(&created);
+    let input = preview_input(&object);
+    assert_eq!(f.call(READ_ONLY, "readonly-preview", "record.patch.preview", input.clone(), &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
+    let foreign = f.store.db.lock().unwrap().project_create(ProjectCreateInput { name: "Other project".into(), summary: None, status: None }).unwrap();
+    let mut wrong_scope = input.clone();
+    wrong_scope["record"]["scope"] = json!({"kind":"project","projectId":foreign.id});
+    assert_eq!(f.call(GRANT, "wrong-scope-preview", "record.patch.preview", wrong_scope, &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
+    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-preview".into(), scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false, project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
+    f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate { object: object.clone(), expected_revision: 0, excluded: true }).unwrap();
+    assert_eq!(f.call(GRANT, "excluded-preview", "record.patch.preview", input, &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
+}
+
+#[tokio::test]
+async fn preview_rechecks_revocation_and_concurrent_head_change_after_worker() {
+    for revoke in [true, false] {
+        let f = Fixture::new();
+        let ready = DocumentWorker::ready();
+        let created = f.call(GRANT, "create", "record.create", f.create_input("create", "Preview"), &ready).await.unwrap();
+        let object = f.object(&created);
+        let target = RecordTarget { scope: f.scope(), record_id: object.id.parse().unwrap() };
+        let events = f.store.published.load(Ordering::SeqCst);
+        let (paused, entered) = DocumentWorker::paused();
+        let preview = f.call(GRANT, "paused-preview", "record.patch.preview", preview_input(&object), &paused);
+        let change = async {
+            entered.await.unwrap();
+            if revoke {
+                f.store.db.lock().unwrap().agent_connection_revoke(&f.binding, GRANT).unwrap();
+            } else {
+                let mut patch = preview_input(&object);
+                patch.as_object_mut().unwrap().remove("budgetChars");
+                patch["requestId"] = json!("racing-patch");
+                f.call(GRANT, "racing-patch", "record.patch", patch, &ready).await.unwrap();
+            }
+            paused.resume.add_permits(1);
+        };
+        let (result, _) = tokio::join!(preview, change);
+        assert_eq!(result.unwrap_err().code, if revoke { ErrorCode::ScopeDenied } else { ErrorCode::RevisionConflict });
+        assert_eq!(f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, if revoke { 1 } else { 2 });
+        assert_eq!(f.store.published.load(Ordering::SeqCst), events + usize::from(!revoke));
     }
 }

@@ -42,7 +42,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     );
 
     let listed = client.peer().list_tools(None).await.unwrap();
-    assert_eq!(listed.tools.len(), 34);
+    assert_eq!(listed.tools.len(), 35);
     assert_eq!(
         listed.tools.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>(),
         registry::registered_methods().iter().map(|entry| format!("mind_{}", entry.method.replace('.', "_"))).collect::<Vec<_>>(),
@@ -85,6 +85,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         ("mind_session_search", "session.search", json!({"scope":project_scope,"query":"plan","sessionId":session_id})),
         ("mind_session_messages_read", "session.messages.read", json!({"sessionId":session_id,"messageId":message_id})),
         ("mind_record_blocks_get", "record.blocks.get", json!({"record":record})),
+        ("mind_record_patch_preview", "record.patch.preview", json!({"record":record,"baseRevision":1,"operations":[],"budgetChars":100})),
         ("mind_record_versions_list", "record.versions.list", json!({"record":record})),
         ("mind_record_versions_get", "record.versions.get", json!({"record":record,"versionId":"a".repeat(32)})),
         ("mind_record_versions_compare", "record.versions.compare", json!({"record":record,"beforeVersionId":"a".repeat(32),"afterVersionId":"b".repeat(32)})),
@@ -100,6 +101,17 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         assert_eq!(called.is_error, Some(false), "{name}");
         assert_eq!(called.structured_content.as_ref().unwrap()["data"]["method"], method);
     }
+    let preview_tool = listed.tools.iter().find(|tool| tool.name == "mind_record_patch_preview").unwrap();
+    assert_eq!(preview_tool.annotations.as_ref().unwrap().read_only_hint, Some(true));
+    assert_eq!(*preview_tool.input_schema, registry::schema("record.patch.preview").unwrap().as_object().unwrap().clone());
+    let preview = client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_patch_preview").with_arguments(
+            json!({"record":record,"baseRevision":1,"operations":[]}).as_object().unwrap().clone()
+        )
+    ).await.unwrap();
+    assert_eq!(preview.is_error, Some(false));
+    assert_eq!(preview.structured_content.as_ref().unwrap()["data"]["method"], "record.patch.preview");
+    assert!(preview.structured_content.as_ref().unwrap()["requestId"].as_str().is_some_and(|id| !id.is_empty()));
 
     let patch = |request_id: &str| json!({
         "record":{"workspaceId":"test","scope":{"kind":"project","projectId":1},"kind":"record","id":"1"},

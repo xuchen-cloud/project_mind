@@ -567,7 +567,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 34);
+    assert_eq!(tools.tools.len(), 35);
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))
@@ -707,6 +707,46 @@ async fn real_keyring_client_roundtrip() {
     let cli_app_data = cli_data_home.join(crate::APP_IDENTIFIER);
     std::fs::create_dir_all(&cli_app_data).unwrap();
     std::fs::copy(&discovery_path, cli_app_data.join("agent-bridge.json")).unwrap();
+    let record_target = crate::record_documents::RecordTarget {
+        scope: crate::agent::models::Scope::Project { project_id }, record_id,
+    };
+    let before_preview = handler.db.lock().unwrap().record_document_head(&record_target).unwrap().unwrap();
+    let block = &before_preview.projection.document["content"][0];
+    let preview_params = json!({
+        "record":{"workspaceId":binding.workspace_id,"scope":record_target.scope,"kind":"record","id":record_id.to_string()},
+        "baseRevision":before_preview.head_revision,
+        "operations":[{"op":"append_inline","blockId":block["attrs"]["blockId"],
+            "expectedBlockHash":crate::record_documents::record_block_hash(block).unwrap(),"text":" preview"}]
+    });
+    let previewed = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_patch_preview")
+            .with_arguments(preview_params.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(previewed.is_error, Some(false), "{previewed:?}");
+    assert_eq!(previewed.structured_content.as_ref().unwrap()["data"]["previewText"], "Saved through MCP preview");
+    let patch_path = root.path().join("cli-record-patch.json");
+    // A preview needs no mutation identity, including through the real CLI.
+    std::fs::write(&patch_path, serde_json::to_vec(&preview_params).unwrap()).unwrap();
+    let binary = cli_binary.clone();
+    let data_home = cli_data_home.clone();
+    let workspace = workspace_path.clone();
+    let connection = grant_id.clone();
+    let preview_output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(binary)
+            .args(["record", "patch", "--patch-file"]).arg(patch_path)
+            .args(["--dry-run", "--budget-chars", "5", "--workspace"]).arg(workspace)
+            .arg("--connection").arg(connection).arg("--json")
+            .env("XDG_DATA_HOME", data_home).output()
+    }).await.unwrap().unwrap();
+    assert!(preview_output.status.success(), "{}", String::from_utf8_lossy(&preview_output.stderr));
+    assert!(preview_output.stderr.is_empty());
+    let preview_response: Value = serde_json::from_slice(&preview_output.stdout).unwrap();
+    assert_eq!(preview_response["data"]["previewText"], "Saved");
+    assert_eq!(preview_response["data"]["previewTruncated"], true);
+    let after_preview = handler.db.lock().unwrap().record_document_head(&record_target).unwrap().unwrap();
+    assert_eq!(after_preview.head_revision, before_preview.head_revision);
+    assert_eq!(after_preview.projection.body_hash, before_preview.projection.body_hash);
+
     let mut cli_bytes = bytes.clone();
     cli_bytes.extend_from_slice(&[0xf1, 0x00, 0x7f]);
     let cli_hash = format!("sha256:{:x}", Sha256::digest(&cli_bytes));

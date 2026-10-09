@@ -18,6 +18,50 @@ fn source(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacyS
     Ok(current)
 }
 
+fn checked_patch_base(
+    conn: &Connection,
+    patch: &crate::agent::outputs::RecordPatch,
+) -> AgentResult<RecordDocumentHead> {
+    let target = record_patch_target(patch)?;
+    let current = head_unchecked(conn, &target)?.ok_or_else(|| AgentError::new(
+        ErrorCode::SourceNotReady, "Initialize the Record document first"
+    ))?;
+    if current.head_revision != patch.base_revision {
+        return Err(conflict(&current));
+    }
+    validate_record_patch(patch, &current)?;
+    Ok(current)
+}
+
+fn validate_patch_projection(
+    current: &RecordDocumentHead,
+    projection: &RecordDocumentProjection,
+    metadata: &RecordPatchMetadata,
+) -> AgentResult<()> {
+    let before: std::collections::BTreeSet<_> =
+        document_block_ids(&current.projection.document).into_iter().collect();
+    let after: std::collections::BTreeSet<_> =
+        document_block_ids(&projection.document).into_iter().collect();
+    let created: std::collections::BTreeSet<_> = metadata.created_block_ids.iter().cloned().collect();
+    let deleted: std::collections::BTreeSet<_> = metadata.deleted_block_ids.iter().cloned().collect();
+    if created.len() != metadata.created_block_ids.len()
+        || deleted.len() != metadata.deleted_block_ids.len()
+        || created != after.difference(&before).cloned().collect()
+        || deleted != before.difference(&after).cloned().collect()
+        || metadata.no_change != (current.projection.body_hash == projection.body_hash)
+        || current.projection.code_language != projection.code_language
+        || metadata.normalizations.iter().any(|repair| match repair.kind.as_str() {
+            "empty_document_paragraph" => repair.block_id.is_some(),
+            "empty_container_paragraph" | "remove_empty_container" =>
+                repair.block_id.as_ref().is_none_or(|id| !before.contains(id)),
+            _ => true,
+        })
+    {
+        return Err(invalid("Worker patch metadata differs from the resulting document"));
+    }
+    Ok(())
+}
+
 fn source_unchecked(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacySource> {
     target.key()?;
     let value = match target.scope {
@@ -875,17 +919,31 @@ impl Database {
         {
             return Ok(RecordPatchPreparation::Replay(previous));
         }
-        let current = head_unchecked(&self.conn, &target)?.ok_or_else(|| {
-            AgentError::new(
-                ErrorCode::SourceNotReady,
-                "Initialize the Record document first",
-            )
-        })?;
-        if current.head_revision != patch.base_revision {
-            return Err(conflict(&current));
-        }
-        validate_record_patch(patch, &current)?;
-        Ok(RecordPatchPreparation::Base(current))
+        Ok(RecordPatchPreparation::Base(checked_patch_base(&self.conn, patch)?))
+    }
+    pub(crate) fn record_patch_preview_base(
+        &self,
+        patch: &crate::agent::outputs::RecordPatch,
+    ) -> AgentResult<RecordDocumentHead> {
+        source(&self.conn, &record_patch_target(patch)?)?;
+        checked_patch_base(&self.conn, patch)
+    }
+    pub(crate) fn record_patch_preview_validate(
+        &self,
+        patch: &crate::agent::outputs::RecordPatch,
+        projection: &RecordDocumentProjection,
+        metadata: &RecordPatchMetadata,
+    ) -> AgentResult<()> {
+        let target = record_patch_target(patch)?;
+        source(&self.conn, &target)?;
+        let current = checked_patch_base(&self.conn, patch)?;
+        self.record_compatibility_html(&target, projection)?;
+        validate_patch_projection(&current, projection, metadata)?;
+        validate_references(
+            &self.conn, &target.scope, &projection.document,
+            &reference_identities(&current.projection.document)?, &patch.record.workspace_id,
+        )?;
+        Ok(())
     }
     pub(crate) fn record_patch_commit(
         &self,
@@ -900,49 +958,8 @@ impl Database {
         // Receipt identity uses original intent, not randomly allocated worker IDs.
         self.agent_atomic_operation(caller, &patch.request_id, "record.patch", patch, |tx| {
             source(tx, &target)?;
-            let current = head_unchecked(tx, &target)?.ok_or_else(|| {
-                AgentError::new(
-                    ErrorCode::SourceNotReady,
-                    "Initialize the Record document first",
-                )
-            })?;
-            if current.head_revision != patch.base_revision {
-                return Err(conflict(&current));
-            }
-            validate_record_patch(patch, &current)?;
-            let before: std::collections::BTreeSet<_> =
-                document_block_ids(&current.projection.document)
-                    .into_iter()
-                    .collect();
-            let after: std::collections::BTreeSet<_> = document_block_ids(&projection.document)
-                .into_iter()
-                .collect();
-            let created: std::collections::BTreeSet<_> =
-                metadata.created_block_ids.iter().cloned().collect();
-            let deleted: std::collections::BTreeSet<_> =
-                metadata.deleted_block_ids.iter().cloned().collect();
-            if created.len() != metadata.created_block_ids.len()
-                || deleted.len() != metadata.deleted_block_ids.len()
-                || created != after.difference(&before).cloned().collect()
-                || deleted != before.difference(&after).cloned().collect()
-                || metadata.no_change != (current.projection.body_hash == projection.body_hash)
-                || current.projection.code_language != projection.code_language
-                || metadata
-                    .normalizations
-                    .iter()
-                    .any(|repair| match repair.kind.as_str() {
-                        "empty_document_paragraph" => repair.block_id.is_some(),
-                        "empty_container_paragraph" | "remove_empty_container" => repair
-                            .block_id
-                            .as_ref()
-                            .is_none_or(|id| !before.contains(id)),
-                        _ => true,
-                    })
-            {
-                return Err(invalid(
-                    "Worker patch metadata differs from the resulting document",
-                ));
-            }
+            let current = checked_patch_base(tx, patch)?;
+            validate_patch_projection(&current, projection, metadata)?;
             let operation_id = random_id();
             let commit = RecordDocumentCommit {
                 target: target.clone(),
@@ -1751,6 +1768,74 @@ mod tests {
             },
             projection,
         )
+    }
+    #[test]
+    fn preview_requires_existing_head_without_initializing_it() {
+        let (_directory, database, target, _projection) = setup();
+        let patch = crate::agent::outputs::RecordPatch {
+            record: ObjectRef {
+                workspace_id: "workspace-test".into(), scope: target.scope.clone(),
+                kind: ObjectKind::Record, id: target.record_id.to_string(),
+            },
+            base_revision: 1, request_id: "preview-uninitialized".into(),
+            operations: vec![crate::agent::outputs::BlockEdit::Append {
+                parent_block_id: None, position: None,
+                blocks: vec![serde_json::from_value(json!({"type":"paragraph","content":[{"type":"text","text":"new"}]})).unwrap()],
+            }],
+        };
+        assert_eq!(database.record_patch_preview_base(&patch).unwrap_err().code, ErrorCode::SourceNotReady);
+        assert!(database.record_document_head(&target).unwrap().is_none());
+        let heads: i64 = database.conn.query_row("SELECT count(*) FROM record_document_heads", [], |row| row.get(0)).unwrap();
+        assert_eq!(heads, 0);
+    }
+    #[test]
+    fn preview_rejects_new_cross_project_reference_under_native_scope_rules() {
+        let (_directory, mut database, _, _) = setup();
+        let (own_project, own_record) = reference_target(&mut database, "Preview owner");
+        let (_, foreign_record) = reference_target(&mut database, "Foreign reference");
+        let target = RecordTarget { scope: Scope::Project { project_id: own_project }, record_id: own_record };
+        let block_id = "a".repeat(32);
+        let document = json!({"type":"doc","content":[{
+            "type":"paragraph","attrs":{"blockId":block_id},
+            "content":[{"type":"text","text":"Target"}]
+        }]});
+        let baseline = RecordDocumentProjection {
+            schema_version: 1, body_hash: body_hash(&document, &None), document,
+            html: format!("<p data-block-id=\"{block_id}\">Target</p>"),
+            markdown: "Target".into(), text: "Target".into(), code_language: None,
+        };
+        database.record_document_initialize(
+            "gui", "preview-baseline", &target,
+            &database.record_document_source(&target).unwrap().source_hash,
+            &baseline, "workspace-test",
+        ).unwrap();
+        let patch = crate::agent::outputs::RecordPatch {
+            record: ObjectRef {
+                workspace_id: "workspace-test".into(), scope: target.scope.clone(),
+                kind: ObjectKind::Record, id: target.record_id.to_string(),
+            },
+            base_revision: 1, request_id: "preview-foreign-reference".into(),
+            operations: vec![crate::agent::outputs::BlockEdit::AppendInline {
+                block_id: block_id.clone(),
+                expected_block_hash: record_block_hash(&baseline.document["content"][0]).unwrap(),
+                text: " x".into(),
+            }],
+        };
+        database.record_patch_preview_base(&patch).unwrap();
+        let mut converted = baseline.clone();
+        converted.document["content"][0]["content"] = json!([{
+            "type":"internalReference","attrs":{"refKind":"note","refId":foreign_record,"label":"Foreign"}
+        }]);
+        converted.body_hash = body_hash(&converted.document, &converted.code_language);
+        converted.html = format!("<p data-block-id=\"{block_id}\">Foreign</p>");
+        converted.markdown = "Foreign".into();
+        converted.text = "Foreign".into();
+        let metadata = RecordPatchMetadata {
+            created_block_ids: vec![], deleted_block_ids: vec![],
+            normalizations: vec![], no_change: false,
+        };
+        assert_eq!(database.record_patch_preview_validate(&patch, &converted, &metadata).unwrap_err().code, ErrorCode::ScopeDenied);
+        assert_eq!(database.record_document_head(&target).unwrap().unwrap().head_revision, 1);
     }
     #[test]
     fn record_workspace_reference_keeps_colliding_project_identity_and_scope_rules() {

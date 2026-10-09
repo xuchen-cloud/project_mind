@@ -369,6 +369,24 @@ File 当前验证：设置定向 8 项、TypeScript、生产前端构建与路�
 
 验收：外部客户端读取并修改当前 Project，应用即时刷新；重试不重复，撤权后拒绝，MCP stdout 仅协议。A04/A05/A09/A13～18/A20/A37/A49/A71；CLI golden、独立 MCP 客户端和同一业务 fixture 的权限/结果对照。外部 transport 不重复实现业务规则。
 
+### R12b3c 第一子步：Record 补丁预览与 CLI dry-run / #106
+
+依赖：已接通的原生 Record patch、canonical worker、连接授权和 CLI/MCP 注册表。交付 `record.patch.preview` 与 `mind record patch --patch-file PATH|- --dry-run`：复用实际补丁校验及 worker 转换，返回基线版本、变更摘要和有界正文预览；正式应用继续使用原生 `record.patch` 和稳定请求 ID。预览要求相同的 `record.patch` 授权，读取已保存的 canonical head；转换后重新核验连接、目标、引用及版本，发现并发变更返回冲突。
+
+非目标：不自动初始化旧 Record、不 flush 编辑器、不保存候选、版本、收据或变更事件；不把预览当作审批或未来提交保证，不新增 GUI 确认流程，本子步不扩展 Markdown 创建、引用图或授权预设。预览输入不要求 mutation requestId；CLI 接受原生补丁文件，在 dry-run 时仅移除写入身份并传给预览 DTO。
+
+验收：真实 worker 的预览和正式提交产生一致正文；预览前后业务表、版本、收据及事件不变；旧基线、越权、排除、异步撤权/并发修改明确失败。预览默认 4000 字符、最大 12000，明确截断。CLI 参数/schema/MCP readOnly hint 与方法映射一致，dry-run 不调用写方法；正常 --patch-file 保留幂等身份。验证范围为原生 Record 服务、bridge/CLI/MCP 定向及实际 worker；无前端改动不重复前端全量验证。主 agent 自行完成 Standards/Spec 检查。
+
+第一子步已完成（2026-10-09）：注册表 35 项（21 读 / 14 写），预览只返回基线、变更计数与正文片段，不暴露临时转换生成的新块身份。bridge/CLI/MCP 56 项通过（另 2 项 ignored）；Record 原生 DB/服务/DTO 56 项通过（另 6 项 ignored）。显式执行真实 Record worker 的预览→正式修改版本链 1 项通过；生产 CLI 构建、实际进程的 preview schema、stdin 无 mutation ID 预览、正式稳定身份及冲突参数检查通过。首轮 CLI smoke 对应用关闭错误码的预期误写为 WORKSPACE_NOT_OPEN，修正为既有 RUNTIME_UNAVAILABLE（退出码 3）后通过，未改变产品行为。独立 Linux 系统凭据→实际 socket→SDK MCP→真实 worker 的预览及实际 CLI dry-run/截断/正文未变验证通过，沿用同一 fixture 的 File 上传与 Record 幂等回归也通过。主 agent Standards/Spec 自查补齐预览的原生跨 Project 引用限制，最终无未解决发现；无前端改动，复用上一包前端证据。目标平台及真实外部模型验收仍保持未完成，继续第二子步。
+
+### R12b3c 第二子步：File/Todo CLI 常用参数 / #106
+
+依赖：第一子步 CLI 参数边界及 b3b 的原生 File/Todo 服务。本包把现有 JSON 方法补成可直接使用的命令：`file create --name ... --body-file PATH|- --project ID`、`todo create --body-file PATH|- (--project ID|--workspace-scope)`；两者均需稳定 `--request-id`，文本仅 CLI 本地读取。Todo 默认普通优先级（`not_urgent_not_important`）、无截止日期、无标签/子行动，允许显式 `--priority`、`--due-date`；复杂字段继续使用实际 JSON DTO。`file patch` 与 `todo update` 接受 `--patch-file` 作为 `--input-file` 的等价入口，保留既有 DTO 包装与请求身份。
+
+非目标：本包不新增业务方法、授权或默认自动重试，不改变 File/Todo 正文解释，不增加 GUI，不把文件路径传给服务端；Record Markdown 创建及其 dry-run 单独接入真实 canonical 转换。仍沿用相同 HTTP 输入上限和各原生内容限制。
+
+验收：路径和 stdin（含中文、换行与 shell 元字符）原样进入现有 DTO；只允许一种输入模式，误用和冲突参数明确报错；正式写入 requestId 一致，已有 JSON 入口和 Record dry-run 不回归。CLI 定向、生产二进制参数/schema 检查、真实凭据/bridge 的 File 与 Todo 创建验证；无前端改动不重复前端构建。
+
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
 
 依赖：R01～12 的相关行为通过；从 R04 起持续维护验收证据，不在此重做所有测试。

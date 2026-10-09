@@ -8,7 +8,7 @@ use crate::{
     },
     committed_changes::capture_committed,
     record_document_service::{BoundRecordStore, DocumentUtility, RecordDocumentService},
-    record_documents::{RecordCreate, RecordRestoreInput},
+    record_documents::{RecordCreate, RecordPatchPreviewInput, RecordRestoreInput},
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
@@ -53,6 +53,10 @@ pub(crate) async fn execute<S: BoundRecordStore + crate::file_version_service::B
         "record.patch" => {
             let input: RecordPatch = decode(params)?;
             json!(service.patch(request, &input).await?)
+        }
+        "record.patch.preview" => {
+            let input: RecordPatchPreviewInput = decode(params)?;
+            return Ok(json!(service.patch_preview(request, &input).await?));
         }
         "record.restore" => {
             let input = decode::<MutationInput<RecordRestoreInput>>(params)?.bind(request)?;

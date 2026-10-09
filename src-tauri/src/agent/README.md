@@ -37,17 +37,19 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前包含 34 个方法（20 读 / 14 写）。读取包括原有上下文、来源、会话、Record/Todo、File 版本与源码、Record 历史、`operation.get/list`，以及 `file.content.status`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 注册表当前包含 35 个方法（21 读 / 14 写）。读取包括原有上下文、来源、会话、Record/Todo、File 版本与源码、Record 历史、`operation.get/list`、`file.content.status`，以及 `record.patch.preview`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
 
 新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 
-`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。完整协作预设、指定对象限制、dry-run、引用工具及安装包 CLI 接入仍按后续子包推进；共享服务已有其他工具不意味着外部连接有权调用。
+`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。完整协作预设、指定对象限制、其他 dry-run、引用工具及安装包 CLI 接入仍按后续子包推进；共享服务已有其他工具不意味着外部连接有权调用。
 
 ## Record 写入与撤销
 
 设置中显式选择创建、块修改、历史恢复或本连接撤销权限，已有只读连接不会自动获得写权限。原生编辑器有未确认预览或正在提交时，外部修改会明确失败；成功提交沿用不可变版本、CAS、收据和应用变更通知。
 
 写命令仍通过 `--input-file PATH|-` 接收实际 DTO。`record.patch` 使用已有包含 `requestId` 的补丁；其他写方法使用 `{ "requestId": "稳定请求 ID", "input": { ... } }` 包含对应原生输入。`schema METHOD` 给出完整字段。CLI 和 MCP 都把该 ID 用作原生幂等身份；CLI 另传 `--request-id` 时必须一致。成功结果包含 `result` 与 `operation`，可直接取得撤销基线。同一 ID 重试不重复写入，不同内容不能复用成功请求的 ID。
+
+`record.patch.preview` 对已保存的 canonical Record 计算临时补丁预览，要求同一个 `record.patch` grant，但无需 `requestId`。CLI 用 `mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json`；`--patch-file` 接收原生 RecordPatch JSON，正式提交保留其中的稳定 `requestId`，预览时可省略。既有 `record.patch` JSON 调用仍可用。预览返回 `baseRevision`、`baseBodyHash`、创建/删除/规范化计数、`noChange`、`previewText`、`fullTextChars` 和 `previewTruncated`；文本预算默认 4000 字符，最多 12000。它不初始化或刷新编辑器，不写版本、收据或事件；worker 返回后再次核对 CAS、来源及引用授权。预览不是提交保证，正式提交仍重新检查当前版本，也不新增 GUI 确认流程。
 
 `operation.get/list` 只返回本连接的收据；修改撤销把修改前内容保存为新版本，历史恢复本身也可按收据撤销。新建撤销只撤回可见性，`operation.restore_created` 恢复同一对象。撤销不能覆盖后续人工修改，也不能作用于其他连接或内置任务的操作。CLI 命令为 `operation restore-created`，MCP 名称为 `mind_operation_restore_created`。
 

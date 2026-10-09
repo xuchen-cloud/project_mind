@@ -23,7 +23,7 @@ use crate::{
     knowledge_service::{KnowledgeGetInput, KnowledgeSearchInput},
     overview_service::OverviewReadInput,
     record_version_reads::{RecordVersionsCompareInput, RecordVersionsGetInput, RecordVersionsListInput},
-    record_documents::{RecordCreate, RecordRestoreInput},
+    record_documents::{RecordCreate, RecordPatchPreviewInput, RecordRestoreInput},
     source_service::{SourceReadInput, SourceSearchInput},
 };
 use schemars::{schema_for, JsonSchema};
@@ -160,6 +160,12 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             parameters: serde_json::to_value(schema_for!(RecordPatch)).expect("static schema"),
         },
         RegisteredMethod {
+            method: "record.patch.preview",
+            description: "Preview a block patch against a saved Record with record.patch permission. No editor flush, version or receipt is written. budgetChars bounds preview text; applying the patch rechecks the current revision.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordPatchPreviewInput)).expect("static schema"),
+        },
+        RegisteredMethod {
             method: "record.restore",
             description: "Restore the body of an authorized Record from an exact retained version with record.restore. Supply baseRevision and stable requestId; this creates a new version.",
             read_only: false,
@@ -267,7 +273,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         | "session.messages.read" | "record.blocks.get" | "todo.get"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
-        | "operation.get" | "operation.list" | "file.content.status" => Some(true),
+        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" => Some(true),
         "record.create" | "record.patch" | "record.restore" | "operation.undo"
         | "operation.restore_created" | "todo.create" | "todo.update"
         | "file.create" | "file.patch" | "file.version.restore" | "file.update"
@@ -311,6 +317,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "record.versions.compare" => decode::<RecordVersionsCompareInput>(parameters),
         "record.create" => decode::<MutationInput<RecordCreate>>(parameters),
         "record.patch" => decode::<RecordPatch>(parameters),
+        "record.patch.preview" => decode::<RecordPatchPreviewInput>(parameters),
         "record.restore" => decode::<MutationInput<RecordRestoreInput>>(parameters),
         "operation.get" => decode::<OperationGetInput>(parameters),
         "operation.list" => decode::<ConnectionOperationListInput>(parameters),
@@ -368,14 +375,14 @@ mod tests {
             "session.messages.read", "record.blocks.get", "todo.get",
             "file.versions.list", "file.versions.get", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
-            "record.create", "record.patch", "record.restore", "operation.get",
+            "record.create", "record.patch", "record.patch.preview", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",
             "file.content.begin", "file.content.chunk", "file.content.complete",
             "file.content.status",
         ]);
-        assert_eq!(registered_methods().len(), 34);
+        assert_eq!(registered_methods().len(), 35);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         assert_eq!(is_read_only("record.patch"), Some(false));
         assert_eq!(is_read_only("operation.list"), Some(true));
@@ -483,7 +490,7 @@ mod tests {
     #[test]
     fn write_schemas_are_native_and_require_stable_request_identity() {
         for method in [
-            "record.create", "record.patch", "record.restore", "operation.get",
+            "record.create", "record.patch", "record.patch.preview", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",
