@@ -52,6 +52,52 @@ beforeEach(() => {
 });
 
 describe("assistant conversation lifecycle", () => {
+  it("coalesces separate high-frequency deltas, flushes the tail, and pauses while hidden", async () => {
+    const view = renderHook(({ visible }) => useAgentConversation(scope, "/workspace", visible), { initialProps: { visible: true } });
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    await act(async () => { await view.result.current.send("流测试"); });
+    vi.useFakeTimers();
+    try {
+      const updates: string[] = [];
+      for (let seq = 1; seq <= 40; seq++) {
+        await act(async () => { listener(event(seq, { type: "text.delta", data: { text: "字" } })); await Promise.resolve(); });
+        await act(async () => { vi.advanceTimersByTime(5); await Promise.resolve(); });
+        const value = view.result.current.liveText;
+        if (value && value !== updates.at(-1)) updates.push(value);
+      }
+      expect(updates.length).toBeLessThanOrEqual(4);
+      expect(view.result.current.liveText).toBe("字".repeat(40));
+      view.rerender({ visible: false });
+      for (let seq = 41; seq <= 50; seq++) {
+        await act(async () => { listener(event(seq, { type: "text.delta", data: { text: "尾" } })); await Promise.resolve(); });
+        await act(async () => { vi.advanceTimersByTime(10); await Promise.resolve(); });
+      }
+      expect(view.result.current.liveText).toBe("字".repeat(40));
+      view.rerender({ visible: true });
+      expect(view.result.current.liveText).toBe("字".repeat(40) + "尾".repeat(10));
+      await act(async () => { listener(event(51, { type: "text.delta", data: { text: "终" } })); await Promise.resolve(); });
+      // Keep the persisted read pending so the terminal event's immediate flush is observable.
+      api.sessionGet.mockImplementationOnce(() => new Promise(() => {}));
+      await act(async () => { listener(event(52, { type: "run.completed" })); await Promise.resolve(); });
+      expect(view.result.current.liveText).toBe("字".repeat(40) + "尾".repeat(10) + "终");
+    } finally { vi.useRealTimers(); view.unmount(); }
+  });
+  it("discards a pending delta on scope change and ignores the old run", async () => {
+    const view = renderHook(({ currentScope }) => useAgentConversation(currentScope, "/workspace"), {
+      initialProps: { currentScope: scope as { kind: "project"; projectId: number } },
+    });
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    await act(async () => { await view.result.current.send("旧问题"); });
+    vi.useFakeTimers();
+    try {
+      await act(async () => { listener(event(1, { type: "text.delta", data: { text: "旧内容" } })); await Promise.resolve(); });
+      view.rerender({ currentScope: { kind: "project", projectId: 2 } });
+      await act(async () => { vi.advanceTimersByTime(100); await Promise.resolve(); });
+      expect(view.result.current.liveText).toBe("");
+      await act(async () => { listener(event(2, { type: "text.delta", data: { text: "仍是旧内容" } })); await Promise.resolve(); });
+      expect(view.result.current.liveText).toBe("");
+    } finally { vi.useRealTimers(); view.unmount(); }
+  });
   it("uses the selected profile for creation and probe, then keeps the created session binding", async () => {
     const overridden = { ...session, profileOverrideId: 2 };
     api.sessionCreate.mockResolvedValueOnce(overridden);

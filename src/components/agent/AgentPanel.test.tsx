@@ -349,6 +349,19 @@ it("retains draft and message viewport when closed or expanded, with a review fa
   expect(viewport.scrollTop).toBe(120);
 });
 
+it("keeps the review controller mounted across closing and reopening", () => {
+  state.run = run; state.busy = true; state.liveText = "第一段";
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const panel = (open: boolean) => <QueryClientProvider client={client}><AgentPanel open={open} onClose={closed} scope={scope} workspaceRoot="/workspace" /></QueryClientProvider>;
+  const view = render(panel(true));
+  const operations = screen.getByTestId(`operations-${run.id}`);
+  view.rerender(panel(false));
+  expect(document.querySelector('[aria-label="助手消息"]')).toBeInTheDocument();
+  expect(screen.getByTestId(`operations-${run.id}`)).toBe(operations);
+  view.rerender(panel(true));
+  expect(screen.getByTestId(`operations-${run.id}`)).toBe(operations);
+});
+
 function reviewFixture(overrides: Partial<AgentReviewHandle> = {}) {
   state.run = { ...run, state: "completed" };
   state.messages = [message("review-answer", run.id, "assistant", "方案已准备好")];

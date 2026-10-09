@@ -270,6 +270,30 @@ it("confirms the complete plan once and saves serially in actual ordinal order",
   expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
 });
 
+it("finishes every approved native save while its mounted panel is hidden", async () => {
+  const fixture = reviewedFixture([output, second]);
+  let settleFirst!: () => void;
+  api.outputCommit.mockImplementation(async (_binding, input) => {
+    if (input.outputId === "out") await new Promise<void>(resolve => { settleFirst = resolve; });
+    return fixture.save(input.outputId);
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const panel = (open: boolean) => <QueryClientProvider client={client}><section hidden={!open}>
+    <AgentRunOutputs binding={binding} runId="run" current />
+  </section></QueryClientProvider>;
+  const rendered = render(panel(true));
+  fireEvent.click(await screen.findByRole("button", { name: "确认执行" }));
+  await waitFor(() => expect(api.outputCommit).toHaveBeenCalledTimes(1));
+  rendered.rerender(panel(false));
+  expect(screen.queryByRole("button", { name: "确认执行" })).not.toBeInTheDocument();
+  await act(async () => settleFirst());
+  await waitFor(() => expect(api.outputCommit).toHaveBeenCalledTimes(2));
+  expect(api.outputCommit.mock.calls.map(call => call[1].outputId)).toEqual(["out", "second"]);
+  expect(fixture.read().every(value => value.state === "committed")).toBe(true);
+  rendered.rerender(panel(true));
+  expect(await screen.findByRole("status")).toHaveTextContent("已保存 2 项");
+});
+
 it("reports partial saves and retries the persisted approved candidate without another decision", async () => {
   const fixture = reviewedFixture([output, second]);
   let first = true;

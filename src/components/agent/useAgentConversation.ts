@@ -56,7 +56,7 @@ function sameBinding(a: AgentWorkspaceBinding, b: AgentWorkspaceBinding) {
 }
 
 /** One bounded page at a time. Only a submitted question enters the Host's context path. */
-export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) {
+export function useAgentConversation(scope: AgentScope, workspaceRoot?: string, visible = true) {
   const scopeKey = scope.kind === "workspace" ? "workspace" : `project:${scope.projectId}`;
   const preferenceKey = (bound: AgentWorkspaceBinding) => `project-mind:agent:last-session:${bound.workspaceId}:${scopeKey}`;
   const [initialization, setInitialization] = useState(0);
@@ -93,6 +93,33 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
   const subscribed = useRef<Promise<void>>(Promise.resolve());
   const checksum = useRef<string | null>(null);
   const readVersion = useRef(0);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const streamText = useRef("");
+  const streamPending = useRef(false);
+  const streamTimer = useRef<number | null>(null);
+
+  const clearStream = useCallback(() => {
+    if (streamTimer.current !== null) window.clearTimeout(streamTimer.current);
+    streamTimer.current = null;
+    streamText.current = "";
+    streamPending.current = false;
+    setLiveText("");
+  }, []);
+  const flushStream = useCallback(() => {
+    streamTimer.current = null;
+    if (visibleRef.current && streamPending.current) {
+      streamPending.current = false;
+      setLiveText(streamText.current);
+    }
+  }, []);
+  useEffect(() => {
+    if (visible) flushStream();
+    else if (streamTimer.current !== null) {
+      window.clearTimeout(streamTimer.current);
+      streamTimer.current = null;
+    }
+  }, [visible, flushStream]);
 
   const valid = useCallback((token: number, bound: AgentWorkspaceBinding) =>
     epoch.current === token && bindingRef.current !== null && sameBinding(bindingRef.current, bound), []);
@@ -107,7 +134,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
       const latest = page.latestRun;
       if (latest) {
         if (runRef.current?.id !== latest.id) {
-          lastSeq.current = 0; setLiveText(""); setPendingPrompt("");
+          lastSeq.current = 0; clearStream(); setPendingPrompt("");
         }
         runRef.current = latest; setRun(latest);
         if (latest.state === "interrupted") setError("运行已中断，已保存的消息仍可阅读；可发送新问题继续。");
@@ -131,14 +158,14 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
       setNextOrdinal(page.nextOrdinal);
       const currentRun = runRef.current;
       if (currentRun && page.messages.some(message => message.runId === currentRun.id && message.role === "assistant")) {
-        setLiveText(""); setPendingPrompt("");
+        clearStream(); setPendingPrompt("");
       }
     } catch (failure) {
       if (valid(token, bound) && sessionRef.current?.id === sessionId && version === readVersion.current) setError(agentFailureMessage(failure));
     } finally {
       if (valid(token, bound) && version === readVersion.current) setReading(false);
     }
-  }, [valid]);
+  }, [valid, clearStream]);
 
   const applyEvent = useCallback((event: AgentRunEvent) => {
     const bound = bindingRef.current;
@@ -147,7 +174,11 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
       || event.runId !== currentRun?.id || event.seq <= lastSeq.current) return;
     lastSeq.current = event.seq;
     const kind = event.event;
-    if (kind.type === "text.delta") setLiveText(text => text + kind.data.text);
+    if (kind.type === "text.delta") {
+      streamText.current += kind.data.text;
+      streamPending.current = true;
+      if (visibleRef.current && streamTimer.current === null) streamTimer.current = window.setTimeout(flushStream, 50);
+    }
     if (kind.type === "tool.started") setToolActivity("正在处理请求…");
     if (kind.type === "tool.completed") setToolActivity("");
     const state = kind.type === "run.started" ? "running"
@@ -158,12 +189,14 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
       const updated = { ...currentRun, state } satisfies AgentStoredRun;
       runRef.current = updated; setRun(updated);
       if (!activeStates.has(state)) {
+        if (streamTimer.current !== null) window.clearTimeout(streamTimer.current);
+        flushStream();
         setToolActivity("");
         if (kind.type === "run.failed") setError(agentFailureMessage(kind.data.error));
         void loadMessages(bound, event.sessionId);
       }
     }
-  }, [loadMessages]);
+  }, [loadMessages, flushStream]);
 
   const catchUpEvents = useCallback(async (bound: AgentWorkspaceBinding, runId: string) => {
     const token = epoch.current;
@@ -173,13 +206,13 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
       if (!valid(token, bound) || runRef.current?.id !== runId) return;
       if (page.firstAvailableSeq !== null && page.firstAvailableSeq > lastSeq.current + 1) {
         lastSeq.current = page.firstAvailableSeq - 1;
-        setLiveText("");
+        clearStream();
         setError("部分实时记录已过期，已保存的会话消息可通过刷新恢复。");
       }
       page.events.forEach(applyEvent);
       if (page.nextSeq === null || !isAgentRunActive(runRef.current)) break;
     }
-  }, [applyEvent, valid]);
+  }, [applyEvent, valid, clearStream]);
 
   const receiveEvent = useCallback((event: AgentRunEvent) => {
     const bound = bindingRef.current;
@@ -203,11 +236,12 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     const target = useAgentPanelStore.getState().discussionTarget;
     if (target && !sameAgentScope(target.object.scope, scope)) useAgentPanelStore.getState().clearDiscussionTarget();
     let unlisten: (() => void) | undefined;
+    clearStream();
     bindingRef.current = null; sessionRef.current = null; runRef.current = null;
     profileOverrideRef.current = null; selectionVersion.current++; setProfileOverrideId(null);
     startingRef.current = false; lastSeq.current = 0; buffered.current = [];
     setBinding(null); setSession(null); setRun(null); setMessages([]);
-    setPendingPrompt(""); setLiveText(""); setSettings(null); setSessions([]); setError(null); setLoading(true);
+    setPendingPrompt(""); setSettings(null); setSessions([]); setError(null); setLoading(true);
     setVerified(false); setProbing(false); setSavingSettings(false); setReading(false);
     setStarting(false); setRuntimeAvailable(false); setNextOrdinal(null); setSessionCursor(null);
     setToolActivity(""); checksum.current = null; readVersion.current++;
@@ -238,10 +272,10 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     };
     void initialize().catch(failure => { if (epoch.current === token) setError(agentFailureMessage(failure)); })
       .finally(() => { if (epoch.current === token) setLoading(false); });
-    return () => { epoch.current++; unlisten?.(); };
+    return () => { epoch.current++; unlisten?.(); if (streamTimer.current !== null) window.clearTimeout(streamTimer.current); streamTimer.current = null; };
     // Scope objects are recreated by parent pages; identity is their primitive key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, workspaceRoot, receiveEvent, valid, loadMessages, initialization]);
+  }, [scopeKey, workspaceRoot, receiveEvent, valid, loadMessages, initialization, clearStream]);
 
   useEffect(() => {
     if (!binding || !run || !isAgentRunActive(run)) return;
@@ -290,7 +324,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     if (selected) localStorage.setItem(preferenceKey(binding), selected.id);
     else localStorage.removeItem(preferenceKey(binding));
     setSession(selected); setRun(null); setMessages([]); setNextOrdinal(null); setReading(false);
-    setPendingPrompt(""); setLiveText(""); setError(null); checksum.current = null;
+    setPendingPrompt(""); clearStream(); setError(null); checksum.current = null;
     selectionVersion.current++; setVerified(false);
     if (selected) await loadMessages(binding, selected.id);
   };
@@ -303,7 +337,7 @@ export function useAgentConversation(scope: AgentScope, workspaceRoot?: string) 
     if (!binding || !settings?.enabled || startingRef.current || isAgentRunActive(runRef.current) || !prompt.trim()) return false;
     const token = epoch.current; const bound = binding;
     startingRef.current = true; setStarting(true); setError(null); setPendingPrompt(prompt.trim());
-    setLiveText(""); setToolActivity(""); runRef.current = null; setRun(null); lastSeq.current = 0; buffered.current = [];
+    clearStream(); setToolActivity(""); runRef.current = null; setRun(null); lastSeq.current = 0; buffered.current = [];
     try {
       let selected = sessionRef.current;
       if (!selected) {

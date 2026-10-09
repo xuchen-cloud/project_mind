@@ -23,7 +23,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   open: boolean; onClose: () => void; scope: AgentScope; workspaceRoot?: string;
   scopeName?: string; expanded?: boolean; onToggleExpanded?: () => void;
 }) {
-  const conversation = useAgentConversation(scope, workspaceRoot);
+  const conversation = useAgentConversation(scope, workspaceRoot, open);
   const [draft, setDraft] = useState("");
   const [review, setReview] = useState<AgentReviewHandle | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
@@ -39,6 +39,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
   const closedScrollTop = useRef<number | null>(null);
+  const readingScrollTop = useRef(0);
   const verificationProfile = useRef<string | null>(null);
   const discussionTarget = useAgentPanelStore(state => state.discussionTarget);
   const clearDiscussionTarget = useAgentPanelStore(state => state.clearDiscussionTarget);
@@ -67,6 +68,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
     let previousTop = viewport.scrollTop;
     const changed = () => {
       const top = viewport.scrollTop;
+      readingScrollTop.current = top;
       const atBottom = viewport.scrollHeight - viewport.clientHeight - top < 64;
       // Async Pi/Markdown layout can grow between a programmatic scroll and
       // its event. Only moving up leaves follow mode; reaching bottom resumes it.
@@ -84,7 +86,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   useLayoutEffect(() => {
     const viewport = scrollRef.current;
     if (!viewport) return;
-    if (!open) { closedScrollTop.current = viewport.scrollTop; return; }
+    if (!open) { closedScrollTop.current = readingScrollTop.current; return; }
     if (closedScrollTop.current !== null) {
       viewport.scrollTop = closedScrollTop.current;
       closedScrollTop.current = null;
@@ -169,6 +171,8 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
           <span className="agent-panel__hint">{conversation.verified && verificationProfile.current === modelIdentity ? "工具能力已验证" : "验证会请求一次模型"}</span>
         </div>
         {!conversation.loading && !conversation.runtimeAvailable ? <p className="agent-panel__hint" role="status">内置助手运行资源不可用，请检查应用安装。</p> : null}
+        <p className="agent-panel__hint">先在模型设置中配置通用模型，再验证工具能力；新会话也可单独选模型。自动整理沿用通用模型。</p>
+        <p className="agent-panel__hint">历史可找回会话；知识中查看来源处理状态。成果在回复下方确认、取消或撤销；失败时先刷新会话，再按提示重试。</p>
       </div>
       <Button size="sm" variant="ghost" aria-expanded={knowledgeOpen} disabled={!conversation.binding || busy}
         onClick={() => setKnowledgeOpen(value => !value)}>知识</Button>
