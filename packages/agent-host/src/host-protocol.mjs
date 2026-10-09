@@ -6,6 +6,7 @@ import { DEFAULT_SYSTEM_PROMPT, PROBE_TOOLS, validateToolDescriptors } from './t
 import { mapCompatibleProfile } from './profile-map.mjs';
 import { failure, PROTOCOL_VERSION, MAX_FRAME_BYTES } from './protocol.mjs';
 import { createOverviewGeneration } from './overview-generation.mjs';
+import { resolveModelCapacity, overviewInputBudget } from './model-capacity.mjs';
 import { readSessionHistory } from './session-history.mjs';
 import { scanSessionHistory } from './session-history-scan.mjs';
 
@@ -131,6 +132,15 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
           if (!loadCheckpoint) throw Object.assign(new Error('Checkpoint loader unavailable'), { code: 'RUNTIME_INCOMPATIBLE' });
           write(success(requestId, await scanSessionHistory(data, { loadCheckpoint, workspaceRoot })));
         } catch (error) { fail(error.code ?? 'RUNTIME_FAILED', 'Cannot scan session history'); }
+        return;
+      }
+      if (method === 'overview.capacity') {
+        if (probe || session || run || overview.busy()) { fail('RUN_BUSY', 'Host model call is busy'); return; }
+        try {
+          const mapped = mapCompatibleProfile(data.profile, { model: data.modelId, toolCallingVerified: data.toolCallingVerified });
+          const capacity = await resolveModelCapacity(mapped.modelId, mapped);
+          write(success(requestId, { ...capacity, ...overviewInputBudget(capacity) }));
+        } catch (error) { fail(error.code ?? 'RUNTIME_FAILED', 'Cannot resolve Overview model capacity'); }
         return;
       }
       if (method === 'overview.generate') {

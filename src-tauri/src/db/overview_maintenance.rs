@@ -46,6 +46,9 @@ pub(crate) struct OverviewMaintenanceBatch {
     pub source_object: ObjectRef,
     pub source_cursor: Option<String>,
     pub source_read_target: Option<SourceReadTarget>,
+    /// Native source.read page size used by the saved draft's evidence.
+    #[serde(default)]
+    pub source_page_budget_chars: Option<usize>,
     /// Frozen, contiguous current-branch messages following the primary source.
     #[serde(default)]
     pub source_items: Vec<OverviewPendingItem>,
@@ -498,6 +501,7 @@ impl Database {
             },
             source_object: object,
             source_cursor: current_partial.as_ref().and_then(|p| p.read_cursor.clone()),
+            source_page_budget_chars: None,
             source_read_target: current_partial.as_ref().and_then(|p| p.read_target.clone()),
             source_items: vec![],
             sources_frozen: false,
@@ -596,7 +600,7 @@ impl Database {
         progress: &OverviewSourceProgress,
         now: DateTime<Utc>,
     ) -> AgentResult<()> {
-        self.agent_overview_maintenance_save_draft_many(binding,scope,batch_id,publish,std::slice::from_ref(progress),now)
+        self.agent_overview_maintenance_save_draft_many(binding,scope,batch_id,publish,std::slice::from_ref(progress),None,now)
     }
     pub(crate) fn agent_overview_maintenance_save_draft_many(
         &self,
@@ -605,6 +609,7 @@ impl Database {
         batch_id: &str,
         publish: &OverviewPublishInput,
         progresses: &[OverviewSourceProgress],
+        source_page_budget_chars: Option<usize>,
         now: DateTime<Utc>,
     ) -> AgentResult<()> {
         check_scope(self, binding, scope)?;
@@ -700,6 +705,7 @@ impl Database {
                 "Overview batch already has another draft",
             ));
         }
+        batch.source_page_budget_chars = source_page_budget_chars;
         batch.draft = Some(publish.clone());
         batch.next_progress = Some(progress.clone());
         batch.next_progresses = progresses[1..].to_vec();

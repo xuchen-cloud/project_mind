@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 
-const MAX_PROMPT_CHARS: usize = 48_000;
+const MAX_PROMPT_BYTES: usize = crate::overview_model::MAX_OVERVIEW_INPUT_BYTES;
 const MAX_RESPONSE_CHARS: usize = 24_000;
 
 #[derive(Debug, Clone)]
@@ -372,7 +372,11 @@ pub(crate) fn build_prompt_batch(input: &PromptInput<'_>, conversations: &[Conve
         "affectedOldItemIds":input.allowed_ids.affected_ids,
         "relevantOldItems": input.relevant_items.iter().map(|item|json!({"id":item.id,"section":item.section,"text":item.text,"epistemicStatus":item.epistemic_status})).collect::<Vec<_>>(),
         "corrections": input.corrections,
-        "sourcePages": input.source_pages.iter().enumerate().map(|(index,page)|json!({"evidenceIndex":index,"sourceRef":page.source_ref,"text":page.text,"complete":page.complete})).collect::<Vec<_>>(),
+        "sourcePages": input.source_pages.iter().enumerate().map(|(index,page)|json!({
+            "evidenceIndex":index,
+            "source":{"object":page.source_ref.object,"title":page.source_ref.title.chars().take(200).collect::<String>()},
+            "text":page.text,"complete":page.complete
+        })).collect::<Vec<_>>(),
         "priorSourceSummary": input.prior_source_summary.map(|summary|json!({"nodeId":summary.node_id,"title":summary.title,"oneLine":summary.one_line,"summary":summary.summary,"bodySections":summary.body_sections,"keywords":summary.keywords})),
         "conversations": conversations.iter().enumerate().map(|(index,conversation)| json!({"evidenceIndex":index,"messageRef":conversation.message_ref,"role":conversation.role,"runState":conversation.run_state,"operations":conversation.operations.iter().map(|operation| json!({"operationReceiptId":operation.operation_id,"kind":operation.kind,"object":operation.object})).collect::<Vec<_>>() })).collect::<Vec<_>>(),
         "allowedSupersedesSummaryIds": conversations.iter().flat_map(|conversation| &conversation.allowed_supersedes_summary_ids).collect::<Vec<_>>(),
@@ -382,10 +386,10 @@ pub(crate) fn build_prompt_batch(input: &PromptInput<'_>, conversations: &[Conve
         serde_json::to_string(&payload)
             .map_err(|_| invalid("Cannot encode Overview generation input"))?
     );
-    if prompt.chars().count() > MAX_PROMPT_CHARS {
+    if prompt.len() > MAX_PROMPT_BYTES {
         return Err(AgentError::new(
             ErrorCode::BudgetExceeded,
-            "Overview generation prompt exceeds 48000 characters",
+            "Overview generation prompt exceeds transport input boundary",
         ));
     }
     Ok(prompt)

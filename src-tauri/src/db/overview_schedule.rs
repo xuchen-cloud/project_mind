@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveTime, SecondsForma
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-const BATCH_CHARS: u32 = 48_000;
+const BATCH_BYTES: u32 = crate::overview_model::MAX_OVERVIEW_INPUT_BYTES as u32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -254,19 +254,19 @@ impl Database {
         binding: &WorkspaceBinding,
         scope: &Scope,
         batch_id: &str,
-        input_chars: u32,
+        input_bytes: u32,
         now: DateTime<Utc>,
     ) -> AgentResult<bool> {
         if !self.overview_schedule_scope(binding, scope)? || self.source_foreground_busy()? {
             return Ok(false);
         }
-        if batch_id.is_empty() || batch_id.len() > 128 || input_chars == 0 {
+        if batch_id.is_empty() || batch_id.len() > 128 || input_bytes == 0 {
             return Ok(false);
         }
-        if input_chars > BATCH_CHARS {
+        if input_bytes > BATCH_BYTES {
             return Err(AgentError::new(
                 ErrorCode::BudgetExceeded,
-                "Overview model input exceeds one request's 48k-character boundary",
+                "Overview model input exceeds one request's transport boundary",
             ));
         }
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)

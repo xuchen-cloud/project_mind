@@ -214,7 +214,7 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 2. 输入旧Overview、用户纠正、变更对象的最终状态/语义diff、受影响条目及必要来源；Record可用块diff，File没有可用文本diff则读取受限新版本。只变更相关条目，未变更来源按需展开，不默认重读全部正文。旧Overview是上下文，不作为独立新证据。
 3. 模型输出`upsertItems/removeItemIds`及来源引用，服务验证schema、来源范围/版本、条目依赖和字符预算；最多一次结构修复。一次已持久化的维护批次最多提交一个Overview版本，CAS基于旧overviewRevision。targetSeq表示本次业务变化上界，不是唯一的发布身份；同一targetSeq可以因预算分成多个续批，每批实际消费不同输入并产生下一版。
 4. 处理期间又有业务变化，则本次最多提交到已捕获targetSeq，并保留后续dirty；条目按依赖显式标滞后。发布只确认本批实际处理的对象/范围，未读范围保留进度；asOfSeq单独不能证明该水位前资料已经完整消费，必须结合pending和coverage。相同水位没有新源变更时也能继续未读部分，不能靠生成假业务事件解锁续跑。
-5. 不设置每日、每批累计或 Workspace 共享模型调用次数配额；旧版 3 次/48k 累计与 20 次/20min 规则已由用户确认的 WP5 移除。当前单次完整 prompt 仍受 48k 字符工程边界约束，按模型容量调整由 S3 实施，不提前声称已完成。按最久未处理排序轮转；输入放不下时保留 partial 和游标，后续批次继续。失败保留进度并停止，前台 run 优先，后台在调用边界让出；不占用 Voice 实时处理队列。
+5. 不设置每日、每批累计或 Workspace 共享模型调用次数配额；旧版 3 次/48k 累计与 20 次/20min 规则已由用户确认的 WP5 移除。S3 已将单次完整 prompt 改为按 SDK 目录容量扣除输出、系统提示和请求余量；用 UTF-8 字节保守估算输入，传输上限为既有 16MiB 帧 / 8。未知或冲突别名使用明确的 32768/4096 默认容量，不声称服务端实测。按最久未处理排序轮转；输入放不下时保留 partial 和游标，后续批次继续。失败保留进度并停止，前台 run 优先，后台在调用边界让出；不占用 Voice 实时处理队列。
 6. 沿现有持久作业保存稳定batchId（作业ID与批次序号即可）、输入游标、targetSeq和policy/correctionRevision；发布以`scope + batchId`幂等，并绑定完整payload和基线。重试同批返回原收据；换payload冲突；不同续批仍受head CAS及最新策略约束。失败保留旧版、同批身份和待处理进度，不立即循环重试计费。无模型/密钥锁定则挂起，恢复条件满足后继续。无需新增另一套调度系统。
 7. change log只保留30天，维护专用pending对象集合与删除标记不得随之过早裁剪，直到相关scope成功消费。水位已超日志保留且专用记录不完整时，以source manifest对比上次依赖重建增量；无法证明完整性则标needs_rebuild，分批重新建立，不声称最新。
 
@@ -252,7 +252,7 @@ Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴�
 
 ### 当前实现与目标差距
 
-此前 R11 每批只读一条消息或长消息片段，生成 `KnowledgeNode.session_summary` 并与 Overview 原子发布；每 Project 每 UTC 日 5 次摘要调用且失败计入、Workspace 每 20 分钟 20 次调用，是此前已实施、WP5 调度代码现已移除的任意共享硬限，不是产品额度。WP4 已为普通 Pi 对话恢复原生压缩；单次结构化 Overview 生成显式关闭压缩，确保该调用读到的原始证据不被自由文本摘要替换。Pi `CompactionEntry` 含 `summary` 自由文本、`firstKeptEntryId`、`tokensBefore`、`usage`、`details.readFiles/modifiedFiles`，缺少逐条 citation、来源读取证明、覆盖游标和用户纠正约束，因此不能直接作为 Project 知识节点或 Overview 证据。WP5 保留必要的增量摘要，`summary_segments` 对同会话同分支、同授权的连续增量合批，复用 R10 来源证明与原子发布，不另建会话权威或摘要 worker。WP5 调度代码还移除了每批 3 次和 48k 累计额度，没有新增任意共享额度；保留单次 48k 字符工程传输/输入上限、失败停止且人工恢复、前台任务让出。`summary_segments` 已对当前分支的完整短消息按同分支来源合批；历史分支和长消息仍按单来源处理。已保存多来源 draft 续跑额外生成 0 次。维护 17、生成 7、调度 11、legacy 1 项定向验证通过。合批按单次完整 prompt 的 48k 工程请求边界判断，未按模型实际 `contextWindow` 自适应。失败保留旧快照、游标和 pending，成功后才消费进度；不能无限自动重试或把失败计为已覆盖。
+此前 R11 每批只读一条消息或长消息片段，生成 `KnowledgeNode.session_summary` 并与 Overview 原子发布；每 Project 每 UTC 日 5 次摘要调用且失败计入、Workspace 每 20 分钟 20 次调用，是此前已实施、WP5 调度代码现已移除的任意共享硬限，不是产品额度。WP4 已为普通 Pi 对话恢复原生压缩；单次结构化 Overview 生成显式关闭压缩，确保该调用读到的原始证据不被自由文本摘要替换。Pi `CompactionEntry` 含 `summary` 自由文本、`firstKeptEntryId`、`tokensBefore`、`usage`、`details.readFiles/modifiedFiles`，缺少逐条 citation、来源读取证明、覆盖游标和用户纠正约束，因此不能直接作为 Project 知识节点或 Overview 证据。WP5 保留必要的增量摘要，`summary_segments` 对同会话同分支、同授权的连续增量合批，复用 R10 来源证明与原子发布，不另建会话权威或摘要 worker。WP5 调度代码还移除了每批 3 次和 48k 累计额度，没有新增任意共享额度；当时保留单次 48k 字符工程传输/输入上限、失败停止且人工恢复、前台任务让出；后续 S3 已按模型容量与完整请求调整输入，见[容量及恢复说明](../conversation-memory.md#s3-模型容量与分段恢复2026-10-09)。`summary_segments` 已对当前分支的完整短消息按同分支来源合批；历史分支和长消息仍按单来源处理。已保存多来源 draft 续跑额外生成 0 次。维护 17、生成 7、调度 11、legacy 1 项定向验证通过。上述 WP5 测试对应当时 48k 边界；S3 的模型容量、中文分页和草稿页边界恢复另有定向验证，不混用两轮结果。失败保留旧快照、游标和 pending，成功后才消费进度；不能无限自动重试或把失败计为已覆盖。
 
 50 条消息 / 12000 字符是当前 `session.messages.read` 单页参数，不规定 Pi 压缩长度、摘要批量、摘要正文或产品级固定标准。后续分段按真实模型上下文预算、来源边界和任务效果选择，超长消息保持稳定身份并可续读。详见[WP4～WP6](ai-work-context-delivery.md#confirmed-work-packages-20261009)。
 

@@ -73,6 +73,7 @@ struct MockModel {
     prompts: Mutex<Vec<String>>,
     batch_ids: Mutex<Vec<String>>,
     calls: AtomicUsize,
+    input_bytes: AtomicUsize,
 }
 impl MockModel {
     fn new() -> Self {
@@ -82,6 +83,7 @@ impl MockModel {
             prompts: Mutex::new(vec![]),
             batch_ids: Mutex::new(vec![]),
             calls: AtomicUsize::new(0),
+            input_bytes: AtomicUsize::new(26_000),
         }
     }
     fn calls(&self) -> usize {
@@ -90,12 +92,19 @@ impl MockModel {
     fn set_response(&self, response: &str) {
         *self.response.lock().unwrap() = response.into();
     }
+    fn set_input_bytes(&self, bytes: usize) { self.input_bytes.store(bytes, Ordering::SeqCst); }
 }
 impl OverviewModel for MockModel {
+    async fn prepare(&self) -> AgentResult<crate::overview_model::OverviewBudget> {
+        Ok(crate::overview_model::OverviewBudget { input_bytes: self.input_bytes.load(Ordering::SeqCst),
+            context_window: 8000, max_tokens: 2000,
+            fingerprint: "mock-profile".into(), source: "sdk_catalog".into() })
+    }
     async fn generate(
         &self,
         batch_id: &str,
         prompt: &str,
+        _: &crate::overview_model::OverviewBudget,
     ) -> AgentResult<crate::overview_model::GeneratedOverview> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.prompts.lock().unwrap().push(prompt.into());
@@ -120,6 +129,7 @@ impl OverviewModel for BlockingModel {
         &self,
         _: &str,
         _: &str,
+        _: &crate::overview_model::OverviewBudget,
     ) -> AgentResult<crate::overview_model::GeneratedOverview> {
         self.entered.notify_one();
         self.release.notified().await;
@@ -276,6 +286,7 @@ async fn large_todo_continues_across_native_source_pages_with_distinct_batches()
     let mut f = fixture();
     let model = MockModel::new();
     warmup(&f, &model).await;
+    model.set_input_bytes(3_800);
     let baseline_revision = f
         .store
         .with_current(|_, db| Ok(db.agent_overview_head(&f.scope)?.unwrap().revision))
@@ -284,7 +295,7 @@ async fn large_todo_continues_across_native_source_pages_with_distinct_batches()
     let before_calls = model.calls();
     let mut saw_partial = false;
     let mut settled = false;
-    for index in 300..315 {
+    for index in 300..380 {
         let did_work = next(&f, &model, index).await.unwrap();
         let status = f
             .store
@@ -300,6 +311,7 @@ async fn large_todo_continues_across_native_source_pages_with_distinct_batches()
     }
     assert!(settled && saw_partial);
     assert!(model.calls() >= before_calls + 2);
+    assert!(model.prompts.lock().unwrap()[before_calls..].iter().all(|prompt| prompt.len() <= 3_800));
     let ids = model.batch_ids.lock().unwrap();
     let later = &ids[before_calls..];
     assert_eq!(
@@ -321,6 +333,58 @@ async fn large_todo_continues_across_native_source_pages_with_distinct_batches()
         .collect();
     assert!(target_seqs.len() >= 2);
     assert!(target_seqs.iter().all(|seq| *seq == target_seqs[0]));
+}
+
+#[tokio::test]
+async fn saved_small_page_draft_replays_without_model_and_preserves_cursor() {
+    let mut f = fixture();
+    let model = MockModel::new();
+    warmup(&f, &model).await;
+    add_todo(&mut f, "分段中文".repeat(2_000));
+    *model.fail.lock().unwrap() = Some(ErrorCode::RuntimeUnavailable);
+    assert_eq!(next(&f, &model, 900).await.unwrap_err().code, ErrorCode::RuntimeUnavailable);
+    control(&f.store, &request(f.store.binding.clone(), &f.scope, "resume-small-draft".into()), &f.scope, "resume").unwrap();
+    let batch = f.store.with_current(|binding, db| {
+        db.agent_overview_maintenance_prepare(binding, &f.scope, Utc::now())
+    }).unwrap().unwrap();
+    let source_request = request(f.store.binding.clone(), &f.scope, "draft-small-page".into());
+    let input = SourceReadInput { source: batch.source_read_target.clone().unwrap_or(SourceReadTarget {
+        object: batch.source_object.clone(), revision: None, record_version: None, file_version: None,
+    }), view: SourceReadView::Full, selection: None, cursor: batch.source_cursor.clone(), budget_chars: Some(2_500) };
+    let (page, _) = crate::overview_evidence::capture(&f.store, &source_request, &input, &NoUtility, &NoUtility).await.unwrap();
+    assert!(!page.complete);
+    let progress = OverviewSourceProgress { object: batch.source_object.clone(),
+        read_target: Some(SourceReadTarget { revision: Some(page.source_ref.revision.clone()), ..input.source }),
+        read_cursor: page.next_cursor.clone(), state: OverviewSourceState::Partial,
+        handled_seq: batch.source.last_seq };
+    let coverage = f.store.with_current(|binding, db| db.agent_overview_maintenance_coverage_many(binding, &f.scope, std::slice::from_ref(&progress))).unwrap();
+    let draft = OverviewPublishInput { scope: f.scope.clone(), batch_id: batch.batch_id.clone(),
+        expected_revision: batch.expected_revision, target_seq: batch.target_seq,
+        policy_revision: batch.policy_revision, correction_revision: batch.correction_revision,
+        upsert_items: vec![crate::agent::context::OverviewItem {
+            id: "small-page-cited".into(), section: crate::agent::context::OverviewSection::Progress,
+            text: "已读取首个中文片段".into(), epistemic_status: EpistemicStatus::Recorded,
+            source_refs: vec![page.source_ref.clone()], dependency_item_ids: vec![],
+            valid_state: crate::agent::context::ValidState::Current,
+            updated_at: Utc::now().to_rfc3339(),
+        }], remove_item_ids: vec![], settled_object_keys: vec![],
+        knowledge_upserts: vec![], knowledge_removes: vec![], coverage,
+        source_manifest_hash: "small-page-draft".into(), model_profile_id: "mock-profile".into() };
+    f.store.with_current(|binding, db| db.agent_overview_maintenance_save_draft_many(binding,
+        &f.scope, &batch.batch_id, &draft, std::slice::from_ref(&progress), Some(2_500), Utc::now())).unwrap();
+    let calls = model.calls();
+    *model.fail.lock().unwrap() = None;
+    assert!(next(&f, &model, 901).await.unwrap());
+    assert_eq!(model.calls(), calls);
+    let status = f.store.with_current(|binding, db| db.agent_overview_maintenance_status(binding, &f.scope)).unwrap();
+    assert!(status.coverage.partial > 0);
+    let (head, continuation) = f.store.with_current(|binding, db| Ok((
+        db.agent_overview_head(&f.scope)?.unwrap(),
+        db.agent_overview_maintenance_prepare(binding, &f.scope, Utc::now())?.unwrap(),
+    ))).unwrap();
+    let cited = head.items.iter().find(|item| item.id == "small-page-cited").unwrap();
+    assert_eq!(serde_json::to_value(&cited.source_refs[0]).unwrap(), serde_json::to_value(&page.source_ref).unwrap());
+    assert_eq!(continuation.source_cursor, progress.read_cursor);
 }
 
 #[tokio::test]

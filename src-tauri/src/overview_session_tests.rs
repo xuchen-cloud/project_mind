@@ -468,7 +468,7 @@ async fn frozen_conversation_draft_replays_without_regeneration() {
             upsert_items:vec![crate::agent::context::OverviewItem { id:"draft-cited".into(),section:crate::agent::context::OverviewSection::Progress,text:"三条讨论已有依据".into(),epistemic_status:EpistemicStatus::Recorded,source_refs:refs,dependency_item_ids:vec![],valid_state:crate::agent::context::ValidState::Current,updated_at:Utc::now().to_rfc3339() }],
             remove_item_ids:vec![],settled_object_keys:std::iter::once(&frozen.source).chain(&frozen.source_items).map(|source|source.object_key.clone()).collect(),
             knowledge_upserts:vec![],knowledge_removes:vec![],coverage,source_manifest_hash:"test-frozen-draft".into(),model_profile_id:"mock-profile".into(),
-        },&progresses,Utc::now())
+        },&progresses,None,Utc::now())
     }).unwrap();
     drive(&f,&model,&history,800).await;
     assert_eq!(model.calls(),before+1,"saved draft must publish without another model call");

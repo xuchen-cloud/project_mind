@@ -258,6 +258,8 @@ async fn process_batch<
             return complete(store, request, batch);
         }
     }
+    let mut budget = None;
+    let mut page_budget_chars = batch.source_page_budget_chars.unwrap_or(12_000);
     let mut evidence = vec![];
     let mut pages = vec![];
     let mut progress = OverviewSourceProgress {
@@ -297,13 +299,18 @@ async fn process_batch<
             view: SourceReadView::Full,
             selection: None,
             cursor: batch.source_cursor.clone(),
-            budget_chars: Some(12000),
+            budget_chars: Some(page_budget_chars),
         };
         let (page, proof) = if batch.source_object.kind == ObjectKind::SessionMessage {
             crate::overview_evidence::capture_session(store, request, &input, history).await?
         } else {
             crate::overview_evidence::capture(store, request, &input, record, file).await?
         };
+        if batch.draft.is_none() && batch.source_object.kind != ObjectKind::Project
+            && !page.text.trim().is_empty() {
+            let prepared = model.prepare().await?;
+            budget = Some(prepared);
+        }
         progress.read_target = Some(SourceReadTarget {
             revision: Some(page.source_ref.revision.clone()),
             ..input.source
@@ -345,13 +352,12 @@ async fn process_batch<
             };
             let target=SourceReadTarget { object:object.clone(), revision:None,record_version:None,file_version:None };
             let Some((record,conversation,_))=crate::overview_session::input(store,request,&target)? else { break; };
-            let input=SourceReadInput { source:target,view:SourceReadView::Full,selection:None,cursor:None,budget_chars:Some(12000) };
+            let input=SourceReadInput { source:target,view:SourceReadView::Full,selection:None,cursor:None,
+                budget_chars:Some(page_budget_chars) };
             let (page,proof)=crate::overview_evidence::capture_session(store,request,&input,history).await?;
             if !page.complete || page.text.trim().is_empty() { break; }
             let progress=OverviewSourceProgress { object,read_target:Some(SourceReadTarget { revision:Some(page.source_ref.revision.clone()),..input.source }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq };
             candidate_reads.push((source,record,conversation,page,proof,progress));
-            if pages.iter().map(|page|page.text.chars().count()).sum::<usize>()+
-                candidate_reads.iter().map(|(_,_,_,page,_,_)|page.text.chars().count()).sum::<usize>() >= 48000 { break; }
         }
     }
     if batch.draft.is_some() {
@@ -445,6 +451,52 @@ async fn process_batch<
             }
         }
         let corrections: Vec<_> = corrections.items.into_iter().filter(|item| !item.deleted).collect();
+        if let Some(prepared) = &budget {
+            // Measure the entire request, including prior Overview, corrections,
+            // source metadata and conversation metadata. Re-read the same cursor
+            // until one page fits; a partial first page cannot include successors.
+            loop {
+                let relevant: Vec<_> = old_items.iter().filter(|item| allowed.affected_ids.contains(&item.id)).cloned().collect();
+                let prompt = crate::overview_generation::build_prompt_batch(&PromptInput {
+                    old_overview: old.as_ref(), allowed_ids: &allowed, relevant_items: &relevant,
+                    corrections: &corrections, source_pages: &pages,
+                    prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
+                    conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
+                }, &session_data.iter().map(|(_, conversation)| conversation.clone()).collect::<Vec<_>>());
+                match prompt {
+                    Ok(value) if prepared.check(&value).is_ok() => break,
+                    Err(error) if error.code != ErrorCode::BudgetExceeded => return Err(error),
+                    _ => {}
+                }
+                let current_chars = pages[0].text.chars().count();
+                if current_chars <= 1 { return Err(AgentError::new(ErrorCode::BudgetExceeded,
+                    "Overview context and source metadata exceed model input budget")); }
+                let metadata_chars = crate::agent::context::serialized_chars(&pages[0])?
+                    .saturating_sub(current_chars);
+                let next_page_budget = metadata_chars + (current_chars / 2).max(1);
+                let input = SourceReadInput {
+                    source: batch.source_read_target.clone().unwrap_or(SourceReadTarget {
+                        object: batch.source_object.clone(), revision: None, record_version: None, file_version: None,
+                    }), view: SourceReadView::Full, selection: None, cursor: batch.source_cursor.clone(),
+                    budget_chars: Some(next_page_budget),
+                };
+                page_budget_chars = next_page_budget;
+                let (page, proof) = if batch.source_object.kind == ObjectKind::SessionMessage {
+                    crate::overview_evidence::capture_session(store, request, &input, history).await?
+                } else {
+                    crate::overview_evidence::capture(store, request, &input, record, file).await?
+                };
+                progress.read_target = Some(SourceReadTarget { revision: Some(page.source_ref.revision.clone()), ..input.source });
+                progress.read_cursor = page.next_cursor.clone();
+                progress.state = if page.complete { OverviewSourceState::Processed }
+                    else if page.next_cursor.is_some() { OverviewSourceState::Partial }
+                    else { OverviewSourceState::Unsupported };
+                pages[0] = page;
+                evidence[0] = proof;
+                progresses[0] = progress.clone();
+                if !pages[0].complete { candidate_reads.clear(); }
+            }
+        }
         let mut selected_sources = Vec::new();
         for (source,record,conversation,page,proof,next_progress) in candidate_reads {
             pages.push(page);
@@ -464,7 +516,10 @@ async fn process_batch<
                 conversation:conversation_data.as_ref().map(|(_,conversation,_)|conversation),
             },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>());
             match prospective {
-                Ok(_) => { allowed=prospective_allowed; evidence.push(proof); progresses.push(next_progress); selected_sources.push(source); }
+                Ok(prompt) if budget.as_ref().is_some_and(|value| value.check(&prompt).is_ok()) => {
+                    allowed=prospective_allowed; evidence.push(proof); progresses.push(next_progress); selected_sources.push(source);
+                }
+                Ok(_) => { pages.pop(); session_data.pop(); break; }
                 Err(error) if error.code==ErrorCode::BudgetExceeded => { pages.pop(); session_data.pop(); break; }
                 Err(error) => return Err(error),
             }
@@ -510,14 +565,16 @@ async fn process_batch<
                 prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
                 conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
             },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>())?;
-            model.ready()?;
+            let budget = budget.as_ref().ok_or_else(|| AgentError::new(ErrorCode::RuntimeIncompatible,
+                "Overview model capacity was not prepared"))?;
+            budget.check(&prompt)?;
             let reserved = store.with_current(|binding, db| {
                 active(db, binding, request, &batch.scope)?;
                 db.overview_schedule_reserve(
                     binding,
                     &batch.scope,
                     &batch.batch_id,
-                    prompt.chars().count() as u32,
+                    prompt.len() as u32,
                     Utc::now(),
                 )
             })?;
@@ -527,7 +584,7 @@ async fn process_batch<
                     "Knowledge maintenance yielded to foreground work",
                 ));
             }
-            let generated = model.generate(&batch.batch_id, &prompt).await?;
+            let generated = model.generate(&batch.batch_id, &prompt, budget).await?;
             let refs: Vec<_> = evidence.iter().map(|v| v.reference().clone()).collect();
             let parsed_session = if session_data.is_empty() { None } else { Some(crate::overview_generation::parse_session_batch_delta(&generated.text,&allowed,&refs,&Utc::now().to_rfc3339(),&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>())?) };
             let delta = if let Some(parsed) = &parsed_session { parsed.overview.clone() } else {
@@ -583,6 +640,7 @@ async fn process_batch<
                 &batch.batch_id,
                 &publish,
                 &progresses,
+                Some(page_budget_chars),
                 Utc::now(),
             )
         })?;

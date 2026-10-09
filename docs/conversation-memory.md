@@ -28,7 +28,7 @@ R11b3/b4 复用 `agent_change_log` → `source_registry` → Project Overview pe
 
 仍缺真实供应商往返及 Windows/macOS 目标设备验收；R12 外部 CLI/MCP 已接入 `session.search` 和 `session.messages.read`，使用时仍须具备 `session.read` 授权。因此不把这些确定性结果当作完整 R11 产品验收或关闭关联 Issue。
 
-2026-10-09 用户确认的新目标见[WP4～WP5](requirements/ai-work-context-delivery.md#confirmed-work-packages-20261009)：普通对话复用 Pi 原生会话管理并恢复原生压缩；单次结构化 Overview 请求显式关闭压缩，保留该次证据读取。Pi `CompactionEntry` 只有自由文本 summary、`firstKeptEntryId`、`tokensBefore`、`usage` 和读写文件列表，没有逐条 citation、来源读取证明、覆盖游标或纠正约束，故不能直接当作 Project 知识。跨会话原文索引仍保留；必要的 `summary_segments` 对同会话同分支合法增量合批，由原生来源证明与原子发布约束。上述任意共享硬限以及每批 3 次、48k 累计额度已从调度代码移除；仅保留单次完整 prompt 48k 字符工程输入边界、失败停止且人工恢复、前台任务让出。失败保留进度，有限续跑，不无限重试。50 条/12000 字符只说明当前原文读取分页，不固定摘要批次或产品标准。`summary_segments` 本地实现已对当前分支完整短消息合批，历史分支与长消息保持单来源；已保存多来源 draft 续跑额外生成 0 次。上述定向验证已通过，最终全量 Rust 已通过（938 passed、0 failed、34 ignored）；真实 Provider/目标平台仍待验收；没有按实际模型 `contextWindow` 自适应。
+2026-10-09 用户确认的新目标见[WP4～WP5](requirements/ai-work-context-delivery.md#confirmed-work-packages-20261009)：普通对话复用 Pi 原生会话管理并恢复原生压缩；单次结构化 Overview 请求显式关闭压缩，保留该次证据读取。Pi `CompactionEntry` 只有自由文本 summary、`firstKeptEntryId`、`tokensBefore`、`usage` 和读写文件列表，没有逐条 citation、来源读取证明、覆盖游标或纠正约束，故不能直接当作 Project 知识。跨会话原文索引仍保留；必要的 `summary_segments` 对同会话同分支合法增量合批，由原生来源证明与原子发布约束。上述任意共享硬限以及每批 3 次、48k 累计额度已从调度代码移除；S3 进一步把单次固定 48k 字符改为模型容量预算，保留失败停止且人工恢复、前台任务让出。失败保留进度，有限续跑，不无限重试。50 条/12000 字符只说明当前原文读取分页，不固定摘要批次或产品标准。`summary_segments` 本地实现已对当前分支完整短消息合批，历史分支与长消息保持单来源；已保存多来源 draft 续跑额外生成 0 次。上述定向验证已通过，最终全量 Rust 已通过（938 passed、0 failed、34 ignored）；真实 Provider/目标平台仍待验收；没有按实际模型 `contextWindow` 自适应。
 
 ## 来源、结论和失效
 
@@ -50,3 +50,9 @@ AI 检索/读取边界由可信 Host 的调用者身份与 Scope Grant 决定，
 | [Mem0 固定提交 `b7ad69a`](https://github.com/mem0ai/mem0/tree/b7ad69afda6b6ed030347c66d48a13e4de9dec08) 与 [Graphiti 固定提交 `1026ae7`](https://github.com/getzep/graphiti/tree/1026ae7ae25e7e4cfcc1c7ebe00347b8a90f52a0) | 都提供来源/关系建模思路，但分别增加向量存储和图后端等集成成本。 | 借鉴稳定来源 ID、时间效力和删除失效；本轮不整包移植，不新增向量/图服务或用户画像。 |
 
 外部源码是设计证据，不是本项目功能测试。上述固定版本源码链接可复核具体机制。R11 的真实验收仍须以本项目的中文检索、权限、删除、回读和模型会话往返为准。
+
+### S3 模型容量与分段恢复（2026-10-09）
+
+普通 Pi 会话与知识整理共用 SDK 静态模型目录，无网络容量探测。精确模型 ID 的目录容量一致时使用目录值；未知或冲突的自定义别名明确使用 32768 上下文/4096 输出默认值，不能称为服务端实测容量。整理请求最多预留 4096 输出 token，并扣除系统提示和请求余量；以 UTF-8 字节作为保守输入估算，不把中文字符乘四当作准确 token 数。2MiB 单次输入传输边界由既有 16MiB 帧 / 8 导出，给 JSON 转义和信封留空间，不是每日或累计调用额度。
+
+完整 prompt 包括旧知识、用户纠正和消息信息；来源给模型只保留必要标识与短标题，完整引用由原生服务保存。小模型按完整请求缩小来源页，首消息未读完时不混入后续消息。准备与生成绑定同一模型配置指纹；来源页边界随发布草稿保存，重开按原边界核验并重放，不再调用模型。Rust 84 项和 Pi 48 项通过；真实打包 Linux Host 的容量协议通过，真实 Provider 仍待验。

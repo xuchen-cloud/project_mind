@@ -1,6 +1,7 @@
 // Shared restricted Pi SDK adapter. The probe below only supplies acceptance fixtures.
 import { encodeSession, decodeSession } from './session-codec.mjs';
 import { installContextPolicy } from './context-policy.mjs';
+import { capacityFromRuntime } from './model-capacity.mjs';
 
 import { DEFAULT_SYSTEM_PROMPT, PROBE_TOOLS, validateToolDescriptors } from './tool-descriptors.mjs';
 
@@ -67,7 +68,7 @@ function restrictedResources(systemPrompt, createExtensionRuntime, beforeCompact
 
 export async function createPiSession({ workspaceRoot, sessionId, baseUrl, modelId, apiKey,
   dispatchTool, checkpoint, tools: descriptors = [], systemPrompt = DEFAULT_SYSTEM_PROMPT,
-  maxTokens = 4096, contextWindow = 32768, onEvent = () => {}, historyPolicy,
+  maxTokens, contextWindow, onEvent = () => {}, historyPolicy,
   compactionEnabled = true }) {
   const { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager }
     = await import('@earendil-works/pi-coding-agent');
@@ -78,6 +79,8 @@ export async function createPiSession({ workspaceRoot, sessionId, baseUrl, model
   try {
     const runtime = await ModelRuntime.create({ credentials, modelsPath: null,
       refreshOnCreate: false, allowModelNetwork: false });
+    const capacity = capacityFromRuntime(runtime, modelId, { maxTokens, contextWindow });
+    ({ maxTokens, contextWindow } = capacity);
     runtime.registerProvider(providerId, {
       baseUrl, api: 'openai-completions', authHeader: true,
       models: [{ id: modelId, name: modelId, reasoning: false, input: ['text'],

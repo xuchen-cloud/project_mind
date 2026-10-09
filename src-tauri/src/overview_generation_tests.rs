@@ -235,7 +235,7 @@ fn prompt_enforces_total_budget_and_marks_source_text_as_untrusted() {
     assert!(!prompt.contains("sourceManifestHash"));
     let huge_pages = [SourceReadPage {
         source_ref: evidence,
-        text: "中".repeat(49_000),
+        text: "中".repeat(750_000),
         spans: vec![],
         next_cursor: None,
         complete: false,

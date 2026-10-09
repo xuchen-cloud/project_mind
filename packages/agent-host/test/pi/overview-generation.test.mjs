@@ -11,7 +11,8 @@ const batchId = 'b'.repeat(32);
 const profile = { providerFamily: 'openai_compatible', enabled: true, supportsText: true,
   baseUrl: 'http://127.0.0.1/v1', defaultModel: 'fixture' };
 const frame = (method, data = {}, requestId = method) => ({ protocolVersion: PROTOCOL_VERSION, method, data, requestId });
-const input = { batchId, profile, modelId: 'fixture', toolCallingVerified: true, apiKey: 'secret', prompt: 'Return an overview JSON object.' };
+const input = { batchId, profile, modelId: 'fixture', toolCallingVerified: true, apiKey: 'secret', prompt: 'Return an overview JSON object.',
+  capacity: { contextWindow: 32768, maxTokens: 4096, source: 'fallback' } };
 function fixture(makeSession) {
   const frames = [];
   let persists = 0;
@@ -78,7 +79,7 @@ test('overview rejects competing sessions and runs, excessive input and output, 
       received.onEvent({ type: 'agent_settled' }); resolve();
     }; }), cancel: async () => {}, dispose: async () => {} }; });
   await initialize(item);
-  await item.host.handle(frame('overview.generate', { ...input, prompt: 'x'.repeat(48001) }, 'large-input'));
+  await item.host.handle(frame('overview.generate', { ...input, prompt: 'x'.repeat(2 * 1024 * 1024 + 1) }, 'large-input'));
   assert.equal(item.response('large-input').error.code, 'INVALID_ARGUMENT');
   await item.host.handle(frame('overview.generate', { ...input }, 'first'));
   await new Promise((resolve) => setImmediate(resolve));

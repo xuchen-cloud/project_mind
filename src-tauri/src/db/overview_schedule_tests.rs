@@ -241,10 +241,10 @@ fn repeated_attempts_have_only_a_per_request_input_boundary() {
     }
     assert!(f
         .db
-        .overview_schedule_reserve(&f.binding, &f.scope, "replacement", 48_000, now)
+        .overview_schedule_reserve(&f.binding, &f.scope, "replacement", 2 * 1024 * 1024, now)
         .unwrap());
     assert_eq!(
-        f.db.overview_schedule_reserve(&f.binding, &f.scope, "replacement", 48_001, now)
+        f.db.overview_schedule_reserve(&f.binding, &f.scope, "replacement", 2 * 1024 * 1024 + 1, now)
             .unwrap_err()
             .code,
         ErrorCode::BudgetExceeded

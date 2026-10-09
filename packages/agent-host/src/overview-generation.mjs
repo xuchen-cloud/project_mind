@@ -2,9 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { createPiSession } from './pi-spike.mjs';
 import { aggregateUsage } from './message-projection.mjs';
 import { mapCompatibleProfile } from './profile-map.mjs';
+import { OVERVIEW_SYSTEM_PROMPT, overviewInputBudget } from './model-capacity.mjs';
+import { MAX_OVERVIEW_INPUT_BYTES } from './protocol.mjs';
 
 const idPattern = /^[0-9a-f]{32}$/;
-const systemPrompt = 'Return exactly one complete JSON value for the requested overview. Use only the supplied prompt. Do not call tools or add prose outside the JSON.';
+const systemPrompt = OVERVIEW_SYSTEM_PROMPT;
 const error = (code) => Object.assign(new Error(code), { code });
 const characterCount = (value) => [...value].length;
 
@@ -14,9 +16,11 @@ export function createOverviewGeneration({ workspaceRoot, makeSession = createPi
   function start(data) {
     if (active) throw error('RUN_BUSY');
     if (!idPattern.test(data.batchId ?? '') || typeof data.prompt !== 'string'
-      || !data.prompt.trim() || characterCount(data.prompt) > 48000) throw error('INVALID_ARGUMENT');
+      || !data.prompt.trim() || Buffer.byteLength(data.prompt, 'utf8') > MAX_OVERVIEW_INPUT_BYTES) throw error('INVALID_ARGUMENT');
     if (typeof data.apiKey !== 'string' || !data.apiKey) throw error('SECRETS_LOCKED');
     const mapped = mapCompatibleProfile(data.profile, { model: data.modelId, toolCallingVerified: data.toolCallingVerified });
+    const budget = overviewInputBudget(data.capacity);
+    if (Buffer.byteLength(data.prompt, 'utf8') > budget.inputBytes) throw error('BUDGET_EXCEEDED');
     const job = { batchId: data.batchId, cancelled: false, session: null, settled: false,
       assistant: null, outputCharacters: 0, failureCode: null, finished: null };
     active = job;
@@ -36,7 +40,8 @@ export function createOverviewGeneration({ workspaceRoot, makeSession = createPi
           if (value.type === 'message_end' && value.message?.role === 'assistant') job.assistant = value.message;
         };
         job.session = await makeSession({ workspaceRoot, sessionId: randomBytes(16).toString('hex'),
-          ...mapped, apiKey: credential, tools: [], systemPrompt, compactionEnabled: false,
+          ...mapped, contextWindow: data.capacity.contextWindow, maxTokens: budget.outputTokens,
+          apiKey: credential, tools: [], systemPrompt, compactionEnabled: false,
           dispatchTool: () => Promise.reject(error('SCOPE_DENIED')), onEvent });
         credential = undefined;
         if (job.session.activeTools().length) throw error('RUNTIME_INCOMPATIBLE');
