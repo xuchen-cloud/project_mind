@@ -72,6 +72,7 @@ pub fn capabilities() -> Vec<Capability> {
         ("run.cancel", "run.cancel", false, true, "AI-05"),
         ("record.create", "content.create", false, true, "AI-07"),
         ("record.create.preview", "content.create", true, true, "AI-07"),
+        ("record.get", "source.read", true, true, "AI-16"),
         ("record.blocks.get", "source.read", true, true, "AI-16"),
         ("record.versions.list", "source.read", true, true, "AI-16"),
         ("record.versions.get", "source.read", true, true, "AI-16"),

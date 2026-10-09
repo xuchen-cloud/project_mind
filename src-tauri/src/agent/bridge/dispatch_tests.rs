@@ -570,7 +570,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 36);
+    assert_eq!(tools.tools.len(), super::registry::registered_methods().len());
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))
@@ -1026,7 +1026,8 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(todo_value["snapshot"]["priority"], "not_urgent_not_important");
     assert_eq!(todo_value["snapshot"]["dueDate"], Value::Null);
 
-    let cli_markdown = "# 发布记录\n\n- 第一项\n- 第二项\n";
+    let cli_markdown = format!("# 发布记录\n\n- 第一项\n- 第二项\n\n{}",
+        "- 附注中文用于分页。\n".repeat(20));
     let cli_markdown_path = root.path().join("cli-record-create.md");
     std::fs::write(&cli_markdown_path, cli_markdown.as_bytes()).unwrap();
     let records_before_create = handler.db.lock().unwrap()
@@ -1099,6 +1100,55 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(saved_markdown.projection.text, preview_text);
     assert_eq!(handler.db.lock().unwrap()
         .project_page_get(crate::models::ProjectIdInput { project_id }).unwrap().records.len(), records_before_create + 1);
+
+    let mut cursor: Option<String> = None;
+    let mut source_revision: Option<String> = None;
+    let mut cli_read_text = String::new();
+    let mut seen_cursors = std::collections::HashSet::new();
+    let mut read_pages = 0;
+    loop {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let revision = source_revision.clone();
+        let next = cursor.clone();
+        let record_id = markdown_target.record_id;
+        let output = tokio::task::spawn_blocking(move || {
+            let mut command = std::process::Command::new(binary);
+            command.args(["record", "get"])
+                .arg(record_id.to_string())
+                .arg("--project").arg(project_id.to_string())
+                .args(["--budget-chars", "1000", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home);
+            if let Some(cursor) = next { command.arg("--cursor").arg(cursor); }
+            if let Some(revision) = revision { command.arg("--revision").arg(revision); }
+            command.output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI Record get: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["sourceRef"]["object"]["id"], markdown_target.record_id.to_string());
+        let returned_revision = response["data"]["sourceRef"]["revision"].as_str().unwrap().to_owned();
+        if let Some(expected) = &source_revision { assert_eq!(&returned_revision, expected); }
+        source_revision = Some(returned_revision);
+        let page_text = response["data"]["text"].as_str().unwrap();
+        let page_chars = page_text.chars().count();
+        assert!(page_chars > 0, "CLI Record page {read_pages} made no text progress");
+        cli_read_text.push_str(page_text);
+        read_pages += 1;
+        cursor = response["data"]["nextCursor"].as_str().map(str::to_owned);
+        if cursor.is_none() { assert_eq!(response["data"]["complete"], true); break; }
+        assert!(seen_cursors.insert(cursor.clone().unwrap()), "CLI Record cursor repeated after {read_pages} pages");
+        assert!(read_pages < 100, "CLI Record paging exceeded 100 pages after {} chars; last page had {page_chars} chars", cli_read_text.chars().count());
+    }
+    assert!(read_pages > 1);
+    assert_eq!(cli_read_text, saved_markdown.projection.text);
 
     std::fs::write(&cli_markdown_path, b"# changed body\n").unwrap();
     let binary = cli_binary.clone();

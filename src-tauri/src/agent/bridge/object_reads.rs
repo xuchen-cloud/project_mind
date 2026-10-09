@@ -5,6 +5,7 @@ use crate::{
         access::RequestContext,
         errors::{AgentError, AgentResult, ErrorCode},
         file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
+        record_get::{self, RecordGetInput},
         record_blocks::{RecordBlocksInput, RecordBlocksService},
         todo_tools::TodoGetInput,
     },
@@ -45,6 +46,10 @@ pub(crate) async fn execute<S: BoundSourceStore, W: DocumentUtility>(
     utility: &W,
 ) -> AgentResult<Value> {
     match method {
+        "record.get" => {
+            let input: RecordGetInput = decode(arguments)?;
+            encode(record_get::get(store, request, &input, utility).await?)
+        }
         "record.versions.list" => {
             let input: RecordVersionsListInput = decode(arguments)?;
             encode(RecordVersionReadService::new(store, utility).list(request, &input)?)

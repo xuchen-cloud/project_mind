@@ -29,6 +29,7 @@ pub(crate) mod overview_inventory;
 pub(crate) mod process;
 pub(crate) mod profile_probe;
 pub(crate) mod record_blocks;
+pub(crate) mod record_get;
 pub(crate) mod record_outputs;
 pub(crate) mod record_write_tools;
 pub mod repository;

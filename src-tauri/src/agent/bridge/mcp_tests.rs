@@ -42,7 +42,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     );
 
     let listed = client.peer().list_tools(None).await.unwrap();
-    assert_eq!(listed.tools.len(), 36);
+    assert_eq!(listed.tools.len(), 37);
     assert_eq!(
         listed.tools.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>(),
         registry::registered_methods().iter().map(|entry| format!("mind_{}", entry.method.replace('.', "_"))).collect::<Vec<_>>(),
@@ -85,6 +85,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         ("mind_session_search", "session.search", json!({"scope":project_scope,"query":"plan","sessionId":session_id})),
         ("mind_session_messages_read", "session.messages.read", json!({"sessionId":session_id,"messageId":message_id})),
         ("mind_record_blocks_get", "record.blocks.get", json!({"record":record})),
+        ("mind_record_get", "record.get", json!({"record":record,"budgetChars":100})),
         ("mind_record_create_preview", "record.create.preview", json!({"input":{"scope":project_scope,"title":"MCP preview","tagIds":[],"markdown":"# 你好\n\n- Item\n","codeLanguage":null},"budgetChars":100})),
         ("mind_record_patch_preview", "record.patch.preview", json!({"record":record,"baseRevision":1,"operations":[],"budgetChars":100})),
         ("mind_record_versions_list", "record.versions.list", json!({"record":record})),
@@ -123,6 +124,9 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     ).await.unwrap();
     assert_eq!(create_preview.is_error, Some(false));
     assert_eq!(create_preview.structured_content.as_ref().unwrap()["data"]["method"], "record.create.preview");
+    let record_get_tool = listed.tools.iter().find(|tool| tool.name == "mind_record_get").unwrap();
+    assert_eq!(record_get_tool.annotations.as_ref().unwrap().read_only_hint, Some(true));
+    assert_eq!(*record_get_tool.input_schema, registry::schema("record.get").unwrap().as_object().unwrap().clone());
 
     let patch = |request_id: &str| json!({
         "record":{"workspaceId":"test","scope":{"kind":"project","projectId":1},"kind":"record","id":"1"},

@@ -11,6 +11,7 @@ use crate::{
         operations::{OperationGetInput, OperationUndoInput},
         outputs::RecordPatch,
         record_blocks::RecordBlocksInput,
+        record_get::RecordGetInput,
         todo_tools::TodoGetInput,
     },
     agent::bridge::record_writes::{ConnectionRecordCreate, MutationInput, RecordCreatePreviewInput},
@@ -98,6 +99,12 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             description: "Read an exact prior message with session.read. Use IDs from session.search and repeat nextCursor to continue the same original message within budgetChars.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(ModelHistoryReadInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.get",
+            description: "Read the current body of an authorized Record with source.read. Use nextCursor and budgetChars for bounded continuation; revision can pin the source.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordGetInput)).expect("static schema"),
         },
         RegisteredMethod {
             method: "record.blocks.get",
@@ -276,7 +283,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
     match method {
         "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
         | "knowledge.get" | "source.search" | "source.read" | "session.search"
-        | "session.messages.read" | "record.blocks.get" | "todo.get"
+        | "session.messages.read" | "record.get" | "record.blocks.get" | "todo.get"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
         | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" => Some(true),
@@ -296,7 +303,9 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
             .map(|_| ())
             .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Arguments do not match the method input DTO"))
     }
-    if matches!(method, "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read") {
+    if method == "record.get" {
+        crate::agent::tools::validate_bounds("source.read", parameters)?;
+    } else if matches!(method, "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read") {
         crate::agent::tools::validate_bounds(method, parameters)?;
     }
     let decoded = match method {
@@ -313,6 +322,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
             input.validate()
         }
         "session.messages.read" => decode::<ModelHistoryReadInput>(parameters),
+        "record.get" => decode::<RecordGetInput>(parameters),
         "record.blocks.get" => decode::<RecordBlocksInput>(parameters),
         "todo.get" => decode::<TodoGetInput>(parameters),
         "file.versions.list" => decode::<FileVersionsListInput>(parameters),
@@ -379,7 +389,7 @@ mod tests {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
             "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read", "session.search",
-            "session.messages.read", "record.blocks.get", "todo.get",
+            "session.messages.read", "record.get", "record.blocks.get", "todo.get",
             "file.versions.list", "file.versions.get", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
             "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
@@ -389,7 +399,9 @@ mod tests {
             "file.content.begin", "file.content.chunk", "file.content.complete",
             "file.content.status",
         ]);
-        assert_eq!(registered_methods().len(), 36);
+        assert_eq!(registered_methods().len(), 37);
+        assert_eq!(registered_methods().iter().filter(|entry| entry.read_only).count(), 23);
+        assert_eq!(registered_methods().iter().filter(|entry| !entry.read_only).count(), 14);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         assert_eq!(is_read_only("record.patch"), Some(false));
         assert_eq!(is_read_only("operation.list"), Some(true));
@@ -448,6 +460,7 @@ mod tests {
         let cases = [
             ("session.search", serde_json::json!({"scope":scope,"query":"earlier decision"})),
             ("session.messages.read", serde_json::json!({"sessionId":id,"messageId":id})),
+            ("record.get", serde_json::json!({"record":object("record"),"budgetChars":4000})),
             ("record.blocks.get", serde_json::json!({"record":object("record"),"budgetChars":4000})),
             ("todo.get", serde_json::json!({"target":object("todo")})),
             ("file.versions.list", serde_json::json!({"object":object("file"),"limit":10})),
@@ -464,6 +477,9 @@ mod tests {
         assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"  "})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"x","limit":21})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("file.versions.list", &serde_json::json!({"object":object("file"),"path":"/tmp/file"})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("record.get", &serde_json::json!({"record":object("record"),"recordVersion":1})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("record.get", &serde_json::json!({"record":object("record"),"budgetChars":12001})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(is_read_only("record.get"), Some(true));
         assert!(!is_registered("record.delete"));
         assert!(!is_registered("file.delete"));
     }
@@ -497,7 +513,7 @@ mod tests {
     #[test]
     fn write_schemas_are_native_and_require_stable_request_identity() {
         for method in [
-            "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
+            "record.get", "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",

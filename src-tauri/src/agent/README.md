@@ -37,7 +37,9 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前包含 36 个方法（22 读 / 14 写）。读取包括原有上下文、来源、会话、Record/Todo、File 版本与源码、Record 历史、`operation.get/list`、`file.content.status`，以及 `record.patch.preview`、`record.create.preview`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 注册表当前包含 37 个方法（23 读 / 14 写）。读取包括原有上下文、来源、会话、Record 正文/Todo、File 版本与源码、Record 历史、`operation.get/list`、`file.content.status`，以及 `record.patch.preview`、`record.create.preview`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+
+`mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json` 读取已提交 Record 正文；也可用 `record get --input-file PATH|-` 传 `record.get` 的完整 DTO。它和 `source.read` 共享 SourceReadPage、来源修订及分页，默认 4000、最多 12000 字符；继续阅读时传回 nextCursor，可同时固定返回的 SourceRef.revision（不同于正文 bodyHash）。CLI 不自动读取下一页，只有 complete=true 才读到末尾。需要块身份与修改基线时仍用 `record blocks get`。
 
 新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 

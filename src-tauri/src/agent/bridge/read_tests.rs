@@ -516,6 +516,73 @@ async fn object_reads_return_native_versions_bodies_and_enforce_current_policy()
     }
 }
 
+#[tokio::test]
+async fn record_get_matches_source_read_pages_and_checks_current_authority() {
+    let f = Fixture::new();
+    let utility = TextUtility::immediate();
+    let source = f.read("record-source", "source.read", json!({
+        "source":{"object":f.record},"view":"full"
+    }), &utility).await.unwrap();
+    let direct = f.read("record-get", "record.get", json!({"record":f.record}), &utility).await.unwrap();
+    assert_eq!(direct["sourceRef"], source["sourceRef"]);
+    assert_eq!(direct["text"], source["text"]);
+    assert_eq!(direct["text"], "Record evidence");
+    assert_eq!(direct["complete"], true);
+
+    let long_text = "中文段落 evidence。".repeat(300);
+    let record = f.store.db.lock().unwrap().project_record_upsert(ProjectRecordUpsertInput {
+        project_id: f.project_id, note_id: None, title: Some("Paged Record".into()),
+        markdown: long_text.clone(), html: format!("<p>{long_text}</p>"),
+        default_code_language: None, tag_ids: vec![],
+    }).unwrap();
+    let target = RecordTarget { scope: f.scope(), record_id: record.id };
+    let document = json!({"type":"doc","content":[{"type":"paragraph",
+        "attrs":{"blockId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "content":[{"type":"text","text":long_text}]}]});
+    let projection = RecordDocumentProjection {
+        schema_version: 1, body_hash: body_hash(&document, &None), document,
+        html: format!("<p>{long_text}</p>"), markdown: long_text.clone(),
+        text: long_text.clone(), code_language: None,
+    };
+    {
+        let db = f.store.db.lock().unwrap();
+        let hash = db.record_document_source(&target).unwrap().source_hash;
+        db.record_document_initialize("gui", "paged-record-initialize", &target, &hash, &projection, &f.binding.workspace_id).unwrap();
+    }
+    let object = ObjectRef { workspace_id: f.binding.workspace_id.clone(), scope: f.scope(),
+        kind: ObjectKind::Record, id: record.id.to_string() };
+    let mut cursor: Option<String> = None;
+    let mut collected = String::new();
+    let mut pages = 0;
+    loop {
+        let page = f.read(&format!("record-page-{pages}"), "record.get", json!({
+            "record":object,"cursor":cursor,"budgetChars":1000,
+        }), &utility).await.unwrap();
+        assert_eq!(page["sourceRef"]["object"], json!(object));
+        collected.push_str(page["text"].as_str().unwrap());
+        pages += 1;
+        cursor = page["nextCursor"].as_str().map(str::to_owned);
+        if cursor.is_none() { assert_eq!(page["complete"], true); break; }
+        assert!(pages < 100, "Record paging must make progress");
+    }
+    assert!(pages > 1);
+    assert_eq!(collected, long_text);
+
+    assert_eq!(f.read("wrong-kind", "record.get", json!({"record":f.file}), &utility).await.unwrap_err().code, ErrorCode::InvalidArgument);
+    let mut foreign = f.record.clone();
+    foreign.scope = Scope::Project { project_id: f.other_project_id };
+    assert_eq!(f.read("foreign-record", "record.get", json!({"record":foreign}), &utility).await.unwrap_err().code, ErrorCode::ScopeDenied);
+    let gui = RequestContext { binding: f.binding.clone(), caller: Caller::Gui, request_id: "exclude-record-get".into(),
+        scope_grant: ScopeGrant { workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
+            project_ids: vec![f.project_id], operations: vec!["settings.write".into(), "source.read".into()] } };
+    f.store.db.lock().unwrap().source_policy_update(&gui, &f.binding, &SourcePolicyUpdate {
+        object: f.record.clone(), expected_revision: 0, excluded: true,
+    }).unwrap();
+    assert_eq!(f.read("excluded-record", "record.get", json!({"record":f.record}), &utility).await.unwrap_err().code, ErrorCode::ScopeDenied);
+    f.store.db.lock().unwrap().agent_connection_revoke(&f.binding, GRANT).unwrap();
+    assert_eq!(f.read("revoked-record", "record.get", json!({"record":object}), &utility).await.unwrap_err().code, ErrorCode::ScopeDenied);
+}
+
 impl crate::source_session_read::SessionHistoryUtility for UnusedDocument {
     async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
         panic!("This fixture does not read session history")

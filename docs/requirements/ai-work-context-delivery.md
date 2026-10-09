@@ -431,6 +431,18 @@ CLI 提供 `record get ID (--project ID | --workspace-scope)` 与可选 `--revis
 
 验收：与同对象的 source.read 返回相同正文、SourceRef 和分页；续页、版本变化、错误 kind/归属、排除/撤回/撤权均沿用共享约束。运行 getter/bridge/CLI/MCP 定向和生产 CLI/真实 socket 调用；前端及未变原生服务复用已验证结果。
 
+第五子步已完成（2026-10-09）：注册表 37 项（23 读 / 14 写），bridge/CLI/MCP 72 项通过（另 2 项 ignored），包括正文与 source.read 一致、Unicode 分页和当前授权策略。生产 CLI 构建及独立 Linux 凭据/真实 socket/实际 CLI 多页读取通过，逐页保持 SourceRef.revision 并拼回完整原生正文。真实夹具先修正重复维护的工具数，随后将 100 条列表/1000 字符预算下的错误页数上限改为小型多页夹具并直接断言文本前进、cursor 不重复；未改原生分页规则。主 agent Standards/Spec 自查补齐 record.get 与 source.read 相同的外部预算硬限检查，最终无未解决发现。无前端或原生业务规则变化，复用已有证据。
+
+### R12b4：原生内容的入链与出链 / #106
+
+依赖：真实 ObjectRef 归属、source.read 授权/排除、原生 Record 引用边和现有内部引用 token。`reference.list` 提供 Record/Todo/File/QuickNote 的 incoming/outgoing，返回去重的关联对象与标题，分页默认 20、最多 50 项，默认 4000、最多 12000 字符。Record 读取当前 canonical 引用边（含附件），旧 Record/QuickNote/Todo 及子行动复用原生 token 解析，不把数字 ID 跨表猜测；File 字节内容不被当成原生引用。入链只查实际当前原生内容，知识/Overview 的来源依赖仍走各自知识读取接口。
+
+每次读取先授权被查询对象，再对候选两端执行同一来源访问规则；范围外、归档、排除及撤回对象不返回身份、标题或计数。入链候选在 SQL 中先限定可见 scope/对象并按稳定对象键分页，禁止沿用创建撤回服务扫描整个 Workspace 正文的 helper。只对可能命中 token 的旧正文作原生解析，设置每页候选/正文处理预算；超大旧正文明确返回预算错误，不能静默截断后声称引用完整。没有结果时区分已读完与仍有后续候选。
+
+cursor 绑定对象、方向、当前授权范围及变更水位，排序以对象身份兜底；只携带可见候选的续读位置，不返回隐藏对象的游标身份或总量。数据/范围变更时从首查起；同一短 DB 阶段完成解析/授权/元信息读取，不新增引用数据库、向量索引或后台任务。输入仍为同一 Rust DTO，CLI/MCP 注册只读；CLI 的原生 `reference list --kind ... --id ... --direction ...` 及 JSON 入口复用连接 Workspace 身份。
+
+验收：canonical/旧 token（含 +/前导零 ID）、Workspace/Project 同号 Record、Todo 子行动、附件、自引用去重、入/出方向与分页；隐藏端点不泄露，数据变更 cursor 失效、超预算明确报错。运行原生引用查询/bridge/CLI/MCP 定向和真实 socket 调用，前端无变化复用已有证据。非目标：不解析任意文件或聊天文字中的网址、不新增派生知识导航、不改变原生引用写入和撤销规则。
+
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
 
 依赖：R01～12 的相关行为通过；从 R04 起持续维护验收证据，不在此重做所有测试。
