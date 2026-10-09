@@ -47,14 +47,80 @@ it("loads only metadata and bounded directories after the knowledge menu opens",
   expect(screen.getByText("已处理 3 · 部分 1 · 待处理 2 · 已排除 1 · 不支持 0")).toBeVisible();
 });
 
-it("does not request project-only maintenance or corrections in Workspace knowledge", async () => {
+it("offers Workspace knowledge maintenance, corrections, and separate project status", async () => {
   const workspaceScope: AgentScope = { kind: "workspace" };
+  mocks.overviewMaintenance.mockResolvedValue({ scope: workspaceScope, cancelled: false, errorCode: null, batchId: null,
+    pendingCount: 1, coverage, deletedCount: 0, directoryComplete: false, budgetExhausted: false, nextRunAt: null,
+    foregroundBusy: false, projectStatuses: [
+      { projectId: 7, projectName: "验收项目", overviewRevision: 4, pendingCount: 0, errorCode: null, cancelled: false, directoryComplete: true },
+      { projectId: 9, projectName: "资料项目", overviewRevision: null, pendingCount: 2, errorCode: "TIMED_OUT", cancelled: false, directoryComplete: false },
+    ] });
   panel({ binding, scope: workspaceScope });
   expect(await screen.findByRole("heading", { name: "工作区知识" })).toBeVisible();
-  expect(screen.queryByRole("button", { name: "纠正理解" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "立即整理" })).not.toBeInTheDocument();
-  expect(mocks.overviewMaintenance).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "纠正理解" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "立即整理" })).toBeVisible();
+  expect(mocks.overviewMaintenance).toHaveBeenCalledWith(binding, workspaceScope);
   expect(mocks.overviewCorrectionsGet).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole("button", { name: "项目整理状态 · 2" }));
+  expect(screen.getByText("验收项目 · 概览版本 4 · 待纳入 0")).toBeVisible();
+  expect(screen.getByText("资料项目 · 尚无概览 · 待纳入 2")).toBeVisible();
+  expect(screen.getByText("本次整理超时，已保存的进度保留；可稍后继续整理。")).toBeVisible();
+  expect(screen.getByRole("button", { name: "暂停整理" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "纠正理解" }));
+  expect(await screen.findByText(/独立于工作区速记和记录/)).toBeVisible();
+});
+
+it("shows published parents in Workspace overview and knowledge details without fetching each parent", async () => {
+  const workspaceScope: AgentScope = { kind: "workspace" };
+  const published = { projectId: 9, revision: 4, itemId: "project-profile", digest: "sha256:parent" };
+  mocks.overviewGet.mockImplementation(async (_binding: unknown, input: { scope: AgentScope; sections?: string[]; itemIds?: string[]; cursor?: string | null }) => {
+    if (input.scope.kind === "project") return { scope: input.scope, revision: 4, sections: [],
+      items: [{ item: { id: published.itemId, text: "项目实际定位", sourceRefs: [] }, textOffset: 0, complete: true }], nextCursor: null };
+    return { scope: workspaceScope, revision: 3, sections: [{ section: "profile", count: 1 }],
+      items: input.sections?.length ? [{ item: { id: "workspace-profile", text: input.cursor ? "后续工作方向" : "工作区工作方向", validState: "current",
+        sourceRefs: [], publishedSources: [published], updatedAt: "2026-10-08T08:00:00Z" }, textOffset: input.cursor ? 7 : 0, complete: !!input.cursor }] : [],
+      nextCursor: input.sections?.length && !input.cursor ? "next-profile" : null, coverage };
+  });
+  mocks.knowledgeGet.mockImplementation(async (_binding: unknown, input: KnowledgeGetInput) => ({ scope: workspaceScope,
+    nodeId: card.nodeId, revision: 3, kind: "decision", title: card.title, view: input.view,
+    summary: input.view === "summary" ? "跨项目决策" : null, summaryOffset: 0, sections: [],
+    sourceRefs: [], publishedSources: input.view === "summary" ? [published] : [], related: [], coverage,
+    stale: false, epistemicStatus: "recorded", validState: "current", nextCursor: null }));
+  panel({ binding, scope: workspaceScope });
+  fireEvent.click(await screen.findByRole("button", { name: "工作概况 · 1" }));
+  expect(await screen.findByText("工作区工作方向")).toBeVisible();
+  expect(screen.getByRole("button", { name: "继续读取工作概况" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "项目概览依据 · 版本 4" })).toBeVisible();
+  expect(mocks.overviewGet.mock.calls.filter(([, input]) => input.scope.kind === "project")).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "范围决策" }));
+  expect(await screen.findByText("跨项目决策")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "项目概览依据 · 版本 4" })).toHaveLength(2);
+  expect(mocks.overviewGet.mock.calls.filter(([, input]) => input.scope.kind === "project")).toHaveLength(0);
+  fireEvent.click(screen.getAllByRole("button", { name: "项目概览依据 · 版本 4" })[1]);
+  expect(await screen.findByText("项目实际定位")).toBeVisible();
+  expect(mocks.overviewGet).toHaveBeenLastCalledWith(binding, { scope: { kind: "project", projectId: 9 },
+    version: 4, sections: [], itemIds: ["project-profile"], cursor: null, budgetChars: 2000 });
+});
+
+it("does not show a prior scope's overview after switching Workspace and Project", async () => {
+  const workspaceScope: AgentScope = { kind: "workspace" };
+  mocks.overviewGet.mockImplementation(async (_binding: unknown, input: { scope: AgentScope; sections?: string[] }) => ({
+    scope: input.scope, revision: 3, sections: [{ section: "profile", count: 1 }],
+    items: input.sections?.length ? [{ item: { id: "profile", text: input.scope.kind === "workspace" ? "工作区正文" : "项目正文",
+      validState: "current", sourceRefs: [], updatedAt: "2026-10-08T08:00:00Z" }, textOffset: 0, complete: true }] : [],
+    nextCursor: null, coverage,
+  }));
+  const { client, view } = panel({ binding, scope: workspaceScope });
+  fireEvent.click(await screen.findByRole("button", { name: "工作概况 · 1" }));
+  expect(await screen.findByText("工作区正文")).toBeVisible();
+  view.rerender(<QueryClientProvider client={client}><AgentKnowledgePanel binding={binding} scope={scope} /></QueryClientProvider>);
+  expect(screen.queryByText("工作区正文")).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "项目定位 · 1" }));
+  expect(await screen.findByText("项目正文")).toBeVisible();
+  view.rerender(<QueryClientProvider client={client}><AgentKnowledgePanel binding={binding} scope={workspaceScope} /></QueryClientProvider>);
+  expect(screen.queryByText("项目正文")).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "工作概况 · 1" }));
+  expect(await screen.findByText("工作区正文")).toBeVisible();
 });
 
 it("reads corrections only when expanded, then saves and deletes with the returned revision", async () => {
@@ -120,6 +186,23 @@ it("offers resume after a maintenance error and keeps the actual coverage counts
   fireEvent.click(screen.getByRole("button", { name: "继续整理" }));
   await waitFor(() => expect(mocks.overviewMaintenance).toHaveBeenCalledWith(binding, scope, "resume"));
   expect(screen.queryByRole("button", { name: "暂停整理" })).not.toBeInTheDocument();
+});
+
+it("offers resume for deferred Project inputs while Workspace maintenance remains active", async () => {
+  const workspaceScope: AgentScope = { kind: "workspace" };
+  mocks.overviewMaintenance.mockImplementation(async (_binding: unknown, _scope: unknown, action: string | null) => ({
+    scope: workspaceScope, cancelled: false, errorCode: null, batchId: "batch1", pendingCount: 1,
+    coverage, deletedCount: 0, directoryComplete: false, budgetExhausted: false, nextRunAt: null,
+    foregroundBusy: false, deferredCount: action === "resume" ? 0 : 2,
+    deferredErrorCode: action === "resume" ? null : "SOURCE_NOT_READY",
+  }));
+  panel({ binding, scope: workspaceScope });
+  expect(await screen.findByText("有 2 项项目资料暂时不可用，其他资料继续整理。")).toBeVisible();
+  expect(screen.getByText("请先完成项目资料整理或登记文件新版本，再继续。")).toBeVisible();
+  expect(screen.queryByText("整理遇到问题，等待继续")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "继续整理" }));
+  await waitFor(() => expect(mocks.overviewMaintenance).toHaveBeenCalledWith(binding, workspaceScope, "resume"));
+  expect(await screen.findByText("整理请求已排队，状态会继续更新。")).toBeVisible();
 });
 
 it("shows a recoverable model timeout for knowledge maintenance", async () => {

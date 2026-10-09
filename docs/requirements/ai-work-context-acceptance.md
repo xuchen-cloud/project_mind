@@ -4,7 +4,9 @@
 
 2026-10-09 WP 本地实现进展（非产品签收）：WP2 提交 `26fa27a`，Rust 13、前端 71、TypeScript 与 Host check 通过，真实 Provider 待验。WP3 提交 `561ee0d`，新旧权限 Rust 组、前端 12 项及 TypeScript 通过。WP4 提交 `26cf8d5`，Pi 45/45、普通 Node 16/16、syntax、真实 SDK 加 mock 压缩保存恢复通过；mock 不等于真实外部 Provider。WP5 提交 `55356a9`，当前分支完整短消息合批，历史分支/长消息单来源；已保存多来源 draft 续跑额外生成 0 次，维护 17、生成 7、调度 11、legacy 1 项通过。单次完整 prompt 48k 是工程请求边界，未按模型实际 contextWindow 自适应。WP6 全量 Rust 972 项中 938 passed、0 failed、34 ignored，193.26 秒，日志 `/workspace/project-mind-env/wp6-rust-final.log`（当前执行环境本地日志）；生产前端 build、UI 标准、portable paths、bundle boundaries（主包 194 KiB / 250 KiB 上限）、最终 TypeScript 与 Node 16/16 通过，Pi linux-x64 资源已重新 staging。打包真实 Node 进程 9/9（含 5 个显式运行的 ignored 真实子进程测试）、历史 checkpoint 1/1、打包 SDK profile probe 1/1 均通过；SDK nonce 工具往返及历史读取通过，日志 `/workspace/project-mind-env/wp6-packaged-final.log`（当前执行环境本地日志）。这仍使用 mock Provider，WP6 本地集成完成；主 agent Standards/Spec 自查已完成，核对后续真实用户 turn/原生保存、旧连接授权、Pi 与知识职责及批次原子发布；真实 Provider 和目标桌面平台仍未验收。A 行保留产品验收缺口。
 
-S4 已提交推送 `b402509`。S5 后端 `37c987e`、`b3344f7` 已集成，本轮提交包含前端与四个测试文件的修正；本地实现和定向验证完成，行为与 Rust 分组证据见[交付记录的 S5 段][delivery]。前端六文件 95 项首跑 94 通过、1 超时（WorkspacePage 旧 empty archived 用例），失败项独立重跑通过（另 21 skipped）；受影响 95 项最终均有通过证据，不能称单次 95 项全通过。TypeScript、生产构建、UI 标准、可移植路径及 bundle 边界通过（主入口 195 KiB / 250 KiB），主 agent Standards/Spec 自查通过。当前 S5 代码未运行 987 项 Rust 全量；S4 的浏览器夹具不是 Workspace 真实体验证据，真实 Provider 与目标平台未验收。S6 正在实现，S6 Workspace 增量知识和 S7 长期记忆均未交付。
+S4 已提交推送 `b402509`。S5 后端 `37c987e`、`b3344f7` 已集成，本轮提交包含前端与四个测试文件的修正；本地实现和定向验证完成，行为与 Rust 分组证据见[交付记录的 S5 段][delivery]。前端六文件 95 项首跑 94 通过、1 超时（WorkspacePage 旧 empty archived 用例），失败项独立重跑通过（另 21 skipped）；受影响 95 项最终均有通过证据，不能称单次 95 项全通过。TypeScript、生产构建、UI 标准、可移植路径及 bundle 边界通过（主入口 195 KiB / 250 KiB），主 agent Standards/Spec 自查通过。当前 S5 代码未运行 987 项 Rust 全量；S4 的浏览器夹具不是 Workspace 真实体验证据，真实 Provider 与目标平台未验收。S6 的后续本地进度见下段；S7 长期记忆尚未交付。
+
+S6 本地实现已合入 `3aae8fd`（准备提交 `66df517`、`f37e6e7`、`5ff8c5c`），定向验证完成，产品验收未完成。Project 已发布条目以有类型的派生来源保留项目、概览版本、条目及摘要，Workspace 可展开原始依据；直属 Record/Todo/会话沿原来源路径处理。最新 Workspace fixture 1 项覆盖 A/B/C 可见性、GUI search/get、父纠正后旧版 `NotFound`、模型不可用时已保存 draft 重放且额外模型调用为 0；schema 35→36 升级/备份 1、deferred sibling 1、changed item/digest 2 分别通过。Rust 定向组分别为维护 19、Overview 服务 10、knowledge 服务 5、inventory 7、schedule 15、agent overviews 19、source trace 3、knowledge registry 3、agent knowledge 7；组间重叠，不合计为唯一测试数。UI 两文件最终集中复核 19/19 通过，日志 `/workspace/project-mind-env/s6-ui-final.log`；TypeScript 通过。主 agent 已完成 S6 Standards/Spec 自查，S8 完整收口及实机验收仍待完成。未运行本轮 1001 项 Rust 全量。父删除旧版隐藏目前仅有实现路径；长父小模型分页每页纠正仅有 prompt 单元证据；仅文件名变化零模型调用仅有 digest/queue 证据；一个 Project 与 Workspace 直属资料两输入的完整调用计数尚未专测。A22/A56 保持部分覆盖，真实 Provider 与目标平台验收仍缺。S7 长期记忆及其抑制行为未交付，R15/R16 暂缓。
 
 | 编号 | 批次与状态 | 已有证据入口 | 尚缺执行或条件 |
 | --- | --- | --- | --- |
@@ -29,7 +31,7 @@ S4 已提交推送 `b402509`。S5 后端 `37c987e`、`b3344f7` 已集成，本�
 | A19 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 执行记录][delivery] | macOS/Windows 736/1200/1540、长消息及 reduced-motion 人工交互。 |
 | A20 | M1·待执行 | [CLI 打包提交][cli-bundle-commit]、[安装定向测试][cli-install-tests] | 无 Node/Pi 开发环境的 macOS/Windows 干净安装，含中文/空格路径实测。 |
 | A21 | M2·部分 | [S5 定向证据][delivery]：Workspace 授权子集、项目列表/来源过滤、综合 Record/Todo 归属及操作边界已有本地回归 | 真实模型执行只授权 A/B 的跨项目检索与保存任务，核 C 不泄露及最终来源/归属；目标平台验收。 |
-| A22 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 重复批次及仅文件名变化的模型调用和增量结果。 |
+| A22 | M2·部分 | [S6 本地定向证据][delivery]：changed item/digest、队列和草稿重放有证据 | 仅文件名变化零模型调用尚无直接调用计数；重复批次与真实模型任务仍需完整核验。 |
 | A23 | M3·后续 | 尚无本项执行证据；[R15 计划][delivery] | 实际 Pi CLI/Claude Code 可用设备、版本、账号及 resume 降级。 |
 | A24 | M4·后续 | 尚无本项执行证据；[R16 计划][delivery] | GUI 关闭后独立 Host 写锁、CLI 并发和崩溃恢复。 |
 | A25 | M1·部分 | [Record worker 测试][record-worker-tests]、[Record 编辑测试][record-editor-tests] | 原生安装包中保存/重启/复制/split/merge 全组合及预览隔离。 |
@@ -63,7 +65,7 @@ S4 已提交推送 `b402509`。S5 后端 `37c987e`、`b3344f7` 已集成，本�
 | A53 | M1·部分 | [Overview 维护测试][overview-tests]、[来源测试][source-read-tests] | Todo 完成/File 加入后真实提问，核新旧条目和 delta。 |
 | A54 | M1·部分 | [Overview 维护测试][overview-tests]、[变更队列测试][source-queue-tests] | 维护中新增事件/重启/失败/日志过期的产品进度和水位。 |
 | A55 | M1·部分 | [知识服务测试][knowledge-tests]、[纠正测试][overview-correction-tests] | 停滞 Todo/冲突目标/用户纠正的真实模型处理，不擅改 Todo。 |
-| A56 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | Workspace 增量只消费变更的 Project Overview 和直属 Record。 |
+| A56 | M2·部分 | [S6 本地定向证据][delivery]：已发布条目与直属来源、版本/原始依据、schema 升级、延期 sibling 及 A/B/C fixture 已验证 | 一个 Project 加 Workspace 直属资料两输入的完整调用计数、父删除旧版隐藏与长父分页纠正仍缺完整场景；真实模型和目标平台验收。 |
 | A57 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 项目归档、明确偏好、兴趣笔记与随口提问的长期记忆边界。 |
 | A58 | M2·后续 | 尚无本项执行证据；[R14 计划][delivery] | 排除、部分授权与停用记忆后派生链过滤及不复生。 |
 | A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests] | [G2 本地设置](ai-work-context-delivery.md#intent-audit-20261009)：首次启用记录本机 IANA 时区，保留旧显式值，提供频率/时间/时区入口并测非 UTC、DST、重开；再验证真实 24h/48h、离线、密钥锁定和前台抢占，不以测试时钟充当夜间运行。 |

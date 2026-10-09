@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AgentScope, AgentSessionMessageRef, AgentSourceCoverage, AgentSourceRef, AgentWorkspaceBinding, AiOverviewItem, KnowledgeGetPage, KnowledgeSearchCard, OverviewCorrections, SessionSummarySegment, SessionSummaryStatement } from "../../lib/agent-types";
+import type { AgentErrorCode, AgentScope, AgentSessionMessageRef, AgentSourceCoverage, AgentSourceRef, AgentWorkspaceBinding, AiOverviewItem, KnowledgeGetPage, KnowledgeSearchCard, OverviewCorrections, SessionSummarySegment, SessionSummaryStatement } from "../../lib/agent-types";
 import { agentQueryKeys } from "../../lib/agent-query-keys";
 import { formatDateTime } from "../../lib/formatters";
 import { getErrorMessage } from "../../lib/errors";
@@ -8,6 +8,7 @@ import { agentApi } from "../../services/agentApi";
 import { Button, DisclosurePresence, EmptyState, SectionHeader, StatusBadge, SurfaceCard } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { AgentSourceCard } from "./AgentSourceCard";
+import { AgentPublishedSource } from "./AgentPublishedSource";
 
 export interface AgentKnowledgePanelProps { binding: AgentWorkspaceBinding; scope: AgentScope; open?: boolean }
 const sections: Record<AiOverviewItem["section"], string> = { profile: "项目定位", progress: "进展", knowledgeMap: "知识线索", actions: "行动", openQuestions: "待确认问题" };
@@ -16,6 +17,13 @@ const validStates = { current: "当前依据", stale: "依据已变化", dispute
 const queryOptions = { retry: false, refetchOnWindowFocus: false } as const;
 const statementLabels = { user_plan: "用户计划", user_decision: "用户决定", ai_suggestion: "助手建议",
   completed_operation: "已执行操作", user_reported_completion: "用户报告已完成" } as const;
+function maintenanceIssue(code: AgentErrorCode): string {
+  return code === "PROFILE_UNAVAILABLE" ? "请先配置可用模型。"
+    : code === "SECRETS_LOCKED" ? "请先解锁模型密钥。"
+    : code === "TIMED_OUT" ? "本次整理超时，已保存的进度保留；可稍后继续整理。"
+    : code === "SOURCE_NOT_READY" || code === "FILE_CHANGED_UNREGISTERED" ? "请先完成项目资料整理或登记文件新版本，再继续。"
+    : "本批整理遇到问题，可检查配置后继续。";
+}
 
 function discussionSource(ref: AgentSessionMessageRef): AgentSourceRef {
   return { object: { workspaceId: ref.workspaceId, scope: ref.scope, kind: "session_message", id: ref.messageId },
@@ -69,7 +77,7 @@ function Coverage({ value }: { value: AgentSourceCoverage | null | undefined }) 
     : <p className="text-caption text-text-muted">尚无覆盖统计</p>;
 }
 function Failure({ error }: { error: unknown }) {
-  return error ? <p role="alert" className="text-body text-danger">{getErrorMessage(error, "读取项目知识失败")}</p> : null;
+  return error ? <p role="alert" className="text-body text-danger">{getErrorMessage(error, "读取知识失败")}</p> : null;
 }
 
 function KnowledgeContents({ binding, scope }: Omit<AgentKnowledgePanelProps, "open">) {
@@ -111,12 +119,10 @@ function KnowledgeContents({ binding, scope }: Omit<AgentKnowledgePanelProps, "o
       </> : <p className="text-caption text-text-muted">当前没有资料处理批次。</p>}
       <Failure error={progress.error || control.error} />
     </SurfaceCard>
-    {scope.kind === "project" && <>
-      <OverviewMaintenance binding={binding} scope={scope} />
-      <OverviewCorrectionsPanel binding={binding} scope={scope} />
-    </>}
+    <OverviewMaintenance binding={binding} scope={scope} />
+    <OverviewCorrectionsPanel binding={binding} scope={scope} />
     <div className="max-h-[32rem] [&_.home-side__list]:max-h-[32rem]">
-      <HomeSidebarList label="项目知识内容">
+      <HomeSidebarList label="知识内容">
         <div className="space-y-3" data-disclosure-list>
           {overview.isLoading || directory.isLoading ? <p className="text-body text-text-muted">正在读取知识目录…</p> : null}
           {overview.data?.sections.filter(section => section.count > 0).map(section => <OverviewSection key={section.section}
@@ -137,6 +143,8 @@ function OverviewMaintenance({ binding, scope }: { binding: AgentWorkspaceBindin
   const base = agentQueryKeys.scope(binding, scope);
   const key = [...base, "overview-maintenance"];
   const [notice, setNotice] = useState("");
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const projectsTrigger = useRef<HTMLButtonElement>(null);
   const status = useQuery({ queryKey: key, queryFn: () => agentApi.overviewMaintenance(binding, scope), refetchInterval: 5000, ...queryOptions });
   const control = useMutation({ mutationFn: (action: "refresh" | "cancel" | "resume") => agentApi.overviewMaintenance(binding, scope, action),
     onSuccess: (value, action) => {
@@ -145,11 +153,8 @@ function OverviewMaintenance({ binding, scope }: { binding: AgentWorkspaceBindin
       void client.invalidateQueries({ queryKey: base });
     } });
   const value = status.data;
-  const issue = value?.errorCode === "PROFILE_UNAVAILABLE" ? "请先配置可用模型。"
-    : value?.errorCode === "SECRETS_LOCKED" ? "请先解锁模型密钥。"
-    : value?.errorCode === "TIMED_OUT" ? "本次整理超时，已保存的进度保留；可稍后继续整理。"
-    : value?.errorCode ? "本批整理遇到问题，可检查配置后继续。" : null;
-  const canResume = !!(value?.cancelled || value?.budgetExhausted || value?.errorCode);
+  const issue = value?.errorCode ? maintenanceIssue(value.errorCode) : null;
+  const canResume = !!(value?.cancelled || value?.budgetExhausted || value?.errorCode || value?.deferredCount);
   return <SurfaceCard className="space-y-2 p-3" aria-label="整理知识">
     <h3 className="text-ui font-medium text-text">整理知识</h3>
     <p className="text-caption text-text-muted">根据已处理资料更新知识目录；与上方资料提取分开进行。</p>
@@ -159,6 +164,25 @@ function OverviewMaintenance({ binding, scope }: { binding: AgentWorkspaceBindin
       <p className="text-caption text-text-muted">{value.cancelled ? "已暂停" : value.errorCode ? "整理遇到问题，等待继续" : value.foregroundBusy ? "正在等待当前助手任务" : value.budgetExhausted ? "本批整理额度已用完" : value.pendingCount ? "正在等待或处理变化" : "暂无待纳入变化"}</p>
       {value.nextRunAt && !value.cancelled && <p className="text-caption text-text-muted">下次尝试：{formatDateTime(value.nextRunAt)}</p>}
       {issue && <p role="alert" className="text-caption text-danger">{issue}</p>}
+      {scope.kind === "workspace" && !!value.deferredCount && <div className="space-y-1 text-caption text-text-muted">
+        <p>有 {value.deferredCount} 项项目资料暂时不可用，其他资料继续整理。</p>
+        {value.deferredErrorCode && <p>{maintenanceIssue(value.deferredErrorCode)}</p>}
+      </div>}
+      {scope.kind === "workspace" && !!value.projectStatuses?.length && <div>
+        <button ref={projectsTrigger} type="button" className="text-left text-caption text-text-muted" aria-expanded={projectsExpanded}
+          onClick={() => setProjectsExpanded(current => !current)}>项目整理状态 · {value.projectStatuses.length}</button>
+        <DisclosurePresence open={projectsExpanded} triggerRef={projectsTrigger} className="mt-2">
+          <div className="max-h-48 [&_.home-side__list]:max-h-48"><HomeSidebarList label="项目整理状态">
+            <div className="space-y-2" data-disclosure-list>
+              {value.projectStatuses.map(project => <div key={project.projectId} className="text-caption text-text-muted">
+                <p>{project.projectName} · {project.overviewRevision == null ? "尚无概览" : `概览版本 ${project.overviewRevision}`} · 待纳入 {project.pendingCount}</p>
+                <p>{project.cancelled ? "已暂停" : project.errorCode ? "整理遇到问题" : project.directoryComplete ? "目录已完成" : "目录未完成"}</p>
+                {project.errorCode && <p role="alert" className="text-danger">{maintenanceIssue(project.errorCode)}</p>}
+              </div>)}
+            </div>
+          </HomeSidebarList></div>
+        </DisclosurePresence>
+      </div>}
     </> : <p className="text-caption text-text-muted">当前没有知识整理批次。</p>}
     <div className="flex flex-wrap gap-2">
       <Button size="sm" variant="ghost" disabled={control.isPending || status.isLoading} onClick={() => control.mutate("refresh")}>立即整理</Button>
@@ -195,7 +219,7 @@ function OverviewCorrectionsPanel({ binding, scope }: { binding: AgentWorkspaceB
   return <SurfaceCard className="p-3">
     <button ref={trigger} type="button" className="w-full text-left text-ui font-medium text-text" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>纠正理解</button>
     <DisclosurePresence open={expanded} triggerRef={trigger} className="mt-3 space-y-3">
-      <p className="text-caption text-text-muted">这里记录你对助手理解的纠正，独立于项目速记和记录；不会改写原文。</p>
+      <p className="text-caption text-text-muted">这里记录你对助手理解的纠正，独立于{scope.kind === "project" ? "项目速记" : "工作区速记"}和记录；不会改写原文。</p>
       {corrections.isLoading && <p className="text-caption text-text-muted">正在读取纠正…</p>}
       <Failure error={corrections.error || save.error || remove.error} />
       {corrections.error || save.error || remove.error ? <Button size="sm" variant="ghost" onClick={() => void corrections.refetch()}>刷新纠正版本</Button> : null}
@@ -234,7 +258,7 @@ function OverviewSection({ binding, scope, section, count, revision }: { binding
     getNextPageParam: page => page.nextCursor ?? undefined, ...queryOptions });
   return <SurfaceCard className="p-3">
     <button ref={trigger} type="button" className="w-full text-left text-ui font-medium text-text" aria-expanded={expanded}
-      onClick={() => setExpanded(value => !value)}>{sections[section]} · {count}</button>
+      onClick={() => setExpanded(value => !value)}>{scope.kind === "workspace" && section === "profile" ? "工作概况" : sections[section]} · {count}</button>
     <DisclosurePresence open={expanded} triggerRef={trigger} className="mt-3 space-y-3">
       {query.isLoading && <p className="text-caption text-text-muted">正在读取…</p>}
       <Failure error={query.error} />
@@ -244,8 +268,9 @@ function OverviewSection({ binding, scope, section, count, revision }: { binding
         {!complete && <p className="text-caption text-text-muted">当前显示有界片段，可继续读取。</p>}
         <p className="text-caption text-text-muted">更新于 {formatDateTime(item.updatedAt)}</p>
         {item.sourceRefs.map((source, index) => <AgentSourceCard key={`${source.object.id}:${index}`} source={source} binding={binding} />)}
+        {item.publishedSources?.map(source => <AgentPublishedSource key={`${source.projectId}:${source.revision}:${source.itemId}:${source.digest}`} binding={binding} source={source} />)}
       </div>)}
-      {query.hasNextPage && <Button size="sm" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>继续读取{sections[section]}</Button>}
+      {query.hasNextPage && <Button size="sm" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>继续读取{scope.kind === "workspace" && section === "profile" ? "工作概况" : sections[section]}</Button>}
     </DisclosurePresence>
   </SurfaceCard>;
 }
@@ -273,6 +298,8 @@ function KnowledgeNode({ binding, scope, card }: { binding: AgentWorkspaceBindin
   const sessionSummary = metadata && { ...metadata, statements: [...numberedStatements].sort(([a], [b]) => a - b).map(([, statement]) => statement) };
   const summarySources = [...new Map(pages.flatMap(page => page.sourceRefs).map(source =>
     [JSON.stringify([source.object, source.revision, source.locator]), source] as const)).values()];
+  const publishedSources = [...new Map(pages.flatMap(page => page.publishedSources ?? []).map(source =>
+    [JSON.stringify([source.projectId, source.revision, source.itemId, source.digest]), source] as const)).values()];
   return <SurfaceCard className="p-3" data-disclosure-list>
     <button ref={trigger} type="button" className="w-full text-left text-ui font-medium text-text" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{card.title}</button>
     {card.stale && <StatusBadge tone="warning">依据已变化</StatusBadge>}
@@ -285,6 +312,7 @@ function KnowledgeNode({ binding, scope, card }: { binding: AgentWorkspaceBindin
         {sessionSummary && <DiscussionSummary segment={sessionSummary} binding={binding} />}
         <Coverage value={pages[0].coverage} />
         {summarySources.map((source, sourceIndex) => <AgentSourceCard key={sourceIndex} source={source} binding={binding} />)}
+        {publishedSources.map(source => <AgentPublishedSource key={`${source.projectId}:${source.revision}:${source.itemId}:${source.digest}`} binding={binding} source={source} />)}
       </div>}
       {summary.hasNextPage && <Button size="sm" disabled={summary.isFetchingNextPage} onClick={() => void summary.fetchNextPage()}>更多摘要</Button>}
       {outline.data?.pages.flatMap(page => page.sections).map(section => <KnowledgeSection key={section.id} binding={binding} scope={scope} card={card} id={section.id} title={section.title} />)}

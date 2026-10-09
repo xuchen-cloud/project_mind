@@ -101,9 +101,16 @@ export interface AiOverviewItem {
   text: string;
   epistemicStatus: "recorded" | "user_confirmed" | "inferred" | "unknown";
   sourceRefs: AgentSourceRef[];
+  publishedSources?: AgentPublishedSource[];
   dependencyItemIds: string[];
   validState: "current" | "stale" | "disputed" | "unsupported";
   updatedAt: string;
+}
+export interface AgentPublishedSource {
+  projectId: number;
+  revision: number;
+  itemId: string;
+  digest: string;
 }
 /** Omitted selections default to empty arrays, yielding a body-free directory. */
 export interface OverviewReadInput {
@@ -151,6 +158,9 @@ export interface OverviewMaintenanceView {
   scope: AgentScope; cancelled: boolean; errorCode: AgentErrorCode | null; batchId: string | null;
   pendingCount: number; coverage: AgentSourceCoverage; deletedCount: number;
   directoryComplete: boolean; budgetExhausted: boolean; nextRunAt: string | null; foregroundBusy: boolean;
+  deferredCount?: number; deferredErrorCode?: AgentErrorCode | null;
+  projectStatuses?: Array<{ projectId: number; projectName: string; overviewRevision: number | null; pendingCount: number;
+    errorCode: AgentErrorCode | null; cancelled: boolean; directoryComplete: boolean }>;
 }
 /** Separate from ProjectRecord.quickNote* and the ProjectOverviewPage component. */
 export interface AgentSourceCoverage {
@@ -230,6 +240,7 @@ export interface KnowledgeGetPage {
   summaryOffset: number;
   sections: KnowledgeReadSection[];
   sourceRefs: AgentSourceRef[];
+  publishedSources?: AgentPublishedSource[];
   sessionSummary?: SessionSummarySegment | null;
   related: KnowledgeRelatedCard[];
   coverage: AgentSourceCoverage;
