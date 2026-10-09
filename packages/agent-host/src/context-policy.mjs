@@ -47,6 +47,7 @@ export function installContextPolicy(session, manager, historyPolicy) {
   const original = agent.transformContext?.bind(agent);
   let sequence = 0;
   let history = new Map();
+  let historicalBranchIds = new Set();
   let current = new Set();
   let currentFingerprints = new Set();
   const unsubscribe = session.subscribe((event) => {
@@ -54,6 +55,11 @@ export function installContextPolicy(session, manager, historyPolicy) {
   });
 
   function beginRun() {
+    // A compaction summary may contain anything from the earlier branch, even
+    // entries Pi no longer projects into its active model context.
+    historicalBranchIds = new Set(manager.getBranch().filter((entry) => entry.type === 'message'
+      && ['user', 'assistant', 'toolResult'].includes(entry.message.role))
+      .map((entry) => entry.id));
     const projected = manager.buildSessionProjection().entries.flatMap(({ sourceEntry, messages }) =>
       messages.map((message) => ({ sourceEntry, fingerprint: fingerprint(message) })));
     const buckets = new Map();
@@ -75,10 +81,13 @@ export function installContextPolicy(session, manager, historyPolicy) {
     if ([...buckets.values()].some((bucket) => bucket.length)) throw incompatible();
   }
 
-  function select(messages, allowed) {
+  function select(messages, allowed, summaryAllowed) {
     const filtered = [];
     const live = new Set(agent.state.messages);
     const historicalFingerprints = new Map();
+    const summaryFingerprints = new Set(manager.buildSessionProjection().entries
+      .filter(({ sourceEntry }) => sourceEntry.type === 'compaction')
+      .flatMap(({ messages: projected }) => projected.map(fingerprint)));
     for (const [message, source] of history) {
       const key = fingerprint(message);
       const sources = historicalFingerprints.get(key) ?? [];
@@ -86,10 +95,15 @@ export function installContextPolicy(session, manager, historyPolicy) {
       historicalFingerprints.set(key, sources);
     }
     for (const message of messages) {
+      if (summaryFingerprints.has(fingerprint(message))) {
+        if (summaryAllowed) filtered.push(message);
+        continue;
+      }
       const source = history.has(message) ? history.get(message)
         : historicalFingerprints.get(fingerprint(message))?.shift();
       if (history.has(message) || source !== undefined) {
-        if (source === null || (source.type === 'message' && allowed.has(source.id))) filtered.push(message);
+        if (source === null || (source.type === 'message' && allowed.has(source.id))
+          || (source.type === 'compaction' && summaryAllowed)) filtered.push(message);
       } else if (currentFingerprints.has(fingerprint(message))) {
         filtered.push(message);
       } else if (current.has(message) || (live.has(message) && !history.has(message))) {
@@ -107,17 +121,37 @@ export function installContextPolicy(session, manager, historyPolicy) {
   }
 
   agent.transformContext = async (messages, signal) => {
+    const hasSummary = manager.buildSessionProjection().entries.some(({ sourceEntry, messages: projected }) =>
+      sourceEntry.type === 'compaction' && projected.length > 0);
     const entryIds = [...new Set([...history.values()]
       .filter((source) => source?.type === 'message').map((source) => source.id))];
+    if (hasSummary) for (const id of historicalBranchIds) if (!entryIds.includes(id)) entryIds.push(id);
     const result = await historyPolicy({ method: 'session.context.check',
       toolCallId: `context-check-${++sequence}`, payload: { entryIds }, signal });
     if (!result || !Array.isArray(result.allowedEntryIds)
       || !result.allowedEntryIds.every((id) => typeof id === 'string')) throw incompatible();
     const allowed = new Set(result.allowedEntryIds);
-    const selected = select(messages, allowed);
+    // Branch summaries may carry content from another branch. We do not
+    // generate them, and their full provenance cannot be checked here.
+    const summaryAllowed = hasSummary && !manager.getBranch().some((entry) => entry.type === 'branch_summary')
+      && [...historicalBranchIds].every((id) => allowed.has(id));
+    const selected = select(messages, allowed, summaryAllowed);
     const transformed = original ? await original(selected, signal) : selected;
     // A context hook must not reintroduce old or unidentifiable material.
-    return pairToolMessages(select(transformed, allowed));
+    return pairToolMessages(select(transformed, allowed, summaryAllowed));
   };
-  return { beginRun, dispose: unsubscribe };
+  return { beginRun, dispose: unsubscribe,
+    async beforeCompact(event) {
+      if (event.branchEntries.some((entry) => entry.type === 'branch_summary')) return { cancel: true };
+      const entryIds = event.branchEntries.filter((entry) => entry.type === 'message'
+        && historicalBranchIds.has(entry.id)).map((entry) => entry.id);
+      try {
+        const result = await historyPolicy({ method: 'session.context.check',
+          toolCallId: `context-check-${++sequence}`, payload: { entryIds }, signal: event.signal });
+        if (!result || !Array.isArray(result.allowedEntryIds)
+          || !result.allowedEntryIds.every((id) => typeof id === 'string')) return { cancel: true };
+        const allowed = new Set(result.allowedEntryIds);
+        if (entryIds.some((id) => !allowed.has(id))) return { cancel: true };
+      } catch { return { cancel: true }; }
+    } };
 }

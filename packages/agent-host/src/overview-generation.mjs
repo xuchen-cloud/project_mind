@@ -36,7 +36,7 @@ export function createOverviewGeneration({ workspaceRoot, makeSession = createPi
           if (value.type === 'message_end' && value.message?.role === 'assistant') job.assistant = value.message;
         };
         job.session = await makeSession({ workspaceRoot, sessionId: randomBytes(16).toString('hex'),
-          ...mapped, apiKey: credential, tools: [], systemPrompt,
+          ...mapped, apiKey: credential, tools: [], systemPrompt, compactionEnabled: false,
           dispatchTool: () => Promise.reject(error('SCOPE_DENIED')), onEvent });
         credential = undefined;
         if (job.session.activeTools().length) throw error('RUNTIME_INCOMPATIBLE');

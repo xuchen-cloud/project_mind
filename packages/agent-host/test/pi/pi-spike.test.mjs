@@ -22,12 +22,14 @@ async function fixture(handler) {
     close: async () => { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); } };
 }
 
-function sse(response, delta, finishReason) {
+function sse(response, delta, finishReason, usage) {
   response.writeHead(200, { 'content-type': 'text/event-stream' });
   response.write(`data: ${JSON.stringify({ id: 'probe', object: 'chat.completion.chunk',
     created: 1, model: 'fixture', choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
   response.write(`data: ${JSON.stringify({ id: 'probe', object: 'chat.completion.chunk',
     created: 1, model: 'fixture', choices: [{ index: 0, delta: {}, finish_reason: finishReason }] })}\n\n`);
+  if (usage) response.write(`data: ${JSON.stringify({ id: 'probe', object: 'chat.completion.chunk',
+    created: 1, model: 'fixture', choices: [], usage })}\n\n`);
   response.end('data: [DONE]\n\n');
 }
 
@@ -217,13 +219,108 @@ test('compacted history check lists only messages still loaded for context', { t
       return { allowedEntryIds: [retainedId] };
     } });
     const result = await session.prompt('New prompt');
-    assert.deepEqual(checks.map((call) => call.payload.entryIds), [[retainedId]], result.jsonl.slice(checkpoint.jsonl.length));
+    assert.deepEqual(new Set(checks[0].payload.entryIds),
+      new Set(entries.filter((entry) => entry.type === 'message'
+        && ['user', 'assistant', 'toolResult'].includes(entry.message.role)).map((entry) => entry.id)),
+      result.jsonl.slice(checkpoint.jsonl.length));
     assert.equal(provider.requests.length, 2, result.jsonl.slice(checkpoint.jsonl.length));
     const context = JSON.stringify(provider.requests[1].messages);
     assert.ok(context.includes('Old retained answer'));
     assert.ok(context.includes('New prompt'));
     assert.ok(!context.includes('Old compacted user'));
     assert.ok(!context.includes('SYNTHETIC COMPACTION SUMMARY'));
+  } finally {
+    await session?.dispose();
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('restored Pi compaction summary is sent only while all source messages remain visible', { timeout: 10000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mind-pi-summary-policy-'));
+  const provider = await fixture((_request, response) => sse(response, { role: 'assistant', content: 'Answer' }, 'stop'));
+  const options = { workspaceRoot: root, sessionId: '6'.repeat(32), baseUrl: provider.baseUrl,
+    modelId: 'fixture', apiKey: 'fixture-secret', dispatchTool: async () => ({}) };
+  let session;
+  try {
+    session = await createPiSession(options);
+    const saved = await session.prompt('Earlier source material');
+    await session.dispose();
+    const entries = decodeSession(saved.jsonl, root, options.sessionId, saved.checksum);
+    const ids = entries.filter((entry) => entry.type === 'message').map((entry) => entry.id);
+    const compactionId = 'test-summary';
+    entries.push({ type: 'compaction', id: compactionId, parentId: saved.leafId,
+      timestamp: new Date().toISOString(), summary: 'VISIBLE ONLY WHILE SOURCES AUTHORIZED',
+      firstKeptEntryId: ids.at(-1), tokensBefore: 100 });
+    const checkpoint = { ...encodeSession(entries, root), leafId: compactionId };
+    let visible = true;
+    session = await createPiSession({ ...options, checkpoint,
+      historyPolicy: async ({ payload }) => ({ allowedEntryIds: visible ? payload.entryIds : [] }) });
+    await session.prompt('Continue');
+    assert.ok(JSON.stringify(provider.requests.at(-1).messages).includes('VISIBLE ONLY WHILE SOURCES AUTHORIZED'));
+    visible = false;
+    await session.prompt('Continue after source exclusion');
+    assert.ok(!JSON.stringify(provider.requests.at(-1).messages).includes('VISIBLE ONLY WHILE SOURCES AUTHORIZED'));
+  } finally {
+    await session?.dispose();
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Pi cancels native compaction when historical source permission has shrunk', { timeout: 15000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mind-pi-compact-denied-'));
+  const provider = await fixture((_request, response) => sse(response,
+    { role: 'assistant', content: 'Ordinary answer' }, 'stop',
+    { prompt_tokens: 30000, completion_tokens: 10, total_tokens: 30010 }));
+  const options = { workspaceRoot: root, sessionId: '8'.repeat(32), baseUrl: provider.baseUrl,
+    modelId: 'fixture', apiKey: 'fixture-secret', contextWindow: 2048, maxTokens: 256,
+    dispatchTool: async () => ({}) };
+  let session;
+  try {
+    session = await createPiSession(options);
+    const saved = await session.prompt(`Earlier excluded content ${'secret '.repeat(2000)}`);
+    await session.dispose();
+    const events = [];
+    session = await createPiSession({ ...options, checkpoint: saved,
+      historyPolicy: async () => ({ allowedEntryIds: [] }), onEvent: (event) => events.push(event) });
+    const result = await session.prompt(`New long content ${'current '.repeat(2000)}`);
+    assert.equal(provider.requests.length, 2, 'Denied history must never reach summarization provider call');
+    assert.ok(!result.jsonl.slice(saved.jsonl.length).includes('"type":"compaction"'));
+    assert.ok(events.some((event) => event.type === 'compaction_end' && event.aborted));
+  } finally {
+    await session?.dispose();
+    await provider.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Pi native auto-compaction persists its summary and resumes from the checkpoint', { timeout: 15000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mind-pi-native-compact-'));
+  const provider = await fixture((request, response) => {
+    const text = JSON.stringify(request.messages);
+    sse(response, { role: 'assistant', content: text.includes('Create a concise checkpoint')
+      || text.includes('conversation summary') ? 'NATIVE SUMMARY MARKER' : 'Ordinary answer' }, 'stop',
+    { prompt_tokens: 30000, completion_tokens: 10, total_tokens: 30010 });
+  });
+  const events = [];
+  const options = { workspaceRoot: root, sessionId: '7'.repeat(32), baseUrl: provider.baseUrl,
+    modelId: 'fixture', apiKey: 'fixture-secret', contextWindow: 2048, maxTokens: 256,
+    dispatchTool: async () => ({}), onEvent: (event) => events.push(event),
+    historyPolicy: async ({ payload }) => ({ allowedEntryIds: payload.entryIds }) };
+  let session;
+  try {
+    session = await createPiSession(options);
+    await session.prompt(`First history ${'alpha '.repeat(2000)}`);
+    const saved = await session.prompt(`Second history ${'beta '.repeat(2000)}`);
+    const entries = decodeSession(saved.jsonl, root, options.sessionId, saved.checksum);
+    const compacted = entries.filter((entry) => entry.type === 'compaction');
+    assert.ok(compacted.length > 0, `No native compaction: ${provider.requests.length} provider requests; ${JSON.stringify(events.filter((e) => e.type.includes('compaction')).map((e) => [e.type, e.errorMessage]))}`);
+    assert.ok(compacted.at(-1).summary);
+    await session.dispose();
+    session = await createPiSession({ ...options, checkpoint: saved });
+    await session.prompt('Continue after native compaction');
+    assert.ok(JSON.stringify(provider.requests.at(-1).messages).includes(compacted.at(-1).summary));
   } finally {
     await session?.dispose();
     await provider.close();

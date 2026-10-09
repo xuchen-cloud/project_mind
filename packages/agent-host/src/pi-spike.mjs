@@ -28,7 +28,7 @@ function memoryCredentials(providerId, apiKey) {
   };
 }
 
-function restrictedResources(systemPrompt, createExtensionRuntime) {
+function restrictedResources(systemPrompt, createExtensionRuntime, beforeCompact) {
   // ResourceLoader is a public SDK interface. Construct only our owned loaded
   // extension; do not call DefaultResourceLoader, which resolves local packages
   // even when its noExtensions/noSkills switches are set.
@@ -36,7 +36,7 @@ function restrictedResources(systemPrompt, createExtensionRuntime) {
   const ownedExtension = {
     path: extensionPath, resolvedPath: extensionPath,
     sourceInfo: { path: extensionPath, source: 'inline', scope: 'temporary', origin: 'top-level' },
-    handlers: new Map([['before_agent_start', [(event) => {
+    handlers: new Map([['session_before_compact', [async (event) => beforeCompact?.(event)]], ['before_agent_start', [(event) => {
       event.systemPromptOptions.cwd = 'workspace:.';
     }]], ['message_end', [(event) => {
       // Provider diagnostics may echo authorization headers. Preserve the SDK
@@ -67,7 +67,8 @@ function restrictedResources(systemPrompt, createExtensionRuntime) {
 
 export async function createPiSession({ workspaceRoot, sessionId, baseUrl, modelId, apiKey,
   dispatchTool, checkpoint, tools: descriptors = [], systemPrompt = DEFAULT_SYSTEM_PROMPT,
-  maxTokens = 4096, contextWindow = 32768, onEvent = () => {}, historyPolicy }) {
+  maxTokens = 4096, contextWindow = 32768, onEvent = () => {}, historyPolicy,
+  compactionEnabled = true }) {
   const { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager }
     = await import('@earendil-works/pi-coding-agent');
   const providerId = 'project-mind-compatible';
@@ -96,7 +97,9 @@ export async function createPiSession({ workspaceRoot, sessionId, baseUrl, model
       else if (typeof checkpoint.leafId === 'string' && manager.getEntry(checkpoint.leafId)) manager.branch(checkpoint.leafId);
       else throw Object.assign(new Error('Session checkpoint leaf is missing'), { code: 'RUNTIME_INCOMPATIBLE' });
     }
-    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, cacheWarming: 'off',
+    const settings = SettingsManager.inMemory({ compaction: { enabled: compactionEnabled,
+      reserveTokens: Math.min(16384, Math.floor(contextWindow / 4)),
+      keepRecentTokens: Math.min(20000, Math.floor(contextWindow / 2)) }, cacheWarming: 'off',
       retry: { enabled: false, maxRetries: 0, provider: { maxRetries: 0 } } });
     const tools = descriptors.map(({ name, method, description, parameters }) => ({
       name, label: method, description, parameters,
@@ -105,12 +108,14 @@ export async function createPiSession({ workspaceRoot, sessionId, baseUrl, model
         return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
       },
     }));
+    let contextPolicy;
     const { session } = await createAgentSession({ cwd: workspaceRoot,
       agentDir: workspaceRoot, modelRuntime: runtime, model,
       thinkingLevel: 'off', sessionManager: manager, settingsManager: settings,
-      resourceLoader: restrictedResources(systemPrompt, createExtensionRuntime), noTools: 'builtin', tools: descriptors.map((tool) => tool.name), customTools: tools });
+      resourceLoader: restrictedResources(systemPrompt, createExtensionRuntime,
+        (event) => contextPolicy?.beforeCompact(event)), noTools: 'builtin', tools: descriptors.map((tool) => tool.name), customTools: tools });
     disposableSession = session;
-    const contextPolicy = historyPolicy ? installContextPolicy(session, manager, historyPolicy) : undefined;
+    contextPolicy = historyPolicy ? installContextPolicy(session, manager, historyPolicy) : undefined;
     // A restored transcript can declare old tools. Reapply the allowlist explicitly.
     session.setActiveToolsByName(descriptors.map((tool) => tool.name));
     const unsubscribe = session.subscribe(onEvent);
