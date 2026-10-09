@@ -5,7 +5,6 @@ use crate::{
         access::{Caller, RequestContext, ScopeGrant},
         errors::{AgentResult, ApiResponse, ErrorCode},
         models::{Scope, WorkspaceBinding},
-        settings::SettingsRepository,
     },
     db::source_maintenance::{MaintenanceAction, MaintenanceProgress},
     source_service::{BoundSourceStore, SourceIndexBudget, SourceService, SourceUtility},
@@ -80,22 +79,10 @@ pub(crate) async fn step<
     record: &R,
     file: &F,
 ) -> AgentResult<bool> {
-    let selected =
-        store.with_current(
-            |binding, db| match db.source_maintenance_selected(binding)? {
-                Some(scope)
-                    if db.agent_settings_get(&scope)?.enabled
-                        && db.source_maintenance_has_work(
-                            binding,
-                            &scope,
-                            chrono::Utc::now(),
-                        )? =>
-                {
-                    Ok(Some((binding.clone(), scope)))
-                }
-                _ => Ok(None),
-            },
-        )?;
+    let selected = store.with_current(|binding, db| {
+        Ok(db.source_maintenance_next(binding, chrono::Utc::now())?
+            .map(|scope| (binding.clone(), scope)))
+    })?;
     let Some((binding, scope)) = selected else {
         return Ok(false);
     };
@@ -222,9 +209,9 @@ pub(crate) fn start(app: &tauri::AppHandle) {
 mod tests {
     use super::*;
     use crate::{
-        agent::settings::{AgentScopeSettings, SettingsUpdate},
+        agent::settings::{AgentScopeSettings, SettingsRepository, SettingsUpdate},
         db::Database,
-        models::{TodoCreateInput, TodoScope},
+        models::{ProjectCreateInput, TodoCreateInput, TodoScope},
         source_service::SourceSearchInput,
     };
     use serde_json::Value;
@@ -268,6 +255,16 @@ mod tests {
             tag_ids: vec![],
         })
         .unwrap();
+    }
+    fn add_project_todo(db: &mut Database, project_id: i64, content: &str) {
+        db.todo_create(TodoCreateInput {
+            scope: TodoScope::Project,
+            project_id: Some(project_id),
+            content: content.into(),
+            priority: "not_urgent_important".into(),
+            due_date: None,
+            tag_ids: vec![],
+        }).unwrap();
     }
     fn set_enabled(db: &Database, enabled: bool, request_id: &str) {
         let mut settings = db.agent_settings_get(&Scope::Workspace).unwrap();
@@ -397,5 +394,70 @@ mod tests {
             .unwrap();
         assert!(progress(&store, &request).cancelled);
         assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+    }
+    #[tokio::test]
+    async fn workspace_enable_indexes_direct_and_unenabled_project_without_page_activation() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("maintenance.sqlite"), root.path(), None).unwrap();
+        db.bind_native_workspace("w").unwrap();
+        let project_id = db.project_create(ProjectCreateInput { name: "Project".into(), summary: None, status: None }).unwrap().id;
+        let project = Scope::Project { project_id };
+        add_todo(&mut db, "Direct alpha");
+        add_project_todo(&mut db, project_id, "Project beta");
+        let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g1".into() };
+        let store = Store { db: Mutex::new(db), binding: binding.clone() };
+        set_enabled(&store.db.lock().unwrap(), true, "enable");
+        assert!(!store.db.lock().unwrap().agent_settings_get(&project).unwrap().enabled);
+        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(Scope::Workspace));
+        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(project.clone()));
+        for _ in 0..12 {
+            let request = request(binding.clone(), &project, "search-project".into());
+            let found = SourceService::new(&store).search(&request, &SourceSearchInput {
+                scope: project.clone(), query: "Project beta".into(), kinds: vec![], selected: vec![],
+                include_history: false, limit: None, budget_chars: None,
+            }).await.unwrap().items.len();
+            if found == 1 { break; }
+            assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        }
+        for (scope, query) in [(Scope::Workspace, "Direct alpha"), (project.clone(), "Project beta")] {
+            let request = request(binding.clone(), &scope, "search".into());
+            let result = SourceService::new(&store).search(&request, &SourceSearchInput {
+                scope, query: query.into(), kinds: vec![], selected: vec![],
+                include_history: false, limit: None, budget_chars: None,
+            }).await.unwrap();
+            assert_eq!(result.items.len(), 1);
+        }
+        assert!(!store.db.lock().unwrap().agent_settings_get(&project).unwrap().enabled);
+    }
+    #[tokio::test]
+    async fn cancelling_one_scope_leaves_other_scope_running_and_survives_reopen() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("maintenance.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        db.bind_native_workspace("w").unwrap();
+        let project_id = db.project_create(ProjectCreateInput { name: "Project".into(), summary: None, status: None }).unwrap().id;
+        let project = Scope::Project { project_id };
+        add_todo(&mut db, "Direct paused");
+        add_project_todo(&mut db, project_id, "Project active");
+        let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g1".into() };
+        let workspace_request = request(binding.clone(), &Scope::Workspace, "cancel".into());
+        set_enabled(&db, true, "enable");
+        db.source_maintenance_select(&workspace_request, &binding, &Scope::Workspace, MaintenanceAction::Cancel, chrono::Utc::now()).unwrap();
+        let store = Store { db: Mutex::new(db), binding: binding.clone() };
+        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(project.clone()));
+        for _ in 0..12 {
+            if !step(&store, &NoUtility, &NoUtility).await.unwrap() { break; }
+            assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(project.clone()));
+        }
+        drop(store);
+        let mut reopened = Database::open(&path, root.path(), None).unwrap();
+        reopened.bind_native_workspace("w").unwrap();
+        let store = Store { db: Mutex::new(reopened), binding: WorkspaceBinding { workspace_id: "w".into(), generation: "g2".into() } };
+        let reopened_request = request(store.binding.clone(), &Scope::Workspace, "reopen".into());
+        assert!(progress(&store, &reopened_request).cancelled);
+        assert_ne!(store.with_current(|b, db| db.source_maintenance_next(b, chrono::Utc::now())).unwrap(), Some(Scope::Workspace));
     }
 }

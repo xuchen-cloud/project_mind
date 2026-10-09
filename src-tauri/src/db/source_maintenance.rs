@@ -26,6 +26,8 @@ struct Ledger {
     chunks: usize,
     jobs: usize,
     cancelled: bool,
+    #[serde(default)]
+    paused_scopes: Vec<Scope>,
     reservation: Option<Reservation>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +88,7 @@ fn fresh(scope: &Scope, now: DateTime<Utc>) -> Ledger {
         chunks: 0,
         jobs: 0,
         cancelled: false,
+        paused_scopes: Vec::new(),
         reservation: None,
     }
 }
@@ -127,7 +130,12 @@ impl Database {
             .optional()
             .map_err(io)?;
         raw.map(|raw| {
-            let ledger: Ledger = serde_json::from_str(&raw).map_err(|_| invalid())?;
+            let mut ledger: Ledger = serde_json::from_str(&raw).map_err(|_| invalid())?;
+            // Old ledgers had a single cancellation bit for their selected scope.
+            if ledger.cancelled && !ledger.paused_scopes.contains(&ledger.scope) {
+                ledger.paused_scopes.push(ledger.scope.clone());
+            }
+            ledger.cancelled = false;
             ledger.scope.validate()?;
             if ledger.chars > BATCH_CHARS
                 || ledger.chunks > BATCH_CHUNKS
@@ -141,6 +149,7 @@ impl Database {
                         || item.scope.validate().is_err()
                         || ledger.jobs == 0
                 })
+                || ledger.paused_scopes.iter().any(|scope| scope.validate().is_err())
             {
                 return Err(invalid());
             }
@@ -151,7 +160,7 @@ impl Database {
     fn maintenance_save(&self, binding: &WorkspaceBinding, ledger: &Ledger) -> AgentResult<()> {
         // This row is a quota ledger, not a pending maintenance execution.
         // Merely selecting a disabled scope must not create queued jobs.
-        self.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance','workspace',?1,?2,?3,?4) ON CONFLICT(dedupe_key) DO UPDATE SET state=excluded.state,payload_json=excluded.payload_json", params![key(binding), if ledger.cancelled {"cancelled"} else {"completed"}, Utc::now().to_rfc3339_opts(SecondsFormat::Millis,true), encode(ledger)?]).map_err(io)?;
+        self.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance','workspace',?1,?2,?3,?4) ON CONFLICT(dedupe_key) DO UPDATE SET state=excluded.state,payload_json=excluded.payload_json", params![key(binding), if ledger.paused_scopes.contains(&ledger.scope) {"cancelled"} else {"completed"}, Utc::now().to_rfc3339_opts(SecondsFormat::Millis,true), encode(ledger)?]).map_err(io)?;
         Ok(())
     }
     pub(crate) fn source_maintenance_select(
@@ -164,7 +173,7 @@ impl Database {
     ) -> AgentResult<MaintenanceProgress> {
         authorize(request, binding, scope)?;
         self.source_live_scope(scope)?;
-        if matches!(action, MaintenanceAction::Resume) && !self.agent_settings_get(scope)?.enabled {
+        if matches!(action, MaintenanceAction::Resume) && !self.source_maintenance_enabled(binding, scope)? {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
                 "Enable the assistant in this scope first",
@@ -177,12 +186,20 @@ impl Database {
             && now.timestamp() >= ledger.started_at + PERIOD_SECONDS
             && ledger.reservation.is_none()
         {
+            let paused = ledger.paused_scopes;
             ledger = fresh(scope, now);
+            ledger.paused_scopes = paused;
         }
-        ledger.scope = scope.clone();
+        if ledger.reservation.is_none() && matches!(action, MaintenanceAction::Activate) {
+            // Explicit activation is compatible with old callers; the driver
+            // subsequently chooses the next eligible scope itself.
+            ledger.scope = scope.clone();
+        }
         match action {
-            MaintenanceAction::Cancel => ledger.cancelled = true,
-            MaintenanceAction::Resume => ledger.cancelled = false,
+            MaintenanceAction::Cancel => {
+                if !ledger.paused_scopes.contains(scope) { ledger.paused_scopes.push(scope.clone()); }
+            }
+            MaintenanceAction::Resume => ledger.paused_scopes.retain(|paused| paused != scope),
             MaintenanceAction::Activate => (), // Opening a page cannot undo cancellation.
         }
         self.maintenance_save(binding, &ledger)?;
@@ -198,6 +215,51 @@ impl Database {
         binding: &WorkspaceBinding,
     ) -> AgentResult<Option<Scope>> {
         Ok(self.maintenance_load(binding)?.map(|ledger| ledger.scope))
+    }
+    fn source_maintenance_enabled(&self, binding: &WorkspaceBinding, scope: &Scope) -> AgentResult<bool> {
+        match scope {
+            Scope::Workspace => {
+                self.source_live_scope(scope)?;
+                Ok(self.agent_settings_get(scope)?.enabled)
+            }
+            Scope::Project { .. } => self.overview_schedule_scope(binding, scope),
+        }
+    }
+    /// Select one eligible scope using the existing ledger as a fair cursor.
+    /// The global reservation and quota remain untouched across scope changes.
+    pub(crate) fn source_maintenance_next(
+        &self, binding: &WorkspaceBinding, now: DateTime<Utc>,
+    ) -> AgentResult<Option<Scope>> {
+        let mut ledger = self.maintenance_load(binding)?;
+        if let Some(item) = ledger.as_mut() {
+            if let Some(reservation) = &item.reservation {
+                if reservation.generation == binding.generation && reservation.expires_at > now.timestamp() {
+                    return Ok(None);
+                }
+                // An expired or previous-generation lease keeps its charge,
+                // but must not pin the rotation after a crash or reopen.
+                item.reservation = None;
+                self.maintenance_save(binding, item)?;
+            }
+        }
+        let mut scopes = vec![Scope::Workspace];
+        let mut stmt = self.conn.prepare("SELECT id FROM projects WHERE is_archived=0 ORDER BY id").map_err(io)?;
+        let ids = stmt.query_map([], |row| row.get::<_, i64>(0)).map_err(io)?
+            .collect::<rusqlite::Result<Vec<_>>>().map_err(io)?;
+        scopes.extend(ids.into_iter().map(|project_id| Scope::Project { project_id }));
+        let start = ledger.as_ref().and_then(|item| scopes.iter().position(|scope| *scope == item.scope))
+            .map_or(0, |index| (index + 1) % scopes.len());
+        for offset in 0..scopes.len() {
+            let scope = &scopes[(start + offset) % scopes.len()];
+            if ledger.as_ref().is_some_and(|item| item.paused_scopes.contains(scope))
+                || !self.source_maintenance_enabled(binding, scope)?
+                || !self.source_maintenance_has_work(binding, scope, now)? { continue; }
+            let mut item = ledger.take().unwrap_or_else(|| fresh(scope, now));
+            item.scope = scope.clone();
+            self.maintenance_save(binding, &item)?;
+            return Ok(Some(scope.clone()));
+        }
+        Ok(None)
     }
     pub(crate) fn source_maintenance_has_work(
         &self,
@@ -224,9 +286,6 @@ impl Database {
         let Some(ledger) = self.maintenance_load(binding)? else {
             return Ok(None);
         };
-        if ledger.scope != *scope {
-            return Ok(None);
-        }
         let prefix = format!("source-index:{}/", binding.workspace_id);
         let (pending,failed): (i64,i64) = self.conn.query_row("SELECT coalesce(sum(state IN ('queued','running')),0),coalesce(sum(state='failed'),0) FROM agent_jobs WHERE kind='extract' AND scope_key=?1 AND substr(dedupe_key,1,length(?2))=?2", params![scope.key(),prefix],|row|Ok((row.get(0)?,row.get(1)?))).map_err(io)?;
         // Cache tables are prepared lazily by the shared index service.
@@ -238,12 +297,12 @@ impl Database {
         };
         let backfill: bool = self.conn.query_row("SELECT complete FROM source_index_backfill_cursors WHERE workspace_id=?1 AND scope_key=?2",params![binding.workspace_id,scope.key()],|row|row.get(0)).optional().map_err(io)?.unwrap_or(false);
         Ok(Some(MaintenanceProgress {
-            scope: ledger.scope,
+            scope: scope.clone(),
             batch_id: ledger.batch_id,
             charged_chars: ledger.chars,
             charged_chunks: ledger.chunks,
             attempted_jobs: ledger.jobs,
-            cancelled: ledger.cancelled,
+            cancelled: ledger.paused_scopes.contains(scope),
             budget_exhausted: ledger.chars == BATCH_CHARS
                 || ledger.chunks == BATCH_CHUNKS
                 || ledger.jobs == BATCH_JOBS
@@ -266,14 +325,14 @@ impl Database {
     ) -> AgentResult<Option<Reservation>> {
         authorize(request, binding, scope)?;
         self.source_live_scope(scope)?;
-        if !self.agent_settings_get(scope)?.enabled || self.source_foreground_busy()? {
+        if !self.source_maintenance_enabled(binding, scope)? || self.source_foreground_busy()? {
             return Ok(None);
         }
         let Some(mut ledger) = self.maintenance_load(binding)? else {
             return Ok(None);
         };
         let tx = self.conn.unchecked_transaction().map_err(io)?;
-        if ledger.scope != *scope || ledger.cancelled {
+        if ledger.scope != *scope || ledger.paused_scopes.contains(scope) {
             return Ok(None);
         }
         if let Some(previous) = &ledger.reservation {
@@ -283,7 +342,9 @@ impl Database {
             ledger.reservation = None; // Charged usage remains, including after reopen.
         }
         if now.timestamp() >= ledger.started_at + PERIOD_SECONDS {
+            let paused = ledger.paused_scopes;
             ledger = fresh(scope, now); // One new bounded period; no missed-period replay.
+            ledger.paused_scopes = paused;
         }
         let chars = (BATCH_CHARS - ledger.chars).min(2 * 1024 * 1024);
         let chunks = (BATCH_CHUNKS - ledger.chunks).min(10000);
@@ -355,9 +416,9 @@ impl Database {
             && reservation.expires_at > now.timestamp()
             && ledger.started_at + PERIOD_SECONDS > now.timestamp()
             && ledger.scope == reservation.scope
-            && !ledger.cancelled
+            && !ledger.paused_scopes.contains(&reservation.scope)
             && ledger.reservation.as_ref().map(|item| &item.token) == Some(&reservation.token)
-            && self.agent_settings_get(&reservation.scope)?.enabled
+            && self.source_maintenance_enabled(binding, &reservation.scope)?
             && !self.source_foreground_busy()?)
     }
     pub(crate) fn source_maintenance_index_usage(
@@ -379,6 +440,7 @@ mod tests {
         access::ScopeGrant,
         settings::{AgentScopeSettings, SettingsUpdate},
     };
+    use crate::models::ProjectCreateInput;
     fn setup() -> (tempfile::TempDir, Database, RequestContext, DateTime<Utc>) {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("app.sqlite"), root.path(), None).unwrap();
@@ -609,6 +671,57 @@ mod tests {
             .source_maintenance_reserve(&request, &request.binding, &Scope::Workspace, now)
             .unwrap()
             .is_some());
+    }
+    #[test]
+    fn legacy_cancel_only_pauses_its_selected_scope() {
+        let (_root, db, mut request, now) = setup();
+        let project_id = db.project_create(ProjectCreateInput { name: "Project".into(), summary: None, status: None }).unwrap().id;
+        let project = Scope::Project { project_id };
+        request.scope_grant.project_ids.push(project_id);
+        enable(&db);
+        db.source_maintenance_select(&request, &request.binding, &Scope::Workspace, MaintenanceAction::Activate, now).unwrap();
+        let mut legacy: serde_json::Value = serde_json::from_str(&encode(&db.maintenance_load(&request.binding).unwrap().unwrap()).unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("pausedScopes");
+        legacy["cancelled"] = true.into();
+        db.conn.execute("UPDATE agent_jobs SET payload_json=?1 WHERE dedupe_key=?2", params![legacy.to_string(), key(&request.binding)]).unwrap();
+        assert!(db.source_maintenance_progress(&request, &request.binding, &Scope::Workspace, now).unwrap().unwrap().cancelled);
+        assert!(!db.source_maintenance_progress(&request, &request.binding, &project, now).unwrap().unwrap().cancelled);
+        assert_eq!(db.source_maintenance_next(&request.binding, now).unwrap(), Some(project));
+        assert!(db.source_maintenance_progress(&request, &request.binding, &Scope::Workspace, now).unwrap().unwrap().cancelled);
+    }
+    #[test]
+    fn independently_enabled_project_is_selected_without_workspace_enable() {
+        let (_root, db, _request, now) = setup();
+        let project_id = db.project_create(ProjectCreateInput { name: "Project".into(), summary: None, status: None }).unwrap().id;
+        let project = Scope::Project { project_id };
+        let mut settings = AgentScopeSettings::defaults(project.clone());
+        settings.enabled = true;
+        db.agent_settings_update("gui", "enable-project", &SettingsUpdate { settings, expected_revision: 0 }).unwrap();
+        let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g1".into() };
+        assert_eq!(db.source_maintenance_next(&binding, now).unwrap(), Some(project));
+        assert!(!db.agent_settings_get(&Scope::Workspace).unwrap().enabled);
+    }
+    #[test]
+    fn switching_scopes_preserves_global_charge_and_inflight_reservation() {
+        let (_root, db, mut request, now) = setup();
+        let project_id = db.project_create(ProjectCreateInput { name: "Project".into(), summary: None, status: None }).unwrap().id;
+        let project = Scope::Project { project_id };
+        request.scope_grant.project_ids.push(project_id);
+        enable(&db);
+        db.source_maintenance_select(&request, &request.binding, &Scope::Workspace, MaintenanceAction::Activate, now).unwrap();
+        let first = db.source_maintenance_reserve(&request, &request.binding, &Scope::Workspace, now).unwrap().unwrap();
+        assert!(db.source_maintenance_next(&request.binding, now).unwrap().is_none());
+        assert_eq!(db.source_maintenance_selected(&request.binding).unwrap(), Some(Scope::Workspace));
+        db.source_maintenance_settle(&request, &request.binding, &first, Some((37, 2)), false).unwrap();
+        assert_eq!(db.source_maintenance_next(&request.binding, now).unwrap(), Some(project.clone()));
+        let project_progress = db.source_maintenance_progress(&request, &request.binding, &project, now).unwrap().unwrap();
+        assert_eq!(project_progress.charged_chars, 37);
+        assert_eq!(project_progress.charged_chunks, 2);
+        assert_eq!(project_progress.attempted_jobs, 1);
+        let second = db.source_maintenance_reserve(&request, &request.binding, &project, now).unwrap().unwrap();
+        assert!(db.source_maintenance_next(&request.binding, now).unwrap().is_none());
+        db.source_maintenance_settle(&request, &request.binding, &second, Some((11, 1)), false).unwrap();
+        assert_eq!(db.source_maintenance_progress(&request, &request.binding, &Scope::Workspace, now).unwrap().unwrap().charged_chars, 48);
     }
     #[test]
     fn source_maintenance_reservations_rollback_on_ledger_write_failure() {
