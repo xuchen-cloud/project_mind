@@ -1,7 +1,7 @@
 use super::{cli_install, credentials, dispatch::AppBridge, protocol::DISCOVERY_FILE, transport};
 use crate::{
     agent::{
-        connections::{ConnectionCreateInput, ConnectionGrant, ConnectionObjectsInput, ConnectionObjectPage},
+        connections::{ConnectionCreateInput, ConnectionGrant},
         errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
         models::WorkspaceBinding,
     },
@@ -212,17 +212,6 @@ fn with_bound<T>(
     }
     let db = lock_mutex(&runtime.db);
     action(&db)
-}
-
-#[tauri::command]
-pub(crate) fn agent_connection_objects(
-    state: State<'_, AppState>,
-    input: ConnectionCommand<ConnectionObjectsInput>,
-) -> ApiResponse<ConnectionObjectPage> {
-    let result = with_bound(&state, &input.binding, |db| {
-        db.agent_connection_objects(&input.binding, &input.data)
-    });
-    ApiResponse::from_result(input.request_id, result)
 }
 
 #[tauri::command]

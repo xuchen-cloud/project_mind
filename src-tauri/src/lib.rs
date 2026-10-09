@@ -1413,7 +1413,6 @@ pub fn run() {
             agent::bridge::commands::agent_cli_uninstall,
             agent::bridge::commands::agent_connections_enable,
             agent::bridge::commands::agent_connection_create,
-            agent::bridge::commands::agent_connection_objects,
             agent::bridge::commands::agent_connection_revoke,
             agent::conversation_commands::agent_session_create,
             agent::conversation_commands::agent_sessions_list,

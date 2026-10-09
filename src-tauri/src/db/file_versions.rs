@@ -2141,10 +2141,9 @@ mod tests {
         let grant_id = "abcdefabcdefabcdefabcdefabcdefab";
         let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         db.agent_connection_create(&binding, &crate::agent::connections::ConnectionCreateInput {
-                objects: None,
-                all_projects: false,
+            all_projects: false,
             client_label: "File writer fixture".into(), workspace_content: false,
-            project_ids: vec![project.id], session_read: false,
+            project_ids: vec![project.id],
             write_operations: vec!["file.update".into()],
         }, grant_id, token).unwrap();
         let request = db.agent_connection_authenticate(&binding, grant_id, token, "save-version").unwrap();

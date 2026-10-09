@@ -21,12 +21,10 @@ fn create(db: &Database, binding: &WorkspaceBinding) -> ConnectionGrant {
     db.agent_connection_create(
         binding,
         &ConnectionCreateInput {
-            objects: None,
             client_label: "  Test CLI  ".into(),
             workspace_content: true,
             project_ids: vec![1],
             all_projects: false,
-            session_read: false,
             write_operations: vec![],
         },
         "0123456789abcdef0123456789abcdef",
@@ -40,7 +38,7 @@ fn connection_scope_and_revocation_are_enforced_from_storage() {
     let (_root, db, binding) = fixture();
     let grant = create(&db, &binding);
     assert_eq!(grant.client_label, "Test CLI");
-    assert_eq!(grant.operations, vec!["context.read", "source.read"]);
+    assert_eq!(grant.operations, vec!["context.read", "source.read", "session.read"]);
     let request = db
         .agent_connection_authenticate(
             &binding,
@@ -62,13 +60,7 @@ fn connection_scope_and_revocation_are_enforced_from_storage() {
             .code,
         ErrorCode::ScopeDenied
     );
-    assert_eq!(
-        request
-            .authorize(&binding, &Scope::Project { project_id: 1 }, "session.read")
-            .unwrap_err()
-            .code,
-        ErrorCode::ScopeDenied
-    );
+    assert!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "session.read").is_ok());
     assert_eq!(
         db.agent_connection_projects(&request, &binding)
             .unwrap()
@@ -135,12 +127,10 @@ fn invalid_scopes_and_other_workspace_cannot_obtain_grants() {
         ErrorCode::WorkspaceChanged
     );
     let invalid = ConnectionCreateInput {
-        objects: None,
         client_label: "bad".into(),
         workspace_content: false,
         project_ids: vec![3],
         all_projects: false,
-        session_read: false,
         write_operations: vec![],
     };
     assert_eq!(
@@ -217,12 +207,10 @@ fn selected_record_writes_are_canonical_and_persisted_exactly() {
     let grant = db.agent_connection_create(
         &binding,
         &ConnectionCreateInput {
-            objects: None,
             client_label: "Record editor".into(),
             workspace_content: false,
             project_ids: vec![1],
             all_projects: false,
-            session_read: true,
             write_operations: vec![
                 "record.restore".into(),
                 "content.create".into(),
@@ -254,34 +242,31 @@ fn selected_record_writes_are_canonical_and_persisted_exactly() {
     let patch_grant = db.agent_connection_create(
         &binding,
         &ConnectionCreateInput {
-            objects: None,
             client_label: "Patch only".into(),
             workspace_content: false,
             project_ids: vec![1],
             all_projects: false,
-            session_read: false,
             write_operations: vec!["record.patch".into()],
         },
         &"e".repeat(32),
         &"f".repeat(64),
     ).unwrap();
-    assert_eq!(patch_grant.operations, vec!["context.read", "source.read", "operation.read", "record.patch"]);
+    assert_eq!(patch_grant.operations, vec!["context.read", "source.read", "session.read", "operation.read", "record.patch"]);
 }
 
 #[test]
-fn unsupported_writes_fail_and_old_json_remains_read_only() {
+fn unsupported_writes_fail_and_old_json_keeps_original_scope() {
     let (_root, db, binding) = fixture();
     let mut input: ConnectionCreateInput = serde_json::from_value(serde_json::json!({
         "clientLabel":"Old client",
         "workspaceContent":false,
-        "projectIds":[1],
-        "sessionRead":false
+        "projectIds":[1]
     })).unwrap();
     assert!(input.write_operations.is_empty());
     assert!(!input.all_projects);
     let grant = db.agent_connection_create(&binding, &input, &"a".repeat(32), &"b".repeat(64)).unwrap();
     assert!(!grant.all_projects);
-    assert_eq!(grant.operations, vec!["context.read", "source.read"]);
+    assert_eq!(grant.operations, vec!["context.read", "source.read", "session.read"]);
     let stored: String = db.conn.query_row(
         "SELECT scope_grant_json FROM agent_connection_grants WHERE id=?1",
         [&grant.id], |row| row.get(0),
@@ -317,9 +302,8 @@ fn native_file_preflight_and_transaction_recheck_persisted_connection_grant() {
     let grant = db.agent_connection_create(
         &binding,
         &ConnectionCreateInput {
-            objects: None,
             client_label: "File editor".into(), workspace_content: false,
-            project_ids: vec![1], all_projects: false, session_read: false,
+            project_ids: vec![1], all_projects: false,
             write_operations: vec!["content.create".into(), "file.update".into(), "file.restore".into()],
         },
         &"8".repeat(32), &token,
@@ -354,18 +338,16 @@ fn todo_update_grant_persists_without_changing_prior_read_only_grants() {
     let grant = db.agent_connection_create(
         &binding,
         &ConnectionCreateInput {
-            objects: None,
             client_label: "Todo editor".into(),
             workspace_content: false,
             project_ids: vec![1],
             all_projects: false,
-            session_read: false,
             write_operations: vec!["todo.update".into(), "content.create".into(), "todo.update".into()],
         },
         &"7".repeat(32),
         &"8".repeat(64),
     ).unwrap();
-    let expected = vec!["context.read", "source.read", "operation.read", "content.create", "todo.update"];
+    let expected = vec!["context.read", "source.read", "session.read", "operation.read", "content.create", "todo.update"];
     assert_eq!(grant.operations, expected);
     let stored: String = db.conn.query_row(
         "SELECT operations_json FROM agent_connection_grants WHERE id=?1",
@@ -375,7 +357,7 @@ fn todo_update_grant_persists_without_changing_prior_read_only_grants() {
     assert_eq!(serde_json::from_str::<Vec<String>>(&stored).unwrap(), expected);
     assert_eq!(db.agent_connection_list(&binding).unwrap().into_iter()
         .find(|item| item.id == original.id).unwrap().operations,
-        vec!["context.read", "source.read"]);
+        vec!["context.read", "source.read", "session.read"]);
     let request = db.agent_connection_authenticate(&binding, &grant.id, &"8".repeat(64), "todo-auth").unwrap();
     assert!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "todo.update").is_ok());
     assert_eq!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
@@ -385,12 +367,10 @@ fn todo_update_grant_persists_without_changing_prior_read_only_grants() {
 fn all_projects_resolves_current_projects_without_expanding_workspace_content() {
     let (_root, db, binding) = fixture();
     let input = ConnectionCreateInput {
-        objects: None,
         client_label: "All project reader".into(),
         workspace_content: false,
         project_ids: vec![],
         all_projects: true,
-        session_read: false,
         write_operations: vec![],
     };
     let token = "b".repeat(64);
@@ -398,7 +378,7 @@ fn all_projects_resolves_current_projects_without_expanding_workspace_content() 
     assert!(grant.all_projects);
     assert!(grant.project_ids.is_empty());
     assert!(!grant.workspace_content);
-    assert_eq!(grant.operations, vec!["context.read", "source.read"]);
+    assert_eq!(grant.operations, vec!["context.read", "source.read", "session.read"]);
     let public = serde_json::to_value(&grant).unwrap();
     assert_eq!(public["allProjects"], true);
     assert_eq!(public["projectIds"], serde_json::json!([]));
@@ -431,12 +411,10 @@ fn all_projects_resolves_current_projects_without_expanding_workspace_content() 
 fn all_projects_rejects_explicit_ids_and_native_file_recheck_uses_target() {
     let (_root, db, binding) = fixture();
     let mut input = ConnectionCreateInput {
-        objects: None,
         client_label: "All project File writer".into(),
         workspace_content: true,
         project_ids: vec![1],
         all_projects: true,
-        session_read: false,
         write_operations: vec!["file.update".into()],
     };
     let token = "d".repeat(64);
@@ -460,103 +438,32 @@ fn all_projects_rejects_explicit_ids_and_native_file_recheck_uses_target() {
     assert_eq!(db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "file.update").unwrap_err().code, ErrorCode::ScopeDenied);
 }
 
-fn insert_record(db: &Database, project_id: i64, title: &str) -> i64 {
-    db.conn.execute(
-        "INSERT INTO notes(project_id,title,content_markdown,content_html,created_at,updated_at) VALUES(?1,?2,'body','<p>body</p>','now','now')",
-        params![project_id, title],
-    ).unwrap();
-    db.conn.last_insert_rowid()
-}
-
-fn record_ref(binding: &WorkspaceBinding, project_id: i64, id: i64) -> ObjectRef {
-    ObjectRef {
-        workspace_id: binding.workspace_id.clone(),
-        scope: Scope::Project { project_id },
-        kind: ObjectKind::Record,
-        id: id.to_string(),
-    }
-}
-
-fn selected_input(objects: Vec<ObjectRef>) -> ConnectionCreateInput {
-    ConnectionCreateInput {
-        client_label: "Selected records".into(), workspace_content: false,
-        project_ids: vec![1, 2], all_projects: false, session_read: false,
-        write_operations: vec!["record.patch".into(), "record.restore".into(), "file.update".into(), "file.restore".into(), "operation.undo".into()],
-        objects: Some(objects),
-    }
+#[test]
+fn legacy_object_scoped_grant_is_listed_but_cannot_authenticate_or_commit() {
+    let (_root, db, binding) = fixture();
+    let grant = create(&db, &binding);
+    let request = db.agent_connection_authenticate(&binding, &grant.id, &"0123456789abcdef".repeat(4), "before-migration").unwrap();
+    let stored: String = db.conn.query_row("SELECT scope_grant_json FROM agent_connection_grants WHERE id=?1", [&grant.id], |row| row.get(0)).unwrap();
+    let mut legacy: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    legacy["objects"] = serde_json::json!([{
+        "workspaceId": binding.workspace_id,
+        "scope": {"kind":"project", "projectId":1},
+        "kind":"record", "id":"1"
+    }]);
+    db.conn.execute("UPDATE agent_connection_grants SET scope_grant_json=?1 WHERE id=?2",
+        params![legacy.to_string(), grant.id]).unwrap();
+    assert!(db.agent_connection_list(&binding).unwrap()[0].objects.is_some());
+    assert_eq!(db.agent_connection_authenticate(&binding, &grant.id, &"0123456789abcdef".repeat(4), "after-migration").unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "source.read").unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(connection_caller_live(&db.conn, &request.caller.key(), Some(&binding.workspace_id)).unwrap_err().code, ErrorCode::ScopeDenied);
 }
 
 #[test]
-fn selected_objects_are_persisted_and_centrally_enforced_after_new_objects_arrive() {
-    let (_root, db, binding) = fixture();
-    let selected = record_ref(&binding, 1, insert_record(&db, 1, "Selected"));
-    let other = record_ref(&binding, 2, insert_record(&db, 2, "Other"));
-    let token = "4".repeat(64);
-    let grant = db.agent_connection_create(&binding, &selected_input(vec![selected.clone()]), &"3".repeat(32), &token).unwrap();
-    assert_eq!(grant.objects, Some(vec![selected.clone()]));
-    assert_eq!(db.agent_connection_list(&binding).unwrap()[0].objects, grant.objects);
-    let request = db.agent_connection_authenticate(&binding, &grant.id, &token, "selected-read").unwrap();
-    assert_eq!(request.scope_grant.object_keys, Some(vec![selected.key().unwrap()]));
-    request.authorize_object(&binding, &selected, &selected, "record.patch").unwrap();
-    assert_eq!(request.authorize_object(&binding, &other, &other, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
-    assert_eq!(request.require_object_allowed(&other).unwrap_err().code, ErrorCode::ScopeDenied);
-    assert_eq!(request.require_scope_context().unwrap_err().code, ErrorCode::ScopeDenied);
-    assert_eq!(db.agent_connection_projects(&request, &binding).unwrap().into_iter().map(|p| p.id).collect::<Vec<_>>(), vec![1]);
-    let parent = ObjectRef { workspace_id: binding.workspace_id.clone(), scope: selected.scope.clone(), kind: ObjectKind::Project, id: "1".into() };
-    assert_eq!(db.source_read_object(&request, &binding, &parent).unwrap_err().code, ErrorCode::ScopeDenied);
-    db.agent_connection_require_live(&request, &binding, &selected.scope, "record.patch").unwrap();
-    let new_object = record_ref(&binding, 1, insert_record(&db, 1, "New after grant"));
-    assert_eq!(request.authorize_object(&binding, &new_object, &new_object, "source.read").unwrap_err().code, ErrorCode::ScopeDenied);
-    assert_eq!(db.source_read_object(&request, &binding, &new_object).unwrap_err().code, ErrorCode::ScopeDenied);
-    db.conn.execute(
-        "INSERT INTO source_access_policies(object_key,excluded,revision) VALUES(?1,1,1)",
-        [ObjectRef { workspace_id: binding.workspace_id.clone(), scope: selected.scope.clone(), kind: ObjectKind::Project, id: "1".into() }.key().unwrap()],
-    ).unwrap();
-    assert!(db.agent_connection_projects(&request, &binding).unwrap().is_empty());
-    // A changed persisted object selection cannot be used by a captured File/Record request.
-    let stored: String = db.conn.query_row("SELECT scope_grant_json FROM agent_connection_grants WHERE id=?1", [&grant.id], |r| r.get(0)).unwrap();
-    let mut scope: serde_json::Value = serde_json::from_str(&stored).unwrap();
-    scope["objects"] = serde_json::json!([other]);
-    db.conn.execute("UPDATE agent_connection_grants SET scope_grant_json=?1 WHERE id=?2", params![scope.to_string(), grant.id]).unwrap();
-    assert_eq!(db.agent_connection_require_live(&request, &binding, &selected.scope, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
-}
-
-#[test]
-fn object_grants_reject_broad_permissions_bad_scope_and_invisible_sources() {
-    let (_root, db, binding) = fixture();
-    let first = record_ref(&binding, 1, insert_record(&db, 1, "First"));
-    let second = record_ref(&binding, 2, insert_record(&db, 2, "Second"));
-    let base = selected_input(vec![first.clone()]);
-    for input in [
-        ConnectionCreateInput { all_projects: true, project_ids: vec![], ..base.clone() },
-        ConnectionCreateInput { session_read: true, ..base.clone() },
-        ConnectionCreateInput { write_operations: vec!["content.create".into()], ..base.clone() },
-        ConnectionCreateInput { write_operations: vec!["todo.update".into()], ..base.clone() },
-        ConnectionCreateInput { objects: Some(vec![]), ..base.clone() },
-        ConnectionCreateInput { objects: Some(vec![first.clone(); 51]), ..base.clone() },
-        ConnectionCreateInput { objects: Some(vec![first.clone(), first.clone()]), ..base.clone() },
-        ConnectionCreateInput { objects: Some(vec![ObjectRef {kind:ObjectKind::Todo,..first.clone()}]), ..base.clone() },
-    ] {
-        assert_eq!(db.agent_connection_create(&binding, &input, &"a".repeat(32), &"b".repeat(64)).unwrap_err().code, ErrorCode::InvalidArgument);
-    }
-    let cross_scope = ConnectionCreateInput { project_ids: vec![1], objects: Some(vec![second.clone()]), ..base.clone() };
-    assert_eq!(db.agent_connection_create(&binding, &cross_scope, &"a".repeat(32), &"b".repeat(64)).unwrap_err().code, ErrorCode::ScopeDenied);
-    let wrong_workspace = ConnectionCreateInput { objects: Some(vec![ObjectRef {workspace_id:"elsewhere".into(),..first.clone()}]), ..base.clone() };
-    assert_eq!(db.agent_connection_create(&binding, &wrong_workspace, &"a".repeat(32), &"b".repeat(64)).unwrap_err().code, ErrorCode::InvalidArgument);
-    let wrong_claim = ConnectionCreateInput { objects: Some(vec![ObjectRef {scope:Scope::Project {project_id:2},..first.clone()}]), ..base.clone() };
-    assert_eq!(db.agent_connection_create(&binding, &wrong_claim, &"a".repeat(32), &"b".repeat(64)).unwrap_err().code, ErrorCode::ScopeDenied);
-    db.conn.execute("INSERT INTO source_access_policies(object_key,excluded,revision) VALUES(?1,1,1)", [first.key().unwrap()]).unwrap();
-    assert_eq!(db.agent_connection_create(&binding, &base, &"a".repeat(32), &"b".repeat(64)).unwrap_err().code, ErrorCode::ScopeDenied);
-    db.conn.execute("DELETE FROM source_access_policies", []).unwrap();
-    db.conn.execute("INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,revision) VALUES(?1,'receipt','now',1)", [first.key().unwrap()]).unwrap();
-    assert_eq!(db.agent_connection_create(&binding, &base, &"a".repeat(32), &"b".repeat(64)).unwrap_err().code, ErrorCode::ObjectWithdrawn);
-}
-
-#[test]
-fn object_selection_accepts_exactly_fifty_distinct_visible_records() {
-    let (_root, db, binding) = fixture();
-    let objects = (0..50).map(|index| record_ref(&binding, 1, insert_record(&db, 1, &format!("Record {index}")))).collect::<Vec<_>>();
-    let input = selected_input(objects.clone());
-    let grant = db.agent_connection_create(&binding, &input, &"e".repeat(32), &"f".repeat(64)).unwrap();
-    assert_eq!(grant.objects, Some(objects));
+fn removed_object_and_history_selectors_are_rejected_at_input_boundary() {
+    let old_object = serde_json::json!({"clientLabel":"legacy", "workspaceContent":true,
+        "projectIds":[], "allProjects":true, "writeOperations":[], "objects":[]});
+    let old_history = serde_json::json!({"clientLabel":"legacy", "workspaceContent":true,
+        "projectIds":[], "allProjects":true, "writeOperations":[], "sessionRead":false});
+    assert!(serde_json::from_value::<ConnectionCreateInput>(old_object).is_err());
+    assert!(serde_json::from_value::<ConnectionCreateInput>(old_history).is_err());
 }

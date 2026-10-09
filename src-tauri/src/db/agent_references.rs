@@ -297,9 +297,9 @@ mod tests {
         db.conn.execute("INSERT INTO todo_progresses(id,todo_id,content,progress_date,created_at) VALUES(1,1,'[[note:0001|目标]]','2026-01-01','now')",[]).unwrap();
         db.conn.execute("INSERT INTO documents(id,project_id,name,original_path,managed_path,storage_mode,mime_type,created_at,updated_at) VALUES(1,1,'附件.txt','original','managed','managed','text/plain','now','now')",[]).unwrap();
         let binding=WorkspaceBinding{workspace_id:"workspace-r".into(),generation:"open-1".into()};
-        let grant=db.agent_connection_create(&binding,&ConnectionCreateInput{ objects: None,
+        let grant=db.agent_connection_create(&binding,&ConnectionCreateInput{
             client_label:"Reference reader".into(),workspace_content:true,project_ids:vec![1],all_projects:false,
-            session_read:false,write_operations:vec![],
+            write_operations:vec![],
         },&"a".repeat(32),&"b".repeat(64)).unwrap();
         let request=db.agent_connection_authenticate(&binding,&grant.id,&"b".repeat(64),"reference-read").unwrap();
         (dir,db,binding,request)

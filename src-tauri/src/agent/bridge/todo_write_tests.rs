@@ -84,10 +84,9 @@ impl Fixture {
             (OTHER, vec!["content.create", "todo.update", "operation.undo"]),
         ] {
             db.agent_connection_create(&binding, &ConnectionCreateInput {
-                objects: None,
                 all_projects: false,
                 client_label: id.into(), workspace_content: false, project_ids: vec![project.id],
-                session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
+                write_operations: writes.into_iter().map(str::to_owned).collect(),
             }, id, TOKEN).unwrap();
         }
         Self { _root: root, store: Store { binding: Mutex::new(binding.clone()), db: Mutex::new(db), published: AtomicUsize::new(0) }, enabled: Arc::new(AtomicBool::new(true)), binding, project_id: project.id }

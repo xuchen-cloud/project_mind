@@ -103,13 +103,15 @@ fn fixture() -> (tempfile::TempDir, Store, RequestContext, PiFixture) {
         rusqlite::params![r#"{"checksum":"sha256:a","entryCount":1}"#, SESSION],
     ).unwrap();
     let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g".into() };
-    for (grant_id, token, session_read) in [(GRANT, TOKEN, true), (NO_HISTORY_GRANT, NO_HISTORY_TOKEN, false)] {
+    for (grant_id, token) in [(GRANT, TOKEN), (NO_HISTORY_GRANT, NO_HISTORY_TOKEN)] {
         db.agent_connection_create(&binding, &ConnectionCreateInput {
-                objects: None,
-                all_projects: false,
-            client_label: "History test".into(), workspace_content: true, project_ids: vec![], session_read, write_operations: vec![],
+            all_projects: false,
+            client_label: "History test".into(), workspace_content: true, project_ids: vec![], write_operations: vec![],
         }, grant_id, token).unwrap();
     }
+    // Simulate an existing read-only grant created before session history was automatic.
+    rusqlite::Connection::open(&path).unwrap().execute("UPDATE agent_connection_grants SET operations_json=?1 WHERE id=?2",
+        rusqlite::params![r#"["context.read","source.read"]"#, NO_HISTORY_GRANT]).unwrap();
     let request = RequestContext {
         binding: binding.clone(),
         caller: Caller::Connection { grant_id: "grant".into() },

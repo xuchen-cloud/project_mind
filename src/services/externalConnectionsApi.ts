@@ -1,5 +1,5 @@
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
-import type { ConnectionCreateData, ConnectionGrant, ConnectionObjectPage, ConnectionObjectsInput, ExternalConnectionsStatus } from "../lib/external-connections-types";
+import type { ConnectionCreateData, ConnectionGrant, ExternalConnectionsStatus } from "../lib/external-connections-types";
 import { callAgentCommand } from "./agentApi";
 
 export const externalConnectionsApi = {
@@ -17,9 +17,6 @@ export const externalConnectionsApi = {
   },
   create(binding: AgentWorkspaceBinding, data: ConnectionCreateData, requestId = crypto.randomUUID()): Promise<ConnectionGrant> {
     return callAgentCommand("agent_connection_create", requestId, { input: { binding, requestId, data } });
-  },
-  objects(binding: AgentWorkspaceBinding, data: ConnectionObjectsInput, requestId = crypto.randomUUID()): Promise<ConnectionObjectPage> {
-    return callAgentCommand("agent_connection_objects", requestId, { input: { binding, requestId, data } });
   },
   revoke(binding: AgentWorkspaceBinding, grantId: string, requestId = crypto.randomUUID()): Promise<ConnectionGrant> {
     return callAgentCommand("agent_connection_revoke", requestId, { input: { binding, requestId, data: { grantId } } });

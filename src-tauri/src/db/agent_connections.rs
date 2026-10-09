@@ -12,7 +12,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
 const MAX_PROJECTS: usize = 100;
-const MAX_OBJECTS: usize = 50;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
 const WRITE_OPERATIONS: [&str; 7] = [
@@ -135,6 +134,7 @@ pub(crate) fn connection_caller_live(
     if !enabled || revoked_at.is_some() || scope.workspace_id != workspace_id {
         return Err(denied());
     }
+    if scope.objects.is_some() { return Err(denied()); }
     Ok(())
 }
 
@@ -154,6 +154,7 @@ impl Database {
         connection_caller_live(&self.conn, &request.caller.key(), self.native_workspace_id.as_deref())?;
         let stored = self.stored_connection(grant_id)?.ok_or_else(denied)?;
         let actual: StoredScope = decode(&stored.scope_json)?;
+        if actual.objects.is_some() { return Err(denied()); }
         let operations: Vec<String> = decode(&stored.operations_json)?;
         if request.scope_grant.workspace_id != actual.workspace_id
             || request.scope_grant.workspace_content != actual.workspace_content
@@ -227,16 +228,6 @@ impl Database {
                 "Too many connection projects",
             ));
         }
-        if let Some(objects) = &input.objects {
-            if objects.is_empty() || objects.len() > MAX_OBJECTS {
-                return Err(AgentError::new(ErrorCode::InvalidArgument, "Select 1–50 connection objects"));
-            }
-            if input.all_projects || input.session_read || input.write_operations.iter().any(|op| {
-                matches!(op.as_str(), "content.create" | "todo.update")
-            }) {
-                return Err(AgentError::new(ErrorCode::InvalidArgument, "Object grants cannot include broad scope or create/Todo permissions"));
-            }
-        }
         if !valid_hex(grant_id, 32) || !valid_hex(token, 64) {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
@@ -253,38 +244,13 @@ impl Database {
             ));
         }
         let mut operations: Vec<String> = READ_OPERATIONS.iter().map(|s| (*s).into()).collect();
-        if input.session_read {
-            operations.push("session.read".into());
-        }
+        operations.push("session.read".into());
         let selected: HashSet<&str> = input.write_operations.iter().map(String::as_str).collect();
         if selected.iter().any(|operation| !WRITE_OPERATIONS.contains(operation)) {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Unsupported connection operation",
             ));
-        }
-        if let Some(objects) = &input.objects {
-            let mut seen = HashSet::new();
-            let selection = RequestContext {
-                binding: binding.clone(),
-                caller: Caller::Gui,
-                request_id: "connection-object-selection".into(),
-                scope_grant: ScopeGrant {
-                    workspace_id: binding.workspace_id.clone(),
-                    workspace_content: input.workspace_content,
-                    project_ids: projects.clone(),
-                    operations: vec!["source.read".into()],
-                    object_keys: None,
-                },
-            };
-            for object in objects {
-                if !matches!(object.kind, ObjectKind::Record | ObjectKind::File)
-                    || object.workspace_id != binding.workspace_id
-                    || !seen.insert(object.key()?) {
-                    return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid or duplicate connection object"));
-                }
-                self.source_read_object(&selection, binding, object)?;
-            }
         }
         if !selected.is_empty() {
             operations.push("operation.read".into());
@@ -302,7 +268,7 @@ impl Database {
             workspace_content: input.workspace_content,
             project_ids: projects.clone(),
             all_projects: input.all_projects,
-            objects: input.objects.clone(),
+            objects: None,
             token_hash: format!("{:x}", Sha256::digest(token.as_bytes())),
         };
         let scope_json = serde_json::to_string(&scope).map_err(io_error)?;
@@ -350,7 +316,7 @@ impl Database {
             workspace_content: input.workspace_content,
             project_ids: projects,
             all_projects: input.all_projects,
-            objects: input.objects.clone(),
+            objects: None,
             operations,
             enabled: true,
             created_at,
@@ -422,6 +388,7 @@ impl Database {
         if scope.workspace_id != binding.workspace_id
             || !stored.enabled
             || stored.revoked_at.is_some()
+            || scope.objects.is_some()
             || !digest_matches(&scope.token_hash, token)
         {
             return Err(denied());

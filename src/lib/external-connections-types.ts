@@ -1,15 +1,4 @@
-import type { AgentObjectRef, AgentScope, AgentWorkspaceBinding } from "./agent-types";
-
-export interface ConnectionObjectPage {
-  items: { object: AgentObjectRef; title: string }[];
-  nextCursor: string | null;
-}
-
-export interface ConnectionObjectsInput {
-  scope: AgentScope;
-  query: string;
-  cursor: string | null;
-}
+import type { AgentObjectRef, AgentWorkspaceBinding } from "./agent-types";
 
 export interface ConnectionGrant {
   id: string;
@@ -50,7 +39,5 @@ export interface ConnectionCreateData {
   workspaceContent: boolean;
   allProjects: boolean;
   projectIds: number[];
-  sessionRead: boolean;
   writeOperations: string[];
-  objects: AgentObjectRef[] | null;
 }
