@@ -252,7 +252,7 @@ Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴�
 
 ### 当前实现与目标差距
 
-当前 R11 每批只读一条消息或长消息片段，生成 `KnowledgeNode.session_summary` 并与 Overview 原子发布；每 Project 每 UTC 日 5 次摘要调用且失败计入，是待删除的代码现状，不是产品额度。WP4 先恢复 Pi 原生会话管理及目前禁用的原生压缩，在当前作用域、来源权限和 Provider 请求前历史过滤下验证压缩摘要可复用性。WP5 在证据表明仍缺跨会话检索、可追溯决定或结构化知识时才补必要的增量摘要；复用 R10 来源证明与原子发布，不另建会话权威或摘要 worker。删除项目日硬限，盘查并清除同类任意共享额度；保留明确的单请求资源预算和服务故障退避。失败保留旧快照、游标和 pending，成功后才消费进度；不能无限自动重试或把失败计为已覆盖。
+此前 R11 每批只读一条消息或长消息片段，生成 `KnowledgeNode.session_summary` 并与 Overview 原子发布；每 Project 每 UTC 日 5 次摘要调用且失败计入、Workspace 每 20 分钟 20 次调用，是此前已实施、WP5 调度代码现已移除的任意共享硬限，不是产品额度。WP4 已为普通 Pi 对话恢复原生压缩；单次结构化 Overview 生成显式关闭压缩，确保该调用读到的原始证据不被自由文本摘要替换。Pi `CompactionEntry` 含 `summary` 自由文本、`firstKeptEntryId`、`tokensBefore`、`usage`、`details.readFiles/modifiedFiles`，缺少逐条 citation、来源读取证明、覆盖游标和用户纠正约束，因此不能直接作为 Project 知识节点或 Overview 证据。WP5 保留必要的增量摘要，`summary_segments` 对同会话同分支、同授权的连续增量合批，复用 R10 来源证明与原子发布，不另建会话权威或摘要 worker。WP5 调度代码还移除了每批 3 次和 48k 累计额度，没有新增任意共享额度；保留单次 48k 字符工程传输/输入上限、失败停止且人工恢复、前台任务让出。`summary_segments` 已对当前分支的完整短消息按同分支来源合批；历史分支和长消息仍按单来源处理。已保存多来源 draft 续跑额外生成 0 次。维护 17、生成 7、调度 11、legacy 1 项定向验证通过。合批按单次完整 prompt 的 48k 工程请求边界判断，未按模型实际 `contextWindow` 自适应。失败保留旧快照、游标和 pending，成功后才消费进度；不能无限自动重试或把失败计为已覆盖。
 
 50 条消息 / 12000 字符是当前 `session.messages.read` 单页参数，不规定 Pi 压缩长度、摘要批量、摘要正文或产品级固定标准。后续分段按真实模型上下文预算、来源边界和任务效果选择，超长消息保持稳定身份并可续读。详见[WP4～WP6](ai-work-context-delivery.md#confirmed-work-packages-20261009)。
 
@@ -565,7 +565,7 @@ CLI对应`file source read`、`todo update --patch-file`、`operation list/undo/
 
 - M1 使用仅监听 `127.0.0.1` 的随机端口 HTTP JSON bridge；应用外网不可访问，不提供浏览器 CORS。校验 Host、拒绝带非应用 Origin 的请求，token 必须通过 Authorization header。
 - 本机发现文件保存 runtime 实例、端口和 endpoint version，属于 Local Session，不能复制进 Workspace。连接 secret 只存 OS credential store；CLI 配置包含 grantId，不含明文 secret；同本机用户可读取凭据，不能宣称隔离该用户启动的任意程序。
-- 每个 grant 绑定 Workspace UUID、一个明确范围和操作集。新连接默认整个 Workspace（直属内容及当前、未来未归档 Project），可选单 Project；每种范围都可选只读或协作。协作只授予相应原生读写与本连接撤销；范围不能代替实际归属、排除、撤回、版本和权限检查。内部助手的 `session.read` 在已启用 scope 自动配置；外部连接沿用持久 grant 检查。旧 grant 不能因默认值改变而扩权；特别是旧 `objects` 清单连接，在用户明确重新选择范围与模式前，不得映射为全 Workspace 或全 Project。迁移与重选应保留撤权入口及可解释状态。整 Record/File 删除、密钥设置、任意路径和 shell 不暴露。
+- 每个 grant 绑定 Workspace UUID、一个明确范围和操作集。新连接默认整个 Workspace（直属内容及当前、未来未归档 Project），可选单 Project；每种范围都可选只读或协作。协作授予相应原生读写、`record.restore`、`file.restore` 与本连接撤销；范围不能代替实际归属、排除、撤回、版本和权限检查。内部助手的 `session.read` 在已启用 scope 自动配置；外部连接沿用持久 grant 检查。旧 grant 不能因默认值改变而扩权；特别是旧 `objects` 清单连接，在用户明确重新选择范围与模式前，不得映射为全 Workspace 或全 Project。迁移与重选应保留撤权入口及可解释状态。整 Record/File 删除、密钥设置、任意路径和 shell 不暴露。
 - Workspace 切换使运行请求返回 WORKSPACE_CHANGED，不能自动转接新 Workspace。请求超时后客户端查询 receipt，不能自动重复非幂等变更。
 - 新连接界面与 API 不提供指定 Record/File 白名单或 50 对象模式。旧 `objects` grant 只按旧范围解释，不能静默放宽；重选后按 Workspace/Project 范围及只读/协作权限生效。保留真实对象归属、来源政策、撤权和受限分页检查。
 - CLI 没有解锁模型密钥的 API；纯数据读写不要求模型密钥解锁，内置模型任务要求解锁。首期 CLI 不开放启动内置 run，避免外部任务隐式产生模型费用。
