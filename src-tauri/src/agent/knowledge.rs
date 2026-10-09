@@ -7,7 +7,13 @@ use super::{
     sessions::SessionSummarySegment,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+
+pub(crate) fn published_node_prefix(project_id: i64, item_id: &str) -> String {
+    let digest = Sha256::digest(format!("{project_id}:{item_id}").as_bytes());
+    format!("published-{digest:x}-")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +57,8 @@ pub struct KnowledgeNodeWrite {
     pub aliases: Vec<String>,
     pub keywords: Vec<String>,
     pub source_refs: Vec<SourceRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub published_sources: Vec<super::context::PublishedOverviewRef>,
     pub epistemic_status: EpistemicStatus,
     pub coverage: SourceCoverage,
     pub related: Vec<KnowledgeRelated>,
@@ -71,6 +79,8 @@ pub struct KnowledgeNode {
     pub aliases: Vec<String>,
     pub keywords: Vec<String>,
     pub source_refs: Vec<SourceRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub published_sources: Vec<super::context::PublishedOverviewRef>,
     pub epistemic_status: EpistemicStatus,
     pub coverage: SourceCoverage,
     pub related: Vec<KnowledgeRelated>,
@@ -114,6 +124,7 @@ impl KnowledgeNodeWrite {
             || self.keywords.len() > 20
             || self.related.len() > 5
             || self.source_refs.len() > (if self.session_summary.is_some() { 256 } else { 20 })
+            || self.published_sources.len() > 20
         {
             return Err(invalid("Knowledge metadata exceeds bounds"));
         }
@@ -133,7 +144,7 @@ impl KnowledgeNodeWrite {
         if matches!(self.epistemic_status, EpistemicStatus::UserConfirmed) {
             return Err(invalid("Model knowledge cannot assert user_confirmed"));
         }
-        if matches!(self.epistemic_status, EpistemicStatus::Recorded) && self.source_refs.is_empty()
+        if matches!(self.epistemic_status, EpistemicStatus::Recorded) && self.source_refs.is_empty() && self.published_sources.is_empty()
         {
             return Err(invalid(
                 "Recorded knowledge requires direct source evidence",
@@ -169,6 +180,12 @@ impl KnowledgeNodeWrite {
             {
                 return Err(invalid("Knowledge source metadata exceeds bounds or scope"));
             }
+        }
+        if matches!(scope, Scope::Project { .. }) && !self.published_sources.is_empty() {
+            return Err(invalid("Project knowledge cannot cite published items"));
+        }
+        for reference in &self.published_sources {
+            super::overview::validate_published_ref(reference)?;
         }
         if self.kind == KnowledgeKind::SourceSummary && self.session_summary.is_none() {
             let sources = self
@@ -239,6 +256,7 @@ impl KnowledgeNodeWrite {
             aliases: self.aliases.clone(),
             keywords: self.keywords.clone(),
             source_refs: self.source_refs.clone(),
+            published_sources: self.published_sources.clone(),
             epistemic_status: self.epistemic_status.clone(),
             coverage: self.coverage.clone(),
             related: self.related.clone(),

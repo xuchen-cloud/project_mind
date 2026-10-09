@@ -12,6 +12,8 @@ pub struct OverviewInventoryProgress {
     pub start_seq: u64,
     pub after_kind: String,
     pub after_id: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_item_id: Option<String>,
     pub scanned: u64,
     pub advanced: u16,
     pub directory_complete: bool,

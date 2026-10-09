@@ -4,7 +4,7 @@ use super::{
     Database,
 };
 use crate::agent::{
-    context::{AiOverview, OverviewItem},
+    context::{AiOverview, OverviewItem, PublishedOverviewRef},
     errors::{AgentError, AgentResult, ErrorCode},
     models::Scope,
     overview::*,
@@ -12,6 +12,81 @@ use crate::agent::{
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
+use sha2::{Digest, Sha256};
+
+/// Stable proof material for one item and everything it depends on. A
+/// revision identifies the captured snapshot; it is deliberately absent from
+/// the digest so unrelated Project updates do not invalidate Workspace text.
+fn published_material(
+    snapshot: &AiOverview,
+    item_id: &str,
+    corrections: &[OverviewCorrection],
+) -> AgentResult<(String, Vec<crate::agent::models::SourceRef>)> {
+    let mut todo = vec![item_id.to_owned()];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut material = Vec::new();
+    let mut sources = std::collections::BTreeMap::new();
+    while let Some(id) = todo.pop() {
+        if !seen.insert(id.clone()) { continue; }
+        let item = snapshot.items.iter().find(|item| item.id == id)
+            .ok_or_else(|| AgentError::new(ErrorCode::SourceChanged,"Published Overview dependency is missing"))?;
+        if !item.published_sources.is_empty() {
+            return Err(invalid("Project item contains published parents"));
+        }
+        todo.extend(item.dependency_item_ids.iter().cloned());
+        for source in &item.source_refs {
+            sources.entry(published_source_key(source)?).or_insert_with(||source.clone());
+        }
+        material.push((id, item));
+    }
+    material.sort_by(|a,b| a.0.cmp(&b.0));
+    let relevant: Vec<_> = corrections.iter().filter(|c| !c.deleted &&
+        (c.item_id.is_none() || seen.contains(c.item_id.as_ref().unwrap()))).collect();
+    // updatedAt and version numbers are metadata, not semantic support.
+    let payload: Vec<_> = material.iter().map(|(_, item)| {
+        let source_keys:std::collections::BTreeSet<_>=item.source_refs.iter()
+            .map(published_source_key).collect::<AgentResult<_>>()?;
+        let dependencies:std::collections::BTreeSet<_>=item.dependency_item_ids.iter().collect();
+        Ok(serde_json::json!({
+        "id": item.id, "section": item.section, "text": item.text,
+        "epistemicStatus": item.epistemic_status, "validState": item.valid_state,
+        "sourceRefs":source_keys,"dependencies":dependencies
+    })) }).collect::<AgentResult<_>>()?;
+    let encoded = serde_json::to_vec(&(payload,relevant.iter().map(|c| (&c.id,&c.item_id,&c.text)).collect::<Vec<_>>()))
+        .map_err(|_| invalid("Cannot encode published item"))?;
+    Ok((format!("{:x}", Sha256::digest(encoded)), sources.into_values().collect()))
+}
+fn published_source_key(source:&crate::agent::models::SourceRef)->AgentResult<String> {
+    encode(&serde_json::json!({"object":source.object,"revision":source.revision,
+        "fileVersion":source.file_version,"recordVersion":source.record_version,
+        "blockId":source.block_id,"locator":source.locator}))
+}
+fn published_text(snapshot:&AiOverview,item_id:&str,_corrections:&[OverviewCorrection])->AgentResult<String> {
+    let mut todo=vec![item_id.to_owned()];let mut seen=std::collections::BTreeSet::new();
+    let mut items=vec![];
+    while let Some(id)=todo.pop() {
+        if !seen.insert(id.clone()) {continue;}
+        let item=snapshot.items.iter().find(|item|item.id==id).ok_or_else(||AgentError::new(ErrorCode::SourceChanged,"Published dependency disappeared"))?;
+        todo.extend(item.dependency_item_ids.iter().cloned());
+        items.push(serde_json::json!({"id":item.id,"section":item.section,"text":item.text,
+            "epistemicStatus":item.epistemic_status,"validState":item.valid_state,
+            "dependencies":item.dependency_item_ids}));
+    }
+    items.sort_by(|a,b|a["id"].as_str().cmp(&b["id"].as_str()));
+    encode(&serde_json::json!({"items":items}))
+}
+
+fn published_relevant_corrections(snapshot:&AiOverview,item_id:&str,corrections:&[OverviewCorrection])->AgentResult<Vec<OverviewCorrection>> {
+    let mut todo=vec![item_id.to_owned()];let mut seen=std::collections::BTreeSet::new();
+    while let Some(id)=todo.pop() {
+        if !seen.insert(id.clone()) {continue;}
+        let item=snapshot.items.iter().find(|item|item.id==id)
+            .ok_or_else(||AgentError::new(ErrorCode::SourceChanged,"Published dependency disappeared"))?;
+        todo.extend(item.dependency_item_ids.iter().cloned());
+    }
+    Ok(corrections.iter().filter(|c|!c.deleted &&
+        (c.item_id.is_none() || c.item_id.as_ref().is_some_and(|id|seen.contains(id)))).cloned().collect())
+}
 
 fn encode(value: &impl Serialize) -> AgentResult<String> {
     serde_json::to_string(value).map_err(|_| invalid("Invalid Overview payload"))
@@ -20,7 +95,83 @@ fn decode<T: DeserializeOwned>(text: &str) -> AgentResult<T> {
     serde_json::from_str(text)
         .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid stored Overview"))
 }
+fn queue_published_change(tx:&rusqlite::Connection,workspace_id:&str,project_id:i64,item_id:&str,removed:bool)->AgentResult<()> {
+    let key=format!("published:{project_id}:{item_id}");
+    let now=Utc::now().to_rfc3339();
+    tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES(?1,'workspace','overview.item.changed',?2,?3)",
+        params![key,if removed {"deleted"} else {"changed"},now]).map_err(io_error)?;
+    let seq=tx.last_insert_rowid();
+    tx.execute("INSERT INTO agent_overview_pending_state(scope_key,needs_rebuild) VALUES('workspace',0) ON CONFLICT(scope_key) DO NOTHING",[]).map_err(io_error)?;
+    tx.execute("INSERT INTO agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision,deleted,excluded)
+        VALUES('workspace',?1,?2,?2,'overview.item.changed',?3,?4,0)
+        ON CONFLICT(scope_key,object_key) DO UPDATE SET last_seq=excluded.last_seq,operation=excluded.operation,
+        latest_revision=excluded.latest_revision,deleted=excluded.deleted",params![key,seq,if removed {"deleted"} else {"changed"},removed]).map_err(io_error)?;
+    let owner=format!("{workspace_id}/project:{project_id}/overview/{item_id}");
+    tx.execute("INSERT INTO source_dependency_invalidations(owner_key,changed_object_key,seq,reason)
+        WITH RECURSIVE affected(owner_key) AS (
+            SELECT e.source_object_key FROM content_reference_edges e WHERE e.relation='derived_from' AND e.target_object_key=?1
+            UNION SELECT e.source_object_key FROM content_reference_edges e JOIN affected a ON e.target_object_key=a.owner_key WHERE e.relation='derived_from'
+        ) SELECT owner_key,?1,?2,'source_changed' FROM affected WHERE 1
+        ON CONFLICT(owner_key) DO UPDATE SET changed_object_key=excluded.changed_object_key,seq=excluded.seq,reason=excluded.reason",
+        params![owner,seq]).map_err(io_error)?;
+    Ok(())
+}
 impl Database {
+    pub(crate) fn agent_published_item_text(&self,snapshot:&AiOverview,item_id:&str,corrections:&[OverviewCorrection])->AgentResult<String> {
+        published_text(snapshot,item_id,corrections)
+    }
+    pub(crate) fn agent_published_item_corrections(&self,snapshot:&AiOverview,item_id:&str,corrections:&[OverviewCorrection])->AgentResult<Vec<OverviewCorrection>> {
+        published_relevant_corrections(snapshot,item_id,corrections)
+    }
+    pub(crate) fn agent_published_item_capture(&self, project_id: i64, item_id: &str)
+        -> AgentResult<(PublishedOverviewRef, Vec<crate::agent::models::SourceRef>, String)> {
+        validate_id(item_id)?;
+        let scope = Scope::Project { project_id };
+        let snapshot = self.agent_overview_head(&scope)?
+            .ok_or_else(|| AgentError::new(ErrorCode::SourceNotReady,"Project Overview is not published"))?;
+        let corrections = self.agent_overview_corrections(&scope)?;
+        let (digest, sources) = published_material(&snapshot,item_id,&corrections.items)?;
+        Ok((PublishedOverviewRef { project_id, revision:snapshot.revision,
+            item_id:item_id.into(), digest },sources,published_text(&snapshot,item_id,&corrections.items)?))
+    }
+    pub(crate) fn agent_published_item_verify(&self, reference: &PublishedOverviewRef)
+        -> AgentResult<Vec<crate::agent::models::SourceRef>> {
+        validate_published_ref(reference)?;
+        let scope=Scope::Project { project_id:reference.project_id };
+        let captured=self.agent_overview_version(&scope,reference.revision)?
+            .ok_or_else(|| AgentError::new(ErrorCode::SourceChanged,"Published item version disappeared"))?;
+        let current=self.agent_overview_head(&scope)?
+            .ok_or_else(|| AgentError::new(ErrorCode::SourceChanged,"Published Project Overview disappeared"))?;
+        let corrections=self.agent_overview_corrections(&scope)?;
+        let (captured_digest,sources)=published_material(&captured,&reference.item_id,&corrections.items)?;
+        let (current_digest,_)=published_material(&current,&reference.item_id,&corrections.items)?;
+        if captured_digest!=reference.digest || current_digest!=reference.digest {
+            return Err(AgentError::new(ErrorCode::SourceChanged,"Published item changed"));
+        }
+        Ok(sources)
+    }
+    pub(crate) fn agent_published_item_pending(&self,project_id:i64,item_id:&str)->AgentResult<PublishedOverviewRef> {
+        match self.agent_published_item_capture(project_id,item_id) {
+            Ok((reference,_,_))=>return Ok(reference),
+            Err(error) if matches!(error.code,ErrorCode::SourceNotReady|ErrorCode::SourceChanged|ErrorCode::NotFound|ErrorCode::ScopeDenied)=>(),
+            Err(error)=>return Err(error),
+        }
+        let scope=Scope::Project{project_id};
+        let historical:Option<String>=self.conn.query_row("SELECT v.snapshot_json FROM agent_overview_versions v JOIN json_each(v.snapshot_json,'$.items') item
+            WHERE v.scope_key=?1 AND json_extract(item.value,'$.id')=?2 ORDER BY v.revision DESC LIMIT 1",
+            params![scope.key(),item_id],|row|row.get(0)).optional().map_err(io_error)?;
+        let mut corrections_stmt=self.conn.prepare("SELECT correction_json FROM agent_overview_corrections WHERE scope_key=?1 ORDER BY id").map_err(io_error)?;
+        let corrections=corrections_stmt.query_map([scope.key()],|r|r.get::<_,String>(0)).map_err(io_error)?
+            .map(|row|decode::<OverviewCorrection>(&row.map_err(io_error)?)).collect::<AgentResult<Vec<_>>>()?;
+        if let Some(version)=historical {
+            let snapshot:AiOverview=decode(&version)?;
+            if snapshot.items.iter().any(|item|item.id==item_id) {
+                let (digest,_)=published_material(&snapshot,item_id,&corrections)?;
+                return Ok(PublishedOverviewRef {project_id,revision:snapshot.revision,item_id:item_id.into(),digest});
+            }
+        }
+        Err(AgentError::new(ErrorCode::SourceChanged,"Published item no longer exists"))
+    }
     pub(crate) fn agent_overviews_prepare(&self) -> anyhow::Result<()> {
         self.source_prepare()
             .map_err(|error| anyhow::anyhow!("{}", error.message))?;
@@ -73,12 +224,6 @@ impl Database {
     }
     fn overview_scope(&self, scope: &Scope) -> AgentResult<()> {
         scope.validate()?;
-        if matches!(scope, Scope::Workspace) {
-            return Err(AgentError::new(
-                ErrorCode::SourceNotReady,
-                "Workspace Overview awaits M2",
-            ));
-        }
         self.source_live_scope(scope)?;
         self.agent_overviews_prepare()
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare Overview storage"))?;
@@ -283,15 +428,16 @@ impl Database {
             let policy:i64=tx.query_row("SELECT revision FROM agent_scope_settings WHERE scope_key=?1",[input.scope.key()],|r|r.get(0)).optional().map_err(io_error)?.unwrap_or(0);
             let corrections=self.agent_overview_corrections(&input.scope)?;
             if policy as u64!=input.policy_revision || corrections.revision!=input.correction_revision { return Err(AgentError::new(ErrorCode::RevisionConflict,"Overview policy or corrections changed")); }
+            let previous_items=head.as_ref().map_or_else(Vec::new,|h|h.items.clone());
             let mut items=head.map_or_else(Vec::new,|h|h.items);
             items.retain(|item|!input.remove_item_ids.contains(&item.id));
             for item in &input.upsert_items { if let Some(existing)=items.iter_mut().find(|v|v.id==item.id) { *existing=item.clone(); } else { items.push(item.clone()); } }
-            validate_snapshot(&items)?;
+            validate_snapshot(&input.scope,&items)?;
             for item in &input.upsert_items { if item.source_refs.iter().any(|s|s.object.workspace_id!=workspace_id) { return Err(AgentError::new(ErrorCode::ScopeDenied,"Overview evidence belongs to another Workspace")); } }
             verify(self,&input.upsert_items)?;
             if !input.knowledge_upserts.is_empty() || !input.knowledge_removes.is_empty() {self.agent_knowledge_publish_in_transaction(workspace_id,&input.scope,input.expected_revision+1,input.target_seq,&input.knowledge_upserts,&input.knowledge_removes)?;}
             for key in &input.settled_object_keys {
-                if !key.starts_with(&format!("{}/{}/",workspace_id,input.scope.key())) {return Err(AgentError::new(ErrorCode::ScopeDenied,"Settled source belongs to another Workspace"));}
+                if !key.starts_with(&format!("{}/{}/",workspace_id,input.scope.key())) && !(matches!(input.scope,Scope::Workspace) && key.starts_with("published:")) {return Err(AgentError::new(ErrorCode::ScopeDenied,"Settled source belongs to another Workspace"));}
                 tx.execute("DELETE FROM agent_overview_pending WHERE scope_key=?1 AND object_key=?2 AND last_seq<=?3",params![input.scope.key(),key,input.target_seq as i64]).map_err(io_error)?;
             }
             let pending=self.overview_pending_status_read(&input.scope)?;
@@ -315,6 +461,32 @@ impl Database {
                     tx.execute("INSERT OR IGNORE INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES (?1,?2,'derived_from',?3,?4)",params![owner,key,locator,source.revision]).map_err(io_error)?;
                 }
                 for parent in &item.dependency_item_ids { tx.execute("INSERT OR IGNORE INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES (?1,?2,'derived_from','{}',?3)",params![owner,format!("{}/{}/overview/{}",workspace_id,input.scope.key(),parent),result.revision.to_string()]).map_err(io_error)?; }
+                for parent in &item.published_sources { tx.execute("INSERT OR IGNORE INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES (?1,?2,'derived_from','{}',?3)",params![owner,format!("{}/project:{}/overview/{}",workspace_id,parent.project_id,parent.item_id),parent.digest]).map_err(io_error)?; }
+            }
+            if let Scope::Project { project_id }=&input.scope {
+                let previous=AiOverview {items:previous_items,..result.clone()};
+                let ids:std::collections::BTreeSet<_>=previous.items.iter().chain(&result.items).map(|item|item.id.clone()).collect();
+                for id in ids {
+                    let old=previous.items.iter().find(|item|item.id==id)
+                        .map(|_|published_material(&previous,&id,&corrections.items).map(|v|v.0)).transpose()?;
+                    let new=result.items.iter().find(|item|item.id==id)
+                        .map(|_|published_material(&result,&id,&corrections.items).map(|v|v.0)).transpose()?;
+                    if old!=new {queue_published_change(tx,workspace_id,*project_id,&id,new.is_none())?;}
+                    else if new.is_some() {
+                        let owner=format!("{workspace_id}/project:{project_id}/overview/{id}");
+                        let parent_dirty:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM source_dependency_invalidations WHERE owner_key=?1)",[&owner],|r|r.get(0)).map_err(io_error)?;
+                        if !parent_dirty {
+                            let raw_prefix=format!("{workspace_id}/project:{project_id}/");
+                            tx.execute("DELETE FROM source_dependency_invalidations WHERE owner_key IN (
+                                WITH RECURSIVE affected(key) AS (
+                                    SELECT source_object_key FROM content_reference_edges WHERE relation='derived_from' AND target_object_key=?1
+                                    UNION SELECT e.source_object_key FROM content_reference_edges e JOIN affected a ON e.target_object_key=a.key WHERE e.relation='derived_from'
+                                ) SELECT key FROM affected)
+                                AND changed_object_key LIKE ?2 AND changed_object_key NOT LIKE ?3 AND seq<=?4",
+                                params![owner,format!("{raw_prefix}%"),format!("{raw_prefix}overview/%"),input.target_seq as i64]).map_err(io_error)?;
+                        }
+                    }
+                }
             }
             // Evidence is immutable and owned by a specific published version, including retained items.
             for item in &result.items { for (ordinal,source) in item.source_refs.iter().enumerate() {
@@ -443,6 +615,22 @@ impl Database {
                 params![scope.key(), item.revision as i64, id, json],
             )
             .map_err(io_error)?;
+        if let (Scope::Project {project_id},Some(workspace_id))=(scope,self.native_workspace_id.as_deref()) {
+            let head=self.agent_overview_head(scope)?;
+            let mut affected=std::collections::BTreeSet::new();
+            for candidate in existing.into_iter().map(|c|c.item_id.as_ref()).chain(std::iter::once(item.item_id.as_ref())) {
+                if let Some(id)=candidate {affected.insert(id.clone());}
+                else if let Some(snapshot)=&head {affected.extend(snapshot.items.iter().map(|i|i.id.clone()));}
+            }
+            if let Some(snapshot)=&head {
+                loop {
+                    let prior=affected.len();
+                    affected.extend(snapshot.items.iter().filter(|entry|entry.dependency_item_ids.iter().any(|id|affected.contains(id))).map(|entry|entry.id.clone()).collect::<Vec<_>>());
+                    if affected.len()==prior {break;}
+                }
+            }
+            for id in affected {queue_published_change(&self.conn,workspace_id,*project_id,&id,false)?;}
+        }
         Ok((
             self.agent_overview_corrections(scope)?,
             Some(OperationChange {
@@ -521,10 +709,86 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             text: id.into(),
             epistemic_status: EpistemicStatus::Inferred,
             source_refs: vec![],
+            published_sources: vec![],
             dependency_item_ids: vec![],
             valid_state: ValidState::Current,
             updated_at: "original time".into(),
         }
+    }
+    #[test]
+    fn published_digest_tracks_dependency_semantics_without_display_or_unrelated_changes() {
+        let scope=Scope::Project{project_id:7};
+        let source=SourceRef {object:ObjectRef {workspace_id:"w".into(),scope:scope.clone(),
+            kind:ObjectKind::File,id:"3".into()},revision:"content-hash".into(),
+            file_version:Some(1),record_version:None,block_id:None,locator:None,
+            title:"Old filename".into(),excerpt:"Old display excerpt".into()};
+        let mut base=item("basis");base.source_refs=vec![source];
+        let mut child=item("child");child.dependency_item_ids=vec!["basis".into()];
+        let unrelated=item("other");
+        let mut snapshot=AiOverview {scope,revision:1,schema_version:1,items:vec![base,child,unrelated],
+            as_of_seq:1,source_manifest_hash:"test".into(),built_at:"now".into(),
+            coverage:SourceCoverage{processed:1,partial:0,excluded:0,unsupported:0,pending:0},
+            pending_count:0,model_profile_id:"test".into()};
+        let first=published_material(&snapshot,"child",&[]).unwrap().0;
+        snapshot.revision=2;snapshot.items[2].text="unrelated update".into();
+        snapshot.items[0].source_refs[0].title="Renamed File".into();
+        snapshot.items[0].source_refs[0].excerpt="New display excerpt".into();
+        assert_eq!(published_material(&snapshot,"child",&[]).unwrap().0,first);
+        snapshot.items[0].source_refs[0].revision="new-content-hash".into();
+        assert_ne!(published_material(&snapshot,"child",&[]).unwrap().0,first);
+        snapshot.items[0].source_refs[0].revision="content-hash".into();
+        let correction=OverviewCorrection {id:"c".into(),scope:snapshot.scope.clone(),
+            item_id:Some("basis".into()),text:"Corrected interpretation".into(),revision:1,
+            deleted:false,created_at:"now".into(),updated_at:"now".into()};
+        assert_ne!(published_material(&snapshot,"child",&[correction]).unwrap().0,first);
+    }
+    #[test]
+    fn project_publish_queues_only_changed_parent_items() {
+        let (_root,db,scope_a)=setup();
+        let project_b=db.project_create(ProjectCreateInput {
+            name:"Other project".into(),summary:None,status:None,
+        }).unwrap();
+        let scope_b=Scope::Project{project_id:project_b.id};
+        let mut first_a=input(&db,&scope_a);
+        first_a.upsert_items.push(item("stable"));
+        publish(&db,"publish-a",&first_a).unwrap();
+        let mut first_b=input(&db,&scope_b);
+        first_b.batch_id="batch-b".into();
+        publish(&db,"publish-b",&first_b).unwrap();
+        db.conn.execute("DELETE FROM agent_overview_pending WHERE scope_key='workspace'",[]).unwrap();
+        let mut second=input(&db,&scope_a);
+        second.batch_id="batch-a2".into();
+        second.expected_revision=1;
+        second.upsert_items[0].text="Changed meaning".into();
+        publish(&db,"publish-a2",&second).unwrap();
+        let keys=db.conn.prepare("SELECT object_key FROM agent_overview_pending WHERE scope_key='workspace' ORDER BY object_key")
+            .unwrap().query_map([],|row|row.get::<_,String>(0)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        let project_a=match scope_a {Scope::Project{project_id}=>project_id,_=>unreachable!()};
+        assert_eq!(keys,vec![format!("published:{project_a}:a")]);
+    }
+    #[test]
+    fn deferred_parent_keeps_pending_while_next_project_runs() {
+        let (_root,mut db,scope_a)=setup();
+        db.bind_native_workspace("w").unwrap();
+        let project_b=db.project_create(ProjectCreateInput{name:"B".into(),summary:None,status:None}).unwrap();
+        let scope_b=Scope::Project{project_id:project_b.id};
+        let mut a=input(&db,&scope_a);a.batch_id="defer-a".into();
+        publish(&db,"defer-project-a",&a).unwrap();
+        let mut b=input(&db,&scope_b);b.batch_id="defer-b".into();
+        publish(&db,"defer-project-b",&b).unwrap();
+        let binding=crate::agent::models::WorkspaceBinding{workspace_id:"w".into(),generation:"one".into()};
+        let workspace=Scope::Workspace;
+        let first=db.agent_overview_maintenance_prepare(&binding,&workspace,Utc::now()).unwrap().unwrap();
+        assert_eq!(first.source_object.published().unwrap().project_id,match scope_a {Scope::Project{project_id}=>project_id,_=>unreachable!()});
+        db.agent_overview_maintenance_defer_published(&binding,&workspace,&first.batch_id,
+            ErrorCode::SourceNotReady,Utc::now()).unwrap();
+        let status=db.agent_overview_maintenance_status(&binding,&workspace).unwrap();
+        assert_eq!(status.deferred_count,1);
+        assert_eq!(status.error_code,None);
+        assert_eq!(status.pending_count,2);
+        let second=db.agent_overview_maintenance_prepare(&binding,&workspace,Utc::now()).unwrap().unwrap();
+        assert_eq!(second.source_object.published().unwrap().project_id,project_b.id);
     }
     fn input(db: &Database, scope: &Scope) -> OverviewPublishInput {
         OverviewPublishInput {

@@ -7,7 +7,7 @@ use super::{
     output_runtime::OutputState,
 };
 use crate::{
-    agent::context::AiOverview,
+    agent::context::{AiOverview, PublishedOverviewRef},
     db::{agent_run_provenance::ObservedSource, Database},
     source_service::SourceReadTarget,
 };
@@ -55,6 +55,33 @@ pub(crate) fn derived_source_visible(
         db.source_read_object(request, binding, &source.object)?;
     }
     Ok(())
+}
+/// Resolve a typed published item all the way to its original evidence. The
+/// caller may possess Workspace access without access to every Project; the
+/// complete mixed-source item is hidden in that case.
+pub(crate) fn published_source_visible(
+    db: &Database, request: &RequestContext, binding: &WorkspaceBinding,
+    parent: &PublishedOverviewRef,
+) -> AgentResult<Vec<SourceRef>> {
+    let scope = Scope::Project { project_id: parent.project_id };
+    request.authorize(binding, &scope, "context.read")?;
+    let project=ObjectRef {workspace_id:binding.workspace_id.clone(),scope:scope.clone(),
+        kind:ObjectKind::Project,id:parent.project_id.to_string()};
+    let mut project_request=request.clone();
+    if !project_request.scope_grant.operations.iter().any(|op|op=="source.read") {
+        project_request.scope_grant.operations.push("source.read".into());
+    }
+    db.source_read_object(&project_request,binding,&project)?;
+    let sources = db.agent_published_item_verify(parent)?;
+    if db.agent_overview_stale_items(&binding.workspace_id,&scope)?.contains(&parent.item_id) {
+        return Err(not_ready());
+    }
+    let mut source_request=request.clone();
+    if !source_request.scope_grant.operations.iter().any(|op| op=="source.read") {
+        source_request.scope_grant.operations.push("source.read".into());
+    }
+    for source in &sources { derived_source_visible(db,&source_request,binding,source)?; }
+    Ok(sources)
 }
 /// Flatten message citations once. The Host also uses this before initial L0 begin.
 pub(crate) fn expand_sources(
@@ -124,6 +151,8 @@ fn scope(value: &Value) -> AgentResult<Scope> {
 }
 fn add_knowledge(
     db: &Database,
+    request:&RequestContext,
+    binding:&WorkspaceBinding,
     scope: &Scope,
     id: &str,
     revision: u64,
@@ -144,16 +173,22 @@ fn add_knowledge(
             });
         } else {
             out.extend(node.source_refs.iter().map(observed));
+            for parent in &node.published_sources {
+                out.push(observed_project(binding,parent));
+                out.extend(published_source_visible(db,request,binding,parent)?.iter().map(observed));
+            }
         }
         return Ok(());
     }
     if let Some(id) = id.strip_prefix("overview:") {
-        return add_overview(db, scope, revision, vec![id.into()], out);
+        return add_overview(db,request,binding, scope, revision, vec![id.into()], out);
     }
     Err(not_ready())
 }
 fn add_overview(
     db: &Database,
+    request:&RequestContext,
+    binding:&WorkspaceBinding,
     scope: &Scope,
     revision: u64,
     ids: Vec<String>,
@@ -174,9 +209,18 @@ fn add_overview(
             .find(|item| item.id == id)
             .ok_or_else(not_ready)?;
         out.extend(item.source_refs.iter().map(observed));
+        for parent in &item.published_sources {
+            out.push(observed_project(binding,parent));
+            out.extend(published_source_visible(db,request,binding,parent)?.iter().map(observed));
+        }
         pending.extend(item.dependency_item_ids.iter().cloned());
     }
     Ok(())
+}
+fn observed_project(binding:&WorkspaceBinding,parent:&PublishedOverviewRef)->ObservedSource {
+    ObservedSource {object:ObjectRef {workspace_id:binding.workspace_id.clone(),
+        scope:Scope::Project{project_id:parent.project_id},kind:ObjectKind::Project,
+        id:parent.project_id.to_string()},revision:None}
 }
 fn output_card(
     db: &Database,
@@ -288,6 +332,7 @@ pub(super) fn result_sources(
             for card in array(result, "items")? {
                 add_knowledge(
                     db,
+                    request,binding,
                     &scope,
                     field(card, "nodeId")?.as_str().ok_or_else(not_ready)?,
                     revision(field(card, "revision")?)?,
@@ -299,6 +344,7 @@ pub(super) fn result_sources(
             let scope = scope(result)?;
             add_knowledge(
                 db,
+                request,binding,
                 &scope,
                 field(result, "nodeId")?.as_str().ok_or_else(not_ready)?,
                 revision(field(result, "revision")?)?,
@@ -307,6 +353,7 @@ pub(super) fn result_sources(
             for card in array(result, "related")? {
                 add_knowledge(
                     db,
+                    request,binding,
                     &scope,
                     field(card, "nodeId")?.as_str().ok_or_else(not_ready)?,
                     revision(field(card, "revision")?)?,
@@ -325,7 +372,7 @@ pub(super) fn result_sources(
                             .ok_or_else(not_ready)
                     })
                     .collect::<AgentResult<Vec<_>>>()?;
-                add_overview(db, &scope(result)?, r, ids, &mut out)?;
+                add_overview(db,request,binding, &scope(result)?, r, ids, &mut out)?;
             }
         }
         "output.get" => output_card(db, request, binding, result, &mut out)?,

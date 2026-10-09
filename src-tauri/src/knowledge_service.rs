@@ -10,7 +10,7 @@ use crate::{
         repository::ContextRepository,
         sessions::{SessionSummarySegment,SummaryStatement},
         settings::SettingsRepository,
-        source_trace::derived_source_visible,
+        source_trace::{derived_source_visible,published_source_visible},
     },
     db::Database,
     overview_evidence::{reference_file_plan, reference_state, FileReferenceProof},
@@ -104,6 +104,8 @@ pub(crate) struct KnowledgeGetPage {
     pub summary_offset: usize,
     pub sections: Vec<KnowledgeReadSection>,
     pub source_refs: Vec<SourceRef>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub published_sources: Vec<crate::agent::context::PublishedOverviewRef>,
     pub related: Vec<KnowledgeRelatedCard>,
     pub coverage: SourceCoverage,
     pub stale: bool,
@@ -223,12 +225,6 @@ fn authorize(
 ) -> AgentResult<RequestContext> {
     request.authorize(binding, scope, "context.read")?;
     request.require_scope_context()?;
-    if !matches!(scope, Scope::Project { .. }) {
-        return Err(AgentError::new(
-            ErrorCode::SourceNotReady,
-            "Workspace knowledge awaits M2",
-        ));
-    }
     let identity = crate::db::agent::WorkspaceContextRepository {
         db,
         workspace_name: "",
@@ -276,6 +272,13 @@ fn visible_metadata(
     }
     for reference in &node.source_refs {
         match derived_source_visible(db, request, binding, reference) {
+            Ok(_) => (),
+            Err(error) if unavailable(&error) => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+    for parent in &node.published_sources {
+        match published_source_visible(db,request,binding,parent) {
             Ok(_) => (),
             Err(error) if unavailable(&error) => return Ok(false),
             Err(error) => return Err(error),
@@ -382,7 +385,11 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
             }
             let mut plans = vec![];
             if input.view != KnowledgeView::Outline {
-                for reference in &node.source_refs {
+                let mut references=node.source_refs.clone();
+                for parent in &node.published_sources {
+                    references.extend(published_source_visible(db,&source_request,binding,parent).map_err(|error|if unavailable(&error){missing()}else{error})?);
+                }
+                for reference in &references {
                     let plan = reference_file_plan(db, &source_request, binding, reference)
                         .map_err(|error| {
                             if unavailable(&error) {
@@ -426,7 +433,11 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
             }
             let mut stale = dirty(db, binding, &snapshot)?;
             if input.view != KnowledgeView::Outline {
-                for reference in &snapshot.source_refs {
+                let mut references=snapshot.source_refs.clone();
+                for parent in &snapshot.published_sources {
+                    references.extend(published_source_visible(db,&source_request,binding,parent).map_err(|error|if unavailable(&error){missing()}else{error})?);
+                }
+                for reference in &references {
                     stale |= reference_state(db, &source_request, binding, reference).map_err(
                         |error| {
                             if unavailable(&error) {
@@ -649,7 +660,7 @@ fn project_session_summary(
     let next=|index,offset|encode(&ReadCursor {s:input.scope.clone(),n:node.node_id.clone(),r:node.revision,q:selection.into(),v:visibility.into(),i:index,o:offset});
     // Statements carry their own source cards. A prose-only segment still
     // needs its node-level original-message sources in the read response.
-    if count>0 {page.source_refs.clear();}
+    if count>0 {page.source_refs.clear();page.published_sources.clear();}
     page.summary_offset=offset;
     if offset<chars.len() {
         if cursor.is_none() {
@@ -737,6 +748,7 @@ fn project_with_superseders(
         } else {
             node.source_refs.clone()
         },
+        published_sources: if input.view == KnowledgeView::Outline {vec![]} else {node.published_sources.clone()},
         related,
         coverage: node.coverage.clone(),
         stale,
@@ -1110,6 +1122,7 @@ mod tests {
             aliases: vec!["计算机系统设计".into()],
             keywords: vec!["检索".into()],
             source_refs: vec![f.evidence[source].reference().clone()],
+            published_sources: vec![],
             epistemic_status: EpistemicStatus::Inferred,
             coverage: SourceCoverage {
                 processed: 1,

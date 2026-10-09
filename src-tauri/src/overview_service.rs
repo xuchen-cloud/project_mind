@@ -13,11 +13,11 @@ use crate::{
             OverviewPublishInput,
         },
         repository::ContextRepository,
-        source_trace::derived_source_visible,
+        source_trace::{derived_source_visible, published_source_visible},
     },
     db::Database,
     overview_evidence::{
-        reference_file_plan, reference_state, CapturedEvidence, FileReferenceProof,
+        reference_file_plan, reference_state, CapturedEvidence, CapturedPublishedItem, FileReferenceProof,
     },
     source_service::BoundSourceStore,
 };
@@ -109,12 +109,6 @@ fn authorize(
     request.authorize(binding, scope, operation)?;
     if operation == "context.read" {
         request.require_scope_context()?;
-    }
-    if !matches!(scope, Scope::Project { .. }) {
-        return Err(AgentError::new(
-            ErrorCode::SourceNotReady,
-            "Workspace Overview is supplied by M2",
-        ));
     }
     let identity = crate::db::agent::WorkspaceContextRepository {
         db,
@@ -228,6 +222,16 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         evidence: &[CapturedEvidence],
         before_commit: impl Fn(&WorkspaceBinding, &Database) -> AgentResult<()>,
     ) -> AgentResult<OverviewPublishReceipt> {
+        self.publish_checked_with_parents(request,input,evidence,&[],before_commit).await
+    }
+    pub(crate) async fn publish_checked_with_parents(
+        &self,
+        request: &RequestContext,
+        input: &OverviewPublishInput,
+        evidence: &[CapturedEvidence],
+        parents: &[CapturedPublishedItem],
+        before_commit: impl Fn(&WorkspaceBinding, &Database) -> AgentResult<()>,
+    ) -> AgentResult<OverviewPublishReceipt> {
         input.validate()?;
         let replay = self.store.with_current(|binding, db| {
             authorize(db, request, binding, &input.scope, "knowledge.write")?;
@@ -235,7 +239,7 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
             if input
                 .settled_object_keys
                 .iter()
-                .any(|key| !key.starts_with(&prefix))
+                .any(|key| !key.starts_with(&prefix) && !(matches!(input.scope,Scope::Workspace) && key.starts_with("published:")))
             {
                 return Err(AgentError::new(
                     ErrorCode::ScopeDenied,
@@ -266,6 +270,12 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                 })?;
             captured.verify_file().await?;
         }
+        for parent in input.upsert_items.iter().flat_map(|item| &item.published_sources)
+            .chain(input.knowledge_upserts.iter().flat_map(|node| &node.published_sources)) {
+            if !parents.iter().any(|captured| &captured.reference==parent) {
+                return Err(invalid("Published Overview evidence was not captured in this operation"));
+            }
+        }
         let (result, changes) = self.store.with_current(|binding, db| {
             authorize(db, request, binding, &input.scope, "knowledge.write")?;
             before_commit(binding, db)?;
@@ -287,6 +297,12 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                                 .find(|captured| captured.matches(reference))
                                 .ok_or_else(|| invalid("Missing captured Overview evidence"))?
                                 .verify(db, request, binding)?;
+                        }
+                        for parent in items.iter().flat_map(|item| &item.published_sources)
+                            .chain(input.knowledge_upserts.iter().flat_map(|node| &node.published_sources)) {
+                            parents.iter().find(|proof| &proof.reference==parent)
+                                .ok_or_else(||invalid("Missing captured published evidence"))?
+                                .verify(db,request,binding)?;
                         }
                         Ok(())
                     },
@@ -465,12 +481,26 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         // against the same retained version again inside the final read phase.
         let mut proofs = Vec::new();
         let mut unavailable_files = HashSet::new();
-        for reference in snapshot
+        let mut proof_references:Vec<(String,crate::agent::models::SourceRef)>=snapshot
             .items
             .iter()
             .filter(|item| wanted.contains(&item.id))
-            .flat_map(|item| &item.source_refs)
-        {
+            .flat_map(|item| item.source_refs.iter().cloned().map(|source|(item.id.clone(),source)))
+            .collect();
+        for item in snapshot.items.iter().filter(|item|wanted.contains(&item.id)) {
+            for parent in &item.published_sources {
+                let sources=self.store.with_current(|binding,db| {
+                    authorize(db,request,binding,&input.scope,"context.read")?;
+                    published_source_visible(db,&read_request,binding,parent)
+                });
+                match sources {
+                    Ok(sources)=>proof_references.extend(sources.into_iter().map(|source|(item.id.clone(),source))),
+                    Err(error) if unavailable(&error)=>(),
+                    Err(error)=>return Err(error),
+                }
+            }
+        }
+        for (_,reference) in &proof_references {
             let key = hash(&(
                 &reference.object,
                 &reference.revision,
@@ -519,6 +549,24 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
                 .into_iter()
                 .collect();
             for item in &snapshot.items {
+                for parent in &item.published_sources {
+                    match published_source_visible(db,&read_request,binding,parent) {
+                        Ok(sources) => {
+                            for source in sources {
+                                if source.object.kind!=crate::agent::models::ObjectKind::File {continue;}
+                                let key=hash(&(&source.object,&source.revision,source.record_version,source.file_version))?;
+                                if unavailable_files.contains(&key) {hidden.insert(item.id.clone());continue;}
+                                if let Some((_,proof))=proofs.iter().find(|(candidate,_)|candidate==&key) {
+                                    if let Err(error)=proof.verify(db,&read_request,binding,&source) {
+                                        if unavailable(&error){hidden.insert(item.id.clone());} else {return Err(error);}
+                                    }
+                                } else {hidden.insert(item.id.clone());}
+                            }
+                        },
+                        Err(error) if unavailable(&error) => { hidden.insert(item.id.clone()); },
+                        Err(error) => return Err(error),
+                    }
+                }
                 for reference in &item.source_refs {
                     let key = hash(&(
                         &reference.object,
@@ -948,6 +996,7 @@ mod tests {
                 text: "基于实际任务的进展".into(),
                 epistemic_status: EpistemicStatus::Recorded,
                 source_refs: vec![captured.reference().clone()],
+            published_sources: vec![],
                 dependency_item_ids: vec![],
                 valid_state: ValidState::Current,
                 updated_at: "2026-10-03T00:00:00Z".into(),
@@ -1350,6 +1399,7 @@ mod tests {
             aliases: vec!["决策".into()],
             keywords: vec!["依据".into()],
             source_refs: vec![evidence[0].reference().clone()],
+            published_sources: vec![],
             epistemic_status: EpistemicStatus::Recorded,
             coverage: input.coverage.clone(),
             related: vec![],

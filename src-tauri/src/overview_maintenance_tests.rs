@@ -1,3 +1,4 @@
+use crate::agent::settings::SettingsRepository;
 use super::*;
 use crate::{
     agent::settings::SettingsUpdate,
@@ -248,6 +249,122 @@ fn edit_todo(f: &Fixture, content: String) {
 mod session_tests;
 
 #[tokio::test]
+async fn workspace_published_input_uses_visible_other_project_understanding() {
+    use crate::agent::context::{OverviewItem,OverviewSection,ValidState};
+    let f=fixture();
+    let workspace=Scope::Workspace;
+    let (a,b)={
+        let db=f.store.db.lock().unwrap();
+        let a=match &f.scope {Scope::Project{project_id}=>*project_id,_=>unreachable!()};
+        let b=db.project_create(ProjectCreateInput{name:"B".into(),summary:None,status:None}).unwrap().id;
+        let c=db.project_create(ProjectCreateInput{name:"C".into(),summary:None,status:None}).unwrap().id;
+        let mut settings=db.agent_settings_get(&workspace).unwrap();
+        settings.enabled=true;
+        db.agent_settings_update("gui","enable-workspace-test",&SettingsUpdate{
+            expected_revision:settings.revision,settings}).unwrap();
+        let publish=|scope:Scope,batch:&str,items:Vec<OverviewItem>,settled:Vec<String>| {
+            let input=OverviewPublishInput {scope:scope.clone(),batch_id:batch.into(),expected_revision:0,
+                target_seq:db.committed_change_watermark().unwrap() as u64,
+                policy_revision:db.agent_settings_get(&scope).unwrap().revision,
+                correction_revision:0,upsert_items:items,remove_item_ids:vec![],settled_object_keys:settled,
+                knowledge_upserts:vec![],knowledge_removes:vec![],
+                coverage:SourceCoverage{processed:0,partial:0,excluded:0,unsupported:0,pending:0},
+                source_manifest_hash:"test".into(),model_profile_id:"fixture".into()};
+            db.agent_overview_publish("gui",batch,&f.store.binding.workspace_id,&input,|_,_|Ok(())).unwrap();
+        };
+        let item=|id:&str,text:&str,published_sources| OverviewItem {id:id.into(),
+            section:OverviewSection::KnowledgeMap,text:text.into(),epistemic_status:EpistemicStatus::Inferred,
+            source_refs:vec![],published_sources,dependency_item_ids:vec![],
+            valid_state:ValidState::Current,updated_at:"fixture".into()};
+        publish(f.scope.clone(),"project-a",vec![item("a","A 原有结论",vec![])],vec![]);
+        publish(Scope::Project{project_id:b},"project-b",vec![item("b","B 的项目结论",vec![])],vec![]);
+        publish(Scope::Project{project_id:c},"project-c",vec![item("c","C 的撤权结论",vec![])],vec![]);
+        for index in 0..10 {
+            if db.agent_overview_inventory_advance("gui",&format!("workspace-inventory-{index}"),
+                &f.store.binding.workspace_id,&workspace,100).unwrap().directory_complete {break;}
+        }
+        let bref=db.agent_published_item_capture(b,"b").unwrap().0;
+        let cref=db.agent_published_item_capture(c,"c").unwrap().0;
+        publish(workspace.clone(),"workspace-seed",vec![
+            item("workspace-b","B 的已发布 Workspace 理解",vec![bref]),
+            item("workspace-c","C 的撤权 Workspace 理解",vec![cref])],
+            vec![format!("published:{b}:b"),format!("published:{c}:c")]);
+        (a,b)
+    };
+    let mut req=request(f.store.binding.clone(),&workspace,"workspace-step".into());
+    req.scope_grant.workspace_content=true;
+    req.scope_grant.project_ids=vec![a,b];
+    let model=MockModel::new();
+    model.set_response(r#"{"upsertItems":[{"id":"workspace-a-b","section":"knowledgeMap","text":"A 与 B 相关","epistemicStatus":"inferred","evidenceIndices":[0],"dependencyItemIds":["workspace-b"]}],"removeItemIds":[],"sourceSummary":{"title":"A B 关联主题","oneLine":"跨项目关系","summary":"A 与 B 的已发布知识关联","bodySections":[],"keywords":["跨项目"]}}"#);
+    for index in 0..8 {
+        f.store.with_current(|binding,db|db.overview_schedule_request(binding,&workspace,Utc::now()).map(|_|())).unwrap();
+        req.request_id=format!("workspace-step-{index}");
+        step(&f.store,&req,&workspace,&NoUtility,&NoUtility,&model,&NoUtility).await.unwrap();
+        if model.calls()>0 {break;}
+    }
+    assert_eq!(model.calls(),1);
+    let prompt=&model.prompts.lock().unwrap()[0];
+    assert!(prompt.contains("B 的已发布 Workspace 理解"));
+    assert!(!prompt.contains("C 的撤权 Workspace 理解"));
+    let head=f.store.with_current(|_,db|db.agent_overview_head(&workspace)).unwrap().unwrap();
+    assert!(head.items.iter().any(|item|item.id=="workspace-a-b" &&
+        item.dependency_item_ids==vec!["workspace-b".to_string()]));
+    let gui_ids=crate::agent::commands::gui_project_ids(&f.store,&f.store.binding,&workspace).unwrap();
+    assert!(gui_ids.contains(&a) && gui_ids.contains(&b));
+    let mut gui_request=req.clone();
+    gui_request.scope_grant.project_ids=gui_ids;
+    let registry=crate::knowledge_registry::KnowledgeRegistry::new(&f.store);
+    let result=registry.search(&gui_request,&crate::knowledge_service::KnowledgeSearchInput {
+        scope:workspace.clone(),query:"A B 关联主题".into(),kinds:vec![],cursor:None,
+        limit:Some(10),budget_chars:Some(3000),
+    }).unwrap();
+    let node=result.items.iter().find(|item|item.node_id.starts_with("node:published-")).unwrap();
+    let page=registry.get(&gui_request,&crate::knowledge_service::KnowledgeGetInput {
+        scope:workspace.clone(),node_id:node.node_id.clone(),version:None,
+        view:crate::knowledge_service::KnowledgeView::Summary,section_ids:vec![],
+        cursor:None,budget_chars:Some(8000),
+    }).await.unwrap();
+    assert!(!page.published_sources.is_empty());
+    f.store.with_current(|_,db|db.agent_overview_correction_upsert("gui","correct-project-a",
+        &crate::agent::overview::OverviewCorrectionUpsert {scope:f.scope.clone(),id:"correct-a".into(),
+            item_id:Some("a".into()),text:"A 的旧结论已纠正".into(),expected_revision:0}).map(|_|())).unwrap();
+    let hidden=registry.get(&gui_request,&crate::knowledge_service::KnowledgeGetInput {
+        scope:Scope::Workspace,node_id:node.node_id.clone(),version:Some(page.revision),
+        view:crate::knowledge_service::KnowledgeView::Summary,section_ids:vec![],
+        cursor:None,budget_chars:Some(8000),
+    }).await.unwrap_err();
+    assert_eq!(hidden.code,ErrorCode::NotFound);
+
+    let batch=f.store.with_current(|binding,db|db.agent_overview_maintenance_prepare(binding,&workspace,Utc::now()))
+        .unwrap().unwrap();
+    assert_eq!(batch.source_object.published().unwrap().project_id,a);
+    let parent=f.store.with_current(|_,db|db.agent_published_item_capture(a,"a").map(|v|v.0)).unwrap();
+    let progress=OverviewSourceProgress {object:batch.source_object.clone(),read_target:None,read_cursor:None,
+        state:OverviewSourceState::Processed,handled_seq:batch.source.last_seq};
+    let coverage=f.store.with_current(|binding,db|db.agent_overview_maintenance_coverage(binding,&workspace,Some(&progress))).unwrap();
+    let draft=OverviewPublishInput {scope:workspace.clone(),batch_id:batch.batch_id.clone(),
+        expected_revision:batch.expected_revision,target_seq:batch.target_seq,
+        policy_revision:batch.policy_revision,correction_revision:batch.correction_revision,
+        upsert_items:vec![OverviewItem {id:"workspace-corrected-a".into(),
+            section:OverviewSection::KnowledgeMap,text:"按纠正更新的 A".into(),
+            epistemic_status:EpistemicStatus::Inferred,source_refs:vec![],published_sources:vec![parent],
+            dependency_item_ids:vec![],valid_state:ValidState::Current,updated_at:"now".into()}],
+        remove_item_ids:vec![],settled_object_keys:vec![batch.source.object_key.clone()],
+        knowledge_upserts:vec![],knowledge_removes:vec![],coverage,
+        source_manifest_hash:"saved-workspace-draft".into(),model_profile_id:"saved-model".into()};
+    f.store.with_current(|binding,db|db.agent_overview_maintenance_save_draft_many(binding,&workspace,
+        &batch.batch_id,&draft,std::slice::from_ref(&progress),Some(1200),Utc::now())).unwrap();
+    let before=model.calls();
+    *model.fail.lock().unwrap()=Some(ErrorCode::RuntimeUnavailable);
+    f.store.with_current(|binding,db|db.overview_schedule_request(binding,&workspace,Utc::now()).map(|_|())).unwrap();
+    req.request_id="replay-workspace-draft".into();
+    assert!(step(&f.store,&req,&workspace,&NoUtility,&NoUtility,&model,&NoUtility).await.unwrap());
+    assert_eq!(model.calls(),before);
+    assert!(f.store.with_current(|_,db|db.agent_overview_head(&workspace)).unwrap().unwrap().items
+        .iter().any(|item|item.id=="workspace-corrected-a"));
+}
+
+#[tokio::test]
 async fn fifty_todo_edits_generate_once_from_latest_native_source_and_leave_quick_note() {
     let mut f = fixture();
     let model = MockModel::new();
@@ -349,7 +466,7 @@ async fn saved_small_page_draft_replays_without_model_and_preserves_cursor() {
     }).unwrap().unwrap();
     let source_request = request(f.store.binding.clone(), &f.scope, "draft-small-page".into());
     let input = SourceReadInput { source: batch.source_read_target.clone().unwrap_or(SourceReadTarget {
-        object: batch.source_object.clone(), revision: None, record_version: None, file_version: None,
+        object: batch.source_object.raw_object().unwrap().clone(), revision: None, record_version: None, file_version: None,
     }), view: SourceReadView::Full, selection: None, cursor: batch.source_cursor.clone(), budget_chars: Some(2_500) };
     let (page, _) = crate::overview_evidence::capture(&f.store, &source_request, &input, &NoUtility, &NoUtility).await.unwrap();
     assert!(!page.complete);
@@ -364,7 +481,8 @@ async fn saved_small_page_draft_replays_without_model_and_preserves_cursor() {
         upsert_items: vec![crate::agent::context::OverviewItem {
             id: "small-page-cited".into(), section: crate::agent::context::OverviewSection::Progress,
             text: "已读取首个中文片段".into(), epistemic_status: EpistemicStatus::Recorded,
-            source_refs: vec![page.source_ref.clone()], dependency_item_ids: vec![],
+            source_refs: vec![page.source_ref.clone()],
+            published_sources: vec![], dependency_item_ids: vec![],
             valid_state: crate::agent::context::ValidState::Current,
             updated_at: Utc::now().to_rfc3339(),
         }], remove_item_ids: vec![], settled_object_keys: vec![],

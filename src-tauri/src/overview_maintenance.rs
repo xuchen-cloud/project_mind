@@ -66,6 +66,8 @@ pub(crate) struct OverviewMaintenanceView {
     progress: crate::db::overview_maintenance::OverviewMaintenanceStatus,
     #[serde(flatten)]
     schedule: crate::db::overview_schedule::OverviewScheduleStatus,
+    #[serde(skip_serializing_if="Option::is_none")]
+    project_statuses: Option<Vec<crate::db::overview_maintenance::OverviewProjectStatus>>,
 }
 pub(crate) fn status<S: BoundSourceStore>(
     store: &S,
@@ -74,9 +76,11 @@ pub(crate) fn status<S: BoundSourceStore>(
 ) -> AgentResult<OverviewMaintenanceView> {
     store.with_current(|binding, db| {
         request.authorize(binding, scope, "settings.read")?;
+        let project_statuses=if matches!(scope,Scope::Workspace) {Some(db.agent_overview_project_statuses(binding)?)} else {None};
         Ok(OverviewMaintenanceView {
             progress: db.agent_overview_maintenance_status(binding, scope)?,
             schedule: db.overview_schedule_status(binding, scope, Utc::now())?,
+            project_statuses,
         })
     })
 }
@@ -209,8 +213,17 @@ pub(crate) async fn step<
             }
         }
     };
+    let mut deferred=false;
     if let Err(error) = &result {
-        if !matches!(
+        if matches!(&batch.source_object,crate::db::overview_maintenance::OverviewInput::Published{..})
+            && matches!(error.code,ErrorCode::SourceNotReady|ErrorCode::FileChangedUnregistered) {
+            store.with_current(|binding,db| {
+                let now=Utc::now();
+                db.agent_overview_maintenance_defer_published(binding,scope,&batch.batch_id,error.code,now)?;
+                db.overview_schedule_finished(binding,scope,true,now)
+            })?;
+            deferred=true;
+        } else if !matches!(
             error.code,
             ErrorCode::Cancelled
                 | ErrorCode::RunBusy
@@ -228,6 +241,7 @@ pub(crate) async fn step<
             })?;
         }
     }
+    if deferred {return Ok(true);}
     result.map(|_| true)
 }
 
@@ -247,6 +261,10 @@ async fn process_batch<
     history: &H,
 ) -> AgentResult<()> {
     let service = OverviewService::new(store);
+    if batch.source_object.published().is_some() {
+        return process_published_batch(store,request,batch,model).await;
+    }
+    let source_object = batch.source_object.raw_object().ok_or_else(|| AgentError::new(ErrorCode::InvalidArgument,"Expected raw Overview input"))?;
     // A crash after publish must not charge another model call or reread a source
     // that may already have changed. The immutable publication proves completion.
     if let Some(draft) = &batch.draft {
@@ -262,7 +280,7 @@ async fn process_batch<
     let mut evidence = vec![];
     let mut pages = vec![];
     let mut progress = OverviewSourceProgress {
-        object: batch.source_object.clone(),
+        object: crate::db::overview_maintenance::OverviewInput::Raw(source_object.clone()),
         read_target: None,
         read_cursor: None,
         state: OverviewSourceState::Processed,
@@ -270,25 +288,25 @@ async fn process_batch<
     };
     let conversation_data = if !batch.source.deleted && !batch.source.excluded {
         crate::overview_session::input(store, request, &batch.source_read_target.clone().unwrap_or(SourceReadTarget {
-            object: batch.source_object.clone(), revision: None, record_version: None, file_version: None,
+            object: source_object.clone(), revision: None, record_version: None, file_version: None,
         }))?
     } else { None };
     if batch.source.deleted {
         progress.state = OverviewSourceState::Deleted;
     } else if batch.source.excluded {
         progress.state = OverviewSourceState::Excluded;
-    } else if batch.source_object.kind == ObjectKind::SessionSummary {
+    } else if source_object.kind == ObjectKind::SessionSummary {
         // Summary policy events are metadata invalidations. Its original
         // messages own generation; never summarize a summary again.
         progress.state = OverviewSourceState::Processed;
-    } else if batch.source_object.kind == ObjectKind::SessionMessage && conversation_data.is_none() {
+    } else if source_object.kind == ObjectKind::SessionMessage && conversation_data.is_none() {
         progress.state = OverviewSourceState::Unsupported;
     } else {
         let target = batch
             .source_read_target
             .clone()
             .unwrap_or(SourceReadTarget {
-                object: batch.source_object.clone(),
+                object: source_object.clone(),
                 revision: None,
                 record_version: None,
                 file_version: None,
@@ -300,12 +318,12 @@ async fn process_batch<
             cursor: batch.source_cursor.clone(),
             budget_chars: Some(page_budget_chars),
         };
-        let (page, proof) = if batch.source_object.kind == ObjectKind::SessionMessage {
+        let (page, proof) = if source_object.kind == ObjectKind::SessionMessage {
             crate::overview_evidence::capture_session(store, request, &input, history).await?
         } else {
             crate::overview_evidence::capture(store, request, &input, record, file).await?
         };
-        if batch.draft.is_none() && batch.source_object.kind != ObjectKind::Project
+        if batch.draft.is_none() && source_object.kind != ObjectKind::Project
             && !page.text.trim().is_empty() {
             let prepared = model.prepare().await?;
             budget = Some(prepared);
@@ -355,7 +373,7 @@ async fn process_batch<
                 budget_chars:Some(page_budget_chars) };
             let (page,proof)=crate::overview_evidence::capture_session(store,request,&input,history).await?;
             if !page.complete || page.text.trim().is_empty() { break; }
-            let progress=OverviewSourceProgress { object,read_target:Some(SourceReadTarget { revision:Some(page.source_ref.revision.clone()),..input.source }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq };
+            let progress=OverviewSourceProgress { object:crate::db::overview_maintenance::OverviewInput::Raw(object),read_target:Some(SourceReadTarget { revision:Some(page.source_ref.revision.clone()),..input.source }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq };
             candidate_reads.push((source,record,conversation,page,proof,progress));
         }
     }
@@ -385,7 +403,7 @@ async fn process_batch<
             .map(|item| item.id.clone())
             .collect();
         if !pages.is_empty()
-            && batch.source_object.kind != ObjectKind::Project
+            && source_object.kind != ObjectKind::Project
             && !pages[0].text.trim().is_empty()
         {
             if let Some(snapshot) = &mut old {
@@ -425,7 +443,7 @@ async fn process_batch<
                 .filter(|item| {
                     item.source_refs
                         .iter()
-                        .any(|source| source.object == batch.source_object)
+                        .any(|source| source.object == *source_object)
                 })
                 .map(|item| item.id.clone())
                 .collect(),
@@ -475,12 +493,12 @@ async fn process_batch<
                 let next_page_budget = metadata_chars + (current_chars / 2).max(1);
                 let input = SourceReadInput {
                     source: batch.source_read_target.clone().unwrap_or(SourceReadTarget {
-                        object: batch.source_object.clone(), revision: None, record_version: None, file_version: None,
+                        object: source_object.clone(), revision: None, record_version: None, file_version: None,
                     }), view: SourceReadView::Full, selection: None, cursor: batch.source_cursor.clone(),
                     budget_chars: Some(next_page_budget),
                 };
                 page_budget_chars = next_page_budget;
-                let (page, proof) = if batch.source_object.kind == ObjectKind::SessionMessage {
+                let (page, proof) = if source_object.kind == ObjectKind::SessionMessage {
                     crate::overview_evidence::capture_session(store, request, &input, history).await?
                 } else {
                     crate::overview_evidence::capture(store, request, &input, record, file).await?
@@ -501,7 +519,7 @@ async fn process_batch<
             pages.push(page);
             session_data.push((record,conversation));
             let mut prospective_allowed=allowed.clone();
-            prospective_allowed.affected_ids.extend(old_items.iter().filter(|item|item.source_refs.iter().any(|reference|reference.object==next_progress.object)).map(|item|item.id.clone()));
+            prospective_allowed.affected_ids.extend(old_items.iter().filter(|item|item.source_refs.iter().any(|reference|reference.object==*next_progress.object.raw_object().unwrap())).map(|item|item.id.clone()));
             prospective_allowed.affected_ids.extend(crate::overview_session::predecessors(store,&session_data.last().unwrap().0,old_items)?);
             loop {
                 let before=prospective_allowed.affected_ids.len();
@@ -547,7 +565,7 @@ async fn process_batch<
         if pages.is_empty() || (pages[0].complete && pages[0].text.trim().is_empty()) {
             publish.remove_item_ids = allowed.affected_ids.iter().cloned().collect();
             publish.remove_item_ids.sort();
-        } else if batch.source_object.kind != ObjectKind::Project
+        } else if source_object.kind != ObjectKind::Project
             && !pages[0].text.trim().is_empty()
         {
             let relevant: Vec<_> = old_items
@@ -619,6 +637,7 @@ async fn process_batch<
                     aliases: vec![],
                     keywords: summary.keywords,
                     source_refs: refs,
+            published_sources: vec![],
                     epistemic_status: EpistemicStatus::Inferred,
                     coverage: SourceCoverage {
                         processed: pages.iter().filter(|page|page.complete).count() as u64,
@@ -653,6 +672,173 @@ async fn process_batch<
         .await?;
     complete(store, request, batch)
 }
+async fn process_published_batch<S:BoundSourceStore,M:OverviewModel>(
+    store:&S,request:&RequestContext,batch:&OverviewMaintenanceBatch,model:&M)->AgentResult<()> {
+    let service=OverviewService::new(store);
+    let parent=batch.source_object.published().ok_or_else(||AgentError::new(ErrorCode::InvalidArgument,"Expected published input"))?;
+    if let Some(draft)=&batch.draft {
+        if store.with_current(|_,db|db.agent_overview_replay(&request.caller.key(),&request.request_id,draft))?.is_some() {
+            return complete(store,request,batch);
+        }
+    }
+    let mut proof=if batch.source.deleted || batch.source.excluded {None} else {
+        match store.with_current(|binding,db| {
+            active(db,binding,request,&batch.scope)?;
+            crate::overview_evidence::CapturedPublishedItem::recapture(db,request,binding,parent)
+        }) {
+            Ok(proof)=>Some(proof),
+            Err(error) if matches!(error.code,ErrorCode::SourceChanged|ErrorCode::ScopeDenied|ErrorCode::NotFound|ErrorCode::ObjectWithdrawn)=>None,
+            Err(error)=>return Err(error),
+        }
+    };
+    if let Some(captured)=&mut proof {
+        match captured.prepare_files(store,request).await {
+            Ok(())=>(),
+            Err(error) if matches!(error.code,ErrorCode::SourceChanged|ErrorCode::ScopeDenied|ErrorCode::NotFound|ErrorCode::ObjectWithdrawn)=>proof=None,
+            Err(error)=>return Err(error),
+        }
+    }
+    let mut progress=batch.next_progress.clone().unwrap_or_else(||OverviewSourceProgress {
+        object:batch.source_object.clone(),read_target:None,read_cursor:None,
+        state:OverviewSourceState::Processed,handled_seq:batch.source.last_seq});
+    let mut page_budget_chars=batch.source_page_budget_chars.unwrap_or(2000);
+    let publish=if let Some(draft)=&batch.draft {draft.clone()} else {
+        let (old,corrections)=store.with_current(|binding,db| {
+            active(db,binding,request,&batch.scope)?;
+            Ok((db.agent_overview_head(&batch.scope)?,db.agent_overview_corrections(&batch.scope)?))
+        })?;
+        let old_items=old.as_ref().map_or(&[][..],|snapshot|snapshot.items.as_slice());
+        let mut allowed=AllowedAffectedIds {
+            existing_ids:old_items.iter().map(|item|item.id.clone()).collect(),
+            affected_ids:old_items.iter().filter(|item|item.published_sources.iter().any(|p|
+                p.project_id==parent.project_id && p.item_id==parent.item_id)).map(|item|item.id.clone()).collect(),
+        };
+        loop {
+            let before=allowed.affected_ids.len();
+            allowed.affected_ids.extend(old_items.iter().filter(|item|item.dependency_item_ids.iter().any(|id|allowed.affected_ids.contains(id))).map(|item|item.id.clone()).collect::<Vec<_>>());
+            if before==allowed.affected_ids.len(){break;}
+        }
+        let mut prepared=None;
+        if let Some(captured)=&proof {
+            let mut live_corrections=captured.corrections.clone();
+            live_corrections.extend(corrections.items.iter().filter(|c|!c.deleted).cloned());
+            let full_text=&captured.text;
+            // Read existing Workspace understanding through the same visibility
+            // gate as a user. This gives the model valid cross-Project context
+            // without consuming any other Project's raw sources again.
+            let mut relevant=Vec::new();
+            let mut context_chars=0usize;
+            for prior in old_items.iter().take(30) {
+                if relevant.len()>=12 || context_chars>=4_000 {break;}
+                let page=service.get(request,&crate::overview_service::OverviewReadInput {
+                    scope:batch.scope.clone(),version:None,sections:vec![],
+                    item_ids:vec![prior.id.clone()],cursor:None,budget_chars:Some(8_000),
+                }).await?;
+                if let Some(item)=page.items.into_iter().find(|item|item.item.id==prior.id && item.complete &&
+                    matches!(item.item.valid_state,crate::agent::context::ValidState::Current)) {
+                    let length=item.item.text.chars().count();
+                    if context_chars+length<=4_000 {
+                        context_chars+=length;relevant.push(item.item);
+                    }
+                }
+            }
+            let budget=model.prepare().await?;
+            let offset=batch.source_cursor.as_deref().map(|s|s.parse::<usize>().map_err(|_|AgentError::new(ErrorCode::SourceChanged,"Invalid published cursor"))).transpose()?.unwrap_or(0);
+            let total=full_text.chars().count();
+            if offset>total {return Err(AgentError::new(ErrorCode::SourceChanged,"Published cursor exceeds item text"));}
+            let prompt=loop {
+                let page:String=full_text.chars().skip(offset).take(page_budget_chars).collect();
+                let complete=offset+page.chars().count()>=total;
+                let prompt=crate::overview_generation::build_published_prompt(&allowed,&relevant,&live_corrections,&page,offset,complete)?;
+                if budget.check(&prompt).is_ok() {
+                    progress.state=if complete {OverviewSourceState::Processed} else {OverviewSourceState::Partial};
+                    progress.read_cursor=(!complete).then(||(offset+page.chars().count()).to_string());
+                    break prompt;
+                }
+                if page_budget_chars<=256 && !relevant.is_empty() {
+                    relevant.pop();
+                    continue;
+                }
+                if page_budget_chars<=1 {return Err(AgentError::new(ErrorCode::BudgetExceeded,"Published item metadata exceeds model input budget"));}
+                page_budget_chars=(page_budget_chars/2).max(1);
+            };
+            prepared=Some((budget,prompt,relevant));
+        }
+        let coverage=store.with_current(|binding,db|db.agent_overview_maintenance_coverage_many(binding,&batch.scope,std::slice::from_ref(&progress)))?;
+        let mut publish=OverviewPublishInput {scope:batch.scope.clone(),batch_id:batch.batch_id.clone(),
+            expected_revision:batch.expected_revision,target_seq:batch.target_seq,
+            policy_revision:batch.policy_revision,correction_revision:batch.correction_revision,
+            upsert_items:vec![],remove_item_ids:vec![],settled_object_keys:if progress.state==OverviewSourceState::Partial {vec![]} else {vec![batch.source.object_key.clone()]},
+            knowledge_upserts:vec![],knowledge_removes:vec![],coverage,
+            source_manifest_hash:hash(&(&batch.source,parent,&progress))?,model_profile_id:"native-metadata".into()};
+        if let Some(proof)=&proof {
+            // A stale old item must not be reintroduced to the model just to
+            // change one parent. The native parent proof is the new evidence.
+            let (budget,prompt,relevant)=prepared.ok_or_else(||AgentError::new(ErrorCode::IoFailed,"Published model capacity is missing"))?;
+            let reserved=store.with_current(|binding,db| {
+                active(db,binding,request,&batch.scope)?;
+                db.overview_schedule_reserve(binding,&batch.scope,&batch.batch_id,prompt.len() as u32,Utc::now())
+            })?;
+            if !reserved {return Err(AgentError::new(ErrorCode::RunBusy,"Knowledge maintenance yielded to foreground work"));}
+            let generated=model.generate(&batch.batch_id,&prompt,&budget).await?;
+            let delta=crate::overview_generation::parse_published_delta(&generated.text,&allowed,
+                std::slice::from_ref(&proof.reference),&Utc::now().to_rfc3339())?;
+            let available:std::collections::HashSet<&str>=relevant.iter().map(|item|item.id.as_str())
+                .chain(delta.upsert_items.iter().map(|item|item.id.as_str())).collect();
+            if delta.upsert_items.iter().flat_map(|item|&item.dependency_item_ids)
+                .any(|id|!available.contains(id.as_str())) {
+                return Err(AgentError::new(ErrorCode::SourceChanged,"Workspace dependency is not currently visible"));
+            }
+            publish.model_profile_id=generated.model_profile_id;
+            publish.upsert_items=delta.upsert_items;publish.remove_item_ids=delta.remove_item_ids;
+            if let Some(summary)=delta.source_summary {
+                let node_id=format!("{}{}",crate::agent::knowledge::published_node_prefix(parent.project_id,&parent.item_id),batch.source_cursor.as_deref().unwrap_or("0"));
+                let previous=store.with_current(|_,db|db.agent_knowledge_get(&batch.scope,&node_id,None))?;
+                publish.knowledge_upserts.push(KnowledgeNodeWrite {
+                    node_id,expected_revision:previous.map_or(0,|n|n.revision),kind:KnowledgeKind::Topic,
+                    title:summary.title,one_line:summary.one_line,summary:summary.summary,
+                    body_sections:summary.body_sections,aliases:vec![],keywords:summary.keywords,
+                    source_refs:vec![],published_sources:vec![proof.reference.clone()],
+                    epistemic_status:EpistemicStatus::Inferred,coverage:SourceCoverage{processed:1,partial:0,excluded:0,unsupported:0,pending:0},
+                    related:vec![],session_summary:None,
+                });
+            }
+        } else {
+            publish.remove_item_ids=allowed.affected_ids.into_iter().collect();publish.remove_item_ids.sort();
+            publish.knowledge_removes=store.with_current(|_,db|db.agent_published_knowledge_ids(parent.project_id,&parent.item_id))?;
+        }
+        store.with_current(|binding,db| {
+            active(db,binding,request,&batch.scope)?;
+            db.agent_overview_maintenance_save_draft_many(binding,&batch.scope,&batch.batch_id,&publish,
+                std::slice::from_ref(&progress),Some(page_budget_chars),Utc::now())
+        })?;
+        publish
+    };
+    let proofs:Vec<_>=proof.into_iter().collect();
+    service.publish_checked_with_parents(request,&publish,&[],&proofs,|binding,db| {
+        active(db,binding,request,&batch.scope)?;
+        let head=db.agent_overview_head(&batch.scope)?;
+        let existing=head.as_ref().map_or(&[][..],|head|head.items.as_slice());
+        let new_ids:std::collections::HashSet<_>=publish.upsert_items.iter().map(|item|item.id.as_str()).collect();
+        let stale:std::collections::HashSet<_>=db.agent_overview_stale_items(&binding.workspace_id,&batch.scope)?.into_iter().collect();
+        let mut todo:Vec<_>=publish.upsert_items.iter().flat_map(|item|&item.dependency_item_ids).cloned().collect();
+        let mut checked=std::collections::HashSet::new();
+        while let Some(id)=todo.pop() {
+            if !checked.insert(id.clone()) || new_ids.contains(id.as_str()) {continue;}
+            let prior=existing.iter().find(|item|item.id==id)
+                .ok_or_else(||AgentError::new(ErrorCode::SourceChanged,"Workspace dependency disappeared"))?;
+            if stale.contains(&id) || !matches!(prior.valid_state,crate::agent::context::ValidState::Current) {
+                return Err(AgentError::new(ErrorCode::SourceChanged,"Workspace dependency is stale"));
+            }
+            for raw in &prior.source_refs {crate::agent::source_trace::derived_source_visible(db,request,binding,raw)?;}
+            for parent in &prior.published_sources {crate::agent::source_trace::published_source_visible(db,request,binding,parent)?;}
+            todo.extend(prior.dependency_item_ids.iter().cloned());
+        }
+        db.agent_overview_maintenance_validate_sources(request,binding,&batch.scope,&batch.batch_id)
+    }).await?;
+    complete(store,request,batch)
+}
+
 fn complete<S: BoundSourceStore>(
     store: &S,
     request: &RequestContext,
@@ -695,11 +881,20 @@ pub(crate) fn start(app: &tauri::AppHandle) {
                     .map(|scope| (binding.clone(), scope)))
             });
             if let Ok(Some((binding, scope))) = selected {
-                let request = request(
+                let mut request = request(
                     binding.clone(),
                     &scope,
                     format!("overview-inventory-{:032x}", rand::random::<u128>()),
                 );
+                if matches!(scope,Scope::Workspace) {
+                    let granted=(*state).with_current(|binding,db| {
+                        if binding!=&request.binding {return Err(AgentError::new(ErrorCode::WorkspaceChanged,"Workspace changed"));}
+                        db.agent_active_project_ids()
+                    });
+                    let Ok(project_ids)=granted else {continue};
+                    request.scope_grant.workspace_content=true;
+                    request.scope_grant.project_ids=project_ids;
+                }
                 let model = crate::overview_model::AppOverviewModel::new(app.clone(), binding);
                 let runtime = crate::lock_mutex(&state.current_workspace).clone();
                 let Some(runtime) = runtime.filter(|runtime| runtime.agent_binding == request.binding) else { continue; };

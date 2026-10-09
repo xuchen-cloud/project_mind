@@ -45,6 +45,18 @@ pub enum ValidState {
     Unsupported,
 }
 
+/// A specific published Project item consumed by Workspace knowledge. Its
+/// digest covers the item and its dependency closure, independent of unrelated
+/// items in the same immutable Overview revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PublishedOverviewRef {
+    pub project_id: i64,
+    pub revision: u64,
+    pub item_id: String,
+    pub digest: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OverviewItem {
@@ -53,6 +65,8 @@ pub struct OverviewItem {
     pub text: String,
     pub epistemic_status: EpistemicStatus,
     pub source_refs: Vec<SourceRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub published_sources: Vec<PublishedOverviewRef>,
     pub dependency_item_ids: Vec<String>,
     pub valid_state: ValidState,
     pub updated_at: String,

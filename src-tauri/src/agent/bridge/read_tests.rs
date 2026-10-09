@@ -401,7 +401,8 @@ async fn e16_reused_corpus_search() {
         upsert_items: vec![crate::agent::context::OverviewItem {
             id: "e16-record-profile".into(), section: crate::agent::context::OverviewSection::Profile,
             text: read.text.chars().take(160).collect(), epistemic_status: crate::agent::context::EpistemicStatus::Recorded,
-            source_refs: vec![captured.reference().clone()], dependency_item_ids: vec![],
+            source_refs: vec![captured.reference().clone()],
+            published_sources: vec![], dependency_item_ids: vec![],
             valid_state: crate::agent::context::ValidState::Current, updated_at: chrono::Utc::now().to_rfc3339(),
         }], remove_item_ids: vec![], settled_object_keys: vec![], knowledge_upserts: vec![], knowledge_removes: vec![],
         coverage: crate::agent::context::SourceCoverage { processed: 1, partial: 0, excluded: 0, unsupported: 0, pending: 0 },

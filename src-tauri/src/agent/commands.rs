@@ -7,6 +7,7 @@ use super::{
     service::AgentDomainService,
 };
 use crate::{lock_mutex, AppState};
+use crate::source_service::BoundSourceStore;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -58,14 +59,16 @@ pub(crate) fn agent_context_get(
         let runtime = current.as_ref().ok_or_else(|| {
             AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
         })?;
+        let db = lock_mutex(&runtime.db);
+        let project_ids=match &input.context.scope {
+            Scope::Project{project_id}=>vec![*project_id],
+            Scope::Workspace=>db.agent_active_project_ids()?,
+        };
         let scope_grant = ScopeGrant {
             object_keys: None,
             workspace_id: runtime.agent_binding.workspace_id.clone(),
             workspace_content: matches!(input.context.scope, Scope::Workspace),
-            project_ids: match input.context.scope {
-                Scope::Project { project_id } => vec![project_id],
-                _ => vec![],
-            },
+            project_ids,
             operations: vec!["context.read".into(), "session.read".into()],
         };
         // This is the trusted local GUI adapter. Connections must resolve their own
@@ -76,7 +79,6 @@ pub(crate) fn agent_context_get(
             caller: Caller::Gui,
             request_id: input.request_id.clone(),
         };
-        let db = lock_mutex(&runtime.db);
         let repository = crate::db::agent::WorkspaceContextRepository {
             db: &db,
             workspace_name: &runtime.summary.display_name,
@@ -93,6 +95,8 @@ pub(crate) async fn agent_overview_get(
     state: State<'_, AppState>,
     input: AgentCommandInput<crate::overview_service::OverviewReadInput>,
 ) -> Result<ApiResponse<crate::overview_service::OverviewReadPage>, String> {
+    let result=async {
+    let project_ids=gui_project_ids(state.inner(),&input.binding,&input.data.scope)?;
     let request = RequestContext {
         binding: input.binding.clone(),
         request_id: input.request_id.clone(),
@@ -101,38 +105,47 @@ pub(crate) async fn agent_overview_get(
             object_keys: None,
             workspace_id: input.binding.workspace_id.clone(),
             workspace_content: matches!(input.data.scope, Scope::Workspace),
-            project_ids: match input.data.scope {
-                Scope::Project { project_id } => vec![project_id],
-                _ => vec![],
-            },
+            project_ids,
             operations: vec!["context.read".into(), "session.read".into()],
         },
     };
-    let result = crate::overview_service::OverviewService::new(state.inner())
+    crate::overview_service::OverviewService::new(state.inner())
         .get(&request, &input.data)
-        .await;
+        .await
+    }.await;
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 
-fn gui_knowledge_request(binding: &WorkspaceBinding, request_id: &str, scope: &Scope) -> RequestContext {
-    RequestContext {
+pub(crate) fn gui_project_ids<S:BoundSourceStore>(state:&S,binding:&WorkspaceBinding,scope:&Scope)->Result<Vec<i64>,AgentError> {
+    match scope {
+        Scope::Project{project_id}=>Ok(vec![*project_id]),
+        Scope::Workspace=>state.with_current(|current,db| {
+            if current!=binding {return Err(AgentError::new(ErrorCode::WorkspaceChanged,"Workspace changed"));}
+            db.agent_active_project_ids()
+        }),
+    }
+}
+fn gui_knowledge_request<S:BoundSourceStore>(state:&S,binding: &WorkspaceBinding, request_id: &str, scope: &Scope) -> Result<RequestContext,AgentError> {
+    Ok(RequestContext {
         binding: binding.clone(), request_id: request_id.into(), caller: Caller::Gui,
         scope_grant: ScopeGrant {
             object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: matches!(scope, Scope::Workspace),
-            project_ids: match scope { Scope::Project { project_id } => vec![*project_id], _ => vec![] },
+            project_ids: gui_project_ids(state,binding,scope)?,
             operations: vec!["context.read".into(), "session.read".into()],
         },
-    }
+    })
 }
 #[tauri::command]
 pub(crate) async fn agent_knowledge_get(
     state: State<'_, AppState>,
     input: AgentCommandInput<crate::knowledge_service::KnowledgeGetInput>,
 ) -> Result<ApiResponse<crate::knowledge_service::KnowledgeGetPage>, String> {
-    let request = gui_knowledge_request(&input.binding, &input.request_id, &input.data.scope);
-    let result = crate::knowledge_registry::KnowledgeRegistry::new(state.inner()).get(&request, &input.data).await;
+    let result=async {
+        let request=gui_knowledge_request(state.inner(),&input.binding,&input.request_id,&input.data.scope)?;
+        crate::knowledge_registry::KnowledgeRegistry::new(state.inner()).get(&request,&input.data).await
+    }.await;
     Ok(ApiResponse::from_result(input.request_id, result))
 }
 #[tauri::command]
@@ -140,8 +153,8 @@ pub(crate) fn agent_knowledge_search(
     state: State<'_, AppState>,
     input: AgentCommandInput<crate::knowledge_service::KnowledgeSearchInput>,
 ) -> ApiResponse<crate::knowledge_service::KnowledgeSearchPage> {
-    let request = gui_knowledge_request(&input.binding, &input.request_id, &input.data.scope);
-    let result = crate::knowledge_registry::KnowledgeRegistry::new(state.inner()).search(&request, &input.data);
+    let result=gui_knowledge_request(state.inner(),&input.binding,&input.request_id,&input.data.scope)
+        .and_then(|request|crate::knowledge_registry::KnowledgeRegistry::new(state.inner()).search(&request,&input.data));
     ApiResponse::from_result(input.request_id, result)
 }
 

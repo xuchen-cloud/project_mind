@@ -109,6 +109,7 @@ fn fixture() -> (
         aliases: vec![],
         keywords: vec!["权限".into()],
         source_refs: vec![message_source],
+            published_sources: vec![],
         epistemic_status: EpistemicStatus::Recorded,
         coverage: SourceCoverage {
             processed: 1,

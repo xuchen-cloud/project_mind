@@ -57,7 +57,7 @@ fn progress(
     OverviewSourceProgress {
         object: batch.source_object.clone(),
         read_target: cursor.map(|_| SourceReadTarget {
-            object: batch.source_object.clone(),
+            object: batch.source_object.raw_object().unwrap().clone(),
             revision: Some("semantic-revision".into()),
             record_version: None,
             file_version: None,
@@ -167,12 +167,12 @@ fn pending_order_resumes_partial_then_uses_native_goal_pins_and_active_todo() {
             params![f.scope.key(),object_key,seq]).unwrap();
     }
     let partial_progress = OverviewSourceProgress {
-        object: ObjectRef {
+        object: OverviewInput::Raw(ObjectRef {
             workspace_id: f.binding.workspace_id.clone(),
             scope: f.scope.clone(),
             kind: ObjectKind::File,
             id: "99".into(),
-        },
+        }),
         read_target: None,
         read_cursor: Some("page-2".into()),
         state: OverviewSourceState::Partial,
@@ -292,7 +292,7 @@ fn cursor_survives_reopen_and_same_target_continues_before_fifty_later_changes()
     assert_ne!(next.batch_id, second.batch_id);
     assert!(next.target_seq > second.target_seq);
     assert!(next.source_cursor.is_none());
-    assert_eq!(next.source_object.kind, ObjectKind::QuickNote);
+    assert_eq!(next.source_object.raw_object().unwrap().kind, ObjectKind::QuickNote);
     assert!(
         next.source.last_seq > second.target_seq,
         "the later native Quick Note change remains pending after the old Project source settles"
@@ -511,7 +511,7 @@ fn legacy_session_quota_does_not_block_undrafted_batch_or_draft_replay() {
     let key=format!("{}/{}/session_message/{}",f.binding.workspace_id,f.scope.key(),"a".repeat(32));
     f.db.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'session.message.index','hash','now')",params![key,f.scope.key()]).unwrap();
     let batch=f.db.agent_overview_maintenance_prepare(&f.binding,&f.scope,now).unwrap().unwrap();
-    assert_eq!(batch.source_object.kind,ObjectKind::SessionMessage);
+    assert_eq!(batch.source_object.raw_object().unwrap().kind,ObjectKind::SessionMessage);
     let quota_key=format!("overview-session-daily:{}/{}",f.binding.workspace_id,f.scope.key());
     let payload=serde_json::json!({"date":"2026-10-08","calls":5}).to_string();
     f.db.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,not_before,payload_json) VALUES (?1,'maintenance',?2,?1,'completed','now',?3)",params![quota_key,f.scope.key(),payload]).unwrap();

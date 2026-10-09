@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS agent_overview_pending_state (
 CREATE TABLE IF NOT EXISTS agent_overview_pending_bootstrap (id INTEGER PRIMARY KEY CHECK(id=1));
 
 CREATE TRIGGER IF NOT EXISTS agent_overview_pending_outbox AFTER INSERT ON agent_change_log
-WHEN NEW.scope_key LIKE 'project:%' AND EXISTS(SELECT 1 FROM source_registry_log_objects WHERE seq=NEW.seq)
+WHEN (NEW.scope_key LIKE 'project:%' OR NEW.scope_key='workspace') AND EXISTS(SELECT 1 FROM source_registry_log_objects WHERE seq=NEW.seq)
 BEGIN
  INSERT INTO agent_overview_pending_state(scope_key,needs_rebuild) VALUES(NEW.scope_key,1) ON CONFLICT(scope_key) DO NOTHING;
  INSERT INTO agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision,deleted,excluded)

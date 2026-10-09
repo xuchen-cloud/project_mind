@@ -3,6 +3,7 @@ use crate::{
     agent::{
         access::RequestContext,
         errors::{AgentError, AgentResult, ErrorCode},
+        context::PublishedOverviewRef,
         models::{ObjectKind, SourceRef, WorkspaceBinding},
     },
     db::Database,
@@ -72,6 +73,59 @@ pub(crate) struct CapturedEvidence {
     caller: String,
     reference: SourceRef,
     file: Option<FileEvidence>,
+}
+pub(crate) struct CapturedPublishedItem {
+    binding: WorkspaceBinding,
+    caller: String,
+    pub(crate) reference: PublishedOverviewRef,
+    pub(crate) text: String,
+    pub(crate) corrections: Vec<crate::agent::overview::OverviewCorrection>,
+    sources: Vec<SourceRef>,
+    files: Vec<(SourceRef,FileReferenceProof)>,
+}
+impl CapturedPublishedItem {
+    pub(crate) fn capture(db:&Database,request:&RequestContext,binding:&WorkspaceBinding,
+        project_id:i64,item_id:&str)->AgentResult<Self> {
+        let (reference,sources,text)=db.agent_published_item_capture(project_id,item_id)?;
+        crate::agent::source_trace::published_source_visible(db,request,binding,&reference)?;
+        let scope=crate::agent::models::Scope::Project{project_id};
+        let snapshot=db.agent_overview_version(&scope,reference.revision)?.ok_or_else(changed)?;
+        let corrections=db.agent_overview_corrections(&scope)?;
+        let corrections=db.agent_published_item_corrections(&snapshot,item_id,&corrections.items)?;
+        Ok(Self {binding:binding.clone(),caller:request.caller.key(),reference,text,corrections,sources,files:vec![]})
+    }
+    pub(crate) fn recapture(db:&Database,request:&RequestContext,binding:&WorkspaceBinding,
+        reference:&PublishedOverviewRef)->AgentResult<Self> {
+        let sources=crate::agent::source_trace::published_source_visible(db,request,binding,reference)?;
+        let scope=crate::agent::models::Scope::Project{project_id:reference.project_id};
+        let snapshot=db.agent_overview_version(&scope,reference.revision)?.ok_or_else(changed)?;
+        let corrections=db.agent_overview_corrections(&scope)?;
+        let text=db.agent_published_item_text(&snapshot,&reference.item_id,&corrections.items)?;
+        let corrections=db.agent_published_item_corrections(&snapshot,&reference.item_id,&corrections.items)?;
+        Ok(Self {binding:binding.clone(),caller:request.caller.key(),reference:reference.clone(),text,corrections,sources,files:vec![]})
+    }
+    pub(crate) async fn prepare_files<S:BoundSourceStore>(&mut self,store:&S,request:&RequestContext)->AgentResult<()> {
+        let plans=store.with_current(|binding,db| {
+            crate::agent::source_trace::published_source_visible(db,request,binding,&self.reference)?;
+            self.sources.iter().map(|source|Ok((source.clone(),reference_file_plan(db,request,binding,source)?)))
+                .collect::<AgentResult<Vec<_>>>()
+        })?;
+        for (source,plan) in plans {
+            if let Some(plan)=plan {self.files.push((source,FileReferenceProof::prepare(plan).await?));}
+        }
+        Ok(())
+    }
+    pub(crate) fn verify(&self,db:&Database,request:&RequestContext,binding:&WorkspaceBinding)->AgentResult<()> {
+        if &self.binding!=binding || request.binding!=self.binding || request.caller.key()!=self.caller {
+            return Err(AgentError::new(ErrorCode::WorkspaceChanged,"Published evidence binding changed"));
+        }
+        crate::agent::source_trace::published_source_visible(db,request,binding,&self.reference)?;
+        if self.files.len()!=self.sources.iter().filter(|s|s.object.kind==ObjectKind::File).count() {
+            return Err(changed());
+        }
+        for (source,proof) in &self.files {proof.verify(db,request,binding,source)?;}
+        Ok(())
+    }
 }
 impl CapturedEvidence {
     pub(crate) fn reference(&self) -> &SourceRef {

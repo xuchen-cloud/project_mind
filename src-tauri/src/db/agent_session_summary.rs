@@ -47,12 +47,6 @@ impl Database {
             ));
         }
         scope.validate()?;
-        if matches!(scope, Scope::Workspace) {
-            return Err(AgentError::new(
-                ErrorCode::SourceNotReady,
-                "Workspace knowledge awaits M2",
-            ));
-        }
         self.source_live_scope(scope)?;
         self.agent_knowledge_prepare().map_err(|_| {
             AgentError::new(ErrorCode::IoFailed, "Cannot prepare knowledge storage")

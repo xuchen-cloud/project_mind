@@ -22,6 +22,24 @@ fn source() -> SourceRef {
     }
 }
 
+#[test]
+fn published_page_keeps_corrections_and_visible_cross_project_context() {
+    let allowed=AllowedAffectedIds { existing_ids:["a".into(),"b".into(),"c".into()].into(),
+        affected_ids:["a".into()].into() };
+    let visible_b=OverviewItem {id:"b".into(),section:OverviewSection::KnowledgeMap,
+        text:"B 的已授权结论".into(),epistemic_status:EpistemicStatus::Inferred,
+        source_refs:vec![],published_sources:vec![],dependency_item_ids:vec![],
+        valid_state:ValidState::Current,updated_at:"now".into()};
+    let correction=OverviewCorrection {id:"correction-a".into(),scope:Scope::Project{project_id:7},
+        item_id:Some("a".into()),text:"A 的旧结论已被纠正".into(),revision:1,
+        deleted:false,created_at:"now".into(),updated_at:"now".into()};
+    let prompt=build_published_prompt(&allowed,&[visible_b],&[correction],"第一页父项正文",0,false).unwrap();
+    assert!(prompt.contains("B 的已授权结论"));
+    assert!(prompt.contains("A 的旧结论已被纠正"));
+    assert!(!prompt.contains("C 的撤权正文"));
+    assert!(prompt.contains("第一页父项正文"));
+}
+
 fn conversation(role: &str, operations: Vec<OperationEntry>) -> ConversationEvidence {
     ConversationEvidence {
         message_ref: MessageRef {
@@ -201,6 +219,7 @@ fn prompt_enforces_total_budget_and_marks_source_text_as_untrusted() {
             text: "原有内容".into(),
             epistemic_status: EpistemicStatus::Inferred,
             source_refs: vec![],
+            published_sources: vec![],
             dependency_item_ids: vec![],
             valid_state: ValidState::Current,
             updated_at: "old".into(),

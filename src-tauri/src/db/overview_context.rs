@@ -45,9 +45,7 @@ impl Database {
                 "Context Workspace is no longer current",
             ));
         }
-        // Workspace has no Overview until M2. Archived identity stays readable,
-        // while its derived knowledge and source content remain unavailable.
-        if matches!(input.scope, Scope::Workspace) || identity.archived {
+        if identity.archived {
             return ContextEntry::not_built(identity, input.budget_chars);
         }
         let Some(snapshot) = self.agent_overview_head(&input.scope)? else {
@@ -73,6 +71,13 @@ impl Database {
             .into_iter()
             .collect();
         for item in &snapshot.items {
+            for parent in &item.published_sources {
+                match crate::agent::source_trace::published_source_visible(self,&source_request,binding,parent) {
+                    Ok(_) => (),
+                    Err(error) if hidden_source(&error) => { hidden.insert(item.id.clone()); },
+                    Err(error) => return Err(error),
+                }
+            }
             for reference in &item.source_refs {
                 match derived_source_visible(self, &source_request, binding, reference) {
                     Ok(_) => (),
@@ -156,6 +161,15 @@ impl Database {
                         break;
                     }
                     Err(error) => return Err(error),
+                }
+            }
+            if visible {
+                for parent in &node.published_sources {
+                    match crate::agent::source_trace::published_source_visible(self,&source_request,binding,parent) {
+                        Ok(_) => (),
+                        Err(error) if hidden_source(&error) => { visible=false;break; },
+                        Err(error) => return Err(error),
+                    }
                 }
             }
             if !visible {
@@ -380,6 +394,7 @@ mod tests {
             text: "私有进展不得泄露".into(),
             epistemic_status: EpistemicStatus::Recorded,
             source_refs: vec![f.source.clone()],
+            published_sources: vec![],
             dependency_item_ids: vec![],
             valid_state: ValidState::Current,
             updated_at: "time".into(),
@@ -390,6 +405,7 @@ mod tests {
             text: "中文定位用于验证入口预算".repeat(60),
             epistemic_status: EpistemicStatus::Inferred,
             source_refs: vec![],
+            published_sources: vec![],
             dependency_item_ids: vec!["basis".into()],
             valid_state: ValidState::Current,
             updated_at: "time".into(),

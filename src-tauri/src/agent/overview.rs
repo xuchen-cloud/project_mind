@@ -1,6 +1,6 @@
 //! Deterministic Overview snapshots and independent, unmodified user corrections.
 use super::{
-    context::{EpistemicStatus, OverviewItem, SourceCoverage},
+    context::{EpistemicStatus, OverviewItem, PublishedOverviewRef, SourceCoverage},
     errors::{AgentError, AgentResult, ErrorCode},
     models::Scope,
 };
@@ -58,6 +58,14 @@ pub struct OverviewPendingPage {
 }
 
 pub(crate) fn validate_pending_key(key: &str, scope: &Scope) -> AgentResult<()> {
+    if matches!(scope, Scope::Workspace) && key.starts_with("published:") {
+        let parts: Vec<_> = key.split(':').collect();
+        if parts.len() == 3 && parts[1].parse::<i64>().is_ok_and(|id| id > 0) {
+            validate_id(parts[2])?;
+            return Ok(());
+        }
+        return Err(invalid("Invalid published item pending key"));
+    }
     let parts: Vec<_> = key.split('/').collect();
     if parts.len() != 4 || parts[1] != scope.key() {
         return Err(invalid("Pending object is outside this scope"));
@@ -186,10 +194,12 @@ impl OverviewPublishInput {
             if matches!(item.epistemic_status, EpistemicStatus::Recorded)
                 && item.source_refs.is_empty()
                 && item.dependency_item_ids.is_empty()
+                && item.published_sources.is_empty()
             {
                 return Err(invalid("Recorded Overview items require evidence"));
             }
             if item.source_refs.len() > 20
+                || item.published_sources.len() > 20
                 || item.dependency_item_ids.len() > 20
                 || item.updated_at.len() > 64
             {
@@ -197,6 +207,12 @@ impl OverviewPublishInput {
             }
             for id in &item.dependency_item_ids {
                 validate_id(id)?;
+            }
+            if matches!(self.scope, Scope::Project { .. }) && !item.published_sources.is_empty() {
+                return Err(invalid("Project items cannot cite published items"));
+            }
+            for published in &item.published_sources {
+                validate_published_ref(published)?;
             }
             for source in &item.source_refs {
                 source.object.key()?;
@@ -223,11 +239,12 @@ impl OverviewPublishInput {
         Ok(())
     }
 }
-pub(crate) fn validate_snapshot(items: &[OverviewItem]) -> AgentResult<()> {
-    if items.len() > 100 || items.iter().map(|i| i.text.chars().count()).sum::<usize>() > 8000 {
+pub(crate) fn validate_snapshot(scope: &Scope, items: &[OverviewItem]) -> AgentResult<()> {
+    let limit = if matches!(scope, Scope::Workspace) { 6000 } else { 8000 };
+    if items.len() > 100 || items.iter().map(|i| i.text.chars().count()).sum::<usize>() > limit {
         return Err(AgentError::new(
             ErrorCode::BudgetExceeded,
-            "Project Overview exceeds storage budget",
+            "Overview exceeds storage budget",
         ));
     }
     let ids: HashSet<_> = items.iter().map(|i| &i.id).collect();
@@ -244,14 +261,14 @@ pub(crate) fn validate_snapshot(items: &[OverviewItem]) -> AgentResult<()> {
     for item in items {
         let mut pending = item.dependency_item_ids.clone();
         let mut visited = HashSet::new();
-        let mut has_evidence = !item.source_refs.is_empty();
+        let mut has_evidence = !item.source_refs.is_empty() || !item.published_sources.is_empty();
         while let Some(id) = pending.pop() {
             if id == item.id {
                 return Err(invalid("Cyclic Overview item dependency"));
             }
             if visited.insert(id.clone()) {
                 if let Some(parent) = items.iter().find(|i| i.id == id) {
-                    has_evidence |= !parent.source_refs.is_empty();
+                    has_evidence |= !parent.source_refs.is_empty() || !parent.published_sources.is_empty();
                     pending.extend(parent.dependency_item_ids.clone());
                 }
             }
@@ -261,6 +278,15 @@ pub(crate) fn validate_snapshot(items: &[OverviewItem]) -> AgentResult<()> {
                 "Recorded Overview dependency chain has no original evidence",
             ));
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_published_ref(reference: &PublishedOverviewRef) -> AgentResult<()> {
+    validate_id(&reference.item_id)?;
+    if reference.project_id <= 0 || reference.revision == 0 || reference.revision >= i64::MAX as u64
+        || reference.digest.len() != 64 || !reference.digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(invalid("Invalid published Overview reference"));
     }
     Ok(())
 }

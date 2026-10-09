@@ -460,12 +460,13 @@ async fn frozen_conversation_draft_replays_without_regeneration() {
             let target=crate::source_service::SourceReadTarget { object:object.clone(),revision:None,record_version:None,file_version:None };
             let record=db.source_session_record(&draft_request,binding,&target)?;
             refs.push(record.source_ref(binding));
-            progresses.push(OverviewSourceProgress { object,read_target:Some(crate::source_service::SourceReadTarget { revision:Some(record.text_hash),..target }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq });
+            progresses.push(OverviewSourceProgress { object:crate::db::overview_maintenance::OverviewInput::Raw(object),read_target:Some(crate::source_service::SourceReadTarget { revision:Some(record.text_hash),..target }),read_cursor:None,state:OverviewSourceState::Processed,handled_seq:source.last_seq });
         }
         let coverage=db.agent_overview_maintenance_coverage_many(binding,&f.scope,&progresses)?;
         db.agent_overview_maintenance_save_draft_many(binding,&f.scope,&frozen.batch_id,&crate::agent::overview::OverviewPublishInput {
             scope:f.scope.clone(),batch_id:frozen.batch_id.clone(),expected_revision:frozen.expected_revision,target_seq:frozen.target_seq,policy_revision:frozen.policy_revision,correction_revision:frozen.correction_revision,
-            upsert_items:vec![crate::agent::context::OverviewItem { id:"draft-cited".into(),section:crate::agent::context::OverviewSection::Progress,text:"三条讨论已有依据".into(),epistemic_status:EpistemicStatus::Recorded,source_refs:refs,dependency_item_ids:vec![],valid_state:crate::agent::context::ValidState::Current,updated_at:Utc::now().to_rfc3339() }],
+            upsert_items:vec![crate::agent::context::OverviewItem { id:"draft-cited".into(),section:crate::agent::context::OverviewSection::Progress,text:"三条讨论已有依据".into(),epistemic_status:EpistemicStatus::Recorded,source_refs:refs,
+            published_sources: vec![],dependency_item_ids:vec![],valid_state:crate::agent::context::ValidState::Current,updated_at:Utc::now().to_rfc3339() }],
             remove_item_ids:vec![],settled_object_keys:std::iter::once(&frozen.source).chain(&frozen.source_items).map(|source|source.object_key.clone()).collect(),
             knowledge_upserts:vec![],knowledge_removes:vec![],coverage,source_manifest_hash:"test-frozen-draft".into(),model_profile_id:"mock-profile".into(),
         },&progresses,None,Utc::now())

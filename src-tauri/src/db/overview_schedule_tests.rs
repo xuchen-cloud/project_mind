@@ -77,7 +77,7 @@ fn workspace_schedule_starts_project_without_project_settings_and_uses_local_tim
     assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, Some(at("2026-10-09T19:00:00Z")));
     assert!(!f.db.agent_settings_get(&f.scope).unwrap().enabled);
     f.db.project_set_archive(ProjectArchiveInput { project_id: match &f.scope { Scope::Project { project_id } => *project_id, _ => unreachable!() }, is_archived: true }).unwrap();
-    assert_eq!(f.db.overview_schedule_next(&f.binding, now + Duration::days(3)).unwrap(), None);
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now + Duration::days(3)).unwrap(), Some(Scope::Workspace));
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn workspace_retime_changes_only_future_inherited_due_and_keeps_pauses() {
     assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, due);
 
     f.db.agent_overview_maintenance_cancel(&f.binding, &f.scope, now).unwrap();
-    assert_eq!(f.db.overview_schedule_next(&f.binding, now).unwrap(), None);
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now).unwrap(), Some(Scope::Workspace));
     assert!(f.db.agent_overview_maintenance_status(&f.binding, &f.scope).unwrap().cancelled);
 }
 
@@ -612,7 +612,7 @@ fn session_summary_has_no_daily_cap_and_ignores_legacy_quota_row() {
             .unwrap()
             .unwrap();
     assert_eq!(
-        batch.source_object.kind,
+        batch.source_object.raw_object().unwrap().kind,
         crate::agent::models::ObjectKind::SessionMessage
     );
     for page in 0..25 {

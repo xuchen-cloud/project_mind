@@ -11,6 +11,7 @@ mod agent_session_search_schema;
 pub(crate) mod agent_run_provenance;
 pub(crate) mod agent_session_model_search;
 mod agent_run_provenance_schema;
+mod workspace_overview_schema;
 mod agent_runtime_schema;
 mod agent_operations;
 mod agent_operation_batches;
@@ -135,7 +136,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = agent_run_provenance_schema::AGENT_RUN_PROVENANCE_SCHEMA_VERSION;
+const CURRENT_SCHEMA_VERSION: i64 = workspace_overview_schema::WORKSPACE_OVERVIEW_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -851,6 +852,7 @@ impl Database {
         self.ensure_file_output_schema()?;
         self.ensure_agent_session_search_schema()?;
         self.ensure_agent_run_provenance_schema()?;
+        self.ensure_workspace_overview_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"

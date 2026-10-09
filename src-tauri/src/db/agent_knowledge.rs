@@ -26,6 +26,14 @@ fn kind_key(kind: KnowledgeKind) -> AgentResult<String> {
 }
 
 impl Database {
+    pub(crate) fn agent_published_knowledge_ids(&self,project_id:i64,item_id:&str)->AgentResult<Vec<String>> {
+        validate_id(item_id)?;
+        let prefix=published_node_prefix(project_id,item_id);
+        let mut stmt=self.conn.prepare("SELECT node_id FROM agent_knowledge_nodes WHERE scope_key='workspace' AND deleted=0 AND node_id LIKE ?1 ORDER BY node_id").map_err(io_error)?;
+        let result=stmt.query_map([format!("{prefix}%")],|r|r.get::<_,String>(0)).map_err(io_error)?
+            .collect::<rusqlite::Result<Vec<_>>>().map_err(io_error);
+        result
+    }
     pub(crate) fn agent_knowledge_prepare(&self) -> anyhow::Result<()> {
         self.conn
             .execute_batch("SAVEPOINT agent_knowledge_prepare")?;
@@ -44,12 +52,6 @@ impl Database {
     }
     fn knowledge_scope(&self, scope: &Scope) -> AgentResult<()> {
         scope.validate()?;
-        if matches!(scope, Scope::Workspace) {
-            return Err(AgentError::new(
-                ErrorCode::SourceNotReady,
-                "Workspace knowledge awaits M2",
-            ));
-        }
         self.source_live_scope(scope)?;
         self.agent_knowledge_prepare()
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare knowledge storage"))
@@ -273,6 +275,11 @@ impl Database {
                 );
                 self.conn.execute("INSERT INTO agent_evidence(id,owner_kind,owner_id,source_ref_json,excerpt) VALUES(?1,'overview',?2,?3,?4)",params![format!("{evidence_owner}/{ordinal}"),evidence_owner,encode(source)?,source.excerpt]).map_err(io_error)?;
             }
+            for parent in &node.published_sources {
+                self.conn.execute("INSERT OR IGNORE INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES(?1,?2,'derived_from','{}',?3)",
+                    params![format!("{}/{}/knowledge/{}",workspace_id,scope.key(),node.node_id),
+                    format!("{}/project:{}/overview/{}",workspace_id,parent.project_id,parent.item_id),parent.digest]).map_err(io_error)?;
+            }
         }
         for id in removes {
             self.conn.execute("UPDATE agent_knowledge_nodes SET deleted=1,updated_at=?3 WHERE scope_key=?1 AND node_id=?2",params![scope.key(),id,now]).map_err(io_error)?;
@@ -340,6 +347,7 @@ mod tests {
             aliases: vec!["持久知识".into(), "persistent knowledge".into()],
             keywords: vec!["中文检索".into()],
             source_refs: vec![],
+            published_sources: vec![],
             epistemic_status: EpistemicStatus::Inferred,
             coverage: coverage(),
             related: vec![],

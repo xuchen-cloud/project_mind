@@ -113,7 +113,6 @@ struct ScheduleTime {
 /// Project's own enabled schedule wins; otherwise an enabled Workspace owns
 /// maintenance timing without changing the Project assistant setting.
 fn effective_schedule(conn: &rusqlite::Connection, scope: &Scope) -> AgentResult<Option<ScheduleTime>> {
-    if !matches!(scope, Scope::Project { .. }) { return Ok(None); }
     let read = |key: String| conn.query_row(
         "SELECT overview_interval_hours,overview_local_time,overview_timezone FROM agent_scope_settings WHERE scope_key=?1 AND enabled=1",
         [key], |row| Ok(ScheduleTime { interval_hours: row.get(0)?, local_time: row.get(1)?, timezone: row.get(2)? }),
@@ -148,7 +147,8 @@ pub(super) fn retime_schedule(
             let mut stmt = conn.prepare("SELECT p.id FROM projects p LEFT JOIN agent_scope_settings s ON s.scope_key='project:'||p.id WHERE p.is_archived=0 AND coalesce(s.enabled,0)=0").map_err(io)?;
             let rows = stmt.query_map([], |row| Ok(Scope::Project { project_id: row.get(0)? }))
                 .map_err(io)?;
-            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(io)?
+            let mut scopes=rows.collect::<rusqlite::Result<Vec<_>>>().map_err(io)?;
+            scopes.push(Scope::Workspace);scopes
         }
     };
     for scope in scopes {
@@ -186,9 +186,6 @@ impl Database {
     ) -> AgentResult<bool> {
         check_binding(self, binding)?;
         scope.validate()?;
-        if !matches!(scope, Scope::Project { .. }) {
-            return Ok(false);
-        }
         self.source_live_scope(scope)?;
         Ok(effective_schedule(&self.conn, scope)?.is_some())
     }
@@ -214,8 +211,8 @@ impl Database {
             .map_err(io)?;
         drop(stmt);
         let mut candidates = Vec::new();
-        for id in ids {
-            let scope = Scope::Project { project_id: id };
+        let scopes=ids.into_iter().map(|project_id|Scope::Project{project_id}).chain(std::iter::once(Scope::Workspace));
+        for scope in scopes {
             if !self.overview_schedule_scope(binding, &scope)? { continue; }
             let stored = read_schedule(&self.conn, binding, &scope)?;
             let initial = stored.is_none();
@@ -240,7 +237,7 @@ impl Database {
             }
             candidates.push((ledger.last_attempt_at, scope, ledger, initial));
         }
-        candidates.sort_by_key(|item| (item.0, item.1.key()));
+        candidates.sort_by_key(|item| (item.0, matches!(item.1,Scope::Workspace), item.1.key()));
         for (_, scope, mut ledger, initial) in candidates {
             if !initial && !ledger.active && !dirty(self, &scope)? {
                 ledger.due_at = next_slot(self, &scope, now)?;
@@ -336,6 +333,7 @@ impl Database {
         };
         save_schedule(&self.conn, binding, scope, &ledger, now)
     }
+
 
     pub(crate) fn overview_schedule_status(
         &self,
