@@ -9,7 +9,7 @@ pub const CONTEXT_MAX_CHARS: usize = 3_000;
 pub const RUN_DEFAULT_CHARS: usize = 24_000;
 pub const RUN_MAX_CHARS: usize = 60_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContextGetInput {
     pub scope: Scope,

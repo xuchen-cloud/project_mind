@@ -1,5 +1,6 @@
 import {
   Contact,
+  Cable,
   Pencil,
   Mic,
   RefreshCw,
@@ -21,6 +22,9 @@ const AiSettingsPanel = lazy(() =>
 );
 const ContactSettingsPanel = lazy(() =>
   import("./ContactSettingsPanel").then((module) => ({ default: module.ContactSettingsPanel })),
+);
+const ExternalConnectionsPanel = lazy(() =>
+  import("./ExternalConnectionsPanel").then((module) => ({ default: module.ExternalConnectionsPanel })),
 );
 const RichTextStylePanel = lazy(() =>
   import("./RichTextStylePanel").then((module) => ({ default: module.RichTextStylePanel })),
@@ -74,6 +78,11 @@ const SETTINGS_SECTIONS: Array<{
     value: "ai-rewrite",
     label: "AI 技能",
     icon: Pencil,
+  },
+  {
+    value: "external-connections",
+    label: "外部连接",
+    icon: Cable,
   },
   {
     value: "rich-text",
@@ -131,6 +140,12 @@ export function SettingsDialog({
               section="rewrite"
               onUnlockAiSecrets={onUnlockAiSecrets}
             />
+          </Suspense>
+        );
+      case "external-connections":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <ExternalConnectionsPanel open={open} />
           </Suspense>
         );
       case "rich-text":
@@ -243,6 +258,9 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   }
   if (section === "ai-rewrite") {
     return "ai-rewrite";
+  }
+  if (section === "external-connections") {
+    return "external-connections";
   }
   return "page-width";
 }

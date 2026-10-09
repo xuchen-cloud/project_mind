@@ -1,6 +1,8 @@
 //! Shared AI domain boundary. Adapters never own a second Workspace database.
 pub mod access;
 pub mod capabilities;
+pub mod bridge;
+pub mod connections;
 pub mod changes;
 pub(crate) mod commands;
 pub mod context;

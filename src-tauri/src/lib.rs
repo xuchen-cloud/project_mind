@@ -252,6 +252,7 @@ pub(crate) struct AppState {
     voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
     exit_authorized: std::sync::atomic::AtomicBool,
     record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
+    external_bridge: agent::bridge::BridgeRuntime,
 }
 
 impl AppState {
@@ -1305,6 +1306,7 @@ pub fn run() {
                 record_editors: Arc::new(record_editor_coordination::RecordEditorCoordinator::default()),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
+                external_bridge: agent::bridge::BridgeRuntime::default(),
             };
 
             let local_session = load_local_session(&local_session_path)?;
@@ -1313,6 +1315,7 @@ pub fn run() {
             }
 
             app.manage(state);
+            agent::bridge::commands::restore(app.handle());
             source_maintenance::start(app.handle());
             overview_maintenance::start(app.handle());
             let record_handle = app.handle().clone();
@@ -1404,6 +1407,10 @@ pub fn run() {
             record_document_commands::record_versions_compare,
             record_document_commands::record_version_capacity,
             agent::commands::agent_status_get,
+            agent::bridge::commands::agent_connections_status,
+            agent::bridge::commands::agent_connections_enable,
+            agent::bridge::commands::agent_connection_create,
+            agent::bridge::commands::agent_connection_revoke,
             agent::conversation_commands::agent_session_create,
             agent::conversation_commands::agent_sessions_list,
             agent::conversation_commands::agent_session_search,

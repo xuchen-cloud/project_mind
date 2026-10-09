@@ -304,6 +304,13 @@ R12a 执行边界（#106；依赖已接通的 Workspace Host、Scope Grant 和 `
 
 R12b 在 a1～a3 的真实读链路收口后扩展共享注册表、已实现服务和 stdio MCP；对象级限制随对应工具过滤接通，不用仅有设置字段冒充执行边界。真实模型和目标桌面平台缺失不阻止本包确定性传输/授权实现，但不据此关闭 #106 或发布完整 M1。
 
+R12a 当前接入（2026-10-09）：应用设置可启停本机连接、创建单 Project/显式 Workspace 的只读 grant、选择会话依据及撤销；随机 secret 使用固定 `keyring 4.2.0` 的系统凭据服务，Workspace 仅保存 SHA-256 摘要与范围。`axum 0.8.9` 提供受 Host/Origin/Bearer 校验的 loopback bridge，`schemars 1.2.2` 从实际 DTO 生成外部 schema。CLI `doctor/project list/context get/schema` 已调用当前应用服务，权限及 Workspace generation 每请求重新核对；不开放模型任务启动。GUI 能检测同目录 CLI 并复制适配 POSIX/PowerShell 的命令。此包没有声称 MCP、协作写入、对象级 grant 或安装包 CLI 安装已经完成。
+
+已验范围：真实 SQLite/Project 原生更新 → 实际 socket → 生产 dispatcher 验证即时读取、越权/归档/排除、撤销和 Workspace 切换；独立 Linux D-Bus + GNOME Secret Service 中，真实 OS 凭据存取、生产 BridgeClient 读到真实项目及撤销拒绝、重复凭据删除通过。bridge/CLI 首轮 11 项通过，空 DTO schema 的测试错误修正后 registry 10 项通过；连接授权 5 项通过。前端设置 6 项、生产构建与路径/UI/主包检查通过；窄屏修正后面板 5 项及 TypeScript 检查通过。无窗口浏览器 1200/720 的普通/长名称共 4 组场景通过（实际组件、模拟 IPC）。CLI 可执行文件构建通过，实际进程的版本/schema/参数错误/应用未开场景通过；Windows/macOS 原生凭据及桌面安装包验收留 R12c/R13，不用 Linux 结果替代。
+
+R12b 继续拆分（#106）：b1 基于维护中的 Rust MCP SDK 实现 stdio 初始化、工具发现和调用，先与 CLI 共用两个已实现读取及 schema，固定 Workspace binding，stdout 仅 JSON-RPC；用独立客户端完成 initialize/list/call/越权及协议协商。b2 逐项接入现有有界来源、Overview/知识、会话和版本读服务，跨异步阶段复核连接授权。b3 对接各对象原生写入/上传/修改/收据和本连接撤销，先补真实共享服务缺口，再加入注册表和协作预设。未接通的方法不出现在可用工具清单，不提前宣称全部 CLI/MCP 交付。
+
+
 验收：外部客户端读取并修改当前 Project，应用即时刷新；重试不重复，撤权后拒绝，MCP stdout 仅协议。A04/A05/A09/A13～18/A20/A37/A49/A71；CLI golden、独立 MCP 客户端和同一业务 fixture 的权限/结果对照。外部 transport 不重复实现业务规则。
 
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116

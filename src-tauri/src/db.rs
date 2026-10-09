@@ -1,4 +1,5 @@
 pub(crate) mod agent;
+mod agent_connections;
 mod agent_profiles;
 mod agent_sessions;
 mod agent_session_maintenance;

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// Time locators cross JSON into JavaScript and must remain exact integers.
 pub(crate) const MAX_SAFE_SOURCE_TIME_MS: u64 = 9_007_199_254_740_991;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Scope {
     Workspace,

@@ -12,6 +12,7 @@ export type SettingsSection =
   | "voice"
   | "ai-models"
   | "ai-rewrite"
+  | "external-connections"
   | "rich-text";
 export type PageWidthMode = "adaptive" | "narrow" | "wide" | "full";
 export type WorkspaceSidebarTab = "projects" | "records";

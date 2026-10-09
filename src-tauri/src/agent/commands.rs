@@ -32,7 +32,7 @@ pub(crate) fn agent_status_get(
                 .as_ref()
                 .map(|runtime| runtime.agent_binding.clone()),
             runtime_available: super::process::PackagedAgentRuntime::available(&state.app_handle),
-            bridge_available: false,
+            bridge_available: state.external_bridge.enabled.load(std::sync::atomic::Ordering::Acquire),
             capabilities: capabilities(),
         }),
     )
