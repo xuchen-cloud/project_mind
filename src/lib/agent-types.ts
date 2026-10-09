@@ -416,6 +416,52 @@ export interface AgentSessionCreateInput {
 }
 export interface AgentSessionsListInput { scope: AgentScope; cursor?: AgentSessionCursor | null; limit?: number }
 export interface AgentSessionGetInput { sessionId: string; afterOrdinal?: number | null; limit?: number }
+/** A bounded, read-only slice of original user/assistant messages in one branch. */
+export interface AgentSessionMessagesReadCursor {
+  branchId: string;
+  fromMessageId: string | null;
+  toMessageId: string | null;
+  messageId: string;
+  charOffset: number;
+}
+export interface AgentSessionMessagesReadInput {
+  sessionId: string;
+  branchId?: string;
+  fromMessageId?: string;
+  toMessageId?: string;
+  cursor?: AgentSessionMessagesReadCursor | null;
+  limit?: number;
+  maxChars?: number;
+}
+export interface AgentSessionMessageRef {
+  workspaceId: string;
+  scope: AgentScope;
+  sessionId: string;
+  branchId: string;
+  messageId: string;
+  ordinal: number;
+  contentHash: string;
+}
+export interface AgentSessionMessageFragment {
+  messageId: string;
+  runtimeEntryId: string;
+  ordinal: number;
+  role: "user" | "assistant";
+  createdAt: string;
+  text: string;
+  contentHash: string;
+  charStart: number;
+  charEnd: number;
+  totalChars: number;
+  messageRef: AgentSessionMessageRef;
+}
+export interface AgentSessionMessagesReadPage {
+  sessionId: string;
+  branchId: string | null;
+  messages: AgentSessionMessageFragment[];
+  nextCursor: AgentSessionMessagesReadCursor | null;
+  hasMore: boolean;
+}
 export interface AgentSessionArchiveInput { sessionId: string; archived: boolean }
 export interface AgentSessionDeleteInput { sessionId: string }
 export interface AgentRunStartInput { sessionId: string; clientRequestId: string; prompt: string; discussionTarget?: AgentObjectRef | null }

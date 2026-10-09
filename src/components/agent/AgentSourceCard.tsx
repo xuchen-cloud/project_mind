@@ -11,6 +11,7 @@ import { desktopApi } from "../../services/desktopApi";
 import { isHtmlPreviewFile, openFilePreview } from "../../state/file-preview-store";
 import { projectMindApi } from "../../services/projectMindApi";
 import { Button, DisclosurePresence, StatusBadge, SurfaceCard } from "../../ui/components";
+import { AgentMessageSource } from "./AgentMessageSource";
 
 export interface AgentSourceCardProps { source: AgentSourceRef; binding?: AgentWorkspaceBinding }
 
@@ -21,6 +22,7 @@ function time(milliseconds: number) {
 function location(source: AgentSourceRef) {
   if (source.locator?.kind === "page") return `第 ${source.locator.page} 页`;
   if (source.locator?.kind === "time") return `${time(source.locator.startMs)}–${time(source.locator.endMs)}`;
+  if (source.locator?.kind === "messages") return "引用的原始讨论范围";
   if (source.blockId) return "引用记录块";
   if (source.locator?.kind === "paragraph") return `段落 ${source.locator.start + 1}–${source.locator.end}`;
   return null;
@@ -44,6 +46,7 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
     revealAgentObjectPage();
   }
   const [expanded, setExpanded] = useState(false);
+  const [discussionOpen, setDiscussionOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [changedRevision, setChangedRevision] = useState<string | null>(null);
@@ -59,6 +62,7 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
   const opensRecord = kind === "record" || kind === "transcript";
   const locator = location(source);
   const note = limitation(source);
+  const hasMessageRange = (kind === "session_message" || kind === "session_summary") && source.locator?.kind === "messages";
 
   async function open(afterRestore = false) {
     if (busy && !afterRestore) return;
@@ -189,10 +193,17 @@ function SourceCardBody({ source, binding }: AgentSourceCardProps) {
       {note && <p className="mt-2 text-caption text-text-muted">{note}</p>}
       {error && <p role="alert" className="mt-2 text-caption text-danger">{error}</p>}
       {withdrawn && <Button variant="ghost" size="sm" className="mt-2" disabled={busy} onClick={() => void restore()}>恢复并打开</Button>}
-      <Button variant="ghost" size="sm" className="mt-2" disabled={busy || (!refKind && !opensScope && !opensRecord)} onClick={() => void open()}>
-        {busy ? "正在打开…" : changedRevision ? "打开当前记录" : opensScope ? "打开所属资料页" : "打开原文"}
-      </Button>
-      {!refKind && !opensScope && !opensRecord && <p className="mt-1 text-caption text-text-muted">此类来源的原文入口尚未接通。</p>}
+      {hasMessageRange ? <>
+        <Button variant="ghost" size="sm" className="mt-2" aria-expanded={discussionOpen} onClick={() => setDiscussionOpen(value => !value)}>
+          {discussionOpen ? "收起原始讨论" : "查看原始讨论"}
+        </Button>
+        {discussionOpen && <AgentMessageSource source={source} binding={binding} />}
+      </> : <>
+        <Button variant="ghost" size="sm" className="mt-2" disabled={busy || (!refKind && !opensScope && !opensRecord)} onClick={() => void open()}>
+          {busy ? "正在打开…" : changedRevision ? "打开当前记录" : opensScope ? "打开所属资料页" : "打开原文"}
+        </Button>
+        {!refKind && !opensScope && !opensRecord && <p className="mt-1 text-caption text-text-muted">此类来源的原文入口尚未接通。</p>}
+      </>}
     </DisclosurePresence>
   </SurfaceCard>;
 }

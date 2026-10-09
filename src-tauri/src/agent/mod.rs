@@ -29,6 +29,7 @@ pub(crate) mod record_outputs;
 pub(crate) mod record_write_tools;
 pub mod repository;
 pub(crate) mod run_commands;
+pub(crate) mod session_history;
 pub mod runtime;
 pub mod service;
 pub mod sessions;

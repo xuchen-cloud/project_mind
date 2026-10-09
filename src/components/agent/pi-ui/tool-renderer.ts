@@ -21,7 +21,7 @@ export function renderTool(name: string, params: unknown, result: PiToolResultMe
       <p class="pi-tool-name">${name || "历史工具结果"}</p>
       ${params !== undefined ? html`<pre class="pi-tool-text">${JSON.stringify(params, null, 2)}</pre>` : ""}
       <pre class="pi-tool-text">${text}</pre>
-      ${result ? html`<div data-pi-source-message=${result.id}></div>` : ""}
     </details>
+    ${result ? html`<div data-pi-source-message=${result.id}></div>` : ""}
   </div>` };
 }

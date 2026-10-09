@@ -1,10 +1,10 @@
 import { decodeSession } from './session-codec.mjs';
 
-export function projectCheckpoint(checkpoint, workspaceRoot, sessionId) {
+export function projectCheckpoint(checkpoint, workspaceRoot, sessionId, leafId = checkpoint.leafId) {
   const entries = decodeSession(checkpoint.jsonl, workspaceRoot, sessionId, checkpoint.checksum);
   const byId = new Map(entries.slice(1).map((entry) => [entry.id, entry]));
   const branch = [];
-  let id = checkpoint.leafId;
+  let id = leafId;
   while (id !== null) {
     const entry = byId.get(id);
     if (!entry) throw Object.assign(new Error('Checkpoint branch is missing'), { code: 'RUNTIME_INCOMPATIBLE' });

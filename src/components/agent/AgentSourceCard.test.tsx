@@ -4,9 +4,9 @@ import type { AgentSourceNavigation, AgentSourceRef } from "../../lib/agent-type
 import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import { AgentSourceCard } from "./AgentSourceCard";
 
-const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), sourceResolve: vi.fn(), resolve: vi.fn(), versions: vi.fn(), openFile: vi.fn(), restore: vi.fn(), workspaceStatus: vi.fn() }));
+const mocks = vi.hoisted(() => ({ navigate: vi.fn(), statusGet: vi.fn(), sessionMessagesRead: vi.fn(), sourceResolve: vi.fn(), resolve: vi.fn(), versions: vi.fn(), openFile: vi.fn(), restore: vi.fn(), workspaceStatus: vi.fn() }));
 vi.mock("react-router-dom", () => ({ useNavigate: () => mocks.navigate }));
-vi.mock("../../services/agentApi", () => ({ agentApi: { statusGet: mocks.statusGet, sourceResolve: mocks.sourceResolve, operationRestoreCreated: mocks.restore } }));
+vi.mock("../../services/agentApi", () => ({ agentApi: { statusGet: mocks.statusGet, sessionMessagesRead: mocks.sessionMessagesRead, sourceResolve: mocks.sourceResolve, operationRestoreCreated: mocks.restore } }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { internalReferenceResolve: mocks.resolve, documentListVersions: mocks.versions, workspaceStatusGet: mocks.workspaceStatus } }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { openFile: mocks.openFile } }));
 const binding = { workspaceId: "w1", generation: "g1" };
@@ -16,6 +16,21 @@ const navigation: AgentSourceNavigation = { object: source.object, status: "curr
   currentRevision: source.revision, revisionMatches: true, recordVersion: null, recordVersionId: null, headRevision: 3,
   blockId: source.blockId, blockStatus: "available", voiceRecordId: null, startMs: null, endMs: null, timeStatus: "not_requested" };
 beforeEach(() => { vi.clearAllMocks(); closeFilePreview(); mocks.workspaceStatus.mockResolvedValue({ currentWorkspace: { rootPath: "/actual/workspace" } }); mocks.statusGet.mockResolvedValue({ binding }); mocks.sourceResolve.mockResolvedValue(navigation); mocks.openFile.mockResolvedValue(undefined); });
+
+it("expands a cited session range inside the source card and collapses it without navigation", async () => {
+  const cited: AgentSourceRef = { ...source, object: { ...source.object, kind: "session_message", id: "m1" }, blockId: null,
+    locator: { kind: "messages", sessionId: "s1", branchId: "b1", startMessageId: "m1", endMessageId: "m1" } };
+  mocks.sessionMessagesRead.mockResolvedValue({ sessionId: "s1", branchId: "b1", messages: [], nextCursor: null, hasMore: false });
+  render(<AgentSourceCard source={cited} binding={binding} />);
+  fireEvent.click(screen.getByRole("button", { name: "原始决策" }));
+  fireEvent.click(screen.getByRole("button", { name: "查看原始讨论" }));
+  expect(await screen.findByRole("region", { name: "引用的原始讨论" })).toBeInTheDocument();
+  expect(mocks.sessionMessagesRead).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "收起原始讨论" }));
+  expect(screen.queryByRole("region", { name: "引用的原始讨论" })).not.toBeInTheDocument();
+  expect(mocks.navigate).not.toHaveBeenCalled();
+  expect(mocks.sourceResolve).not.toHaveBeenCalled();
+});
 
 it("restores a withdrawn source then resolves its actual destination again", async () => {
   mocks.sourceResolve.mockRejectedValueOnce(JSON.stringify({ code: "OBJECT_WITHDRAWN", details: { workspaceId: "w1", creationOperationId: "b".repeat(32), withdrawalRevision: 3, restoreAvailable: true } })).mockResolvedValue(navigation);

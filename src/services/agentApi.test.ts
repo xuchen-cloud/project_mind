@@ -13,6 +13,14 @@ import type { OverviewReadInput, OverviewReadPage, KnowledgeGetInput, KnowledgeG
 vi.mock("./desktopApi", () => ({ desktopApi: { command: vi.fn(), listenEvent: vi.fn() } }));
 beforeEach(() => vi.clearAllMocks());
 const binding = { workspaceId: "w1", generation: "open-1" };
+
+it("reads a cited message range through the bound GUI command", async () => {
+  const data = { sessionId: "s1", branchId: "b1", fromMessageId: "m1", toMessageId: "m2", limit: 50, maxChars: 12000 };
+  const page = { sessionId: "s1", branchId: "b1", messages: [], nextCursor: null, hasMore: false };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "messages-1", ok: true, data: page });
+  expect(await agentApi.sessionMessagesRead(binding, data, "messages-1")).toBe(page);
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_session_messages_read", { input: { binding, requestId: "messages-1", data } });
+});
 const context = { scope: { kind: "project" as const, projectId: 7 }, query: "上次的决定" };
 
 const output: AgentRuntimeOutput = { id: "a".repeat(32), runId: "b".repeat(32), ordinal: 1, revision: 2,

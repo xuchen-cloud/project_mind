@@ -24,9 +24,11 @@ it("runs the adapted official list and paired tool components with closed source
   expect(card.closest(".pi-message-turn")).toHaveAttribute("data-pi-run-id", "run1");
   expect(card.closest("details")).not.toHaveAttribute("open");
   expect(card.closest("pm-pi-tool-message")?.querySelector("details")).not.toHaveAttribute("open");
-  fireEvent.click(screen.getByText("读取来源完成"));
   fireEvent.click(screen.getByText("参考来源（1）"));
   expect(card).toBeVisible();
+  expect(card.closest("pm-pi-tool-message")?.querySelector("details")).not.toHaveAttribute("open");
+  expect(container.querySelector(".pi-tool-text")).not.toBeVisible();
+  fireEvent.click(screen.getByText("读取来源完成"));
   expect(container.querySelector(".pi-tool-text")?.textContent).toContain('"objectId": "42"');
 });
 
