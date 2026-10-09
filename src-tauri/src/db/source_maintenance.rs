@@ -242,6 +242,15 @@ impl Database {
                 self.maintenance_save(binding, item)?;
             }
         }
+        if self.source_foreground_busy()?
+            || ledger.as_ref().is_some_and(|item| {
+                now.timestamp() < item.started_at + PERIOD_SECONDS
+                    && (item.chars == BATCH_CHARS
+                        || item.chunks == BATCH_CHUNKS
+                        || item.jobs == BATCH_JOBS)
+            }) {
+            return Ok(None);
+        }
         let mut scopes = vec![Scope::Workspace];
         let mut stmt = self.conn.prepare("SELECT id FROM projects WHERE is_archived=0 ORDER BY id").map_err(io)?;
         let ids = stmt.query_map([], |row| row.get::<_, i64>(0)).map_err(io)?
@@ -947,6 +956,11 @@ mod driver_tests {
         assert_eq!(result.partial_sources, 1);
         assert_eq!(result.charged_chars, BATCH_CHARS);
         assert!(result.budget_exhausted);
+        let writes = store.db.lock().unwrap().conn.total_changes();
+        for _ in 0..3 {
+            assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+        }
+        assert_eq!(store.db.lock().unwrap().conn.total_changes(), writes);
         assert_eq!(
             store
                 .db
@@ -966,7 +980,11 @@ mod driver_tests {
     async fn source_maintenance_foreground_run_prevents_claiming_background_work() {
         let (_root, store, request, _) = setup(false);
         foreground(&store.db.lock().unwrap());
-        assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+        let writes = store.db.lock().unwrap().conn.total_changes();
+        for _ in 0..3 {
+            assert!(!step(&store, &NoUtility, &NoUtility).await.unwrap());
+        }
+        assert_eq!(store.db.lock().unwrap().conn.total_changes(), writes);
         let result = progress(&store, &request);
         assert!(result.foreground_busy);
         assert_eq!(result.pending_jobs, 1);
