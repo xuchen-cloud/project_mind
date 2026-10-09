@@ -514,6 +514,15 @@ async fn excluded_old_overview_item_is_absent_from_next_visible_source_prompt() 
             },
         )
         .unwrap();
+    let raw_after_exclusion = f
+        .store
+        .with_current(|_, db| db.agent_overview_head(&f.scope))
+        .unwrap()
+        .unwrap();
+    assert!(raw_after_exclusion
+        .items
+        .iter()
+        .any(|item| item.text == secret_text));
     f.todo_id = visible_id;
     edit_todo(&f, "Visible task after edit".into());
 

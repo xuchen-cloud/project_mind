@@ -6,6 +6,7 @@ use crate::agent::{
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
     overview::{OverviewPendingItem, OverviewPublishInput},
+    settings::SettingsRepository,
 };
 use crate::source_service::SourceReadTarget;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -391,13 +392,42 @@ impl Database {
             None
         };
         let target_seq = continued.unwrap_or(fresh_target);
+        let settings = self.agent_settings_get(scope)?;
+        let goal_key = settings
+            .goal_record_id
+            .map(|id| {
+                ObjectRef {
+                    workspace_id: binding.workspace_id.clone(),
+                    scope: scope.clone(),
+                    kind: ObjectKind::Record,
+                    id: id.to_string(),
+                }
+                .key()
+            })
+            .transpose()?;
+        let pin_keys = settings
+            .pinned_refs
+            .iter()
+            .map(ObjectRef::key)
+            .collect::<AgentResult<Vec<_>>>()?;
+        let pin_keys_json = encode(&pin_keys)?;
+        let project_id = match scope {
+            Scope::Project { project_id } => *project_id,
+            Scope::Workspace => unreachable!(),
+        };
         let selected: Option<(String,i64,i64,String,String,bool,bool)> = tx.query_row(
             "SELECT p.object_key,p.first_seq,p.last_seq,p.operation,p.latest_revision,p.deleted,p.excluded
              FROM agent_overview_pending p LEFT JOIN agent_jobs j ON j.kind='overview' AND j.dedupe_key='overview-source:'||p.object_key
              WHERE p.scope_key=?1 AND p.last_seq<=?2 AND p.object_key LIKE ?3
-             ORDER BY CASE WHEN json_extract(j.payload_json,'$.state')='partial'
-                 AND CAST(json_extract(j.payload_json,'$.handledSeq') AS INTEGER)=p.last_seq THEN 0 ELSE 1 END,p.object_key LIMIT 1",
-            params![scope.key(),target_seq,format!("{}/{}/%",binding.workspace_id,scope.key())],
+             ORDER BY CASE
+                 WHEN json_extract(j.payload_json,'$.state')='partial'
+                   AND CAST(json_extract(j.payload_json,'$.handledSeq') AS INTEGER)=p.last_seq THEN 0
+                 WHEN p.object_key=?4 THEN 1
+                 WHEN p.object_key IN (SELECT value FROM json_each(?5)) THEN 2
+                 WHEN EXISTS (SELECT 1 FROM todos t WHERE t.scope='project' AND t.project_id=?6
+                   AND t.status='unfinished' AND p.object_key=?7||t.id) THEN 3
+                 ELSE 4 END,p.object_key LIMIT 1",
+            params![scope.key(),target_seq,format!("{}/{}/%",binding.workspace_id,scope.key()),goal_key,pin_keys_json,project_id,format!("{}/{}/todo/",binding.workspace_id,scope.key())],
             |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?))
         ).optional().map_err(io_error)?;
         let Some((object_key, first_seq, last_seq, operation, latest_revision, deleted, excluded)) =

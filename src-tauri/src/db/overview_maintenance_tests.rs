@@ -113,6 +113,122 @@ fn prepare(f: &Fixture) -> OverviewMaintenanceBatch {
 }
 
 #[test]
+fn pending_order_resumes_partial_then_uses_native_goal_pins_and_active_todo() {
+    let f = fixture();
+    let seq: i64 =
+        f.db.conn
+            .query_row("SELECT MAX(seq) FROM agent_change_log", [], |r| r.get(0))
+            .unwrap();
+    f.db.conn
+        .execute(
+            "DELETE FROM agent_overview_pending WHERE scope_key=?1",
+            [f.scope.key()],
+        )
+        .unwrap();
+    let add_record = |title: &str| {
+        f.db.conn.execute("INSERT INTO notes(project_id,title,created_at,updated_at) VALUES (?1,?2,'now','now')",
+            params![f.project_id,title]).unwrap();
+        f.db.conn.last_insert_rowid()
+    };
+    let goal_id = add_record("Goal");
+    let other_id = add_record("Other");
+    let other_second_id = add_record("Another");
+    let add_todo = |status: &str| {
+        f.db.conn
+            .execute(
+                "INSERT INTO todos(scope,project_id,content,status,priority,created_at,updated_at)
+            VALUES ('project',?1,'Action',?2,'not_urgent_important','now','now')",
+                params![f.project_id, status],
+            )
+            .unwrap();
+        f.db.conn.last_insert_rowid()
+    };
+    let pinned_id = add_todo("finished");
+    let active_id = add_todo("unfinished");
+    let key = |kind: ObjectKind, id: i64| {
+        ObjectRef {
+            workspace_id: f.binding.workspace_id.clone(),
+            scope: f.scope.clone(),
+            kind,
+            id: id.to_string(),
+        }
+        .key()
+        .unwrap()
+    };
+    let goal = key(ObjectKind::Record, goal_id);
+    let other = key(ObjectKind::Record, other_id);
+    let other_second = key(ObjectKind::Record, other_second_id);
+    let pinned = key(ObjectKind::Todo, pinned_id);
+    let active = key(ObjectKind::Todo, active_id);
+    let partial = key(ObjectKind::File, 99);
+    for object_key in [&goal, &other, &other_second, &pinned, &active, &partial] {
+        f.db.conn.execute("INSERT INTO agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision,deleted,excluded)
+            VALUES (?1,?2,?3,?3,'test.changed','1',0,0)",
+            params![f.scope.key(),object_key,seq]).unwrap();
+    }
+    let partial_progress = OverviewSourceProgress {
+        object: ObjectRef {
+            workspace_id: f.binding.workspace_id.clone(),
+            scope: f.scope.clone(),
+            kind: ObjectKind::File,
+            id: "99".into(),
+        },
+        read_target: None,
+        read_cursor: Some("page-2".into()),
+        state: OverviewSourceState::Partial,
+        handled_seq: seq as u64,
+    };
+    f.db.conn.execute("INSERT INTO agent_jobs(id,kind,scope_key,dedupe_key,state,attempt,not_before,payload_json)
+        VALUES (?1,'overview',?2,?1,'completed',0,'now',?3)",
+        params![format!("overview-source:{partial}"),f.scope.key(),serde_json::to_string(&partial_progress).unwrap()]).unwrap();
+    let mut settings = f.db.agent_settings_get(&f.scope).unwrap();
+    settings.goal_record_id = Some(goal_id);
+    settings.pinned_refs = vec![ObjectRef {
+        workspace_id: f.binding.workspace_id.clone(),
+        scope: f.scope.clone(),
+        kind: ObjectKind::Todo,
+        id: pinned_id.to_string(),
+    }];
+    f.db.conn
+        .execute(
+            "INSERT INTO agent_scope_settings(scope_key,goal_record_id,pinned_refs_json)
+        VALUES (?1,?2,?3)",
+            params![
+                f.scope.key(),
+                goal_id,
+                serde_json::to_string(&settings.pinned_refs).unwrap()
+            ],
+        )
+        .unwrap();
+
+    for expected in [&partial, &goal, &pinned, &active, &other, &other_second] {
+        let batch = prepare(&f);
+        assert_eq!(&batch.source.object_key, expected);
+        if expected == &partial {
+            assert_eq!(batch.source_cursor.as_deref(), Some("page-2"));
+        }
+        f.db.conn
+            .execute(
+                "DELETE FROM agent_overview_pending WHERE scope_key=?1 AND object_key=?2",
+                params![f.scope.key(), expected],
+            )
+            .unwrap();
+        f.db.conn
+            .execute(
+                "DELETE FROM agent_jobs WHERE dedupe_key=?1",
+                [format!("overview-maintenance:{}", f.scope.key())],
+            )
+            .unwrap();
+    }
+    // A settled goal remains configured but cannot create another source batch.
+    assert!(f
+        .db
+        .agent_overview_maintenance_prepare(&f.binding, &f.scope, Utc::now())
+        .unwrap()
+        .is_none());
+}
+
+#[test]
 fn cursor_survives_reopen_and_same_target_continues_before_fifty_later_changes() {
     let mut f = fixture();
     let first = prepare(&f);
