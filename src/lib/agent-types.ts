@@ -363,6 +363,30 @@ export interface AgentSessionMetadata {
 }
 export interface AgentSessionCursor { updatedAt: string; id: string }
 export interface AgentSessionPage { sessions: AgentSessionMetadata[]; nextCursor: AgentSessionCursor | null }
+export interface AgentSessionSearchInput {
+  scope: AgentScope;
+  sessionId?: string | null;
+  query: string;
+  afterMessageId?: string | null;
+  limit?: number;
+}
+export interface AgentSessionSearchMatch {
+  sessionId: string;
+  messageId: string;
+  runtimeEntryId: string;
+  ordinal: number;
+  role: "user" | "assistant";
+  createdAt: string;
+  contentHash: string;
+  branchLeafId: string;
+  snippet: string;
+  sessionTitle: string;
+}
+export interface AgentSessionSearchPage {
+  matches: AgentSessionSearchMatch[];
+  nextCursor: string | null;
+  coverage: { indexedMessages: number; remainingMessages: number; backfilledThisRequest: number; complete: boolean };
+}
 export interface AgentSessionCheckpoint {
   schemaVersion: number;
   checksum: string;

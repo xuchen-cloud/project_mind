@@ -1403,6 +1403,7 @@ pub fn run() {
             agent::commands::agent_status_get,
             agent::conversation_commands::agent_session_create,
             agent::conversation_commands::agent_sessions_list,
+            agent::conversation_commands::agent_session_search,
             agent::conversation_commands::agent_session_get,
             agent::session_history::agent_session_messages_read,
             agent::conversation_commands::agent_session_archive,

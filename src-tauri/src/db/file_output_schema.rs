@@ -48,7 +48,7 @@ mod tests {
         assert_eq!(db.conn.query_row("SELECT COUNT(*) FROM agent_visible_files", [], |row| row.get::<_, i64>(0)).unwrap(), before);
         drop(db);
         let reopened = Database::open(&path, root.path(), None).unwrap();
-        assert_eq!(reopened.schema_version().unwrap(), 32);
+        assert_eq!(reopened.schema_version().unwrap(), super::super::CURRENT_SCHEMA_VERSION);
         assert_eq!(reopened.conn.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get::<_, i64>(0)).unwrap(), before);
         assert_eq!(std::fs::read(file.managed_path).unwrap(), b"retained bytes");
     }

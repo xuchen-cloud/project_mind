@@ -15,9 +15,17 @@
 .agent-panel__setting-row,.agent-panel__composer-actions { justify-content:space-between; }
 .agent-panel__enable { display:flex; align-items:center; gap:6px; font-size:var(--text-ui); }
 .agent-panel__hint { color:var(--color-text-muted); font-size:var(--type-caption-size); line-height:1.5; margin:4px 0; }
-.agent-panel__history { flex:none; height:min(230px,28dvh); padding:10px 16px; align-items:stretch; border-bottom:1px solid var(--color-border); }
+.agent-panel__history { flex:none; height:min(330px,38dvh); min-height:0; padding:10px 16px; align-items:stretch; border-bottom:1px solid var(--color-border); }
 .agent-panel__history .home-side__list > div { gap:4px; }
 .agent-panel__history .home-side__list button { width:100%; justify-content:flex-start; white-space:normal; text-align:left; }
+.agent-history-search__form { display:flex; gap:6px; min-width:0; }
+.agent-history-search__form input { flex:1; min-width:0; padding:5px 7px; border:1px solid var(--color-border); border-radius:var(--radius-6); background:var(--color-bg); color:var(--color-text); }
+.agent-history-search__form button,.agent-history-search__actions button,.agent-history-search__coverage button { width:auto !important; }
+.agent-history-search__match { padding:8px 0; border-bottom:1px solid var(--color-border); min-width:0; }
+.agent-history-search__match p { margin:5px 0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:var(--text-ui); }
+.agent-history-search__meta,.agent-history-search__actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.agent-history-search__meta { font-size:var(--type-caption-size); }
+.agent-history-search__meta time { color:var(--color-text-muted); }
 .agent-panel > .home-side__list-frame { margin:0 8px 0 16px; }
 .agent-panel .home-side__list > div { gap:12px; padding-bottom:12px; }
 .agent-panel__empty { padding:24px 8px; color:var(--color-text-muted); font-size:var(--type-body-size); line-height:1.7; }

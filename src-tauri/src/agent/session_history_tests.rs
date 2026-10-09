@@ -196,8 +196,18 @@ fn gui_session_scope_comes_from_stored_session_and_deletion_is_rechecked() {
 #[ignore = "requires the staged packaged Host runtime; run explicitly"]
 async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
     let workspace = tempfile::tempdir().unwrap();
-    let session_id = "a".repeat(32);
     let root = workspace.path().canonicalize().unwrap();
+    let db = Database::open(&root.join("workspace.sqlite"), &root, None).unwrap();
+    let gui = RequestContext {
+        binding: binding(), request_id: "history-search".into(), caller: Caller::Gui,
+        scope_grant: ScopeGrant {
+            workspace_id: binding().workspace_id, workspace_content: true,
+            project_ids: vec![], operations: vec!["session.read".into(), "session.write".into()],
+        },
+    };
+    let session_id = db.agent_session_create(
+        &gui, &binding(), &Scope::Workspace, "原文定位", "builtin-pi", None,
+    ).unwrap().id;
     let sessions = root.join(".project-mind/agent/sessions").join(&session_id);
     fs::create_dir_all(&sessions).unwrap();
     let header = json!({"type":"session","version":3,"id":session_id,
@@ -218,6 +228,19 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
         ),
     )
     .unwrap();
+    let checkpoint = serde_json::from_slice(&fs::read(sessions.join("checkpoint.json")).unwrap()).unwrap();
+    let projection_message = serde_json::from_value(json!({
+        "runtimeEntryId":"entry1","ordinal":0,"createdAt":"2026-10-09T00:00:00Z",
+        "role":"user","content":[{"type":"text","text":"中🙂"}]
+    })).unwrap();
+    db.agent_session_restore_projection(&gui, &binding(), &session_id,
+        &crate::agent::conversation::VerifiedSessionProjection { checkpoint, messages: vec![projection_message] },
+    ).unwrap();
+    let found = db.agent_session_search(&gui, &binding(),
+        &serde_json::from_value(json!({"scope":{"kind":"workspace"},"query":"🙂"})).unwrap(),
+    ).unwrap();
+    assert_eq!(found.matches.len(), 1);
+    let hit = &found.matches[0];
     let packaged = PackagedAgentRuntime::bundled(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
     )
@@ -235,7 +258,8 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
     .unwrap();
     assert_eq!(initialized["activeTools"], json!([]));
     let request: HistoryRequest =
-        serde_json::from_value(json!({"sessionId":session_id,"maxChars":1})).unwrap();
+        serde_json::from_value(json!({"sessionId":hit.session_id,"branchId":hit.branch_leaf_id,
+            "fromMessageId":hit.message_id,"toMessageId":hit.message_id,"maxChars":1})).unwrap();
     let runtime_page = exchange(
         &mut process,
         "read",
@@ -251,6 +275,8 @@ async fn packaged_history_reads_checkpoint_without_profile_or_session_open() {
     assert!(page.has_more);
     let first_id = page.messages[0].message_id.clone();
     let first_hash = page.messages[0].content_hash.clone();
+    assert_eq!(first_id, hit.message_id);
+    assert_eq!(first_hash, hit.content_hash);
     let next_request: HistoryRequest = serde_json::from_value(json!({
         "sessionId":session_id,"maxChars":1,"cursor":page.next_cursor
     }))

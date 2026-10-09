@@ -12,6 +12,7 @@ import { Button } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { AgentPiMessages } from "./AgentPiMessages";
 import { AgentKnowledgePanel } from "./AgentKnowledgePanel";
+import { AgentHistorySearch } from "./AgentHistorySearch";
 import { AgentRunOutputs } from "./AgentRunOutputs";
 import { agentFailureMessage, useAgentConversation } from "./useAgentConversation";
 import "../home/home.css";
@@ -38,6 +39,7 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
+  const closedScrollTop = useRef<number | null>(null);
   const verificationProfile = useRef<string | null>(null);
   const discussionTarget = useAgentPanelStore(state => state.discussionTarget);
   const clearDiscussionTarget = useAgentPanelStore(state => state.clearDiscussionTarget);
@@ -78,7 +80,12 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
   }, [open]);
   useLayoutEffect(() => {
     const viewport = scrollRef.current;
-    if (open && viewport && stickToBottom.current) viewport.scrollTop = viewport.scrollHeight;
+    if (!viewport) return;
+    if (!open) { closedScrollTop.current = viewport.scrollTop; return; }
+    if (closedScrollTop.current !== null) {
+      viewport.scrollTop = closedScrollTop.current;
+      closedScrollTop.current = null;
+    } else if (stickToBottom.current) viewport.scrollTop = viewport.scrollHeight;
   }, [conversation.messages, conversation.liveText, conversation.pendingPrompt, open]);
 
   const decisionText = draft.trim().replace(/[。.!！]+$/u, "").trim();
@@ -139,12 +146,16 @@ export function AgentPanel({ open, onClose, scope, workspaceRoot, scopeName, exp
       </div>
       {historyOpen ? <div className="agent-panel__history">
         <HomeSidebarList label="历史会话">
+          <AgentHistorySearch key={JSON.stringify([conversation.binding, scope])} binding={conversation.binding} scope={scope}
+            busySession={conversation.loading || busy || conversation.reading}
+            onOpenSession={id => { stickToBottom.current = true; setHistoryOpen(false); void conversation.selectSession(id); }}>
           {conversation.sessions.map(session => <Button key={session.id} size="sm" variant={conversation.session?.id === session.id ? "secondary" : "ghost"}
             disabled={conversation.loading || busy || conversation.reading}
             onClick={() => { stickToBottom.current = true; setHistoryOpen(false); void conversation.selectSession(session.id); }}>
             {session.title}{session.state === "archived" ? "（已归档）" : session.state === "read_only" ? "（只读）" : ""}</Button>)}
           {!conversation.sessions.length ? <p className="agent-panel__hint">暂无历史会话</p> : null}
           {conversation.sessionCursor ? <Button size="sm" variant="ghost" disabled={conversation.reading} onClick={() => void conversation.moreSessions()}>更多会话</Button> : null}
+          </AgentHistorySearch>
         </HomeSidebarList>
         <Button size="sm" variant="ghost" aria-label="刷新会话" leadingIcon={<RefreshCw size={14} />} disabled={conversation.reading}
           onClick={() => void conversation.refresh()}>刷新</Button>

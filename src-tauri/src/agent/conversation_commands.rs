@@ -8,6 +8,7 @@ use super::{
     models::{Scope, WorkspaceBinding},
 };
 use crate::{db::Database, lock_mutex, AppState};
+use crate::db::agent_session_search::{AgentSessionSearchInput, AgentSessionSearchPage};
 use serde::Deserialize;
 use tauri::State;
 
@@ -154,6 +155,20 @@ pub(crate) fn agent_sessions_list(
             input.data.cursor.as_ref(),
             input.data.limit,
         )
+    });
+    ApiResponse::from_result(input.request_id, result)
+}
+
+/// User-owned history search. Model tools must use the separate AI source
+/// policy boundary before this projection can be exposed to a run.
+#[tauri::command]
+pub(crate) fn agent_session_search(
+    state: State<'_, AppState>,
+    input: ConversationCommandInput<AgentSessionSearchInput>,
+) -> ApiResponse<AgentSessionSearchPage> {
+    let result = with_conversation(&state, &input.binding, |db, current| {
+        let request = gui_scope_request(&input.binding, &input.request_id, &input.data.scope);
+        db.agent_session_search(&request, current, &input.data)
     });
     ApiResponse::from_result(input.request_id, result)
 }

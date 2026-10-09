@@ -27,6 +27,7 @@ vi.mock("./AgentRunOutputs", () => ({ AgentRunOutputs: ({ runId, active, current
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { aiSettingsGet: mocked.aiSettingsGet } }));
 vi.mock("../../state/ui-store", () => ({ useUiStore: (selector: (state: { openSettings: typeof mocked.openSettings }) => unknown) => selector({ openSettings: mocked.openSettings }) }));
 import { AgentPanel } from "./AgentPanel";
+import { agentApi } from "../../services/agentApi";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 import type { useAgentConversation } from "./useAgentConversation";
 const scope = { kind: "project", projectId: 1 } as const;
@@ -134,6 +135,25 @@ describe("Project assistant panel", () => {
     expect(state.loadMore).toHaveBeenCalledOnce();
     await userEvent.click(screen.getByRole("button", { name: "新会话" }));
     expect(state.selectSession).toHaveBeenCalledWith("");
+  });
+  it("keeps the conversation draft while searching history and opening a match", async () => {
+    vi.spyOn(agentApi, "sessionSearch").mockResolvedValueOnce({
+      matches: [{ sessionId: session.id, messageId: "message", runtimeEntryId: "entry", ordinal: 1,
+        role: "user", createdAt: "2026-10-09T10:00:00Z", contentHash: "sha256:abc", branchLeafId: "leaf",
+        snippet: "找到的讨论", sessionTitle: "相关会话" }], nextCursor: null,
+      coverage: { indexedMessages: 1, remainingMessages: 0, backfilledThisRequest: 1, complete: true },
+    });
+    await loaded();
+    const draft = screen.getByRole("textbox", { name: "问题" });
+    await userEvent.type(draft, "未发送的问题");
+    await userEvent.click(screen.getByRole("button", { name: "历史", exact: true }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "搜索历史讨论" }), "讨论{Enter}");
+    await screen.findByText("找到的讨论");
+    expect(draft).toHaveValue("未发送的问题");
+    await userEvent.click(screen.getByRole("button", { name: "打开会话" }));
+    expect(state.selectSession).toHaveBeenCalledWith(session.id);
+    expect(draft).toHaveValue("未发送的问题");
+    vi.mocked(agentApi.sessionSearch).mockRestore();
   });
   it("bounds UTF-8 question size before sending and reports readable errors", async () => {
     state.error = "当前模型未通过工具验证";

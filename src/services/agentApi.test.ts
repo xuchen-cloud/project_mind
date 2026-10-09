@@ -21,6 +21,15 @@ it("reads a cited message range through the bound GUI command", async () => {
   expect(await agentApi.sessionMessagesRead(binding, data, "messages-1")).toBe(page);
   expect(desktopApi.command).toHaveBeenCalledWith("agent_session_messages_read", { input: { binding, requestId: "messages-1", data } });
 });
+it("searches history through the bound envelope and rejects a mismatched response", async () => {
+  const data = { scope: { kind: "project" as const, projectId: 7 }, query: "决策", afterMessageId: null, limit: 20 };
+  const page = { matches: [], nextCursor: null, coverage: { indexedMessages: 5, remainingMessages: 0, backfilledThisRequest: 5, complete: true } };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "search-1", ok: true, data: page });
+  expect(await agentApi.sessionSearch(binding, data, "search-1")).toBe(page);
+  expect(desktopApi.command).toHaveBeenCalledWith("agent_session_search", { input: { binding, requestId: "search-1", data } });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "old-request", ok: true, data: page });
+  await expect(agentApi.sessionSearch(binding, data, "search-2")).rejects.toMatchObject({ code: "RUNTIME_INCOMPATIBLE" });
+});
 const context = { scope: { kind: "project" as const, projectId: 7 }, query: "上次的决定" };
 
 const output: AgentRuntimeOutput = { id: "a".repeat(32), runId: "b".repeat(32), ordinal: 1, revision: 2,

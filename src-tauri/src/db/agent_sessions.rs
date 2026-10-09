@@ -203,6 +203,7 @@ fn projection_write(
                 )
             });
         tx.execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES (?1,?2,?3,?4,?5,?6,'complete',?7,?8) ON CONFLICT(session_id,runtime_entry_id) DO UPDATE SET role=excluded.role,content_json=excluded.content_json,state='complete',ordinal=excluded.ordinal,created_at=excluded.created_at",params![id,session_id,attribution,message.runtime_entry_id,message.role.sql(),json_string(message)?,message.ordinal as i64,message.created_at]).map_err(io_error)?;
+        super::agent_session_search::projection_index_message(tx, &id, message)?;
     }
     for (_, (id, _)) in previous {
         tx.execute("DELETE FROM agent_messages WHERE id=?1", [id])
@@ -993,6 +994,8 @@ mod tests {
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         conn.execute_batch(include_str!("agent_schema.sql"))
             .unwrap();
+        conn.execute_batch(include_str!("agent_session_search.sql"))
+            .unwrap();
         let db = Database {
             conn,
             workspace_root: PathBuf::new(),
@@ -1382,6 +1385,9 @@ mod tests {
         db.conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         db.conn
             .execute_batch(include_str!("agent_schema.sql"))
+            .unwrap();
+        db.conn
+            .execute_batch(include_str!("agent_session_search.sql"))
             .unwrap();
         let s = session(&db, &r, &b, Scope::Workspace);
         let run = prepare(&db, &r, &b, &s, "interrupted");

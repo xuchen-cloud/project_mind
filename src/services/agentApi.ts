@@ -6,7 +6,7 @@ import type {
   AgentContextInstruction, AgentInstructionUpsert, AgentInstructionDelete, AgentChangePage,
   SourceMaintenanceProgress, OverviewReadInput, OverviewReadPage, OverviewCorrections, OverviewCorrectionUpsert, OverviewCorrectionDelete, OverviewMaintenanceView,
   KnowledgeGetInput, KnowledgeGetPage, KnowledgeSearchInput, KnowledgeSearchPage,
-  AgentSessionCreateInput, AgentSessionsListInput, AgentSessionGetInput, AgentSessionMessagesReadInput, AgentSessionMessagesReadPage,
+  AgentSessionCreateInput, AgentSessionsListInput, AgentSessionGetInput, AgentSessionMessagesReadInput, AgentSessionMessagesReadPage, AgentSessionSearchInput, AgentSessionSearchPage,
   AgentSessionArchiveInput, AgentSessionDeleteInput, AgentSessionMetadata, AgentSessionPage, AgentSessionSnapshot,
   AgentRunStartInput, AgentRunCancelInput, AgentRunGetInput, AgentRunEventsListInput,
   AgentStoredRun, AgentRunEvent, AgentRunEventPage, AgentProfileProbeInput, AgentProfileProbeResult,
@@ -59,6 +59,9 @@ export const agentApi = {
   },
   sessionMessagesRead(binding: AgentWorkspaceBinding, data: AgentSessionMessagesReadInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionMessagesReadPage> {
     return callAgentCommand("agent_session_messages_read", requestId, { input: { binding, requestId, data } });
+  },
+  sessionSearch(binding: AgentWorkspaceBinding, data: AgentSessionSearchInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionSearchPage> {
+    return callAgentCommand("agent_session_search", requestId, { input: { binding, requestId, data } });
   },
   sessionArchive(binding: AgentWorkspaceBinding, data: AgentSessionArchiveInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionMetadata> {
     return callAgentCommand("agent_session_archive", requestId, { input: { binding, requestId, data } });
