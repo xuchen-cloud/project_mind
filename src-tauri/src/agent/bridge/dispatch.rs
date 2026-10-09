@@ -13,6 +13,7 @@ use crate::{
     lock_mutex,
     record_document_service::DocumentUtility,
     source_service::SourceUtility,
+    source_session_read::{SessionHistoryFragment, SessionHistoryUtility},
     AppState,
 };
 use serde_json::Value;
@@ -28,18 +29,20 @@ fn unavailable() -> AgentError {
     )
 }
 
-pub(crate) async fn execute<S, R, F>(
+pub(crate) async fn execute<S, R, F, H>(
     store: &S,
     enabled: &AtomicBool,
     token: &str,
     input: CallInput,
     record: &R,
     source: &F,
+    history: &H,
 ) -> AgentResult<Value>
 where
     S: BoundReadContextStore,
     R: DocumentUtility,
     F: SourceUtility,
+    H: SessionHistoryUtility,
 {
     let connection = ConnectionStore {
         inner: store,
@@ -82,6 +85,43 @@ where
         });
     }
     let request = connection.with_authenticated(|_, _, _, request| Ok(request))?;
+    match input.method.as_str() {
+        "session.search" => {
+            let params = decode(input.params.clone())?;
+            return encode(
+                crate::agent::model_history::search_with_store(
+                    &connection,
+                    history,
+                    &request,
+                    &params,
+                )
+                .await?,
+            );
+        }
+        "session.messages.read" => {
+            let params = decode(input.params.clone())?;
+            return encode(
+                crate::agent::model_history::read_with_store(
+                    &connection,
+                    history,
+                    &request,
+                    &params,
+                )
+                .await?,
+            );
+        }
+        "record.blocks.get" | "todo.get" | "file.versions.list" | "file.versions.get"
+        | "file.source.read" => {
+            return super::object_reads::execute(
+                &connection,
+                &request,
+                &input.method,
+                input.params.clone(),
+            )
+            .await;
+        }
+        _ => {}
+    }
     crate::agent::tools::dispatch_read(
         &connection,
         record,
@@ -91,6 +131,62 @@ where
         input.params.clone(),
     )
     .await
+}
+
+fn decode<T: serde::de::DeserializeOwned>(value: Value) -> AgentResult<T> {
+    serde_json::from_value(value).map_err(|_| {
+        AgentError::new(
+            ErrorCode::InvalidArgument,
+            "Arguments do not match the read input DTO",
+        )
+    })
+}
+fn encode(value: impl serde::Serialize) -> AgentResult<Value> {
+    serde_json::to_value(value)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot encode connection result"))
+}
+
+/// History resources are opened only for an authorized history request.
+struct AppHistoryUtility(tauri::AppHandle);
+impl AppHistoryUtility {
+    fn reader(
+        &self,
+        binding: &WorkspaceBinding,
+    ) -> AgentResult<crate::agent::model_history::AppSessionHistoryUtility> {
+        let state = self.0.state::<AppState>();
+        let current = lock_mutex(&state.current_workspace);
+        let runtime = current.as_ref().ok_or_else(unavailable)?;
+        if &runtime.agent_binding != binding {
+            return Err(AgentError::new(
+                ErrorCode::WorkspaceChanged,
+                "Workspace changed; reconnect explicitly",
+            ));
+        }
+        Ok(crate::agent::model_history::AppSessionHistoryUtility {
+            app: self.0.clone(),
+            runtime: runtime.clone(),
+        })
+    }
+}
+impl SessionHistoryUtility for AppHistoryUtility {
+    async fn read(
+        &self,
+        binding: &WorkspaceBinding,
+        record: &crate::db::agent_session_model_search::SourceReadRecord,
+        cursor: Option<&str>,
+        max_chars: u32,
+    ) -> AgentResult<SessionHistoryFragment> {
+        self.reader(binding)?
+            .read(binding, record, cursor, max_chars)
+            .await
+    }
+    async fn scan(
+        &self,
+        binding: &WorkspaceBinding,
+        work: &crate::db::agent_session_search::SessionScanWork,
+    ) -> AgentResult<crate::db::agent_session_search::SessionScanPage> {
+        self.reader(binding)?.scan(binding, work).await
+    }
 }
 
 /// Resolve packaged extraction resources only when a File read needs them.
@@ -162,6 +258,7 @@ impl BridgeHandler for AppBridge {
                 input,
                 &crate::record_document_service::AppDocumentUtility(self.0.clone()),
                 &AppSourceUtility(self.0.clone()),
+                &AppHistoryUtility(self.0.clone()),
             )
             .await
         })

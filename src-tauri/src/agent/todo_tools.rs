@@ -3,7 +3,7 @@ use super::{models::ObjectRef, tools::object_ref_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TodoGetInput {
     pub target: ObjectRef,

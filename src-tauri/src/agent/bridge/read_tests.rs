@@ -10,6 +10,7 @@ use tokio::sync::{oneshot, Semaphore};
 use super::{dispatch, protocol::CallInput};
 use crate::{
     agent::{
+        access::{Caller, RequestContext, ScopeGrant},
         connections::ConnectionCreateInput,
         errors::{AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
@@ -17,9 +18,10 @@ use crate::{
     },
     committed_changes::{CommittedChangePublisher, CommittedChanges},
     db::Database,
-    models::{DocumentImportInput, ProjectCreateInput},
+    models::{DocumentImportInput, ProjectCreateInput, ProjectRecordUpsertInput, TodoCreateInput, TodoScope},
     record_document_service::DocumentUtility,
-    source_service::{BoundSourceStore, SourceIndexBudget, SourceReadTarget, SourceService, SourceUtility},
+    record_documents::{body_hash, RecordDocumentProjection, RecordTarget},
+    source_service::{BoundSourceStore, SourceIndexBudget, SourcePolicyUpdate, SourceReadTarget, SourceService, SourceUtility},
 };
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -108,6 +110,8 @@ struct Fixture {
     project_id: i64,
     other_project_id: i64,
     file: ObjectRef,
+    record: ObjectRef,
+    todo: ObjectRef,
 }
 impl Fixture {
     fn new() -> Self {
@@ -138,6 +142,28 @@ impl Fixture {
                 tag_ids: None,
             })
             .unwrap();
+        let record = db.project_record_upsert(ProjectRecordUpsertInput {
+            project_id: project.id, note_id: None, title: Some("Bridge Record".into()),
+            markdown: "Record evidence".into(), html: "<p>Record evidence</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let target = RecordTarget { scope: Scope::Project { project_id: project.id }, record_id: record.id };
+        let document = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":"1234567890abcdef1234567890abcdef"},"content":[{"type":"text","text":"Record evidence"}]}]});
+        let projection = RecordDocumentProjection {
+            schema_version: 1, body_hash: body_hash(&document, &None), document,
+            html: "<p>Record evidence</p>".into(), markdown: "Record evidence".into(),
+            text: "Record evidence".into(), code_language: None,
+        };
+        db.record_document_initialize(
+            "gui", "bridge-record-initialize", &target,
+            &db.record_document_source(&target).unwrap().source_hash,
+            &projection, "bridge-workspace",
+        ).unwrap();
+        let todo = db.todo_create(TodoCreateInput {
+            scope: TodoScope::Project, project_id: Some(project.id),
+            content: "Bridge Todo".into(), priority: "normal".into(),
+            due_date: None, tag_ids: vec![],
+        }).unwrap();
         let binding = WorkspaceBinding {
             workspace_id: "bridge-workspace".into(),
             generation: "open-1".into(),
@@ -162,6 +188,14 @@ impl Fixture {
             kind: ObjectKind::File,
             id: file.id.to_string(),
         };
+        let record_object = ObjectRef {
+            workspace_id: binding.workspace_id.clone(), scope: Scope::Project { project_id: project.id },
+            kind: ObjectKind::Record, id: record.id.to_string(),
+        };
+        let todo_object = ObjectRef {
+            workspace_id: binding.workspace_id.clone(), scope: Scope::Project { project_id: project.id },
+            kind: ObjectKind::Todo, id: todo.id.to_string(),
+        };
         Self {
             _root: root,
             store: Arc::new(Store {
@@ -173,6 +207,8 @@ impl Fixture {
             project_id: project.id,
             other_project_id: other.id,
             file: object,
+            record: record_object,
+            todo: todo_object,
         }
     }
     fn input(&self, id: &str, method: &str, params: Value) -> CallInput {
@@ -199,6 +235,7 @@ impl Fixture {
             self.input(id, method, params),
             &UnusedDocument,
             utility,
+            &UnusedDocument,
         )
         .await
     }
@@ -375,5 +412,90 @@ async fn file_extraction_rechecks_revocation_workspace_and_enabled_state() {
             }
         );
         assert!(!error.message.contains(EVIDENCE));
+    }
+}
+
+#[tokio::test]
+async fn object_reads_return_native_versions_bodies_and_enforce_current_policy() {
+    let f = Fixture::new();
+    let utility = TextUtility::immediate();
+    let blocks = f.read("blocks", "record.blocks.get", json!({"record": f.record}), &utility).await.unwrap();
+    assert_eq!(blocks["record"], json!(f.record));
+    assert_eq!(blocks["headRevision"], 1);
+    assert_eq!(blocks["items"][0]["node"]["content"][0]["text"], "Record evidence");
+    assert_eq!(blocks["items"][0]["tree"][0]["blockId"], "1234567890abcdef1234567890abcdef");
+    assert!(blocks["bodyHash"].as_str().unwrap().starts_with("sha256:"));
+
+    let todo = f.read("todo", "todo.get", json!({"target": f.todo}), &utility).await.unwrap();
+    assert_eq!(todo["object"], json!(f.todo));
+    assert_eq!(todo["revision"], 1);
+    assert_eq!(todo["snapshot"]["content"], "Bridge Todo");
+    assert!(todo["bodyHash"].as_str().unwrap().starts_with("sha256:"));
+
+    let versions = f.read("versions", "file.versions.list", json!({"object": f.file}), &utility).await.unwrap();
+    assert_eq!(versions["object"], json!(f.file));
+    assert_eq!(versions["currentVersionNumber"], 1);
+    assert_eq!(versions["versions"].as_array().unwrap().len(), 1);
+    let version_id = versions["versions"][0]["id"].as_str().unwrap().to_owned();
+    let hash = versions["versions"][0]["contentHash"].as_str().unwrap().to_owned();
+    assert!(hash.starts_with("sha256:"));
+    let version = f.read("version", "file.versions.get", json!({"object": f.file, "versionId": version_id}), &utility).await.unwrap();
+    assert_eq!(version["version"]["contentHash"], hash);
+    assert_eq!(version["version"]["versionNumber"], 1);
+
+    let page = f.read("raw", "file.source.read", json!({"object": f.file, "versionNumber": 1, "expectedContentHash": hash}), &utility).await.unwrap();
+    assert_eq!(page["text"], EVIDENCE);
+    assert_eq!(page["contentHash"], hash);
+    assert_eq!(page["byteLength"], EVIDENCE.len());
+    assert_eq!(page["complete"], true);
+    let tiny = f.read("raw-small", "file.source.read", json!({"object": f.file, "versionNumber": 1, "budgetChars": 1}), &utility).await.unwrap_err();
+    assert_eq!(tiny.code, ErrorCode::BudgetExceeded);
+    let wrong_hash = format!("sha256:{}", "0".repeat(64));
+    let changed = f.read("raw-hash", "file.source.read", json!({"object": f.file, "versionNumber": 1, "expectedContentHash": wrong_hash}), &utility).await.unwrap_err();
+    assert_eq!(changed.code, ErrorCode::SourceChanged);
+
+    for (method, field, object) in [
+        ("record.blocks.get", "record", &f.record),
+        ("todo.get", "target", &f.todo),
+        ("file.versions.list", "object", &f.file),
+        ("file.versions.get", "object", &f.file),
+        ("file.source.read", "object", &f.file),
+    ] {
+        let mut foreign = object.clone();
+        foreign.scope = Scope::Project { project_id: f.other_project_id };
+        let mut params = json!({});
+        params[field] = json!(foreign);
+        if method == "file.versions.get" { params["versionId"] = json!(version_id); }
+        if method == "file.source.read" { params["versionNumber"] = json!(1); }
+        let denied = f.read(&format!("foreign-{method}"), method, params, &utility).await.unwrap_err();
+        assert_eq!(denied.code, ErrorCode::ScopeDenied, "{method}");
+    }
+
+    let gui = RequestContext {
+        binding: f.binding.clone(), caller: Caller::Gui,
+        request_id: "gui-exclude-file".into(),
+        scope_grant: ScopeGrant {
+            workspace_id: f.binding.workspace_id.clone(), workspace_content: false,
+            project_ids: vec![f.project_id],
+            operations: vec!["settings.write".into(), "source.read".into()],
+        },
+    };
+    f.store.db.lock().unwrap().source_policy_update(
+        &gui, &f.binding,
+        &SourcePolicyUpdate { object: f.file.clone(), expected_revision: 0, excluded: true },
+    ).unwrap();
+    for (method, params) in [
+        ("file.versions.list", json!({"object": f.file})),
+        ("file.versions.get", json!({"object": f.file, "versionId": version_id})),
+        ("file.source.read", json!({"object": f.file, "versionNumber": 1})),
+    ] {
+        let denied = f.read(&format!("excluded-{method}"), method, params, &utility).await.unwrap_err();
+        assert_eq!(denied.code, ErrorCode::ScopeDenied, "{method}");
+    }
+}
+
+impl crate::source_session_read::SessionHistoryUtility for UnusedDocument {
+    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
+        panic!("This fixture does not read session history")
     }
 }

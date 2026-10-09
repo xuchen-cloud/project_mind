@@ -1,0 +1,77 @@
+//! Object reads available to a connected client. The existing services own
+//! authorization, ownership, version checks and response budgets.
+use crate::{
+    agent::{
+        access::RequestContext,
+        errors::{AgentError, AgentResult, ErrorCode},
+        file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
+        record_blocks::{RecordBlocksInput, RecordBlocksService},
+        todo_tools::TodoGetInput,
+    },
+    file_source_read::FileSourceReadService,
+    source_service::BoundSourceStore,
+};
+use serde::{de::DeserializeOwned, Serialize};
+use serde_json::Value;
+
+fn decode<T: DeserializeOwned>(arguments: Value) -> AgentResult<T> {
+    serde_json::from_value(arguments).map_err(|_| {
+        AgentError::new(
+            ErrorCode::InvalidArgument,
+            "Arguments do not match the object read input",
+        )
+    })
+}
+
+fn encode(result: impl Serialize) -> AgentResult<Value> {
+    serde_json::to_value(result).map_err(|_| {
+        AgentError::new(
+            ErrorCode::RuntimeIncompatible,
+            "Cannot serialize object read result",
+        )
+    })
+}
+
+pub(crate) async fn execute<S: BoundSourceStore>(
+    store: &S,
+    request: &RequestContext,
+    method: &str,
+    arguments: Value,
+) -> AgentResult<Value> {
+    match method {
+        "record.blocks.get" => {
+            let input: RecordBlocksInput = decode(arguments)?;
+            encode(RecordBlocksService::new(store).get(request, &input)?)
+        }
+        "todo.get" => {
+            let input: TodoGetInput = decode(arguments)?;
+            store.with_current(|binding, db| {
+                encode(db.agent_todo_get(request, binding, &input.target)?)
+            })
+        }
+        "file.versions.list" => {
+            let input: FileVersionsListInput = decode(arguments)?;
+            store.with_current(|binding, db| {
+                encode(db.file_read_versions_list(request, binding, &input)?)
+            })
+        }
+        "file.versions.get" => {
+            let input: FileVersionsGetInput = decode(arguments)?;
+            store.with_current(|binding, db| {
+                encode(db.file_read_version_get(request, binding, &input)?)
+            })
+        }
+        "file.source.read" => {
+            let input: FileSourceReadInput = decode(arguments)?;
+            encode(
+                FileSourceReadService::new(store)
+                    .read(request, &input)
+                    .await?,
+            )
+        }
+        _ => Err(AgentError::new(
+            ErrorCode::ToolCallUnsupported,
+            "Object read method is not registered",
+        )),
+    }
+}

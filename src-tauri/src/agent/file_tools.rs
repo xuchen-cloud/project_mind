@@ -8,23 +8,26 @@ use serde_json::{json, Value};
 const SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const CONTENT_BYTES: usize = 2 * 1024 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileSourceReadInput {
     pub object: ObjectRef,
     pub version_number: u32,
     pub expected_content_hash: Option<String>,
+    #[schemars(length(max = 2048))]
     pub cursor: Option<String>,
+    #[schemars(range(min = 1, max = 24000))]
     pub budget_chars: Option<usize>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileVersionsListInput {
     pub object: ObjectRef,
     pub cursor: Option<u32>,
+    #[schemars(range(min = 1, max = 100))]
     pub limit: Option<u16>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileVersionsGetInput {
     pub object: ObjectRef,

@@ -330,6 +330,14 @@ R12b2a 当前接入（2026-10-09）：注册表从两个扩展为七个读取，
 已验：bridge/CLI/MCP 定向 14 项、真实 DB 读取/文件提取与中途撤权/切换/停用 2 项通过；增强为正向 Project 检索后相关 1 项再次通过。Linux OS 凭据→MCP 的生产链路再次通过；CLI 可执行文件构建和新增五项 schema 的实际进程调用通过。前端未变，复用 b1 的界面及生产前端证据；不声称新增五种 CLI 子命令已经交付。主 agent Standards/Spec 自查通过，未启动 review agent。
 
 
+b2b 当前执行顺序：先接两个会话工具和五个已有对象读（Record 块、Todo、File 版本列表/元数据/原始源码），再补 Record 历史列表/读取/比较的有界外部适配。会话 scan/检索/原文抽为共享服务，所有 DB 阶段经过当前连接核验；原始 Pi 文件及 GUI 历史权限不变。新增 CLI 读命令支持 `--input-file PATH|-` 传同一 DTO JSON，复杂的分页和范围选择由 schema 说明，文件仅在 CLI 本地读成 JSON；保留已有简明命令并增加 `mind search QUERY`，不另造大量同义参数。
+
+
+R12b2b 首批接入（2026-10-09）：已开放十四种真实读取，其中新增两个会话工具与五个对象/版本读；CLI 的对应命令、JSON 文件/stdin 输入与简明搜索已接到同一注册表。历史索引推进、搜索和原文读取使用共享 store，保留 Pi 原文、范围、Unicode 分页及 `session.read` 检查。Record 历史列表/元数据/块差异仍是下一子步，不将当前 File 版本读取冒充全部版本工具。
+
+已验：bridge/MCP/原生对象读取 18 项通过；历史 7 项（含真实持久连接授权与扫描中撤销/切换）、CLI 8 项、来源会话 4 项、会话摘要发布维护 1 项通过。原生对象 fixture 验证 Record 块、Todo、File 版本/原始源码、hash 错误、预算、越权和排除；模型历史逻辑使用确定性 Pi utility fixture，未声称真实供应商验收。Linux OS 凭据→生产 bridge→MCP 再次通过；CLI 可执行文件构建及实际进程的 JSON 文件/stdin/简明搜索输入、参数和应用未开错误、新增七项 schema 验证通过。主 agent Standards/Spec 自查通过，未启动 review agent。
+
+
 验收：外部客户端读取并修改当前 Project，应用即时刷新；重试不重复，撤权后拒绝，MCP stdout 仅协议。A04/A05/A09/A13～18/A20/A37/A49/A71；CLI golden、独立 MCP 客户端和同一业务 fixture 的权限/结果对照。外部 transport 不重复实现业务规则。
 
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116

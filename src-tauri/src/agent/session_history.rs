@@ -37,7 +37,7 @@ pub(crate) struct HistoryCommandInput {
     data: HistoryRequest,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct HistoryCursor {
     pub(super) branch_id: String,

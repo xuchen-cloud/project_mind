@@ -65,6 +65,7 @@ impl BridgeHandler for WorkspaceHandler {
                 input,
                 &NoUtility,
                 &NoUtility,
+                &NoUtility,
             )
             .await
         })
@@ -553,7 +554,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 7);
+    assert_eq!(tools.tools.len(), 14);
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))
@@ -603,4 +604,10 @@ async fn real_keyring_client_roundtrip() {
     bridge.stop().await.unwrap();
     credentials::delete(&grant_id).unwrap();
     credentials::delete(&grant_id).unwrap();
+}
+
+impl crate::source_session_read::SessionHistoryUtility for NoUtility {
+    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
+        panic!("This fixture does not read session history")
+    }
 }

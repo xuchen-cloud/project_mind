@@ -15,13 +15,16 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordBlocksInput {
     pub record: ObjectRef,
+    #[schemars(range(min = 1, max = 9007199254740991_u64))]
     pub revision: Option<u64>,
     pub block_id: Option<String>,
+    #[schemars(length(max = 2048))]
     pub cursor: Option<String>,
+    #[schemars(range(min = 1, max = 12000))]
     pub budget_chars: Option<usize>,
 }
 #[derive(Debug, Clone, Serialize)]

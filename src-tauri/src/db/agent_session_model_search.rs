@@ -28,16 +28,22 @@ fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ModelHistorySearchInput {
     pub scope: Scope,
+    /// Required search text, at most 256 characters.
+    #[schemars(length(max = 256))]
     pub query: String,
+    #[schemars(length(min = 32, max = 32))]
     pub session_id: Option<String>,
+    #[schemars(length(min = 32, max = 32))]
     pub after_message_id: Option<String>,
     #[serde(default = "default_limit")]
+    #[schemars(range(min = 1, max = 20))]
     pub limit: u16,
     #[serde(default = "default_budget")]
+    #[schemars(range(min = 1, max = 12000))]
     pub budget_chars: usize,
 }
 

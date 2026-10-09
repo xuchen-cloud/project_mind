@@ -2,6 +2,7 @@
 pub mod cli;
 pub mod client;
 mod connection_store;
+mod object_reads;
 pub(crate) mod commands;
 pub mod credentials;
 pub mod mcp;

@@ -4,7 +4,12 @@ use crate::{
     agent::{
         context::ContextGetInput,
         errors::{AgentError, AgentResult, ErrorCode},
+        file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
+        model_history::ModelHistoryReadInput,
+        record_blocks::RecordBlocksInput,
+        todo_tools::TodoGetInput,
     },
+    db::agent_session_model_search::ModelHistorySearchInput,
     knowledge_service::{KnowledgeGetInput, KnowledgeSearchInput},
     overview_service::OverviewReadInput,
     source_service::{SourceReadInput, SourceSearchInput},
@@ -70,6 +75,48 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             read_only: true,
             parameters: serde_json::to_value(schema_for!(SourceReadInput)).expect("static schema"),
         },
+        RegisteredMethod {
+            method: "session.search",
+            description: "Search prior discussion in an authorized scope with session.read. Search text is required; sessionId narrows one session, afterMessageId continues a scan, and limit/budgetChars bound results.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ModelHistorySearchInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "session.messages.read",
+            description: "Read an exact prior message with session.read. Use IDs from session.search and repeat nextCursor to continue the same original message within budgetChars.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ModelHistoryReadInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.blocks.get",
+            description: "Read blocks of an authorized Record with source.read. Optionally pin revision or blockId; nextCursor and budgetChars bound the page.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordBlocksInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "todo.get",
+            description: "Read one authorized Todo by its object reference with source.read, subject to current scope and visibility.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(TodoGetInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.versions.list",
+            description: "List retained version metadata for an authorized File with source.read. Use nextCursor to page older versions and limit to bound the list.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(FileVersionsListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.versions.get",
+            description: "Read metadata for one retained File version ID with source.read; its version number and hash identify exact historical bytes.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(FileVersionsGetInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.source.read",
+            description: "Read original UTF-8 bytes of an explicit registered File version with source.read. Version number and optional hash bind the read; cursor and budgetChars page the exact content.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(FileSourceReadInput)).expect("static schema"),
+        },
     ]
 }
 
@@ -78,7 +125,7 @@ pub fn schema(method: &str) -> Option<Value> {
 }
 
 pub fn is_registered(method: &str) -> bool {
-    matches!(method, "project.list" | "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read")
+    matches!(method, "project.list" | "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read" | "session.search" | "session.messages.read" | "record.blocks.get" | "todo.get" | "file.versions.list" | "file.versions.get" | "file.source.read")
 }
 
 /// Validate exactly the DTO that dispatch will consume, plus the shared read
@@ -89,7 +136,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
             .map(|_| ())
             .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Arguments do not match the read input DTO"))
     }
-    if method != "project.list" {
+    if matches!(method, "context.get" | "context.overview.get" | "knowledge.search" | "knowledge.get" | "source.search" | "source.read") {
         crate::agent::tools::validate_bounds(method, parameters)?;
     }
     match method {
@@ -100,6 +147,17 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "knowledge.get" => decode::<KnowledgeGetInput>(parameters),
         "source.search" => decode::<SourceSearchInput>(parameters),
         "source.read" => decode::<SourceReadInput>(parameters),
+        "session.search" => {
+            let input: ModelHistorySearchInput = serde_json::from_value(parameters.clone())
+                .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Arguments do not match the read input DTO"))?;
+            input.validate()
+        }
+        "session.messages.read" => decode::<ModelHistoryReadInput>(parameters),
+        "record.blocks.get" => decode::<RecordBlocksInput>(parameters),
+        "todo.get" => decode::<TodoGetInput>(parameters),
+        "file.versions.list" => decode::<FileVersionsListInput>(parameters),
+        "file.versions.get" => decode::<FileVersionsGetInput>(parameters),
+        "file.source.read" => decode::<FileSourceReadInput>(parameters),
         _ => Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Read method is not registered")),
     }
 }
@@ -112,7 +170,9 @@ mod tests {
     fn registry_contains_only_exposed_reads() {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
             "project.list", "context.get", "context.overview.get", "knowledge.search",
-            "knowledge.get", "source.search", "source.read",
+            "knowledge.get", "source.search", "source.read", "session.search",
+            "session.messages.read", "record.blocks.get", "todo.get",
+            "file.versions.list", "file.versions.get", "file.source.read",
         ]);
         assert!(registered_methods().iter().all(|entry| entry.read_only));
         assert!(!is_registered("record.create"));
@@ -158,5 +218,33 @@ mod tests {
         assert_eq!(validate("knowledge.search", &serde_json::json!({"scope":{"kind":"workspace"},"query":"x","budgetChars":3001})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("source.search", &serde_json::json!({"scope":{"kind":"workspace"},"query":"x","selected":[{"kind":"project"}]})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("record.create", &serde_json::json!({})).unwrap_err().code, ErrorCode::ToolCallUnsupported);
+    }
+
+    #[test]
+    fn second_read_batch_schemas_use_real_dtos() {
+        let scope = serde_json::json!({"kind":"project","projectId":1});
+        let object = |kind| serde_json::json!({"workspaceId":"workspace-a","scope":scope,"kind":kind,"id":"1"});
+        let id = "0123456789abcdef0123456789abcdef";
+        let cases = [
+            ("session.search", serde_json::json!({"scope":scope,"query":"earlier decision"})),
+            ("session.messages.read", serde_json::json!({"sessionId":id,"messageId":id})),
+            ("record.blocks.get", serde_json::json!({"record":object("record"),"budgetChars":4000})),
+            ("todo.get", serde_json::json!({"target":object("todo")})),
+            ("file.versions.list", serde_json::json!({"object":object("file"),"limit":10})),
+            ("file.versions.get", serde_json::json!({"object":object("file"),"versionId":"version-1"})),
+            ("file.source.read", serde_json::json!({"object":object("file"),"versionNumber":1,"budgetChars":4000})),
+        ];
+        for (method, value) in cases {
+            validate(method, &value).unwrap();
+            let schema = schema(method).unwrap();
+            assert_eq!(schema["additionalProperties"], false, "{method}");
+            let fields = schema["properties"].as_object().unwrap();
+            assert!(value.as_object().unwrap().keys().all(|name| fields.contains_key(name)), "{method}");
+        }
+        assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"  "})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"x","limit":21})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("file.versions.list", &serde_json::json!({"object":object("file"),"path":"/tmp/file"})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert!(!is_registered("record.restore"));
+        assert!(!is_registered("file.content.begin"));
     }
 }

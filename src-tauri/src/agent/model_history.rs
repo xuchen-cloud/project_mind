@@ -2,13 +2,16 @@
 use super::{
     access::RequestContext,
     errors::{AgentError, AgentResult, ErrorCode},
-    models::SourceRef,
+    models::{Scope, SourceRef, WorkspaceBinding},
     session_history::{HistoryCursor, HistoryRequest},
 };
 use crate::{
-    db::agent_session_model_search::{ModelHistorySearchInput, ModelHistorySearchPage},
+    db::{
+        agent_session_model_search::{ModelHistorySearchInput, ModelHistorySearchPage},
+        agent_session_search::{SessionScanPage, SessionScanWork},
+    },
     lock_mutex,
-    source_service::{SourceReadInput, SourceReadTarget, SourceReadView, SourceService},
+    source_service::{BoundSourceStore, SourceReadInput, SourceReadTarget, SourceReadView, SourceService},
     source_session_read::{SessionHistoryFragment, SessionHistoryUtility},
     AppState, WorkspaceRuntime,
 };
@@ -23,13 +26,16 @@ fn budget_default() -> usize {
     4000
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ModelHistoryReadInput {
+    #[schemars(length(min = 32, max = 32))]
     pub session_id: String,
+    #[schemars(length(min = 32, max = 32))]
     pub message_id: String,
     pub cursor: Option<HistoryCursor>,
     #[serde(default = "budget_default")]
+    #[schemars(range(min = 1, max = 12000))]
     pub budget_chars: usize,
 }
 
@@ -88,6 +94,36 @@ pub(crate) struct AppSessionHistoryUtility {
     pub runtime: Arc<WorkspaceRuntime>,
 }
 impl SessionHistoryUtility for AppSessionHistoryUtility {
+    async fn scan(
+        &self,
+        binding: &WorkspaceBinding,
+        work: &SessionScanWork,
+    ) -> AgentResult<SessionScanPage> {
+        {
+            let state = self.app.state::<AppState>();
+            let current = lock_mutex(&state.current_workspace);
+            if current.as_ref().is_none_or(|r| !Arc::ptr_eq(r, &self.runtime))
+                || &self.runtime.agent_binding != binding
+            {
+                return Err(err(ErrorCode::WorkspaceChanged, "Workspace binding changed"));
+            }
+        }
+        let value = super::session_history::history_runtime_request(
+            self.app.clone(),
+            self.runtime.clone(),
+            "session.history.scan",
+            serde_json::json!({
+                "sessionId": work.session_id,
+                "expectedChecksum": work.checksum,
+                "cursor": work.cursor,
+                "previousCheckpoint": work.previous_checkpoint,
+            }),
+        ).await?;
+        serde_json::from_value(value).map_err(|_| {
+            err(ErrorCode::RuntimeIncompatible, "Invalid history scan response")
+        })
+    }
+
     async fn advance_index(
         &self,
         binding: &super::models::WorkspaceBinding,
@@ -234,53 +270,34 @@ pub(crate) async fn advance_index(
     app: tauri::AppHandle,
     runtime: Arc<WorkspaceRuntime>,
     request: &RequestContext,
-    scope: &super::models::Scope,
+    scope: &Scope,
     session_id: Option<&str>,
 ) -> AgentResult<bool> {
-    let work = {
-        let state = app.state::<AppState>();
-        let current = lock_mutex(&state.current_workspace);
-        if current.as_ref().is_none_or(|r| !Arc::ptr_eq(r, &runtime))
-            || runtime.agent_binding != request.binding
-        {
-            return Err(err(
-                ErrorCode::WorkspaceChanged,
-                "Workspace binding changed",
-            ));
-        }
-        request.authorize(&runtime.agent_binding, scope, "session.read")?;
-        let db = lock_mutex(&runtime.db);
-        db.agent_session_scan_work(request, &runtime.agent_binding, scope, session_id)?
-    };
-    let page = if let Some(work) = &work {
-        let value=super::session_history::history_runtime_request(app.clone(),runtime.clone(),"session.history.scan",serde_json::json!({"sessionId":work.session_id,"expectedChecksum":work.checksum,"cursor":work.cursor,"previousCheckpoint":work.previous_checkpoint})).await?;
-        Some(
-            serde_json::from_value::<crate::db::agent_session_search::SessionScanPage>(value)
-                .map_err(|_| {
-                    err(
-                        ErrorCode::RuntimeIncompatible,
-                        "Invalid history scan response",
-                    )
-                })?,
-        )
-    } else {
-        None
-    };
+    let utility = AppSessionHistoryUtility { app: app.clone(), runtime };
     let state = app.state::<AppState>();
-    let current = lock_mutex(&state.current_workspace);
-    if current.as_ref().is_none_or(|r| !Arc::ptr_eq(r, &runtime))
-        || runtime.agent_binding != request.binding
-    {
-        return Err(err(
-            ErrorCode::WorkspaceChanged,
-            "Workspace binding changed",
-        ));
-    }
-    let db = lock_mutex(&runtime.db);
-    if let (Some(work), Some(page)) = (&work, &page) {
-        db.agent_session_scan_commit(request, &runtime.agent_binding, work, page)?;
-    }
-    Ok(page.is_some())
+    advance_index_with_store(&*state, &utility, request, scope, session_id).await
+}
+
+pub(crate) async fn advance_index_with_store<S: BoundSourceStore, U: SessionHistoryUtility>(
+    store: &S,
+    utility: &U,
+    request: &RequestContext,
+    scope: &Scope,
+    session_id: Option<&str>,
+) -> AgentResult<bool> {
+    let (binding, work) = store.with_current(|binding, db| {
+        request.authorize(binding, scope, "session.read")?;
+        Ok((binding.clone(), db.agent_session_scan_work(request, binding, scope, session_id)?))
+    })?;
+    let Some(work) = work else { return Ok(false) };
+    let page = utility.scan(&binding, &work).await?;
+    store.with_current(|current, db| {
+        if current != &binding {
+            return Err(err(ErrorCode::WorkspaceChanged, "Workspace binding changed"));
+        }
+        db.agent_session_scan_commit(request, current, &work, &page)
+    })?;
+    Ok(true)
 }
 
 pub(crate) async fn search(
@@ -289,34 +306,38 @@ pub(crate) async fn search(
     request: &RequestContext,
     input: &ModelHistorySearchInput,
 ) -> AgentResult<ModelHistorySearchPage> {
+    let utility = AppSessionHistoryUtility { app: app.clone(), runtime };
+    let state = app.state::<AppState>();
+    search_with_store(&*state, &utility, request, input).await
+}
+
+pub(crate) async fn search_with_store<S: BoundSourceStore, U: SessionHistoryUtility>(
+    store: &S,
+    utility: &U,
+    request: &RequestContext,
+    input: &ModelHistorySearchInput,
+) -> AgentResult<ModelHistorySearchPage> {
     input.validate()?;
     if input.after_message_id.is_none() {
-        advance_index(
-            app.clone(),
-            runtime.clone(),
-            request,
-            &input.scope,
-            input.session_id.as_deref(),
-        )
-        .await?;
+        advance_index_with_store(store, utility, request, &input.scope, input.session_id.as_deref()).await?;
     }
-    let state = app.state::<AppState>();
-    let current = lock_mutex(&state.current_workspace);
-    if current.as_ref().is_none_or(|r| !Arc::ptr_eq(r, &runtime))
-        || runtime.agent_binding != request.binding
-    {
-        return Err(err(
-            ErrorCode::WorkspaceChanged,
-            "Workspace binding changed",
-        ));
-    }
-    let db = lock_mutex(&runtime.db);
-    db.agent_model_session_search(request, &runtime.agent_binding, input)
+    store.with_current(|binding, db| db.agent_model_session_search(request, binding, input))
 }
 
 pub(crate) async fn read(
     app: tauri::AppHandle,
     runtime: Arc<WorkspaceRuntime>,
+    request: &RequestContext,
+    input: &ModelHistoryReadInput,
+) -> AgentResult<ModelHistoryReadPage> {
+    let utility = AppSessionHistoryUtility { app: app.clone(), runtime };
+    let state = app.state::<AppState>();
+    read_with_store(&*state, &utility, request, input).await
+}
+
+pub(crate) async fn read_with_store<S: BoundSourceStore, U: SessionHistoryUtility>(
+    store: &S,
+    utility: &U,
     request: &RequestContext,
     input: &ModelHistoryReadInput,
 ) -> AgentResult<ModelHistoryReadPage> {
@@ -326,25 +347,14 @@ pub(crate) async fn read(
             "Invalid history read budget",
         ));
     }
-    let original = {
-        let state = app.state::<AppState>();
-        let current = lock_mutex(&state.current_workspace);
-        if current.as_ref().is_none_or(|r| !Arc::ptr_eq(r, &runtime))
-            || runtime.agent_binding != request.binding
-        {
-            return Err(err(
-                ErrorCode::WorkspaceChanged,
-                "Workspace binding changed",
-            ));
-        }
-        let db = lock_mutex(&runtime.db);
-        db.agent_model_session_message_record(
+    let (binding, original) = store.with_current(|binding, db| {
+        Ok((binding.clone(), db.agent_model_session_message_record(
             request,
-            &runtime.agent_binding,
+            binding,
             &input.session_id,
             &input.message_id,
-        )?
-    };
+        )?))
+    })?;
     let cursor = input
         .cursor
         .as_ref()
@@ -356,7 +366,7 @@ pub(crate) async fn read(
     history_cursor_offset(cursor.as_deref(), &original)?;
     let source_input = SourceReadInput {
         source: SourceReadTarget {
-            object: original.source_ref(&runtime.agent_binding).object,
+            object: original.source_ref(&binding).object,
             revision: Some(original.text_hash.clone()),
             record_version: None,
             file_version: None,
@@ -378,13 +388,8 @@ pub(crate) async fn read(
             .operations
             .push("source.read".into());
     }
-    let state = app.state::<AppState>();
-    let utility = AppSessionHistoryUtility {
-        app: app.clone(),
-        runtime,
-    };
-    let result = SourceService::new(&*state)
-        .read_session_result(&source_request, &source_input, &utility)
+    let result = SourceService::new(store)
+        .read_session_result(&source_request, &source_input, utility)
         .await?;
     let next_cursor = result
         .page
@@ -415,3 +420,6 @@ pub(crate) async fn read(
 #[cfg(test)]
 #[path = "model_history_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "model_history_shared_tests.rs"]
+mod shared_tests;

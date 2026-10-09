@@ -1,4 +1,4 @@
-//! Argument handling and JSON output for the first local CLI read commands.
+//! Argument handling and JSON output for local read commands.
 use super::{client::BridgeClient, mcp::MindMcp, registry};
 use crate::agent::{
     capabilities::capabilities,
@@ -7,9 +7,10 @@ use crate::agent::{
     models::Scope,
 };
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::{io::Read, path::PathBuf};
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind mcp serve --workspace PATH --connection ID\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 64 KiB). Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const MAX_INPUT_BYTES: u64 = 64 * 1024;
 
 pub struct CliOutput {
     pub stdout: String,
@@ -26,6 +27,7 @@ struct Options {
     query: Option<String>,
     budget_chars: Option<usize>,
     request_id: Option<String>,
+    input_file: Option<String>,
     json: bool,
 }
 
@@ -63,10 +65,11 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             "--query" if options.query.is_none() => options.query = Some(value.clone()),
             "--budget-chars" if options.budget_chars.is_none() => {
                 let budget = value.parse::<usize>().map_err(|_| invalid("Invalid character budget"))?;
-                if !(1..=3000).contains(&budget) { return Err(invalid("Invalid character budget")); }
+                if !(1..=12000).contains(&budget) { return Err(invalid("Invalid character budget")); }
                 options.budget_chars = Some(budget);
             }
             "--request-id" if options.request_id.is_none() && !value.is_empty() => options.request_id = Some(value.clone()),
+            "--input-file" if options.input_file.is_none() => options.input_file = Some(value.clone()),
             _ => return Err(invalid("Unknown or duplicate option")),
         }
         cursor += 2;
@@ -106,6 +109,41 @@ fn response(request_id: String, result: AgentResult<Value>) -> CliOutput {
 }
 
 fn request_id() -> String { format!("cli-{:032x}", rand::random::<u128>()) }
+
+fn parse_input(source: impl Read) -> AgentResult<Value> {
+    let mut bytes = Vec::new();
+    source.take(MAX_INPUT_BYTES + 1).read_to_end(&mut bytes)
+        .map_err(|_| invalid("Cannot read --input-file"))?;
+    if bytes.len() as u64 > MAX_INPUT_BYTES {
+        return Err(invalid("--input-file exceeds 64 KiB"));
+    }
+    serde_json::from_slice(&bytes).map_err(|_| invalid("--input-file must contain valid JSON"))
+}
+
+fn read_input(path: &str) -> AgentResult<Value> {
+    let source: Box<dyn Read> = if path == "-" {
+        Box::new(std::io::stdin())
+    } else {
+        Box::new(std::fs::File::open(path).map_err(|_| invalid("Cannot read --input-file"))?)
+    };
+    parse_input(source)
+}
+
+fn scoped(options: &Options) -> AgentResult<Scope> {
+    match (options.project, options.workspace_scope) {
+        (Some(project_id), false) => Ok(Scope::Project { project_id }),
+        (None, true) => Ok(Scope::Workspace),
+        _ => Err(invalid("Choose exactly one of --project or --workspace-scope")),
+    }
+}
+
+fn reject_scope_options(options: &Options) -> AgentResult<()> {
+    if options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
+        Err(invalid("Scope, query and budget options cannot accompany --input-file"))
+    } else {
+        Ok(())
+    }
+}
 
 /// Stdio owns stdout for its entire lifetime. Diagnostics go only to stderr.
 pub fn run_mcp(args: &[String]) -> i32 {
@@ -161,10 +199,23 @@ pub fn run(args: &[String]) -> CliOutput {
     if let ["schema", method, "--json"] = words.as_slice() {
         return response(request_id(), registry::schema(method).ok_or_else(|| invalid("Unknown bridge method")));
     }
-    let (command, option_args) = match words.as_slice() {
-        ["doctor", ..] => ("doctor", &args[1..]),
-        ["project", "list", ..] => ("project.list", &args[2..]),
-        ["context", "get", ..] => ("context.get", &args[2..]),
+    let (command, option_args, search_query) = match words.as_slice() {
+        ["doctor", ..] => ("doctor", &args[1..], None),
+        ["project", "list", ..] => ("project.list", &args[2..], None),
+        ["context", "get", ..] => ("context.get", &args[2..], None),
+        ["search", query, ..] if !query.starts_with("--") => ("search", &args[2..], Some(*query)),
+        ["context", "overview", "get", ..] => ("context.overview.get", &args[3..], None),
+        ["knowledge", "search", ..] => ("knowledge.search", &args[2..], None),
+        ["knowledge", "get", ..] => ("knowledge.get", &args[2..], None),
+        ["source", "search", ..] => ("source.search", &args[2..], None),
+        ["source", "read", ..] => ("source.read", &args[2..], None),
+        ["session", "search", ..] => ("session.search", &args[2..], None),
+        ["session", "messages", "read", ..] => ("session.messages.read", &args[3..], None),
+        ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..], None),
+        ["todo", "get", ..] => ("todo.get", &args[2..], None),
+        ["file", "versions", "list", ..] => ("file.versions.list", &args[3..], None),
+        ["file", "versions", "get", ..] => ("file.versions.get", &args[3..], None),
+        ["file", "source", "read", ..] => ("file.source.read", &args[3..], None),
         _ => return response(request_id(), Err(invalid("Unknown command; see mind --help"))),
     };
     let options = match parse_options(option_args) {
@@ -174,23 +225,36 @@ pub fn run(args: &[String]) -> CliOutput {
     let request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
-        if command != "context.get" && (options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some()) {
-            return Err(invalid("Scope and context options require context get"));
-        }
-        let params = if command == "context.get" {
-            let scope = match (options.project, options.workspace_scope) {
-                (Some(project_id), false) => Scope::Project { project_id },
-                (None, true) => Scope::Workspace,
-                _ => return Err(invalid("Choose exactly one of --project or --workspace-scope")),
-            };
-            serde_json::to_value(ContextGetInput { scope, query: options.query.clone(), budget_chars: options.budget_chars }).expect("context input JSON")
-        } else { json!({}) };
+        let method = if command == "search" { "source.search" } else { command };
+        let params = match command {
+            "doctor" | "project.list" => {
+                if options.input_file.is_some() || options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
+                    return Err(invalid("This command accepts only Workspace and connection options"));
+                }
+                json!({})
+            }
+            "context.get" => {
+                if options.input_file.is_some() { return Err(invalid("context get uses --project or --workspace-scope, not --input-file")); }
+                if options.budget_chars.is_some_and(|budget| budget > 3000) { return Err(invalid("Context budget must be at most 3000 characters")); }
+                serde_json::to_value(ContextGetInput { scope: scoped(&options)?, query: options.query.clone(), budget_chars: options.budget_chars }).expect("context input JSON")
+            }
+            "search" => {
+                if options.input_file.is_some() || options.query.is_some() { return Err(invalid("search uses its positional query, not --query or --input-file")); }
+                json!({"scope":scoped(&options)?,"query":search_query.expect("search query"),"budgetChars":options.budget_chars})
+            }
+            _ => {
+                if !registry::is_registered(method) { return Err(invalid("Unknown read method")); }
+                reject_scope_options(&options)?;
+                read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
+            }
+        };
+        if command != "doctor" { registry::validate(method, &params)?; }
         let client = BridgeClient::discover(connection)?;
         let binding = client.connect(connection, workspace, &request_id)?;
         if command == "doctor" {
             return Ok(json!({"connected":true,"binding":binding,"bridgeMethods":registry::registered_methods()}));
         }
-        client.call(connection, &binding, command, params, &request_id)
+        client.call(connection, &binding, method, params, &request_id)
     })();
     response(request_id, result)
 }
@@ -236,5 +300,34 @@ mod tests {
         let out = invoke(&["context", "get", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
         assert_eq!(out.exit_code, 2);
         assert_eq!(serde_json::from_str::<Value>(&out.stdout).unwrap()["error"]["code"], "INVALID_ARGUMENT");
+    }
+    #[test]
+    fn input_file_is_bounded_json() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"scope":{"kind":"workspace"},"query":"needle"}"#).unwrap();
+        let input = read_input(file.path().to_str().unwrap()).unwrap();
+        registry::validate("source.search", &input).unwrap();
+        assert_eq!(parse_input(std::io::Cursor::new(Vec::<u8>::new())).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(parse_input(std::io::Cursor::new(vec![b' '; (MAX_INPUT_BYTES + 1) as usize])).unwrap_err().message, "--input-file exceeds 64 KiB");
+    }
+    #[test]
+    fn input_file_commands_validate_before_discovery() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"invented":"field"}"#).unwrap();
+        let args = ["file", "source", "read", "--input-file", file.path().to_str().unwrap(), "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_eq!(out.exit_code, 2);
+        assert!(out.stderr.contains("read input DTO"));
+        let mixed = invoke(&["source", "read", "--input-file", file.path().to_str().unwrap(), "--project", "1", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+        assert_eq!(mixed.exit_code, 2);
+        assert!(mixed.stderr.contains("cannot accompany --input-file"));
+    }
+    #[test]
+    fn shorthand_search_uses_source_search_bounds() {
+        let query = "q".repeat(257);
+        let args = ["search", query.as_str(), "--project", "1", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--budget-chars", "12000", "--json"];
+        let out = invoke(&args);
+        assert_eq!(out.exit_code, 2);
+        assert!(out.stderr.contains("declared bounds"));
     }
 }
