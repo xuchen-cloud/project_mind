@@ -59,6 +59,8 @@ Markdown 快捷命令为 `mind record create --title TITLE --body-file PATH|- (-
 
 `operation.get/list` 只返回本连接的收据；修改撤销把修改前内容保存为新版本，历史恢复本身也可按收据撤销。新建撤销只撤回可见性，`operation.restore_created` 恢复同一对象。撤销不能覆盖后续人工修改，也不能作用于其他连接或内置任务的操作。CLI 命令为 `operation restore-created`，MCP 名称为 `mind_operation_restore_created`。
 
+历史恢复可用 `mind record restore --id ID --version VERSION_ID --base-revision N (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json`。`VERSION_ID` 是历史列表返回的版本身份，不是版本序号；恢复保存为新版本，重复请求返回同一结果。它要求明确的 `record.restore` 权限，Workspace/单 Project 协作预设不自动授予该权限。完整 JSON 入口仍保留。
+
 ## Todo 写入与恢复
 
 `todo.create` 使用原生内容、优先级、日期、标签及子行动字段；`todo.update` 使用实际 Todo 对象、`expectedRevision` 和现有 mutation 类型。所有 `dueDate` 字段都必须出现，可为日期字符串或 `null`。连接使用稳定请求 ID 幂等，CLI/MCP 与 Record 写入共用请求身份约定；内置 Run 的 dedupeKey 保持独立。原生 Todo 提交、不可变字段快照、GUI revision、子行动身份及原子收据由同一数据库服务维护，不创建虚构 Run 或成果候选。
@@ -76,6 +78,8 @@ Markdown 快捷命令为 `mind record create --title TITLE --body-file PATH|- (-
 `mind file upload --input-file target.json --body-file PATH --request-id ID --workspace PATH --connection ID --json` 在 CLI 本地读入字节并执行 begin、status、chunk、complete、update。`target.json` 使用 `{ "object": { ... }, "expectedVersionNumber": 1, "expectedContentHash": "sha256:…" }`，绑定真实 File 对象及预期版本/hash；`--body-file` 支持路径或 `-`（stdin）。相同 ID 重试会使用稳定的阶段 ID，从已接收字节续传；若最后一个短块已收到，可直接继续 complete。阶段过期时只尝试原始最终 `file.update` 收据：已提交可返回同一结果，未提交则明确失败。CLI 不把本地路径传给服务端。
 
 文本 File 可用 `mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json` 创建；复杂创建仍用 `--input-file` 提供完整 DTO。`mind file patch --patch-file PATH|- --workspace PATH --connection ID --json` 接受既有带 `requestId` 的 wrapped mutation JSON，与 `--input-file` 互斥。Todo/File 创建的 `--body-file` 在 CLI 本地按 UTF-8 读取，保留字符与换行，路径不会传到服务端；正文和生成的请求 JSON 均受 2 MiB 上限约束。二进制或较大 File 继续使用上述字节上传流程。
+
+完整替换也可直接使用 `mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash HASH --request-id ID --workspace PATH --connection ID --json`。版本与 `sha256:…` hash 从 File 版本读取取得，Workspace 身份由连接握手补齐；文件在 CLI 本地读取，复用同一 100 MiB 分段上传、续传和收据流程。便捷参数与 `--input-file` 互斥，旧 JSON/`file upload` 入口保持可用。
 
 ## 不应绕过的边界
 

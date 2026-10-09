@@ -16,7 +16,7 @@ const CHUNK: usize = 1024 * 1024;
 
 fn invalid(message: &'static str) -> AgentError { AgentError::new(ErrorCode::InvalidArgument, message) }
 fn incompatible() -> AgentError { AgentError::new(ErrorCode::RuntimeIncompatible, "Invalid File upload response") }
-fn valid_hash(value: &str) -> bool {
+pub(super) fn valid_hash(value: &str) -> bool {
     value.len() == 71 && value.starts_with("sha256:")
         && value[7..].bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
@@ -43,19 +43,20 @@ pub(super) fn decode_target(value: Value) -> AgentResult<FileUploadTargetInput> 
 fn read_bounded(source: impl Read) -> AgentResult<Vec<u8>> {
     let mut bytes = Vec::new();
     source.take(MAX_BODY + 1).read_to_end(&mut bytes)
-        .map_err(|_| invalid("Cannot read --body-file"))?;
-    if bytes.len() as u64 > MAX_BODY { return Err(invalid("--body-file exceeds 100 MiB")); }
+        .map_err(|_| invalid("Cannot read local File content"))?;
+    if bytes.len() as u64 > MAX_BODY { return Err(invalid("Local File content exceeds 100 MiB")); }
     Ok(bytes)
 }
 
-pub(super) fn read_body(path: &str) -> AgentResult<Vec<u8>> {
+pub(super) fn read_file(path: &str) -> AgentResult<Vec<u8>> {
     let source: Box<dyn Read> = if path == "-" {
         Box::new(std::io::stdin())
     } else {
-        Box::new(std::fs::File::open(path).map_err(|_| invalid("Cannot read --body-file"))?)
+        Box::new(std::fs::File::open(path).map_err(|_| invalid("Cannot read local File content"))?)
     };
     read_bounded(source)
 }
+
 
 pub(super) trait UploadTransport {
     fn call(&self, method: &str, params: Value, request_id: &str) -> AgentResult<Value>;
@@ -183,6 +184,9 @@ mod tests {
     #[test]
     fn body_reader_preserves_binary_bytes() {
         assert_eq!(read_bounded(std::io::Cursor::new(vec![1,2,3])).unwrap(), vec![1,2,3]);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), [0, 255, 10, 36, 96]).unwrap();
+        assert_eq!(read_file(file.path().to_str().unwrap()).unwrap(), vec![0, 255, 10, 36, 96]);
     }
     #[test]
     fn completed_short_last_chunk_resumes_at_seal() {

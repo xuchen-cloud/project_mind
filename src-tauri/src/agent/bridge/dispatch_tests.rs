@@ -509,7 +509,7 @@ async fn real_keyring_client_roundtrip() {
             all_projects: true,
             project_ids: vec![],
             session_read: false,
-            write_operations: vec!["content.create".into(), "record.patch".into(), "file.update".into(), "file.restore".into(), "operation.undo".into()],
+            write_operations: vec!["content.create".into(), "record.patch".into(), "record.restore".into(), "file.update".into(), "file.restore".into(), "operation.undo".into()],
         },
         &grant_id,
         &token,
@@ -750,6 +750,51 @@ async fn real_keyring_client_roundtrip() {
     assert_eq!(after_preview.head_revision, before_preview.head_revision);
     assert_eq!(after_preview.projection.body_hash, before_preview.projection.body_hash);
 
+    let mut patch_params = preview_params.clone();
+    patch_params["requestId"] = json!("keyring-record-for-restore");
+    let patched = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_record_patch")
+            .with_arguments(patch_params.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(patched.is_error, Some(false), "{patched:?}");
+    assert_eq!(patched.structured_content.as_ref().unwrap()["data"]["result"]["afterRevision"], 2);
+    let original_version = handler.db.lock().unwrap()
+        .record_versions_list(&record_target, None, 10).unwrap().versions
+        .into_iter().find(|version| version.version_number == 1).unwrap().id;
+    let mut first_restore = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let version_id = original_version.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["record", "restore", "--id"])
+                .arg(record_id.to_string())
+                .arg("--version").arg(version_id)
+                .args(["--base-revision", "2", "--project"])
+                .arg(project_id.to_string())
+                .args(["--request-id", "keyring-cli-record-restore", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI Record restore: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        if let Some(first) = &first_restore { assert_eq!(&response["data"], first); }
+        else { first_restore = Some(response["data"].clone()); }
+    }
+    let restored_record = handler.db.lock().unwrap().record_document_head(&record_target).unwrap().unwrap();
+    assert_eq!(restored_record.head_revision, 3);
+    assert_eq!(restored_record.projection.text, before_preview.projection.text);
+    assert_eq!(handler.db.lock().unwrap().record_versions_list(&record_target, None, 10).unwrap().versions.len(), 3);
+
     let mut cli_bytes = bytes.clone();
     cli_bytes.extend_from_slice(&[0xf1, 0x00, 0x7f]);
     let cli_hash = format!("sha256:{:x}", Sha256::digest(&cli_bytes));
@@ -806,6 +851,76 @@ async fn real_keyring_client_roundtrip() {
     let after_cli = after_cli.structured_content.unwrap()["data"].clone();
     assert_eq!(after_cli["currentVersionNumber"], 3);
     assert_eq!(after_cli["currentContentHash"], cli_hash);
+
+    let replacement_bytes: Vec<u8> = b"direct replacement\0\xff\n".to_vec();
+    let replacement_hash = format!("sha256:{:x}", Sha256::digest(&replacement_bytes));
+    let replacement_path = root.path().join("cli-direct-update.bin");
+    std::fs::write(&replacement_path, &replacement_bytes).unwrap();
+    let mut first_direct_update = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let source_path = replacement_path.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let expected_hash = cli_hash.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["file", "update", "--id"])
+                .arg(file_id.to_string())
+                .arg("--source-file").arg(source_path)
+                .arg("--project").arg(project_id.to_string())
+                .args(["--expected-version", "3", "--expected-hash"])
+                .arg(expected_hash)
+                .args(["--request-id", "keyring-cli-direct-update", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI File update: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["result"]["receipt"]["versionNumber"], 4);
+        assert_eq!(response["data"]["result"]["receipt"]["contentHash"], replacement_hash);
+        if let Some(first) = &first_direct_update { assert_eq!(&response["data"], first); }
+        else { first_direct_update = Some(response["data"].clone()); }
+    }
+    let direct_receipt: crate::db::file_versions::CommittedVersion = serde_json::from_value(
+        first_direct_update.unwrap()["result"]["receipt"].clone()).unwrap();
+    let direct_path = handler.db.lock().unwrap().file_version_committed_path(&direct_receipt).unwrap().unwrap();
+    assert_eq!(std::fs::read(direct_path).unwrap(), replacement_bytes);
+    let binary = cli_binary.clone();
+    let data_home = cli_data_home.clone();
+    let workspace = workspace_path.clone();
+    let connection = grant_id.clone();
+    let expected_hash = cli_hash.clone();
+    let stale_output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(binary)
+            .args(["file", "update", "--id"])
+            .arg(file_id.to_string())
+            .arg("--source-file").arg(replacement_path)
+            .arg("--project").arg(project_id.to_string())
+            .args(["--expected-version", "3", "--expected-hash"])
+            .arg(expected_hash)
+            .args(["--request-id", "keyring-cli-stale-update", "--workspace"])
+            .arg(workspace)
+            .arg("--connection").arg(connection)
+            .arg("--json")
+            .env("XDG_DATA_HOME", data_home)
+            .output()
+    }).await.unwrap().unwrap();
+    assert_eq!(stale_output.status.code(), Some(5));
+    let stale_response: Value = serde_json::from_slice(&stale_output.stdout).unwrap();
+    assert_eq!(stale_response["error"]["code"], "REVISION_CONFLICT");
+    let head_after_stale = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_versions_list")
+            .with_arguments(json!({"object":file}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(head_after_stale.structured_content.as_ref().unwrap()["data"]["currentVersionNumber"], 4);
 
     let cli_file_body = "CLI 本地文件\n$(printf unsafe) `literal`\n";
     let cli_file_body_path = root.path().join("cli-create-body.txt");

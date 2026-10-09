@@ -421,6 +421,16 @@ File 当前验证：设置定向 8 项、TypeScript、生产前端构建与路�
 
 验收：非法/互斥参数在连接前报错；JSON 入口保持可用；真实 CLI 对历史恢复和本地文件替换成功，同请求重放不重复写版本，CAS 冲突按原契约返回，路径不离开 CLI。运行 CLI/upload 定向测试、生产 CLI 构建和既有真实凭据/应用 socket 链路；纯 Rust 参数适配复用当前前端和原生业务验证。
 
+第四子步已完成（2026-10-09）：CLI/upload/client 定向 30 项通过，生产 CLI 构建通过；独立 Linux 系统凭据→实际 socket→生产 CLI 验证 Record 从 v2 恢复 v1 内容形成 v3，重复请求保持 v3；File 便捷参数从本地读取含 NUL/非 UTF-8 的字节并创建 v4，同 ID 重放不新增版本，旧 v3 基线用新 ID 请求返回 REVISION_CONFLICT。原 `file upload` 实际进程回归保留并通过。仅参数适配与测试改动，原生业务和前端复用 f0f1904/既有对应包证据；主 agent Standards/Spec 自查通过。
+
+### R12b3c 第五子步：Record 正文快捷读取 / #106
+
+依赖：现有 source.read 的 Record 正文、版本/来源边界和分页。新增只读 `record.get`，入参为 `record: ObjectRef`、可选 `revision`、`cursor`、`budgetChars`；只接受 Record，内部直接转现有 SourceReadInput 的 full view 并调用共享 Record reader。响应仍为 SourceReadPage，默认 4000、硬限 12000 字符，未读完返回 nextCursor/complete，不以块结构替代正文。旧 Record 的初次标准化沿用 source.read 行为。
+
+CLI 提供 `record get ID (--project ID | --workspace-scope)` 与可选 `--revision`、`--cursor`、`--budget-chars`，Workspace 身份只从连接握手取得；完整 JSON 入口和 MCP schema 同源。非目标：不另存正文、不增加新缓存/权限、不自动读取所有分页，不改历史版本读取接口。
+
+验收：与同对象的 source.read 返回相同正文、SourceRef 和分页；续页、版本变化、错误 kind/归属、排除/撤回/撤权均沿用共享约束。运行 getter/bridge/CLI/MCP 定向和生产 CLI/真实 socket 调用；前端及未变原生服务复用已验证结果。
+
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
 
 依赖：R01～12 的相关行为通过；从 R04 起持续维护验收证据，不在此重做所有测试。

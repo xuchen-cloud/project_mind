@@ -4,7 +4,7 @@ use crate::agent::{
     capabilities::capabilities,
     context::ContextGetInput,
     errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
-    models::Scope,
+    models::{Scope, WorkspaceBinding},
 };
 use crate::db::file_imports::{validate_agent_file_create, AgentFileCreateInput};
 use serde_json::{json, Value};
@@ -12,7 +12,7 @@ use std::{io::Read, path::PathBuf};
 #[path = "cli_upload.rs"]
 mod cli_upload;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create --input-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body file paths stay local; UTF-8 content is sent to the bound application, and generated JSON is limited to 2 MiB. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash SHA256 --request-id ID --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record restore --id ID --version VERSION_ID --base-revision N (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create --input-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
@@ -37,6 +37,12 @@ struct Options {
     title: Option<String>,
     priority: Option<String>,
     due_date: Option<String>,
+    object_id: Option<String>,
+    version_id: Option<String>,
+    base_revision: Option<u64>,
+    source_file: Option<String>,
+    expected_version: Option<u32>,
+    expected_hash: Option<String>,
     dry_run: bool,
     json: bool,
 }
@@ -92,6 +98,20 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             "--title" if options.title.is_none() => options.title = Some(value.clone()),
             "--priority" if options.priority.is_none() => options.priority = Some(value.clone()),
             "--due-date" if options.due_date.is_none() => options.due_date = Some(value.clone()),
+            "--id" if options.object_id.is_none() => options.object_id = Some(value.clone()),
+            "--version" if options.version_id.is_none() => options.version_id = Some(value.clone()),
+            "--base-revision" if options.base_revision.is_none() => {
+                let revision = value.parse::<u64>().map_err(|_| invalid("Invalid base revision"))?;
+                if revision == 0 { return Err(invalid("Invalid base revision")); }
+                options.base_revision = Some(revision);
+            }
+            "--source-file" if options.source_file.is_none() => options.source_file = Some(value.clone()),
+            "--expected-version" if options.expected_version.is_none() => {
+                let version = value.parse::<u32>().map_err(|_| invalid("Invalid expected version"))?;
+                if version == 0 { return Err(invalid("Invalid expected version")); }
+                options.expected_version = Some(version);
+            }
+            "--expected-hash" if options.expected_hash.is_none() => options.expected_hash = Some(value.clone()),
             _ => return Err(invalid("Unknown or duplicate option")),
         }
         cursor += 2;
@@ -249,6 +269,55 @@ fn record_create_params(options: &Options) -> AgentResult<Value> {
     }
 }
 
+fn stable_request_id(options: &Options) -> AgentResult<&str> {
+    options.request_id.as_deref().filter(|id| !id.is_empty() && id.len() <= 128)
+        .ok_or_else(|| invalid("--request-id is required and must be at most 128 bytes"))
+}
+
+fn positive_object_id(options: &Options) -> AgentResult<i64> {
+    let id = options.object_id.as_deref().ok_or_else(|| invalid("--id is required"))?;
+    let id = id.parse::<i64>().map_err(|_| invalid("Invalid object ID"))?;
+    if id <= 0 { return Err(invalid("Invalid object ID")); }
+    Ok(id)
+}
+
+fn record_restore_params(options: &Options) -> AgentResult<Value> {
+    if options.query.is_some() || options.budget_chars.is_some() {
+        return Err(invalid("Record restore does not accept query or budget options"));
+    }
+    let record_id = positive_object_id(options)?;
+    let version = options.version_id.as_deref().ok_or_else(|| invalid("--version is required"))?;
+    if version.len() != 32 || !version.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
+        return Err(invalid("Invalid Record version ID"));
+    }
+    let base_revision = options.base_revision.ok_or_else(|| invalid("--base-revision is required"))?;
+    let scope = scoped(options)?;
+    let request_id = stable_request_id(options)?;
+    Ok(json!({"requestId":request_id,"input":{"target":{"scope":scope,"recordId":record_id},
+        "baseRevision":base_revision,"versionId":version}}))
+}
+
+fn file_update_identity(options: &Options) -> AgentResult<(i64, u32, &str, &str)> {
+    if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
+        return Err(invalid("File update requires --project and does not accept scope, query or budget options"));
+    }
+    options.project.ok_or_else(|| invalid("--project is required for file update"))?;
+    let id = positive_object_id(options)?;
+    let version = options.expected_version.ok_or_else(|| invalid("--expected-version is required"))?;
+    let hash = options.expected_hash.as_deref().ok_or_else(|| invalid("--expected-hash is required"))?;
+    if !cli_upload::valid_hash(hash) { return Err(invalid("Invalid expected File hash")); }
+    let source = options.source_file.as_deref().ok_or_else(|| invalid("--source-file is required"))?;
+    stable_request_id(options)?;
+    Ok((id, version, hash, source))
+}
+
+fn file_update_target(options: &Options, binding: &WorkspaceBinding) -> AgentResult<cli_upload::FileUploadTargetInput> {
+    let (id, version, hash, _) = file_update_identity(options)?;
+    cli_upload::decode_target(json!({"object":{
+        "workspaceId":binding.workspace_id.clone(),"scope":{"kind":"project","projectId":options.project.expect("validated project")},
+        "kind":"file","id":id.to_string()},"expectedVersionNumber":version,"expectedContentHash":hash}))
+}
+
 fn file_create_params(options: &Options) -> AgentResult<Value> {
     if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some()
         || options.priority.is_some() || options.due_date.is_some() {
@@ -393,9 +462,23 @@ pub fn run(args: &[String]) -> CliOutput {
     if options.input_file.is_some() && options.body_file.is_some() && command != "file.upload" {
         return response(request_id(), Err(invalid("--input-file and --body-file cannot be combined")));
     }
+    let restore_flags = options.version_id.is_some() || options.base_revision.is_some();
+    let file_update_flags = options.source_file.is_some() || options.expected_version.is_some() || options.expected_hash.is_some();
     let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
+        if restore_flags && command != "record.restore" {
+            return Err(invalid("--version and --base-revision are only supported by record restore"));
+        }
+        if file_update_flags && command != "file.update" {
+            return Err(invalid("--source-file and expected baseline options are only supported by file update"));
+        }
+        if options.object_id.is_some() && !matches!(command, "record.restore" | "file.update") {
+            return Err(invalid("--id is only supported by record restore and file update"));
+        }
+        if options.input_file.is_some() && (restore_flags || file_update_flags || options.object_id.is_some()) {
+            return Err(invalid("--input-file cannot be combined with shorthand object options"));
+        }
         if options.patch_file.is_some() && !matches!(command, "record.patch" | "file.patch" | "todo.update") {
             return Err(invalid("--patch-file is only supported by record patch, file patch and todo update"));
         }
@@ -425,9 +508,22 @@ pub fn run(args: &[String]) -> CliOutput {
             request_id = options.request_id.clone().ok_or_else(|| invalid("--request-id is required for file upload"))?;
             if request_id.is_empty() || request_id.len() > 128 { return Err(invalid("Invalid File upload request ID")); }
             let target = cli_upload::decode_target(read_input(target_path)?)?;
-            let bytes = cli_upload::read_body(body_path)?;
+            let bytes = cli_upload::read_file(body_path)?;
             let client = BridgeClient::discover(connection)?;
             let binding = client.connect(connection, workspace, &request_id)?;
+            let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
+            return cli_upload::upload(&transport, target, &bytes, &request_id);
+        }
+        if command == "file.update" && (options.object_id.is_some() || file_update_flags) {
+            if options.body_file.is_some() || options.patch_file.is_some() {
+                return Err(invalid("File update shorthand uses --source-file, not --body-file or --patch-file"));
+            }
+            let (_, _, _, source) = file_update_identity(&options)?;
+            request_id = stable_request_id(&options)?.to_owned();
+            let bytes = cli_upload::read_file(source)?;
+            let client = BridgeClient::discover(connection)?;
+            let binding = client.connect(connection, workspace, &request_id)?;
+            let target = file_update_target(&options, &binding)?;
             let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
             return cli_upload::upload(&transport, target, &bytes, &request_id);
         }
@@ -454,6 +550,7 @@ pub fn run(args: &[String]) -> CliOutput {
             "file.create" if options.body_file.is_some() => file_create_params(&options)?,
             "todo.create" if options.body_file.is_some() => todo_create_params(&options)?,
             "record.create" if options.body_file.is_some() => record_create_params(&options)?,
+            "record.restore" if options.object_id.is_some() || restore_flags => record_restore_params(&options)?,
             _ => {
                 if !registry::is_registered(method) { return Err(invalid("Unknown bridge method")); }
                 if command == "record.patch" {
@@ -819,5 +916,53 @@ mod tests {
         let options = Options { workspace_scope: true, title: Some("Note".into()), dry_run: true,
             body_file: Some(large.path().to_str().unwrap().into()), ..Options::default() };
         assert_eq!(record_create_params(&options).unwrap_err().message, "Record Markdown exceeds 1 MiB");
+    }
+    #[test]
+    fn record_restore_shorthand_builds_existing_mutation_dto() {
+        let options = Options { object_id: Some("17".into()), version_id: Some("a".repeat(32)),
+            base_revision: Some(4), project: Some(3), request_id: Some("restore-stable".into()),
+            ..Options::default() };
+        let params = record_restore_params(&options).unwrap();
+        assert_eq!(params["requestId"], "restore-stable");
+        assert_eq!(params["input"]["target"], json!({"scope":{"kind":"project","projectId":3},"recordId":17}));
+        assert_eq!(params["input"]["baseRevision"], 4);
+        assert_eq!(params["input"]["versionId"], "a".repeat(32));
+        registry::validate("record.restore", &params).unwrap();
+        assert_eq!(record_restore_params(&Options { version_id: Some("1".into()), ..options }).unwrap_err().message,
+            "Invalid Record version ID");
+    }
+    #[test]
+    fn file_update_target_uses_connected_workspace_identity() {
+        let options = Options { object_id: Some("9".into()), project: Some(3), expected_version: Some(2),
+            expected_hash: Some(format!("sha256:{}", "0".repeat(64))), source_file: Some("local.bin".into()),
+            request_id: Some("file-stable".into()), ..Options::default() };
+        let binding = WorkspaceBinding { workspace_id: "bound-workspace".into(), generation: "g".into() };
+        let target = serde_json::to_value(file_update_target(&options, &binding).unwrap()).unwrap();
+        assert_eq!(target["object"]["workspaceId"], "bound-workspace");
+        assert_eq!(target["object"]["scope"], json!({"kind":"project","projectId":3}));
+        assert_eq!(target["object"]["id"], "9");
+        assert!(target.to_string().find("local.bin").is_none());
+        let invalid_hash = Options { expected_hash: Some("bad".into()), ..options };
+        assert_eq!(file_update_identity(&invalid_hash).unwrap_err().message, "Invalid expected File hash");
+    }
+    #[test]
+    fn restore_and_file_update_reject_missing_or_mixed_shorthand_flags() {
+        let common = ["--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let check = |words: &[&str], expected: &str| {
+            let mut args = words.to_vec();
+            args.extend(common);
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 2, "{words:?}: {}", out.stderr);
+            assert!(out.stderr.contains(expected), "{words:?}: {}", out.stderr);
+        };
+        check(&["record", "restore", "--id", "1", "--workspace-scope", "--request-id", "stable"], "--version is required");
+        check(&["record", "restore", "--id", "1", "--version", "a", "--base-revision", "1", "--workspace-scope", "--request-id", "stable"], "Invalid Record version ID");
+        check(&["record", "restore", "--id", "1", "--version", "a", "--base-revision", "0", "--workspace-scope", "--request-id", "stable"], "Invalid base revision");
+        check(&["record", "restore", "--id", "1", "--input-file", "x.json"], "cannot be combined");
+        check(&["file", "update", "--id", "1", "--project", "1", "--source-file", "x.bin", "--request-id", "stable"], "--expected-version is required");
+        check(&["file", "update", "--id", "1", "--input-file", "x.json"], "cannot be combined");
+        check(&["file", "update", "--id", "1", "--project", "1", "--expected-version", "1", "--expected-hash", "bad", "--source-file", "x.bin", "--request-id", "stable"], "Invalid expected File hash");
+        check(&["source", "read", "--id", "1", "--input-file", "x.json"], "--id is only supported");
+        check(&["record", "restore", "--source-file", "x.bin"], "only supported by file update");
     }
 }
