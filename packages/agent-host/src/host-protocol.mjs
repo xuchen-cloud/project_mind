@@ -5,6 +5,7 @@ import { projectCheckpoint, aggregateUsage } from './message-projection.mjs';
 import { DEFAULT_SYSTEM_PROMPT, PROBE_TOOLS, validateToolDescriptors } from './tool-descriptors.mjs';
 import { mapCompatibleProfile } from './profile-map.mjs';
 import { failure, PROTOCOL_VERSION, MAX_FRAME_BYTES } from './protocol.mjs';
+import { createOverviewGeneration } from './overview-generation.mjs';
 
 const idPattern = /^[0-9a-f]{32}$/;
 export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, loadCheckpoint, makeSession = createPiSession, probe = false }) {
@@ -16,6 +17,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
   let messages = [];
   let session;
   let run;
+  const overview = createOverviewGeneration({ workspaceRoot, makeSession });
   const pendingTools = new Map();
   const success = (requestId, data) => ({ protocolVersion: PROTOCOL_VERSION, requestId, ok: true, data });
   const event = (active, type, data = {}) => write({ protocolVersion: PROTOCOL_VERSION,
@@ -115,7 +117,21 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
         return;
       }
       if (!initialized) { fail('RUNTIME_INCOMPATIBLE', 'Initialize Host first'); return; }
+      if (method === 'overview.generate') {
+        if (probe || session || run || overview.busy()) { fail('RUN_BUSY', 'Host model call is busy'); return; }
+        try {
+          const finished = overview.start(data);
+          void finished.then((result) => write(success(requestId, result)), (error) => fail(error.code ?? 'RUNTIME_FAILED', 'Overview generation did not complete'));
+        } catch (error) { fail(error.code ?? 'RUNTIME_FAILED', 'Cannot start overview generation'); }
+        return;
+      }
+      if (method === 'overview.cancel') {
+        try { write(success(requestId, overview.cancel(data.batchId))); }
+        catch { fail('INVALID_ARGUMENT', 'No matching overview generation'); }
+        return;
+      }
       if (method === 'session.open') {
+        if (overview.busy()) { fail('RUN_BUSY', 'Host model call is busy'); return; }
         if (session || !idPattern.test(data.sessionId ?? '')) { fail('INVALID_ARGUMENT', 'Session already open or invalid session ID'); return; }
         try {
           const mapped = mapCompatibleProfile(data.profile, { model: data.modelId, toolCallingVerified: data.toolCallingVerified });
@@ -151,7 +167,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
         return;
       }
       if (method === 'run.start') {
-        if (run) { fail('RUN_BUSY', 'A run is already active'); return; }
+        if (run || overview.busy()) { fail('RUN_BUSY', 'A run is already active'); return; }
         if (!session || data.sessionId !== sessionId || !idPattern.test(data.runId ?? '')
           || typeof data.prompt !== 'string' || !data.prompt.trim()) { fail('INVALID_ARGUMENT', 'Invalid run binding or prompt'); return; }
         const active = { id: data.runId, seq: 0, settled: false, cancelled: false, toolCount: 0 };
@@ -187,6 +203,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
           await session.cancel();
           await active.finished;
         }
+        if (method === 'shutdown') await overview.shutdown();
         await session?.dispose();
         session = undefined;
         sessionId = undefined;
@@ -197,6 +214,6 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
       }
       fail('INVALID_ARGUMENT', 'Unknown Host method');
     },
-    idle: () => run?.finished ?? Promise.resolve(),
+    idle: () => run?.finished ?? overview.idle(),
   };
 }

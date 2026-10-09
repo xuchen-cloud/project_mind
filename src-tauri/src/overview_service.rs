@@ -208,6 +208,16 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         input: &OverviewPublishInput,
         evidence: &[CapturedEvidence],
     ) -> AgentResult<OverviewPublishReceipt> {
+        self.publish_checked(request, input, evidence, |_, _| Ok(()))
+            .await
+    }
+    pub(crate) async fn publish_checked(
+        &self,
+        request: &RequestContext,
+        input: &OverviewPublishInput,
+        evidence: &[CapturedEvidence],
+        before_commit: impl Fn(&WorkspaceBinding, &Database) -> AgentResult<()>,
+    ) -> AgentResult<OverviewPublishReceipt> {
         input.validate()?;
         let replay = self.store.with_current(|binding, db| {
             authorize(db, request, binding, &input.scope, "knowledge.write")?;
@@ -248,6 +258,7 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         }
         let (result, changes) = self.store.with_current(|binding, db| {
             authorize(db, request, binding, &input.scope, "knowledge.write")?;
+            before_commit(binding, db)?;
             crate::committed_changes::capture_committed(binding, db, &request.request_id, || {
                 db.agent_overview_publish(
                     &request.caller.key(),
@@ -965,13 +976,13 @@ mod tests {
         let todo_id = input.source.object.id.parse().unwrap();
         let expected_revision = db.todo_record(todo_id).unwrap().revision;
         db.todo_update_content(TodoUpdateContentInput {
-                expected_revision,
-                todo_id: input.source.object.id.parse().unwrap(),
-                content: "后来变更的来源".into(),
-                due_date: None,
-                tag_ids: vec![],
-            })
-            .unwrap();
+            expected_revision,
+            todo_id: input.source.object.id.parse().unwrap(),
+            content: "后来变更的来源".into(),
+            due_date: None,
+            tag_ids: vec![],
+        })
+        .unwrap();
     }
     #[tokio::test]
     async fn overview_service_same_batch_new_request_replays_before_source_reverification() {

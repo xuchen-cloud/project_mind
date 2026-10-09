@@ -15,6 +15,10 @@ mod source_text_page;
 mod source_native;
 mod overview_evidence;
 mod overview_service;
+mod overview_generation;
+mod overview_model;
+mod overview_maintenance;
+mod overview_commands;
 mod knowledge_service;
 mod knowledge_registry;
 mod utility_process;
@@ -1307,6 +1311,7 @@ pub fn run() {
 
             app.manage(state);
             source_maintenance::start(app.handle());
+            overview_maintenance::start(app.handle());
             let record_handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("record-checkpoints".into())
@@ -1370,6 +1375,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             source_maintenance::agent_source_maintenance,
+            overview_commands::agent_overview_maintenance,
+            overview_commands::agent_overview_corrections_get,
+            overview_commands::agent_overview_correction_upsert,
+            overview_commands::agent_overview_correction_delete,
             record_document_commands::record_editor_register,
             record_document_commands::record_cut_register,
             record_document_commands::record_cut_claim,

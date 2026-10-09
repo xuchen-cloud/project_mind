@@ -136,6 +136,22 @@ export interface OverviewReadPage {
   correctionRevision: number;
   nextCursor: string | null;
 }
+/** User corrections are independent from the Project QuickNote and Record body. */
+export interface OverviewCorrection {
+  id: string; scope: AgentScope; itemId: string | null; text: string;
+  revision: number; deleted: boolean; createdAt: string; updatedAt: string;
+}
+export interface OverviewCorrections { scope: AgentScope; revision: number; items: OverviewCorrection[] }
+export interface OverviewCorrectionUpsert {
+  scope: AgentScope; id: string; itemId: string | null; text: string; expectedRevision: number;
+}
+export interface OverviewCorrectionDelete { scope: AgentScope; id: string; expectedRevision: number }
+/** Directory completion and coverage are separate; neither is a progress percentage. */
+export interface OverviewMaintenanceView {
+  scope: AgentScope; cancelled: boolean; errorCode: AgentErrorCode | null; batchId: string | null;
+  pendingCount: number; coverage: AgentSourceCoverage; deletedCount: number;
+  directoryComplete: boolean; budgetExhausted: boolean; nextRunAt: string | null; foregroundBusy: boolean;
+}
 /** Separate from ProjectRecord.quickNote* and the ProjectOverviewPage component. */
 export interface AgentSourceCoverage {
   processed: number; partial: number; excluded: number; unsupported: number; pending: number;

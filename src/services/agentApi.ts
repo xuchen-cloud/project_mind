@@ -4,7 +4,7 @@ import type {
   AgentContextEntry, AgentContextInput, AgentError, AgentResponse,
   AgentStatus, AgentWorkspaceBinding, AgentScope, AgentScopeSettings, AgentSettingsUpdate,
   AgentContextInstruction, AgentInstructionUpsert, AgentInstructionDelete, AgentChangePage,
-  SourceMaintenanceProgress, OverviewReadInput, OverviewReadPage,
+  SourceMaintenanceProgress, OverviewReadInput, OverviewReadPage, OverviewCorrections, OverviewCorrectionUpsert, OverviewCorrectionDelete, OverviewMaintenanceView,
   KnowledgeGetInput, KnowledgeGetPage, KnowledgeSearchInput, KnowledgeSearchPage,
   AgentSessionCreateInput, AgentSessionsListInput, AgentSessionGetInput,
   AgentSessionArchiveInput, AgentSessionDeleteInput, AgentSessionMetadata, AgentSessionPage, AgentSessionSnapshot,
@@ -126,6 +126,18 @@ export const agentApi = {
   },
   overviewGet(binding: AgentWorkspaceBinding, data: OverviewReadInput, requestId: string = crypto.randomUUID()): Promise<OverviewReadPage> {
     return callAgentCommand("agent_overview_get", requestId, { input: { binding, requestId, data } });
+  },
+  overviewCorrectionsGet(binding: AgentWorkspaceBinding, scope: AgentScope, requestId: string = crypto.randomUUID()): Promise<OverviewCorrections> {
+    return callAgentCommand("agent_overview_corrections_get", requestId, { input: { binding, requestId, data: scope } });
+  },
+  overviewCorrectionUpsert(binding: AgentWorkspaceBinding, data: OverviewCorrectionUpsert, requestId: string = crypto.randomUUID()): Promise<OverviewCorrections> {
+    return callAgentCommand("agent_overview_correction_upsert", requestId, { input: { binding, requestId, data } });
+  },
+  overviewCorrectionDelete(binding: AgentWorkspaceBinding, data: OverviewCorrectionDelete, requestId: string = crypto.randomUUID()): Promise<OverviewCorrections> {
+    return callAgentCommand("agent_overview_correction_delete", requestId, { input: { binding, requestId, data } });
+  },
+  overviewMaintenance(binding: AgentWorkspaceBinding, scope: AgentScope, action: "refresh" | "cancel" | "resume" | null = null, requestId: string = crypto.randomUUID()): Promise<OverviewMaintenanceView> {
+    return callAgentCommand("agent_overview_maintenance", requestId, { input: { binding, scope, action, requestId } });
   },
   knowledgeGet(binding: AgentWorkspaceBinding, data: KnowledgeGetInput, requestId: string = crypto.randomUUID()): Promise<KnowledgeGetPage> {
     return callAgentCommand("agent_knowledge_get", requestId, { input: { binding, requestId, data } });

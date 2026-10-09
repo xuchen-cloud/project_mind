@@ -196,6 +196,8 @@ _Avoid_：Backup、Workspace Export、未确认内容快照
 由助手维护、有版本与来源依据的作用域理解，供按问题渐进读取；独立于用户 QuickNote，不是普通 Record。
 _Avoid_：Project QuickNote、项目主页、用户已确认事实
 
+Project Overview 的维护作业在 `agent_jobs` 中持久保存 `batchId`、来源读取游标和待发布草稿；来源引用依据实际读取的来源页与证明，覆盖范围依据真实处理进度计算。取消、预算耗尽、前台任务和凭据锁定会使维护暂停或让出，条件恢复后可续跑。用户在 GUI 中的纠正由专属事务保存并约束后续发布；维护写入独立的 Overview 与派生知识，不改动 QuickNote。
+
 **Scope Grant**：
 可信适配器绑定到 Workspace 和明确 Project/Workspace 范围的操作权限；资料正文或工具参数不能扩大它。
 _Avoid_：当前页面、模型声明的授权

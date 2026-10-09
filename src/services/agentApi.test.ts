@@ -23,6 +23,24 @@ const operation: AgentOperationEntry = { operationId: "c".repeat(32), runId: out
   object: receiptObject, beforeRevision: null, afterRevision: 1, beforeSnapshotRef: null, afterSnapshotRef: "snapshot-1",
   undoState: "available", undoOperationId: null, createdAt: "2026-10-08T09:00:00Z", recovery: { withdrawn: false, withdrawalRevision: null, restoreAvailable: false } };
 
+it("routes correction CAS and maintenance controls through bound GUI commands", async () => {
+  const corrections = { scope: context.scope, revision: 1, items: [] };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "read", ok: true, data: corrections });
+  expect(await agentApi.overviewCorrectionsGet(binding, context.scope, "read")).toBe(corrections);
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_overview_corrections_get", { input: { binding, requestId: "read", data: context.scope } });
+  const update = { scope: context.scope, id: "fix1", itemId: null, text: "纠正", expectedRevision: 1 };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "save", ok: true, data: corrections });
+  await agentApi.overviewCorrectionUpsert(binding, update, "save");
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_overview_correction_upsert", { input: { binding, requestId: "save", data: update } });
+  const removal = { scope: context.scope, id: "fix1", expectedRevision: 2 };
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "delete", ok: true, data: corrections });
+  await agentApi.overviewCorrectionDelete(binding, removal, "delete");
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_overview_correction_delete", { input: { binding, requestId: "delete", data: removal } });
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({ apiVersion: 1, requestId: "refresh", ok: true, data: { scope: context.scope, pendingCount: 1 } });
+  await agentApi.overviewMaintenance(binding, context.scope, "refresh", "refresh");
+  expect(desktopApi.command).toHaveBeenLastCalledWith("agent_overview_maintenance", { input: { binding, scope: context.scope, action: "refresh", requestId: "refresh" } });
+});
+
 it("previews a patch against its exact output revision and propagates changed baselines without writing", async () => {
   const preview: AgentRecordOutputPreview = { outputId: output.id, revision: 2, baseRevision: 3,
     difference: { added: ["a".repeat(32)], deleted: [], modified: ["b".repeat(32)], moved: [] } };

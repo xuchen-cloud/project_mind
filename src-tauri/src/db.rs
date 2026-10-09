@@ -20,6 +20,8 @@ pub(crate) mod agent_file_undo;
 pub(crate) mod file_reads;
 mod agent_overviews;
 mod overview_inventory;
+pub(crate) mod overview_maintenance;
+pub(crate) mod overview_schedule;
 mod source_catalogue;
 mod agent_knowledge;
 mod agent_instructions;

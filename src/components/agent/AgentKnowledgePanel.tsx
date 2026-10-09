@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AgentScope, AgentSourceCoverage, AgentWorkspaceBinding, AiOverviewItem, KnowledgeSearchCard } from "../../lib/agent-types";
+import type { AgentScope, AgentSourceCoverage, AgentWorkspaceBinding, AiOverviewItem, KnowledgeSearchCard, OverviewCorrections } from "../../lib/agent-types";
 import { agentQueryKeys } from "../../lib/agent-query-keys";
 import { formatDateTime } from "../../lib/formatters";
 import { getErrorMessage } from "../../lib/errors";
@@ -67,6 +67,10 @@ function KnowledgeContents({ binding, scope }: Omit<AgentKnowledgePanelProps, "o
       </> : <p className="text-caption text-text-muted">当前没有资料处理批次。</p>}
       <Failure error={progress.error || control.error} />
     </SurfaceCard>
+    {scope.kind === "project" && <>
+      <OverviewMaintenance binding={binding} scope={scope} />
+      <OverviewCorrectionsPanel binding={binding} scope={scope} />
+    </>}
     <div className="max-h-[32rem] [&_.home-side__list]:max-h-[32rem]">
       <HomeSidebarList label="项目知识内容">
         <div className="space-y-3" data-disclosure-list>
@@ -82,6 +86,98 @@ function KnowledgeContents({ binding, scope }: Omit<AgentKnowledgePanelProps, "o
       </HomeSidebarList>
     </div>
   </section>;
+}
+
+function OverviewMaintenance({ binding, scope }: { binding: AgentWorkspaceBinding; scope: AgentScope }) {
+  const client = useQueryClient();
+  const base = agentQueryKeys.scope(binding, scope);
+  const key = [...base, "overview-maintenance"];
+  const [notice, setNotice] = useState("");
+  const status = useQuery({ queryKey: key, queryFn: () => agentApi.overviewMaintenance(binding, scope), refetchInterval: 5000, ...queryOptions });
+  const control = useMutation({ mutationFn: (action: "refresh" | "cancel" | "resume") => agentApi.overviewMaintenance(binding, scope, action),
+    onSuccess: (value, action) => {
+      client.setQueryData(key, value);
+      setNotice(action === "cancel" ? "已暂停知识整理。" : "整理请求已排队，状态会继续更新。");
+      void client.invalidateQueries({ queryKey: base });
+    } });
+  const value = status.data;
+  const issue = value?.errorCode === "PROFILE_UNAVAILABLE" ? "请先配置可用模型。"
+    : value?.errorCode === "SECRETS_LOCKED" ? "请先解锁模型密钥。"
+    : value?.errorCode ? "本批整理遇到问题，可检查配置后继续。" : null;
+  const canResume = !!(value?.cancelled || value?.budgetExhausted || value?.errorCode);
+  return <SurfaceCard className="space-y-2 p-3" aria-label="整理知识">
+    <h3 className="text-ui font-medium text-text">整理知识</h3>
+    <p className="text-caption text-text-muted">根据已处理资料更新知识目录；与上方资料提取分开进行。</p>
+    {status.isLoading ? <p className="text-caption text-text-muted">正在读取整理状态…</p> : value ? <>
+      <p className="text-caption text-text-muted">待纳入 {value.pendingCount} 项 · 已删除 {value.deletedCount} 项 · {value.directoryComplete ? "目录已完成" : "目录未完成"}</p>
+      <p className="text-caption text-text-muted">整理覆盖：已处理 {value.coverage.processed} · 部分 {value.coverage.partial} · 不支持 {value.coverage.unsupported} · 待处理 {value.coverage.pending}</p>
+      <p className="text-caption text-text-muted">{value.cancelled ? "已暂停" : value.errorCode ? "整理遇到问题，等待继续" : value.foregroundBusy ? "正在等待当前助手任务" : value.budgetExhausted ? "本批整理额度已用完" : value.pendingCount ? "正在等待或处理变化" : "暂无待纳入变化"}</p>
+      {value.nextRunAt && !value.cancelled && <p className="text-caption text-text-muted">下次尝试：{formatDateTime(value.nextRunAt)}</p>}
+      {issue && <p role="alert" className="text-caption text-danger">{issue}</p>}
+    </> : <p className="text-caption text-text-muted">当前没有知识整理批次。</p>}
+    <div className="flex flex-wrap gap-2">
+      <Button size="sm" variant="ghost" disabled={control.isPending || status.isLoading} onClick={() => control.mutate("refresh")}>立即整理</Button>
+      <Button size="sm" variant="ghost" disabled={control.isPending || status.isLoading} onClick={() => control.mutate(canResume ? "resume" : "cancel")}>{canResume ? "继续整理" : "暂停整理"}</Button>
+    </div>
+    {notice && <p role="status" className="text-caption text-text-muted">{notice}</p>}
+    <Failure error={status.error || control.error} />
+  </SurfaceCard>;
+}
+
+function OverviewCorrectionsPanel({ binding, scope }: { binding: AgentWorkspaceBinding; scope: AgentScope }) {
+  const client = useQueryClient();
+  const base = agentQueryKeys.scope(binding, scope);
+  const key = [...base, "overview-corrections"];
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [notice, setNotice] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const corrections = useQuery({ queryKey: key, queryFn: () => agentApi.overviewCorrectionsGet(binding, scope), enabled: expanded, ...queryOptions });
+  function applied(value: OverviewCorrections) {
+    client.setQueryData(key, value);
+    setEditing(null); setText(""); setNotice("纠正已保存；下次整理会参考此内容。");
+    void client.invalidateQueries({ queryKey: base, predicate: query => !query.queryKey.includes("overview-corrections") });
+  }
+  const save = useMutation({ mutationFn: () => agentApi.overviewCorrectionUpsert(binding, {
+    scope, id: editing ?? crypto.randomUUID().replaceAll("-", ""),
+    itemId: corrections.data?.items.find(item => item.id === editing)?.itemId ?? null,
+    text: text.trim(), expectedRevision: corrections.data!.revision,
+  }), onSuccess: applied });
+  const remove = useMutation({ mutationFn: (id: string) => agentApi.overviewCorrectionDelete(binding, { scope, id, expectedRevision: corrections.data!.revision }),
+    onSuccess: value => { applied(value); setNotice("纠正已删除；下次整理会更新理解。"); } });
+  const active = corrections.data?.items.filter(item => !item.deleted) ?? [];
+  return <SurfaceCard className="p-3">
+    <button ref={trigger} type="button" className="w-full text-left text-ui font-medium text-text" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>纠正理解</button>
+    <DisclosurePresence open={expanded} triggerRef={trigger} className="mt-3 space-y-3">
+      <p className="text-caption text-text-muted">这里记录你对助手理解的纠正，独立于项目速记和记录；不会改写原文。</p>
+      {corrections.isLoading && <p className="text-caption text-text-muted">正在读取纠正…</p>}
+      <Failure error={corrections.error || save.error || remove.error} />
+      {corrections.error || save.error || remove.error ? <Button size="sm" variant="ghost" onClick={() => void corrections.refetch()}>刷新纠正版本</Button> : null}
+      {corrections.data && <>
+        <div className="max-h-48 [&_.home-side__list]:max-h-48"><HomeSidebarList label="已有纠正">
+          <div className="space-y-2" data-disclosure-list>
+            {active.length ? active.map(item => <div key={item.id} className="space-y-1 border-b border-border pb-2">
+              <p className="whitespace-pre-wrap break-words text-body text-text">{item.text}</p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="ghost" disabled={save.isPending || remove.isPending} onClick={() => { setEditing(item.id); setText(item.text); setNotice(""); }}>编辑</Button>
+                <Button size="sm" variant="ghost" disabled={save.isPending || remove.isPending} onClick={() => remove.mutate(item.id)}>删除</Button>
+              </div>
+            </div>) : <p className="text-caption text-text-muted">还没有纠正。</p>}
+          </div>
+        </HomeSidebarList></div>
+        <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (text.trim()) save.mutate(); }}>
+          <label className="block text-caption text-text-muted" htmlFor="overview-correction-text">{editing ? "编辑纠正" : "补充纠正"}</label>
+          <textarea id="overview-correction-text" className="w-full rounded border border-border bg-background p-2 text-body text-text" rows={3} maxLength={2000} value={text} onChange={event => setText(event.target.value)} placeholder="写下需要助手重新理解的内容" />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" type="submit" disabled={!text.trim() || save.isPending || remove.isPending}>保存纠正</Button>
+            {editing && <Button size="sm" variant="ghost" type="button" onClick={() => { setEditing(null); setText(""); }}>取消编辑</Button>}
+          </div>
+        </form>
+        {notice && <p role="status" className="text-caption text-text-muted">{notice}</p>}
+      </>}
+    </DisclosurePresence>
+  </SurfaceCard>;
 }
 
 function OverviewSection({ binding, scope, section, count, revision }: { binding: AgentWorkspaceBinding; scope: AgentScope; section: AiOverviewItem["section"]; count: number; revision?: number }) {
