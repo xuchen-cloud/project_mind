@@ -6,7 +6,7 @@ use crate::{
         connection_todos::{ConnectionTodoCreateInput, ConnectionTodoUpdateInput},
         context::ContextGetInput,
         errors::{AgentError, AgentResult, ErrorCode},
-        file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
+        file_tools::{FileContentChunkInput, FileContentIdInput, FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
         model_history::ModelHistoryReadInput,
         operations::{OperationGetInput, OperationUndoInput},
         outputs::RecordPatch,
@@ -16,6 +16,10 @@ use crate::{
     agent::bridge::record_writes::MutationInput,
     db::agent_record_withdrawals::RecordRestoreInput as CreatedRecordRestoreInput,
     db::agent_session_model_search::ModelHistorySearchInput,
+    db::file_imports::AgentFileCreateInput,
+    file_content::{FileContentBegin, FileContentUpdate},
+    file_text_patch::FileTextPatch,
+    file_version_restore::FileVersionRestore,
     knowledge_service::{KnowledgeGetInput, KnowledgeSearchInput},
     overview_service::OverviewReadInput,
     record_version_reads::{RecordVersionsCompareInput, RecordVersionsGetInput, RecordVersionsListInput},
@@ -197,6 +201,54 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             read_only: false,
             parameters: serde_json::to_value(schema_for!(MutationInput<ConnectionTodoUpdateInput>)).expect("static schema"),
         },
+        RegisteredMethod {
+            method: "file.create",
+            description: "Create one UTF-8 File in an authorized Project with content.create. Supply safeName, source text and a stable requestId; the native File importer owns paths and versions.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<AgentFileCreateInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.patch",
+            description: "Patch exact source text of an authorized File with file.update. Supply expected version and content hash plus a stable requestId; native recovery requestId prefixes are reserved.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileTextPatch>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.version.restore",
+            description: "Restore an authorized File from one retained version with file.restore. Supply expected version and hash plus a stable requestId; restore creates a new version.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileVersionRestore>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.update",
+            description: "Commit a fully staged replacement for an authorized File with file.update. Supply the stagedContentId, expected version and hash, and a stable requestId.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileContentUpdate>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.content.begin",
+            description: "Begin server-owned staging of bounded replacement File bytes. Supply expected version and hashes, exact byte length and stable requestId; this does not commit a File version.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileContentBegin>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.content.chunk",
+            description: "Append one base64 File chunk at the exact received offset to an authorized stage. Each chunk is at most 1 MiB; supply stable requestId for retry.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileContentChunkInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.content.complete",
+            description: "Verify the staged File length and hash, making the ticket ready for file.update. This does not commit a version; supply stable requestId.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileContentIdInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "file.content.status",
+            description: "Read an authorized staging ticket's received length, readiness and consumption state by stagedContentId.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(FileContentIdInput)).expect("static schema"),
+        },
     ]
 }
 
@@ -215,9 +267,11 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         | "session.messages.read" | "record.blocks.get" | "todo.get"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
-        | "operation.get" | "operation.list" => Some(true),
+        | "operation.get" | "operation.list" | "file.content.status" => Some(true),
         "record.create" | "record.patch" | "record.restore" | "operation.undo"
-        | "operation.restore_created" | "todo.create" | "todo.update" => Some(false),
+        | "operation.restore_created" | "todo.create" | "todo.update"
+        | "file.create" | "file.patch" | "file.version.restore" | "file.update"
+        | "file.content.begin" | "file.content.chunk" | "file.content.complete" => Some(false),
         _ => None,
     }
 }
@@ -264,6 +318,14 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "operation.restore_created" => decode::<MutationInput<CreatedRecordRestoreInput>>(parameters),
         "todo.create" => decode::<MutationInput<ConnectionTodoCreateInput>>(parameters),
         "todo.update" => decode::<MutationInput<ConnectionTodoUpdateInput>>(parameters),
+        "file.create" => decode::<MutationInput<AgentFileCreateInput>>(parameters),
+        "file.patch" => decode::<MutationInput<FileTextPatch>>(parameters),
+        "file.version.restore" => decode::<MutationInput<FileVersionRestore>>(parameters),
+        "file.update" => decode::<MutationInput<FileContentUpdate>>(parameters),
+        "file.content.begin" => decode::<MutationInput<FileContentBegin>>(parameters),
+        "file.content.chunk" => decode::<MutationInput<FileContentChunkInput>>(parameters),
+        "file.content.complete" => decode::<MutationInput<FileContentIdInput>>(parameters),
+        "file.content.status" => decode::<FileContentIdInput>(parameters),
         _ => Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Method is not registered")),
     };
     decoded?;
@@ -274,6 +336,22 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
             .is_some_and(|id| !id.is_empty() && id.len() <= 128)
     {
         return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid mutation requestId"));
+    }
+    if method.starts_with("file.")
+        && is_read_only(method) == Some(false)
+        && parameters
+            .get("requestId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| {
+                ["fileundo:", "filechainundo:", "creationundo:"]
+                    .iter()
+                    .any(|prefix| id.starts_with(prefix))
+            })
+    {
+        return Err(AgentError::new(
+            ErrorCode::InvalidArgument,
+            "File mutation requestId uses a reserved recovery prefix",
+        ));
     }
     Ok(())
 }
@@ -293,12 +371,15 @@ mod tests {
             "record.create", "record.patch", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
+            "file.create", "file.patch", "file.version.restore", "file.update",
+            "file.content.begin", "file.content.chunk", "file.content.complete",
+            "file.content.status",
         ]);
-        assert_eq!(registered_methods().len(), 26);
+        assert_eq!(registered_methods().len(), 34);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         assert_eq!(is_read_only("record.patch"), Some(false));
         assert_eq!(is_read_only("operation.list"), Some(true));
-        assert_eq!(is_read_only("file.content.begin"), None);
+        assert_eq!(is_read_only("file.content.begin"), Some(false));
         assert!(!is_registered("run.start"));
     }
     #[test]
@@ -341,7 +422,8 @@ mod tests {
         assert_eq!(validate("knowledge.search", &serde_json::json!({"scope":{"kind":"workspace"},"query":"x","budgetChars":3001})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("source.search", &serde_json::json!({"scope":{"kind":"workspace"},"query":"x","selected":[{"kind":"project"}]})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("record.create", &serde_json::json!({})).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert_eq!(validate("file.update", &serde_json::json!({})).unwrap_err().code, ErrorCode::ToolCallUnsupported);
+        assert_eq!(validate("file.update", &serde_json::json!({})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("file.delete", &serde_json::json!({})).unwrap_err().code, ErrorCode::ToolCallUnsupported);
     }
 
     #[test]
@@ -369,7 +451,7 @@ mod tests {
         assert_eq!(validate("session.search", &serde_json::json!({"scope":scope,"query":"x","limit":21})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("file.versions.list", &serde_json::json!({"object":object("file"),"path":"/tmp/file"})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert!(!is_registered("record.delete"));
-        assert!(!is_registered("file.content.begin"));
+        assert!(!is_registered("file.delete"));
     }
 
     #[test]
@@ -395,7 +477,7 @@ mod tests {
             assert!(value.as_object().unwrap().keys().all(|name| fields.contains_key(name)), "{method}");
         }
         assert_eq!(validate("record.versions.get", &serde_json::json!({"record":record,"versionId":before,"restore":true})).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert!(!is_registered("file.update"));
+        assert!(!is_registered("file.delete"));
     }
 
     #[test]
@@ -404,6 +486,9 @@ mod tests {
             "record.create", "record.patch", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
+            "file.create", "file.patch", "file.version.restore", "file.update",
+            "file.content.begin", "file.content.chunk", "file.content.complete",
+            "file.content.status",
         ] {
             let schema = schema(method).unwrap();
             assert_eq!(schema["additionalProperties"], false, "{method}");
@@ -422,7 +507,7 @@ mod tests {
         let mut missing = patch(serde_json::json!("stable-1"));
         missing.as_object_mut().unwrap().remove("requestId");
         assert_eq!(validate("record.patch", &missing).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert!(!is_registered("file.content.begin"));
+        assert!(!is_registered("file.delete"));
     }
 
     #[test]
@@ -461,5 +546,63 @@ mod tests {
         let mut unknown = update.clone();
         unknown["input"]["runId"] = serde_json::json!("forged");
         assert_eq!(validate("todo.update", &unknown).unwrap_err().code, ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn file_schemas_use_native_dtos_and_exact_transport_fields() {
+        let file = serde_json::json!({
+            "workspaceId":"workspace-a","scope":{"kind":"project","projectId":1},
+            "kind":"file","id":"1"
+        });
+        let hash = format!("sha256:{}", "a".repeat(64));
+        let stage = "b".repeat(32);
+        let cases = [
+            ("file.create", serde_json::json!({"requestId":"file-create-1","input":{
+                "projectId":1,"safeName":"notes.txt","utf8Content":"Original text"}})),
+            ("file.patch", serde_json::json!({"requestId":"file-patch-1","input":{
+                "object":file,"expectedVersionNumber":1,"expectedContentHash":hash,
+                "edits":null,"appendText":" next"}})),
+            ("file.version.restore", serde_json::json!({"requestId":"file-restore-1","input":{
+                "object":file,"versionId":"1","expectedVersionNumber":2,"expectedContentHash":hash}})),
+            ("file.update", serde_json::json!({"requestId":"file-update-1","input":{
+                "object":file,"expectedVersionNumber":1,"expectedContentHash":hash,
+                "stagedContentId":stage}})),
+            ("file.content.begin", serde_json::json!({"requestId":"file-begin-1","input":{
+                "object":file,"expectedVersionNumber":1,"expectedContentHash":hash,
+                "length":3,"contentHash":hash}})),
+            ("file.content.chunk", serde_json::json!({"requestId":"file-chunk-1","input":{
+                "stagedContentId":stage,"offset":0,"dataBase64":"YWJj"}})),
+            ("file.content.complete", serde_json::json!({"requestId":"file-complete-1","input":{
+                "stagedContentId":stage}})),
+            ("file.content.status", serde_json::json!({"stagedContentId":stage})),
+        ];
+        for (method, value) in cases {
+            validate(method, &value).unwrap();
+            let schema = schema(method).unwrap();
+            assert_eq!(schema["additionalProperties"], false, "{method}");
+            assert_eq!(is_read_only(method), Some(method == "file.content.status"));
+            assert!(value.as_object().unwrap().keys().all(|name| schema["properties"].get(name).is_some()), "{method}");
+        }
+        assert_eq!(validate("file.content.chunk", &serde_json::json!({"requestId":"x","input":{"stagedContentId":stage,"offset":0,"bytesBase64":"YWJj"}})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("file.content.status", &serde_json::json!({"stagedContentId":stage,"requestId":"forged"})).unwrap_err().code, ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn file_mutations_reject_native_recovery_request_ids() {
+        let patch = |request_id: &str| serde_json::json!({
+            "requestId":request_id,
+            "input":{
+                "object":{"workspaceId":"workspace-a","scope":{"kind":"project","projectId":1},"kind":"file","id":"1"},
+                "expectedVersionNumber":1,
+                "expectedContentHash":format!("sha256:{}", "a".repeat(64)),
+                "edits":null,
+                "appendText":" next"
+            }
+        });
+        for id in ["fileundo:old", "filechainundo:old", "creationundo:old"] {
+            assert_eq!(validate("file.patch", &patch(id)).unwrap_err().code, ErrorCode::InvalidArgument);
+        }
+        assert!(validate("file.patch", &patch("file-patch-1")).is_ok());
+        assert!(validate("file.patch", &patch("output:prior-receipt")).is_ok());
     }
 }

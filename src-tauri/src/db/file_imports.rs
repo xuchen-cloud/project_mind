@@ -27,7 +27,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentFileCreateInput {
     pub project_id: i64,
@@ -185,7 +185,7 @@ fn import_crash_point(phase: ImportPhase) {
     let _ = phase;
 }
 impl Database {
-    fn agent_file_create_authorize(
+    pub(super) fn agent_file_create_authorize(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
@@ -210,7 +210,17 @@ impl Database {
             .agent_resolve_object(&object, &binding.workspace_id)?
             .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Project no longer exists"))?;
         request.authorize_object(binding, &object, &actual, "content.create")?;
-        self.source_live_scope(&actual.scope)
+        self.agent_connection_require_live(request, binding, &actual.scope, "content.create")?;
+        self.source_live_scope(&actual.scope)?;
+        self.source_prepare()?;
+        let excluded: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",
+            [actual.key()?], |row| row.get(0),
+        ).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot read Project source policy"))?;
+        if excluded {
+            return Err(AgentError::new(ErrorCode::ScopeDenied, "Project is excluded from AI access"));
+        }
+        Ok(())
     }
     pub(crate) fn agent_file_create_bound(
         &mut self,

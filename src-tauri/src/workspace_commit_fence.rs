@@ -3,16 +3,24 @@
 //! This lock is independent of selection and database locks: File holders must
 //! never reenter those locks while another GUI writer waits for the File lease.
 use crate::agent::errors::{AgentError, AgentResult, ErrorCode};
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock, RwLockReadGuard};
 
-pub(crate) struct WorkspaceCommitFence(RwLock<bool>);
+pub(crate) struct WorkspaceCommitFence {
+    active: Arc<RwLock<bool>>,
+    connection_enabled: Option<Arc<AtomicBool>>,
+}
 impl WorkspaceCommitFence {
     pub(crate) fn new() -> Self {
-        Self(RwLock::new(true))
+        Self { active: Arc::new(RwLock::new(true)), connection_enabled: None }
+    }
+    /// File adapters retain the Workspace fence and check the live bridge
+    /// switch at the same commit boundary, without taking App/DB locks.
+    pub(crate) fn for_connection(&self, enabled: Arc<AtomicBool>) -> Self {
+        Self { active: self.active.clone(), connection_enabled: Some(enabled) }
     }
     pub(crate) fn enter(&self) -> AgentResult<RwLockReadGuard<'_, bool>> {
         let active = self
-            .0
+            .active
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !*active {
@@ -21,19 +29,22 @@ impl WorkspaceCommitFence {
                 "File Workspace was closed or reopened",
             ));
         }
+        if self.connection_enabled.as_ref().is_some_and(|enabled| !enabled.load(Ordering::Acquire)) {
+            return Err(AgentError::new(ErrorCode::RuntimeUnavailable, "External connections are disabled"));
+        }
         Ok(active)
     }
     pub(crate) fn invalidate(&self) {
         // A holder has already begun committing: wait for its durable outcome,
         // then reject any prepared operation that has not entered the boundary.
         *self
-            .0
+            .active
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = false;
     }
     #[cfg(test)]
     pub(crate) fn pause_commit(&self) -> std::sync::RwLockWriteGuard<'_, bool> {
-        self.0.write().unwrap()
+        self.active.write().unwrap()
     }
 }
 

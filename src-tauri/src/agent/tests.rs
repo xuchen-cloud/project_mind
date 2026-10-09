@@ -193,7 +193,7 @@ fn agent_terminal_runs_cannot_resume_or_complete_after_cancellation() {
 }
 
 #[test]
-fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
+fn agent_response_uses_boolean_discriminator_and_reports_native_write_availability() {
     let response = ApiResponse::from_result("r1".into(), Ok("ready"));
     let json = serde_json::to_value(response).unwrap();
     assert_eq!(json["ok"], true);
@@ -223,27 +223,25 @@ fn agent_response_uses_boolean_discriminator_and_no_fake_available_writes() {
                     | "output.stage"
                     | "output.update"
                     | "output.commit"
+                    | "content.create"
+                    | "record.patch"
+                    | "record.restore"
                     | "file.update"
+                    | "file.restore"
+                    | "todo.update"
                     | "operation.undo"
                     | "operation.restore_created"
             )));
     for method in [
-        "record.create",
-        "record.patch",
-        "record.version.restore",
-        "file.create",
-        "file.update",
-        "file.version.restore",
-        "todo.create",
-        "todo.update",
+        "record.create", "record.patch", "record.restore", "file.create", "file.patch",
+        "file.update", "file.version.restore", "todo.create", "todo.update",
     ] {
-        assert!(
-            !capabilities()
-                .iter()
-                .find(|cap| cap.method == method)
-                .unwrap()
-                .implemented
-        );
+        let capability = capabilities().into_iter().find(|cap| cap.method == method).unwrap();
+        assert!(capability.implemented, "{method} uses the native mutation service");
+        assert!(!capability.read_only, "{method} must not be advertised as a read");
+    }
+    for method in ["reference.list", "context.overview.refresh", "session.summary.get"] {
+        assert!(!capabilities().iter().find(|cap| cap.method == method).unwrap().implemented);
     }
     for method in [
         "output.stage",

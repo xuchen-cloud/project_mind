@@ -3,7 +3,6 @@ use crate::{
     agent::{
         access::RequestContext,
         errors::{AgentError, AgentResult, ErrorCode},
-        models::ObjectKind,
         operations::{OperationGetInput, OperationUndoInput},
         outputs::RecordPatch,
     },
@@ -23,7 +22,7 @@ pub(crate) struct MutationInput<T> {
 }
 
 impl<T> MutationInput<T> {
-    fn bind(self, request: &RequestContext) -> AgentResult<T> {
+    pub(super) fn bind(self, request: &RequestContext) -> AgentResult<T> {
         if self.request_id != request.request_id {
             return Err(AgentError::new(ErrorCode::InvalidArgument, "Write requestId differs from request identity"));
         }
@@ -37,7 +36,7 @@ fn decode<T: DeserializeOwned>(value: Value) -> AgentResult<T> {
     })
 }
 
-pub(crate) async fn execute<S: BoundRecordStore, W: DocumentUtility>(
+pub(crate) async fn execute<S: BoundRecordStore + crate::file_version_service::BoundFileCommitStore, W: DocumentUtility>(
     store: &S,
     worker: &W,
     request: &RequestContext,
@@ -88,22 +87,18 @@ pub(crate) async fn execute<S: BoundRecordStore, W: DocumentUtility>(
         }
         "operation.undo" => {
             let input = decode::<MutationInput<OperationUndoInput>>(params)?.bind(request)?;
-            let kind = store.with_current(|binding, db| {
-                let entry = db.agent_operation_access(request, binding, &input.operation_id, "operation.undo")?;
-                Ok(entry.object.kind)
-            })?;
-            match kind {
-                ObjectKind::Record => json!(service.undo_operation(request, &input).await?),
-                ObjectKind::Todo => json!(crate::agent::output_service::undo_todo(store, request, &input)?),
-                _ => return Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Recovery is not available for this object")),
-            }
+            json!(crate::agent::output_service::undo(store, worker, request, &input).await?)
         }
         "operation.restore_created" => {
             let input = decode::<MutationInput<crate::db::agent_record_withdrawals::RecordRestoreInput>>(params)?.bind(request)?;
-            json!(crate::agent::output_service::restore_created_content(store, request, &input)?)
+            json!(crate::agent::output_service::restore(store, request, &input)?)
         }
         _ => return Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Unknown Record operation")),
     };
+    mutation_result(store, request, result)
+}
+
+pub(super) fn mutation_result<S: BoundRecordStore>(store: &S, request: &RequestContext, result: Value) -> AgentResult<Value> {
     let operation = store.with_current(|binding, db| {
         // Recovery may return the already committed inverse operation even
         // when requested again with a fresh request ID.

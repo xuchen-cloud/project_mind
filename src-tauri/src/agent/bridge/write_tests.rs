@@ -111,7 +111,7 @@ impl SessionHistoryUtility for Unused {
 struct Fixture {
     _root: tempfile::TempDir,
     store: Arc<Store>,
-    enabled: AtomicBool,
+    enabled: Arc<AtomicBool>,
     binding: WorkspaceBinding,
     project_id: i64,
 }
@@ -132,7 +132,7 @@ impl Fixture {
                 session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
             }, id, TOKEN).unwrap();
         }
-        Self { _root: root, store: Arc::new(Store { binding: Mutex::new(binding.clone()), db: Mutex::new(db), published: AtomicUsize::new(0), editor_busy: AtomicBool::new(false) }), enabled: AtomicBool::new(true), binding, project_id: project.id }
+        Self { _root: root, store: Arc::new(Store { binding: Mutex::new(binding.clone()), db: Mutex::new(db), published: AtomicUsize::new(0), editor_busy: AtomicBool::new(false) }), enabled: Arc::new(AtomicBool::new(true)), binding, project_id: project.id }
     }
     fn scope(&self) -> Scope { Scope::Project { project_id: self.project_id } }
     fn create_input(&self, request_id: &str, title: &str) -> Value {
@@ -264,4 +264,10 @@ async fn policy_and_editor_busy_reject_patch_without_commit() {
     assert_eq!(f.call(GRANT, "excluded", "record.patch", patch("excluded"), &worker).await.unwrap_err().code, ErrorCode::ScopeDenied);
     let target = RecordTarget { scope: f.scope(), record_id: object.id.parse().unwrap() };
     assert_eq!(f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, 1);
+}
+
+impl crate::file_version_service::BoundFileCommitStore for Store {
+    fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+        panic!("This fixture does not perform File mutations")
+    }
 }

@@ -5,7 +5,7 @@ use crate::agent::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TextEdit {
     pub old_text: String,
@@ -13,7 +13,7 @@ pub struct TextEdit {
     /// One-based occurrence, including overlapping candidate matches.
     pub occurrence: Option<u32>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FileTextPatch {
     pub object: ObjectRef,

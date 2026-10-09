@@ -70,13 +70,8 @@ pub(crate) fn check_transaction(
             "File baseline changed before staging",
         ));
     }
-    let excluded:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",[input.object.key()?],|row|row.get(0)).map_err(io_error)?;
-    if excluded {
-        return Err(AgentError::new(
-            ErrorCode::ScopeDenied,
-            "File is excluded from AI access",
-        ));
-    }
+    super::file_versions::require_file_source_policy(tx, &input.object)?;
+    super::agent_file_undo::require_file_visible(tx, id)?;
     let hash:Option<String>=tx.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2",params![id,input.expected_version_number],|row|row.get(0)).optional().map_err(io_error)?;
     if hash.as_ref() != Some(&input.expected_content_hash) {
         return Err(AgentError::new(

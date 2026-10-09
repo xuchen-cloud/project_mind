@@ -150,6 +150,24 @@ impl std::error::Error for CommitFailure {}
 fn conflict(code: ErrorCode, message: &str) -> anyhow::Error {
     CommitFailure(AgentError::new(code, message)).into()
 }
+/// Shared source policy at native File preflight and writer boundaries.
+pub(crate) fn require_file_source_policy(conn: &rusqlite::Connection, object: &ObjectRef) -> AgentResult<()> {
+    let Scope::Project { project_id } = object.scope else {
+        return Err(AgentError::new(ErrorCode::ScopeDenied, "File Project is unavailable"));
+    };
+    let project = ObjectRef {
+        workspace_id: object.workspace_id.clone(), scope: object.scope.clone(),
+        kind: ObjectKind::Project, id: project_id.to_string(),
+    };
+    let excluded: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key IN (?1,?2) AND excluded=1)",
+        params![object.key()?, project.key()?], |row| row.get(0),
+    ).map_err(io_error)?;
+    if excluded {
+        return Err(AgentError::new(ErrorCode::ScopeDenied, "File or Project is excluded from AI access"));
+    }
+    Ok(())
+}
 pub(crate) fn valid_hash(hash: &str) -> bool {
     hash.strip_prefix("sha256:").is_some_and(|value| {
         value.len() == 64
@@ -1068,17 +1086,10 @@ impl Database {
             operation
         };
         request.authorize_object(binding, object, &actual, operation)?;
+        self.agent_connection_require_live(request, binding, &actual.scope, operation)?;
         self.source_live_scope(&actual.scope)?;
         self.source_prepare()?;
-        let excluded: bool = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)",
-            [actual.key()?], |row| row.get(0)).map_err(io_error)?;
-        if excluded {
-            return Err(AgentError::new(
-                ErrorCode::ScopeDenied,
-                "File is excluded from AI access",
-            ));
-        }
+        require_file_source_policy(&self.conn, &actual)?;
         self.document_record(
             actual
                 .id
@@ -1691,8 +1702,7 @@ impl Database {
             let result = self.agent_atomic_operation(&caller_id, request_id, "file.version.commit", &payload, |tx| {
                 if let Some(source)=&restore_source {crate::file_version_restore::check_source_transaction(tx,source,current.id)?;}
                 if let Some((_, update)) = registered {
-                    let excluded: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)", [update.object.key()?], |row| row.get(0)).map_err(io_error)?;
-                    if excluded { return Err(AgentError::new(ErrorCode::ScopeDenied, "File is excluded from AI access")); }
+                    require_file_source_policy(tx, &update.object)?;
                 }
                 let unchanged: bool = tx.query_row(
                     "SELECT current_version_number=?2 AND project_id=?3 AND managed_path=?4 FROM documents WHERE id=?1",
@@ -1962,8 +1972,7 @@ impl Database {
                         return Err(AgentError::new(ErrorCode::RevisionConflict, "File Version changed before commit"));
                     }
                     if let Some((_, update)) = registered {
-                        let excluded: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key=?1 AND excluded=1)", [update.object.key()?], |row| row.get(0)).map_err(io_error)?;
-                        if excluded { return Err(AgentError::new(ErrorCode::ScopeDenied, "File is excluded from AI access")); }
+                        require_file_source_policy(tx, &update.object)?;
                     }
                     let unchanged: bool = tx.query_row(
                         "SELECT project_id=?2 AND managed_path=?3 AND history_dir_path=?4 AND base_name=?5 FROM documents WHERE id=?1",
@@ -2083,7 +2092,6 @@ mod tests {
     }
     fn registered_fixture(new_bytes: &[u8]) -> RegisteredFixture {
         use crate::agent::{
-            access::{Caller, RequestContext, ScopeGrant},
             models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
         };
         let root = tempfile::tempdir().unwrap();
@@ -2130,19 +2138,14 @@ mod tests {
             workspace_id: metadata.workspace_id,
             generation: "real-open".into(),
         };
-        let request = RequestContext {
-            binding: binding.clone(),
-            caller: Caller::Connection {
-                grant_id: "file-writer".into(),
-            },
-            request_id: "save-version".into(),
-            scope_grant: ScopeGrant {
-                workspace_id: binding.workspace_id.clone(),
-                workspace_content: false,
-                project_ids: vec![project.id],
-                operations: vec!["file.update".into()],
-            },
-        };
+        let grant_id = "abcdefabcdefabcdefabcdefabcdefab";
+        let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        db.agent_connection_create(&binding, &crate::agent::connections::ConnectionCreateInput {
+            client_label: "File writer fixture".into(), workspace_content: false,
+            project_ids: vec![project.id], session_read: false,
+            write_operations: vec!["file.update".into()],
+        }, grant_id, token).unwrap();
+        let request = db.agent_connection_authenticate(&binding, grant_id, token, "save-version").unwrap();
         let directory = root.path().join(".project-mind/file-content-stage/fixture");
         fs::create_dir_all(&directory).unwrap();
         let staged = directory.join("bytes.bin");
@@ -2559,7 +2562,7 @@ mod tests {
             fixture.update.expected_content_hash
         );
         assert_eq!(fixture.db.committed_change_watermark().unwrap(), before);
-        let receipts: i64 = fixture.db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE caller_id='connection:file-writer'", [], |row| row.get(0)).unwrap();
+        let receipts: i64 = fixture.db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE caller_id='connection:abcdefabcdefabcdefabcdefabcdefab'", [], |row| row.get(0)).unwrap();
         assert_eq!(receipts, 0);
         fixture
             .db
@@ -2779,7 +2782,6 @@ mod tests {
             .unwrap();
         } else if std::env::var_os("MIND_FILE_VERSION_REGISTERED_CRASH").is_some() {
             use crate::agent::{
-                access::{Caller, RequestContext, ScopeGrant},
                 models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
             };
             let (metadata, _) = crate::workspace::load_metadata(root).unwrap();
@@ -2788,19 +2790,12 @@ mod tests {
                 workspace_id: metadata.workspace_id,
                 generation: "real-open".into(),
             };
-            let request = RequestContext {
-                binding: binding.clone(),
-                caller: Caller::Connection {
-                    grant_id: "file-writer".into(),
-                },
-                request_id: "save-version".into(),
-                scope_grant: ScopeGrant {
-                    workspace_id: binding.workspace_id.clone(),
-                    workspace_content: false,
-                    project_ids: vec![document.project_id],
-                    operations: vec!["file.update".into()],
-                },
-            };
+            db.bind_native_workspace(&binding.workspace_id).unwrap();
+            let request = db.agent_connection_authenticate(
+                &binding, "abcdefabcdefabcdefabcdefabcdefab",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "save-version",
+            ).unwrap();
             let staged = root.join(".project-mind/file-content-stage/fixture/bytes.bin");
             let update = super::FileVersionUpdate {
                 object: ObjectRef {
@@ -3126,7 +3121,7 @@ mod tests {
                 before + 1,
                 "recovery/retry must commit at most one event"
             );
-            let receipts:i64 = db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE caller_id='connection:file-writer' AND request_id='save-version'", [], |row| row.get(0)).unwrap();
+            let receipts:i64 = db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE caller_id='connection:abcdefabcdefabcdefabcdefabcdefab' AND request_id='save-version'", [], |row| row.get(0)).unwrap();
             assert_eq!(receipts, 1);
             let old = db
                 .fetch_document_versions(document.id)

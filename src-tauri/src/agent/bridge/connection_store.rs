@@ -11,11 +11,11 @@ use crate::{
     db::Database,
     source_service::BoundSourceStore,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 
 pub(crate) struct ConnectionStore<'a, S> {
     pub inner: &'a S,
-    pub enabled: &'a AtomicBool,
+    pub enabled: &'a Arc<AtomicBool>,
     pub token: &'a str,
     pub input: &'a CallInput,
 }
@@ -102,5 +102,16 @@ impl<S: BoundReadContextStore + crate::record_document_service::BoundRecordStore
         action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
     ) -> AgentResult<T> {
         self.with_authenticated(|binding, db, _, _| action(binding, db))
+    }
+}
+
+impl<S: BoundReadContextStore + crate::file_version_service::BoundFileCommitStore>
+    crate::file_version_service::BoundFileCommitStore for ConnectionStore<'_, S>
+{
+    fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+        self.with_authenticated(|_, _, _, _| Ok(()))?;
+        let host = self.inner.gui_commit_host(binding)?;
+        self.with_authenticated(|_, _, _, _| Ok(()))?;
+        Ok(host.for_connection(self.enabled.clone()))
     }
 }

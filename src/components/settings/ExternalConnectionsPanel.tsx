@@ -16,10 +16,12 @@ function shellQuote(value: string, shell: ExternalConnectionsStatus["cliShell"])
 }
 
 const WRITE_PERMISSION_OPTIONS = [
-  { value: "content.create", label: "创建 Record 和待办" },
+  { value: "content.create", label: "创建 Record、待办和文件" },
   { value: "record.patch", label: "修改 Record 正文块" },
   { value: "record.restore", label: "恢复 Record 历史版本" },
   { value: "todo.update", label: "修改待办（包括子行动）" },
+  { value: "file.update", label: "修改文件内容" },
+  { value: "file.restore", label: "恢复文件历史版本" },
   { value: "operation.undo", label: "撤销此连接自己的更改" },
 ] as const;
 

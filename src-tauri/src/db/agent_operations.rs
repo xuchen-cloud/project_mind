@@ -148,6 +148,11 @@ impl Database {
         hash: &str,
         apply: impl FnOnce(&Transaction<'_>) -> AgentResult<(T, Option<OperationChange>)>,
     ) -> AgentResult<(T, bool)> {
+        if operation.starts_with("file.") {
+            super::agent_connections::connection_caller_live(
+                tx, caller_id, self.native_workspace_id.as_deref(),
+            )?;
+        }
         if let Some(previous) = replay(tx, caller_id, request_id, operation, hash)? {
             return Ok((previous, false));
         }

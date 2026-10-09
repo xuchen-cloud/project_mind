@@ -125,7 +125,7 @@ impl SourceUtility for TextUtility {
 struct Fixture {
     _root: tempfile::TempDir,
     store: Arc<Store>,
-    enabled: AtomicBool,
+    enabled: Arc<AtomicBool>,
     binding: WorkspaceBinding,
     project_id: i64,
     other_project_id: i64,
@@ -223,7 +223,7 @@ impl Fixture {
                 binding: Mutex::new(binding.clone()),
                 db: Mutex::new(db),
             }),
-            enabled: AtomicBool::new(true),
+            enabled: Arc::new(AtomicBool::new(true)),
             binding,
             project_id: project.id,
             other_project_id: other.id,
@@ -574,5 +574,11 @@ impl crate::record_document_service::BoundRecordStore for Store {
     async fn submission_lock(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> { Ok(None) }
     fn with_current<T>(&self, action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>) -> AgentResult<T> {
         crate::source_service::BoundSourceStore::with_current(self, action)
+    }
+}
+
+impl crate::file_version_service::BoundFileCommitStore for Store {
+    fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+        panic!("This fixture does not perform File mutations")
     }
 }

@@ -17,7 +17,7 @@ use crate::{
     AppState,
 };
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use tauri::Manager;
 
 pub(crate) struct AppBridge(pub tauri::AppHandle);
@@ -31,7 +31,7 @@ fn unavailable() -> AgentError {
 
 pub(crate) async fn execute<S, R, F, H>(
     store: &S,
-    enabled: &AtomicBool,
+    enabled: &Arc<AtomicBool>,
     token: &str,
     input: CallInput,
     record: &R,
@@ -39,7 +39,7 @@ pub(crate) async fn execute<S, R, F, H>(
     history: &H,
 ) -> AgentResult<Value>
 where
-    S: BoundReadContextStore + crate::record_document_service::BoundRecordStore + Sync,
+    S: BoundReadContextStore + crate::record_document_service::BoundRecordStore + crate::file_version_service::BoundFileCommitStore + Sync,
     R: DocumentUtility,
     F: SourceUtility,
     H: SessionHistoryUtility,
@@ -86,6 +86,10 @@ where
     }
     let request = connection.with_authenticated(|_, _, _, request| Ok(request))?;
     match input.method.as_str() {
+        "file.create" | "file.patch" | "file.version.restore" | "file.update"
+        | "file.content.begin" | "file.content.chunk" | "file.content.complete" | "file.content.status" => {
+            return super::file_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
+        }
         "record.create" | "record.patch" | "record.restore" | "todo.create" | "todo.update" | "operation.get"
         | "operation.list" | "operation.undo" | "operation.restore_created" => {
             return super::record_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;

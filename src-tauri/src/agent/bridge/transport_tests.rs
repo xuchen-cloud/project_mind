@@ -183,7 +183,7 @@ async fn real_socket_rejects_wrong_host_origin_instance_and_large_body() {
     let oversized = format!(
         "{}{}",
         body.trim_end_matches('}'),
-        format!(",\"padding\":\"{}\"}}", "x".repeat(65536))
+        format!(",\"padding\":\"{}\"}}", "x".repeat(2 * 1024 * 1024))
     );
     let (status, response) = request(port, "/v1/connect", &host, "", &oversized).await;
     assert_eq!(status, 400);

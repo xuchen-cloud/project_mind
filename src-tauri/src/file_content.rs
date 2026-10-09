@@ -30,7 +30,7 @@ const MAX_GENERATIONS: usize = 210;
 const MAX_STAGE_ENTRIES: usize = 512;
 const MAX_REGISTRY_ENTRIES: usize = 64;
 const STAGES: &str = ".project-mind/file-content-stage";
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileContentBegin {
     pub object: ObjectRef,
@@ -55,7 +55,7 @@ pub(crate) struct FileContentStatus {
     pub ready: bool,
     pub consumed: bool,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileContentUpdate {
     pub object: ObjectRef,

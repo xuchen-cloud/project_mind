@@ -1,5 +1,5 @@
 //! Direct Todo mutations through a persistent connection and native Workspace DB.
-use std::sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Mutex};
+use std::sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Arc, Mutex};
 use serde_json::{json, Value};
 
 use super::{dispatch, protocol::CallInput};
@@ -67,7 +67,7 @@ impl SessionHistoryUtility for Unused {
 struct Fixture {
     _root: tempfile::TempDir,
     store: Store,
-    enabled: AtomicBool,
+    enabled: Arc<AtomicBool>,
     binding: WorkspaceBinding,
     project_id: i64,
 }
@@ -88,7 +88,7 @@ impl Fixture {
                 session_read: false, write_operations: writes.into_iter().map(str::to_owned).collect(),
             }, id, TOKEN).unwrap();
         }
-        Self { _root: root, store: Store { binding: Mutex::new(binding.clone()), db: Mutex::new(db), published: AtomicUsize::new(0) }, enabled: AtomicBool::new(true), binding, project_id: project.id }
+        Self { _root: root, store: Store { binding: Mutex::new(binding.clone()), db: Mutex::new(db), published: AtomicUsize::new(0) }, enabled: Arc::new(AtomicBool::new(true)), binding, project_id: project.id }
     }
     fn scope(&self) -> Scope { Scope::Project { project_id: self.project_id } }
     fn create_input(&self, id: &str) -> Value {
@@ -172,4 +172,10 @@ async fn created_todo_withdrawal_hides_read_but_keeps_receipt_and_restores_ident
     assert_eq!(restored["result"]["withdrawn"], false);
     assert_eq!(restored["result"]["object"], json!(object));
     assert_eq!(f.get(&object).await["snapshot"], before["snapshot"]);
+}
+
+impl crate::file_version_service::BoundFileCommitStore for Store {
+    fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+        panic!("This fixture does not perform File mutations")
+    }
 }

@@ -4,6 +4,7 @@ pub mod client;
 mod connection_store;
 mod object_reads;
 mod record_writes;
+mod file_writes;
 pub(crate) mod commands;
 pub mod credentials;
 pub mod mcp;
@@ -13,11 +14,11 @@ pub mod registry;
 pub(crate) mod transport;
 
 use super::errors::{AgentError, AgentResult, ErrorCode};
-use std::{path::PathBuf, sync::atomic::AtomicBool};
+use std::{path::PathBuf, sync::{atomic::AtomicBool, Arc}};
 
 #[derive(Default)]
 pub(crate) struct BridgeRuntime {
-    pub enabled: AtomicBool,
+    pub enabled: Arc<AtomicBool>,
     pub running: tokio::sync::Mutex<Option<transport::RunningBridge>>,
 }
 
@@ -37,3 +38,6 @@ mod read_tests;
 mod write_tests;
 #[cfg(test)]
 mod todo_write_tests;
+
+#[cfg(test)]
+mod file_write_tests;

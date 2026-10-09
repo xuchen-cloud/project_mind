@@ -163,7 +163,7 @@ async fn bridge_call<H: SessionHistoryUtility>(
     token: &str,
     input: CallInput,
 ) -> AgentResult<Value> {
-    let enabled = AtomicBool::new(true);
+    let enabled = std::sync::Arc::new(AtomicBool::new(true));
     dispatch::execute(store, &enabled, token, input, &UnusedDocument, &UnusedSource, history).await
 }
 
@@ -278,5 +278,11 @@ impl crate::record_document_service::BoundRecordStore for Store {
     async fn submission_lock(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> { Ok(None) }
     fn with_current<T>(&self, action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>) -> AgentResult<T> {
         BoundSourceStore::with_current(self, action)
+    }
+}
+
+impl crate::file_version_service::BoundFileCommitStore for Store {
+    fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+        panic!("History fixture does not perform File mutations")
     }
 }

@@ -14,11 +14,13 @@ use std::collections::HashSet;
 const MAX_PROJECTS: usize = 100;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
-const WRITE_OPERATIONS: [&str; 5] = [
+const WRITE_OPERATIONS: [&str; 7] = [
     "content.create",
     "record.patch",
     "record.restore",
     "todo.update",
+    "file.update",
+    "file.restore",
     "operation.undo",
 ];
 
@@ -98,7 +100,54 @@ fn digest_matches(expected: &str, token: &str) -> bool {
     mismatch == 0
 }
 
+/// Rechecks a trusted, previously authenticated connection caller at a native
+/// boundary. This cannot authenticate a token or create a new grant.
+pub(crate) fn connection_caller_live(
+    conn: &rusqlite::Connection,
+    caller_id: &str,
+    workspace_id: Option<&str>,
+) -> AgentResult<()> {
+    let Some(id) = caller_id.strip_prefix("connection:") else { return Ok(()); };
+    let workspace_id = workspace_id.ok_or_else(|| AgentError::new(
+        ErrorCode::WorkspaceChanged, "Workspace binding is no longer current"
+    ))?;
+    let stored: Option<(String, bool, Option<String>)> = conn.query_row(
+        "SELECT scope_grant_json,enabled,revoked_at FROM agent_connection_grants WHERE id=?1",
+        [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional().map_err(io_error)?;
+    let Some((scope_json, enabled, revoked_at)) = stored else { return Err(denied()); };
+    let scope: StoredScope = decode(&scope_json)?;
+    if !enabled || revoked_at.is_some() || scope.workspace_id != workspace_id {
+        return Err(denied());
+    }
+    Ok(())
+}
+
 impl Database {
+    /// Checks that a trusted connection request still matches its persisted
+    /// grant, including exact scope and operations, before native File I/O.
+    pub(crate) fn agent_connection_require_live(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        scope: &Scope,
+        operation: &str,
+    ) -> AgentResult<()> {
+        request.authorize(binding, scope, operation)?;
+        let Caller::Connection { grant_id } = &request.caller else { return Ok(()); };
+        self.connection_binding(binding)?;
+        connection_caller_live(&self.conn, &request.caller.key(), self.native_workspace_id.as_deref())?;
+        let stored = self.stored_connection(grant_id)?.ok_or_else(denied)?;
+        let actual: StoredScope = decode(&stored.scope_json)?;
+        let operations: Vec<String> = decode(&stored.operations_json)?;
+        if request.scope_grant.workspace_id != actual.workspace_id
+            || request.scope_grant.workspace_content != actual.workspace_content
+            || request.scope_grant.project_ids != actual.project_ids
+            || request.scope_grant.operations != operations {
+            return Err(denied());
+        }
+        Ok(())
+    }
     fn connection_binding(&self, binding: &WorkspaceBinding) -> AgentResult<()> {
         if self.native_workspace_id.as_deref() != Some(binding.workspace_id.as_str()) {
             return Err(AgentError::new(

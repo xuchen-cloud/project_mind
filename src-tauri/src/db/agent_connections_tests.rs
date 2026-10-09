@@ -272,7 +272,7 @@ fn unsupported_writes_fail_and_old_json_remains_read_only() {
     assert!(input.write_operations.is_empty());
     let grant = db.agent_connection_create(&binding, &input, &"a".repeat(32), &"b".repeat(64)).unwrap();
     assert_eq!(grant.operations, vec!["context.read", "source.read"]);
-    for operation in ["file.update", "operation.read", "operation.restore_created", "record.delete"] {
+    for operation in ["operation.read", "operation.restore_created", "record.delete"] {
         input.write_operations = vec![operation.into()];
         assert_eq!(
             db.agent_connection_create(&binding, &input, &"c".repeat(32), &"d".repeat(64))
@@ -282,6 +282,42 @@ fn unsupported_writes_fail_and_old_json_remains_read_only() {
     }
     let count: i64 = db.conn.query_row("SELECT count(*) FROM agent_connection_grants", [], |row| row.get(0)).unwrap();
     assert_eq!(count, 1);
+}
+
+#[test]
+fn native_file_preflight_and_transaction_recheck_persisted_connection_grant() {
+    let (_root, db, binding) = fixture();
+    let token = "9".repeat(64);
+    let grant = db.agent_connection_create(
+        &binding,
+        &ConnectionCreateInput {
+            client_label: "File editor".into(), workspace_content: false,
+            project_ids: vec![1], session_read: false,
+            write_operations: vec!["content.create".into(), "file.update".into(), "file.restore".into()],
+        },
+        &"8".repeat(32), &token,
+    ).unwrap();
+    assert!(grant.operations.iter().any(|op| op == "file.update"));
+    assert!(grant.operations.iter().any(|op| op == "file.restore"));
+    let request = db.agent_connection_authenticate(&binding, &grant.id, &token, "file-request").unwrap();
+    let input = super::super::file_imports::AgentFileCreateInput {
+        project_id: 1, safe_name: "connection.txt".into(), utf8_content: "bytes".into(),
+    };
+    db.agent_file_create_authorize(&request, &binding, &input).unwrap();
+    db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "file.update").unwrap();
+    db.agent_connection_revoke(&binding, &grant.id).unwrap();
+    assert_eq!(db.agent_file_create_authorize(&request, &binding, &input).unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "file.restore").unwrap_err().code, ErrorCode::ScopeDenied);
+    let result = db.agent_atomic_operation::<serde_json::Value>(
+        &request.caller.key(), &request.request_id, "file.version.commit", &serde_json::json!({"probe":true}),
+        |_| panic!("revoked grant reached native File mutation"),
+    );
+    assert_eq!(result.unwrap_err().code, ErrorCode::ScopeDenied);
+    let count: i64 = db.conn.query_row(
+        "SELECT count(*) FROM agent_operation_receipts WHERE caller_id=?1 AND request_id=?2",
+        rusqlite::params![request.caller.key(), request.request_id], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(count, 0);
 }
 
 #[test]

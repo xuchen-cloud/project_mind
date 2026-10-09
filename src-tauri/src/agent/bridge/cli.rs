@@ -8,9 +8,11 @@ use crate::agent::{
 };
 use serde_json::{json, Value};
 use std::{io::Read, path::PathBuf};
+#[path = "cli_upload.rs"]
+mod cli_upload;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record create|patch|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 64 KiB). Write inputs require a stable requestId; reuse the same ID when retrying. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
-const MAX_INPUT_BYTES: u64 = 64 * 1024;
+const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind session search --input-file PATH|- --workspace PATH --connection ID --json\n  mind session messages read --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|patch|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
+const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
     pub stdout: String,
@@ -28,6 +30,7 @@ struct Options {
     budget_chars: Option<usize>,
     request_id: Option<String>,
     input_file: Option<String>,
+    body_file: Option<String>,
     json: bool,
 }
 
@@ -70,6 +73,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             }
             "--request-id" if options.request_id.is_none() && !value.is_empty() => options.request_id = Some(value.clone()),
             "--input-file" if options.input_file.is_none() => options.input_file = Some(value.clone()),
+            "--body-file" if options.body_file.is_none() => options.body_file = Some(value.clone()),
             _ => return Err(invalid("Unknown or duplicate option")),
         }
         cursor += 2;
@@ -115,7 +119,7 @@ fn parse_input(source: impl Read) -> AgentResult<Value> {
     source.take(MAX_INPUT_BYTES + 1).read_to_end(&mut bytes)
         .map_err(|_| invalid("Cannot read --input-file"))?;
     if bytes.len() as u64 > MAX_INPUT_BYTES {
-        return Err(invalid("--input-file exceeds 64 KiB"));
+        return Err(invalid("--input-file exceeds 2 MiB"));
     }
     serde_json::from_slice(&bytes).map_err(|_| invalid("--input-file must contain valid JSON"))
 }
@@ -234,6 +238,16 @@ pub fn run(args: &[String]) -> CliOutput {
         ["file", "versions", "list", ..] => ("file.versions.list", &args[3..], None),
         ["file", "versions", "get", ..] => ("file.versions.get", &args[3..], None),
         ["file", "source", "read", ..] => ("file.source.read", &args[3..], None),
+        ["file", "create", ..] => ("file.create", &args[2..], None),
+        ["file", "patch", ..] => ("file.patch", &args[2..], None),
+        ["file", "restore", ..] => ("file.version.restore", &args[2..], None),
+        ["file", "version", "restore", ..] => ("file.version.restore", &args[3..], None),
+        ["file", "update", ..] => ("file.update", &args[2..], None),
+        ["file", "content", "begin", ..] => ("file.content.begin", &args[3..], None),
+        ["file", "content", "chunk", ..] => ("file.content.chunk", &args[3..], None),
+        ["file", "content", "complete", ..] => ("file.content.complete", &args[3..], None),
+        ["file", "content", "status", ..] => ("file.content.status", &args[3..], None),
+        ["file", "upload", ..] => ("file.upload", &args[2..], None),
         ["operation", "get", ..] => ("operation.get", &args[2..], None),
         ["operation", "list", ..] => ("operation.list", &args[2..], None),
         ["operation", "undo", ..] => ("operation.undo", &args[2..], None),
@@ -247,6 +261,21 @@ pub fn run(args: &[String]) -> CliOutput {
     let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
+        if command == "file.upload" {
+            reject_scope_options(&options)?;
+            let target_path = options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?;
+            let body_path = options.body_file.as_deref().ok_or_else(|| invalid("--body-file is required"))?;
+            if target_path == "-" && body_path == "-" { return Err(invalid("Target JSON and body cannot both use stdin")); }
+            request_id = options.request_id.clone().ok_or_else(|| invalid("--request-id is required for file upload"))?;
+            if request_id.is_empty() || request_id.len() > 128 { return Err(invalid("Invalid File upload request ID")); }
+            let target = cli_upload::decode_target(read_input(target_path)?)?;
+            let bytes = cli_upload::read_body(body_path)?;
+            let client = BridgeClient::discover(connection)?;
+            let binding = client.connect(connection, workspace, &request_id)?;
+            let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
+            return cli_upload::upload(&transport, target, &bytes, &request_id);
+        }
+        if options.body_file.is_some() { return Err(invalid("--body-file is only supported by file upload")); }
         let method = if command == "search" { "source.search" } else { command };
         let params = match command {
             "doctor" | "project.list" => {
@@ -333,7 +362,7 @@ mod tests {
         let input = read_input(file.path().to_str().unwrap()).unwrap();
         registry::validate("source.search", &input).unwrap();
         assert_eq!(parse_input(std::io::Cursor::new(Vec::<u8>::new())).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert_eq!(parse_input(std::io::Cursor::new(vec![b' '; (MAX_INPUT_BYTES + 1) as usize])).unwrap_err().message, "--input-file exceeds 64 KiB");
+        assert_eq!(parse_input(std::io::Cursor::new(vec![b' '; (MAX_INPUT_BYTES + 1) as usize])).unwrap_err().message, "--input-file exceeds 2 MiB");
     }
     #[test]
     fn input_file_commands_validate_before_discovery() {
@@ -398,5 +427,14 @@ mod tests {
         let out = invoke(&args);
         assert_eq!(out.exit_code, 2);
         assert!(out.stderr.contains("must match input requestId"));
+    }
+    #[test]
+    fn upload_requires_body_and_stable_identity_before_connecting() {
+        let missing = invoke(&["file", "upload", "--input-file", "target.json", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+        assert_eq!(missing.exit_code, 2);
+        assert!(missing.stderr.contains("--body-file is required"));
+        let missing_id = invoke(&["file", "upload", "--input-file", "target.json", "--body-file", "body.bin", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+        assert_eq!(missing_id.exit_code, 2);
+        assert!(missing_id.stderr.contains("--request-id is required"));
     }
 }

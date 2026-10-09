@@ -29,7 +29,7 @@ use crate::agent::{
     models::WorkspaceBinding,
 };
 
-const MAX_BODY_BYTES: usize = 64 * 1024;
+const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 
 pub type BridgeCallFuture<'a> = Pin<Box<dyn Future<Output = AgentResult<Value>> + Send + 'a>>;
 

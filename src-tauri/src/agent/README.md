@@ -37,11 +37,11 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前包含 26 个方法：原有十四项读取，加上 `record.versions.list/get/compare`、`operation.get/list` 五项读取，共 19 项；写入为 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 七项。历史列表、比较和收据读取均有预算/分页；版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 注册表当前包含 34 个方法（20 读 / 14 写）。读取包括原有上下文、来源、会话、Record/Todo、File 版本与源码、Record 历史、`operation.get/list`，以及 `file.content.status`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
 
-新增读取命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，最多 64 KiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
+新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 
-`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。File 写入、完整工具集、协作预设及对象级限制仍按后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
+`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。完整协作预设、指定对象限制、dry-run、引用工具及安装包 CLI 接入仍按后续子包推进；共享服务已有其他工具不意味着外部连接有权调用。
 
 ## Record 写入与撤销
 
@@ -56,6 +56,14 @@ bridge 注册表当前包含 26 个方法：原有十四项读取，加上 `reco
 `todo.create` 使用原生内容、优先级、日期、标签及子行动字段；`todo.update` 使用实际 Todo 对象、`expectedRevision` 和现有 mutation 类型。所有 `dueDate` 字段都必须出现，可为日期字符串或 `null`。连接使用稳定请求 ID 幂等，CLI/MCP 与 Record 写入共用请求身份约定；内置 Run 的 dedupeKey 保持独立。原生 Todo 提交、不可变字段快照、GUI revision、子行动身份及原子收据由同一数据库服务维护，不创建虚构 Run 或成果候选。
 
 修改撤销生成新 revision 并恢复原字段和子行动；新建撤回仅改变可见性，`operation.restore_created` 恢复原对象。目标和引用按实际范围、归档、排除及撤回状态授权，持久连接在提交边界重查；旧版 GUI 写入与连接修改通过同一 revision 检出冲突。来源历史的 GUI 权限保持原样，撤回或排除后的模型来源读取仍被拒绝。
+
+## File 写入与上传
+
+外部方法为 `file.create`、`file.patch`、`file.update`、`file.version.restore`、`file.content.begin/chunk/complete/status`；其中 `status` 只读。`file.update` 和历史恢复分别要求连接显式授予 `file.update`、`file.restore`，旧只读连接不自动扩权。七个写方法均以 `{ "requestId": "稳定请求 ID", "input": { ... } }` 包装实际原生 DTO；`status` 只接受阶段票据 ID。`mind schema METHOD --json` 可查看精确输入。外部请求 ID 不得以原生恢复保留前缀 `fileundo:`、`filechainundo:`、`creationundo:` 开头；普通 ID 及 `output:` 前缀可用。
+
+创建、精确文本补丁、完整替换和历史恢复共用原生 CAS、File Version、journal、恢复及操作收据，成功重放使用相同请求 ID，不构造内置 Run。上传阶段只处理字节和原生票据，不让服务端读取客户端路径；`file.content.complete` 校验长度/hash 并使票据可提交，本身不创建新版本。版本响应不向外部连接暴露 GUI 使用的绝对 `versionPath`。文件最大 100 MiB，每块最大 1 MiB，阶段票据有效期 10 分钟；base64 块仍受 2 MiB 的 HTTP/CLI JSON 输入上限约束。
+
+`mind file upload --input-file target.json --body-file PATH --request-id ID --workspace PATH --connection ID --json` 在 CLI 本地读入字节并执行 begin、status、chunk、complete、update。`target.json` 使用 `{ "object": { ... }, "expectedVersionNumber": 1, "expectedContentHash": "sha256:…" }`，绑定真实 File 对象及预期版本/hash；`--body-file` 支持路径或 `-`（stdin）。相同 ID 重试会使用稳定的阶段 ID，从已接收字节续传；若最后一个短块已收到，可直接继续 complete。阶段过期时只尝试原始最终 `file.update` 收据：已提交可返回同一结果，未提交则明确失败。CLI 不把本地路径传给服务端。
 
 ## 不应绕过的边界
 

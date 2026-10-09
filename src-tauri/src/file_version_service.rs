@@ -61,6 +61,10 @@ impl FileCommitHost {
             fence,
         }
     }
+    pub(crate) fn for_connection(mut self, enabled: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        self.fence = Arc::new(self.fence.for_connection(enabled));
+        self
+    }
     pub(crate) fn database(&self) -> AgentResult<crate::db::Database> {
         let mut db = crate::db::Database::open_runtime_connection(
             &self.paths.db_path,

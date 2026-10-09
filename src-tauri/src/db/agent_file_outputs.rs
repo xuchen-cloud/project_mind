@@ -89,11 +89,15 @@ impl Database {
             utf8_content,
         } = intent
         {
-            return super::file_imports::validate_agent_file_create(&AgentFileCreateInput {
+            let input = AgentFileCreateInput {
                 project_id: *project_id,
                 safe_name: safe_name.clone(),
                 utf8_content: utf8_content.clone(),
-            });
+            };
+            super::file_imports::validate_agent_file_create(&input)?;
+            self.agent_file_create_authorize(request, binding, &input)?;
+            self.agent_connection_require_live(captured, binding, &Scope::Project { project_id: *project_id }, "content.create")?;
+            return Ok(());
         }
         let (target, version, hash) = baseline(intent)?;
         let actual = self.source_read_object(request, binding, target)?;
@@ -105,6 +109,8 @@ impl Database {
         request.authorize_object(binding, target, &actual, permission)?;
         captured.authorize(binding, &actual.scope, permission)?;
         captured.authorize(binding, &actual.scope, "source.read")?;
+        self.agent_connection_require_live(request, binding, &actual.scope, permission)?;
+        self.agent_connection_require_live(captured, binding, &actual.scope, permission)?;
         let document_id: i64 = actual
             .id
             .parse()
@@ -196,7 +202,7 @@ pub(crate) fn agent_file_output_receipt_committed(
     {
         return Ok(());
     }
-    let bound = if request_id.starts_with("output:") {
+    let bound = if request_id.starts_with("output:") && !caller.starts_with("connection:") {
         Some(super::agent_outputs::agent_output_native_binding(
             tx, caller, request_id, operation,
         )?)

@@ -42,7 +42,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     );
 
     let listed = client.peer().list_tools(None).await.unwrap();
-    assert_eq!(listed.tools.len(), 26);
+    assert_eq!(listed.tools.len(), 34);
     assert_eq!(
         listed.tools.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>(),
         registry::registered_methods().iter().map(|entry| format!("mind_{}", entry.method.replace('.', "_"))).collect::<Vec<_>>(),
@@ -138,6 +138,24 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         assert_eq!(called.structured_content.as_ref().unwrap()["requestId"], request_id);
         assert_eq!(called.structured_content.as_ref().unwrap()["data"]["bridgeRequestId"], request_id);
     }
+    let file_create_id = "stable-file-create-1";
+    let file_create = json!({"requestId":file_create_id,"input":{
+        "projectId":1,"safeName":"notes.txt","utf8Content":"From MCP"
+    }});
+    let called = client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_create")
+            .with_arguments(file_create.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(called.is_error, Some(false));
+    assert_eq!(called.structured_content.as_ref().unwrap()["requestId"], file_create_id);
+    assert_eq!(called.structured_content.as_ref().unwrap()["data"]["bridgeRequestId"], file_create_id);
+    let stage_status = json!({"stagedContentId":"a".repeat(32)});
+    let status = client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_content_status")
+            .with_arguments(stage_status.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(status.is_error, Some(false));
+    assert_ne!(status.structured_content.as_ref().unwrap()["requestId"], file_create_id);
     let calls_before_invalid = calls.load(Ordering::SeqCst);
     for invalid in ["", &"x".repeat(129)] {
         let called = client.peer().call_tool(

@@ -60,16 +60,20 @@ pub(crate) struct FileVersionResult {
     pub current_content_hash: Option<String>,
     pub version: FileVersionMetadata,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileContentChunkInput {
+    #[schemars(length(min = 32, max = 32))]
     pub staged_content_id: String,
+    #[schemars(range(max = 104857600))]
     pub offset: u64,
+    #[schemars(length(min = 4, max = 1398104))]
     pub data_base64: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileContentIdInput {
+    #[schemars(length(min = 32, max = 32))]
     pub staged_content_id: String,
 }
 pub(super) fn file_ref_schema() -> Value {

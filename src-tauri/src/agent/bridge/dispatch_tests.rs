@@ -8,7 +8,9 @@ use std::{
 use rmcp::{
     model::CallToolRequestParams, serve_client_with_lifecycle, ClientLifecycleMode, ServiceExt,
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{
@@ -37,6 +39,8 @@ struct WorkspaceHandler {
     binding: Mutex<WorkspaceBinding>,
     path: PathBuf,
     record_worker: Option<crate::record_document_worker::RecordDocumentWorker>,
+    file_paths: Option<crate::workspace::WorkspacePaths>,
+    file_fence: Option<Arc<crate::workspace_commit_fence::WorkspaceCommitFence>>,
 }
 
 impl BridgeHandler for WorkspaceHandler {
@@ -61,11 +65,11 @@ impl BridgeHandler for WorkspaceHandler {
         Box::pin(async move {
             if let Some(worker) = &self.record_worker {
                 dispatch::execute(
-                    self, &AtomicBool::new(true), token, input, worker, &NoUtility, &NoUtility,
+                    self, &Arc::new(AtomicBool::new(true)), token, input, worker, &NoUtility, &NoUtility,
                 ).await
             } else {
                 dispatch::execute(
-                    self, &AtomicBool::new(true), token, input, &NoUtility, &NoUtility, &NoUtility,
+                    self, &Arc::new(AtomicBool::new(true)), token, input, &NoUtility, &NoUtility, &NoUtility,
                 ).await
             }
         })
@@ -191,6 +195,8 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
         binding: Mutex::new(binding.clone()),
         path: workspace_path.clone(),
         record_worker: None,
+        file_paths: None,
+        file_fence: None,
     });
     let bridge = transport::start(handler.clone(), root.path().join("agent-bridge.json"))
         .await
@@ -465,7 +471,7 @@ impl Drop for CredentialCleanup {
 }
 
 #[tokio::test]
-#[ignore = "requires isolated unlocked OS Secret Service"]
+#[ignore = "requires isolated unlocked OS Secret Service and PROJECT_MIND_TEST_CLI binary"]
 async fn real_keyring_client_roundtrip() {
     let root = tempfile::tempdir().unwrap();
     let workspace_path = root.path().canonicalize().unwrap();
@@ -478,8 +484,9 @@ async fn real_keyring_client_roundtrip() {
     );
     let _cleanup = CredentialCleanup(grant_id.clone());
 
-    let mut db = Database::open(&root.path().join("app.sqlite"), root.path(), None).unwrap();
-    db.bind_native_workspace("keyring-workspace").unwrap();
+    let (metadata, paths) = crate::workspace::create_workspace(root.path(), "test-password").unwrap();
+    let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+    db.bind_native_workspace(&metadata.workspace_id).unwrap();
     let project = db
         .project_create(ProjectCreateInput {
             name: "Keyring Project".into(),
@@ -489,7 +496,7 @@ async fn real_keyring_client_roundtrip() {
         .unwrap();
     let project_id = project.id;
     let binding = WorkspaceBinding {
-        workspace_id: "keyring-workspace".into(),
+        workspace_id: metadata.workspace_id,
         generation: "open-1".into(),
     };
     db.agent_connection_create(
@@ -499,7 +506,7 @@ async fn real_keyring_client_roundtrip() {
             workspace_content: false,
             project_ids: vec![project_id],
             session_read: false,
-            write_operations: vec!["content.create".into(), "record.patch".into(), "operation.undo".into()],
+            write_operations: vec!["content.create".into(), "record.patch".into(), "file.update".into(), "file.restore".into(), "operation.undo".into()],
         },
         &grant_id,
         &token,
@@ -513,6 +520,8 @@ async fn real_keyring_client_roundtrip() {
         binding: Mutex::new(binding.clone()),
         path: workspace_path.clone(),
         record_worker: Some(crate::record_document_worker::RecordDocumentWorker::development().unwrap()),
+        file_paths: Some(paths),
+        file_fence: Some(Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new())),
     });
     let bridge = transport::start(handler.clone(), discovery_path.clone())
         .await
@@ -558,7 +567,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 26);
+    assert_eq!(tools.tools.len(), 34);
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))
@@ -611,6 +620,150 @@ async fn real_keyring_client_roundtrip() {
         assert_eq!(page.records[0].title.as_deref(), Some("MCP saved"));
     }
 
+    let file_create = json!({"requestId":"keyring-file-create","input":{
+        "projectId":project_id,"safeName":"wire-content.txt","utf8Content":"original"
+    }});
+    let created_file = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_create")
+            .with_arguments(file_create.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(created_file.is_error, Some(false), "{created_file:?}");
+    let created_file = created_file.structured_content.unwrap()["data"].clone();
+    let create_replay = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_create")
+            .with_arguments(file_create.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(create_replay.is_error, Some(false), "{create_replay:?}");
+    assert_eq!(create_replay.structured_content.unwrap()["data"], created_file);
+    let file = created_file["result"]["object"].clone();
+    let file_id = file["id"].as_str().unwrap().parse::<i64>().unwrap();
+    let file_versions = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_versions_list")
+            .with_arguments(json!({"object":file}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(file_versions.is_error, Some(false), "{file_versions:?}");
+    let baseline = file_versions.structured_content.unwrap()["data"].clone();
+    let bytes: Vec<u8> = (0..1024 * 1024).map(|index| (index % 251) as u8).collect();
+    let content_hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+    let begin = json!({"requestId":"keyring-file-begin","input":{
+        "object":file,"expectedVersionNumber":baseline["currentVersionNumber"],
+        "expectedContentHash":baseline["currentContentHash"],
+        "length":bytes.len(),"contentHash":content_hash,
+    }});
+    let begun = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_content_begin")
+            .with_arguments(begin.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(begun.is_error, Some(false), "{begun:?}");
+    let ticket = begun.structured_content.unwrap()["data"].clone();
+    let stage = ticket["stagedContentId"].as_str().unwrap().to_owned();
+    assert_eq!(ticket["contentHash"], content_hash);
+    let chunk = json!({"requestId":"keyring-file-chunk","input":{
+        "stagedContentId":stage,"offset":0,"dataBase64":STANDARD.encode(&bytes),
+    }});
+    assert!(chunk.to_string().len() > 64 * 1024);
+    let appended = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_content_chunk")
+            .with_arguments(chunk.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(appended.is_error, Some(false), "{appended:?}");
+    let complete = json!({"requestId":"keyring-file-complete","input":{"stagedContentId":stage}});
+    let completed = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_content_complete")
+            .with_arguments(complete.as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(completed.is_error, Some(false), "{completed:?}");
+    assert_eq!(completed.structured_content.as_ref().unwrap()["data"]["ready"], true);
+    let update = json!({"requestId":"keyring-file-update","input":{
+        "object":file,"expectedVersionNumber":baseline["currentVersionNumber"],
+        "expectedContentHash":baseline["currentContentHash"],"stagedContentId":stage,
+    }});
+    let update_tool = || CallToolRequestParams::new("mind_file_update")
+        .with_arguments(update.as_object().unwrap().clone());
+    let updated = mcp_client.peer().call_tool(update_tool()).await.unwrap();
+    assert_eq!(updated.is_error, Some(false), "{updated:?}");
+    let updated = updated.structured_content.unwrap()["data"].clone();
+    assert_eq!(updated["result"]["receipt"]["contentHash"], content_hash);
+    let replay = mcp_client.peer().call_tool(update_tool()).await.unwrap();
+    assert_eq!(replay.is_error, Some(false), "{replay:?}");
+    assert_eq!(replay.structured_content.unwrap()["data"], updated);
+    let receipt: crate::db::file_versions::CommittedVersion =
+        serde_json::from_value(updated["result"]["receipt"].clone()).unwrap();
+    assert_eq!(receipt.document_id, file_id);
+    let committed_path = handler.db.lock().unwrap().file_version_committed_path(&receipt).unwrap().unwrap();
+    assert_eq!(std::fs::read(committed_path).unwrap(), bytes);
+    let current = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_versions_list")
+            .with_arguments(json!({"object":file}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(current.is_error, Some(false), "{current:?}");
+    assert_eq!(current.structured_content.unwrap()["data"]["currentContentHash"], content_hash);
+
+    // The production executable discovers this live bridge from its own
+    // isolated app-data directory; it reads the body file itself.
+    let cli_binary = PathBuf::from(std::env::var_os("PROJECT_MIND_TEST_CLI")
+        .expect("PROJECT_MIND_TEST_CLI must point to the built mind executable"));
+    let cli_data_home = root.path().join("client-data");
+    let cli_app_data = cli_data_home.join(crate::APP_IDENTIFIER);
+    std::fs::create_dir_all(&cli_app_data).unwrap();
+    std::fs::copy(&discovery_path, cli_app_data.join("agent-bridge.json")).unwrap();
+    let mut cli_bytes = bytes.clone();
+    cli_bytes.extend_from_slice(&[0xf1, 0x00, 0x7f]);
+    let cli_hash = format!("sha256:{:x}", Sha256::digest(&cli_bytes));
+    let target_path = root.path().join("cli-upload-target.json");
+    let body_path = root.path().join("cli-upload-body.bin");
+    std::fs::write(&target_path, serde_json::to_vec(&json!({
+        "object":file,"expectedVersionNumber":2,"expectedContentHash":content_hash,
+    })).unwrap()).unwrap();
+    std::fs::write(&body_path, &cli_bytes).unwrap();
+    let mut first_cli = None;
+    for _ in 0..2 {
+        let binary = cli_binary.clone();
+        let data_home = cli_data_home.clone();
+        let target_path = target_path.clone();
+        let body_path = body_path.clone();
+        let workspace = workspace_path.clone();
+        let connection = grant_id.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(binary)
+                .args(["file", "upload", "--input-file"])
+                .arg(target_path)
+                .arg("--body-file").arg(body_path)
+                .args(["--request-id", "keyring-cli-upload", "--workspace"])
+                .arg(workspace)
+                .arg("--connection").arg(connection)
+                .arg("--json")
+                .env("XDG_DATA_HOME", data_home)
+                .output()
+        }).await.unwrap().unwrap();
+        assert!(output.status.success(), "CLI status: {:?}, stdout: {}, stderr: {}",
+            output.status.code(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(output.stderr.is_empty(), "CLI stderr: {}", String::from_utf8_lossy(&output.stderr));
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["requestId"], "keyring-cli-upload");
+        assert_eq!(response["data"]["result"]["receipt"]["versionNumber"], 3);
+        assert_eq!(response["data"]["result"]["receipt"]["contentHash"], cli_hash);
+        if let Some(first) = &first_cli {
+            assert_eq!(&response["data"], first);
+        } else {
+            first_cli = Some(response["data"].clone());
+        }
+    }
+    let cli_result = first_cli.unwrap();
+    let cli_receipt: crate::db::file_versions::CommittedVersion =
+        serde_json::from_value(cli_result["result"]["receipt"].clone()).unwrap();
+    let cli_committed_path = handler.db.lock().unwrap().file_version_committed_path(&cli_receipt).unwrap().unwrap();
+    assert_eq!(std::fs::read(cli_committed_path).unwrap(), cli_bytes);
+    let after_cli = mcp_client.peer().call_tool(
+        CallToolRequestParams::new("mind_file_versions_list")
+            .with_arguments(json!({"object":file}).as_object().unwrap().clone())
+    ).await.unwrap();
+    assert_eq!(after_cli.is_error, Some(false), "{after_cli:?}");
+    let after_cli = after_cli.structured_content.unwrap()["data"].clone();
+    assert_eq!(after_cli["currentVersionNumber"], 3);
+    assert_eq!(after_cli["currentContentHash"], cli_hash);
+
     let rejected_request = handler.db.lock().unwrap().agent_connection_authenticate(
         &binding, &grant_id, &token, "keyring-after-revoke",
     ).unwrap();
@@ -640,6 +793,9 @@ async fn real_keyring_client_roundtrip() {
     ).await.unwrap();
     assert_eq!(rejected_write.is_error, Some(true));
     assert_eq!(rejected_write.structured_content.as_ref().unwrap()["error"]["code"], "SCOPE_DENIED");
+    let rejected_file = mcp_client.peer().call_tool(update_tool()).await.unwrap();
+    assert_eq!(rejected_file.is_error, Some(true));
+    assert_eq!(rejected_file.structured_content.as_ref().unwrap()["error"]["code"], "SCOPE_DENIED");
     {
         let mut db = handler.db.lock().unwrap();
         let page = db.project_page_get(crate::models::ProjectIdInput { project_id }).unwrap();
@@ -687,5 +843,15 @@ impl crate::record_document_service::BoundRecordStore for WorkspaceHandler {
     async fn submission_lock(&self, _: &WorkspaceBinding, _: &crate::record_documents::RecordTarget) -> AgentResult<Option<tokio::sync::OwnedMutexGuard<()>>> { Ok(None) }
     fn with_current<T>(&self, action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>) -> AgentResult<T> {
         crate::source_service::BoundSourceStore::with_current(self, action)
+    }
+}
+
+impl crate::file_version_service::BoundFileCommitStore for WorkspaceHandler {
+    fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
+        assert_eq!(*self.binding.lock().unwrap(), *binding);
+        Ok(crate::file_version_service::FileCommitHost::for_test(
+            binding.clone(), self.file_paths.as_ref().expect("File fixture paths").clone(),
+            None, self.file_fence.as_ref().expect("File fixture fence").clone(),
+        ))
     }
 }
