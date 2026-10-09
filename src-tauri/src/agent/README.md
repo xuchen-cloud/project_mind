@@ -45,7 +45,7 @@ bridge 注册表当前包含 38 个方法（24 读 / 14 写）。读取包括原
 
 新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 
-`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。指定对象限制、其他 dry-run 及安装包 CLI 接入仍按后续子包推进；共享服务已有其他工具不意味着外部连接有权调用。
+`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。指定对象限制、其他 dry-run 及用户 PATH 安装仍按后续子包推进；共享服务已有其他工具不意味着外部连接有权调用。
 
 设置预设已接通：默认「Workspace 协作」授予 Workspace 直属内容和所有当前未归档 Project（`workspaceContent: true`、`allProjects: true`），每次认证动态纳入新 Project；「单 Project 协作」仅授予所选 Project，「只读」覆盖同样的动态范围但无写权限，「自定义」使用显式 Project 子集及可选 Workspace 内容。会话依据 `session.read` 始终单独选择；任意历史版本恢复权限只在自定义预设中可选。旧 JSON 和旧 grant 的 `allProjects` 默认为 false，原有显式范围不会自动扩张。
 
@@ -84,6 +84,12 @@ Markdown 快捷命令为 `mind record create --title TITLE --body-file PATH|- (-
 文本 File 可用 `mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json` 创建；复杂创建仍用 `--input-file` 提供完整 DTO。`mind file patch --patch-file PATH|- --workspace PATH --connection ID --json` 接受既有带 `requestId` 的 wrapped mutation JSON，与 `--input-file` 互斥。Todo/File 创建的 `--body-file` 在 CLI 本地按 UTF-8 读取，保留字符与换行，路径不会传到服务端；正文和生成的请求 JSON 均受 2 MiB 上限约束。二进制或较大 File 继续使用上述字节上传流程。
 
 完整替换也可直接使用 `mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash HASH --request-id ID --workspace PATH --connection ID --json`。版本与 `sha256:…` hash 从 File 版本读取取得，Workspace 身份由连接握手补齐；文件在 CLI 本地读取，复用同一 100 MiB 分段上传、续传和收据流程。便捷参数与 `--input-file` 互斥，旧 JSON/`file upload` 入口保持可用。
+
+## 桌面安装包中的 CLI
+
+正式构建使用 `npm run build:tauri -- --target <Rust target triple>`；两个发布 workflow 使用相同的 `src-tauri/tauri.release.conf.json`。release 钩子在既有后端资源准备之后执行 `prepare:cli`，按同一 target 构建 `mind` 并交由 Tauri externalBin 打包。独立暂存命令为 `npm run prepare:cli -- <Rust target triple>`。开发/测试基础配置不要求发行用 sidecar，`npm run tauri build` 的基础配置不包含该 CLI；发行必须采用上述 release 入口。
+
+CLI 在应用可执行文件同目录检测，设置复制其绝对路径及 MCP 配置。用户 PATH 安装/撤销尚未实现；当前无需修改 PATH 即可使用复制的命令。Linux 已验证暂存和 Tauri 构建脚本的 sidecar 复制，macOS/Windows 最终签名、安装落位和干净安装仍须目标平台验收。
 
 ## 不应绕过的边界
 

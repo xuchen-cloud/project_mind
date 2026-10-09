@@ -28,6 +28,9 @@ bash scripts/cloud/setup.sh > ../project-mind-setup.log 2>&1
 
 资源 build/stage 必须串行完成后再开始测试。测试期间不要同时重新 staging 或改写 hash 清单。`scripts/cloud/setup.sh` 仍显式准备 Linux 开发用的 Record、Source worker；普通 `build:desktop` 按明确目标串行准备固定 Node、Record、Source 和 Pi 资源，不能以 Linux 开发环境代替产品目标。
 
+正式桌面发行改用 `npm run build:tauri -- --target <triple>`：release overlay 通过 `build:desktop:release` 在现有资源链之后构建/暂存同目标 `mind` sidecar。直接运行基础 `npm run tauri build` 不包含 CLI。`prepare:cli` 使用 Cargo metadata 的实际 target_directory，支持独立 CARGO_TARGET_DIR；子 Cargo 只移除 inherited externalBin，避免 CLI 依赖复制自身。基础 Cargo/test 不要求预先暂存发行 sidecar；生成的 `src-tauri/binaries/` 不入库。
+
+
 首次 Rust 冷编译和前端全量建议串行运行，避免页面驻留测试在 CPU 竞争下超时；不因此放宽用例超时或断言。
 
 ## 静默验证

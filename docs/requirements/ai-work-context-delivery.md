@@ -445,6 +445,16 @@ cursor 绑定对象、方向、当前授权范围及变更水位，排序以对�
 
 R12b4 已完成（2026-10-09）：注册表 38 项（24 读 / 14 写）；原生引用 6 项、bridge/CLI/MCP 76 项通过（另 2 项 ignored）。覆盖原生 token 的 +/前导零、同号跨 scope、附件及自引用去重、排除/撤回/归档、完整响应字符预算、授权/数据变化失效；101 个可见误命中后的空页续查，以及两份正文合计超过 8 MiB 时暂停并完整续页均通过。生产 CLI 构建通过，独立 Linux 系统凭据→真实 socket→SDK MCP/生产 CLI 的 Markdown 原生引用入/出链查询通过，复用的创建/预览/正文分页/写入恢复及撤权也通过。首轮集成断言错误地把不含引用标签的 projection.text 当作 source 全文；改为 CLI 分页与 SDK 同一 record.get 全文逐字一致并断言引用标签后通过，未改变产品读取行为。主 agent Standards/Spec 自查通过，主规格同步默认 Workspace 预设；纯 Rust 适配复用未变前端证据。对象限制、CLI 安装及目标平台/真实模型验收仍未完成，#106 保持 OPEN。
 
+### R12c 第二子步：正式安装包携带 CLI / #106
+
+依赖：现有 `mind` Rust bin、正式 macOS arm64/x64 与 Windows x64 发布矩阵、Tauri sidecar 打包规则。本包先补齐安装包缺失 CLI 的实际断点：显式按相同 Rust target 构建 `mind`，暂存为 Tauri 规定的带 target 后缀产物，正式打包通过 release 配置纳入 sidecar，安装后 CLI 位于应用可执行目录并复用现有绝对路径检测。开发/test 的基础 Tauri 配置不依赖预先存在的 sidecar，防止干净 checkout 的 Cargo 测试被发行资源阻塞。
+
+使用独立 release 配置和统一打包命令，两个正式发布 workflow 都显式采用；构建 sidecar 的子 Cargo 调用清除 inherited externalBin，避免尚未生成自身时要求复制自身，保留其余编译与配置环境。不引入新发布平台、系统级安装或自动写 shell 配置。用户级 PATH 安装/撤销下一子步完成，本包不将打包配置通过视为目标平台安装验收。
+
+验收：目标矩阵与暂存命名、真实 Cargo target 目录解析、空格/中文路径、缺失产物/构建失败不保留伪成功结果；现有资源 staging 保持不变。用 Node 定向测试和已有生产 Linux CLI 的暂存/实际进程验证，检查 release 配置/workflow 使用一致。Windows/macOS 安装及签名验证保留 R13，主 agent 自行 Standards/Spec 检查。
+
+第二子步实现与 Linux 验证完成（2026-10-09）：release overlay、统一 `build:tauri` 及两个正式发布 workflow 已接入同 target 的 CLI 构建/sidecar 打包；基础 Cargo/test 保持不依赖发行产物。Node 暂存 3 项通过（四目标命名、中文/空格路径、Cargo 配置保留及失败路径）；既有 desktop runtime 组合 3 项通过。使用真实 Cargo metadata 的独立目标目录与已编译 Linux CLI 验证暂存字节、执行权限及 `mind --version`；此步骤复用 debug 二进制，未声称执行 release 编译。随后真实 `cargo check --lib` 携带 externalBin 配置通过，Tauri build script 复制出的同目录 `mind` 与暂存产物逐字节相同且实际可运行。主 agent Standards/Spec 自查及 diff 检查通过。Windows/macOS 原生安装、签名与平台运行仍待 R13；用户级 PATH 安装/撤销及对象限制继续后续子步，#106 保持 OPEN。
+
 ### R13 M1 集成、目标安装包与发布 / #107，收口 #98/#100～106/#113～116
 
 依赖：R01～12 的相关行为通过；从 R04 起持续维护验收证据，不在此重做所有测试。

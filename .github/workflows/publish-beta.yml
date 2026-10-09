@@ -47,8 +47,8 @@ jobs:
           workspaces: src-tauri
       - name: Install frontend and build dependencies
         run: npm ci
-      # Tauri's beforeBuildCommand runs build:desktop: pinned target Node,
-      # isolated host lockfile install, then Record + Source + Pi resources.
+      # The release overlay stages the CLI sidecar after pinned target Node,
+      # the isolated host lockfile, and Record + Source + Pi resources.
       - name: Build complete desktop resources and installers
         uses: tauri-apps/tauri-action@v1
         env:
@@ -66,7 +66,7 @@ jobs:
           retryAttempts: 2
           updaterJsonPreferNsis: true
           releaseAssetNamePattern: ProjectMind_[version]_[platform]_[arch][setup].[ext]
-          args: ${{ matrix.args }}
+          args: --config src-tauri/tauri.release.conf.json ${{ matrix.args }}
 
   publish-channel:
     needs: build

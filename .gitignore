@@ -15,4 +15,5 @@ project_mind_overview.png
 # Generated isolated source extraction bundles
 packages/agent-host/source-dist/
 src-tauri/resources/source-extractor/
+src-tauri/binaries/
 src-tauri/resources/.source-extractor-*/
