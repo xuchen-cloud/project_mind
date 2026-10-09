@@ -163,6 +163,7 @@ fn authorize_entry(
 ) -> AgentResult<OperationEntry> {
     let (entry, caller) = read_entry(conn, id)?;
     authorize(request, binding, &entry, &caller, permission)?;
+    super::agent_record_undo::receipt_scope_active(conn, &entry.object.scope)?;
     todo_id(&entry.object)?;
     Ok(entry)
 }

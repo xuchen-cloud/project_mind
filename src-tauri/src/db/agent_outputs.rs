@@ -245,6 +245,19 @@ pub(super) fn intent_scope(
         _ => Err(invalid("File creation requires a real Project")),
     }
 }
+
+fn run_allows_scope(run_scope: &Scope, target: &Scope) -> bool {
+    run_scope == target || matches!((run_scope, target), (Scope::Workspace, Scope::Project { .. }))
+}
+
+pub(super) fn tx_live_scope(tx: &Transaction<'_>, scope: &Scope) -> AgentResult<()> {
+    if let Scope::Project { project_id } = scope {
+        let active: bool = tx.query_row("SELECT is_archived=0 FROM projects WHERE id=?1", [project_id], |row| row.get(0))
+            .optional().map_err(io_error)?.unwrap_or(false);
+        if !active { return Err(denied()); }
+    }
+    Ok(())
+}
 fn output_kind(intent: &OutputIntent) -> AgentResult<&'static str> {
     match intent {
         OutputIntent::RecordCreate { .. } | OutputIntent::RecordPatch { .. } => Ok("record"),
@@ -422,10 +435,15 @@ impl Database {
         if run.grant.workspace_id != binding.workspace_id {
             return Err(denied());
         }
+        let mut grant = run.grant;
+        if run.scope == Scope::Workspace {
+            let active = self.agent_active_project_ids()?;
+            grant.project_ids.retain(|id| active.contains(id));
+        }
         Ok(ScopeGrant {
             object_keys: None,
             operations: operations.iter().map(|s| (*s).to_owned()).collect(),
-            ..run.grant
+            ..grant
         })
     }
     pub(crate) fn agent_output_gui_grant(
@@ -524,7 +542,7 @@ impl Database {
         input: &StageRecordInput,
     ) -> AgentResult<Payload> {
         let (scope, operation, _, target, _) = intent_scope(&input.intent)?;
-        if scope != run.scope {
+        if !run_allows_scope(&run.scope, &scope) {
             return Err(denied());
         }
         request.authorize(binding, &scope, operation)?;
@@ -579,7 +597,7 @@ impl Database {
                 self.agent_todo_validate_candidate(
                     request,
                     binding,
-                    &run.scope,
+                    &scope,
                     &frozen(request, run),
                     &input.intent,
                 )?;
@@ -1231,7 +1249,7 @@ pub(super) fn agent_output_native_binding(
         return Err(denied());
     }
     let (scope, permission, intent, _, _) = intent_scope(&output.staged.intent)?;
-    if scope != run.scope
+    if !run_allows_scope(&run.scope, &scope)
         || output_kind(&output.staged.intent)? != kind
         || creating != (intent == "create")
     {
@@ -1249,6 +1267,7 @@ pub(super) fn agent_output_native_binding(
     };
     captured.authorize(&binding, &scope, "output.commit")?;
     captured.authorize(&binding, &scope, permission)?;
+    tx_live_scope(tx, &scope)?;
     Ok((output, run.grant))
 }
 
@@ -1312,7 +1331,7 @@ pub(crate) fn agent_output_record_committed(
         return Err(denied());
     }
     let (scope, permission, intent, target, base) = intent_scope(&output.staged.intent)?;
-    if scope != run.scope
+    if !run_allows_scope(&run.scope, &scope)
         || output_kind(&output.staged.intent)? != "record"
         || (operation == "record.create") != (intent == "create")
     {
@@ -1329,6 +1348,7 @@ pub(crate) fn agent_output_record_committed(
     };
     frozen_context.authorize(&frozen_context.binding, &scope, "output.commit")?;
     frozen_context.authorize(&frozen_context.binding, &scope, permission)?;
+    tx_live_scope(tx, &scope)?;
     let (head, before_revision, before_snapshot, after_snapshot, operation_id, undo) =
         if operation == "record.patch" {
             let result: RecordPatchResult = decode(result_json)?;

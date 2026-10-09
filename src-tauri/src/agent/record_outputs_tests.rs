@@ -104,6 +104,11 @@ fn setup(
         generation: "generation-1".into(),
     };
     db.bind_native_workspace(&binding.workspace_id).unwrap();
+    for name in ["A", "B"] {
+        db.project_create(crate::models::ProjectCreateInput {
+            name: name.into(), summary: None, status: None,
+        }).unwrap();
+    }
     let gui = RequestContext {
         binding: binding.clone(),
         caller: Caller::Gui,
@@ -112,7 +117,7 @@ fn setup(
             object_keys: None,
             workspace_id: binding.workspace_id.clone(),
             workspace_content: true,
-            project_ids: vec![],
+            project_ids: vec![1, 2],
             operations: [
                 "session.read",
                 "session.write",
@@ -260,6 +265,68 @@ async fn record_output_review_stages_without_writing_and_gui_commits() {
         .unwrap();
     assert!(matches!(saved.output.state, OutputState::Committed));
     assert_eq!(record_count(&store), 1);
+}
+
+#[tokio::test]
+async fn workspace_project_candidate_keeps_stage_when_project_archives_before_commit() {
+    let (_directory, store, utility, request, gui) = setup(ExecutionMode::Review);
+    let service = RecordOutputService::new(&store, &utility);
+    let mut input = candidate();
+    if let OutputIntent::RecordCreate { scope, .. } = &mut input.intent {
+        *scope = Scope::Project { project_id: 1 };
+    }
+    let staged = service.stage_record(&request, &input).await.unwrap();
+    store.db.lock().unwrap().conn.execute(
+        "UPDATE projects SET is_archived=1 WHERE id=1", []).unwrap();
+    assert_eq!(service.commit_record(&gui, &staged.staged.id, staged.staged.revision)
+        .await.unwrap_err().code, ErrorCode::ScopeDenied);
+    let db = store.db.lock().unwrap();
+    assert_eq!(db.agent_output_get(&request, &gui.binding, &staged.staged.id).unwrap().state,
+        OutputState::Staged);
+    let count: i64 = db.conn.query_row("SELECT COUNT(*) FROM notes WHERE project_id=1", [],
+        |row| row.get(0)).unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn workspace_run_can_commit_explicitly_granted_project_record() {
+    let (_directory, store, utility, request, gui) = setup(ExecutionMode::Review);
+    let mut input = candidate();
+    if let OutputIntent::RecordCreate { scope, .. } = &mut input.intent {
+        *scope = Scope::Project { project_id: 2 };
+    }
+    let service = RecordOutputService::new(&store, &utility);
+    let staged = service.stage_record(&request, &input).await.unwrap();
+    let saved = service.commit_record(&gui, &staged.staged.id, staged.staged.revision)
+        .await.unwrap();
+    assert_eq!(saved.output.object.unwrap().scope, Scope::Project { project_id: 2 });
+    let count: i64 = store.db.lock().unwrap().conn.query_row(
+        "SELECT COUNT(*) FROM notes WHERE project_id=2", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn workspace_record_can_reference_two_frozen_project_sources() {
+    let (_directory, store, mut utility, request, gui) = setup(ExecutionMode::Review);
+    let ids = {
+        let db = store.db.lock().unwrap();
+        [1, 2].map(|project_id| db.project_record_upsert(
+            crate::models::ProjectRecordUpsertInput {
+                project_id, note_id: None, title: Some(format!("Source {project_id}")),
+                html: "<p>Evidence</p>".into(), markdown: "Evidence".into(),
+                default_code_language: None, tag_ids: vec![],
+            }).unwrap().id)
+    };
+    utility.projection.document["content"][0]["content"] = json!([
+        {"type":"internalReference","attrs":{"refKind":"note","refId":ids[0],"label":"Source A"}},
+        {"type":"internalReference","attrs":{"refKind":"note","refId":ids[1],"label":"Source B"}}
+    ]);
+    utility.projection.body_hash = crate::record_documents::body_hash(
+        &utility.projection.document, &utility.projection.code_language);
+    let service = RecordOutputService::new(&store, &utility);
+    let staged = service.stage_record(&request, &candidate()).await.unwrap();
+    let saved = service.commit_record(&gui, &staged.staged.id, staged.staged.revision).await.unwrap();
+    assert_eq!(saved.output.object.unwrap().scope, Scope::Workspace);
 }
 
 #[tokio::test]

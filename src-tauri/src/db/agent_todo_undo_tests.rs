@@ -685,6 +685,19 @@ fn todo_undo_authorizes_original_run_scope_binding_and_restored_references() {
 }
 
 #[test]
+fn archived_project_keeps_committed_todo_body_when_undo_is_requested() {
+    let f = fixture(true);
+    let after = modification(&f);
+    let id = todo_id(&f.object).unwrap();
+    let saved = todo_revisions::snapshot(&f.db.conn, id).unwrap();
+    let Scope::Project { project_id } = &f.object.scope else { panic!("Project fixture") };
+    f.db.project_set_archive(ProjectArchiveInput { project_id: *project_id, is_archived: true }).unwrap();
+    assert_eq!(f.db.agent_todo_undo(&f.request, &f.request.binding,
+        &undo(&f, after.revision)).unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(todo_revisions::snapshot(&f.db.conn, id).unwrap(), saved);
+}
+
+#[test]
 fn todo_undo_native_receipt_failure_rolls_back_body_revisions_outbox_and_original_state() {
     let f = fixture(true);
     let after = modification(&f);

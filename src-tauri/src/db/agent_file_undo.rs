@@ -96,6 +96,7 @@ fn entry(
 ) -> AgentResult<OperationEntry> {
     let (entry, caller) = read_entry(conn, id)?;
     authorize(request, binding, &entry, &caller, permission)?;
+    super::agent_record_undo::receipt_scope_active(conn, &entry.object.scope)?;
     file_id(&entry.object)?;
     Ok(entry)
 }
@@ -344,6 +345,7 @@ pub(super) fn creation_group_check(
             return Err(conflict());
         }
         authorize(request, binding, original, &caller, "operation.undo")?;
+        super::agent_record_undo::receipt_scope_active(conn, &original.object.scope)?;
         original_authority(conn, request, binding, original)?;
         if index == 0 {
             if original.before_revision.is_some()
@@ -740,6 +742,7 @@ fn authorize_chain(
     for original in operations {
         let (_, caller) = read_entry(conn, &original.operation_id)?;
         authorize(request, binding, original, &caller, "operation.undo")?;
+        super::agent_record_undo::receipt_scope_active(conn, &original.object.scope)?;
         original_authority(conn, request, binding, original)?;
     }
     let first = operations.first().ok_or_else(conflict)?;

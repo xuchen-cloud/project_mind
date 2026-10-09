@@ -124,18 +124,21 @@ fn discussion_target_resolves_record_todo_file_and_rejects_forged_ownership() {
             ErrorCode::ScopeDenied
         );
         assert_eq!(
-            validate_discussion_target(
-                &f.db,
-                &f.request,
-                &f.binding,
-                &Scope::Workspace,
-                Some(&object),
-            )
-            .unwrap_err()
-            .code,
-            ErrorCode::ScopeDenied
+            validate_discussion_target(&f.db, &f.request, &f.binding,
+                &Scope::Workspace, Some(&object)).unwrap(),
+            Some(object)
         );
     }
+    let other = f.db.project_record_upsert(crate::models::ProjectRecordUpsertInput {
+        project_id: 2, note_id: None, title: Some("Other project".into()),
+        html: "<p>Other</p>".into(), markdown: "Other".into(),
+        default_code_language: None, tag_ids: vec![],
+    }).unwrap();
+    let other_target = ObjectRef { workspace_id: f.binding.workspace_id.clone(),
+        scope: Scope::Project { project_id: 2 }, kind: ObjectKind::Record,
+        id: other.id.to_string() };
+    assert_eq!(validate_discussion_target(&f.db, &f.request, &f.binding,
+        &f.scope, Some(&other_target)).unwrap_err().code, ErrorCode::ScopeDenied);
     assert_eq!(
         validate_discussion_target(
             &f.db,

@@ -136,6 +136,7 @@ fn creation(
         ));
     }
     request.authorize(binding, &object.scope, operation)?;
+    super::agent_record_undo::receipt_scope_active(conn, &object.scope)?;
     match &request.caller {
         Caller::Gui => {}
         Caller::BuiltinRun { run_id: own } if run_id.as_deref() == Some(own.as_str()) => {}

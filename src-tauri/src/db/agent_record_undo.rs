@@ -4,7 +4,7 @@ use crate::{
     agent::{
         access::{Caller, RequestContext},
         errors::{AgentError, AgentResult, ErrorCode},
-        models::{ObjectKind, ObjectRef, WorkspaceBinding},
+        models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
         operation_batches::{OperationBatchConflictReason, OperationBatchUndoState, OperationUndoBatchInput, OperationUndoGroup},
         operations::*,
     },
@@ -125,6 +125,14 @@ pub(super) fn authorize(
         )),
     }
 }
+pub(super) fn receipt_scope_active(conn: &Connection, scope: &Scope) -> AgentResult<()> {
+    if let Scope::Project { project_id } = scope {
+        let active: bool = conn.query_row("SELECT is_archived=0 FROM projects WHERE id=?1",
+            [project_id], |row| row.get(0)).optional().map_err(io_error)?.unwrap_or(false);
+        if !active { return Err(AgentError::new(ErrorCode::ScopeDenied, "Project is no longer active")); }
+    }
+    Ok(())
+}
 fn record_undo_group(
     conn: &Connection,
     request: &RequestContext,
@@ -138,6 +146,7 @@ fn record_undo_group(
         ));
     }
     let group = planned.groups.remove(0);
+    receipt_scope_active(conn, &group.object.scope)?;
     if group.object.kind != ObjectKind::Record
         || group
             .operations
@@ -244,6 +253,9 @@ impl Database {
             ));
         }
         Ok(entry.object.scope)
+    }
+    pub(crate) fn agent_operation_active_scope(&self, scope: &Scope) -> AgentResult<()> {
+        self.source_live_scope(scope)
     }
     pub(crate) fn agent_operation_run_scopes(
         &self,
@@ -488,6 +500,7 @@ impl Database {
         let compatibility = self.record_compatibility_html(&target, projection)?;
         self.agent_atomic_operation(&request.caller.key(),&request.request_id,"record.undo",input,|tx|{
             let(entry,caller)=read_entry(tx,&input.operation_id)?;authorize(request,binding,&entry,&caller,"operation.undo")?;
+            receipt_scope_active(tx, &entry.object.scope)?;
             if let Some(id)=&entry.undo_operation_id{let raw:String=tx.query_row("SELECT result_json FROM agent_operation_receipts WHERE operation_id=?1 AND operation='record.undo' AND state='committed'",[id],|r|r.get(0)).map_err(io_error)?;return Ok((decode(&raw)?,None));}
             if entry.undo_state!="available"||entry.after_revision!=Some(input.expected_head_revision){return Err(conflict());}
             let context:String=tx.query_row("SELECT output_context_json FROM agent_operation_receipts WHERE operation_id=?1",[&input.operation_id],|r|r.get(0)).map_err(io_error)?;let context:Value=decode(&context)?;

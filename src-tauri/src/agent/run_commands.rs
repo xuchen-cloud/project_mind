@@ -64,7 +64,9 @@ pub(crate) fn validate_discussion_target(
             "Discussion targets must be Records, Todos or Files",
         ));
     }
-    if target.workspace_id != binding.workspace_id || target.scope != *session_scope {
+    let allowed_scope = target.scope == *session_scope
+        || matches!((session_scope, &target.scope), (Scope::Workspace, Scope::Project { .. }));
+    if target.workspace_id != binding.workspace_id || !allowed_scope {
         return Err(AgentError::new(
             ErrorCode::ScopeDenied,
             "Discussion target must belong to this conversation scope",
@@ -136,6 +138,9 @@ pub(crate) fn agent_run_start(
                 1,
             )?
             .session;
+        if session.scope == Scope::Workspace {
+            request.scope_grant.project_ids = db.agent_active_project_ids()?;
+        }
         if session.runtime_id != "builtin-pi" {
             return Err(AgentError::new(
                 ErrorCode::RuntimeUnavailable,

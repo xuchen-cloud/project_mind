@@ -3,7 +3,7 @@
 use super::{
     access::{Caller, RequestContext},
     errors::{AgentError, AgentResult, ErrorCode},
-    models::{ObjectKind, Scope, SourceRef, WorkspaceBinding},
+    models::{ObjectKind, ObjectRef, Scope, SourceRef, WorkspaceBinding},
     output_runtime::OutputState,
 };
 use crate::{
@@ -227,6 +227,17 @@ pub(super) fn result_sources(
 ) -> AgentResult<Vec<ObservedSource>> {
     let mut out = Vec::new();
     match method {
+        "project.list" => {
+            for item in array(result, "items")? {
+                let id = field(item, "id")?.as_i64().filter(|id| *id > 0)
+                    .ok_or_else(not_ready)?;
+                let object = ObjectRef { workspace_id: binding.workspace_id.clone(),
+                    scope: Scope::Project { project_id: id }, kind: ObjectKind::Project,
+                    id: id.to_string() };
+                db.source_read_object(request, binding, &object)?;
+                out.push(ObservedSource { object, revision: None });
+            }
+        }
         "context.get" => {} // Captured with the hidden ContextEntry field before encoding.
         "source.search" => {
             for item in array(result, "items")? {

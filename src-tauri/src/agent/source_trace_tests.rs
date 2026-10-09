@@ -6,6 +6,55 @@ use crate::agent::{
 use serde_json::json;
 
 #[test]
+fn listed_project_names_enter_run_provenance_and_disappear_when_hidden() {
+    use crate::{agent::conversation::RunPreparation, models::ProjectCreateInput,
+        source_service::SourcePolicyUpdate};
+    let root = tempfile::tempdir().unwrap();
+    let mut db = Database::open(&root.path().join("project-trace.sqlite"), root.path(), None).unwrap();
+    db.bind_native_workspace("w").unwrap();
+    let first = db.project_create(ProjectCreateInput { name: "A".into(), summary: None,
+        status: None }).unwrap();
+    let second = db.project_create(ProjectCreateInput { name: "B".into(), summary: None,
+        status: None }).unwrap();
+    let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g".into() };
+    let gui = RequestContext { binding: binding.clone(), caller: Caller::Gui,
+        request_id: "project-trace".into(), scope_grant: ScopeGrant { object_keys: None,
+            workspace_id: "w".into(), workspace_content: true,
+            project_ids: vec![first.id, second.id],
+            operations: ["session.read", "session.write", "run.start", "context.read",
+                "source.read", "settings.write"].map(str::to_owned).to_vec() } };
+    let session = db.agent_session_create(&gui, &binding, &Scope::Workspace,
+        "Projects", "pi", None).unwrap();
+    let run_id = "a".repeat(32);
+    db.agent_run_prepare(&gui, &binding, &session.id, "first", &RunPreparation {
+        run_id: run_id.clone(), context_manifest: json!({}), }).unwrap();
+    let run = RequestContext { caller: Caller::BuiltinRun { run_id: run_id.clone() }, ..gui.clone() };
+    db.agent_run_provenance_begin(&run, &binding, &[]).unwrap();
+    let page = db.agent_project_page(&run, &binding, None, 1).unwrap();
+    assert_eq!(page.items.len(), 1);
+    let sources = result_sources(&db, &run, &binding, "project.list",
+        &serde_json::to_value(page).unwrap()).unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].object.id, first.id.to_string());
+    db.agent_run_provenance_observe(&run, &binding, &sources).unwrap();
+    assert_eq!(db.agent_run_provenance_sources(&run, &binding, &run_id).unwrap().unwrap(), sources);
+    assert!(db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
+    let object = sources[0].object.clone();
+    let mut exclude = gui.clone();
+    exclude.request_id = "project-exclude".into();
+    db.source_policy_update(&exclude, &binding, &SourcePolicyUpdate {
+        object: object.clone(), expected_revision: 0, excluded: true }).unwrap();
+    assert!(!db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
+    let mut unexclude = gui.clone();
+    unexclude.request_id = "project-unexclude".into();
+    db.source_policy_update(&unexclude, &binding, &SourcePolicyUpdate {
+        object, expected_revision: 1, excluded: false }).unwrap();
+    assert!(db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
+    db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=?1", [first.id]).unwrap();
+    assert!(!db.agent_run_provenance_visible(&run, &binding, &run_id).unwrap());
+}
+
+#[test]
 fn knowledge_namespaces_use_immutable_revision_and_overview_dependency_closure() {
     use crate::{
         agent::{

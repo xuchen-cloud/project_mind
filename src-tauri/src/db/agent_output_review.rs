@@ -1,5 +1,5 @@
 //! One durable user decision over an exact set; no batch business transaction.
-use super::{agent_operations::io_error, agent_outputs::read_output, Database};
+use super::{agent_operations::io_error, agent_outputs::{read_output, intent_scope, tx_live_scope}, Database};
 use crate::agent::{
     access::{Caller, RequestContext},
     errors::{AgentError, AgentResult, ErrorCode},
@@ -98,7 +98,7 @@ impl Database {
         request.authorize(binding, &scope, operation)?;
         let grant = self.agent_output_gui_grant_for_run(binding, &input.run_id, &[operation])?;
         RequestContext {
-            scope_grant: grant,
+            scope_grant: grant.clone(),
             ..request.clone()
         }
         .authorize(binding, &scope, operation)?;
@@ -148,6 +148,16 @@ impl Database {
             let mut stmt=tx.prepare("SELECT id,revision FROM agent_outputs WHERE run_id=?1 AND state IN ('staged','failed') AND COALESCE(json_extract(payload_json,'$.dismissed'),0)=0 ORDER BY ordinal").map_err(io_error)?;
             let pending=stmt.query_map([&input.run_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?))).map_err(io_error)?.collect::<Result<Vec<_>,_>>().map_err(io_error)?;
             if pending.len()!=input.outputs.len() || pending.iter().any(|(id,rev)|!input.outputs.iter().any(|item|&item.output_id==id && item.expected_revision==*rev as u64)) {return Err(conflict("Review must match the complete current pending plan"));}
+            for (id, _) in &pending {
+                let output = read_output(tx, id)?;
+                let (target_scope, _, _, _, _) = intent_scope(&output.staged.intent)?;
+                request.authorize(binding, &target_scope, operation)?;
+                if !grant.workspace_content && matches!(&target_scope, crate::agent::models::Scope::Workspace)
+                    || matches!(&target_scope, crate::agent::models::Scope::Project { project_id } if !grant.project_ids.contains(project_id)) {
+                    return Err(AgentError::new(ErrorCode::ScopeDenied, "Review target left the Run grant"));
+                }
+                tx_live_scope(tx, &target_scope)?;
+            }
             let decision=OutputReviewDecision{request_id:request.request_id.clone(),decision:input.decision,
                 text:if matches!(request.caller,Caller::Gui) {input.text.clone()} else {None},
                 decided_at:chrono::Utc::now().to_rfc3339()};

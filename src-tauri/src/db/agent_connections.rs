@@ -11,6 +11,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPage {
+    pub items: Vec<ConnectionProject>,
+    pub next_cursor: Option<String>,
+}
+
 const MAX_PROJECTS: usize = 100;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
@@ -139,6 +146,56 @@ pub(crate) fn connection_caller_live(
 }
 
 impl Database {
+    pub(crate) fn agent_active_project_ids(&self) -> AgentResult<Vec<i64>> {
+        let mut stmt = self.conn.prepare("SELECT id FROM projects WHERE is_archived=0 ORDER BY id")
+            .map_err(io_error)?;
+        let rows = stmt.query_map([], |row| row.get(0)).map_err(io_error)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(io_error)
+    }
+
+    pub(crate) fn agent_project_page(
+        &self, request: &RequestContext, binding: &WorkspaceBinding,
+        cursor: Option<&str>, limit: u32,
+    ) -> AgentResult<ProjectPage> {
+        self.connection_binding(binding)?;
+        if request.binding != *binding || request.scope_grant.workspace_id != binding.workspace_id {
+            return Err(AgentError::new(ErrorCode::WorkspaceChanged, "Workspace binding changed"));
+        }
+        if limit == 0 || limit > 50 {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Project page limit must be 1–50"));
+        }
+        let after = match cursor {
+            Some(s) => s.parse::<i64>().ok().filter(|n| *n > 0 && n.to_string() == s)
+                .ok_or_else(||AgentError::new(ErrorCode::InvalidArgument,"Invalid Project cursor"))?,
+            None => 0,
+        };
+        let ids = serde_json::to_string(&request.scope_grant.project_ids).map_err(io_error)?;
+        let mut stmt = self.conn.prepare("SELECT p.id,p.name FROM projects p WHERE p.is_archived=0 AND p.id>?1 AND p.id IN (SELECT value FROM json_each(?2)) ORDER BY p.id")
+            .map_err(io_error)?;
+        let mut rows = stmt.query(params![after, ids]).map_err(io_error)?;
+        let mut items = Vec::new();
+        let mut last = after;
+        while let Some(row) = rows.next().map_err(io_error)? {
+            let project = ConnectionProject { id: row.get(0).map_err(io_error)?, name: row.get(1).map_err(io_error)? };
+            let scope = Scope::Project { project_id: project.id };
+            request.authorize(binding, &scope, "context.read")?;
+            last = project.id;
+            let object = ObjectRef { workspace_id: binding.workspace_id.clone(), scope,
+                kind: ObjectKind::Project, id: project.id.to_string() };
+            let mut metadata_request = request.clone();
+            metadata_request.scope_grant.object_keys = None;
+            match self.source_read_object(&metadata_request, binding, &object) {
+                Ok(_) => { items.push(project); if items.len() > limit as usize { break; } }
+                Err(error) if matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let next_cursor = if items.len() > limit as usize {
+            items.pop();
+            Some(items.last().map(|p| p.id).unwrap_or(last).to_string())
+        } else { None };
+        Ok(ProjectPage { items, next_cursor })
+    }
     /// Checks the persisted grant and target before native File I/O. Dynamic
     /// all-project grants keep the authenticated request's project snapshot.
     pub(crate) fn agent_connection_require_live(
@@ -439,54 +496,26 @@ impl Database {
         {
             return Err(denied());
         }
-        let mut seen = HashSet::new();
-        let mut projects = Vec::new();
         let selected_parents: Option<HashSet<i64>> = request.scope_grant.object_keys.as_ref().map(|keys| {
             keys.iter().filter_map(|key| {
                 let scope = key.split('/').nth(1)?;
                 scope.strip_prefix("project:")?.parse::<i64>().ok()
             }).collect()
         });
-        for id in &request.scope_grant.project_ids {
-            if selected_parents.as_ref().is_some_and(|parents| !parents.contains(id)) {
-                continue;
-            }
-            if !seen.insert(*id) {
-                continue;
-            }
-            request.authorize(binding, &Scope::Project { project_id: *id }, "context.read")?;
-            let project = self
-                .conn
-                .query_row(
-                    "SELECT id,name FROM projects WHERE id=?1 AND is_archived=0",
-                    [id],
-                    |row| {
-                        Ok(ConnectionProject {
-                            id: row.get(0)?,
-                            name: row.get(1)?,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(io_error)?;
-            if let Some(project) = project {
-                let object = ObjectRef {
-                    workspace_id: binding.workspace_id.clone(),
-                    scope: Scope::Project { project_id: *id },
-                    kind: ObjectKind::Project,
-                    id: id.to_string(),
-                };
-                // Project name/id is parent metadata for explicitly selected
-                // objects. Clear the object allowlist only for this policy check;
-                // never use this clone to read Project content.
-                let mut metadata_request = request.clone();
-                metadata_request.scope_grant.object_keys = None;
-                match self.source_read_object(&metadata_request, binding, &object) {
-                    Ok(_) => projects.push(project),
-                    Err(error)
-                        if matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) => {}
-                    Err(error) => return Err(error),
-                }
+        let mut filtered = request.clone();
+        filtered.scope_grant.project_ids.sort_unstable();
+        filtered.scope_grant.project_ids.dedup();
+        if let Some(parents) = selected_parents {
+            filtered.scope_grant.project_ids.retain(|id| parents.contains(id));
+        }
+        let mut projects = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = self.agent_project_page(&filtered, binding, cursor.as_deref(), 50)?;
+            projects.extend(page.items);
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
             }
         }
         Ok(projects)

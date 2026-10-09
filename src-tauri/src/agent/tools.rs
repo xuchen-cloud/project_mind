@@ -61,6 +61,15 @@ where
 {
     validate_bounds(method, &arguments)?;
     match method {
+        "project.list" => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct ProjectListPageInput { cursor: Option<String>, limit: Option<u32> }
+            let input: ProjectListPageInput = decode(arguments)?;
+            store.with_current_context(|binding, db, _| {
+                encode(db.agent_project_page(request, binding, input.cursor.as_deref(), input.limit.unwrap_or(20))?)
+            })
+        }
         "context.get" => {
             let input: ContextGetInput = decode(arguments)?;
             store.with_current_context(|binding, db, workspace_name| {
@@ -158,6 +167,7 @@ fn encode(value: impl Serialize) -> AgentResult<Value> {
 // services retain their semantic validation and serialized response budgets.
 pub(crate) fn validate_bounds(method: &str, arguments: &Value) -> AgentResult<()> {
     let (max_budget, max_query, max_cursor) = match method {
+        "project.list" => (0, 0, 32),
         "context.get" => (3000, 2000, 0),
         "context.overview.get" => (8000, 0, 2048),
         "knowledge.search" => (3000, 2000, 8192),
@@ -352,6 +362,7 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
             parameters: object(properties, required),
         });
     };
+    add("project.list", "List authorized active Projects by stable ID. Repeat nextCursor to continue; Workspace access alone grants no Project.", json!({"cursor":nullable(text(32)),"limit":nullable(integer(50))}), &[]);
     add("context.get", "Read bounded scope identity and knowledge navigation before opening source bodies. Scope must be within the Host grant.", json!({"scope":scope,"query":nullable(text(2000)),"budgetChars":nullable(integer(3000))}), &["scope"]);
     add("context.overview.get", "Read Overview directory by default; select sections or itemIds for bounded content, and reuse nextCursor for continuation.", json!({"scope":scope,"version":version,"sections":array(sections,5),"itemIds":array(id.clone(),100),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(8000))}), &["scope"]);
     add("knowledge.search", "Search authorized knowledge cards. If sourceFallbackRequired is true, use source.search to find original evidence.", json!({"scope":scope,"query":text(2000),"kinds":array(knowledge_kinds,3),"cursor":nullable(text(8192)),"limit":nullable(integer(50)),"budgetChars":nullable(integer(3000))}), &["scope","query"]);

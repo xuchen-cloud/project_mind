@@ -17,6 +17,28 @@ fn fixture() -> (tempfile::TempDir, Database, WorkspaceBinding) {
     (root, db, binding)
 }
 
+#[test]
+fn builtin_project_page_uses_frozen_ids_and_live_keyset() {
+    let (_root, db, binding) = fixture();
+    db.conn.execute("INSERT INTO projects(id,name,root_path,is_archived,created_at,updated_at) VALUES(4,'C','workspace:c',0,'now','now')", []).unwrap();
+    let request = RequestContext {
+        binding: binding.clone(), request_id: "project-page".into(), caller: Caller::Gui,
+        scope_grant: ScopeGrant { object_keys: None, workspace_id: binding.workspace_id.clone(),
+            workspace_content: true, project_ids: vec![1,2,3],
+            operations: vec!["context.read".into(), "source.read".into()] },
+    };
+    let first = db.agent_project_page(&request, &binding, None, 1).unwrap();
+    assert_eq!(first.items.iter().map(|p| p.id).collect::<Vec<_>>(), vec![1]);
+    assert_eq!(first.next_cursor.as_deref(), Some("1"));
+    let second = db.agent_project_page(&request, &binding, first.next_cursor.as_deref(), 1).unwrap();
+    assert_eq!(second.items.iter().map(|p| p.id).collect::<Vec<_>>(), vec![2]);
+    assert!(second.next_cursor.is_none());
+    db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=2", []).unwrap();
+    assert!(db.agent_project_page(&request, &binding, Some("1"), 1).unwrap().items.is_empty());
+    assert_eq!(db.agent_project_page(&request, &binding, Some("01"), 1).unwrap_err().code,
+        ErrorCode::InvalidArgument);
+}
+
 fn create(db: &Database, binding: &WorkspaceBinding) -> ConnectionGrant {
     db.agent_connection_create(
         binding,
