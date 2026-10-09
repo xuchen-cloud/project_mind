@@ -148,15 +148,17 @@ impl Database {
             let mut stmt=tx.prepare("SELECT id,revision FROM agent_outputs WHERE run_id=?1 AND state IN ('staged','failed') AND COALESCE(json_extract(payload_json,'$.dismissed'),0)=0 ORDER BY ordinal").map_err(io_error)?;
             let pending=stmt.query_map([&input.run_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?))).map_err(io_error)?.collect::<Result<Vec<_>,_>>().map_err(io_error)?;
             if pending.len()!=input.outputs.len() || pending.iter().any(|(id,rev)|!input.outputs.iter().any(|item|&item.output_id==id && item.expected_revision==*rev as u64)) {return Err(conflict("Review must match the complete current pending plan"));}
-            for (id, _) in &pending {
-                let output = read_output(tx, id)?;
-                let (target_scope, _, _, _, _) = intent_scope(&output.staged.intent)?;
-                request.authorize(binding, &target_scope, operation)?;
-                if !grant.workspace_content && matches!(&target_scope, crate::agent::models::Scope::Workspace)
-                    || matches!(&target_scope, crate::agent::models::Scope::Project { project_id } if !grant.project_ids.contains(project_id)) {
-                    return Err(AgentError::new(ErrorCode::ScopeDenied, "Review target left the Run grant"));
+            if input.decision == ReviewDecision::Confirm {
+                for (id, _) in &pending {
+                    let output = read_output(tx, id)?;
+                    let (target_scope, _, _, _, _) = intent_scope(&output.staged.intent)?;
+                    request.authorize(binding, &target_scope, operation)?;
+                    if !grant.workspace_content && matches!(&target_scope, crate::agent::models::Scope::Workspace)
+                        || matches!(&target_scope, crate::agent::models::Scope::Project { project_id } if !grant.project_ids.contains(project_id)) {
+                        return Err(AgentError::new(ErrorCode::ScopeDenied, "Review target left the Run grant"));
+                    }
+                    tx_live_scope(tx, &target_scope)?;
                 }
-                tx_live_scope(tx, &target_scope)?;
             }
             let decision=OutputReviewDecision{request_id:request.request_id.clone(),decision:input.decision,
                 text:if matches!(request.caller,Caller::Gui) {input.text.clone()} else {None},
@@ -343,6 +345,44 @@ mod tests {
             request_id: id.into(),
             ..f.gui.clone()
         }
+    }
+    #[test]
+    fn archived_candidate_rejects_confirmation_but_can_be_cancelled() {
+        let f = fixture();
+        let candidate = stage(&f, "archive.md");
+        settle(&f);
+        f.db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=?1", [f.project]).unwrap();
+        let confirm = input(&f, &[candidate.clone()], ReviewDecision::Confirm);
+        assert_eq!(f.db.agent_output_review(&gui(&f, "confirm-archived"), &f.binding,
+            &confirm).unwrap_err().code, ErrorCode::ScopeDenied);
+        assert!(f.db.agent_output_get(&f.gui, &f.binding, &candidate.staged.id)
+            .unwrap().review_decision.is_none());
+        let cancelled = f.db.agent_output_review(&gui(&f, "cancel-archived"), &f.binding,
+            &input(&f, &[candidate], ReviewDecision::Cancel)).unwrap();
+        assert!(cancelled.outputs[0].dismissed);
+    }
+
+    #[test]
+    fn archived_candidate_can_be_revised_by_later_real_user_turn() {
+        let f = fixture();
+        let candidate = stage(&f, "revise-archived.md");
+        settle(&f);
+        let next = "c".repeat(32);
+        f.db.agent_run_prepare(&f.gui, &f.binding, &f.session, "later", &RunPreparation {
+            run_id: next.clone(), context_manifest: json!({"scope":Scope::Project{project_id:f.project},
+                "mode":ExecutionMode::Review,"prompt":"改成别的方案"}), }).unwrap();
+        f.db.agent_run_start(&f.gui, &f.binding, &next).unwrap();
+        f.db.conn.execute("INSERT INTO agent_messages(id,session_id,run_id,runtime_entry_id,role,content_json,state,ordinal,created_at) VALUES ('archived-proposal',?1,?2,'archived-proposal','assistant','{}','complete',0,'2026-10-09T00:00:00Z')",
+            params![f.session, f.run]).unwrap();
+        f.db.conn.execute("UPDATE projects SET is_archived=1 WHERE id=?1", [f.project]).unwrap();
+        let later = RequestContext { caller: Caller::BuiltinRun { run_id: next },
+            request_id: "revise-archived".into(), ..f.model.clone() };
+        let revised = f.db.agent_output_review(&later, &f.binding, &OutputReviewInput {
+            run_id: f.run.clone(), outputs: vec![crate::agent::output_review::OutputReviewItem {
+                output_id: candidate.staged.id, expected_revision: 1 }],
+            decision: ReviewDecision::Revise, text: Some("改成别的方案".into()),
+        }).unwrap();
+        assert!(revised.outputs[0].dismissed);
     }
     fn prepare_next(
         f: &Fixture,

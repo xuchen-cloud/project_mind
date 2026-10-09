@@ -331,13 +331,8 @@ pub(crate) async fn agent_operation_undo_batch(
             check_binding(&input, binding)?;
             // The actual Run receipts remain the authority after session deletion.
             let scopes = db.agent_operation_run_scopes(binding, &input.data.run_id)?;
-            let candidate = request(&input, operation_grant(binding, &scopes,
-                &["operation.read", "operation.undo"]));
-            for scope in &scopes {
-                candidate.authorize(binding, scope, "operation.undo")?;
-                db.agent_operation_active_scope(scope)?;
-            }
-            Ok(candidate)
+            Ok(request(&input, operation_grant(binding, &scopes,
+                &["operation.read", "operation.undo"])))
         })?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         output_service::undo_batch(&*state, &utility, &request, &input.data).await
