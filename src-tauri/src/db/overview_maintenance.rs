@@ -842,7 +842,6 @@ impl Database {
             .conn
             .prepare(
                 "SELECT j.scope_key,json_extract(j.payload_json,'$.errorCode') FROM agent_jobs j
-            JOIN agent_scope_settings s ON s.scope_key=j.scope_key AND s.enabled=1
             JOIN projects p ON j.scope_key='project:'||p.id AND p.is_archived=0
             WHERE j.kind='overview' AND j.state='failed'
               AND j.dedupe_key='overview-maintenance:'||j.scope_key
@@ -893,6 +892,9 @@ impl Database {
                 continue;
             };
             let scope = Scope::Project { project_id };
+            if !self.overview_schedule_scope(binding, &scope)? {
+                continue;
+            }
             if code == "RATE_LIMITED" {
                 if self
                     .overview_schedule_status(binding, &scope, now)?

@@ -8,7 +8,6 @@ use crate::{
         knowledge::{KnowledgeKind, KnowledgeNodeWrite},
         models::{ObjectKind, Scope, WorkspaceBinding},
         overview::OverviewPublishInput,
-        settings::SettingsRepository,
     },
     db::{
         overview_maintenance::{
@@ -99,10 +98,10 @@ pub(crate) fn control<S: BoundSourceStore>(
         match action {
             "cancel" => db.agent_overview_maintenance_cancel(binding, scope, now)?,
             "refresh" | "resume" => {
-                if !db.agent_settings_get(scope)?.enabled {
+                if !db.overview_schedule_scope(binding, scope)? {
                     return Err(AgentError::new(
                         ErrorCode::ScopeDenied,
-                        "Enable this Project assistant first",
+                        "Enable this Project or Workspace assistant first",
                     ));
                 }
                 db.agent_overview_maintenance_resume(binding, scope, now)?;
@@ -127,7 +126,7 @@ fn active(
 ) -> AgentResult<()> {
     request.authorize(binding, scope, "knowledge.write")?;
     let progress = db.agent_overview_maintenance_status(binding, scope)?;
-    if progress.cancelled || !db.agent_settings_get(scope)?.enabled {
+    if progress.cancelled || !db.overview_schedule_scope(binding, scope)? {
         return Err(AgentError::new(
             ErrorCode::Cancelled,
             "Knowledge maintenance is paused",

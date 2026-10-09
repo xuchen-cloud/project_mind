@@ -4,7 +4,6 @@ use super::Database;
 use crate::agent::{
     errors::{AgentError, AgentResult, ErrorCode},
     models::{Scope, WorkspaceBinding},
-    settings::SettingsRepository,
 };
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveTime, SecondsFormat, TimeZone, Utc};
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
@@ -106,30 +105,60 @@ fn local_slot(date: NaiveDate, time: NaiveTime, zone: chrono_tz::Tz) -> AgentRes
     }
     Err(invalid())
 }
-fn slot_for_settings(settings: &crate::agent::settings::AgentScopeSettings, now: DateTime<Utc>) -> AgentResult<i64> {
-    let zone: chrono_tz::Tz = settings.overview_timezone.parse().map_err(|_| invalid())?;
+struct ScheduleTime {
+    interval_hours: u8,
+    local_time: String,
+    timezone: String,
+}
+/// Project's own enabled schedule wins; otherwise an enabled Workspace owns
+/// maintenance timing without changing the Project assistant setting.
+fn effective_schedule(conn: &rusqlite::Connection, scope: &Scope) -> AgentResult<Option<ScheduleTime>> {
+    if !matches!(scope, Scope::Project { .. }) { return Ok(None); }
+    let read = |key: String| conn.query_row(
+        "SELECT overview_interval_hours,overview_local_time,overview_timezone FROM agent_scope_settings WHERE scope_key=?1 AND enabled=1",
+        [key], |row| Ok(ScheduleTime { interval_hours: row.get(0)?, local_time: row.get(1)?, timezone: row.get(2)? }),
+    ).optional().map_err(io);
+    match read(scope.key())? {
+        Some(settings) => Ok(Some(settings)),
+        None => read(Scope::Workspace.key()),
+    }
+}
+fn slot_for_settings(settings: &ScheduleTime, now: DateTime<Utc>) -> AgentResult<i64> {
+    let zone: chrono_tz::Tz = settings.timezone.parse().map_err(|_| invalid())?;
     let time =
-        NaiveTime::parse_from_str(&settings.overview_local_time, "%H:%M").map_err(|_| invalid())?;
+        NaiveTime::parse_from_str(&settings.local_time, "%H:%M").map_err(|_| invalid())?;
     let date = now.with_timezone(&zone).date_naive()
-        + Duration::days(i64::from(settings.overview_interval_hours) / 24);
+        + Duration::days(i64::from(settings.interval_hours) / 24);
     Ok(local_slot(date, time, zone)?.timestamp())
 }
 fn next_slot(db: &Database, scope: &Scope, now: DateTime<Utc>) -> AgentResult<i64> {
-    slot_for_settings(&db.agent_settings_get(scope)?, now)
+    slot_for_settings(&effective_schedule(&db.conn, scope)?.ok_or_else(invalid)?, now)
 }
 
 pub(super) fn retime_schedule(
     conn: &rusqlite::Connection,
     workspace_id: &str,
-    settings: &crate::agent::settings::AgentScopeSettings,
+    changed_scope: &Scope,
     now: DateTime<Utc>,
 ) -> AgentResult<()> {
-    if !settings.enabled || !matches!(settings.scope, Scope::Project { .. }) { return Ok(()); }
     let binding = WorkspaceBinding { workspace_id: workspace_id.into(), generation: String::new() };
-    let Some(mut ledger) = read_schedule(conn, &binding, &settings.scope)? else { return Ok(()); };
-    if ledger.active || ledger.due_at <= now.timestamp() { return Ok(()); }
-    ledger.due_at = slot_for_settings(settings, now)?;
-    save_schedule(conn, &binding, &settings.scope, &ledger, now)
+    let scopes = match changed_scope {
+        Scope::Project { .. } => vec![changed_scope.clone()],
+        Scope::Workspace => {
+            let mut stmt = conn.prepare("SELECT p.id FROM projects p LEFT JOIN agent_scope_settings s ON s.scope_key='project:'||p.id WHERE p.is_archived=0 AND coalesce(s.enabled,0)=0").map_err(io)?;
+            let rows = stmt.query_map([], |row| Ok(Scope::Project { project_id: row.get(0)? }))
+                .map_err(io)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(io)?
+        }
+    };
+    for scope in scopes {
+        let Some(settings) = effective_schedule(conn, &scope)? else { continue; };
+        let Some(mut ledger) = read_schedule(conn, &binding, &scope)? else { continue; };
+        if ledger.active || ledger.due_at <= now.timestamp() { continue; }
+        ledger.due_at = slot_for_settings(&settings, now)?;
+        save_schedule(conn, &binding, &scope, &ledger, now)?;
+    }
+    Ok(())
 }
 fn dirty(db: &Database, scope: &Scope) -> AgentResult<bool> {
     let overview_dirty:bool=db.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_overview_pending WHERE scope_key=?1) OR EXISTS(SELECT 1 FROM agent_overview_pending_state WHERE scope_key=?1 AND needs_rebuild=1)", [scope.key()], |r| r.get(0)).map_err(io)?;
@@ -150,7 +179,7 @@ fn check_binding(db: &Database, binding: &WorkspaceBinding) -> AgentResult<()> {
 }
 
 impl Database {
-    fn overview_schedule_scope(
+    pub(crate) fn overview_schedule_scope(
         &self,
         binding: &WorkspaceBinding,
         scope: &Scope,
@@ -161,7 +190,7 @@ impl Database {
             return Ok(false);
         }
         self.source_live_scope(scope)?;
-        Ok(self.agent_settings_get(scope)?.enabled)
+        Ok(effective_schedule(&self.conn, scope)?.is_some())
     }
 
     /// One fair due Project per tick. Selecting records its turn before the
@@ -177,22 +206,17 @@ impl Database {
         }
         self.agent_overviews_prepare()
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare Overview storage"))?;
-        let mut stmt = self.conn.prepare("SELECT s.scope_key FROM agent_scope_settings s JOIN projects p ON s.scope_key='project:'||p.id WHERE s.enabled=1 AND p.is_archived=0").map_err(io)?;
-        let keys = stmt
-            .query_map([], |r| r.get::<_, String>(0))
+        let mut stmt = self.conn.prepare("SELECT id FROM projects WHERE is_archived=0").map_err(io)?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, i64>(0))
             .map_err(io)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(io)?;
         drop(stmt);
         let mut candidates = Vec::new();
-        for key in keys {
-            let Some(id) = key
-                .strip_prefix("project:")
-                .and_then(|id| id.parse::<i64>().ok())
-            else {
-                continue;
-            };
+        for id in ids {
             let scope = Scope::Project { project_id: id };
+            if !self.overview_schedule_scope(binding, &scope)? { continue; }
             let stored = read_schedule(&self.conn, binding, &scope)?;
             let initial = stored.is_none();
             let ledger = stored.unwrap_or_default();

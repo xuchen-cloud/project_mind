@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::settings::{SettingsRepository, SettingsUpdate};
 use crate::models::{ProjectArchiveInput, ProjectCreateInput, ProjectUpdateInput};
 use rusqlite::params;
 
@@ -52,6 +53,82 @@ fn dirty(f: &Fixture) {
             [f.scope.key()],
         )
         .unwrap();
+}
+
+fn enable_workspace(f: &Fixture, interval: u8, time: &str, zone: &str, request: &str) {
+    let mut settings = f.db.agent_settings_get(&Scope::Workspace).unwrap();
+    let expected_revision = settings.revision;
+    settings.enabled = true;
+    settings.overview_interval_hours = interval;
+    settings.overview_local_time = time.into();
+    settings.overview_timezone = zone.into();
+    f.db.agent_settings_update("schedule-test", request, &SettingsUpdate { settings, expected_revision }).unwrap();
+}
+
+#[test]
+fn workspace_schedule_starts_project_without_project_settings_and_uses_local_time() {
+    let f = fixture();
+    f.db.conn.execute("DELETE FROM agent_scope_settings WHERE scope_key=?1", [f.scope.key()]).unwrap();
+    enable_workspace(&f, 48, "03:00", "Asia/Shanghai", "workspace-enable");
+    assert_eq!(f.db.agent_settings_get(&f.scope).unwrap().revision, 0);
+    let now = at("2026-10-08T12:00:00Z");
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now).unwrap(), Some(f.scope.clone()));
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, now).unwrap();
+    assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, Some(at("2026-10-09T19:00:00Z")));
+    assert!(!f.db.agent_settings_get(&f.scope).unwrap().enabled);
+    f.db.project_set_archive(ProjectArchiveInput { project_id: match &f.scope { Scope::Project { project_id } => *project_id, _ => unreachable!() }, is_archived: true }).unwrap();
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now + Duration::days(3)).unwrap(), None);
+}
+
+#[test]
+fn enabled_project_keeps_its_own_schedule_when_workspace_is_enabled() {
+    let f = fixture();
+    enable_workspace(&f, 48, "03:00", "Asia/Shanghai", "workspace-enable");
+    let now = at("2026-10-08T12:00:00Z");
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now).unwrap(), Some(f.scope.clone()));
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, now).unwrap();
+    assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, Some(at("2026-10-09T03:00:00Z")));
+}
+
+#[test]
+fn workspace_retime_changes_only_future_inherited_due_and_keeps_pauses() {
+    let f = fixture();
+    f.db.conn.execute("DELETE FROM agent_scope_settings WHERE scope_key=?1", [f.scope.key()]).unwrap();
+    enable_workspace(&f, 24, "03:00", "UTC", "workspace-enable");
+    let now = Utc::now();
+    f.db.overview_schedule_next(&f.binding, now).unwrap();
+    f.db.overview_schedule_finished(&f.binding, &f.scope, false, now).unwrap();
+    let prior = f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at.unwrap();
+    let mut workspace = f.db.agent_settings_get(&Scope::Workspace).unwrap();
+    workspace.overview_interval_hours = 48;
+    workspace.overview_timezone = "Asia/Shanghai".into();
+    let expected_revision = workspace.revision;
+    f.db.agent_settings_update("schedule-test", "workspace-retime", &SettingsUpdate { settings: workspace, expected_revision }).unwrap();
+    let revised = f.db.overview_schedule_status(&f.binding, &f.scope, Utc::now()).unwrap().next_run_at.unwrap();
+    assert_ne!(prior, revised);
+    assert_eq!(revised.with_timezone(&chrono_tz::Asia::Shanghai).format("%H:%M").to_string(), "03:00");
+    assert_eq!(f.db.agent_settings_get(&f.scope).unwrap().revision, 0);
+
+    let mut ledger = read_schedule(&f.db.conn, &f.binding, &f.scope).unwrap().unwrap();
+    ledger.due_at = now.timestamp() - 60;
+    save_schedule(&f.db.conn, &f.binding, &f.scope, &ledger, now).unwrap();
+    let mut workspace = f.db.agent_settings_get(&Scope::Workspace).unwrap();
+    workspace.overview_local_time = "04:00".into();
+    let expected_revision = workspace.revision;
+    f.db.agent_settings_update("schedule-test", "workspace-overdue", &SettingsUpdate { settings: workspace, expected_revision }).unwrap();
+    assert_eq!(read_schedule(&f.db.conn, &f.binding, &f.scope).unwrap().unwrap().due_at, now.timestamp() - 60);
+
+    f.db.overview_schedule_request(&f.binding, &f.scope, now).unwrap();
+    let due = f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at;
+    let mut workspace = f.db.agent_settings_get(&Scope::Workspace).unwrap();
+    workspace.overview_local_time = "05:00".into();
+    let expected_revision = workspace.revision;
+    f.db.agent_settings_update("schedule-test", "workspace-retime-again", &SettingsUpdate { settings: workspace, expected_revision }).unwrap();
+    assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, due);
+
+    f.db.agent_overview_maintenance_cancel(&f.binding, &f.scope, now).unwrap();
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now).unwrap(), None);
+    assert!(f.db.agent_overview_maintenance_status(&f.binding, &f.scope).unwrap().cancelled);
 }
 
 #[test]

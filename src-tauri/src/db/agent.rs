@@ -116,7 +116,7 @@ impl crate::agent::settings::SettingsRepository for Database {
                 params![saved.scope.key(),saved.enabled,saved.goal_record_id,pins,policy.as_str(),saved.overview_interval_hours,saved.overview_local_time,saved.overview_timezone,mode.as_str(),saved.revision as i64]).map_err(io_error)?;
             if previous.as_ref().is_some_and(|old| old.1 != saved.enabled || old.2 != saved.overview_interval_hours || old.3 != saved.overview_local_time || old.4 != saved.overview_timezone) {
                 if let Some(workspace_id) = self.native_workspace_id.as_deref() {
-                    super::overview_schedule::retime_schedule(tx, workspace_id, &saved, chrono::Utc::now())?;
+                    super::overview_schedule::retime_schedule(tx, workspace_id, &saved.scope, chrono::Utc::now())?;
                 }
             }
             let change = OperationChange { object_key: format!("agent_settings/{}",saved.scope.key()), scope: saved.scope.clone(), revision: saved.revision.to_string() };
