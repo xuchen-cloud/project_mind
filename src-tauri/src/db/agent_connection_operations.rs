@@ -38,11 +38,8 @@ fn visible(db: &Database, request: &RequestContext, binding: &WorkspaceBinding, 
     if !matches!(entry.object.kind, ObjectKind::Record | ObjectKind::Todo | ObjectKind::File) {
         return Ok(false);
     }
-    let visibility = if entry.object.kind == ObjectKind::Record {
-        db.source_read_historical_record(request, binding, &entry.object)
-    } else {
-        db.source_read_object(request, binding, &entry.object)
-    };
+    // The caller already passed agent_operation_access for this exact receipt.
+    let visibility = db.source_read_recovery_object(request, binding, &entry.object);
     match visibility {
         Ok(_) => Ok(true),
         Err(error) if matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound | ErrorCode::ObjectWithdrawn) => Ok(false),

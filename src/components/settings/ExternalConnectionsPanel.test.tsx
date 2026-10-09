@@ -55,22 +55,23 @@ it("loads on opening, creates an explicitly scoped read connection, toggles and 
 
 it("submits only selected write permissions and displays the grant's actual rights", async () => {
   const user = userEvent.setup();
-  const writeGrant = { ...grant, operations: ["project.list", "context.read", "operation.read", "content.create", "record.patch", "record.restore", "operation.undo", "operation.restore_created"] };
+  const writeGrant = { ...grant, operations: ["project.list", "context.read", "operation.read", "content.create", "record.patch", "record.restore", "todo.update", "operation.undo", "operation.restore_created"] };
   vi.mocked(externalConnectionsApi.status).mockResolvedValueOnce(baseStatus).mockResolvedValue({ ...baseStatus, connections: [writeGrant] });
   setup();
   await screen.findByText("服务未运行");
   await user.type(screen.getByPlaceholderText("例如：终端助手"), "Writer");
   await user.click(screen.getByText("允许写入（可选）"));
-  await user.click(screen.getByLabelText("创建 Record"));
+  await user.click(screen.getByLabelText("创建 Record 和待办"));
   await user.click(screen.getByLabelText("修改 Record 正文块"));
   await user.click(screen.getByLabelText("恢复 Record 历史版本"));
+  await user.click(screen.getByLabelText("修改待办（包括子行动）"));
   await user.click(screen.getByLabelText("撤销此连接自己的更改"));
   await user.click(screen.getByRole("button", { name: "创建连接" }));
   await waitFor(() => expect(externalConnectionsApi.create).toHaveBeenCalledWith(binding, {
     clientLabel: "Writer", projectIds: [1], workspaceContent: false, sessionRead: false,
-    writeOperations: ["content.create", "record.patch", "record.restore", "operation.undo"],
+    writeOperations: ["content.create", "record.patch", "record.restore", "todo.update", "operation.undo"],
   }));
-  expect(await screen.findByText(/可读取和修改：创建 Record、修改 Record 正文块、恢复 Record 历史版本、撤销此连接自己的更改/)).toBeInTheDocument();
+  expect(await screen.findByText(/可读取和修改：创建 Record 和待办、修改 Record 正文块、恢复 Record 历史版本、修改待办（包括子行动）、撤销此连接自己的更改/)).toBeInTheDocument();
   expect(screen.queryByText(/operation\.read/)).not.toBeInTheDocument();
   expect(screen.queryByText(/其他写入权限|restore_created/)).not.toBeInTheDocument();
 });
@@ -139,13 +140,13 @@ it("resets optional scope and write choices when the Workspace binding changes",
   await user.click(screen.getByLabelText("另外授权 Workspace 内容"));
   await user.click(screen.getByLabelText("允许读取会话依据"));
   await user.click(screen.getByText("允许写入（可选）"));
-  await user.click(screen.getByLabelText("创建 Record"));
+  await user.click(screen.getByLabelText("创建 Record 和待办"));
   act(() => client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/workspace/two" } }));
   await waitFor(() => expect(externalConnectionsApi.status).toHaveBeenCalledTimes(2));
   await waitFor(() => {
     expect(screen.getByLabelText("另外授权 Workspace 内容")).not.toBeChecked();
     expect(screen.getByLabelText("允许读取会话依据")).not.toBeChecked();
-    expect(screen.getByLabelText("创建 Record")).not.toBeChecked();
+    expect(screen.getByLabelText("创建 Record 和待办")).not.toBeChecked();
   });
 });
 

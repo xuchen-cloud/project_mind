@@ -14,10 +14,11 @@ use std::collections::HashSet;
 const MAX_PROJECTS: usize = 100;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
-const RECORD_WRITE_OPERATIONS: [&str; 4] = [
+const WRITE_OPERATIONS: [&str; 5] = [
     "content.create",
     "record.patch",
     "record.restore",
+    "todo.update",
     "operation.undo",
 ];
 
@@ -166,7 +167,7 @@ impl Database {
             operations.push("session.read".into());
         }
         let selected: HashSet<&str> = input.write_operations.iter().map(String::as_str).collect();
-        if selected.iter().any(|operation| !RECORD_WRITE_OPERATIONS.contains(operation)) {
+        if selected.iter().any(|operation| !WRITE_OPERATIONS.contains(operation)) {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Unsupported connection operation",
@@ -175,7 +176,7 @@ impl Database {
         if !selected.is_empty() {
             operations.push("operation.read".into());
         }
-        for operation in RECORD_WRITE_OPERATIONS {
+        for operation in WRITE_OPERATIONS {
             if selected.contains(operation) {
                 operations.push(operation.into());
             }

@@ -125,8 +125,8 @@ pub fn capabilities() -> Vec<Capability> {
             "AI-17",
         ),
         ("todo.get", "source.read", true, true, "AI-19:Todo"),
-        ("todo.create", "content.create", false, false, "AI-07"),
-        ("todo.update", "todo.update", false, false, "AI-19"),
+        ("todo.create", "content.create", false, true, "AI-07"),
+        ("todo.update", "todo.update", false, true, "AI-19"),
         (
             "operation.get",
             "operation.read",

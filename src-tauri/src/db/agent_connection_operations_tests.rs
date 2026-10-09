@@ -192,3 +192,49 @@ fn withdrawn_record_receipt_remains_owned_but_exclusion_hides_history() {
     // operation response, even if the source policy changes afterward.
     assert_eq!(f.db.agent_connection_operation_for_request(&exact_request, &f.binding).unwrap().operation_id, id);
 }
+
+#[test]
+fn withdrawn_todo_receipt_is_recoverable_until_source_is_excluded() {
+    let f = fixture();
+    let id = "b".repeat(32);
+    receipt(&f.db, "connection:mine", "todo-create", &id, &f.object);
+    f.db.conn.execute(
+        "UPDATE agent_operation_receipts SET operation='todo.create' WHERE operation_id=?1",
+        [&id],
+    ).unwrap();
+    f.db.conn.execute(
+        "INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,revision) VALUES(?1,?2,'2026-01-02',1)",
+        params![f.object.key().unwrap(), id],
+    ).unwrap();
+
+    assert_eq!(f.db.source_read_object(&f.request, &f.binding, &f.object).unwrap_err().code, ErrorCode::ObjectWithdrawn);
+    let entry = f.db.agent_connection_operation_get(&f.request, &f.binding, &id).unwrap();
+    assert_eq!(entry.recovery.as_ref().unwrap().withdrawn, true);
+    let query = input(f.object.scope.clone(), 20);
+    assert!(f.db.agent_connection_operation_list(&f.request, &f.binding, &query).unwrap().operations.iter().any(|entry| entry.operation_id == id));
+
+    let mut gui = f.request.clone();
+    gui.caller = Caller::Gui;
+    gui.request_id = "exclude-withdrawn-todo".into();
+    gui.scope_grant.operations = vec!["settings.write".into(), "source.read".into()];
+    f.db.source_policy_update(&gui, &f.binding, &SourcePolicyUpdate {
+        object: f.object.clone(), expected_revision: 0, excluded: true,
+    }).unwrap();
+    assert_eq!(f.db.agent_connection_operation_get(&f.request, &f.binding, &id).unwrap_err().code, ErrorCode::ScopeDenied);
+    assert!(!f.db.agent_connection_operation_list(&f.request, &f.binding, &query).unwrap().operations.iter().any(|entry| entry.operation_id == id));
+}
+
+#[test]
+fn recovery_source_rejects_other_object_kinds() {
+    let f = fixture();
+    let object = ObjectRef {
+        kind: ObjectKind::Project,
+        id: match &f.object.scope { Scope::Project { project_id } => project_id.to_string(), _ => unreachable!() },
+        ..f.object.clone()
+    };
+    assert_eq!(f.db.source_read_recovery_object(&f.request, &f.binding, &object).unwrap_err().code, ErrorCode::InvalidArgument);
+    let id = "c".repeat(32);
+    receipt(&f.db, "connection:mine", "unsupported-kind", &id, &object);
+    assert_eq!(f.db.agent_connection_operation_get(&f.request, &f.binding, &id).unwrap_err().code, ErrorCode::ScopeDenied);
+    assert!(f.db.agent_connection_operation_list(&f.request, &f.binding, &input(object.scope.clone(), 20)).unwrap().operations.is_empty());
+}

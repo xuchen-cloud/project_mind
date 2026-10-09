@@ -6,7 +6,8 @@ use super::{
 };
 use crate::{
     agent::{
-        access::RequestContext,
+        access::{Caller, RequestContext},
+        connection_todos::{ConnectionTodoCreateInput, ConnectionTodoUpdateInput},
         context::serialized_chars,
         errors::{AgentError, AgentResult, ErrorCode},
         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
@@ -357,31 +358,110 @@ impl Database {
         let intent = prepared.output.staged.intent;
         self.agent_atomic_operation(&request.caller.key(),&prepared.commit_request_id,operation,&intent,|tx| {
             self.agent_output_commit_validate(request,binding,output_id,revision)?;
-            let mut bytes=[0u8;16];rand::thread_rng().fill_bytes(&mut bytes);let operation_id:String=bytes.iter().map(|byte|format!("{byte:02x}")).collect();
-            let (todo_id,before,head)=match &intent {
-                OutputIntent::TodoCreate{scope,content,priority,due_date,tag_ids,children,..}=>{
-                    let (native,project_id)=native_scope(scope);
-                    let created=self.todo_create_native(TodoCreateInput{scope:native,project_id,content:content.clone(),priority:priority.clone(),due_date:due_date.clone(),tag_ids:tag_ids.clone()}).map_err(native_error)?;
-                    for child in children {self.todo_add_progress_native(TodoAddProgressInput{todo_id:created.id,content:child.content.clone(),progress_date:child.progress_date.clone(),due_date:child.due_date.clone(),expected_revision:1}).map_err(native_error)?;}
-                    let head=if children.is_empty(){todo_revisions::head(tx,created.id)?}else{todo_revisions::commit(tx,created.id,1,Some(&operation_id))?};
-                    // Associate the complete creation snapshot with the actual
-                    // receipt without changing its immutable native body.
-                    tx.execute("UPDATE todo_revision_snapshots SET operation_id=?1 WHERE id=?2 AND operation_id IS NULL",params![operation_id,head.snapshot_ref]).map_err(io_error)?;
-                    (created.id,None,head)
-                },
-                OutputIntent::TodoUpdate{target,expected_revision,changes}=>{
-                    let todo_id=id(target)?;let before=todo_revisions::require_expected_revision(tx,todo_id,*expected_revision)?;
-                    for change in changes {self.apply_todo_mutation(todo_id,*expected_revision,change)?;}
-                    let head=todo_revisions::commit(tx,todo_id,*expected_revision,Some(&operation_id))?;
-                    (todo_id,Some(before),head)
-                },
-                _=>unreachable!(),
-            };
-            let scope=match &intent {OutputIntent::TodoCreate{scope,..}=>scope.clone(),OutputIntent::TodoUpdate{target,..}=>target.scope.clone(),_=>unreachable!()};
-            let object=ObjectRef{workspace_id:binding.workspace_id.clone(),scope:scope.clone(),kind:ObjectKind::Todo,id:todo_id.to_string()};
-            let result=TodoCommittedResult{operation_id,object:object.clone(),before_revision:before.as_ref().map(|head|head.revision),after_revision:head.revision,before_snapshot_ref:before.map(|head|head.snapshot_ref),after_snapshot_ref:head.snapshot_ref,body_hash:head.body_hash};
-            Ok((result,Some(OperationChange{object_key:object.key()?,scope,revision:head.revision.to_string()})))
+            self.apply_todo_intent(tx, binding, &intent)
         })
+    }
+    fn apply_todo_intent(
+        &self,
+        tx: &Transaction<'_>,
+        binding: &WorkspaceBinding,
+        intent: &OutputIntent,
+    ) -> AgentResult<(TodoCommittedResult, Option<OperationChange>)> {
+        let mut bytes=[0u8;16];rand::thread_rng().fill_bytes(&mut bytes);let operation_id:String=bytes.iter().map(|byte|format!("{byte:02x}")).collect();
+        let (todo_id,before,head)=match intent {
+            OutputIntent::TodoCreate{scope,content,priority,due_date,tag_ids,children,..}=>{
+                let (native,project_id)=native_scope(scope);
+                let created=self.todo_create_native(TodoCreateInput{scope:native,project_id,content:content.clone(),priority:priority.clone(),due_date:due_date.clone(),tag_ids:tag_ids.clone()}).map_err(native_error)?;
+                for child in children {self.todo_add_progress_native(TodoAddProgressInput{todo_id:created.id,content:child.content.clone(),progress_date:child.progress_date.clone(),due_date:child.due_date.clone(),expected_revision:1}).map_err(native_error)?;}
+                let head=if children.is_empty(){todo_revisions::head(tx,created.id)?}else{todo_revisions::commit(tx,created.id,1,Some(&operation_id))?};
+                tx.execute("UPDATE todo_revision_snapshots SET operation_id=?1 WHERE id=?2 AND operation_id IS NULL",params![operation_id,head.snapshot_ref]).map_err(io_error)?;
+                (created.id,None,head)
+            },
+            OutputIntent::TodoUpdate{target,expected_revision,changes}=>{
+                let todo_id=id(target)?;let before=todo_revisions::require_expected_revision(tx,todo_id,*expected_revision)?;
+                for change in changes {self.apply_todo_mutation(todo_id,*expected_revision,change)?;}
+                let head=todo_revisions::commit(tx,todo_id,*expected_revision,Some(&operation_id))?;
+                (todo_id,Some(before),head)
+            },
+            _=>return Err(AgentError::new(ErrorCode::ToolCallUnsupported,"Expected a Todo candidate")),
+        };
+        let scope=match intent {OutputIntent::TodoCreate{scope,..}=>scope.clone(),OutputIntent::TodoUpdate{target,..}=>target.scope.clone(),_=>unreachable!()};
+        let object=ObjectRef{workspace_id:binding.workspace_id.clone(),scope:scope.clone(),kind:ObjectKind::Todo,id:todo_id.to_string()};
+        let result=TodoCommittedResult{operation_id,object:object.clone(),before_revision:before.as_ref().map(|head|head.revision),after_revision:head.revision,before_snapshot_ref:before.map(|head|head.snapshot_ref),after_snapshot_ref:head.snapshot_ref,body_hash:head.body_hash};
+        Ok((result,Some(OperationChange{object_key:object.key()?,scope,revision:head.revision.to_string()})))
+    }
+    pub(crate) fn agent_connection_todo_create(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &ConnectionTodoCreateInput,
+    ) -> AgentResult<TodoCommittedResult> {
+        self.operation_binding(binding)?;
+        if !matches!(request.caller, Caller::Connection { .. }) {
+            return Err(denied());
+        }
+        request.authorize(binding, &input.scope, "content.create")?;
+        if let Some(previous) = self.agent_operation_replay(
+            &request.caller.key(), &request.request_id, "todo.create", input,
+        )? {
+            return Ok(previous);
+        }
+        let intent = OutputIntent::TodoCreate {
+            scope: input.scope.clone(), content: input.content.clone(),
+            priority: input.priority.clone(), due_date: input.due_date.clone(),
+            tag_ids: input.tag_ids.clone(), children: input.children.clone(),
+            dedupe_key: request.request_id.clone(),
+        };
+        let validate = |db: &Database| -> AgentResult<()> {
+            request.authorize(binding, &input.scope, "content.create")?;
+            if let Scope::Project { project_id } = &input.scope {
+                db.source_read_object(request, binding, &ObjectRef {
+                    workspace_id: binding.workspace_id.clone(),
+                    scope: input.scope.clone(), kind: ObjectKind::Project,
+                    id: project_id.to_string(),
+                })?;
+            }
+            db.agent_todo_validate_candidate(request, binding, &input.scope, request, &intent)
+        };
+        validate(self)?;
+        self.agent_atomic_operation(&request.caller.key(), &request.request_id,
+            "todo.create", input, |tx| {
+                validate(self)?;
+                self.apply_todo_intent(tx, binding, &intent)
+            })
+    }
+    pub(crate) fn agent_connection_todo_update(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &ConnectionTodoUpdateInput,
+    ) -> AgentResult<TodoCommittedResult> {
+        self.operation_binding(binding)?;
+        if !matches!(request.caller, Caller::Connection { .. }) {
+            return Err(denied());
+        }
+        id(&input.target)?;
+        request.authorize(binding, &input.target.scope, "todo.update")?;
+        self.source_read_object(request, binding, &input.target)?;
+        if let Some(previous) = self.agent_operation_replay(
+            &request.caller.key(), &request.request_id, "todo.update", input,
+        )? {
+            return Ok(previous);
+        }
+        let intent = OutputIntent::TodoUpdate {
+            target: input.target.clone(), expected_revision: input.expected_revision,
+            changes: input.changes.clone(),
+        };
+        let validate = |db: &Database| -> AgentResult<()> {
+            request.authorize(binding, &input.target.scope, "todo.update")?;
+            db.agent_todo_validate_candidate(request, binding, &input.target.scope, request, &intent)
+        };
+        validate(self)?;
+        self.agent_atomic_operation(&request.caller.key(), &request.request_id,
+            "todo.update", input, |tx| {
+                validate(self)?;
+                self.apply_todo_intent(tx, binding, &intent)
+            })
     }
     fn apply_todo_mutation(
         &self,
@@ -491,6 +571,36 @@ impl Database {
     }
 }
 
+fn validate_committed_todo(
+    tx: &Transaction<'_>,
+    result: &TodoCommittedResult,
+    operation: &str,
+) -> AgentResult<()> {
+    let todo_id = id(&result.object)?;
+    let head = todo_revisions::head(tx, todo_id)?;
+    if result.after_revision != head.revision
+        || result.after_snapshot_ref != head.snapshot_ref
+        || result.body_hash != head.body_hash
+        || result.operation_id.len() != 32
+        || !result.operation_id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err(AgentError::new(ErrorCode::OutputCommitFailed,"Todo result differs from its native revision"));
+    }
+    if let Some(before) = &result.before_snapshot_ref {
+        let existing: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM todo_revision_snapshots WHERE id=?1 AND todo_id=?2 AND revision=?3)",
+            params![before,todo_id,result.before_revision.map(|v|v as i64)],
+            |row|row.get(0),
+        ).map_err(io_error)?;
+        if !existing || result.before_revision.and_then(|v|v.checked_add(1)) != Some(result.after_revision) {
+            return Err(denied());
+        }
+    } else if result.before_revision.is_some() || operation != "todo.create" {
+        return Err(denied());
+    }
+    Ok(())
+}
+
 /// Runs immediately after the original atomic receipt INSERT, before outbox.
 pub(crate) fn agent_todo_output_receipt_committed(
     tx: &Transaction<'_>,
@@ -499,6 +609,20 @@ pub(crate) fn agent_todo_output_receipt_committed(
     operation: &str,
     result_json: &str,
 ) -> AgentResult<()> {
+    if caller.starts_with("connection:") && matches!(operation, "todo.create" | "todo.update") {
+        let result: TodoCommittedResult = serde_json::from_str(result_json)
+            .map_err(|_| AgentError::new(ErrorCode::IoFailed,"Invalid native Todo result"))?;
+        validate_committed_todo(tx, &result, operation)?;
+        let context = json!({"afterBodyHash":result.body_hash});
+        let changed = tx.execute(
+            "UPDATE agent_operation_receipts SET operation_id=?1,target_ref_json=?2,before_revision=?3,after_revision=?4,before_snapshot_ref=?5,after_snapshot_ref=?6,output_context_json=?7,undo_state='available' WHERE caller_id=?8 AND request_id=?9 AND operation=?10 AND state='committed' AND result_json=?11",
+            params![result.operation_id,serde_json::to_string(&result.object).map_err(|_|invalid("Invalid Todo target"))?,result.before_revision.map(|v|v as i64),result.after_revision as i64,result.before_snapshot_ref,result.after_snapshot_ref,context.to_string(),caller,request_id,operation,result_json],
+        ).map_err(io_error)?;
+        if changed != 1 {
+            return Err(AgentError::new(ErrorCode::IoFailed,"Connection Todo receipt is missing"));
+        }
+        return Ok(());
+    }
     if !matches!(operation, "todo.create" | "todo.update") || !request_id.starts_with("output:") {
         return Ok(());
     }
@@ -506,7 +630,6 @@ pub(crate) fn agent_todo_output_receipt_committed(
         super::agent_outputs::agent_output_todo_binding(tx, caller, request_id, operation)?;
     let result: TodoCommittedResult = serde_json::from_str(result_json)
         .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid native Todo result"))?;
-    let todo_id = id(&result.object)?;
     let scope = match &output.staged.intent {
         OutputIntent::TodoCreate { scope, .. } => scope,
         OutputIntent::TodoUpdate {
@@ -524,31 +647,7 @@ pub(crate) fn agent_todo_output_receipt_committed(
     if result.object.workspace_id != grant.workspace_id || &result.object.scope != scope {
         return Err(denied());
     }
-    let head = todo_revisions::head(tx, todo_id)?;
-    if result.after_revision != head.revision
-        || result.after_snapshot_ref != head.snapshot_ref
-        || result.body_hash != head.body_hash
-        || result.operation_id.len() != 32
-        || !result
-            .operation_id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(AgentError::new(
-            ErrorCode::OutputCommitFailed,
-            "Todo result differs from its native revision",
-        ));
-    }
-    if let Some(before) = &result.before_snapshot_ref {
-        let existing:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM todo_revision_snapshots WHERE id=?1 AND todo_id=?2 AND revision=?3)",params![before,todo_id,result.before_revision.map(|v|v as i64)],|row|row.get(0)).map_err(io_error)?;
-        if !existing
-            || result.before_revision.and_then(|v| v.checked_add(1)) != Some(result.after_revision)
-        {
-            return Err(denied());
-        }
-    } else if result.before_revision.is_some() || operation != "todo.create" {
-        return Err(denied());
-    }
+    validate_committed_todo(tx, &result, operation)?;
     let context = json!({"outputId":output.staged.id,"outputRevision":output.staged.revision,"mode":output.mode,"sources":output.staged.sources,"sourceChanged":output.source_changed,"afterBodyHash":result.body_hash});
     let context =
         serde_json::to_string(&context).map_err(|_| invalid("Invalid Todo output context"))?;
@@ -571,6 +670,10 @@ pub(crate) fn agent_todo_output_receipt_committed(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "agent_connection_todo_tests.rs"]
+mod connection_tests;
 
 #[cfg(test)]
 mod tests {

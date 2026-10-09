@@ -272,7 +272,7 @@ fn unsupported_writes_fail_and_old_json_remains_read_only() {
     assert!(input.write_operations.is_empty());
     let grant = db.agent_connection_create(&binding, &input, &"a".repeat(32), &"b".repeat(64)).unwrap();
     assert_eq!(grant.operations, vec!["context.read", "source.read"]);
-    for operation in ["file.update", "todo.update", "operation.read", "operation.restore_created", "record.delete"] {
+    for operation in ["file.update", "operation.read", "operation.restore_created", "record.delete"] {
         input.write_operations = vec![operation.into()];
         assert_eq!(
             db.agent_connection_create(&binding, &input, &"c".repeat(32), &"d".repeat(64))
@@ -282,4 +282,36 @@ fn unsupported_writes_fail_and_old_json_remains_read_only() {
     }
     let count: i64 = db.conn.query_row("SELECT count(*) FROM agent_connection_grants", [], |row| row.get(0)).unwrap();
     assert_eq!(count, 1);
+}
+
+#[test]
+fn todo_update_grant_persists_without_changing_prior_read_only_grants() {
+    let (_root, db, binding) = fixture();
+    let original = create(&db, &binding);
+    let grant = db.agent_connection_create(
+        &binding,
+        &ConnectionCreateInput {
+            client_label: "Todo editor".into(),
+            workspace_content: false,
+            project_ids: vec![1],
+            session_read: false,
+            write_operations: vec!["todo.update".into(), "content.create".into(), "todo.update".into()],
+        },
+        &"7".repeat(32),
+        &"8".repeat(64),
+    ).unwrap();
+    let expected = vec!["context.read", "source.read", "operation.read", "content.create", "todo.update"];
+    assert_eq!(grant.operations, expected);
+    let stored: String = db.conn.query_row(
+        "SELECT operations_json FROM agent_connection_grants WHERE id=?1",
+        [&grant.id],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(serde_json::from_str::<Vec<String>>(&stored).unwrap(), expected);
+    assert_eq!(db.agent_connection_list(&binding).unwrap().into_iter()
+        .find(|item| item.id == original.id).unwrap().operations,
+        vec!["context.read", "source.read"]);
+    let request = db.agent_connection_authenticate(&binding, &grant.id, &"8".repeat(64), "todo-auth").unwrap();
+    assert!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "todo.update").is_ok());
+    assert_eq!(request.authorize(&binding, &Scope::Project { project_id: 1 }, "record.patch").unwrap_err().code, ErrorCode::ScopeDenied);
 }

@@ -138,6 +138,25 @@ impl Database {
         binding: &WorkspaceBinding,
         object: &ObjectRef,
     ) -> AgentResult<ObjectRef> {
+        // User-directed native history may outlive a withdrawal. Model and
+        // connection source reads still require the Record to be visible.
+        self.source_read_object_inner(request, binding, object, matches!(request.caller, Caller::Gui))
+    }
+    /// For an already authorized, connection-owned operation receipt only.
+    /// Rechecks source.read, actual ownership, live scope, and exclusion while
+    /// allowing its withdrawn target to remain visible for recovery.
+    pub(crate) fn source_read_recovery_object(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+    ) -> AgentResult<ObjectRef> {
+        if !matches!(object.kind, ObjectKind::Record | ObjectKind::Todo | ObjectKind::File) {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Unsupported recovery source kind",
+            ));
+        }
         self.source_read_object_inner(request, binding, object, true)
     }
     pub(crate) fn source_read_historical_file(
@@ -166,11 +185,11 @@ impl Database {
         request: &RequestContext,
         binding: &WorkspaceBinding,
         object: &ObjectRef,
-        historical: bool,
+        allow_withdrawn: bool,
     ) -> AgentResult<ObjectRef> {
         let resolved = self.source_resolve_business(request, binding, object, "source.read")?;
         self.source_live_scope(&resolved.scope)?;
-        if resolved.kind == ObjectKind::Record && !historical {
+        if resolved.kind == ObjectKind::Record && !allow_withdrawn {
             super::agent_record_withdrawals::require_record_visible(
                 &self.conn,
                 &RecordTarget {
@@ -181,7 +200,7 @@ impl Database {
                 },
             )?;
         }
-        if resolved.kind == ObjectKind::Todo {
+        if resolved.kind == ObjectKind::Todo && !allow_withdrawn {
             super::agent_todo_undo::require_todo_visible(
                 &self.conn,
                 resolved.id.parse().map_err(|_| {
@@ -189,7 +208,7 @@ impl Database {
                 })?,
             )?;
         }
-        if resolved.kind == ObjectKind::File && !historical {
+        if resolved.kind == ObjectKind::File && !allow_withdrawn {
             super::agent_file_undo::require_file_visible(
                 &self.conn,
                 resolved.id.parse().map_err(|_| {
@@ -605,6 +624,61 @@ mod tests {
         ) -> AgentResult<T> {
             action(&self.binding, &self.db)
         }
+    }
+    #[test]
+    fn explicit_record_version_respects_withdrawal_for_non_gui_callers() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&directory.path().join("source.sqlite"), directory.path(), None).unwrap();
+        let project = db.project_create(ProjectCreateInput {
+            name: "Historical Record".into(), summary: None, status: None,
+        }).unwrap();
+        let record = db.project_record_upsert(ProjectRecordUpsertInput {
+            project_id: project.id, note_id: None, title: Some("Retained".into()),
+            markdown: "evidence".into(), html: "<p>evidence</p>".into(),
+            default_code_language: None, tag_ids: vec![],
+        }).unwrap();
+        let binding = WorkspaceBinding { workspace_id: "source-workspace".into(), generation: "opened".into() };
+        let target = RecordTarget { scope: Scope::Project { project_id: project.id }, record_id: record.id };
+        let document = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"content":[{"type":"text","text":"evidence"}]}]});
+        let projection = RecordDocumentProjection {
+            schema_version: 1, body_hash: body_hash(&document, &None), document,
+            html: "<p>evidence</p>".into(), markdown: "evidence".into(), text: "evidence".into(),
+            code_language: None,
+        };
+        db.record_document_initialize(
+            "gui", "record-baseline", &target,
+            &db.record_document_source(&target).unwrap().source_hash,
+            &projection, &binding.workspace_id,
+        ).unwrap();
+        assert_eq!(db.record_versions_list(&target, None, 20).unwrap().versions[0].version_number, 1);
+        let source = SourceReadTarget {
+            object: ObjectRef {
+                workspace_id: binding.workspace_id.clone(), scope: target.scope.clone(),
+                kind: ObjectKind::Record, id: record.id.to_string(),
+            },
+            revision: None, record_version: Some(1), file_version: None,
+        };
+        let grant = ScopeGrant {
+            workspace_id: binding.workspace_id.clone(), workspace_content: false,
+            project_ids: vec![project.id], operations: vec!["source.read".into()],
+        };
+        let mut request = RequestContext {
+            binding: binding.clone(), caller: Caller::Connection { grant_id: "owned".into() },
+            request_id: "historical-read".into(), scope_grant: grant,
+        };
+        assert!(db.source_record_fingerprint(&request, &binding, &source).is_ok());
+        request.caller = Caller::BuiltinRun { run_id: "a".repeat(32) };
+        assert!(db.source_record_fingerprint(&request, &binding, &source).is_ok());
+        db.conn.execute(
+            "INSERT INTO agent_object_withdrawals(object_key,creation_operation_id,withdrawn_at,revision) VALUES(?1,?2,'2026-01-02',1)",
+            rusqlite::params![source.object.key().unwrap(), "b".repeat(32)],
+        ).unwrap();
+        request.caller = Caller::Connection { grant_id: "owned".into() };
+        assert_eq!(db.source_record_fingerprint(&request, &binding, &source).err().unwrap().code, ErrorCode::ObjectWithdrawn);
+        request.caller = Caller::BuiltinRun { run_id: "a".repeat(32) };
+        assert_eq!(db.source_record_fingerprint(&request, &binding, &source).err().unwrap().code, ErrorCode::ObjectWithdrawn);
+        request.caller = Caller::Gui;
+        assert!(db.source_record_fingerprint(&request, &binding, &source).is_ok());
     }
     #[tokio::test]
     async fn source_reads_search_and_indexing_reject_an_archived_project() {

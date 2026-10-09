@@ -558,7 +558,7 @@ async fn real_keyring_client_roundtrip() {
     let mut server = server.unwrap();
     let mcp_client = mcp_client.unwrap();
     let tools = mcp_client.peer().list_tools(None).await.unwrap();
-    assert_eq!(tools.tools.len(), 24);
+    assert_eq!(tools.tools.len(), 26);
     let mcp_list = mcp_client
         .peer()
         .call_tool(CallToolRequestParams::new("mind_project_list"))

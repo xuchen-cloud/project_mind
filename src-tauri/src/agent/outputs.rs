@@ -82,15 +82,19 @@ pub struct RecordPatch {
 fn required_date<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
     Option::<String>::deserialize(value)
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) fn nullable_due_date_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    <Option<String> as schemars::JsonSchema>::json_schema(generator)
+}
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TodoNewChild {
     pub content: String,
     pub progress_date: String,
     #[serde(deserialize_with = "required_date")]
+    #[schemars(required, schema_with = "nullable_due_date_schema")]
     pub due_date: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(
     tag = "change",
     rename_all = "snake_case",
@@ -103,6 +107,7 @@ pub enum TodoMutation {
     },
     Deadline {
         #[serde(deserialize_with = "required_date")]
+        #[schemars(required, schema_with = "nullable_due_date_schema")]
         due_date: Option<String>,
     },
     Status {
@@ -118,6 +123,7 @@ pub enum TodoMutation {
         content: String,
         progress_date: String,
         #[serde(deserialize_with = "required_date")]
+        #[schemars(required, schema_with = "nullable_due_date_schema")]
         due_date: Option<String>,
     },
     ChildUpdate {
@@ -125,6 +131,7 @@ pub enum TodoMutation {
         content: String,
         progress_date: String,
         #[serde(deserialize_with = "required_date")]
+        #[schemars(required, schema_with = "nullable_due_date_schema")]
         due_date: Option<String>,
         status: String,
     },

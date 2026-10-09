@@ -1,6 +1,6 @@
 //! Shared dispatch for the implemented Record and Todo output services.
 use super::{
-    access::RequestContext,
+    access::{Caller, RequestContext},
     errors::{AgentError, AgentResult, ErrorCode},
     file_outputs::FileOutputService,
     models::ObjectKind,
@@ -323,21 +323,33 @@ pub(crate) async fn undo<S: BoundRecordStore + BoundFileCommitStore, W: Document
         return super::file_undo::undo_file(store, request, input)
             .map(OperationUndoResult::ModifiedFile);
     }
-    if entry.object.kind != ObjectKind::Todo {
-        return Err(AgentError::new(
-            ErrorCode::ToolCallUnsupported,
-            "Undo is not available for this object",
-        ));
-    }
-    if input.expected_head_revision == 0
-        || entry.after_revision != Some(input.expected_head_revision)
-    {
-        return Err(AgentError::new(
-            ErrorCode::UndoConflict,
-            "Expected Todo revision differs from the operation baseline",
-        ));
-    }
+    undo_todo(store, request, input)
+}
+
+pub(crate) fn undo_todo<S: BoundRecordStore>(
+    store: &S,
+    request: &RequestContext,
+    input: &OperationUndoInput,
+) -> AgentResult<OperationUndoResult> {
     let (result, changes) = store.with_current(|binding, db| {
+        let entry = db.agent_operation_access(request, binding, &input.operation_id, "operation.undo")?;
+        if entry.object.kind != ObjectKind::Todo {
+            return Err(AgentError::new(
+                ErrorCode::ToolCallUnsupported,
+                "Undo is not available for this object",
+            ));
+        }
+        if input.expected_head_revision == 0
+            || entry.after_revision != Some(input.expected_head_revision)
+        {
+            return Err(AgentError::new(
+                ErrorCode::UndoConflict,
+                "Expected Todo revision differs from the operation baseline",
+            ));
+        }
+        if matches!(request.caller, Caller::Connection { .. }) && entry.undo_state != "undone" {
+            db.source_read_object(request, binding, &entry.object)?;
+        }
         capture_committed(binding, db, &request.request_id, || {
             if entry.kind == "todo.create" {
                 db.agent_todo_creation_withdraw(
@@ -376,7 +388,19 @@ pub(crate) fn restore<S: BoundRecordStore + BoundFileCommitStore>(
     if entry.object.kind == ObjectKind::File {
         return super::file_outputs::restore_created_file(store, request, input);
     }
+    restore_created_content(store, request, input)
+}
+
+pub(crate) fn restore_created_content<S: BoundRecordStore>(
+    store: &S,
+    request: &RequestContext,
+    input: &RecordRestoreInput,
+) -> AgentResult<RecordWithdrawalResult> {
     let (result, changes) = store.with_current(|binding, db| {
+        let entry = db.agent_operation_access(request, binding, &input.creation_operation_id, "operation.restore_created")?;
+        if matches!(request.caller, Caller::Connection { .. }) {
+            db.source_read_recovery_object(request, binding, &entry.object)?;
+        }
         capture_committed(binding, db, &request.request_id, || {
             match entry.object.kind {
                 ObjectKind::Record => db.agent_record_creation_restore(request, binding, input),

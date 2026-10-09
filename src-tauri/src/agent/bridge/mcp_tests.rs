@@ -42,7 +42,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     );
 
     let listed = client.peer().list_tools(None).await.unwrap();
-    assert_eq!(listed.tools.len(), 24);
+    assert_eq!(listed.tools.len(), 26);
     assert_eq!(
         listed.tools.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>(),
         registry::registered_methods().iter().map(|entry| format!("mind_{}", entry.method.replace('.', "_"))).collect::<Vec<_>>(),
@@ -116,6 +116,27 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         assert_eq!(called.is_error, Some(false));
         assert_eq!(called.structured_content.as_ref().unwrap()["requestId"], supplied);
         assert_eq!(called.structured_content.as_ref().unwrap()["data"]["bridgeRequestId"], supplied);
+    }
+    for (name, request_id, input) in [
+        (
+            "mind_todo_create", "stable-todo-create-1",
+            json!({"scope":{"kind":"project","projectId":1},"content":"Follow up",
+                "priority":"normal","dueDate":null,"tagIds":[],"children":[]}),
+        ),
+        (
+            "mind_todo_update", "stable-todo-update-1",
+            json!({"target":{"workspaceId":"test","scope":{"kind":"project","projectId":1},"kind":"todo","id":"1"},
+                "expectedRevision":1,"changes":[{"change":"deadline","dueDate":null}]}),
+        ),
+    ] {
+        let arguments = json!({"requestId":request_id,"input":input});
+        let called = client.peer().call_tool(
+            CallToolRequestParams::new(name)
+                .with_arguments(arguments.as_object().unwrap().clone())
+        ).await.unwrap();
+        assert_eq!(called.is_error, Some(false), "{name}");
+        assert_eq!(called.structured_content.as_ref().unwrap()["requestId"], request_id);
+        assert_eq!(called.structured_content.as_ref().unwrap()["data"]["bridgeRequestId"], request_id);
     }
     let calls_before_invalid = calls.load(Ordering::SeqCst);
     for invalid in ["", &"x".repeat(129)] {

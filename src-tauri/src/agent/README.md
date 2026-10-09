@@ -37,11 +37,11 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前包含 24 个方法：原有十四项读取，加上 `record.versions.list/get/compare`、`operation.get/list` 五项读取，以及 `record.create/patch/restore`、`operation.undo/restore_created` 五项写入。历史列表、比较和收据读取均有预算/分页；版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 注册表当前包含 26 个方法：原有十四项读取，加上 `record.versions.list/get/compare`、`operation.get/list` 五项读取，共 19 项；写入为 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 七项。历史列表、比较和收据读取均有预算/分页；版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
 
 新增读取命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，最多 64 KiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
 
-`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。Todo/File 写入、完整工具集、协作预设及对象级限制仍按后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
+`mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。File 写入、完整工具集、协作预设及对象级限制仍按后续子包接入；共享服务已有其他工具不意味着外部连接有权调用。
 
 ## Record 写入与撤销
 
@@ -50,6 +50,12 @@ bridge 注册表当前包含 24 个方法：原有十四项读取，加上 `reco
 写命令仍通过 `--input-file PATH|-` 接收实际 DTO。`record.patch` 使用已有包含 `requestId` 的补丁；其他写方法使用 `{ "requestId": "稳定请求 ID", "input": { ... } }` 包含对应原生输入。`schema METHOD` 给出完整字段。CLI 和 MCP 都把该 ID 用作原生幂等身份；CLI 另传 `--request-id` 时必须一致。成功结果包含 `result` 与 `operation`，可直接取得撤销基线。同一 ID 重试不重复写入，不同内容不能复用成功请求的 ID。
 
 `operation.get/list` 只返回本连接的收据；修改撤销把修改前内容保存为新版本，历史恢复本身也可按收据撤销。新建撤销只撤回可见性，`operation.restore_created` 恢复同一对象。撤销不能覆盖后续人工修改，也不能作用于其他连接或内置任务的操作。CLI 命令为 `operation restore-created`，MCP 名称为 `mind_operation_restore_created`。
+
+## Todo 写入与恢复
+
+`todo.create` 使用原生内容、优先级、日期、标签及子行动字段；`todo.update` 使用实际 Todo 对象、`expectedRevision` 和现有 mutation 类型。所有 `dueDate` 字段都必须出现，可为日期字符串或 `null`。连接使用稳定请求 ID 幂等，CLI/MCP 与 Record 写入共用请求身份约定；内置 Run 的 dedupeKey 保持独立。原生 Todo 提交、不可变字段快照、GUI revision、子行动身份及原子收据由同一数据库服务维护，不创建虚构 Run 或成果候选。
+
+修改撤销生成新 revision 并恢复原字段和子行动；新建撤回仅改变可见性，`operation.restore_created` 恢复原对象。目标和引用按实际范围、归档、排除及撤回状态授权，持久连接在提交边界重查；旧版 GUI 写入与连接修改通过同一 revision 检出冲突。来源历史的 GUI 权限保持原样，撤回或排除后的模型来源读取仍被拒绝。
 
 ## 不应绕过的边界
 

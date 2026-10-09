@@ -351,11 +351,17 @@ R12b3 原生写入按对象逐包推进（#106，依赖 b2 与现有原生版本
 
 R12b2b / b3a 当前接入（2026-10-09）：Record 历史列表、精确版本元数据与正文目标、块差异分页已接通；外部读取拒绝已撤回或排除的 Record。新增 Record 创建、块修改、历史恢复及本连接操作读取/分页、撤销/恢复，注册表共 24 项（19 读 / 5 写）。直接连接写入在现有原生事务中生成完整收据，含实际对象、前后版本和元信息基线；不伪造内置 Run 或 staged output。修改撤销将前内容恢复为新版本，恢复历史版本的操作本身也可撤销；新建撤回/恢复保留同一对象。编辑器 flush、CAS、来源/引用政策及跨异步撤权沿用实际服务。
 
-CLI/MCP 写入要求稳定 requestId，明确错误时不自行重试；成功返回原生结果及可用收据。设置可选实际已实现的写权限，旧 JSON/grant 仍默认只读，Workspace 绑定变化清空可选授权。完整协作预设、指定对象、Todo/File 写入与规格 CLI 便捷参数仍按 b3b/b3c/R12c 推进，不将本包标为全部交付。
+CLI/MCP 写入要求稳定 requestId，明确错误时不自行重试；成功返回原生结果及可用收据。设置可选实际已实现的写权限，旧 JSON/grant 仍默认只读，Workspace 绑定变化清空可选授权。完整协作预设、指定对象、File 写入与规格 CLI 便捷参数仍按 b3b/b3c/R12c 推进，不将本包标为全部交付。
 
 本包已验：bridge/CLI/MCP 32 项、Record 原生服务 20 项、Record 恢复/收据 21 项、版本读取 5 项、连接授权/历史 12 项通过。首轮测试夹具的 Option/可变借用/私有字段等编译问题、三处过期注册表断言和一处不一致的文档 hash 已修正；未放宽业务权限或期望结果。显式运行两个 ignored 的真实 Record worker 集成：历史比较/正文回读 1 项，创建→修改→撤销/版本与幂等收据 1 项，均通过。独立 Linux Secret Service → 生产 BridgeClient → 实际 socket → SDK MCP → 原生 Record worker/DB 的创建、精确重试及撤权拒绝 1 项通过。CLI 可执行文件构建、新增十项 schema、实际进程写请求身份/参数冲突/应用未开验证通过。
 
 设置 UI/SettingsDialog 定向 8 项、TypeScript、生产前端构建及路径/UI/主包边界检查通过；无窗口浏览器 1200/720 普通/长名称共 4 组场景、16 张截图验证默认只读、派生写权限显示与真实提交 DTO，无溢出。界面使用实际组件和模拟 IPC；不冒充目标桌面安装包。主 agent 完成 Standards/Spec 自查，未启动 review agent。真实模型和 Windows/macOS 安装验收仍待具备对应环境；#106 保持开放，继续 b3b。
+
+b3b 第一子步 Todo 外部写入已接通（2026-10-09）：新增 `todo.create/update`，注册表现有 26 项（19 读 / 7 写）。输入复用原生 Todo 字段、子行动和 mutation 类型；`dueDate` 必须显式提供字符串或 `null`，修改必须带 `expectedRevision`。从 staged Todo 提取原生提交内核，内置成果与外部连接共享字段校验、快照、CAS、变更发布与原子收据；连接使用稳定请求 ID 幂等，不创建虚构 Run，内置 Run 的 dedupeKey 语义不变。连接仅能读取和撤销自身收据；修改撤销恢复字段及子行动身份并生成新 revision，新建撤回/恢复保持同一对象及快照。创建前核验 Project 和所引用来源的实际政策，修改前核验真实 Todo 所属范围、排除和撤回状态；持久 grant 在提交边界重查。设置增加实际 `todo.update` 权限，已有只读 grant 不自动扩权。
+
+Todo 本包已验：bridge/CLI/MCP 36 项通过（另 2 项 ignored）、Todo 原生 25 项、连接授权/操作历史 15 项、必填且可为 null 的日期 schema 1 项、来源策略 3 项、共享成果服务 1 项通过。测试覆盖真实创建子行动→修改→撤销、创建撤回/恢复、同 ID 重放、外来连接拒绝、GUI 后续 revision 冲突、无效子行动整组零写入、归档 Project 和排除来源；撤回后 AI 来源仍拒绝，GUI 历史读取保留原有权限语义。设置定向 8 项、TypeScript、前端生产构建与路径/UI/主包边界检查通过，主包约 194 KiB；无窗口浏览器在 1200/720 宽度、普通/长名称共 4 组实际组件与模拟 IPC 场景通过，16 张截图记录 Todo 权限复选框、提交 DTO 与无溢出。生产 `mind` 构建及实际进程的两项 Todo schema、stdin 稳定写入 ID、应用关闭时退出码 3 与 ID 不匹配时退出码 2 检查通过。主 agent Standards/Spec 自查通过；平台安装包及真实外部模型验收仍未完成，#106 保持开放。
+
+b3b 第二子步 File 外部写入待实现：连接接入原生 `file.create/patch/restore/update`、File Version、journal 与操作收据；字节上传沿用 `content.begin/append/finish/status`，保留总量 100 MiB、单块 1 MiB、有效期 10 分钟的既有上限，外部 base64 块 JSON 另限 2 MiB。CLI 只在本地读取文件并传字节，不把客户端路径交给服务端读取。稳定请求 ID 和实际版本/hash 绑定重试；不伪造 Run 或 staged output。每次原生提交前重查持久 grant、Workspace binding、应用开关与源文件政策，切换/停用/撤权或上传期间状态变化都不得提交旧授权结果。验收使用真实持久 grant 与字节，覆盖创建、替换、精确补丁、版本恢复、幂等重放/冲突、撤销与新建撤回、上传状态与大小边界、上传或文件 IO 期间撤权，以及 GUI/连接同对象版本竞争。
 
 验收：外部客户端读取并修改当前 Project，应用即时刷新；重试不重复，撤权后拒绝，MCP stdout 仅协议。A04/A05/A09/A13～18/A20/A37/A49/A71；CLI golden、独立 MCP 客户端和同一业务 fixture 的权限/结果对照。外部 transport 不重复实现业务规则。
 

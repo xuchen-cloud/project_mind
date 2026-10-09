@@ -86,7 +86,7 @@ where
     }
     let request = connection.with_authenticated(|_, _, _, request| Ok(request))?;
     match input.method.as_str() {
-        "record.create" | "record.patch" | "record.restore" | "operation.get"
+        "record.create" | "record.patch" | "record.restore" | "todo.create" | "todo.update" | "operation.get"
         | "operation.list" | "operation.undo" | "operation.restore_created" => {
             return super::record_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
         }

@@ -3,6 +3,7 @@
 use crate::{
     agent::{
         connection_operations::ConnectionOperationListInput,
+        connection_todos::{ConnectionTodoCreateInput, ConnectionTodoUpdateInput},
         context::ContextGetInput,
         errors::{AgentError, AgentResult, ErrorCode},
         file_tools::{FileSourceReadInput, FileVersionsGetInput, FileVersionsListInput},
@@ -184,6 +185,18 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             read_only: false,
             parameters: serde_json::to_value(schema_for!(MutationInput<CreatedRecordRestoreInput>)).expect("static schema"),
         },
+        RegisteredMethod {
+            method: "todo.create",
+            description: "Create one Todo in an authorized scope with content.create. Supply explicit nullable dates, child actions and a stable requestId; the native service validates the input.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<ConnectionTodoCreateInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "todo.update",
+            description: "Update one authorized Todo with todo.update and an expectedRevision. Supply exact changes and a stable requestId; the native service checks revision and ownership.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(MutationInput<ConnectionTodoUpdateInput>)).expect("static schema"),
+        },
     ]
 }
 
@@ -204,7 +217,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
         | "operation.get" | "operation.list" => Some(true),
         "record.create" | "record.patch" | "record.restore" | "operation.undo"
-        | "operation.restore_created" => Some(false),
+        | "operation.restore_created" | "todo.create" | "todo.update" => Some(false),
         _ => None,
     }
 }
@@ -249,6 +262,8 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "operation.list" => decode::<ConnectionOperationListInput>(parameters),
         "operation.undo" => decode::<MutationInput<OperationUndoInput>>(parameters),
         "operation.restore_created" => decode::<MutationInput<CreatedRecordRestoreInput>>(parameters),
+        "todo.create" => decode::<MutationInput<ConnectionTodoCreateInput>>(parameters),
+        "todo.update" => decode::<MutationInput<ConnectionTodoUpdateInput>>(parameters),
         _ => Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Method is not registered")),
     };
     decoded?;
@@ -277,8 +292,9 @@ mod tests {
             "record.versions.list", "record.versions.get", "record.versions.compare",
             "record.create", "record.patch", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
+            "todo.create", "todo.update",
         ]);
-        assert_eq!(registered_methods().len(), 24);
+        assert_eq!(registered_methods().len(), 26);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         assert_eq!(is_read_only("record.patch"), Some(false));
         assert_eq!(is_read_only("operation.list"), Some(true));
@@ -387,6 +403,7 @@ mod tests {
         for method in [
             "record.create", "record.patch", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
+            "todo.create", "todo.update",
         ] {
             let schema = schema(method).unwrap();
             assert_eq!(schema["additionalProperties"], false, "{method}");
@@ -406,5 +423,43 @@ mod tests {
         missing.as_object_mut().unwrap().remove("requestId");
         assert_eq!(validate("record.patch", &missing).unwrap_err().code, ErrorCode::InvalidArgument);
         assert!(!is_registered("file.content.begin"));
+    }
+
+    #[test]
+    fn todo_write_schemas_require_native_fields_and_stable_identity() {
+        let scope = serde_json::json!({"kind":"project","projectId":1});
+        let target = serde_json::json!({
+            "workspaceId":"workspace-a","scope":scope,"kind":"todo","id":"1"
+        });
+        let create = serde_json::json!({
+            "requestId":"todo-create-1",
+            "input":{"scope":scope,"content":"Follow up","priority":"normal",
+                "dueDate":null,"tagIds":[],"children":[]}
+        });
+        let update = serde_json::json!({
+            "requestId":"todo-update-1",
+            "input":{"target":target,"expectedRevision":1,
+                "changes":[{"change":"deadline","dueDate":null}]}
+        });
+        for (method, value) in [("todo.create", &create), ("todo.update", &update)] {
+            assert_eq!(is_read_only(method), Some(false));
+            validate(method, value).unwrap();
+            let schema = schema(method).unwrap();
+            assert_eq!(schema["additionalProperties"], false);
+            assert!(schema["properties"]["requestId"].is_object());
+            assert!(schema["properties"]["input"].is_object());
+        }
+        let mut without_date = create.clone();
+        without_date["input"].as_object_mut().unwrap().remove("dueDate");
+        assert_eq!(validate("todo.create", &without_date).unwrap_err().code, ErrorCode::InvalidArgument);
+        let mut without_children = create.clone();
+        without_children["input"].as_object_mut().unwrap().remove("children");
+        assert_eq!(validate("todo.create", &without_children).unwrap_err().code, ErrorCode::InvalidArgument);
+        let mut without_revision = update.clone();
+        without_revision["input"].as_object_mut().unwrap().remove("expectedRevision");
+        assert_eq!(validate("todo.update", &without_revision).unwrap_err().code, ErrorCode::InvalidArgument);
+        let mut unknown = update.clone();
+        unknown["input"]["runId"] = serde_json::json!("forged");
+        assert_eq!(validate("todo.update", &unknown).unwrap_err().code, ErrorCode::InvalidArgument);
     }
 }

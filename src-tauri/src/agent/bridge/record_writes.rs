@@ -1,4 +1,4 @@
-//! Thin connection adapter for native Record writes and connection receipts.
+//! Thin connection adapter for native content writes and connection receipts.
 use crate::{
     agent::{
         access::RequestContext,
@@ -59,6 +59,21 @@ pub(crate) async fn execute<S: BoundRecordStore, W: DocumentUtility>(
             let input = decode::<MutationInput<RecordRestoreInput>>(params)?.bind(request)?;
             json!(service.restore(request, &input).await?)
         }
+        "todo.create" | "todo.update" => {
+            let (result, changes) = store.with_current(|binding, db| {
+                capture_committed(binding, db, &request.request_id, || {
+                    if method == "todo.create" {
+                        let input = decode::<MutationInput<crate::agent::connection_todos::ConnectionTodoCreateInput>>(params)?.bind(request)?;
+                        db.agent_connection_todo_create(request, binding, &input)
+                    } else {
+                        let input = decode::<MutationInput<crate::agent::connection_todos::ConnectionTodoUpdateInput>>(params)?.bind(request)?;
+                        db.agent_connection_todo_update(request, binding, &input)
+                    }
+                })
+            })?;
+            if let Some(changes) = changes { store.publish_committed(changes); }
+            json!(result?)
+        }
         "operation.get" => {
             let input: OperationGetInput = decode(params)?;
             return store.with_current(|binding, db| {
@@ -73,24 +88,19 @@ pub(crate) async fn execute<S: BoundRecordStore, W: DocumentUtility>(
         }
         "operation.undo" => {
             let input = decode::<MutationInput<OperationUndoInput>>(params)?.bind(request)?;
-            store.with_current(|binding, db| {
+            let kind = store.with_current(|binding, db| {
                 let entry = db.agent_operation_access(request, binding, &input.operation_id, "operation.undo")?;
-                require_record(entry.object.kind)
+                Ok(entry.object.kind)
             })?;
-            json!(service.undo_operation(request, &input).await?)
+            match kind {
+                ObjectKind::Record => json!(service.undo_operation(request, &input).await?),
+                ObjectKind::Todo => json!(crate::agent::output_service::undo_todo(store, request, &input)?),
+                _ => return Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Recovery is not available for this object")),
+            }
         }
         "operation.restore_created" => {
             let input = decode::<MutationInput<crate::db::agent_record_withdrawals::RecordRestoreInput>>(params)?.bind(request)?;
-            let (result, changes) = store.with_current(|binding, db| {
-                let entry = db.agent_operation_access(request, binding, &input.creation_operation_id, "operation.restore_created")?;
-                require_record(entry.object.kind)?;
-                db.source_read_historical_record(request, binding, &entry.object)?;
-                capture_committed(binding, db, &request.request_id, || {
-                    db.agent_record_creation_restore(request, binding, &input)
-                })
-            })?;
-            if let Some(changes) = changes { store.publish_committed(changes); }
-            json!(result?)
+            json!(crate::agent::output_service::restore_created_content(store, request, &input)?)
         }
         _ => return Err(AgentError::new(ErrorCode::ToolCallUnsupported, "Unknown Record operation")),
     };
@@ -104,11 +114,4 @@ pub(crate) async fn execute<S: BoundRecordStore, W: DocumentUtility>(
         }
     })?;
     Ok(json!({"result":result,"operation":operation}))
-}
-
-fn require_record(kind: ObjectKind) -> AgentResult<()> {
-    if kind != ObjectKind::Record {
-        return Err(AgentError::new(ErrorCode::ToolCallUnsupported, "This connection adapter currently recovers Records only"));
-    }
-    Ok(())
 }
