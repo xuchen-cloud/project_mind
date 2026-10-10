@@ -20,3 +20,7 @@
 - 沿用 Project Mind 已有的“原文搜索 → 有界回读 → 派生知识”链路；可借鉴 Hermes 的会话降噪排序、压缩后历史可发现性与覆盖状态提示。Project Mind 的 Pi JSONL 权威、Project/Workspace 授权、来源依赖与 AI 排除规则仍应由自身可信 Host 执行，不能移植 Hermes 的 profile 或 lineage 判定作为权限。
 - 可将高频且稳定的用户偏好与环境事实放入受预算约束的短记忆，任务过程和原话仍留在可回读来源；用户纠正宜有精确目标、版本/并发校验和可见结果。Hermes 的冻结提示词说明新写入何时可见需要产品定义，不能把“工具调用成功”误称为当前所有会话已经使用。
 - 自动审阅是一个候选提取入口，不是事实真实性、用户决定或原生操作成功的证明。Project Mind 的摘要/Overview 已有来源和收据约束，应继续保留；删除、排除后的检索与衍生内容失效尤其不能仅靠 Hermes 的 `remove` 推断完成。
+
+## 2026-10-10 产品采用决定
+
+用户要求统一参考 Hermes 的记忆生命周期，已形成[Workspace 长期记忆详细需求](../requirements/workspace-memory-lifecycle.md)，实施列入 LM1～LM5。采用范围包括精简记忆与历史分离、明确 add/replace/remove/batch、后台审阅、容量整理及会话快照；ProjectMind 继续保留来源、版本、授权和持久遗忘约束。该文明确区分 Hermes 的事实与本产品适配；本次仅需求更新，未重新获取上游版本，也未执行 Hermes 测试。

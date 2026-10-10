@@ -198,6 +198,10 @@ _Avoid_：Backup、Workspace Export、未确认内容快照
 由助手维护、有版本与来源依据的作用域理解，供按问题渐进读取；独立于用户 QuickNote，不是普通 Record。
 _Avoid_：Project QuickNote、项目主页、用户已确认事实
 
+**Workspace 长期记忆**：
+唯一归属于 Workspace 的精简、当前有效且有来源依据的跨任务信息；Project 特有的稳定背景与约定进入 Project Overview 专门栏目。记忆的来源可以是 Project，但来源项目不改变记忆归属；删除、停用、纠正、授权和归档仍沿来源与用户策略约束使用。详见 [2026-10-10 长期记忆生命周期需求](docs/requirements/workspace-memory-lifecycle.md)。
+_Avoid_：Project Memory、项目背景栏目、原始 Record、会话全文
+
 Project Overview 的维护作业在 `agent_jobs` 中持久保存 `batchId`、来源读取游标和待发布草稿；来源引用依据实际读取的来源页与证明，覆盖范围依据真实处理进度计算。取消、预算耗尽、前台任务和凭据锁定会使维护暂停或让出，条件恢复后可续跑。用户在 GUI 中的纠正由专属事务保存并约束后续发布；维护写入独立的 Overview 与派生知识，不改动 QuickNote。
 
 运行超时使用 `TIMED_OUT`，与容量/调用次数达到上限区分；内部上下文检查不算模型首响应。必要运行指标只写 Workspace 本机轮转日志，不记录正文、凭据或推理，也不远程上传。S4 已修复规模语料下的查询执行计划问题，实际查询、边界和验证条件见[本地验证记录](docs/technical/ai-local-performance-20261009.md)。
@@ -211,6 +215,8 @@ S5 Workspace 助手已在本地接通 WorkspacePage 入口与既有业务工具�
 S6 Workspace 分层知识已在本地合入 `3aae8fd`，定向验证完成，产品验收尚未完成。已发布的 Project Overview 条目是有类型的派生输入，记录 Project、不可变概览版本、条目 ID 与内容摘要；Workspace 条目可展开该版本及最终原始依据，读取和发布时复核整条依赖与当前授权。Workspace 直属 Record、Todo、会话沿原始来源路径进入维护。维护队列按变化条目与直属来源增量处理；已启用 Project 沿自己的安排，未单独启用 Project 助手的活动项目可继承已启用 Workspace 的安排。下层单个项目失败或延期有独立状态，不阻挡其他项目和直属资料。三项目 fixture 已核 A/B/C 可见性、GUI 搜索/读取、父纠正后旧版不可见，以及模型不可用时已保存草稿重放零额外调用；其余定向组与未覆盖场景见[验收台账](docs/requirements/ai-work-context-acceptance.md)。S8 补充服务回归 4/4：父删除后旧版隐藏、只变授权项目 A 加一条 Workspace 直属 Record 时实际额外 2 次模型调用且 prompt 无 B/C 原文、File 仅改名 0 次调用且概览版本不变、长父分页每页带用户纠正。该回归未测量物理读取 B/C 的次数。Rust 1019 项完整运行先有 980 passed、2 failed、37 ignored（201.85 秒）；两处均仅修测试后各自定向重跑通过，生产代码在全量之后未改，因此 982 个普通用例各有有效通过证据，不能称单次全量 982 通过。长 Todo 定向复测覆盖完整 3800 字节 prompt、约 21k 中文字符及 183 页严格前进的游标（38.30 秒）。主 agent 已完成 S7/S8 Standards/Spec 自查，未发现当前阻塞；真实模型与目标平台仍待验收；S7 可查看、纠正、停用的长期记忆尚未交付，R15/R16 暂缓。
 
 S7 长期记忆及 S8 本地实现与有效验证已完成，产品尚未交付。六类条目是工作背景、领域、兴趣、方法、偏好和知识线索；模型提取的候选始终标为推断，不能自行变成用户已确认。GUI 提供查看依据、确认、纠正、停用和重新启用；确认与停用策略独立于知识正文，纠正沿既有知识版本生成新版本。停用按同一 scope、类别和原始来源保存抑制；多条停用决定覆盖同一来源时，重新启用一条只撤回自己的决定。模型读取旧知识版本和继续旧 Run 时仍要复核最新策略及来源，不能从历史绕回已停用的派生记忆；原始 Record、会话等资料仍按各自授权可搜索。数据库定向组 518 通过、8 ignored，服务交付回归 4/4 通过；Rust 1019 项全量首跑 980 通过、2 失败、37 ignored；两项只修测试后定向通过，982 个普通用例均有有效通过证据，不能称单次全量 982 通过；定向组不可相加冒充唯一总数。前端三文件最终集中运行 27/27 通过，生产构建、UI 标准、可移植路径和 bundle 边界通过（主入口 195 KiB / 250 KiB）；736/1200 宽度的真实 React 组件加模拟 IPC 浏览器流程、滚动与焦点检查通过，保存 10 张截图。真实 Provider 和目标平台未验收。设计与固定 Hermes 参考见[长期记忆实施说明](docs/technical/long-term-memory-implementation.md)。
+
+2026-10-10 用户批准的[长期记忆生命周期需求](docs/requirements/workspace-memory-lifecycle.md)仍待实现：活动长期记忆唯一归 Workspace，Project 特有稳定信息进入 Overview“项目背景与约定”栏目；一次获双范围授权的整理可同时产生两处操作并原子保存。会话与后台统一新增、替换、合并、整理删除及用户遗忘/重新启用；按 Hermes 已核对机制参考显式操作、后台待审和精简快照，但 Project Mind 保留来源、授权、版本及抑制边界。旧 Project Memory 迁往项目栏目并保留历史和原停用约束。LM1～LM5 与 ML01～ML15 尚无完成证据；`ab4d461` 及上段 S7/S8 验证仅证明当时实现，不证明新需求交付。R15/R16 继续暂缓，#118 文件预览仍独立。
 
 外部连接通过本机随机端口 bridge 访问当前打开的 Workspace；凭据保存在系统凭据服务，Workspace 仅保存授权范围和凭据摘要。每次请求重新检查连接撤销和 Workspace 代际，切换后不自动转接。当前已接通的外部读取为 Project 列表、有界上下文、Overview、知识和来源，以及会话检索/原文、Record 正文、块和历史、Todo、File 版本/源码及上传状态、原生内容入链/出链；CLI 不打开第二份数据库、不启动内置模型任务。这些读取通过 stdio MCP 暴露，设置可复制配置。外部 Record、Todo、File 写入和本连接收据读取/撤销/恢复复用原生 CAS、版本、journal 与恢复服务，注册表为 38 项（24 读 / 14 写）；设置显式选择实际写权限，已有只读连接保持只读，CLI/MCP 正式写入共用稳定请求 ID，不伪造内置 Run。`record.create` 接受 canonical 文档或 Markdown 二选一，原始 Markdown 与稳定请求 ID 绑定幂等；`record.create.preview` 在 `content.create` 授权下预览新内容而不创建持久对象、版本、收据或事件。`record.patch.preview` 只预览已保存的 canonical Record，仍需 `record.patch` 权限；预览不刷新编辑器、不写版本或收据，正式提交重新核验版本、来源和引用，预览结果不是提交保证。File 字节上传由 CLI 在本地读取文件后分阶段传送，服务端不读取客户端路径。
 

@@ -98,6 +98,8 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 - `agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision)`与业务outbox同事务更新；Overview自身写入只通知父Workspace，不再将自己当Project业务变化，防止无限更新循环。
 - M2 长期条目复用现有知识节点、正文及不可变版本，增加记忆类别、确认程度、状态与支持时间；不再另建一张重复保存正文的 `agent_memory_items` 表。用户确认、纠正和抑制策略由原生服务独立保存，模型维护不得覆盖。抑制依据为原始来源身份及记忆类别，不依赖模型生成的标题或条目 ID。S7 本地实现以 `KnowledgeKind::Memory` 和 `memory.category` 表达条目及六种类别，schema 37 保存独立用户策略与抑制；实际验证与外部验收缺口见交付台账。
 
+2026-10-10 [生命周期修订](workspace-memory-lifecycle.md)要求新活动 Memory 唯一以 Workspace 为 owner，原生写边界拒绝 Project Memory。旧 Project Memory 确定性迁入 Project Overview 的“项目背景与约定”栏目或知识入口，保留正文、历史、来源映射、用户确认/纠正及停用抑制，不自动提升到 Workspace；重复升级幂等。此段为待实现契约，上段 S7 仅描述历史代码和验证状态。
+
 - `agent_session_summary_segments(id,session_id,branch_id,start_entry_id,end_entry_id,revision,summary_json,message_refs_json,source_refs_json,coverage,input_hash,status)`保存分段当前摘要；历史版本独立保留，唯一(session,branch,range,inputHash)。FTS按segment索引，最新状态与历史时态可区分。
 
 新增`agent_knowledge_nodes(scope_key,node_id,kind,title,one_line,summary,body_sections_json,revision,status,source_refs_json)`和版本/有类型边；kind为topic/decision/source_summary。Overview条目与会话分段通过统一注册表暴露为节点，沿用原表权威数据，不复制出第二套会话或Record。内容仍在SQLite，Markdown可作展示/导出，不另建并行权威wiki目录。
@@ -151,7 +153,7 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 
 ### 最小入口
 
-`context.get(scope,query?,budgetChars?)`默认只返回最小知识入口：scope身份、≤300字符项目定位、更新时间/覆盖状态、相关主题/知识节点的一行描述与ID（最多8项）、相关变更提示及继续检索入口。不自动带完整Overview、全部Todo、固定资料正文、历史会话或Workspace记忆。
+`context.get(scope,query?,budgetChars?)`默认只返回最小知识入口：scope身份、≤300字符项目定位、更新时间/覆盖状态、相关主题/知识节点的一行描述与ID（最多8项）、相关变更提示及继续检索入口。不自动带完整Overview、全部Todo、固定资料正文或历史会话。新生命周期要求中的Workspace精简记忆快照由会话初始化/刷新路径单独核对权限与预算，不能暗中塞进此工具响应。
 
 默认整个data序列化≤2000 Unicode字符，硬上限3000（包含目录/元信息，超出少返回并标hasMore）。创建空会话不发模型请求、不预读知识正文；用户提问后才按问题取入口。query可用于确定性的标题/关键词/别名匹配，无需先调用一个模型生成整份上下文；未命中可搜索而非猜测全项目无资料。
 
@@ -173,7 +175,7 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 
 ### 工具预算与选择性读取
 
-- `context.get`按4.2返回L0。完整Overview使用`context.overview.get(scope,sections?,itemIds?,cursor?,budgetChars?)`，默认只给章节目录；只有调用者明确选择section/item才返回正文。无参数不能偷偷返回全部Overview。Workspace入口同样有界，不自动拼所有Project概览或个人记忆。
+- `context.get`按4.2返回L0。完整Overview使用`context.overview.get(scope,sections?,itemIds?,cursor?,budgetChars?)`，默认只给章节目录；只有调用者明确选择section/item才返回正文。无参数不能偷偷返回全部Overview。Workspace知识导航入口同样有界，不自动拼所有Project概览或未精简的个人记忆；会话精简记忆快照按E4及新生命周期需求单独装载并共同核总预算。
 - `knowledge.search(scope,query,kinds?,cursor,limit)`默认最多8条卡片，每卡snippet≤240字符，响应data默认≤3000；支持标题/别名/关键词，未命中回退`source.search`，不把索引当完整世界。大目录分页/搜索，不先下载全索引；同义词与中文召回用真实fixture验证。
 - `knowledge.get(nodeId,view: outline|summary|content,sectionIds?,cursor?,budgetChars?)`默认summary，≤1200字符；content默认≤4000，硬上限8000。返回kind、version、sourceRefs、coverage、stale、related节点卡片≤5及nextCursor；不递归取related正文。
 - `source.read`/`session.messages.read`明确range或view，默认局部读取≤4000字符；单次硬限12000。`view=full`表示逐页完整阅读意图，仍受分页限制，只有到末页才有complete=true。HTML源码保持原字节/版本规则；原有单工具上限不是要求每次填满。
@@ -228,7 +230,11 @@ Workspace输入包含两部分：①各授权Project Overview的变化；②Work
 
 Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴趣、可复用方法、用户明确的工作习惯和关键知识入口。项目归档后可退出活跃工作清单，但仍有来源支持的通用方法/经验可以保留；必须保留来源归档状态，用户撤销授权或排除来源另按即时失效处理。
 
-长期记忆复用 `kind: memory` 知识节点，以 `memory.category: background|domain|interest|method|preference|knowledge_pointer` 区分类别，保留适用 scope、原始或已发布项目依据和 `lastSupportedAt`；用户策略独立保存 `confirmation` 与 `status`。模型候选一律为推断，用户经可信 GUI 确认或纠正后才标为确认，重复行为仍只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制键，防止下一轮从同一来源重新生成。
+长期记忆复用 `kind: memory` 知识节点，以 `memory.category: background|domain|interest|method|preference|knowledge_pointer` 区分类别；活动 owner 只允许 Workspace。Project 特有的稳定信息归 Project Overview“项目背景与约定”栏目，不另建 Project Memory。记忆保留原始或已发布项目依据和 `lastSupportedAt`；用户策略独立保存 `confirmation` 与 `status`。模型候选一律为推断，用户经可信 GUI 或绑定真实后续用户消息确认后才标为确认，重复行为仍只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制，防止下一轮从同一来源重新生成。具体操作、迁移与验收见[新需求](workspace-memory-lifecycle.md)；目前待实现，`ab4d461` 的历史验证不能覆盖该修订。
+
+记忆的产生、更新、整理删除和使用统一参考已核对的 [Hermes 源码机制](../technical/hermes-memory-reference.md)，但采用 Project Mind 的条目 ID/版本、原始来源、权限和用户策略。会话模型理解明确的记住/纠正/遗忘请求；既有后台维护仅在有变化时提取。新增、替换、移除及批量操作共用原生服务，合并可由一次原子的替换加移除完成；后台语义替换、删除或减少信息的合并走既有待审方案，已确认内容不由无人值守模型覆盖。自动提取不增加每轮固定模型请求，也不引入另一套调度器。
+
+获 Project 与 Workspace 对应授权的维护批可在同一次生成中提出两处操作，任一部分可为空；发布时以既有批次身份、来源证明、基线和用户策略版本在同一事务原子保存两个目标及进度。Project-only 或只读 grant 不扩权；冲突、越权或失败保留草稿与未消费进度。仅有 Workspace 记忆读取权限的会话在首次真实任务装入当前有效、完整且符合预算的精简快照，变化后的下一轮及续聊/Pi 压缩重建复核版本与旧 Run 来源；详细资料按需读取。预算设置和默认值由 LM4 对真实序列化输入及模型余量验证确定，不预写字符常量；小模型装不下时明确改为按需读取，不按 ID 截断或宣称完整注入。项目栏目、操作、联合发布、迁移及容量的完整契约与 ML01～ML15 验收以[生命周期需求](workspace-memory-lifecycle.md)为准。
 
 每个Workspace记忆条目与Project概览条目保留最终原始来源和派生链。删除/排除/撤回/授权收缩立即失效其依赖，不等待夜间任务；只剩无权来源的条目完全不返回正文、标题或摘录。混合授权来源不能只隐藏引用却返回混合结论：保守整条省略，或用仍可见证据重新生成后返回。只授权项目子集的连接只组合有权限的条目，不读取全Workspace自由文本摘要。Project默认不继承Workspace个人记忆，沿现有领域边界执行。
 
@@ -638,7 +644,7 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 
 ## E15 后续批次的接入边界
 
-Workspace会话默认先读Workspace Overview，再按问题进入相关Project Overview或Workspace Record/Todo，最后读原始来源。Workspace不是项目摘要的简单拼接：它同时承载非Project的长期领域、兴趣知识、方法、工作背景与明确偏好。
+Workspace会话首次真实任务使用有权限且符合预算的当前有效精简记忆快照，再按问题渐进读取 Workspace Overview、相关 Project Overview、Workspace Record/Todo 和原始来源；具体快照/超额行为见 [2026-10-10 生命周期需求](workspace-memory-lifecycle.md)。Workspace不是项目摘要的简单拼接：它同时承载非Project的长期领域、兴趣知识、方法、工作背景与明确偏好。
 
 更新输入为旧Workspace Overview、发生变化的Project Overview条目、Workspace直属资料增量及用户纠正。项目先更新、Workspace再聚合；某项目失败则保留其旧修订并标滞后，不阻塞其他项目。按E4每日/隔日批次运行，无变更不调用模型。
 
