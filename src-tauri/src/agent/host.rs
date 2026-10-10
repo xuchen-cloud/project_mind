@@ -810,7 +810,7 @@ pub(crate) async fn execute(
     .await
     .map_err(|_| timed_out())?
     .map_err(|_| incompatible("Source resource verification stopped"))??;
-    let mut process = packaged.spawn(&workspace_root, false).await?;
+    let mut process = packaged.spawn_for_profile(&workspace_root, false, &profile).await?;
     let mut running = false;
     let mut restored_projection = None;
     let mut damaged_history = false;

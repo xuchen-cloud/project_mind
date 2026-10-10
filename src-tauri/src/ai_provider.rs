@@ -34,6 +34,7 @@ pub struct ResolvedAiProfile {
     pub model: String,
     pub supports_text: bool,
     pub supports_image: bool,
+    pub(crate) network: crate::ai_network::ResolvedAiNetwork,
 }
 
 #[derive(Debug, Clone)]
@@ -929,7 +930,7 @@ fn request_text(
         });
     }
 
-    let client = Client::builder()
+    let client = crate::ai_network::client_builder(&profile.network)?
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(purpose.timeout())
         .build()
@@ -983,7 +984,7 @@ fn request_text_streaming_for_purpose(
         });
     }
 
-    let client = Client::builder()
+    let client = crate::ai_network::client_builder(&profile.network)?
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(purpose.timeout())
         .build()
@@ -2958,6 +2959,7 @@ mod tests {
             model: model.to_string(),
             supports_text: true,
             supports_image: true,
+            network: Default::default(),
         }
     }
 
@@ -2971,6 +2973,7 @@ mod tests {
             model: "mock".into(),
             supports_text: true,
             supports_image: false,
+            network: Default::default(),
         };
         let result =
             super::run_voice_minutes(&profile, None, &[(1_000, "确定周五发布。".into())]).unwrap();

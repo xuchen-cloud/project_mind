@@ -192,7 +192,9 @@ mod tests {
             supports_file INTEGER NOT NULL, enabled INTEGER NOT NULL,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE ai_capability_bindings (capability TEXT PRIMARY KEY, use_default INTEGER NOT NULL,
-            profile_id INTEGER, model TEXT, updated_at TEXT NOT NULL);").unwrap();
+            profile_id INTEGER, model TEXT, updated_at TEXT NOT NULL);
+            CREATE TABLE app_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL);").unwrap();
         // The fixture explicitly installs the migration-owned table.
         conn.execute_batch(AGENT_PROFILE_VERIFICATIONS_SQL).unwrap();
         Database {

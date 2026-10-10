@@ -436,6 +436,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       securityMode: "workspace",
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({

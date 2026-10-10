@@ -164,6 +164,7 @@ vi.mock("./services/projectMindApi", () => ({
       execution: {
         maxConcurrency: 1,
       },
+      network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     })),
     projectPageGet: vi.fn(async () => ({

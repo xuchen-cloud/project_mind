@@ -4,6 +4,8 @@ Project Mind 帮助个人在长期工作空间中组织阶段性项目，使当�
 
 范围更新（2026-10-09）：用户确认将项目内 HTML/Markdown/Word/Excel/PPT 编辑预览及开源软件集成独立为[需求 #118](docs/requirements/project-file-integration.md)；原 HTML Issue #115 迁出 AI [需求 #97](https://github.com/xuchen-cloud/project_mind/issues/97)。AI 仍负责 File 成果生成、HTML/Markdown 原始源码续改及原生保存/版本/撤销，#118 不作为 AI M0～M4 发布前置。
 
+AI 网络连接更新（2026-10-10）：[NP1 / #119](docs/requirements/ai-network-proxy.md) 已实现并通过本地验证。当前 Workspace 共用系统代理、自定义 HTTP/HTTPS 或直连；自定义认证支持独立账号密码和 URL，按用户要求普通本地保存、不加密。Windows/macOS 真实系统代理验证待完成，议题保持开放。
+
 ## Language
 
 ### 工作边界

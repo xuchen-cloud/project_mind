@@ -730,6 +730,7 @@ describe("RichEditor images", () => {
         hasUsableDefault: false, hasUsableImageDefault: true,
         securityMode: "workspace_password_encrypted" as const,
         aiSecretsUnlocked: true, execution: { maxConcurrency: 1 },
+        network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       },
     };
     const rendered = render(<RichEditor {...props} html={'<p><img src="asset:///tmp/answer.png" data-path="/tmp/answer.png" data-mime-type="image/png"></p><p>nearby</p>'} />);
@@ -1257,6 +1258,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1443,6 +1445,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1524,6 +1527,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "explain-image",
             name: "图片问答",
@@ -1619,6 +1623,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1699,6 +1704,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 2 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1796,6 +1802,7 @@ describe("RichEditor images", () => {
       securityMode: "workspace_password_encrypted" as const,
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     };
     const { container, rerender } = render(
@@ -1935,6 +1942,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -2003,6 +2011,7 @@ describe("RichEditor images", () => {
       securityMode: "workspace_password_encrypted" as const,
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [{
         id: "extract-image-text",
         name: "文字提取",
@@ -2117,6 +2126,7 @@ describe("RichEditor images", () => {
       securityMode: "workspace_password_encrypted" as const,
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [{
         id: "explain-image",
         name: "图片问答",
@@ -2244,6 +2254,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "explain-image-race",
             name: "图片问答",
@@ -4337,6 +4348,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "polish",
@@ -4396,6 +4408,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: false,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "translate",
@@ -4464,6 +4477,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4549,6 +4563,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4676,6 +4691,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4739,6 +4755,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4822,6 +4839,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "polish",
@@ -4950,6 +4968,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "polish-incomplete-stream",
             name: "润色",
@@ -5058,6 +5077,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "polish",
@@ -5180,6 +5200,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "explain",
@@ -5283,6 +5304,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "explain-incomplete-stream",
             name: "解释",

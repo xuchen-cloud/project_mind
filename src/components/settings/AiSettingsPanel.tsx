@@ -65,6 +65,7 @@ import {
   settingsFieldLabelClassName,
   settingsSelectClassName,
 } from "./shared";
+import { AiNetworkSettingsPanel } from "./AiNetworkSettingsPanel";
 
 const EDITOR_SKILL_LIMIT = 24;
 
@@ -549,7 +550,7 @@ export function AiSettingsPanel({
             <p className="text-caption font-medium uppercase tracking-[0.16em] text-text-soft">
               AI Models
             </p>
-            <p className="mt-0.5 text-body text-text-muted">接入配置、模型绑定与调度。</p>
+            <p className="mt-0.5 text-body text-text-muted">接入配置、模型绑定、连接方式与调度。</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
             <StatusBadge tone={snapshot.hasUsableDefault ? "success" : "warning"}>
@@ -562,6 +563,8 @@ export function AiSettingsPanel({
           </div>
         </div>
       </SurfaceCard>
+
+      <AiNetworkSettingsPanel network={snapshot.network} />
 
       <SurfaceCard subtle className={`grid gap-3 ${settingsCardClassName}`}>
         <SectionHeader

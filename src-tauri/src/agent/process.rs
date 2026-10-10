@@ -207,6 +207,24 @@ impl PackagedAgentRuntime {
         workspace_root: &Path,
         probe: bool,
     ) -> AgentResult<HostProcess> {
+        self.spawn_with_network(workspace_root, probe, None).await
+    }
+
+    pub(crate) async fn spawn_for_profile(
+        &self,
+        workspace_root: &Path,
+        probe: bool,
+        profile: &crate::ai_provider::ResolvedAiProfile,
+    ) -> AgentResult<HostProcess> {
+        self.spawn_with_network(workspace_root, probe, Some((&profile.base_url, &profile.network))).await
+    }
+
+    async fn spawn_with_network(
+        &self,
+        workspace_root: &Path,
+        probe: bool,
+        network: Option<(&str, &crate::ai_network::ResolvedAiNetwork)>,
+    ) -> AgentResult<HostProcess> {
         let workspace_root = workspace_root.canonicalize().map_err(|_| unavailable())?;
         directory(&workspace_root)?;
         // The Host creates the fixed ancestors before granting the child writes
@@ -283,6 +301,11 @@ impl PackagedAgentRuntime {
             if let Some(value) = std::env::var_os(name) {
                 command.env(name, value);
             }
+        }
+        if let Some((target, settings)) = network {
+            crate::ai_network::configure_node(&mut command, target, settings).map_err(|error| {
+                AgentError::new(ErrorCode::RuntimeIncompatible, format!("Invalid AI proxy configuration: {error}"))
+            })?;
         }
         #[cfg(windows)]
         command.creation_flags(0x08000000);
@@ -610,6 +633,88 @@ for await (const line of createInterface({ input: process.stdin })) {
         process.input.take().unwrap().shutdown().await.unwrap();
         assert_eq!(next(&mut process).await.unwrap(), None);
         process.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires prepared pinned Node runtime; run explicitly"]
+    async fn agent_process_proxy_modes_route_provider_fetch() {
+        use crate::models::AiProxyMode;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let fixture = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let script = format!(r#"
+try {{
+  const response = await fetch({});
+  process.stdout.write(JSON.stringify({{ok:response.ok,text:await response.text()}})+'\n');
+}} catch {{ process.stdout.write('{{"error":true}}\n'); }}
+"#, serde_json::to_string(&endpoint).unwrap());
+        let runtime = test_runtime(fixture.path(), &script);
+        let mut profile = crate::ai_provider::ResolvedAiProfile {
+            profile_name: "test".into(), provider_family: "openai_compatible".into(),
+            base_url: endpoint.clone(), api_key: String::new(), model: "test".into(),
+            supports_text: true, supports_image: false,
+            network: crate::ai_network::ResolvedAiNetwork { mode: AiProxyMode::Direct, proxy_url: None },
+        };
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 2048];
+            let count = socket.read(&mut bytes).await.unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..count]).starts_with("GET /v1 "));
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\ndirect").await.unwrap();
+        });
+        let mut direct = runtime.spawn_for_profile(workspace.path(), false, &profile).await.unwrap();
+        assert_eq!(next(&mut direct).await.unwrap(), Some(json!({"ok":true,"text":"direct"})));
+        direct.shutdown().await.unwrap();
+        server.await.unwrap();
+
+        // Keep the origin reachable while testing custom proxy and failure.
+        // Any unintended direct fallback would connect to this listener.
+        let origin = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", origin.local_addr().unwrap());
+        profile.base_url = endpoint.clone();
+        fs::write(runtime.root.join("src/index.mjs"), format!(r#"
+try {{
+  const response = await fetch({});
+  process.stdout.write(JSON.stringify({{ok:response.ok,text:await response.text()}})+'\n');
+}} catch {{ process.stdout.write('{{"error":true}}\n'); }}
+"#, serde_json::to_string(&endpoint).unwrap())).unwrap();
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut proxy_url = reqwest::Url::parse(&format!("http://{}", proxy.local_addr().unwrap())).unwrap();
+        proxy_url.set_username("agent").unwrap();
+        proxy_url.set_password(Some("secret")).unwrap();
+        profile.network = crate::ai_network::ResolvedAiNetwork { mode: AiProxyMode::Custom, proxy_url: Some(proxy_url.to_string()) };
+        let proxy_server = tokio::spawn(async move {
+            let (mut socket, _) = proxy.accept().await.unwrap();
+            let mut bytes = [0u8; 2048];
+            let mut count = 0;
+            while !bytes[..count].windows(4).any(|part| part == b"\r\n\r\n") {
+                let read = socket.read(&mut bytes[count..]).await.unwrap();
+                assert!(read > 0);
+                count += read;
+                assert!(count < bytes.len());
+            }
+            let request = String::from_utf8_lossy(&bytes[..count]);
+            assert!(request.starts_with("CONNECT "), "{request}");
+            assert!(request.to_ascii_lowercase().contains("proxy-authorization: basic ywdlbnq6c2vjcmv0"), "{request}");
+            socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await.unwrap();
+            let count = socket.read(&mut bytes).await.unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..count]).starts_with("GET /v1 "));
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nproxy").await.unwrap();
+        });
+        let mut custom = runtime.spawn_for_profile(workspace.path(), false, &profile).await.unwrap();
+        assert_eq!(next(&mut custom).await.unwrap(), Some(json!({"ok":true,"text":"proxy"})));
+        custom.shutdown().await.unwrap();
+        proxy_server.await.unwrap();
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(150), origin.accept()).await.is_err());
+
+        profile.network.proxy_url = Some("http://127.0.0.1:1".into());
+        let mut failed = runtime.spawn_for_profile(workspace.path(), false, &profile).await.unwrap();
+        assert_eq!(next(&mut failed).await.unwrap(), Some(json!({"error":true})));
+        failed.shutdown().await.unwrap();
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(150), origin.accept()).await.is_err());
     }
 
     #[tokio::test]

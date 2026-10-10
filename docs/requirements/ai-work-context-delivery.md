@@ -4,6 +4,10 @@
 
 范围变更（2026-10-09）：项目内 HTML/Markdown/Word/Excel/PPT 文件编辑与预览归[独立需求](project-file-integration.md)及[父 Issue #118](https://github.com/xuchen-cloud/project_mind/issues/118)；HTML 子 Issue [#115](https://github.com/xuchen-cloud/project_mind/issues/115)迁至 #118。AI 保留支持文件的生成、源码读取、同 File ID 续改、保存/版本/撤销及成果链接。编辑器、预览器、开源格式组件、HTML 执行隔离与诊断由独立需求验收。既有实现不删除；迁出不代表 #115/#118 已完成。以下带日期的旧审查、执行证据和估算保持当时口径，当前 M0～M4、#106/#107 与 #97 的验收不依赖 #115/#118。
 
+## AI 网络连接包 NP1（2026-10-10）
+
+用户要求产品支持系统代理和自定义代理。关联 [#119](https://github.com/xuchen-cloud/project_mind/issues/119)，详细行为、边界及验收见[AI 代理需求](ai-network-proxy.md)。复用现有 AI 设置与请求运行时，新增三种选择（系统代理默认、自定义 HTTP/HTTPS、直连），配置覆盖当前 Workspace 的所有模型请求。实现与本地验证完成，目标平台真实系统设置仍待验收；不扩大为全应用网络设置，支持单独账号密码或 URL 认证，按用户要求使用普通本地配置；不增加 PAC 或 SOCKS。原生 Provider 和 Node 会话/连接测试必须同时接入；真实 Windows/macOS 系统设置验收仍单列。
+
 <a id="workspace-memory-revision-20261010"></a>
 
 ## Workspace 记忆关系与生命周期调整（2026-10-10，当前新增执行包）

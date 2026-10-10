@@ -24,10 +24,13 @@ chrono = { version = "0.4.44", features = ["serde"] }
 image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 fs2 = "0.4.3"
 futures-util = "0.3.33"
+http = "1.4.0"
+hyper-util = { version = "0.1.20", features = ["client-proxy", "client-proxy-system"] }
+percent-encoding = "2.3.2"
 mime_guess = "2.0.5"
 keyring = "=4.2.0"
 rand = "0.8.5"
-reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls", "system-proxy"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }
 rusqlite = { version = "0.39.0", features = ["backup", "bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }

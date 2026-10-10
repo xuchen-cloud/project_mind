@@ -258,6 +258,33 @@ pub struct AiEditorSkillRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiProxyMode {
+    #[default]
+    System,
+    Custom,
+    Direct,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiNetworkSettings {
+    pub mode: AiProxyMode,
+    pub proxy_url: Option<String>,
+    pub username: Option<String>,
+    pub has_stored_password: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiNetworkSettingsUpsertInput {
+    pub mode: AiProxyMode,
+    pub proxy_url: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettingsSnapshot {
@@ -268,6 +295,7 @@ pub struct AiSettingsSnapshot {
     pub security_mode: String,
     pub ai_secrets_unlocked: bool,
     pub execution: AiExecutionSettings,
+    pub network: AiNetworkSettings,
     pub editor_skills: Vec<AiEditorSkillRecord>,
 }
 

@@ -272,7 +272,7 @@ async fn verify_with_runtime(
         biased;
         _ = cancellation(&mut cancel) => return Err(cancelled()),
         _ = tokio::time::sleep_until(deadline) => return Err(AgentError::new(ErrorCode::BudgetExceeded,"Profile probe timed out")),
-        result = runtime.spawn(&root, true) => result?,
+        result = runtime.spawn_for_profile(&root, true, &profile) => result?,
     };
     let result = tokio::select! {
         biased;
@@ -572,6 +572,7 @@ mod tests {
             model: "fixture".into(),
             supports_text: true,
             supports_image: false,
+            network: Default::default(),
         };
         let (_sender, cancel) = watch::channel(false);
         tokio::time::timeout(

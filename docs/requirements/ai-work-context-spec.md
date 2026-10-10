@@ -217,3 +217,7 @@ AI 现有 18 个子 Issue 沿原编号管理，#115 迁入独立需求 #118，�
 工程实现从[工程契约目录](ai-work-context-engineering-spec.md)进入。已有基础服务、Record版本与部分File/知识服务实现；产品可用性按交付计划和实际验收判断，不能由内部接口存在推定。新增领域术语与架构决策随对应实现更新CONTEXT和ADR。
 
 参考依据见[LLM Wiki渐进披露调研](../technical/llm-wiki-progressive-disclosure-research.md)与[CLI、Open Design、Pi调研](../technical/ai-capability-reference-research.md)。索引优先、知识积累和按需读取采用LLM Wiki思想；本文的作用域、版本、调度和存储是Mind的具体设计。
+
+## AI 网络连接（2026-10-10）
+
+用户可在 AI 设置选择系统代理（默认）、自定义 HTTP/HTTPS 代理或直连，当前 Workspace 的所有模型请求共用。连接测试使用同一配置；代理失败明确报错。完整范围及平台边界见[AI 代理需求](ai-network-proxy.md)，交付见 NP1 / #119。

@@ -728,6 +728,22 @@ export interface AiCapabilityBindingRecord {
   updatedAt: string;
 }
 
+export type AiProxyMode = "system" | "custom" | "direct";
+
+export interface AiNetworkSettings {
+  mode: AiProxyMode;
+  proxyUrl?: string | null;
+  username?: string | null;
+  hasStoredPassword: boolean;
+}
+
+export interface AiNetworkSettingsUpsertInput {
+  mode: AiProxyMode;
+  proxyUrl?: string | null;
+  username?: string | null;
+  password?: string | null;
+}
+
 export interface AiSettingsSnapshot {
   profiles: AiProviderProfileRecord[];
   bindings: AiCapabilityBindingRecord[];
@@ -736,6 +752,7 @@ export interface AiSettingsSnapshot {
   securityMode: string;
   aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
+  network: AiNetworkSettings;
   editorSkills: AiEditorSkillRecord[];
 }
 

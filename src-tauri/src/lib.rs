@@ -1,6 +1,7 @@
 pub mod agent;
 mod ai_jobs;
 mod ai_provider;
+mod ai_network;
 mod db;
 mod models;
 mod record_documents;
@@ -1212,6 +1213,14 @@ fn ai_jobs_list_active(state: State<'_, AppState>) -> CommandResult<Vec<AiJobSna
 }
 
 #[tauri::command]
+fn ai_network_settings_upsert(
+    state: State<'_, AppState>,
+    input: models::AiNetworkSettingsUpsertInput,
+) -> CommandResult<models::AiNetworkSettings> {
+    with_db(state, |db| db.ai_network_settings_upsert(input))
+}
+
+#[tauri::command]
 fn ai_execution_settings_upsert(
     state: State<'_, AppState>,
     input: AiExecutionSettings,
@@ -1562,6 +1571,7 @@ pub fn run() {
             ai_image_target_signature,
             ai_jobs_list_active,
             ai_execution_settings_upsert,
+            ai_network_settings_upsert,
             internal_reference_search,
             internal_reference_resolve,
             workspace_search,

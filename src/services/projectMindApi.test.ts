@@ -244,12 +244,23 @@ describe("projectMindApi", () => {
       execution: {
         maxConcurrency: 1,
       },
+      network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
       editorRewriteActions: [],
     });
 
     await projectMindApi.aiSettingsGet();
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_settings_get");
+  });
+
+  it("maps AI network settings save with the input payload", async () => {
+    const input = { mode: "custom" as const, proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", password: "secret" };
+    const output = { mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", hasStoredPassword: true };
+    serviceMocks.commandMock.mockResolvedValueOnce(output);
+
+    await expect(projectMindApi.aiNetworkSettingsUpsert(input)).resolves.toEqual(output);
+
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_network_settings_upsert", { input });
   });
 
   it("maps project tag settings fetch with project payload", async () => {

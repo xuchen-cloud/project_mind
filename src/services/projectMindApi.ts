@@ -10,6 +10,8 @@ import type {
   AiExecutionSettings,
   AiJobEnqueueInput,
   AiJobSnapshot,
+  AiNetworkSettings,
+  AiNetworkSettingsUpsertInput,
   AiProfileTestInput,
   AiProfileTestResult,
   AiProviderProfileDeleteInput,
@@ -213,6 +215,8 @@ export const projectMindApi = {
     desktopApi.command<DocumentRecord>("document_delete", { input }),
   aiSettingsGet: () =>
     desktopApi.command<AiSettingsSnapshot>("ai_settings_get"),
+  aiNetworkSettingsUpsert: (input: AiNetworkSettingsUpsertInput) =>
+    desktopApi.command<AiNetworkSettings>("ai_network_settings_upsert", { input }),
   richTextStyleGet: () =>
     desktopApi.command<RichTextStyleSettings>("rich_text_style_get"),
   richTextStyleUpsert: (input: RichTextStyleUpsertInput) =>

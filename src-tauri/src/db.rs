@@ -3,6 +3,7 @@ mod agent_connections;
 mod agent_references;
 mod agent_connection_operations;
 mod agent_profiles;
+mod ai_network;
 mod agent_sessions;
 mod agent_session_maintenance;
 mod agent_session_summary;
@@ -157,6 +158,7 @@ const WINDOWS_RESERVED_PATH_NAMES: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
+const APP_SETTING_KEY_AI_NETWORK_SETTINGS: &str = "ai_network_settings";
 const APP_SETTING_KEY_AI_EXECUTION_SETTINGS: &str = "ai_execution_settings";
 const APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS: &str = "ai_editor_rewrite_actions";
 const APP_SETTING_KEY_AI_EDITOR_SKILLS: &str = "ai_editor_skills";
@@ -3784,6 +3786,7 @@ impl Database {
             security_mode: WORKSPACE_SECURITY_MODE.to_string(),
             ai_secrets_unlocked: self.secret_password.is_some(),
             execution,
+            network: self.ai_network_settings_get()?,
             editor_skills,
         })
     }
@@ -4434,6 +4437,7 @@ impl Database {
         .ok_or_else(|| anyhow!("testing an AI profile requires an API key"))?;
 
         let profile = ResolvedAiProfile {
+            network: self.resolve_ai_network()?,
             profile_name: input.name.trim().to_string(),
             provider_family: input.provider_family.trim().to_string(),
             base_url: normalize_base_url(&input.base_url),
@@ -5880,6 +5884,7 @@ impl Database {
         }
 
         Ok(ResolvedAiProfile {
+            network: self.resolve_ai_network()?,
             profile_name: profile.name,
             provider_family: profile.provider_family,
             base_url: profile.base_url,
@@ -5930,6 +5935,7 @@ impl Database {
             return Err(anyhow!("AI profile is unavailable"));
         }
         Ok(ResolvedAiProfile {
+            network: self.resolve_ai_network()?,
             profile_name: profile.name,
             provider_family: profile.provider_family,
             base_url: profile.base_url,

@@ -9,7 +9,7 @@ vi.mock("./aiJobs", async (original) => ({ ...await original<typeof import("./ai
 const binding = { workspaceId: "workspace", generation: "opened" };
 const record: WorkspaceRecord = { id: 7, title: "Quick note", tags: [], contentHtml: "<p>Body</p>", contentMarkdown: "Body", createdAt: "now", updatedAt: "now" };
 const baseline = { title: record.title!, tagIds: [], revision: "metadata-1", updatedAt: "now" };
-const aiSettings: AiSettingsSnapshot = { profiles: [], bindings: [], hasUsableDefault: true, hasUsableImageDefault: false, securityMode: "workspace", aiSecretsUnlocked: true, execution: { maxConcurrency: 1 }, editorSkills: [] };
+const aiSettings: AiSettingsSnapshot = { profiles: [], bindings: [], hasUsableDefault: true, hasUsableImageDefault: false, securityMode: "workspace", aiSecretsUnlocked: true, execution: { maxConcurrency: 1 }, network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false }, editorSkills: [] };
 const job: AiJobSnapshot = { id: 1, kind: "record_metadata", targetKey: "fixture", status: "succeeded", queuedAt: "now", result: { kind: "record_metadata", metadata: { title: "AI title", existingTagIds: [9], newTags: ["New"] } } };
 const args = { binding, record, aiSettings, availableTags: [] };
 
