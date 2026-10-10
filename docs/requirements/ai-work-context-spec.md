@@ -1,6 +1,6 @@
 # AI 工作上下文：统一产品规格
 
-更新：2026-10-10。状态：**本轮目标已确认，待补实现与产品验收**。本规格统一此前讨论和历史需求包；不以文档整理宣告功能完成。实现基线为 `cc3ecf9`，实际证据与缺口见[验收台账](ai-work-context-acceptance.md)。父需求继续使用 [#97](https://github.com/xuchen-cloud/project_mind/issues/97)。
+更新：2026-10-10。状态：**本轮目标已确认，待补实现与产品验收**。本规格统一此前讨论和历史需求包；不以文档整理宣告功能完成。实现基线为 `cc3ecf9`，实际证据与缺口见[验收台账](ai-work-context-acceptance.md)。父需求继续使用 [#97](https://github.com/xuchen-cloud/project_mind/issues/97)，本规格已发布为[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121)。
 
 ## Problem Statement
 

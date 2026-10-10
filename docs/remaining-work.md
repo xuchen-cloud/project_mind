@@ -14,14 +14,16 @@ GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品
 | P1 | [#56 Project 驻留验证](https://github.com/xuchen-cloud/project_mind/issues/56) | 驻留、预取、LRU 和缓存契约已有自动化覆盖；两平台的真实切换和内存证据未完成 | macOS 与 Windows WebView2 完成同一套场景并记录结果 |
 | P1 | [#60 帮助中心收尾](https://github.com/xuchen-cloud/project_mind/issues/60) | 文案草稿在独立分支；当前界面经历了较大调整，截图与操作说明需要重新核对 | 内容基于当前 UI，素材、首轮工作流和两平台说明验收完成 |
 
-## AI 工作上下文：实施中
+## AI 工作上下文：当前规格与待交付差距
 
-- [父 Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97) 是完整 PRD 和开发工单入口；[开发规格](requirements/ai-work-context-spec.md) 说明产品行为；[工程契约](requirements/ai-work-context-engineering-spec.md)集中数据/接口/故障规则，[交付验收](requirements/ai-work-context-delivery.md)集中工单定义与验收。Overview独立于QuickNote，不建设首页“继续工作”卡片。
-- 首期包含AI维护的Project Overview、每日/隔日增量整理、会话摘要检索及消息引用、按问题渐进读取、Pi 内置会话、带来源问答、Record块修改与版本恢复、项目File版本化修改、成果保存、CLI/MCP；后续为 Workspace分层Overview与长期记忆、多 Agent/菜单和无界面运行。
-- 当前 AI 子任务为 18 个（#98～#116，去除 #115），原编号保留。首期验收为 #107；#113 Record 版本、#114 File 版本化修改及 #116 任务确认/撤销继续属于 AI。HTML 子包 #115 已迁入独立文件需求 #118，不再阻塞 AI。
-- 2026-10-09 已对照规格、工程契约与 R01～R16 核对当前实现：主要服务已接通，真实模型与目标平台仍待验。近期按交付计划补确认体验、本地调度、成段摘要和会话模型选择，再完成 R13 的 AI/E16 验收；后续 R14～16 保留。历史 R01 开工顺序不是当前待办。
-- [项目文件预览与编辑集成](requirements/project-file-integration.md)及[独立需求 #118](https://github.com/xuchen-cloud/project_mind/issues/118)负责 HTML、Markdown、Word、Excel、PPT 的项目内编辑预览与开源组件集成，当前为独立规划。AI 继续生成/修改支持的文件并复用保存、版本与撤销，不因拆分删除已有能力。
-- [方向讨论稿](technical/ai-capability-direction.md) 和 [参考调研](technical/ai-capability-reference-research.md) 保留思路来源；默认沉淀行为以开发规格为准：过程自动保存、成果自主保存并可撤销，Overview随助手启用后定期增量维护。
+AI 部分更新：2026-10-10；其余待办保留原判定。父需求 [#97](https://github.com/xuchen-cloud/project_mind/issues/97) 是导航，[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121) 是当前产品需求；详细要求、实现与验收分别见[主规格](requirements/ai-work-context-spec.md)、[工程契约](requirements/ai-work-context-engineering-spec.md)、[记忆细则](requirements/workspace-memory-lifecycle.md)和[验收台账](requirements/ai-work-context-acceptance.md)。
+
+- 当前统一模型为 Context 与内置 Pi Agent；Memory 包含 Overview 和长期记忆，行为按交互记忆与回顾整理区分。Workspace 统一可编辑 Skill 和 Harness 结构化设置待接线。
+- 本轮主要差距为 Workspace 唯一长期记忆、项目背景栏目及沿用、请求绑定即时操作、明确决定的 Overview 增量、完整精简快照、下一次请求生效、联合整理与并发恢复。Project/Workspace 会话、分层 Overview、六类旧记忆、原生成果和 CLI/MCP 已有本地基础，真实 Provider 与目标桌面验收仍待完成。
+- 当前覆盖只在[交付总览 V1～V5](requirements/ai-work-context-delivery.md#current-delivery)维护；它们尚不是批准的实施工单/排期。旧 M/R/WP/S/LM 与子工单原文已[归档](requirements/archive/README.md)，编号和开放状态保留、旧执行标签移除；后续拆票另走 `/to-tickets`。
+- 外部 Harness、任务菜单和闭应用 Host #110～112 暂缓；既有 Mind CLI/MCP 继续维护。文件预览/编辑 #118/#115 与 [AI 网络代理 #119](requirements/ai-network-proxy.md)分别按独立需求及自己的证据验收。
+- 普通成果默认 review 一次任务确认，协作/只读按用户选择；明确记忆请求和决定增量按具体授权规则处理。历史确定性测试或模拟模型通过不等于新记忆目标、真实语义与实机产品签收。
+
 
 ## P0：Voice Record 收尾
 

@@ -1,6 +1,6 @@
 # AI 工作上下文：当前交付总览
 
-更新：2026-10-10。本文是 AI 父需求 [#97](https://github.com/xuchen-cloud/project_mind/issues/97) 的唯一交付导航与覆盖总览；产品要求、工程契约和验收证据分别在下列权威文件维护。历史计划已[完整归档](archive/ai-work-context-delivery-history-20261010.md)，历史完成状态不代表本轮新增要求完成。
+更新：2026-10-10。本文是 AI 父需求 [#97](https://github.com/xuchen-cloud/project_mind/issues/97) 与[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121) 的唯一交付导航与覆盖总览；产品要求、工程契约和验收证据分别在下列权威文件维护。历史计划已[完整归档](archive/ai-work-context-delivery-history-20261010.md)，历史完成状态不代表本轮新增要求完成。
 
 ## 权威入口
 

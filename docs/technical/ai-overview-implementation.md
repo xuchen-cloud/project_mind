@@ -1,5 +1,7 @@
 # AI Overview 实施记录
 
+状态：带日期的历史实施证据。以下 P5/S 等章节保留当时事实，较早的“未接入”和 schema 编号不代表当前状态；当前目标见[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121)，当前覆盖见 [V1～V5](../requirements/ai-work-context-delivery.md#current-delivery)，实际缺口见[验收台账](../requirements/ai-work-context-acceptance.md)。
+
 需求：[主规格](../requirements/ai-work-context-spec.md)、[工程契约](../requirements/ai-work-context-engineering-spec.md)、[交付包](../requirements/ai-work-context-delivery.md)。Issue 状态以 [#101](https://github.com/xuchen-cloud/project_mind/issues/101) 为准；以下为内部阶段证据，不表示整个 Issue 已交付。
 
 ## P5a：Project Overview 持久版本与选择性读取（2026-10-03）

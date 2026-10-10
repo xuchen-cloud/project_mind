@@ -1,6 +1,6 @@
 # 长期记忆实施说明
 
-> **2026-10-10 需求已调整，待改造。** 当前实现仍是下文 S7 基线。新的权威要求见[Workspace 记忆关系与生命周期](../requirements/workspace-memory-lifecycle.md)：长期记忆仅归 Workspace，项目稳定信息进入 Overview 专门栏目，一次模型生成可同时沉淀两处，并补齐统一操作、清理及精简快照。实施列入 [LM1～LM5](../requirements/ai-work-context-delivery.md#workspace-memory-revision-20261010)。下文“本地完成”仅指旧 S7，不代表新要求已完成。
+> **2026-10-10 历史实现基线。** 下文保留旧 S7 的代码与验证事实；当前产品要求见[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121)及[记忆生命周期](../requirements/workspace-memory-lifecycle.md)，当前覆盖见 [V1～V5](../requirements/ai-work-context-delivery.md#current-delivery)。Workspace 唯一归属、项目沿用/请求绑定写入、统一 Skill/设置、即时 Overview 增量、快照和联合整理均待补实现。旧 LM1～LM5 仅[历史映射](../requirements/archive/ai-work-context-delivery-history-20261010.md#workspace-memory-revision-20261010)，不是当前执行路线；下文“本地完成”不等于新要求完成。
 
 状态：2026-10-09，S7 本地实现及有效验证完成；真实模型与目标平台验收尚未完成。对应 [S7/R14c 工作包](../requirements/ai-work-context-delivery.md)和 [Hermes 固定版本源码参考](hermes-memory-reference.md)。Workspace 分层知识由 S6 提供；这里复用它的来源证明、知识正文与版本。
 

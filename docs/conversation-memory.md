@@ -1,5 +1,7 @@
 # 会话记忆：原文检索与派生知识
 
+阅读定位：本文保留 2026-10-09 会话索引与摘要的技术基线及阶段证据，R/WP 是历史编号；当前目标见[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121)，当前覆盖见 [V1～V5](requirements/ai-work-context-delivery.md#current-delivery)。新会话即时沉淀、Skill 和并发协作要求见[记忆细则](requirements/workspace-memory-lifecycle.md)，本文不形成另一条执行路线。
+
 更新：2026-10-09。状态：GUI 回读与历史树索引已实现；R11b2～b4 的模型访问、增量摘要和 Overview 集成已完成确定性集成验证，真实模型往返与目标平台验收仍待完成。交付顺序和验收见[交付计划 R11](requirements/ai-work-context-delivery.md#r11-会话成为可追溯知识--105102)；产品目标和 E5 规则分别见[主规格](requirements/ai-work-context-spec.md)与[工程契约](requirements/ai-work-context-engineering-spec.md#e5)。本文件细化检索先行的切入点。
 
 ## 决定与边界
