@@ -1,6 +1,8 @@
 # AI 工作上下文：工程契约
 
-更新：2026-10-09。用户确认将项目内 HTML/Markdown/Word/Excel/PPT 编辑预览及开源软件集成拆至[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 随之迁出，不作为 AI #97 的 M0～M4 或发布前置。状态：实施中，内部服务与产品接入进度不同。与[主规格](ai-work-context-spec.md)、[交付与验收](ai-work-context-delivery.md)共同构成开发依据。这里集中定义接口、数据、并发、预算与故障处理；Issue状态以GitHub为准，当前逐包对照与缺口见[2026-10-09 审视](ai-work-context-delivery.md#intent-audit-20261009)，原 D2a 保留历史快照。
+更新：2026-10-10。本文件是[主规格](ai-work-context-spec.md)的工程契约，定义接口、持久化、授权、并发和恢复；当前任务与验收缺口见[交付计划](ai-work-context-delivery.md)，长期记忆的操作与生命周期细节见[生命周期需求](workspace-memory-lifecycle.md)。文件编辑预览及开源格式组件集成属于[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 已迁出，不作为 AI #97 发布前置。
+
+实现事实以当前 HEAD `cc3ecf9` 的源码为基线：已有 Pi 0.99.1 内置运行时、原生 Record/Todo/File 成果与版本/撤销、CLI/MCP 服务、Project/Workspace 会话和增量知识维护、六类记忆节点及用户策略；这些本地实现不代表真实 Provider、目标平台或本轮目标已验收。下文的统一 Skill、Workspace-only 长期记忆、Project 背景与约定栏目、会话 Overview 即时增量及联合整理是确认的目标，不能凭历史测试宣称已接通。历史实现与验证只作为证据，见交付文档中的历史材料入口。
 
 文中的E编号是稳定工程主题编号。产品流程先读主规格，实现具体模块时按下面目录进入；不存在“较后补充章节覆盖前文”的规则。
 
@@ -25,17 +27,19 @@
 
 ## E1 领域边界与现有代码
 
+Context 承载各自保留业务身份的资料、会话、知识、Overview 与长期记忆；Agent 在其中理解和行动。不同页面入口沿用同一 Agent 与 Workspace Harness 配置，scope、来源权限和每次操作的授权仍独立核验。
+
 QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保存命令或编辑状态。
 
 | 对象 | 当前/规划存储 | 可写入口 | 禁止行为 |
 | --- | --- | --- | --- |
 | Project QuickNote | 当前projects.summary/summary_markdown/summary_html历史列；API quickNote* | 现有用户编辑/发布流程 | 不将旧列迁移成Overview，不让维护任务覆盖正文 |
 | Workspace QuickNote | 当前workspace_notes中的today_quick_note单例 | 现有QuickNote服务 | 不复用为Workspace Overview或长期记忆容器 |
-| AI Overview | 新agent_overviews及版本/依赖表 | 独立Overview维护服务 | 不调用project_update或QuickNote upsert保存概览 |
+| AI Overview | 已有 `agent_overviews` 及版本/依赖表 | 独立 Overview 服务；目标增加有类型会话增量 | 不调用 project_update 或 QuickNote upsert 保存概览 |
 
 代码证据：src-tauri/src/models.rs的ProjectRecord/ProjectListItem通过serde将summary*映射为quickNote*；ProjectUpdateInput保留summary*输入alias以兼容旧客户端。src/components/project/ProjectOverviewPage.tsx是项目主页组件，其名字不代表AI Overview。创建Agent DTO时使用AiProjectOverview/AiWorkspaceOverview，避免与页面和ProjectRecord混名。
 
-当前未实现AI Overview，没有发现Overview写入QuickNote的路径；不为文档整理做无关数据库改名。后续若重命名内部Rust字段，需保留serde别名、数据库兼容与原有QuickNote迁移/保存测试。新增来源读取时QuickNote可作为标注“临时想法”的输入，但不得由此推断确认目标，也不得自动改写、清空或发布它。
+当前已有独立 AI Overview 与维护服务；其写入不复用 QuickNote 保存路径。不为文档整理做无关数据库改名。后续若重命名内部Rust字段，需保留serde别名、数据库兼容与原有QuickNote迁移/保存测试。新增来源读取时QuickNote可作为标注“临时想法”的输入，但不得由此推断确认目标，也不得自动改写、清空或发布它。
 
 | 当前入口 | 已有能力 | 实施要求 |
 | --- | --- | --- |
@@ -43,16 +47,16 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 | `src-tauri/src/db.rs` / `models.rs` | Record/Todo/File、导入、版本、搜索、引用 | 复用实体写逻辑；新增模块承接 AI 领域；迁移沿现有版本机制 |
 | `src/services/projectMindApi.ts` | Tauri typed wrapper | 新 Agent 页面走 `agentApi.ts`，底层仍统一 Tauri command |
 | `src/components/project/ProjectOverviewPage.tsx` | Project 首页与 QuickNote | 仅放助手入口；Overview查看/纠正在助手内按需打开，不新增首页卡片 |
-| `src/components/workspace/WorkspacePage.tsx` | Workspace 页面 | M2 增加同构助手入口 |
+| `src/components/workspace/WorkspacePage.tsx` | Workspace 页面与已有助手入口 | 沿用同构会话与真实归属校验 |
 | `src/components/settings/SettingsDialog.tsx` / `AiSettingsPanel.tsx` | 模型和编辑技能 | 新增“项目助手”“外部连接”两个分区；保持现有模型/编辑技能 |
 | `src/lib/internalReferences.ts` 与编辑器扩展 | 引用序列化/跳转 | 复用 canonical 表示，补齐 workspace Record 的引用解析与反向索引 |
 | `src/features/record-export/*` | Record 统一导出模型 | 复用 Markdown/HTML 语义；不能在 Rust 或 Node 中直接调用依赖 DOM 的模块 |
 | `src/lib/record-save-coordinator.ts` | Committed Content 保存屏障 | 内置发起任务前 flush 当前 Workspace 编辑；外部读取明确只见已保存状态 |
 | `src/lib/queryKeys.ts` / `docs/cache-strategy.md` | 页面驻留与缓存 | 增加 Agent scoped keys 与业务变更通知；禁止全应用定时刷新 |
 
-检查时数据库当前版本为 25；开发时使用最新版本的下一个可用编号，不硬编码所有并行任务都迁移到 26。对外quickNote*及内部历史summary*均表示QuickNote，不是AI Overview。
+HEAD 的 `CURRENT_SCHEMA_VERSION` 指向 `AGENT_MEMORY_SCHEMA_VERSION=37`；新数据库结构沿现有版本机制分配下一个可用编号。对外quickNote*及内部历史summary*均表示QuickNote，不是AI Overview。
 
-这是实现契约，不增加逐工具确认弹窗：只读工具在已选范围内直接执行；默认review对同一用户任务的写入方案一次确认，主动选择collaborate后在已授权范围直接执行，不逐对象/块重复询问。每次原生写入仍有CAS、版本和收据；改变范围或长期自动化策略通过设置，任务确认不能扩大grant。
+这是实现契约，不增加逐工具确认弹窗：只读工具在已选范围内直接执行；普通 Record/Todo/File 成果默认 review 对同任务方案一次确认，collaborate 在已授权范围直接执行，read_only 拒绝写入。新记忆入口与会话 Overview 定向增量核验真实明确请求，已有明确的保存/点名修改/决定不再重复确认；不据此豁免普通成果的 review 方案确认。含糊目标先澄清，不逐对象/块重复询问。每次原生写入仍有 CAS、版本和收据；任务确认不能扩大 grant。统一 Skill 文件修改按相应文件权限直接保存并告知，运行调度单独通过 Harness 设置操作。
 
 - 资料内容不授予操作能力；tool dispatcher 绑定 run grant，禁止让模型通过参数扩大 scope 或 savePolicy。
 - 不自动加载磁盘 AGENTS.md、第三方 Pi extensions 或 MCP server；当前产品规则通过 Host 明确注入。
@@ -67,7 +71,7 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 
 ## E2 持久数据与迁移
 
-以下均为新增表/字段，名字是建议的正式实现契约。SQLite JSON 用 TEXT + schema 校验；事务内校验多态外键对应实体。时间用 UTC RFC3339；本机路径不进入 Workspace 表。
+以下是持久化职责与字段契约，包含已有结构及待调整部分；实际表与 DTO 以 HEAD 源码为准，不能将此表当作全部待建或已交付清单。SQLite JSON 用 TEXT + schema 校验；事务内校验多态外键对应实体。时间用 UTC RFC3339；本机路径不进入 Workspace 表。
 
 | 表 | 关键字段及约束 |
 | --- | --- |
@@ -89,16 +93,14 @@ QuickNote与AI Overview是不同概念，不共享对象ID、正文存储、保�
 | `agent_change_log` | seq INTEGER PK AUTOINCREMENT，object_key，scope_key，operation，revision，created_at；提交同事务 outbox，用于刷新/索引/撤销授权，按E7消费 |
 | `agent_connection_grants` | id PK，client_label，scope_grant_json，operations_json，enabled，created_at，revoked_at；不存明文 bearer token |
 
-迁移：每个 schema 批次沿现有 backup/savepoint 路径执行；旧工作区默认关闭，无会话且不自动入队；重跑迁移幂等。禁止把 Query 缓存或 runtime 对象保存到业务表。新表查询加 scope/time/foreign-key 索引；session 删除级联其 run/message/summary/staged output，committed object 独立保留。
+数据库结构升级沿现有 backup/savepoint 路径执行，结构操作幂等。AI 尚未进入用户测试，不实施旧 AI 数据迁入、旧格式兼容或历史身份映射；按本轮目标直接建立新的 AI 结构，保留 QuickNote、Record、Todo、File 及其业务历史。基础版本“旧 Workspace 默认关闭、无会话且不入队”的规则仅是当时初始化证据，不把已有 Workspace 的现有设置或业务数据重置。禁止把 Query 缓存或 runtime 对象保存到业务表。新表查询加 scope/time/foreign-key 索引；session 删除级联其 run/message/summary/staged output，committed object 独立保留。
 
 ### 知识与会话扩展表
 
 - `agent_overviews(scope_key PK,current_revision,as_of_seq,status,coverage_json,policy_revision,updated_at)`与`agent_overview_versions(scope_key,revision,items_json,source_manifest_json,as_of_seq,model_profile_id,created_at)`保存不可变快照，旧overview不递归成为独立source；快照随Workspace备份，首期不自动裁剪。
 - `agent_overview_dependencies(scope_key,item_id,source_object_key,source_revision,parent_overview_scope,parent_item_id,parent_revision)`支持原始依赖与逐层失效；来源权限每次读取仍校验。
 - `agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision)`与业务outbox同事务更新；Overview自身写入只通知父Workspace，不再将自己当Project业务变化，防止无限更新循环。
-- M2 长期条目复用现有知识节点、正文及不可变版本，增加记忆类别、确认程度、状态与支持时间；不再另建一张重复保存正文的 `agent_memory_items` 表。用户确认、纠正和抑制策略由原生服务独立保存，模型维护不得覆盖。抑制依据为原始来源身份及记忆类别，不依赖模型生成的标题或条目 ID。S7 本地实现以 `KnowledgeKind::Memory` 和 `memory.category` 表达条目及六种类别，schema 37 保存独立用户策略与抑制；实际验证与外部验收缺口见交付台账。
-
-2026-10-10 [生命周期修订](workspace-memory-lifecycle.md)要求新活动 Memory 唯一以 Workspace 为 owner，原生写边界拒绝 Project Memory。AI 尚未开始用户测试，直接按新模型建立 Project Overview 的“项目背景与约定”栏目，不做旧 AI 数据迁入、格式兼容或历史身份映射；保留原有业务资料。此段为待实现契约，上段 S7 仅描述历史代码和验证状态。
+- 长期记忆复用已有知识节点、正文及不可变版本，不另建重复正文存储；目标活动 owner 唯一为 Workspace，原生写边界拒绝 Project Memory。Project 专属稳定信息进入 Project Overview 的“项目背景与约定”栏目。六类记忆、确认与状态、支持时间、来源抑制见 E4；确认、纠正和抑制策略独立保存，模型维护不得覆盖。HEAD 的 `KnowledgeKind::Memory`、`memory.category` 和 schema 37 用户策略是可复用实现，不证明 Workspace-only 及会话操作已完成。
 
 - `agent_session_summary_segments(id,session_id,branch_id,start_entry_id,end_entry_id,revision,summary_json,message_refs_json,source_refs_json,coverage,input_hash,status)`保存分段当前摘要；历史版本独立保留，唯一(session,branch,range,inputHash)。FTS按segment索引，最新状态与历史时态可区分。
 
@@ -137,17 +139,21 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 
 ### 知识结构
 
-每Project一份current Overview，profile是其中相对稳定的部分，不维护互相矛盾的两份自由文本。
+每 Project 一份 current Overview，profile 是其中相对稳定的部分；目标在同一 Overview 中设置“项目背景与约定”栏目，不维护 Project Memory 或另一份自由文本。
 
 | 区域 | 内容 | 证据要求 |
 | --- | --- | --- |
-| profile | 项目要解决的问题、目标、背景、范围、约束、术语 | 指向目标/方案Record；自动归纳标inferred，未确定标unknown |
+| profile / 项目背景与约定 | 项目要解决的问题、目标、背景、范围、约束、术语及项目专属约定 | 指向真实来源；自动归纳标 inferred，未确定标 unknown，明确决定由原生层核验 |
 | progress | 已完成的重要工作、当前阶段、关键决定及理由、阶段变化 | 指向Record、Voice Record/Transcript时间段、File Version或正式会话消息 |
 | knowledgeMap | 关键问题/主题→最值得读取的资料入口及读取理由 | SourceRef含对象、版本、block或时间定位；不是全量正文 |
 | actions | 下一步、阻塞、未完成Todo、需要重新评估的长期停滞事项 | 真实TodoRef和当前状态；重要性推断写出依据，不能仅凭久未修改降级 |
 | openQuestions | 未决问题、冲突证据、已失效/被取代的判断 | 保留冲突两侧来源，不静默选一方为事实 |
 
 统一`OverviewItem { id, section, text, epistemicStatus: recorded|user_confirmed|inferred|unknown, sourceRefs, dependencyItemIds, validState: current|stale|disputed|unsupported, updatedAt }`。只有明确用户消息/用户纠正可生成user_confirmed；模型多次复述不提高确认程度。条目有稳定ID，更新保留未受影响项，不反复重新措辞所有内容。
+
+会话即时增量目标：仅真实用户明确决定、命令或点名的新增、纠正、替换、停用触发，复用共享原生 Overview 写入服务。请求携带有类型的有限操作、真实消息/成功收据身份及预期版本；原生层核验消息角色与会话归属、实际收据及目标、scope、来源证明、基线和 epistemicStatus。模型不能自报 user_confirmed，也不能提交整份自由文本覆盖。保存方案的收据只证明方案已保存，不证明用户采纳其内容。沿 Run 冻结的执行模式和真实明确请求执行，保留未修改条目与未消费维护水位。HEAD 的 GUI 维护接口和能力目录不能当作模型工具已接通证据。
+
+并发与下游契约：会话增量和整理使用同一版本权威及CAS。整理发布前发现版本已变化，不发布旧草稿；保持已发布内容、已结算进度和未消费来源，读取最新会话增量，重新准备受影响部分并校验来源、纠正和策略。不将旧模型结果机械套到新版本，也不清空整批积累；反复冲突沿既有让出/续跑机制处理。Project增量只登记Workspace下游待核对，由整理合并处理，依赖读取仍即时核验；不为每个会话写入调用上层模型。
 
 `Overview { scope, revision, schemaVersion, items, asOfSeq, sourceManifestHash, builtAt, coverage, pendingCount, modelProfileId }`。以下是维护/存储预算，不是每次会话注入量：默认Project正文预算6000 Unicode字符（硬上限8000，不含有界引用元信息），Workspace正文4000（硬上限6000）；知识入口默认≤20，超出提供分页读取。已引用资料不等于全部读过，coverage记录已处理/排除/不支持/待处理数量及范围。用户可以查看来源、纠正、排除或重建，无需把它保存成普通Record。
 
@@ -175,7 +181,7 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 
 ### 工具预算与选择性读取
 
-- `context.get`按4.2返回L0。完整Overview使用`context.overview.get(scope,sections?,itemIds?,cursor?,budgetChars?)`，默认只给章节目录；只有调用者明确选择section/item才返回正文。无参数不能偷偷返回全部Overview。Workspace知识导航入口同样有界，不自动拼所有Project概览或未精简的个人记忆；会话精简记忆快照按E4及新生命周期需求单独装载并共同核总预算。
+- `context.get`按本节最小入口返回 L0。完整Overview使用`context.overview.get(scope,sections?,itemIds?,cursor?,budgetChars?)`，默认只给章节目录；只有调用者明确选择section/item才返回正文。无参数不能偷偷返回全部Overview。Workspace知识导航入口同样有界，不自动拼所有Project概览或未精简的个人记忆；会话精简记忆快照按E4及新生命周期需求单独装载并共同核总预算。
 - `knowledge.search(scope,query,kinds?,cursor,limit)`默认最多8条卡片，每卡snippet≤240字符，响应data默认≤3000；支持标题/别名/关键词，未命中回退`source.search`，不把索引当完整世界。大目录分页/搜索，不先下载全索引；同义词与中文召回用真实fixture验证。
 - `knowledge.get(nodeId,view: outline|summary|content,sectionIds?,cursor?,budgetChars?)`默认summary，≤1200字符；content默认≤4000，硬上限8000。返回kind、version、sourceRefs、coverage、stale、related节点卡片≤5及nextCursor；不递归取related正文。
 - `source.read`/`session.messages.read`明确range或view，默认局部读取≤4000字符；单次硬限12000。`view=full`表示逐页完整阅读意图，仍受分页限制，只有到末页才有complete=true。HTML源码保持原字节/版本规则；原有单工具上限不是要求每次填满。
@@ -188,7 +194,7 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 1. 新会话创建不加载项目正文。用户实际提问后，内置run先`context.get(scope,query)`读取最小入口；CLI/MCP同样以最小入口为默认，后续按问题选择性展开。
 2. Agent按问题选择knowledgeMap的一行入口，按需读取主题综合节点/单源或会话摘要，再决定是否调用`source.read`/`record.blocks.get`/`file.source.read`读取局部或完整原文。Overview用于理解和导航；精确日期、原话、关键决定和修改基线需核对原始来源。
 3. 入口只列与问题/选中节点有关的变更提示，delta其余部分按需分页；读取相关Todo时返回当前状态。依赖已变的知识条目标stale，不能继续作为当前事实；未展开的项目变化不全部塞入首轮。
-4. 问答本身不触发完整Overview重建。首次尚未建立时用目录/检索回答；缺失事实说明覆盖不足。用户明确“刷新项目认知”可排队合并刷新；运行中的问答固定context快照，不被后台替换。
+4. 问答本身不触发完整Overview重建。首次尚未建立时用目录/检索回答；缺失事实说明覆盖不足。用户明确“刷新项目认知”可排队合并刷新；已发出的 Provider 请求保留其输入；下一次请求复核相关 Context 和 Skill 版本，不重启在途请求。
 5. user correction独立于模型overview版本保存并优先输入；恢复某个Overview历史版本不能丢掉后续用户纠正，恢复后按当前来源水位标stale。
 
 ### 提取和检索
@@ -208,7 +214,7 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 
 **初始化**：启用助手时为已选范围自动排队一次。先读取对象目录和元信息，按目标/固定背景/近期决定/活跃Todo分批读取资料，形成partial Overview；随后按预算补齐未覆盖内容，不要求一次模型输入读完全项目。优先级是读取顺序，不表示旧资料永远忽略。新空Project不调用模型。初始化可取消/续跑，输入游标持久化。
 
-**调度默认**：本地时区每日03:00检查，维护间隔24h，可选48h和时间；仅有未消费业务变化的Project进入队列，无变化零模型调用。第一次启用包含此维护策略，无每次确认。应用未运行或Workspace未打开则不执行，下一次打开在用户任务之外合并补跑一次，不补齐过去每一天。M4才支持应用关闭时Host运行；不承诺电脑休眠时唤醒。
+**调度默认**：本地时区每日 03:00 检查，维护间隔 24h，可选 48h 和时间；开关、频率与时刻由 Harness 结构化设置决定，统一 Skill 的文字不替代实际调度设置；仅有未消费业务变化的Project进入队列，无变化零模型调用。原始来源成功保存后独立登记 pending/入队，不能依赖模型先成功生成知识才登记。第一次启用包含此维护策略，无每次确认。应用未运行或Workspace未打开则不执行，下一次打开在用户任务之外合并补跑一次，不补齐过去每一天。应用关闭时的无界面 Host 属延期目标；不承诺电脑休眠时唤醒。
 
 **每批更新**：
 
@@ -216,13 +222,15 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 2. 输入旧Overview、用户纠正、变更对象的最终状态/语义diff、受影响条目及必要来源；Record可用块diff，File没有可用文本diff则读取受限新版本。只变更相关条目，未变更来源按需展开，不默认重读全部正文。旧Overview是上下文，不作为独立新证据。
 3. 模型输出`upsertItems/removeItemIds`及来源引用，服务验证schema、来源范围/版本、条目依赖和字符预算；最多一次结构修复。一次已持久化的维护批次最多提交一个Overview版本，CAS基于旧overviewRevision。targetSeq表示本次业务变化上界，不是唯一的发布身份；同一targetSeq可以因预算分成多个续批，每批实际消费不同输入并产生下一版。
 4. 处理期间又有业务变化，则本次最多提交到已捕获targetSeq，并保留后续dirty；条目按依赖显式标滞后。发布只确认本批实际处理的对象/范围，未读范围保留进度；asOfSeq单独不能证明该水位前资料已经完整消费，必须结合pending和coverage。相同水位没有新源变更时也能继续未读部分，不能靠生成假业务事件解锁续跑。
-5. 不设置每日、每批累计或 Workspace 共享模型调用次数配额；旧版 3 次/48k 累计与 20 次/20min 规则已由用户确认的 WP5 移除。S3 已将单次完整 prompt 改为按 SDK 目录容量扣除输出、系统提示和请求余量；用 UTF-8 字节保守估算输入，传输上限为既有 16MiB 帧 / 8。未知或冲突别名使用明确的 32768/4096 默认容量，不声称服务端实测。按最久未处理排序轮转；输入放不下时保留 partial 和游标，后续批次继续。失败保留进度并停止，前台 run 优先，后台在调用边界让出；不占用 Voice 实时处理队列。
+5. 不设置每日、每批累计或 Workspace 共享模型调用次数配额；历史调用配额已移除，历史数字及验证不作为当前产品额度。S3 已将单次完整 prompt 改为按 SDK 目录容量扣除输出、系统提示和请求余量；用 UTF-8 字节保守估算输入，传输上限为既有 16MiB 帧 / 8。未知或冲突别名使用明确的 32768/4096 默认容量，不声称服务端实测。按最久未处理排序轮转；输入放不下时保留 partial 和游标，后续批次继续。失败保留进度并停止，前台 run 优先，后台在调用边界让出；不占用 Voice 实时处理队列。
 6. 沿现有持久作业保存稳定batchId（作业ID与批次序号即可）、输入游标、targetSeq和policy/correctionRevision；发布以`scope + batchId`幂等，并绑定完整payload和基线。重试同批返回原收据；换payload冲突；不同续批仍受head CAS及最新策略约束。失败保留旧版、同批身份和待处理进度，不立即循环重试计费。无模型/密钥锁定则挂起，恢复条件满足后继续。无需新增另一套调度系统。
 7. change log只保留30天，维护专用pending对象集合与删除标记不得随之过早裁剪，直到相关scope成功消费。水位已超日志保留且专用记录不完整时，以source manifest对比上次依赖重建增量；无法证明完整性则标needs_rebuild，分批重新建立，不声称最新。
 
 默认后台安静运行；失败或明显证据冲突可在助手里显示状态，不每夜发送一条通知。用户手动刷新复用同一队列/预算，不绕过权限或并发控制。
 
-2026-10-08契约修正：以上批次身份规则解决“partial后续跑”与“同水位只能发布一次”的冲突，产品范围不变。在当时审查的`e26380d`代码中，唯一约束仍是scope/targetSeq/policy/correction，审查结论要求在交付包R10a迁移并补真实服务回归；此处记录的是该时点的实现差距，不描述后续状态。来源manifest和coverage由真实读取/处理结果计算，模型不能自行申报完整覆盖；目录完整、索引完成、知识整理完成分别展示实际状态。
+来源 manifest 和 coverage 由实际读取/处理结果计算，模型不能自行申报完整覆盖；目录完整、索引完成、知识整理完成分别展示实际状态。历史 `e26380d` 的同水位唯一约束审查与后续修复证据保留在交付历史材料，当前发布身份采用上述批次规则。
+
+会话增量碰撞与下游登记沿 E3 的并发契约处理；所有整理发布同时核验最新用户纠正与记忆抑制。
 
 ### Workspace分层认知
 
@@ -230,13 +238,13 @@ Workspace输入包含两部分：①各授权Project Overview的变化；②Work
 
 Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴趣、可复用方法、用户明确的工作习惯和关键知识入口。项目归档后可退出活跃工作清单，但仍有来源支持的通用方法/经验可以保留；必须保留来源归档状态，用户撤销授权或排除来源另按即时失效处理。
 
-长期记忆复用 `kind: memory` 知识节点，以 `memory.category: background|domain|interest|method|preference|knowledge_pointer` 区分类别；活动 owner 只允许 Workspace。Project 特有的稳定信息归 Project Overview“项目背景与约定”栏目，不另建 Project Memory。记忆保留原始或已发布项目依据和 `lastSupportedAt`；用户策略独立保存 `confirmation` 与 `status`。模型候选一律为推断，用户经可信 GUI 或绑定真实后续用户消息确认后才标为确认，重复行为仍只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制，防止下一轮从同一来源重新生成。具体操作、存储与验收见[新需求](workspace-memory-lifecycle.md)；目前待实现，`ab4d461` 的历史验证不能覆盖该修订。
+长期记忆复用 `kind: memory` 知识节点，以 `memory.category: background|domain|interest|method|preference|knowledge_pointer` 区分类别；活动 owner 只允许 Workspace。Project 特有的稳定信息归 Project Overview“项目背景与约定”栏目，不另建 Project Memory。记忆保留原始或已发布项目依据和 `lastSupportedAt`；用户策略独立保存 `confirmation` 与 `status`。模型候选一律为推断，用户经可信 GUI 或绑定真实明确用户消息确认后才标为确认，重复行为仍只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制，防止下一轮从同一来源重新生成。具体目标操作、存储与验收见[生命周期需求](workspace-memory-lifecycle.md)；`ab4d461` 的历史验证不能证明本轮修订已完成。Overview 与知识节点各自保留来源、依赖、不可变版本和 coverage；六类记忆与其用户策略、抑制不是这些产物的通用替代结构。
 
-记忆的产生、更新、整理删除和使用统一参考已核对的 [Hermes 源码机制](../technical/hermes-memory-reference.md)，但采用 Project Mind 的条目 ID/版本、原始来源、权限和用户策略。会话模型理解明确的记住/纠正/遗忘请求；既有后台维护仅在有变化时提取。新增、替换、移除及批量操作共用原生服务，合并可由一次原子的替换加移除完成；后台语义替换、删除或减少信息的合并走既有待审方案，已确认内容不由无人值守模型覆盖。自动提取不增加每轮固定模型请求，也不引入另一套调度器。
+记忆的产生、更新、整理删除和使用统一参考已核对的 [Hermes 源码机制](../technical/hermes-memory-reference.md)，但采用 Project Mind 的条目 ID/版本、原始来源、权限和用户策略。会话模型理解明确的记住/纠正/遗忘请求；既有后台维护仅在有变化时提取。新增、替换、移除及批量操作共用原生服务，合并可由一次原子的替换加移除完成；后台语义替换、删除或减少信息的合并遵循既有待审方案及最新用户策略，已确认内容不由无人值守模型覆盖；真实明确的用户定向操作不再二次确认。广泛合并、矛盾清理和结构重组进入同一整理入口。自动提取不增加每轮固定模型请求，也不引入另一套调度器。
 
 获 Project 与 Workspace 对应授权的维护批可在同一次生成中提出两处操作，任一部分可为空；发布时以既有批次身份、来源证明、基线和用户策略版本在同一事务原子保存两个目标及进度。Project-only 或只读 grant 不扩权；冲突、越权或失败保留草稿与未消费进度。仅有 Workspace 记忆读取权限的会话在首次真实任务装入当前有效、完整且符合预算的精简快照，变化后的下一轮及续聊/Pi 压缩重建复核版本与旧 Run 来源；详细资料按需读取。预算设置和默认值由 LM4 对真实序列化输入及模型余量验证确定，不预写字符常量；小模型装不下时明确改为按需读取，不按 ID 截断或宣称完整注入。项目栏目、操作、联合发布、初始化及容量的完整契约与 ML01～ML15 验收以[生命周期需求](workspace-memory-lifecycle.md)为准。
 
-每个Workspace记忆条目与Project概览条目保留最终原始来源和派生链。删除/排除/撤回/授权收缩立即失效其依赖，不等待夜间任务；只剩无权来源的条目完全不返回正文、标题或摘录。混合授权来源不能只隐藏引用却返回混合结论：保守整条省略，或用仍可见证据重新生成后返回。只授权项目子集的连接只组合有权限的条目，不读取全Workspace自由文本摘要。Project默认不继承Workspace个人记忆，沿现有领域边界执行。
+每个Workspace记忆条目与Project概览条目保留最终原始来源和派生链。删除/排除/撤回/授权收缩立即失效其依赖，不等待夜间任务；只剩无权来源的条目完全不返回正文、标题或摘录。混合授权来源不能只隐藏引用却返回混合结论：保守整条省略，或用仍可见证据重新生成后返回。只授权项目子集的连接只组合有权限的条目，不读取全Workspace自由文本摘要。内置 Project Agent 可以读取当前 Workspace 授权可用的长期记忆；该窄权限不授予 Workspace 或其他 Project 原始资料读取，也不授予任意 Workspace 写入。Project 会话真实明确的通用记忆保存请求只绑定本次 Workspace 记忆操作，原生层仍核验来源与目标；外部连接按持久 grant 执行。
 
 ### 摄入、索引与健康检查
 
@@ -258,19 +266,19 @@ Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴�
 
 ### 当前实现与目标差距
 
-此前 R11 每批只读一条消息或长消息片段，生成 `KnowledgeNode.session_summary` 并与 Overview 原子发布；每 Project 每 UTC 日 5 次摘要调用且失败计入、Workspace 每 20 分钟 20 次调用，是此前已实施、WP5 调度代码现已移除的任意共享硬限，不是产品额度。WP4 已为普通 Pi 对话恢复原生压缩；单次结构化 Overview 生成显式关闭压缩，确保该调用读到的原始证据不被自由文本摘要替换。Pi `CompactionEntry` 含 `summary` 自由文本、`firstKeptEntryId`、`tokensBefore`、`usage`、`details.readFiles/modifiedFiles`，缺少逐条 citation、来源读取证明、覆盖游标和用户纠正约束，因此不能直接作为 Project 知识节点或 Overview 证据。WP5 保留必要的增量摘要，`summary_segments` 对同会话同分支、同授权的连续增量合批，复用 R10 来源证明与原子发布，不另建会话权威或摘要 worker。WP5 调度代码还移除了每批 3 次和 48k 累计额度，没有新增任意共享额度；当时保留单次 48k 字符工程传输/输入上限、失败停止且人工恢复、前台任务让出；后续 S3 已按模型容量与完整请求调整输入，见[容量及恢复说明](../conversation-memory.md#s3-模型容量与分段恢复2026-10-09)。`summary_segments` 已对当前分支的完整短消息按同分支来源合批；历史分支和长消息仍按单来源处理。已保存多来源 draft 续跑额外生成 0 次。维护 17、生成 7、调度 11、legacy 1 项定向验证通过。上述 WP5 测试对应当时 48k 边界；S3 的模型容量、中文分页和草稿页边界恢复另有定向验证，不混用两轮结果。失败保留旧快照、游标和 pending，成功后才消费进度；不能无限自动重试或把失败计为已覆盖。
+HEAD 的普通 Pi 对话使用原生压缩；单次结构化 Overview 生成关闭压缩，以保留本次原始证据。Pi `CompactionEntry` 的自由文本摘要不含逐条 citation、读取证明、coverage 游标或纠正约束，不能直接成为 Overview 证据。跨会话原文索引、可追溯 `summary_segments` 和原生压缩各司其职，不另建会话权威或摘要 worker。
 
-50 条消息 / 12000 字符是当前 `session.messages.read` 单页参数，不规定 Pi 压缩长度、摘要批量、摘要正文或产品级固定标准。后续分段按真实模型上下文预算、来源边界和任务效果选择，超长消息保持稳定身份并可续读。详见[WP4～WP6](ai-work-context-delivery.md#confirmed-work-packages-20261009)。
+当前分支完整短消息可按同分支、同授权的连续来源合批；历史分支和长消息的进一步分段按真实模型窗口、来源边界和任务效果处理。`session.messages.read` 的 50 条/12000 字符仅是单页读取上限，不规定压缩长度、摘要批量或正文长度。完整请求按模型容量与回答余量计预算，失败保留旧快照、draft、游标和 pending，成功才消费进度；不设置每日或 Workspace 共享调用配额，不无限自动重试。历史 WP4/WP5/S3 验证范围见[会话记忆架构](../conversation-memory.md)及交付历史材料，不替代本轮验收。
 
 摘要的消息、分支、hash、角色和操作收据来自原生读取；模型只填写受约束的陈述及引用序号。替代仅能指向同会话、当前分支已证明的前序摘要；旧段及 Overview 版本保留，读取时显示经过权限过滤的后继状态。GUI 在已有知识详情内显示陈述类型、历史状态与原文入口；较长摘要逐页读取正文和陈述。
 
 ### 摘要更新
 
-- 新消息持久化只更新dirty/through-entry水位，不每个token总结。满足E5阈值后合并执行；夜间维护先更新有变化的会话摘要，再更新Project Overview，最后Workspace Overview。每个环节都在明确的单请求预算内，无需用户点击“结束会话”。
+- 新消息持久化只更新dirty/through-entry水位，不每个token总结。按待处理变化与实际上下文预算合并执行；夜间维护先更新有变化的会话摘要，再更新Project Overview，最后Workspace Overview。每个环节都在明确的单请求预算内，无需用户点击“结束会话”。
 - 长会话分为有界消息段：按稳定消息顺序和实际上下文预算分段（超长单消息分片并保持messageId/片段范围），摘要正文由任务所需信息决定；保留旧段及消息引用，不将整个会话永远压成一小段而丢掉早期讨论。当前会话摘要是最近状态/主题索引，段摘要供检索。
 - 增量只读新消息段、相关旧摘要及必要被纠正的原始消息；不每次重读全部会话。更正早期结论时建立supersedes关联，旧段仍保留“当时的判断”，最新入口显示已被取代，历史提问可定位当时版本。
 - 提交摘要同时写source-change/pending事件，把本次内容变化交给E4批次，不立即强制重做Overview。会话无新内容或生成同hash不写新版、不重复触发。没有实质知识的闲聊可标processed/noKnowledge，不塞进Overview。
-- 历史会话原文索引先按预算从当前分支投影及 JSONL 历史分支回填，随后摘要按预算分批建立；分别标明索引与摘要的 coverage。新问题涉及尚未摘要的消息时，搜索已覆盖的原文索引并有限回读；索引也未覆盖时说明缺口，不宣称“未命中=从未谈过”。先验证 Pi 原生压缩能否在续聊中复用；跨会话定位仍依赖原文索引，确有缺口再补可追溯摘要。
+- 历史会话原文索引先按预算从当前分支投影及 JSONL 历史分支回填，随后摘要按预算分批建立；分别标明索引与摘要的 coverage。新问题涉及尚未摘要的消息时，搜索已覆盖的原文索引并有限回读；索引也未覆盖时说明缺口，不宣称“未命中=从未谈过”。沿用 Pi 原生压缩续聊；跨会话定位仍依赖原文索引及可追溯摘要。
 - 摘要输入排除系统提示、凭据、无关完整工具日志和未完成文本；工具结果只取成功收据/相关对象引用。失败run的已保存用户表达和已成功产出可在下一批处理，保留run状态，绝不把取消理解成任务完成。
 
 ### 消息身份、权限与删除
@@ -295,36 +303,45 @@ Project检索只见同Project会话；Workspace可聚合其授权范围内的会
 
 基础代码入口和当前可执行范围见[框架说明](../../src-tauri/src/agent/README.md)。框架不等于本节运行时、持久化及安装包能力已交付。
 
-新增目录建议如下（允许按既有 lint 约定调整文件名，但不合并职责）：
+已有工程模块职责如下；新增接线沿用现有服务，不要求按本目录重建框架：
 
 ```text
 src-tauri/src/agent/
   models.rs repository.rs service.rs commands.rs
-  context.rs sources.rs extraction.rs references.rs
-  runtime.rs outputs.rs bridge.rs events.rs
-src/services/agentApi.ts
+  context.rs references.rs knowledge.rs memory.rs
+  overview.rs maintenance.rs session_history.rs
+  runtime.rs host.rs outputs.rs bridge/
+src/services/agentApi.ts src/services/agentMemoryApi.ts
 src/lib/agent-types.ts
 src/components/agent/
-  AgentPanel.tsx AgentConversation.tsx
-  SourcePreview.tsx OutputCard.tsx AgentSettingsPanel.tsx
-src/hooks/useAgentEvents.ts
+  AgentPanel.tsx AgentWorkspacePanel.tsx useAgentConversation.ts
+  AgentSourceCard.tsx AgentOutputCard.tsx
+  AgentKnowledgePanel.tsx AgentMemoryPanel.tsx AgentScheduleSettings.tsx
 packages/agent-host/        # 独立 package.json/lock；SDK 与 utility worker，后端资源
 src-tauri/src/bin/mind.rs   # CLI + MCP adapter
 ```
 
 - `AgentDomainService` 接收已验证 `RequestContext { workspaceId, workspaceGeneration, scopeGrant, caller, requestId }`。命令不绑定浏览器窗口；数据库/路径从绑定 WorkspaceRuntime 获得，绝不根据调用瞬间的活动页猜测。
 - 前端 Tauri、CLI bridge、Pi tool dispatcher 都调用同一服务。不要把所有现有 db.rs 方法重构后才开工，只为本期读/建/索引和变更事件抽 seam。
-- Pi SDK 运行在应用捆绑 Node LTS 的独立进程；`packages/agent-host` 独立构建，SDK 不得进入 Vite 主 bundle。M0 锁定 SDK/Node 版本及资源清单，通过 Tauri sidecar/resources 打包并记录许可证。
+- Pi SDK 运行在应用捆绑 Node LTS 的独立进程；`packages/agent-host` 独立构建，SDK 不得进入 Vite 主 bundle。HEAD 的 runtime manifest 固定 Pi 0.99.1 与 Node 24.21.0，通过 Tauri sidecar/resources 打包并记录许可证；目标平台安装验收单独判断。
 - 使用自有 `mind-agent-host/v1` JSONL 协议，不让 Rust 直接依赖 Pi 所有内部事件。命令：initialize、session.open、run.start、run.cancel、session.close、shutdown。反向请求：tool.call；响应：tool.result。每帧包含 protocolVersion、requestId，run 事件带 sessionId/runId/seq。
 - 生命周期映射为 run.started/text.delta/tool.started/tool.completed/message.completed/run.completed/run.failed/run.cancelled。只有 SDK 确认 settled 且 Host 已持久化终态后，才发 run.completed；接收 prompt 不等于完成。
-- 使用 custom ResourceLoader、内存 settings/credential store、明确工具白名单，禁用全局/项目 resource discovery 和默认工具。Project `cwd` 不作为权限保护。
+- HEAD 固定内置 `@earendil-works/pi-coding-agent=0.99.1`，通过应用自有 ResourceLoader、内存 settings/credential store 和明确工具白名单运行。`pi-spike.mjs` 仅返回应用自有 extension，skills/prompts/agentsFiles 为空；当前没有加载外部 Skill、第三方 extension 或 MCP client。禁用全局/项目 resource discovery 和默认工具，Project `cwd` 不作为权限保护。Workspace 统一 Skill 的加载与刷新是目标接线，不把 Pi 的加载能力当成产品已开放外部扩展。
 - 模型凭据由 Rust 在解锁后通过管道传给本次进程；不进 argv、日志、Workspace 明文配置或 Pi 用户目录。切换 Workspace 或锁密钥后销毁会话凭据引用。进程环境使用明确 allowlist。
-- 先支持现有 OpenAI-compatible Profile 的工具调用映射；其他 provider_family 显式显示是否支持。M0 以一个真实兼容服务和一个 mock 验证，不因 Provider 标记 supports_text 就假定支持工具。
+- 先支持现有 OpenAI-compatible Profile 的工具调用映射；其他 provider_family 显式显示是否支持。运行时验收以一个真实兼容服务和一个 mock 验证，不因 Provider 标记 supports_text 就假定支持工具。
 - Pi SessionManager JSONL 是模型恢复历史的权威文件，路径为 `.project-mind/agent/sessions/<session-id>/session.jsonl`。SQLite 存会话元数据、UI 消息投影、run/工具收据；不得分别修改两份对话。终态时做 checkpoint 并持久化 JSONL checksum/offset；恢复校验后重建 UI 投影；损坏保留原文件并禁用继续，不静默丢弃历史。
-- Pi 原生会话头/系统段可能包含 cwd 等绝对路径；持久层由 Host 的 SessionStore codec 将此类系统字段存成 Workspace/Project 相对引用，载入内存时解析。用户消息不得被字符串全局替换。M0 必须验证迁移Workspace后恢复、session JSONL/系统提示/工具结果无Host注入的本机绝对路径；若不能提供受支持codec，则该方案不能通过M0，不能直接默认写Pi原始路径。
+- Pi 原生会话头/系统段可能包含 cwd 等绝对路径；持久层由 Host 的 SessionStore codec 将此类系统字段存成 Workspace/Project 相对引用，载入内存时解析。用户消息不得被字符串全局替换。运行时验收必须验证移动Workspace后恢复、session JSONL/系统提示/工具结果无Host注入的本机绝对路径；若不能提供受支持codec，则该方案不能通过运行时验收，不能直接默认写Pi原始路径。
 - 初期每 Workspace 一个活动用户 run；第二个请求返回 RUN_BUSY 而不是无限排队。后台总结/Overview维护同属 Agent 队列，用户 run 优先，后台作业在边界让出；不占用 Voice 转写实时通路。
 - 工具请求默认 30s 超时，模型首响应 60s、无任何有效进展 120s、run 总时长 10min、工具调用上限 30 次。超限保留结果并显示继续入口，不无限运行。
 - 取消先 SDK abort，5s 后终止子进程树；终止不能把已经完成的 output commit 回滚成未保存。切 Workspace 的代际标识使所有旧响应失效。
+
+### Workspace Skill、记忆组件与运行设置
+
+目标使用一个可编辑的 Workspace Skill 文件，按“记忆行为”和“整理行为”两节表达交互中的定向沉淀与批次结构整理规则，所有 Project 沿用。Skill 是行为说明，记忆正文及 Overview 仍属于 Context，调度开关/频率/时刻仍属于 Harness 设置。薄记忆组件组织读取与触发，并调用已有 Context 与原生服务，不成为另一份正文存储或推理框架。
+
+用户及具有该文件修改权限的 Agent 直接编辑 Skill 并告知实际结果，不新增行为草稿审批。下一次 Provider 请求前读取最新 Skill；同一 Run 的后续请求也采用新版本，已发出的请求不重启。Skill 修改不删除已有记忆；需要修改内容时走明确的 Context 操作。加载路径和编辑入口作为实施选择收敛，HEAD 的空 skills loader 不证明此能力已接通。
+
+Harness 提供结构化调度设置调整工具或脚本，分别核验设置权限、实际字段及保存结果。此目标扩展仅用于这些运行设置，不开放任意 scope settings、Context Instructions 或连接授权的模型写入；既有 GUI 管理入口继续按 ADR-0009 约束。同一用户请求同时修改 Skill 与运行设置时分别保存，部分失败保留成功项，明确告知失败项，重试仅处理失败项；不能仅修改 Skill 中的时间文字便声称调度已改。该配置部分成功规则不改变 E4 的 Overview 与 Workspace Memory 联合原子发布。
 
 ### Run状态机
 
@@ -336,10 +353,10 @@ run events与业务change events是两条流：前者用于会话展示，后者
 
 ## E7 成果提交、幂等与事件
 
-- 两个任务入口只是提示模板，不隐式改变权限。Agent根据用户任务选择Record、Todo或File，不要求先选成果类型或保存复选框。默认review先提出同任务一次业务方案，确认后提交；主动选择collaborate则直接提交。纯问答可只回答，明确只讨论时不写入。
+- 两个任务入口只是提示模板，不隐式改变权限。Agent根据用户任务选择Record、Todo或File，不要求先选成果类型或保存复选框。普通成果默认 review 先提出同任务一次业务方案，确认后提交；collaborate 直接提交。纯问答可只回答，明确只讨论时不写入。
 - `output.stage`保存完整候选并校验类型、引用、目标和基线，不提交流式半成品。review中的同任务相关候选按所属轮次合并为简短业务摘要和一个确认/取消入口；collaborate在stage验证后由Host提交，read_only拒绝写工具。实际模式使用run/output冻结值，不能以当前设置改写旧方案。
 - 所有自然语言用户回复进入既有 Pi 会话模型，包括确认、取消、修改、疑问和新任务；不在 GUI/Host 以短语表、正则或另建 LLM 分类链判断意图。Host 向本会话模型提供唯一当前待定方案的候选身份/版本及真正最新用户消息的身份，模型理解会话后在需要时调用最小方案决定工具；复用现有 `output.review` 持久决定及原生成果提交服务，不预设必须增加三个新工具。按钮仍直接调用原生决定路径，与模型工具共用同一方案、决定和提交结果。应用验证 Workspace 代际、scope、会话、方案/候选 ID、expectedRevision 与决定所依据的新用户回复身份，拒绝跨会话/跨 Run 任意候选和旧版本；引用、工具结果、模型自己提出方案的轮次均不能充当用户授权。决定持久可恢复，不伪造 Pi 模型消息。
-- 模型提出方案后，必须有新的用户回复才能确认；仅向模型提供 Host 绑定的待定计划，不允许模型从文档或工具正文提取候选授权。含糊指代、部分批准或多个目标不明确时先澄清；疑问和普通回复保留待定方案，不能在新 Run 建立时无条件 dismiss。修改先通过候选 CAS 使旧版不可执行，再生成或更新候选并重新确认；旧按钮/请求不得继续提交。取消由模型决定工具或按钮持久保存，不把澄清问句视作取消。
+- 普通成果在模型提出方案后，必须有新的用户回复才能确认；仅向模型提供 Host 绑定的待定计划，不允许模型从文档或工具正文提取候选授权。含糊指代、部分批准或多个目标不明确时先澄清；疑问和普通回复保留待定方案，不能在新 Run 建立时无条件 dismiss。修改先通过候选 CAS 使旧版不可执行，再生成或更新候选并重新确认；旧按钮/请求不得继续提交。取消由模型决定工具或按钮持久保存，不把澄清问句视作取消。
 - 确认一次覆盖所展示的同任务候选集合，不能自动批准之后新增或修改的候选；确认与取消竞争以持久决定/CAS为准。按对象逐项调用现有原子服务，不宣称跨DB/文件系统全局原子。取消阻止未开始的提交；已开始commit仍结算并保留实际收据。重试只处理未成功项，已提交收据不重复执行。
 - 方案的业务说明由模型结合目标自然表达，卡片附原生候选的真实目标、范围和状态；不能以固定句式计数替代模型说明。成功结果在所属轮次只显示一次业务摘要和可点的实际对象，详情按需展开“已创建/已修改”、版本、来源、真实差异及打开/撤销。失败或部分成功在会话中明确显示，模型说“完成”不能替代native receipt。现有GUI与原生对象刷新复用业务事件，不另造成果管理区。
 - `output.update`编辑staged候选使用expectedRevision，服务端重校验；修改后使旧确认失效。未提交候选的完整正文、来源与真实diff仅在显式查看详情时读取，不预读所有历史成果body，不另开审阅Dialog。
@@ -353,7 +370,7 @@ run events与业务change events是两条流：前者用于会话展示，后者
 - Record菜单和助手增加“修改这条记录”，进入带明确目标Record的任务；File菜单增加“修改这个文件”，目标绑定File ID与当前版本。
 - 默认review在同任务业务方案确认后应用经校验的patch；主动collaborate直接应用。真实逐块差异按需查看，成功后可撤销。作用域和执行模式由Host绑定，不能从模型或资料参数推断。
 - 同一任务不逐块、不逐Todo弹窗；每次提交仍校验baseRevision、blockId或File版本/hash。问答入口不强制只读，是否写入由用户任务、冻结模式与本次任务决定约束。
-- 外部连接分开授予 `content.create`、`record.patch`、`file.update`；Record恢复另需 `record.restore`，File恢复另需 `file.restore`。修改权限包括已授权对象中的块删除，不含整条记录/文件删除、归档、密码/设置操作。连接可限定Project内所有Record/File或具体对象，UI展示范围；一次run可处理范围内多个与任务相关的对象，每个操作必须绑定具体对象及基线。
+- 外部连接分开授予 `content.create`、`record.patch`、`file.update`；Record恢复另需 `record.restore`，File恢复另需 `file.restore`。修改权限包括已授权对象中的块删除，不含整条记录/文件删除、归档、密码/设置操作。新连接以 Workspace 或单 Project 范围配置，UI 展示实际范围；一次run可处理范围内多个与任务相关的对象，每个操作必须绑定具体对象及基线。
 - 同一个Record的一组操作一次应用、一次撤销/版本回退；跨Record或Record+File批处理按对象分别提交，不宣称跨文件系统/数据库的全局原子性。部分成功逐项显示收据，重试只处理未成功项。
 - 预览由base snapshot与经服务验证的patch计算，不能仅展示模型自行描述的“我修改了什么”。显示修改/新增/删除块数量、目标标题、基线修订与受影响引用。
 - 版本入口放在Record更多菜单“版本历史”，展示时间、来源（手动编辑/内置助手/外部连接/恢复）、变更摘要、基线与结果；点击查看只读内容与差异，恢复时明确“恢复正文并创建新版本”。File复用现有版本入口并补当前版本/历史版本比较和恢复为新版本操作；文本逐行diff，二进制展示类型/大小/hash，不承诺通用语义diff或格式预览。
@@ -361,7 +378,7 @@ run events与业务change events是两条流：前者用于会话展示，后者
 ### 业务事件
 
 - 在数据库事务内写实体、引用边、收据和 change log；提交后通知 Tauri `mind:changed`。没有提交成功不得发成功事件。
-- Record 变更标识与引用边统一由 `ObjectRef.key()` 生成（如 `<workspaceId>/project:7/record/42`）；打开工作区时迁移旧 `record:project:7:42` / `record:workspace:42` 日志，保留原 seq、时间和 revision。
+- Record 变更标识与引用边统一由 `ObjectRef.key()` 生成（如 `<workspaceId>/project:7/record/42`）；已有业务日志键规范化保留原 seq、时间和 revision，不新增本轮旧 AI 数据迁入任务。
 - GUI 所有相关写入口也必须更新 change log，包括 QuickNote、Record 正文/metadata、Todo 及子项、File 导入/新版本/改名/删除、Project 改名/Archive、Transcript 完成。不能只监听 Agent 写入。
 - 事件携带 workspaceId、generation、seq、changedRefs；前端验证当前 Workspace 后只 invalidate 相关 projectPage/workspacePage/todo/search/reference/overview keys。
 - 隐藏页面只标脏，重新可见时 fetch；打开窗口按 lastSeq 补读。change log 保留30天，超出范围返回 resetRequired，并刷新该 Workspace 缓存；删除标记在来源 registry 中保留用于引用失效。
@@ -482,13 +499,13 @@ Record 幂等回执只持久化稳定提交凭证（作用域、Record ID、提�
 
 **中断**：取消/断网/崩溃不自动撤销已完成操作，保留“已完成N项、未完成M项”。新run使用旧收据恢复，不能重做已提交创建。版本和撤回机制都不依赖模型在线。
 
-**边界**：默认review仅同用户任务确认一次，不新增逐操作审批或审阅弹窗；权限不足、找不到目标、同名歧义、版本冲突是具体错误/澄清。资料中的指令不能扩大范围。现有AI Editor Skill的未接受选区预览仍按ADR-0003隔离；独立Agent通过领域服务提交已授权操作，不使用live editor预览绕过保存屏障。现有CONTEXT中的AI Modification仍专指Editor Skill，实施时应在新ADR明确这一区别。
+**边界**：默认review仅同用户任务确认一次，不新增逐操作审批或审阅弹窗；权限不足、找不到目标、同名歧义、版本冲突是具体错误/澄清。资料中的指令不能扩大范围。现有AI Editor Skill的未接受选区预览仍按ADR-0003隔离；独立Agent通过领域服务提交已授权操作，不使用live editor预览绕过保存屏障。AI Modification 仍专指 Editor Skill；独立 Agent 的区分已由 [ADR-0010](../adr/0010-separate-agent-record-commits-from-editor-skill-previews.md) 确定。该 ADR 的普通成果 review 后续回复绑定继续适用；本轮明确记忆请求及 Overview 定向决定增量独立核验真实请求与执行模式，不扩大普通成果审批豁免。
 
 <a id="e11"></a>
 
 ## E11 AI File生成与原始源码续改
 
-E11 保留稳定编号锚点。AI #97 负责用户任务授权后的 File 内容生成与版本化续改；项目内 HTML/Markdown/Word/Excel/PPT 编辑预览、开源格式组件集成、HTML 执行隔离以及依赖/脚本诊断迁入[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 随之迁移，不属于 AI M0～M4 的发布前置。E11 历史隔离约束由 #118 继承；未经实际目标平台验证，不得在有应用权限的 surface 执行 HTML。
+E11 保留稳定编号锚点。AI #97 负责用户任务授权后的 File 内容生成与版本化续改；项目内 HTML/Markdown/Word/Excel/PPT 编辑预览、开源格式组件集成、HTML 执行隔离以及依赖/脚本诊断迁入[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 随之迁移，不属于当前 AI 发布前置。E11 历史隔离约束由 #118 继承；未经实际目标平台验证，不得在有应用权限的 surface 执行 HTML。
 
 1. 用户要求生成 HTML 或 Markdown 成果时，Agent 按 E7/E10 读取有权来源、暂存和校验候选，再按冻结的 review/collaborate 模式提交 `file.create`。内置生成的 UTF-8 `.html/.htm/.md/.txt` 单文件上限为 2 MiB；扩展名与 MIME 一致，原始字节原样保存，不用 Record 富文本 sanitizer 删除 HTML 内联脚本。已保存的成果链接实际 File ID 与版本，仅能据收据说“已保存 · v1”；没有独立预览验收结果不得声称“可预览”或“已验证交互”。
 2. 用户继续修改已有 HTML/Markdown 时，绑定同一 File ID、当前版本/hash 与源码来源；聊天已明确唯一对象时可直接续改，多个同名候选有实质歧义才澄清。Agent 经 `file.source.read(FileRef,version,cursor?)` 读取未经索引清洗的原始 UTF-8 源码，单页≤24000字符，响应含完整 hash、字节数、版本、已读范围、complete 与 nextCursor。未读全不得声称已理解全文；分页固定版本/hash，变化返回 SOURCE_CHANGED，须重新读取并校验基线。MD/HTML 的索引提取文本只用于检索和引用，不能写回为源码。
@@ -516,7 +533,7 @@ E11 保留稳定编号锚点。AI #97 负责用户任务授权后的 File 内容
 | `run.cancel/get/events` | runId、afterSeq? | 状态/事件补读；cancel 幂等 |
 | `output.stage` | runId、ordinal、kind、title、body、citations | staged output；仅当前 runtime 可调用 |
 | `output.update` | outputId、expectedRevision、title/body/safeName | 仅GUI可编辑staged成果；服务端重新校验引用/格式并revision+1 |
-| `output.review`（现有持久决定，目标接入模型） | 当前候选/方案身份、expectedRevision、决定、新用户回复身份 | review 模式由按钮直接调用或同会话模型工具调用；Host 校验当前唯一待定方案、真实回复及权限，持久决定后复用原生提交；当前代码仅支持可信 GUI 调用，模型工具接入属 G1 待办 |
+| `output.review` / 模型工具 `review.decide` | 当前候选/方案身份、expectedRevision、决定、新用户回复身份 | 已有按钮及同会话模型工具路径；Host 绑定唯一待定方案、真实后续回复与权限，持久决定后复用原生提交；本地接通不等于真实 Provider 验收 |
 | `output.commit` | outputId、requestId、expectedOutputRevision | objectRef + receipt；review 须经同一持久决定，collaborate 下 Host 直接提交；须符合冻结模式、候选CAS与grant |
 | `record.create` / `todo.create` | scope、body/title、citations、requestId | 对外 create 操作，走同一 canonical converter/业务事务；Record 输入 document 或 markdown 二选一，稳定 ID 绑定原始输入 |
 | `record.create.preview` | input（document 或 markdown）、budgetChars? | content.create 授权，纯校验和有界正文/元信息预览，无持久对象身份或收据 |
@@ -565,15 +582,17 @@ CLI对应`file source read`、`todo update --patch-file`、`operation list/undo/
 
 `context.overview.get/refresh`、`knowledge.search/get`的选择字段、分页与预算见E3；`session.summary.get/refresh`与`session.messages.read`见E5。Overview维护设置、历史查看/恢复为GUI管理接口；外部refresh需context.refresh授权，普通读取不产生模型费用。
 
+目标增加共享原生入口：有类型 Overview 有限增量；Workspace 记忆 `add/replace/remove/batch`；Workspace Skill 文件修改与 Harness 结构化设置调整。具体工具命名沿能力注册表收敛，不为文档虚构已存在 API。Overview/记忆操作绑定可信真实请求、实际来源与收据、目标基线、用户策略和幂等身份；模型不提供最终确认状态。GUI、内置 Agent、后台整理复用相同原生边界；窄记忆读权限及本次显式写授权不扩大原始资料权限。Skill 与设置保存各有实际结果，Overview 与记忆联合发布仍为同一事务。
+
 <a id="e13"></a>
 
 ## E13 CLI、MCP与连接配置
 
 - M1 使用仅监听 `127.0.0.1` 的随机端口 HTTP JSON bridge；应用外网不可访问，不提供浏览器 CORS。校验 Host、拒绝带非应用 Origin 的请求，token 必须通过 Authorization header。
 - 本机发现文件保存 runtime 实例、端口和 endpoint version，属于 Local Session，不能复制进 Workspace。连接 secret 只存 OS credential store；CLI 配置包含 grantId，不含明文 secret；同本机用户可读取凭据，不能宣称隔离该用户启动的任意程序。
-- 每个 grant 绑定 Workspace UUID、一个明确范围和操作集。新连接默认整个 Workspace（直属内容及当前、未来未归档 Project），可选单 Project；每种范围都可选只读或协作。协作授予相应原生读写、`record.restore`、`file.restore` 与本连接撤销；范围不能代替实际归属、排除、撤回、版本和权限检查。内部助手的 `session.read` 在已启用 scope 自动配置；外部连接沿用持久 grant 检查。旧 grant 不能因默认值改变而扩权；特别是旧 `objects` 清单连接，在用户明确重新选择范围与模式前，不得映射为全 Workspace 或全 Project。迁移与重选应保留撤权入口及可解释状态。整 Record/File 删除、密钥设置、任意路径和 shell 不暴露。
+- 每个 grant 绑定 Workspace UUID、一个明确范围和操作集。新连接默认整个 Workspace（直属内容及当前、未来未归档 Project），可选单 Project；每种范围都可选只读或协作。协作授予相应原生读写、`record.restore`、`file.restore` 与本连接撤销；范围不能代替实际归属、排除、撤回、版本和权限检查。内部助手的 `session.read` 在已启用 scope 自动配置；外部连接按持久 grant 检查。当前配置变更不得扩大现有授权；本轮不实施旧 AI grant 数据迁入或旧对象清单兼容。整 Record/File 删除、密钥设置、任意路径和 shell 不暴露。
 - Workspace 切换使运行请求返回 WORKSPACE_CHANGED，不能自动转接新 Workspace。请求超时后客户端查询 receipt，不能自动重复非幂等变更。
-- 新连接界面与 API 不提供指定 Record/File 白名单或 50 对象模式。旧 `objects` grant 只按旧范围解释，不能静默放宽；重选后按 Workspace/Project 范围及只读/协作权限生效。保留真实对象归属、来源政策、撤权和受限分页检查。
+- 连接界面与 API 不提供指定 Record/File 白名单或 50 对象模式；按 Workspace/Project 范围及只读/协作权限生效。保留真实对象归属、来源政策、撤权和受限分页检查。历史对象清单方案仅保留证据，不构成本轮迁移任务。
 - CLI 没有解锁模型密钥的 API；纯数据读写不要求模型密钥解锁，内置模型任务要求解锁。首期 CLI 不开放启动内置 run，避免外部任务隐式产生模型费用。
 
 ### CLI
@@ -601,7 +620,7 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 
 ### MCP
 
-使用维护中的 Rust MCP SDK 封装 stdio adapter，M0/AI-09 锁定版本。支持标准初始化和协议版本协商；初始兼容基线 2025-11-25。stdout 只承载 JSON-RPC，日志 stderr。首期不实现远程 Streamable HTTP MCP、sampling、elicitation 或外部 MCP client 聚合。
+使用维护中的 Rust MCP SDK 封装 stdio adapter，运行时/CLI-MCP 接入锁定版本。支持标准初始化和协议版本协商；初始兼容基线 2025-11-25。stdout 只承载 JSON-RPC，日志 stderr。首期不实现远程 Streamable HTTP MCP、sampling、elicitation 或外部 MCP client 聚合。
 
 基础工具为（E12及E10/E12节扩展修改、历史、源码、撤销工具；完整列表由能力注册表生成）：`mind_project_list`、`mind_context_get`、`mind_search`、`mind_source_read`、`mind_reference_list`、`mind_record_create`、`mind_file_create`、`mind_todo_create`。schema 与 CLI 来自同一 Rust DTO/JSON Schema 定义；读工具声明 readOnlyHint，写工具不能误标只读。所有 schema 注释说明作用域、预算、来源和重试规则。
 
@@ -626,7 +645,7 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 - 引用按需预览，再打开实际原文；File显示固定版本/页码，旧版可查看、变化/缺失/删除明确标识。未展开来源不预读全部正文。
 - 加载、折叠和布局位移复用motion token，reduced-motion降级；标题与卡片左对齐，不新增设计系统。
 
-助手“项目知识”菜单按需显示Overview更新时间、coverage、来源/纠正/排除与刷新入口；不在Project首页增加知识卡片。空态和设置均不默认把完整Overview发给模型。
+助手“项目知识”菜单按需显示 Overview 更新时间、coverage、来源/纠正/排除与刷新入口，目标增加同一 Overview 的“项目背景与约定”栏目；不在 Project 首页增加知识卡片。Workspace 提供长期记忆、统一 Skill 编辑和 Harness 运行设置入口；Skill/设置操作按实际保存结果通知，记忆内容操作显示真实位置与收据。空态和设置均不默认把完整 Overview 发给模型。
 
 | 情况 | 显示与恢复 |
 | --- | --- |
@@ -648,13 +667,13 @@ Workspace会话首次真实任务使用有权限且符合预算的当前有效�
 
 更新输入为旧Workspace Overview、发生变化的Project Overview条目、Workspace直属资料增量及用户纠正。项目先更新、Workspace再聚合；某项目失败则保留其旧修订并标滞后，不阻塞其他项目。按E4每日/隔日批次运行，无变更不调用模型。
 
-Project不能反向读取Workspace记忆；Workspace只能读取已授权项目集合，不能把全Workspace摘要泄露给只授权部分项目的连接。排除、删除、撤回来源即时影响派生概览/记忆可见性，详见E4。
+目标接入边界：内置 Project Agent 可沿用当前 Workspace 的授权可用长期记忆，记忆读取单独于 Workspace 原文读取和记忆写入。用户在内置 Project 会话明确要求保存通用信息时，可信适配器将该真实请求绑定到本次 Workspace 记忆操作；内容与范围明确时直接保存并回报位置，含糊时先澄清，不据此扩大其他原文访问或任意写入权限。Project 资料与会话仍限本项目，外部连接和后台维护按各自授权判断；Workspace只能读取已授权项目集合，不能把全Workspace摘要泄露给只授权部分项目的连接。排除、删除、撤回来源即时影响派生概览/记忆可见性，详见E4与[生命周期补充及 ML16～17](workspace-memory-lifecycle.md)。
 
 综合产出仍保存为Workspace Record/Todo；File必须归Project，当前不增加Workspace File。长期知识原文使用Workspace Record及现有引用；维护层独立保留来源、确认程度、适用范围和失效状态，不把推测当用户事实，不要求用户逐个建立主题。
 
 ### 外部Agent与任务菜单
 
-先接入用户自行安装的 Pi CLI（结构化 RPC）和 Claude Code（非交互结构化输出）两种运行时，与内置 SDK 适配器共用生命周期测试。Claude 适配器使用 `-p --output-format stream-json --verbose --include-partial-messages`，以最终 result 和进程状态判定完成，保存返回 session ID 并显式 resume；参数需先通过已安装版本的 help/capability 验证，不兼容则禁用。正文经 stdin，非 shell 拼接。其他 Agent 可通过 Mind MCP/CLI 使用项目，不假定协议相同。
+外部运行时/扩展 client 属于延期 P2，不是当前内置 Pi 目标或发布前置。后续可接用户自行安装的 Pi CLI（结构化 RPC）与 Claude Code（非交互结构化输出），沿用内置 SDK 生命周期契约；以下为延期接口约束，不表示 HEAD 已支持选择外部 Harness、外部 Skill 或 MCP client。Claude 适配器使用 `-p --output-format stream-json --verbose --include-partial-messages`，以最终 result 和进程状态判定完成，保存返回 session ID 并显式 resume；参数需先通过已安装版本的 help/capability 验证，不兼容则禁用。正文经 stdin，非 shell 拼接。其他 Agent 可通过 Mind MCP/CLI 使用项目，不假定协议相同。
 
 RuntimeAdapter 契约：detect、capabilities、start、send、cancel、resume、dispose；capabilities 含 structuredEvents/toolBridge/resume/cancel/fileOutput/scopeEnforced。用户配置只描述 executable、argv 数组、protocol 和环境变量名引用，不允许 WebView 直接执行 shell 字符串。
 
@@ -668,13 +687,13 @@ RuntimeAdapter 契约：detect、capabilities、start、send、cancel、resume�
 
 `mind serve --workspace <path>` 前台运行；`mind serve --stop/status` 管理自己实例。首期后台服务不随系统自动启动。CLI 退出不终止已明确启动的服务；GUI 关闭是否保持 Host 由用户开关，默认结束。
 
-没有界面时密钥通过本机 credential store 和用户此前授权的非交互策略获得；没有授权返回 SECRETS_LOCKED，不从 stdout/argv 传密码。可先支持无模型的读取/创建/版本化修改、提取索引，再开放有预算上限的维护。复用 M1 API v1 与 receipt，不引入另一份数据库。
+无界面 Host 为延期目标。没有界面时密钥通过本机 credential store 和用户此前授权的非交互策略获得；没有授权返回 SECRETS_LOCKED，不从 stdout/argv 传密码。可先支持无模型的读取/创建/版本化修改、提取索引，再开放有预算上限的维护。复用已有 API v1 与 receipt，不引入另一份数据库。
 
 <a id="e16"></a>
 
 ## E16 性能、观测与参考
 
-本节是验收目标，不是已测得指标。M0 固定测试机器配置，记录版本、冷/热状态和语料规模。
+本节是验收目标，不是已测得指标。验收固定测试机器配置，记录版本、冷/热状态和语料规模。
 
 - 3000 条 Record + 200 份文本资料样例：本地 context.get 热态 p95≤300ms，search p95≤500ms；不包含模型响应。
 - 知识状态读取≤200ms；Overview维护和首模型token 不承诺固定秒数，但立即提供进行状态，超过60s有明确超时。
@@ -683,12 +702,14 @@ RuntimeAdapter 契约：detect、capabilities、start、send、cancel、resume�
 - 本机日志指标：检索耗时、来源读取成功率、引用解析失败率、成果保存/冲突、取消耗时、恢复结果；无远程埋点默认上传。
 - 用户验证：准备3个真实项目，由用户完成历史问题定位、查找依据、生成并找回文件。记录用时和纠正次数，不用“聊天条数/自动生成 Record 数”作为成功指标。
 
+验证沿最高可复用的共享原生服务边界覆盖真实调用路径，重点为来源/权限、请求与收据身份、CAS、幂等、抑制、原子发布、未消费进度和恢复；不要为每个适配入口复制同一组实现镜像测试。真实打包 Pi 配合 mock Provider 验证工具接线、Provider 请求中的 Skill 刷新、历史/压缩及恢复；React 流程验证入口、方案/结果、纠正与配置通知。真实 Provider 及 macOS arm64/x64、Windows x64 的安装/续聊/业务验收独立列为待完成项，mock 和历史定向验证不能替代。当前执行包、有效历史验证及外部缺口以[交付计划](ai-work-context-delivery.md)为准。
+
 参考（一手资料，2026-09-28核对）：
 
 - [飞书CLI](https://github.com/larksuite/cli/blob/main/README.zh.md)：借鉴可发现命令、schema与结构化结果。
 - [Open Design runtime adapters](https://github.com/nexu-io/open-design/blob/main/docs/agent-adapters.md)：借鉴连接方向分离、能力探测和适配层，不能照搬其他CLI的权限绕过参数。
 - [Karpathy LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)：借鉴来源/关联理解/维护规则及摄入、查询、检查；本文的对象与默认自动化策略是Mind自己的设计。
-- [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)、[安全边界](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md)：验证嵌入方式、历史恢复、工具和资源边界。精确SDK签名和可发布版本由AI-01锁定。
+- [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)、[安全边界](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md)：验证嵌入方式、历史恢复、工具和资源边界。HEAD 已固定 0.99.1；更新精确 SDK 签名和可发布资源时沿现有锁定与打包验证。
 - [Pi会话格式](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/session-format.md)：恢复与路径codec验证依据。
 - [Claude Code非交互接口](https://code.claude.com/docs/en/headless)：AI-13结构化输出与恢复参考，不预先承诺任意版本兼容。
 - [MCP stdio规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)：外部协议边界。
