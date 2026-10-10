@@ -10,7 +10,7 @@ S6 本地实现已合入 `3aae8fd`（准备提交 `66df517`、`f37e6e7`、`5ff8c
 
 S7 长期记忆与 S8 本地实现和有效验证已完成，产品验收未完成。六类记忆、模型候选固定为推断、GUI 用户确认/纠正/停用与重新启用、纠正后知识新版本、按同 scope/类别/原始来源的抑制、多条停用决定各自撤回，以及旧模型读取和 Run 来源证明对最新策略的复核已接入；原始资料仍可按授权搜索。数据库定向组 518 通过、8 ignored，S8 服务回归另为 4/4；这些组可能重叠，不相加为唯一计数。前端三文件最终集中运行 27/27 一次通过；生产构建、UI 标准、可移植路径与 bundle 边界通过，主入口 195 KiB / 250 KiB。736/1200 宽度真实 React 组件加模拟 IPC 的浏览器流程、列表滚动及焦点检查通过，10 张截图报告在 `/workspace/project-mind-env/ui-check/s7-memory`。Rust 1019 项完整运行先得 980 passed、2 failed、37 ignored，用时 201.85 秒，日志 `/workspace/project-mind-env/s8-rust-full.log`。两处仅修测试后分别定向通过：旧 S5 Workspace 能力断言见 `/workspace/project-mind-env/s8-failures-retest.log`；长 Todo 最终用例见 `/workspace/project-mind-env/s8-long-source-final.log`，完整 3800 字节 prompt、约 21k 中文字符的 183 个模型分页全部结算，游标逐页严格前进，用时 38.30 秒。全量后生产代码未改，因此 982 项普通 Rust 用例各有有效通过证据、37 ignored；不能称单次全量 982 通过。主 agent 已完成 S7/S8 Standards/Spec 自查，核对原文及派生来源证明、epoch/CAS/抑制、schema 迁移、GUI 列表与空正文编辑，未发现当前阻塞。A57/A58 为本地部分覆盖，真实 Provider 与目标平台仍缺。
 
-2026-10-10 新批准的 [Workspace 长期记忆生命周期需求](workspace-memory-lifecycle.md)已入包、待实现；LM1～LM5 和 ML01～ML15 为新目标，保留本表 A01～A76 编号。`ab4d461` 的 S7/S8 历史验证仍有效，但不证明 Workspace 唯一记忆归属、Project Overview 专门栏目、统一记忆操作、联合原子沉淀、精简快照及旧数据迁移已完成。新场景的真实 Provider 语义与目标平台验收仍缺；R15/R16 暂缓，#118 文件预览继续独立。
+2026-10-10 新批准的 [Workspace 长期记忆生命周期需求](workspace-memory-lifecycle.md)已入包、待实现；LM1～LM5 和 ML01～ML15 为新目标，保留本表 A01～A76 编号。`ab4d461` 的 S7/S8 历史验证仍有效，但不证明 Workspace 唯一记忆归属、Project Overview 专门栏目、统一记忆操作、联合原子沉淀、精简快照及新结构初始化已完成。新场景的真实 Provider 语义与目标平台验收仍缺；R15/R16 暂缓，#118 文件预览继续独立。
 
 | 编号 | 批次与状态 | 已有证据入口 | 尚缺执行或条件 |
 | --- | --- | --- | --- |
@@ -70,8 +70,8 @@ S7 长期记忆与 S8 本地实现和有效验证已完成，产品验收未完�
 | A54 | M1·部分 | [Overview 维护测试][overview-tests]、[变更队列测试][source-queue-tests] | 维护中新增事件/重启/失败/日志过期的产品进度和水位。 |
 | A55 | M1·部分 | [知识服务测试][knowledge-tests]、[纠正测试][overview-correction-tests] | 停滞 Todo/冲突目标/用户纠正的真实模型处理，不擅改 Todo。 |
 | A56 | M2·部分 | [S6 定向证据][delivery]和 S8 服务回归 4/4：父删除旧版隐藏、A 项目变化加 Workspace 直属 Record 额外 2 次模型调用且 prompt 无 B/C 原文、长父分页逐页纠正 | 未测 B/C 物理读取次数；真实 Provider 与目标平台验收仍缺。 |
-| A57 | M2·部分；2026-10-10 修订待实现 | S7 本地代码、数据库定向组及前端最终 27/27 有历史证据；六类记忆、推断/确认、GUI 操作和知识版本已接入；[R14 计划][delivery] | 新要求按[ML01～ML05、ML09～ML10、ML13～ML15](workspace-memory-lifecycle.md#10-验收场景)核 Workspace 唯一归属、Project 栏目、统一操作、联合沉淀、完整精简快照、容量及迁移；再核项目归档、明确偏好、兴趣笔记与随口提问的真实提取边界、真实模型和目标平台。旧 S7 证据不覆盖新要求。 |
-| A58 | M2·部分；2026-10-10 修订待实现 | S7 本地代码、数据库定向组与前端最终 27/27 有历史证据；按来源抑制、多 owner 独立撤回、旧模型读及 Run proof 复核已接入；[R14 计划][delivery] | 新要求按[ML05～ML08、ML11～ML14](workspace-memory-lifecycle.md#10-验收场景)核待审、遗忘/复生约束、授权、联合原子保存、迁移后的停用约束和旧会话失效；再执行排除、部分授权、旧版本/续聊不泄露的真实模型及目标平台验收。 |
+| A57 | M2·部分；2026-10-10 修订待实现 | S7 本地代码、数据库定向组及前端最终 27/27 有历史证据；六类记忆、推断/确认、GUI 操作和知识版本已接入；[R14 计划][delivery] | 新要求按[ML01～ML05、ML09～ML10、ML13～ML15](workspace-memory-lifecycle.md#10-验收场景)核 Workspace 唯一归属、Project 栏目、统一操作、联合沉淀、完整精简快照、容量及初始化；再核项目归档、明确偏好、兴趣笔记与随口提问的真实提取边界、真实模型和目标平台。旧 S7 证据不覆盖新要求。 |
+| A58 | M2·部分；2026-10-10 修订待实现 | S7 本地代码、数据库定向组与前端最终 27/27 有历史证据；按来源抑制、多 owner 独立撤回、旧模型读及 Run proof 复核已接入；[R14 计划][delivery] | 新要求按[ML05～ML08、ML11～ML14](workspace-memory-lifecycle.md#10-验收场景)核待审、遗忘/复生约束、授权、联合原子保存、新模型中的停用约束和旧会话失效；再执行排除、部分授权、旧版本/续聊不泄露的真实模型及目标平台验收。 |
 | A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests]：本地时区初始化、已有值保留、频率/时刻/时区设置及重算已接入 | 真实设备时钟下验证 24h/48h、离线、密钥锁定与前台抢占；单元测试时间不代替夜间运行。 |
 | A60 | M1·部分 | [Overview 维护测试][overview-tests]、[知识维护测试][knowledge-tests] | 大项目、恶意资料、重复摘要真实模型运行，核 partial 和预算续跑。 |
 | A61 | M1·部分 | [会话检索测试][session-search-tests]、[会话摘要测试][session-summary-tests] | [WP4～5](ai-work-context-delivery.md#confirmed-work-packages-20261009)先验证 Pi 原生压缩续聊与权限复核，再按证据补必要知识；真实旧讨论仍可由跨会话索引定位，摘要缺失时有限原文回读。 |
