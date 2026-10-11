@@ -30,6 +30,7 @@ import { generateDefaultProjectName } from "./lib/projectDefaultName";
 import {
   requestProjectRecordFocusSave,
   requestWorkspaceRecordFocusSave,
+  canLeaveRecordFocus,
 } from "./lib/record-focus-save";
 import { parseRecordFocusRoute } from "./lib/record-focus-route";
 import type { RecordSaveCoordinator } from "./lib/record-save-coordinator";
@@ -209,7 +210,7 @@ export function WorkspaceLayout({
           recordId: route.recordId,
         })
       : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
-    return saveResult === "submitted";
+    return canLeaveRecordFocus(saveResult);
   }, [activeRecordFocusRoute]);
   const routeSaveBlocker = useBlocker(
     useCallback<BlockerFunction>(
@@ -233,7 +234,7 @@ export function WorkspaceLayout({
               recordId: route.recordId,
             })
           : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
-        return result !== "submitted";
+        return !canLeaveRecordFocus(result);
       },
       [],
     ),

@@ -8,7 +8,7 @@ import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,type Keyb
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
-import { parseRouteId,preserveRecordFilters,projectPath } from "../../lib/formatters";
+import { parseRouteId,preserveRecordFilters,projectPath,workspacePath } from "../../lib/formatters";
 import {
 PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
 type ProjectRecordFocusSaveRequestDetail,
@@ -29,7 +29,7 @@ import { projectRecordSaveKey } from "../../lib/record-save-coordinator";
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { PageLoadingSkeleton,TextField } from "../../ui/components";
+import { Button,PageLoadingSkeleton,TextField } from "../../ui/components";
 import {
 getRenderableRichTextHtml,
 normalizeRichEditorValue,
@@ -306,20 +306,21 @@ export function ProjectNoteFocusPage({
   }, [recordId, projectId, saveCoordinator]);
 
   useEffect(() => {
+    if (!visible) return;
     const handleSaveRequest = (event: Event) => {
       const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
       if (!detail || detail.projectId !== projectId || detail.recordId !== recordId) {
         return;
       }
 
-      detail.respond(submitCurrentRecord());
+      detail.respond(draftReady ? submitCurrentRecord() : "not_needed");
     };
 
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     return () => {
       window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     };
-  }, [recordId, projectId, submitCurrentRecord]);
+  }, [draftReady, recordId, projectId, submitCurrentRecord, visible]);
 
   const saveTitleIfChanged = async () => {
     if (!draftReady || titleValueRef.current === lastSavedTitleRef.current) {
@@ -343,11 +344,10 @@ export function ProjectNoteFocusPage({
   };
 
   const handleBack = () => {
-    if (projectId !== null) {
-      navigate(
-        preserveRecordFilters(projectPath(projectId, `record-${recordId}`), searchParams),
-      );
-    }
+    const target = projectId === null
+      ? `${workspacePath()}?view=record`
+      : projectPath(projectId, draftReady ? `record-${recordId}` : undefined);
+    navigate(preserveRecordFilters(target, searchParams));
   };
 
   const handleTagsChange = async (newTagIds: number[]) => {
@@ -393,8 +393,9 @@ export function ProjectNoteFocusPage({
 
   if (projectId === null || recordId === null) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-text-soft">无效的记录ID</p>
+        <Button onClick={handleBack}>{projectId === null ? "返回工作区" : "返回项目主页"}</Button>
       </div>
     );
   }
@@ -406,8 +407,14 @@ export function ProjectNoteFocusPage({
 
   if (!draftReady && !note) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-text-soft">记录未找到</p>
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <p className="text-text-soft">{projectPageQuery.isError ? "记录加载失败，请重试" : "记录未找到"}</p>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleBack}>返回项目主页</Button>
+          {projectPageQuery.isError ? (
+            <Button onClick={() => void projectPageQuery.refetch()}>重试</Button>
+          ) : null}
+        </div>
       </div>
     );
   }
