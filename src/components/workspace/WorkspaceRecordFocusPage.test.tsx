@@ -12,6 +12,7 @@ import type {
   WorkspacePageData,
   WorkspaceRecord,
 } from "../../lib/types";
+import { requestWorkspaceRecordFocusSave } from "../../lib/record-focus-save";
 import { queryKeys } from "../../lib/queryKeys";
 import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
@@ -235,7 +236,7 @@ const noteC: WorkspaceRecord = {
 
 function LocationDisplay() {
   const location = useLocation();
-  return <div data-testid="location-display">{location.pathname}</div>;
+  return <div data-testid="location-display">{location.pathname}{location.search}</div>;
 }
 
 function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }), initialEntry = "/workspace/records/7") {
@@ -244,6 +245,7 @@ function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOpt
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/workspace/records/:noteId" element={ui} />
+          <Route path="*" element={null} />
         </Routes>
         <LocationDisplay />
       </MemoryRouter>
@@ -385,6 +387,160 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     await waitFor(() => expect(recordMocks.sourceReveal).toHaveBeenLastCalledWith(second));
     expect(screen.getByRole("textbox", { name: "正文编辑器" })).toHaveValue("正文 A");
     view.unmount();
+  });
+
+  it.each([
+    ["missing", "/workspace/records/7", "记录未找到", "/workspace", "返回工作区"],
+    ["invalid", "/workspace/records/invalid", "无效的记录ID", "/workspace", "返回工作区"],
+    ["failed", "/workspace/records/7", "记录加载失败，请重试", "/workspace", "返回工作区"],
+  ])("error page returns with filters and without a missing focus anchor: %s %s", async (state, route, message, target, label) => {
+    if (state === "missing") apiMocks.workspacePageGet.mockResolvedValue({ ...buildWorkspacePage(), records: [] });
+    if (state === "failed") apiMocks.workspacePageGet.mockRejectedValue(new Error("load failed"));
+    renderPage(<WorkspaceRecordFocusPage />, undefined, `${route}?recordQuery=needle&recordTag=12&focus=record-7`);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: label }));
+
+    const location = screen.getByTestId("location-display").textContent ?? "";
+    const [pathname, search] = location.split("?");
+    expect(pathname).toBe(target);
+    const params = new URLSearchParams(search);
+    expect(params.get("recordQuery")).toBe("needle");
+    expect(params.get("recordTag")).toBe("12");
+    expect(params.has("focus")).toBe(false);
+  });
+
+  it("error page retries a failed record load", async () => {
+    apiMocks.workspacePageGet.mockRejectedValueOnce(new Error("load failed"));
+    renderPage(<WorkspaceRecordFocusPage />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText("记录加载失败，请重试")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByLabelText("正文编辑器")).toBeInTheDocument();
+    expect(apiMocks.workspacePageGet).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["missing", "failed", "loading"] as const)(
+    "navigation save is not_needed without a draft when %s",
+    async (state) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      if (state === "missing") {
+        apiMocks.workspacePageGet.mockResolvedValue({ ...buildWorkspacePage(), records: [] });
+      } else if (state === "failed") {
+        apiMocks.workspacePageGet.mockRejectedValue(new Error("load failed"));
+      } else {
+        apiMocks.workspacePageGet.mockImplementation(() => new Promise(() => {}));
+      }
+      const persist = vi.fn(async () => ({}));
+      const coordinator = new RecordSaveCoordinator({
+        workspaceKey: "/tmp/workspace",
+        adapter: { persist },
+      });
+      renderPage(
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <WorkspaceRecordFocusPage />
+        </RecordSaveCoordinatorProvider>,
+        queryClient,
+      );
+      if (state !== "loading") {
+        await waitFor(() => expect(queryClient.getQueryState(queryKeys.workspacePage)?.status)
+          .toBe(state === "failed" ? "error" : "success"));
+      }
+
+      let result;
+      act(() => { result = requestWorkspaceRecordFocusSave({ recordId: 7 }); });
+
+      expect(result).toBe("not_needed");
+      expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+      expect(coordinator.getStatus().pendingCount).toBe(0);
+      expect(persist).not.toHaveBeenCalled();
+    },
+  );
+
+  it("navigation save submits a loaded draft and retains a real persistence failure", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist: vi.fn(async () => { throw new Error("save failed"); }) },
+    });
+    renderPage(
+      <RecordSaveCoordinatorProvider coordinator={coordinator}>
+        <WorkspaceRecordFocusPage />
+      </RecordSaveCoordinatorProvider>,
+      queryClient,
+    );
+
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).not.toBeDisabled());
+    let result;
+    act(() => { result = requestWorkspaceRecordFocusSave({ recordId: 7 }); });
+    expect(result).toBe("submitted");
+    await act(async () => {
+      await expect(coordinator.flush()).rejects.toThrow("save failed");
+    });
+    expect(coordinator.getRecordStatus("workspace:7")).toMatchObject({ phase: "error", failedCount: 1 });
+    expect(coordinator.getLatestSnapshot("workspace:7")).toMatchObject({
+      title: "A",
+      committedContent: { markdown: "正文 A" },
+    });
+    expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文 A");
+  });
+
+  it("navigation save follows resident visibility changes", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    function VisibilityHarness() {
+      const [visible, setVisible] = useState(true);
+      return <>
+        <button type="button" onClick={() => setVisible((value) => !value)}>切换可见性</button>
+        <WorkspaceRecordFocusPage visible={visible} />
+      </>;
+    }
+    const persist = vi.fn(async (snapshot) => ({ headRevision: snapshot.canonicalBody.baseRevision + 1 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><VisibilityHarness /></RecordSaveCoordinatorProvider>, queryClient);
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "切换可见性" }));
+    await coordinator.flush();
+    const hiddenSaveCount = persist.mock.calls.length;
+    let result;
+    act(() => { result = requestWorkspaceRecordFocusSave({ recordId: 7 }); });
+    expect(result).toBe("unhandled");
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount);
+
+    await user.click(screen.getByRole("button", { name: "切换可见性" }));
+    act(() => { result = requestWorkspaceRecordFocusSave({ recordId: 7 }); });
+    expect(result).toBe("submitted");
+    await coordinator.flush();
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 1);
+  });
+
+  it.each([false, true])("hidden resident navigation save is unhandled with draft=%s", (hasDraft) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    if (hasDraft) queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    const persist = vi.fn(async () => ({}));
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist },
+    });
+    renderPage(
+      <RecordSaveCoordinatorProvider coordinator={coordinator}>
+        <WorkspaceRecordFocusPage visible={false} />
+      </RecordSaveCoordinatorProvider>,
+      queryClient,
+    );
+
+    let result;
+    act(() => { result = requestWorkspaceRecordFocusSave({ recordId: 7 }); });
+
+    expect(result).toBe("unhandled");
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { MemoryRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { act, fireEvent, render as baseRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -220,6 +220,11 @@ const baseNote: NoteRecord = {
 
 let currentNote: NoteRecord;
 
+function LocationDisplay() {
+  const location = useLocation();
+  return <div data-testid="location-display">{location.pathname}{location.search}</div>;
+}
+
 function render(ui: ReactElement, providedQueryClient?: QueryClient, initialEntry = "/projects/1/records/7") {
   const queryClient = providedQueryClient ?? new QueryClient({
     defaultOptions: {
@@ -233,7 +238,9 @@ function render(ui: ReactElement, providedQueryClient?: QueryClient, initialEntr
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/projects/:projectId/records/:noteId" element={ui} />
+          <Route path="*" element={null} />
         </Routes>
+        <LocationDisplay />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -430,6 +437,132 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await waitFor(() => expect(richEditorMocks.sourceReveal).toHaveBeenLastCalledWith(second));
     expect(await screen.findByText("已定位引用段落。")).toBeInTheDocument();
     view.unmount();
+  });
+
+  it.each([
+    ["missing", "/projects/1/records/7", "记录未找到", "/projects/1", "返回项目主页"],
+    ["invalid", "/projects/1/records/invalid", "无效的记录ID", "/projects/1", "返回项目主页"],
+    ["failed", "/projects/1/records/7", "记录加载失败，请重试", "/projects/1", "返回项目主页"],
+    ["invalid", "/projects/invalid/records/7", "无效的记录ID", "/workspace", "返回工作区"],
+  ])("error page returns with filters and without a missing focus anchor: %s %s", async (state, route, message, target, label) => {
+    if (state === "missing") apiMocks.projectPageGet.mockResolvedValue({ ...buildProjectPage(), records: [] });
+    if (state === "failed") apiMocks.projectPageGet.mockRejectedValue(new Error("load failed"));
+    render(<ProjectNoteFocusPage />, undefined, `${route}?recordQuery=needle&recordTag=12&focus=record-7`);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: label }));
+
+    const location = screen.getByTestId("location-display").textContent ?? "";
+    const [pathname, search] = location.split("?");
+    expect(pathname).toBe(target);
+    const params = new URLSearchParams(search);
+    expect(params.get("recordQuery")).toBe("needle");
+    expect(params.get("recordTag")).toBe("12");
+    expect(params.has("focus")).toBe(false);
+  });
+
+  it("error page retries a failed record load", async () => {
+    apiMocks.projectPageGet.mockRejectedValueOnce(new Error("load failed"));
+    render(<ProjectNoteFocusPage />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByText("记录加载失败，请重试")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByLabelText("正文编辑器")).toBeInTheDocument();
+    expect(apiMocks.projectPageGet).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["missing", "failed", "loading"] as const)(
+    "navigation save is not_needed without a draft when %s",
+    async (state) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      if (state === "missing") {
+        apiMocks.projectPageGet.mockResolvedValue({ ...buildProjectPage(), records: [] });
+      } else if (state === "failed") {
+        apiMocks.projectPageGet.mockRejectedValue(new Error("load failed"));
+      } else {
+        apiMocks.projectPageGet.mockImplementation(() => new Promise(() => {}));
+      }
+      const persist = vi.fn(async () => ({}));
+      const coordinator = new RecordSaveCoordinator({
+        workspaceKey: "/tmp/workspace",
+        adapter: { persist },
+      });
+      render(
+        <RecordSaveCoordinatorProvider coordinator={coordinator}>
+          <ProjectNoteFocusPage />
+        </RecordSaveCoordinatorProvider>,
+        queryClient,
+      );
+      if (state !== "loading") {
+        await waitFor(() => expect(queryClient.getQueryState(queryKeys.projectPage(1))?.status)
+          .toBe(state === "failed" ? "error" : "success"));
+      }
+
+      let result;
+      act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+
+      expect(result).toBe("not_needed");
+      expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
+      expect(coordinator.getStatus().pendingCount).toBe(0);
+      expect(persist).not.toHaveBeenCalled();
+    },
+  );
+
+  it("navigation save follows resident visibility changes", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    function VisibilityHarness() {
+      const [visible, setVisible] = useState(true);
+      return <>
+        <button type="button" onClick={() => setVisible((value) => !value)}>切换可见性</button>
+        <ProjectNoteFocusPage visible={visible} />
+      </>;
+    }
+    const persist = vi.fn(async (snapshot) => ({ headRevision: snapshot.canonicalBody.baseRevision + 1 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><VisibilityHarness /></RecordSaveCoordinatorProvider>, queryClient);
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "切换可见性" }));
+    await coordinator.flush();
+    const hiddenSaveCount = persist.mock.calls.length;
+    let result;
+    act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+    expect(result).toBe("unhandled");
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount);
+
+    await user.click(screen.getByRole("button", { name: "切换可见性" }));
+    act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+    expect(result).toBe("submitted");
+    await coordinator.flush();
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 1);
+  });
+
+  it.each([false, true])("hidden resident navigation save is unhandled with draft=%s", (hasDraft) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    if (hasDraft) queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    const persist = vi.fn(async () => ({}));
+    const coordinator = new RecordSaveCoordinator({
+      workspaceKey: "/tmp/workspace",
+      adapter: { persist },
+    });
+    render(
+      <RecordSaveCoordinatorProvider coordinator={coordinator}>
+        <ProjectNoteFocusPage visible={false} />
+      </RecordSaveCoordinatorProvider>,
+      queryClient,
+    );
+
+    let result;
+    act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+
+    expect(result).toBe("unhandled");
+    expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {

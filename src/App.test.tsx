@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
+  WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
 import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
@@ -1693,4 +1694,73 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
   }, 15_000);
+  it.each([
+    ["/projects/1/records/999", "/workspace"],
+    ["/workspace/records/999", "/projects/2"],
+  ])("allows navigation from a missing Record at %s to %s", async (initialRoute, destination) => {
+    const projects = [1, 2].map((id) => ({
+      id, name: id === 1 ? "Alpha" : "Beta", kind: "normal" as const,
+      status: "active", rootPath: `/tmp/project-${id}`, quickNote: "",
+      isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0,
+    }));
+    const page = { records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    vi.mocked(projectMindApi.projectPageGet).mockImplementation(async ({ projectId }) => ({
+      ...page, project: projects.find((project) => project.id === projectId)!,
+    }));
+    vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue({ ...page, quickNote: null });
+    useUiStore.setState({ openProjectIds: [1, 2] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(queryKeys.projects.all, projects);
+    for (const project of projects) {
+      client.setQueryData(queryKeys.projectPage(project.id), { ...page, project });
+      client.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+    }
+    client.setQueryData(queryKeys.workspacePage, { ...page, quickNote: null });
+    client.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    const persist = vi.fn();
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const router = createMemoryRouter([{
+      path: "/", element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
+      children: [
+        { path: "projects/:projectId/records/:noteId", element: <div /> },
+        { path: "workspace/records/:noteId", element: <div /> },
+        { path: "projects/:projectId", element: <div /> },
+        { path: "workspace", element: <div /> },
+      ],
+    }], { initialEntries: [initialRoute] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    await screen.findByText("记录未找到");
+    fireEvent.click(screen.getByRole("tab", { name: destination === "/workspace" ? "Workspace" : "Beta" }));
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    expect(router.state.location.pathname).toBe(destination);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/projects/1/records/7", PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, false],
+    ["/workspace/records/7", WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, false],
+    ["/projects/1/records/7", PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, null],
+  ])("keeps %s when %s responds %s", async (initialRoute, eventName, response) => {
+    const router = createMemoryRouter([{
+      path: "/", element: <WorkspaceLayout />,
+      children: [
+        { path: "projects/:projectId/records/:noteId", element: <div>loaded record</div> },
+        { path: "workspace/records/:noteId", element: <div>loaded record</div> },
+        { path: "workspace", element: <div>workspace overview</div> },
+      ],
+    }], { initialEntries: [initialRoute] });
+    const handleSave = (event: Event) => {
+      (event as CustomEvent<{ respond: (submitted: boolean) => void }>).detail.respond(false);
+    };
+    if (response !== null) window.addEventListener(eventName, handleSave);
+    try {
+      render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+      await screen.findByText("loaded record");
+      await act(() => router.navigate("/workspace"));
+      expect(router.state.location.pathname).toBe(initialRoute);
+    } finally {
+      window.removeEventListener(eventName, handleSave);
+    }
+  });
 });

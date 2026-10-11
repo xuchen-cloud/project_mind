@@ -6,14 +6,20 @@ export const WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT =
 export interface ProjectRecordFocusSaveRequestDetail {
   projectId: number;
   recordId: number;
-  respond: (submitted: boolean) => void;
+  respond: (submitted: boolean | "not_needed") => void;
 }
 
-export type RecordFocusSaveResult = "submitted" | "failed" | "unhandled";
+export type RecordFocusSaveResult = "submitted" | "not_needed" | "failed" | "unhandled";
+
+// A page with no loaded draft has nothing to capture before navigation.
+// A failed or missing response still protects an existing editor's content.
+export function canLeaveRecordFocus(result: RecordFocusSaveResult): boolean {
+  return result === "submitted" || result === "not_needed";
+}
 
 export interface WorkspaceRecordFocusSaveRequestDetail {
   recordId: number;
-  respond: (submitted: boolean) => void;
+  respond: (submitted: boolean | "not_needed") => void;
 }
 
 export function requestProjectRecordFocusSave(input: {
@@ -29,7 +35,7 @@ export function requestProjectRecordFocusSave(input: {
           projectId: input.projectId,
           recordId: input.recordId,
           respond: (submitted) => {
-            result = submitted ? "submitted" : "failed";
+            result = submitted === "not_needed" ? "not_needed" : submitted ? "submitted" : "failed";
           },
         },
       },
@@ -49,7 +55,7 @@ export function requestWorkspaceRecordFocusSave(input: {
         detail: {
           recordId: input.recordId,
           respond: (submitted) => {
-            result = submitted ? "submitted" : "failed";
+            result = submitted === "not_needed" ? "not_needed" : submitted ? "submitted" : "failed";
           },
         },
       },

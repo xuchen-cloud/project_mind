@@ -34,7 +34,7 @@ useRecordSaveCoordinator,
 import { DEFAULT_RICH_TEXT_STYLE_SETTINGS } from "../../lib/richTextStyle";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { PageLoadingSkeleton,TextField } from "../../ui/components";
+import { Button,PageLoadingSkeleton,TextField } from "../../ui/components";
 import {
 normalizeRichEditorValue,
 RichEditor,
@@ -293,14 +293,15 @@ export function WorkspaceRecordFocusPage({
   }, [recordId, saveCoordinator]);
 
   useEffect(() => {
+    if (!visible) return;
     const handleRequest = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceRecordFocusSaveRequestDetail>).detail;
       if (!detail || detail.recordId !== recordId) return;
-      detail.respond(submitCurrentRecord());
+      detail.respond(draftReady ? submitCurrentRecord() : "not_needed");
     };
     window.addEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
     return () => window.removeEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
-  }, [recordId, submitCurrentRecord]);
+  }, [draftReady, recordId, submitCurrentRecord, visible]);
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
@@ -358,10 +359,10 @@ export function WorkspaceRecordFocusPage({
   }, [availableTags, content, note?.updatedAt, queryClient, saveCurrentRecord, tagIds, title]);
 
   const handleBack = () => {
-    if (recordId === null) return;
-    navigate(
-      preserveRecordFilters(`${workspacePath()}?view=record&focus=record-${recordId}`, searchParams),
-    );
+    const target = draftReady
+      ? `${workspacePath()}?view=record&focus=record-${recordId}`
+      : `${workspacePath()}?view=record`;
+    navigate(preserveRecordFilters(target, searchParams));
   };
 
   async function createWorkspaceRecordInFocus() {
@@ -427,8 +428,9 @@ export function WorkspaceRecordFocusPage({
 
   if (recordId === null) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-text-soft">无效的记录ID</p>
+        <Button onClick={handleBack}>返回工作区</Button>
       </div>
     );
   }
@@ -443,8 +445,14 @@ export function WorkspaceRecordFocusPage({
 
   if (!draftReady && !note) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-text-soft">记录未找到</p>
+      <div className="flex h-full flex-col items-center justify-center gap-4">
+        <p className="text-text-soft">{workspacePageQuery.isError ? "记录加载失败，请重试" : "记录未找到"}</p>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleBack}>返回工作区</Button>
+          {workspacePageQuery.isError ? (
+            <Button onClick={() => void workspacePageQuery.refetch()}>重试</Button>
+          ) : null}
+        </div>
       </div>
     );
   }
