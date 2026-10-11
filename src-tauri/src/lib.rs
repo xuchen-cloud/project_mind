@@ -1,5 +1,7 @@
 pub mod agent;
 mod ai_jobs;
+mod dsh_assistant;
+mod project_directory;
 mod ai_provider;
 mod ai_network;
 mod db;
@@ -328,6 +330,19 @@ impl AppState {
             paths,
             None,
         )?);
+        #[cfg(debug_assertions)]
+        {
+            if let Some(password) = debug_workspace_password(
+                &runtime.metadata,
+                std::env::var("PROJECT_MIND_DEV_WORKSPACE_PASSWORD").ok().as_deref(),
+                debug_cached_workspace_password,
+                debug_cache_workspace_password,
+            )? {
+                if let Some(error) = runtime.set_secret_password(Some(password))? {
+                    let _ = self.app_handle.emit("record:checkpoint-error", error);
+                }
+            }
+        }
         self.set_current_workspace(Some(runtime));
 
         let mut session = load_local_session(&self.local_session_path)?;
@@ -342,7 +357,12 @@ impl AppState {
         root_path: &Path,
         password: &str,
     ) -> Result<WorkspaceStatusSnapshot> {
+        #[cfg(debug_assertions)]
+        debug_create_workspace(root_path, debug_cache_workspace_password)?;
+        #[cfg(not(debug_assertions))]
         create_workspace(root_path, password)?;
+        #[cfg(debug_assertions)]
+        let _ = password;
         self.open_workspace_root(root_path)
     }
 
@@ -360,6 +380,8 @@ impl AppState {
     fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
         verify_workspace_password(&runtime.metadata, password)?;
+        #[cfg(debug_assertions)]
+        debug_cache_workspace_password(&runtime.metadata.workspace_id, password)?;
         if let Some(error) = runtime.set_secret_password(Some(password.to_string()))? {
             let _ = self.app_handle.emit("record:checkpoint-error", error);
         }
@@ -387,6 +409,62 @@ impl AppState {
 }
 
 type CommandResult<T> = std::result::Result<T, String>;
+
+#[cfg(debug_assertions)]
+fn debug_cached_workspace_password(workspace_id: &str) -> Result<Option<String>> {
+    let entry = keyring::Entry::new("ProjectMind.Debug.Workspace", workspace_id)
+        .map_err(|_| anyhow!("无法访问开发模式工作区钥匙串"))?;
+    match entry.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err(anyhow!("无法读取开发模式工作区钥匙串")),
+    }
+}
+
+#[cfg(debug_assertions)]
+fn debug_cache_workspace_password(workspace_id: &str, password: &str) -> Result<()> {
+    keyring::Entry::new("ProjectMind.Debug.Workspace", workspace_id)
+        .and_then(|entry| entry.set_password(password))
+        .map_err(|_| anyhow!("无法保存开发模式工作区密码到系统钥匙串"))
+}
+
+#[cfg(debug_assertions)]
+fn debug_workspace_password(
+    metadata: &WorkspaceMetadata,
+    fixture_password: Option<&str>,
+    read: impl FnOnce(&str) -> Result<Option<String>>,
+    save: impl FnOnce(&str, &str) -> Result<()>,
+) -> Result<Option<String>> {
+    if let Some(password) = read(&metadata.workspace_id)? {
+        verify_workspace_password(metadata, &password)?;
+        return Ok(Some(password));
+    }
+    let Some(password) = fixture_password else { return Ok(None); };
+    // The acceptance password is only a fallback for workspaces it actually decrypts.
+    match verify_workspace_password(metadata, password) {
+        Ok(()) => {}
+        Err(error) if error.to_string() == "workspace password is incorrect" => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    save(&metadata.workspace_id, password)?;
+    Ok(Some(password.to_owned()))
+}
+
+#[cfg(debug_assertions)]
+fn debug_create_workspace(
+    root: &Path,
+    save: impl FnOnce(&str, &str) -> Result<()>,
+) -> Result<()> {
+    let password = format!("{:032x}{:032x}", rand::random::<u128>(), rand::random::<u128>());
+    let (metadata, paths) = create_workspace(root, &password)?;
+    if let Err(error) = save(&metadata.workspace_id, &password) {
+        // No database exists yet; allow creation to be retried without losing a generated key.
+        std::fs::remove_file(&paths.metadata_path)
+            .context("failed to roll back workspace metadata after keychain failure")?;
+        return Err(error);
+    }
+    Ok(())
+}
 
 fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
@@ -504,7 +582,19 @@ fn thumbnail_cache_key(path: &str, len: u64, modified_millis: u128, max_edge: u3
     format!("{:016x}", hasher.finish())
 }
 
+#[cfg(debug_assertions)]
+fn debug_app_data_dir_override(path: PathBuf) -> Result<PathBuf> {
+    if !path.is_absolute() {
+        bail!("PROJECT_MIND_APP_DATA_DIR must be an absolute path");
+    }
+    Ok(path)
+}
+
 fn default_app_data_dir() -> Result<PathBuf> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = env::var_os("PROJECT_MIND_APP_DATA_DIR") {
+        return debug_app_data_dir_override(PathBuf::from(path));
+    }
     #[cfg(target_os = "macos")]
     {
         return Ok(default_home_dir()?
@@ -717,30 +807,36 @@ fn workspace_status_get(state: State<'_, AppState>) -> CommandResult<WorkspaceSt
 }
 
 #[tauri::command]
-fn workspace_create(
+async fn workspace_create(
     state: State<'_, AppState>,
     input: WorkspaceCreateInput,
 ) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .create_workspace_root(Path::new(input.root_path.trim()), &input.password)
-        .map_err(|error| error.to_string())
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.create_workspace_root(Path::new(input.root_path.trim()), &input.password).map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
-fn workspace_open(
+async fn workspace_open(
     state: State<'_, AppState>,
     input: WorkspaceOpenInput,
 ) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .open_workspace_root(Path::new(input.root_path.trim()))
-        .map_err(|error| error.to_string())
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.open_workspace_root(Path::new(input.root_path.trim())).map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
-fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .close_current_workspace()
-        .map_err(|error| error.to_string())
+async fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.close_current_workspace().map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
@@ -754,10 +850,12 @@ fn workspace_unlock(
 }
 
 #[tauri::command]
-fn workspace_lock(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .lock_current_workspace_secrets()
-        .map_err(|error| error.to_string())
+async fn workspace_lock(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.lock_current_workspace_secrets().map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
@@ -1244,6 +1342,7 @@ async fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
     settle_agents_before_exit(&state).await;
     state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
+    state.app_handle.state::<dsh_assistant::DshAssistantState>().shutdown().await?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.exit(0);
     Ok(())
@@ -1254,6 +1353,7 @@ async fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
     settle_agents_before_exit(&state).await;
     state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
+    state.app_handle.state::<dsh_assistant::DshAssistantState>().shutdown().await?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.request_restart();
     Ok(())
@@ -1305,6 +1405,41 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                dsh_assistant::DshAssistantState::detach_parent(window.app_handle().clone(), window.label().into());
+            }
+        })
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started {
+                return;
+            }
+            let label = webview.label();
+            let parent_label = label == "main"
+                || label.strip_prefix("project-").is_some_and(|id| {
+                    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
+                });
+            let window = webview.window();
+            if !parent_label || window.label() != label {
+                return;
+            }
+            let url = payload.url();
+            let local = if cfg!(debug_assertions) {
+                webview.app_handle().config().build.dev_url.as_ref()
+                    .is_some_and(|dev| dev.origin() == url.origin())
+            } else {
+                (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+                    || (matches!(url.scheme(), "http" | "https")
+                        && url.host_str() == Some("tauri.localhost"))
+            };
+            if !local {
+                return;
+            }
+            // A document reload skips React cleanup; release its carriers while
+            // retaining the runtime and any executing task.
+            dsh_assistant::DshAssistantState::detach_parent(webview.app_handle().clone(), label.into());
+
+        })
         .setup(|app| {
             ensure_main_window(app)?;
 
@@ -1327,6 +1462,7 @@ pub fn run() {
                 let _ = state.open_workspace_root(Path::new(&last_root));
             }
 
+            app.manage(dsh_assistant::DshAssistantState::default());
             app.manage(state);
             agent::bridge::commands::restore(app.handle());
             source_maintenance::start(app.handle());
@@ -1575,6 +1711,20 @@ pub fn run() {
             internal_reference_search,
             internal_reference_resolve,
             workspace_search,
+            dsh_assistant::dsh_assistant_start,
+            dsh_assistant::dsh_assistant_sessions,
+            dsh_assistant::dsh_assistant_select_session,
+            dsh_assistant::dsh_assistant_fetch,
+            dsh_assistant::dsh_assistant_cancel,
+            dsh_assistant::dsh_assistant_connect,
+            dsh_assistant::dsh_assistant_send,
+            dsh_assistant::dsh_assistant_disconnect,
+            dsh_assistant::dsh_assistant_create_session,
+            dsh_assistant::dsh_assistant_delete_session,
+            project_directory::project_directory_list,
+            project_directory::project_directory_preview,
+            project_directory::project_directory_open,
+            project_directory::project_directory_resolve_reference,
             app_exit,
             app_restart
         ])
@@ -1587,9 +1737,40 @@ pub fn run() {
                     && lock_mutex(&state.current_workspace).is_some() {
                     api.prevent_exit();
                     let _ = app.emit_to("main", "app:exit-requested", ());
+                } else if !state.exit_authorized.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    let handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if handle.state::<dsh_assistant::DshAssistantState>().shutdown().await.is_err() {
+                            handle.state::<dsh_assistant::DshAssistantState>().exit_fallback();
+                        }
+                        handle.state::<AppState>().exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+                        handle.exit(0);
+                    });
                 }
+            } else if let tauri::RunEvent::Exit = event {
+                app.state::<dsh_assistant::DshAssistantState>().exit_fallback();
             }
         });
+}
+
+#[cfg(all(test, debug_assertions))]
+mod app_data_override_tests {
+    use super::debug_app_data_dir_override;
+    use std::path::PathBuf;
+
+    #[test]
+    fn absolute_fixture_path_is_preserved() {
+        let path = std::env::temp_dir().join("project-mind-isolated-acceptance");
+        assert_eq!(debug_app_data_dir_override(path.clone()).unwrap(), path);
+    }
+
+    #[test]
+    fn relative_and_empty_fixture_paths_are_rejected() {
+        for path in [PathBuf::new(), PathBuf::from("relative-fixture")] {
+            assert!(debug_app_data_dir_override(path).is_err());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1657,5 +1838,59 @@ mod workspace_lifecycle_tests {
         ).is_err());
         assert!(current_runtime.lock().unwrap().is_some());
         assert!(fence.enter().is_ok());
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod debug_workspace_auto_unlock_tests {
+    use super::{debug_create_workspace, debug_workspace_password};
+    use crate::workspace::{create_workspace, load_metadata, verify_workspace_password};
+    use std::{cell::RefCell, collections::HashMap};
+
+    #[test]
+    fn new_workspace_uses_generated_key_and_reopens_from_workspace_scoped_cache() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = RefCell::new(HashMap::<String, String>::new());
+        debug_create_workspace(temp.path(), |id, password| {
+            cache.borrow_mut().insert(id.to_owned(), password.to_owned());
+            Ok(())
+        }).unwrap();
+        let (metadata, _) = load_metadata(temp.path()).unwrap();
+        let password = debug_workspace_password(&metadata, None,
+            |id| Ok(cache.borrow().get(id).cloned()), |_, _| panic!("already cached"),
+        ).unwrap().unwrap();
+        verify_workspace_password(&metadata, &password).unwrap();
+        assert_eq!(cache.borrow().len(), 1);
+    }
+
+    #[test]
+    fn uncached_workspace_stays_locked_and_fixture_fallback_must_verify() {
+        let temp = tempfile::tempdir().unwrap();
+        let (metadata, _) = create_workspace(temp.path(), "existing-password").unwrap();
+        for fallback in [None, Some("other-fixture-password")] {
+            assert!(debug_workspace_password(&metadata, fallback, |_| Ok(None),
+                |_, _| panic!("unverified password must not be cached"),
+            ).unwrap().is_none());
+        }
+        let saved = RefCell::new(None);
+        let result = debug_workspace_password(&metadata, Some("existing-password"),
+            |_| Ok(None), |id, password| {
+                *saved.borrow_mut() = Some((id.to_owned(), password.to_owned()));
+                Ok(())
+            },
+        ).unwrap();
+        assert_eq!(result.as_deref(), Some("existing-password"));
+        assert_eq!(saved.borrow().as_ref().unwrap().0, metadata.workspace_id);
+        assert!(debug_workspace_password(&metadata, None, |_| Ok(Some("wrong".into())),
+            |_, _| panic!("invalid cached password"),
+        ).is_err());
+    }
+
+    #[test]
+    fn keychain_failure_does_not_leave_an_unrecoverable_generated_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(debug_create_workspace(temp.path(), |_, _| Err(anyhow::anyhow!("store unavailable"))).is_err());
+        assert!(load_metadata(temp.path()).is_err());
+        debug_create_workspace(temp.path(), |_, _| Ok(())).unwrap();
     }
 }

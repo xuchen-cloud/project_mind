@@ -15,5 +15,7 @@ project_mind_overview.png
 # Generated isolated source extraction bundles
 packages/agent-host/source-dist/
 src-tauri/resources/source-extractor/
+src-tauri/resources/dsh-assistant/
+src-tauri/resources/.dsh-runtime-*/
 src-tauri/binaries/
 src-tauri/resources/.source-extractor-*/

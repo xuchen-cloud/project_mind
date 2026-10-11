@@ -36,7 +36,7 @@ it("reveals the preview beside wide chat and switches narrow chat to main conten
   const object = { workspaceId: "w", scope, kind: "file" as const, id: "51" };
   vi.stubGlobal("innerWidth", 1200);
   const panel = useAgentPanelStore.getState();
-  panel.openPanel(request.workspaceRoot, scope); panel.toggleExpanded(); panel.setDiscussionTarget(binding, object, request.title);
+  panel.openPanel(request.workspaceRoot, scope); useAgentPanelStore.setState({ expanded: true }); panel.setDiscussionTarget(binding, object, request.title);
   act(() => openFilePreview(request));
   expect(useAgentPanelStore.getState()).toMatchObject({ open: true, expanded: false, binding: { workspaceRoot: request.workspaceRoot, scope }, discussionTarget: { binding, object } });
   vi.stubGlobal("innerWidth", 736);

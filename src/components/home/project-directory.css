@@ -1,0 +1,19 @@
+.project-directory { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+.project-directory-tabs { flex:none; padding:4px 12px; }
+.project-directory__toolbar { display:flex; align-items:center; gap:4px; padding:4px 12px; }
+.project-directory__toolbar nav { flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:2px; font-size:var(--type-caption-size); color:var(--color-text-secondary); }
+.project-directory__toolbar nav span { display:inline-flex; align-items:center; min-width:0; }
+.project-directory__toolbar nav button { border:0; background:transparent; color:inherit; padding:3px; border-radius:4px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.project-directory__toolbar nav button:hover { background:var(--color-bg-hover); }
+.project-directory__toolbar nav button[aria-current] { color:var(--color-text); }
+.project-directory__hint { flex:none; padding:0 12px 4px; font-size:var(--type-caption-size); color:var(--color-text-tertiary); }
+.project-directory__entry { display:flex; align-items:center; gap:8px; width:100%; min-width:0; padding:9px 12px; border:0; background:transparent; color:var(--color-text-secondary); text-align:left; font-size:var(--type-caption-size); line-height:var(--type-caption-line); }
+.project-directory__entry:hover { background:var(--color-bg-hover); }
+.project-directory__entry:focus-visible, .project-directory__toolbar nav button:focus-visible { outline:2px solid var(--color-text-secondary); outline-offset:-2px; }
+.project-directory__entry>svg { flex:none; }
+.project-directory__name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.project-directory__bytes { flex:none; font-size:var(--type-caption-size); color:var(--color-text-tertiary); }
+.project-directory__message { padding:12px; font-size:var(--type-caption-size); color:var(--color-text-secondary); overflow-wrap:anywhere; }
+.project-directory [role=alert], .project-directory__preview [role=alert] { color:var(--color-danger); }
+.project-directory__preview pre { max-height:60dvh; overflow:auto; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-family:monospace; font-size:var(--type-caption-size); line-height:1.6; }
+.project-directory__preview img { display:block; max-width:100%; max-height:60dvh; margin:auto; object-fit:contain; }

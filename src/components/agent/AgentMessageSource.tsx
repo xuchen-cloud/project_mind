@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentSessionMessageFragment, AgentSessionMessagesReadCursor, AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-types";
 import { agentApi } from "../../services/agentApi";
 import { Button } from "../../ui/components";
-import { agentFailureMessage } from "./useAgentConversation";
+import { agentFailureMessage } from "../../lib/agent-errors";
 
 interface MessageView extends AgentSessionMessageFragment { parts: Array<{ start: number; end: number; text: string }> }
 

@@ -7,6 +7,32 @@ const scope = { kind: "project", projectId: 1 } as const;
 const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope, kind: "record", id: "1" };
 beforeEach(() => useAgentPanelStore.getState().clearWorkspace());
 
+it("retains run ownership on close, prevents rebinding during execution and ignores a different Project's callbacks", () => {
+  const state = useAgentPanelStore.getState();
+  state.openPanel("/workspace", scope); state.setRunBusy("/workspace", 1, true);
+  state.closePanel();
+  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual(scope);
+  state.openPanel("/workspace", { kind: "project", projectId: 2 });
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual(scope);
+  state.openPanel("/other", scope);
+  expect(useAgentPanelStore.getState().binding?.workspaceRoot).toBe("/workspace");
+  state.setRunBusy("/workspace", 2, false);
+  expect(useAgentPanelStore.getState().runningBinding).not.toBeNull();
+  state.setRunBusy("/workspace", 1, false); state.openPanel("/workspace", { kind: "project", projectId: 2 });
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 });
+});
+
+it("defaults to expanded, retains a deliberate minimize on reopen, and expands new scopes", () => {
+  const state = useAgentPanelStore.getState();
+  expect(state.expanded).toBe(true);
+  state.openPanel("/workspace", scope);
+  expect(useAgentPanelStore.getState().expanded).toBe(true);
+  state.toggleExpanded(); state.closePanel(); state.openPanel("/workspace", { ...scope });
+  expect(useAgentPanelStore.getState().expanded).toBe(false);
+  state.openPanel("/workspace", { kind: "workspace" });
+  expect(useAgentPanelStore.getState().expanded).toBe(true);
+});
+
 describe("explicit assistant discussion target", () => {
   it("retains selection on close and same-scope reopen, and clears it on scope or workspace change", () => {
     const state = useAgentPanelStore.getState();

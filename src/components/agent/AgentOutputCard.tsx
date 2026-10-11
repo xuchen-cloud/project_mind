@@ -10,7 +10,7 @@ import { isHtmlPreviewFile, openFilePreview } from "../../state/file-preview-sto
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { Button, StatusBadge, SurfaceCard } from "../../ui/components";
 import { AgentSourceCard } from "./AgentSourceCard";
-import { agentFailureMessage } from "./useAgentConversation";
+import { agentFailureMessage } from "../../lib/agent-errors";
 
 export interface AgentOutputCardProps {
   binding: AgentWorkspaceBinding; output: AgentRuntimeOutput; operation: AgentOperationEntry | null;

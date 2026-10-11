@@ -13,6 +13,13 @@ vi.mock("./desktopApi", () => ({
 import { projectMindApi } from "./projectMindApi";
 
 describe("projectMindApi", () => {
+  it("preserves the native empty-password DEV create contract and original-password first unlock", async () => {
+    serviceMocks.commandMock.mockResolvedValue(undefined);
+    await projectMindApi.workspaceCreate({ rootPath: "/tmp/dev-workspace", password: "" });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_create", { input: { rootPath: "/tmp/dev-workspace", password: "" } });
+    await projectMindApi.workspaceUnlock({ password: "original-secret" });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_unlock", { input: { password: "original-secret" } });
+  });
   it("maps leaving the current Workspace to the close command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       currentWorkspace: null,

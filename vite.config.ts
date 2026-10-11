@@ -2,7 +2,11 @@ import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+import { dshUiAliases } from './packages/dsh-ui/vite-aliases.mjs';
+
 export default defineConfig({
+  define: { "import.meta.env.PROJECT_MIND_DEBUG_BUILD": process.env.TAURI_ENV_DEBUG === "true" },
+  resolve: { alias: dshUiAliases, dedupe: ['react', 'react-dom'] },
   plugins: [react(), tailwindcss()],
   build: {
     chunkSizeWarningLimit: 900,
@@ -57,7 +61,13 @@ export default defineConfig({
   },
   server: {
     // File-provider backed worktrees can miss native filesystem events.
-    watch: { usePolling: true, interval: 300 },
+    watch: {
+      usePolling: true,
+      interval: 300,
+      // Backend staging and fixtures contain HTML/JS but are not browser inputs.
+      // Watching them reloads the main UI during native and runtime verification.
+      ignored: ["**/src-tauri/**", "**/packages/dsh-assistant/**", "**/*.test.*"],
+    },
     port: 1420,
     strictPort: true,
   },
@@ -69,7 +79,13 @@ export default defineConfig({
     // Bound concurrent jsdom/editor/PDF work to avoid CPU-starvation timeouts.
     maxWorkers: 4,
     // Backend packages own their Node test runner and must not load jsdom.
-    exclude: [...configDefaults.exclude, "product-site/**", "packages/agent-host/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "product-site/**",
+      "packages/agent-host/**",
+      "packages/dsh-assistant/**",
+      "packages/dsh-ui/upstream/**",
+    ],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,

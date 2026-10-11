@@ -7,7 +7,7 @@ import { queryKeys } from "../../lib/queryKeys";
 import { agentApi } from "../../services/agentApi";
 import { Button } from "../../ui/components";
 import { AgentOutputCard } from "./AgentOutputCard";
-import { agentFailureMessage } from "./useAgentConversation";
+import { agentFailureMessage } from "../../lib/agent-errors";
 
 export interface AgentRunOutputsProps { binding: AgentWorkspaceBinding; runId: string; active?: boolean; current?: boolean; refreshToken?: string; onReviewChange?: (handle: AgentReviewHandle | null) => void }
 export function AgentRunOutputs(props: AgentRunOutputsProps) {

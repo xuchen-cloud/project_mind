@@ -3,6 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const buildMode = vi.hoisted(() => ({ debug: true }));
+vi.mock("../../lib/build-mode", () => ({ get isDebugBuild() { return buildMode.debug; } }));
+
 import type { AiSettingsSnapshot } from "../../lib/types";
 
 const {
@@ -78,7 +81,7 @@ import { AiSettingsPanel } from "./AiSettingsPanel";
 let aiSettingsSnapshot: AiSettingsSnapshot;
 
 describe("AiSettingsPanel", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { buildMode.debug = true; vi.useRealTimers(); vi.unstubAllEnvs(); });
 
   beforeEach(() => {
     mockAiSettingsGet.mockReset();
@@ -284,6 +287,16 @@ describe("AiSettingsPanel", () => {
 
     await waitFor(() => expect(mockAiProfileUpsert).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getAllByText("New Profile").length).toBeGreaterThan(0));
+  });
+
+  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("explains one-time DEV initialization or release unlock for old encrypted credentials ($label)", async ({ debug: dev }) => {
+    buildMode.debug = dev; aiSettingsSnapshot.aiSecretsUnlocked = false;
+    const unlock = vi.fn(async () => true);
+    render(<QueryClientProvider client={new QueryClient()}><AiSettingsPanel open section="models" onUnlockAiSecrets={unlock} /></QueryClientProvider>);
+    const button = await screen.findByRole("button", { name: dev ? "初始化自动解锁" : "解锁 Secrets" });
+    if (dev) expect(screen.getByText(/首次使用旧加密工作区需要输入原密码/u)).toBeVisible();
+    else expect(screen.getByText(/需要先输入当前 workspace 密码/u)).toBeVisible();
+    fireEvent.click(button); expect(unlock).toHaveBeenCalledOnce(); expect(mockAiProfileUpsert).not.toHaveBeenCalled();
   });
 
   it("expands an existing profile inline within the same panel", async () => {

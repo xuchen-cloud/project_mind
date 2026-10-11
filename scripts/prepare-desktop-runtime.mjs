@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { desktopResourceCommands, desktopRuntimeTarget } from './desktop-runtime-target.mjs';
+import { prepareDshProduction } from './stage-dsh-runtime.mjs';
 
 const repository = fileURLToPath(new URL('..', import.meta.url));
 const host = path.join(repository, 'packages/agent-host');
@@ -46,7 +47,9 @@ try {
   // install scripts against a cross-target dependency tree.
   await run(process.execPath, [process.env.npm_execpath, 'ci', '--omit=dev', '--ignore-scripts',
     '--no-audit', '--no-fund', `--os=${target.platform}`, `--cpu=${target.arch}`], productionHost);
-  for (const [script, ...args] of desktopResourceCommands(target, archive, productionHost)) {
+  const productionDsh = path.join(temporary, 'dsh-assistant');
+  await prepareDshProduction(path.join(repository, 'packages/dsh-assistant'), productionDsh, target, run);
+  for (const [script, ...args] of desktopResourceCommands(target, archive, productionHost, productionDsh)) {
     await run(process.execPath, [path.join(repository, script), ...args]);
   }
   process.stdout.write(`Desktop backend resources prepared for ${target.rustTarget} (${target.runtimeTarget})\n`);

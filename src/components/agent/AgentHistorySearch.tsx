@@ -3,7 +3,7 @@ import type { AgentScope, AgentSessionSearchMatch, AgentSessionSearchPage, Agent
 import { agentApi } from "../../services/agentApi";
 import { Button } from "../../ui/components";
 import { AgentMessageSource } from "./AgentMessageSource";
-import { agentFailureMessage } from "./useAgentConversation";
+import { agentFailureMessage } from "../../lib/agent-errors";
 
 function sourceForMatch(match: AgentSessionSearchMatch, binding: AgentWorkspaceBinding, scope: AgentScope): AgentSourceRef {
   return {

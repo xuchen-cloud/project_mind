@@ -1,3 +1,4 @@
+import { isDebugBuild } from "../../lib/build-mode";
 import { useRef } from "react";
 
 import { Button, Dialog, TextField } from "../../ui/components";
@@ -72,17 +73,21 @@ export function CreateWorkspaceDialog({
           </div>
         </label>
 
-        <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">
-            Workspace 密码
-          </span>
-          <TextField
-            type="password"
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            placeholder="用于加密保存的 AI API Key"
-          />
-        </label>
+        {isDebugBuild ? (
+          <p className="text-ui text-text-muted">开发模式下无需设置 Workspace 密码。</p>
+        ) : (
+          <label className="grid gap-1.5">
+            <span className="text-ui font-medium text-text-muted">
+              Workspace 密码
+            </span>
+            <TextField
+              type="password"
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              placeholder="用于加密保存的 AI API Key"
+            />
+          </label>
+        )}
 
         {error ? (
           <div role="alert" className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
@@ -119,8 +124,10 @@ export function UnlockWorkspaceSecretsDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="解锁 Workspace Secrets"
-      description="输入当前 workspace 密码后，可以继续使用已保存的 AI API Key。"
+      title={isDebugBuild ? "初始化 Workspace Secrets" : "解锁 Workspace Secrets"}
+      description={isDebugBuild
+        ? "旧加密工作区尚未初始化自动解锁。请首次输入原密码；验证成功后，开发模式会自动解锁。"
+        : "输入当前 workspace 密码后，可以继续使用已保存的 AI API Key。"}
       widthClassName="max-w-lg"
       layerClassName="z-[60]"
       initialFocusRef={passwordRef}
@@ -135,7 +142,7 @@ export function UnlockWorkspaceSecretsDialog({
             disabled={pending}
             onClick={onSubmit}
           >
-            {pending ? "解锁中..." : "解锁"}
+            {pending ? (isDebugBuild ? "初始化中..." : "解锁中...") : (isDebugBuild ? "初始化并解锁" : "解锁")}
           </Button>
         </>
       }
@@ -143,7 +150,7 @@ export function UnlockWorkspaceSecretsDialog({
       <div className="grid gap-3">
         <label className="grid gap-1.5">
           <span className="text-ui font-medium text-text-muted">
-            Workspace 密码
+            {isDebugBuild ? "原 Workspace 密码（仅首次）" : "Workspace 密码"}
           </span>
           <TextField
             ref={passwordRef}

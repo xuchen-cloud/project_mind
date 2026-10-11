@@ -16,7 +16,7 @@ export function desktopRuntimeTarget(argument, env = process.env) {
   return { rustTarget, ...target };
 }
 
-export function desktopResourceCommands(target, archive, productionHost) {
+export function desktopResourceCommands(target, archive, productionHost, productionDsh) {
   return [
     ['packages/agent-host/scripts/prepare-runtime.mjs', target.runtimeTarget, archive],
     ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--config', 'vite.record-worker.config.ts'],
@@ -25,5 +25,6 @@ export function desktopResourceCommands(target, archive, productionHost) {
     ['scripts/stage-record-runtime.mjs', target.runtimeTarget],
     ['scripts/stage-source-runtime.mjs', target.runtimeTarget],
     ['scripts/stage-pi-runtime.mjs', target.runtimeTarget, productionHost],
+    ['scripts/stage-dsh-runtime.mjs', target.runtimeTarget, productionDsh],
   ];
 }

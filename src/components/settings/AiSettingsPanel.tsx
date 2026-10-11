@@ -1,3 +1,4 @@
+import { isDebugBuild } from "../../lib/build-mode";
 import {
   useCallback,
   useEffect,
@@ -594,13 +595,15 @@ export function AiSettingsPanel({
           <SurfaceCard subtle className="rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-body font-medium text-text">Workspace secrets 已锁定</p>
+                <p className="text-body font-medium text-text">{isDebugBuild ? "旧工作区凭据尚未初始化自动解锁" : "Workspace secrets 已锁定"}</p>
                 <p className="mt-1 text-ui text-text-soft">
-                  保存 API Key、测试连接和执行 AI 改写前，需要先输入当前 workspace 密码。
+                  {isDebugBuild
+                    ? "首次使用旧加密工作区需要输入原密码。验证成功后，开发模式会自动解锁。"
+                    : "保存 API Key、测试连接和执行 AI 改写前，需要先输入当前 workspace 密码。"}
                 </p>
               </div>
               <Button type="button" size="sm" variant="primary" onClick={() => void onUnlockAiSecrets()}>
-                解锁 Secrets
+                {isDebugBuild ? "初始化自动解锁" : "解锁 Secrets"}
               </Button>
             </div>
           </SurfaceCard>

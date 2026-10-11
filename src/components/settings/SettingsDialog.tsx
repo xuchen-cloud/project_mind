@@ -3,6 +3,7 @@ import {
   Cable,
   Pencil,
   Mic,
+  MessageCircle,
   RefreshCw,
   Settings2,
   Sparkles,
@@ -19,6 +20,9 @@ import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
 
 const AiSettingsPanel = lazy(() =>
   import("./AiSettingsPanel").then((module) => ({ default: module.AiSettingsPanel })),
+);
+const DshSettingsPanel = lazy(() =>
+  import("./DshSettingsPanel").then((module) => ({ default: module.DshSettingsPanel })),
 );
 const ContactSettingsPanel = lazy(() =>
   import("./ContactSettingsPanel").then((module) => ({ default: module.ContactSettingsPanel })),
@@ -74,6 +78,7 @@ const SETTINGS_SECTIONS: Array<{
     label: "AI 模型配置",
     icon: Settings2,
   },
+  { value: "dsh-assistant", label: "DSH 助手", icon: MessageCircle },
   {
     value: "ai-rewrite",
     label: "AI 技能",
@@ -102,6 +107,8 @@ export function SettingsDialog({
 
   const activePanel = (() => {
     switch (activeSection) {
+      case "dsh-assistant":
+        return <Suspense fallback={<SettingsPanelFallback />}><DshSettingsPanel open={open} /></Suspense>;
       case "page-width":
         return <PageWidthSettingsPanel />;
       case "updates":
@@ -235,6 +242,7 @@ export function SettingsRouteBridge() {
 }
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
+  if (section === "dsh-assistant") return "dsh-assistant";
   if (section === "updates") {
     return "updates";
   }

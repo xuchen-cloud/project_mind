@@ -11,6 +11,7 @@ export type SettingsSection =
   | "contacts"
   | "voice"
   | "ai-models"
+  | "dsh-assistant"
   | "ai-rewrite"
   | "external-connections"
   | "rich-text";

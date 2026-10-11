@@ -1,6 +1,8 @@
+import { isDebugBuild } from "./lib/build-mode";
 import { FilePreviewWorkspace } from "./components/document/FilePreviewWorkspace";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
+import { blocksDshProjectNavigation, DSH_BUSY_MESSAGE, setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events";
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
@@ -75,6 +77,7 @@ import {
   type ProjectSidebarRecordItem,
 } from "./components/layout/ProjectSidebar";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
+import { ProjectFilePreviewLayer } from "./components/home/ProjectFilePreviewLayer";
 import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
@@ -218,9 +221,13 @@ export function WorkspaceLayout({
       : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
     return canLeaveRecordFocus(saveResult);
   }, [activeRecordFocusRoute]);
+  const navigationBlockedByRun = useRef(false);
   const routeSaveBlocker = useBlocker(
     useCallback<BlockerFunction>(
       ({ currentLocation, nextLocation }) => {
+        const running = useAgentPanelStore.getState().runningBinding;
+        navigationBlockedByRun.current = blocksDshProjectNavigation(running?.scope.kind === "project" ? running.scope.projectId : null, nextLocation.pathname);
+        if (navigationBlockedByRun.current) return true;
         const route = parseRecordFocusRoute(currentLocation.pathname);
         if (
           !route ||
@@ -290,10 +297,11 @@ export function WorkspaceLayout({
       return;
     }
     setStatus({
-      tone: "error",
-      label: "Save failed",
-      message: "无法捕获当前 Project Record，导航已取消",
+      tone: navigationBlockedByRun.current ? "warning" : "error",
+      label: navigationBlockedByRun.current ? "助手正在执行" : "Save failed",
+      message: navigationBlockedByRun.current ? DSH_BUSY_MESSAGE : "无法捕获当前 Project Record，导航已取消",
     });
+    if (navigationBlockedByRun.current) showDshBusyFeedback();
     routeSaveBlocker.reset();
   }, [routeSaveBlocker, setStatus]);
 
@@ -302,10 +310,12 @@ export function WorkspaceLayout({
     queryFn: projectMindApi.workspaceStatusGet,
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
+  useEffect(() => { setDshWorkspaceRoot(currentWorkspace?.rootPath ?? null); }, [currentWorkspace?.rootPath]);
   const agentPanelBinding = useAgentPanelStore(state => state.binding);
   const agentPanelOpen = useAgentPanelStore(state => state.open);
   const agentPanelExpanded = useAgentPanelStore(state => state.expanded);
-  const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath;
+  const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath
+    && activeProjectId !== null && agentPanelBinding?.scope.kind === "project" && agentPanelBinding.scope.projectId === activeProjectId;
   const filePreviewRequest = useFilePreviewStore(state => state.request);
   const filePreviewVisible = !!filePreviewRequest && filePreviewRequest.workspaceRoot === currentWorkspace?.rootPath;
   const previousPreviewNavigation = useRef(location.key);
@@ -585,8 +595,16 @@ export function WorkspaceLayout({
 
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return null;
+      }
       if (!(await desktopApi.prepareVoiceLeave())) return null;
       await flushRecordSaves();
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return null;
+      }
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
@@ -643,9 +661,17 @@ export function WorkspaceLayout({
 
   const handleSwitchWorkspace = useCallback(async () => {
     try {
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return;
+      }
       if (!(await desktopApi.prepareVoiceLeave())) return;
       await flushRecordSaves();
       await desktopApi.flushOtherWorkspaceWindows();
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return;
+      }
       await desktopApi.destroyOtherWorkspaceWindows();
       const snapshot = await projectMindApi.workspaceClose();
       await applyWorkspaceStatus(snapshot, true);
@@ -682,7 +708,7 @@ export function WorkspaceLayout({
       setCreateWorkspaceError("请选择 workspace 根目录。");
       return;
     }
-    if (!createWorkspacePassword.trim()) {
+    if (!isDebugBuild && !createWorkspacePassword.trim()) {
       setCreateWorkspaceError("请输入 workspace 密码。");
       return;
     }
@@ -691,9 +717,13 @@ export function WorkspaceLayout({
       setCreateWorkspacePending(true);
       setCreateWorkspaceError(null);
       await flushRecordSaves();
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return;
+      }
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
-        password: createWorkspacePassword,
+        password: isDebugBuild ? "" : createWorkspacePassword,
       });
       await applyWorkspaceStatus(snapshot, true);
       setCreateWorkspaceOpen(false);
@@ -1581,7 +1611,7 @@ export function WorkspaceLayout({
             </div>
             <FilePreviewWorkspace workspaceRoot={currentWorkspace.rootPath} />
           </main>
-          <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} />
+          <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} currentProjectId={activeProjectId} />
         </div>
       </div>
       <CreateWorkspaceDialog
@@ -1634,6 +1664,7 @@ export function WorkspaceLayout({
         }}
       />
 
+      <ProjectFilePreviewLayer currentProjectId={activeProjectId ?? null} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
     </RecordFocusResidencyProvider>

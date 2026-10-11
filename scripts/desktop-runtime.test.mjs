@@ -24,9 +24,9 @@ test('Rust targets select release runtimes independently of the build machine', 
   assert.throws(() => desktopRuntimeTarget('x86_64-apple-darwin', { CARGO_BUILD_TARGET: 'aarch64-apple-darwin' }), /Conflicting/);
 });
 
-test('resource command composition prepares one Node and stages Pi after Record replacement and Source', () => {
+test('resource command composition prepares one Node and stages DSH after Record, Source and legacy Pi', () => {
   const target = desktopRuntimeTarget('x86_64-apple-darwin', {});
-  const commands = desktopResourceCommands(target, '/pinned/archive', '/production/host');
+  const commands = desktopResourceCommands(target, '/pinned/archive', '/production/host', '/production/dsh');
   assert.deepEqual(commands, [
     ['packages/agent-host/scripts/prepare-runtime.mjs', 'darwin-x64', '/pinned/archive'],
     ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--config', 'vite.record-worker.config.ts'],
@@ -34,6 +34,7 @@ test('resource command composition prepares one Node and stages Pi after Record 
     ['scripts/stage-record-runtime.mjs', 'darwin-x64'],
     ['scripts/stage-source-runtime.mjs', 'darwin-x64'],
     ['scripts/stage-pi-runtime.mjs', 'darwin-x64', '/production/host'],
+    ['scripts/stage-dsh-runtime.mjs', 'darwin-x64', '/production/dsh'],
   ]);
 });
 

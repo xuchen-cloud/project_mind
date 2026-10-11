@@ -276,7 +276,7 @@ it.each([
   vi.stubGlobal("innerWidth", width);
   const store = useAgentPanelStore.getState();
   store.openPanel("/actual/workspace", object.scope);
-  if (expanded) store.toggleExpanded();
+  useAgentPanelStore.setState({ expanded });
   store.setDiscussionTarget(binding, object, "实际记录");
   render(<AgentOutputCard {...props({ output: { ...output, state: "committed", object }, presentation: "link" })} />);
   fireEvent.click(await screen.findByRole("button", { name: "实际记录" }));
@@ -290,7 +290,8 @@ it.each([
 it("keeps narrow expanded chat open when explicitly continuing discussion", async () => {
   vi.stubGlobal("innerWidth", 800);
   const store = useAgentPanelStore.getState();
-  store.openPanel("/actual/workspace", object.scope); store.toggleExpanded();
+  store.openPanel("/actual/workspace", object.scope);
+  useAgentPanelStore.setState({ expanded: true });
   render(<AgentOutputCard {...props({ output: { ...output, state: "committed", object }, presentation: "details" })} />);
   fireEvent.click(screen.getByRole("button", { name: "继续讨论" }));
   await waitFor(() => expect(useAgentPanelStore.getState().discussionTarget).not.toBeNull());

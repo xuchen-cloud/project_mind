@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const buildMode = vi.hoisted(() => ({ debug: true }));
+vi.mock("./lib/build-mode", () => ({ get isDebugBuild() { return buildMode.debug; } }));
 
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import {
@@ -96,6 +99,7 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
     workspaceOpen: vi.fn(),
+    workspaceCreate: vi.fn(),
     workspaceClose: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
@@ -252,6 +256,24 @@ describe("workspaceSearchResultRoute", () => {
 });
 
 describe("WorkspaceLayout", () => {
+  afterEach(() => { buildMode.debug = true; vi.unstubAllEnvs(); });
+  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("creates Workspace with native-generated DEV credentials or required release password ($label)", async ({ debug: dev }) => {
+    buildMode.debug = dev;
+    vi.mocked(projectMindApi.workspaceStatusGet).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" });
+    vi.mocked(projectMindApi.workspaceCreate).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [{ path: "workspace", element: <div /> }] }], { initialEntries: ["/"] });
+    render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "新建 Workspace" }));
+    fireEvent.change(screen.getByPlaceholderText("例如：/Users/alex/workspaces/customer-success"), { target: { value: " /tmp/new-workspace " } });
+    fireEvent.click(screen.getByRole("button", { name: "创建 Workspace" }));
+    if (!dev) {
+      expect(await screen.findByRole("alert")).toHaveTextContent("请输入 workspace 密码。");
+      expect(projectMindApi.workspaceCreate).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByPlaceholderText("用于加密保存的 AI API Key"), { target: { value: "original-secret" } });
+      fireEvent.click(screen.getByRole("button", { name: "创建 Workspace" }));
+    }
+    await waitFor(() => expect(projectMindApi.workspaceCreate).toHaveBeenCalledWith({ rootPath: "/tmp/new-workspace", password: dev ? "" : "original-secret" }));
+  });
   beforeEach(() => {
     closeFilePreview();
     vi.resetAllMocks();

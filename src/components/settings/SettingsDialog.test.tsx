@@ -17,8 +17,18 @@ vi.mock("../../services/appUpdater", () => ({
     install: vi.fn(),
   },
 }));
+vi.mock("./DshSettingsPanel", () => ({ DshSettingsPanel: ({ open }: { open: boolean }) => <p data-testid="dsh-settings-panel">{open ? "项目 DSH 设置" : "已关闭"}</p> }));
 
 describe("SettingsDialog", () => {
+  it("offers a separate DSH settings section", async () => {
+    function Harness() {
+      const [section, setSection] = useState<SettingsSection>("page-width");
+      return <SettingsDialog open activeSection={section} onSectionChange={setSection} onUnlockAiSecrets={async () => true} onClose={() => {}} />;
+    }
+    render(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "DSH 助手", exact: true }));
+    expect(await screen.findByTestId("dsh-settings-panel")).toHaveTextContent("项目 DSH 设置");
+  });
   it("lets the user open the application update section", async () => {
     const user = userEvent.setup();
 
