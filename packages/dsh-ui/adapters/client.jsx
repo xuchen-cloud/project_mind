@@ -37,12 +37,14 @@ import { FileUploadRuntime } from '../upstream/client/file-upload/src/client/run
 import { GeneralSection } from '../upstream/client/ui-settings-general/src/client/GeneralSection.tsx';
 import { zh, en } from '../upstream/client/ui-settings-general/src/client/locales.ts';
 import { createTauriTransport } from './transport.mjs';
+import { adaptFileReferences, adaptFileMessageRenderer, fileReferenceToken, fixedFileFromPath, resolveFileReference } from './file-references.mjs';
 
-function HostFrame({ mode, renderSlot }) {
+function HostFrame({ mode, reference, renderSlot, SessionProvider }) {
   return <div className="dsh-ui-frame">
     {mode === 'settings'
       ? <div className="dsh-ui-settings">{renderSlot('settings.section', {})}</div>
-      : renderSlot('main', {}, { entryKey: mode === 'plugins' ? 'plugins' : 'conversation' })}
+      : mode === 'plugins' ? renderSlot('main', {}, { entryKey: 'plugins' })
+        : <SessionProvider session={reference}>{renderSlot('main', {}, { entryKey: 'conversation' })}</SessionProvider>}
     {renderSlot('shell.overlay', {})}
   </div>;
 }
@@ -55,14 +57,23 @@ export async function createDshClient(projectId) {
   Object.defineProperty(ctx, "$$typeof", { value: undefined });
   const transport = createTauriTransport(projectId);
   const listeners = new Set();
-  let reference;
   let disposed = false;
   const lifetime = new AbortController();
+  const residentSessions = new Map();
   const notify = (type, value) => { for (const listener of listeners) listener(type, value); };
   try {
     const fibers = [];
     const install = (plugin, config) => { const fiber = ctx.plugin(plugin.default ?? plugin, config); fibers.push(fiber); return fiber; };
     const slots = new SlotRegistry(ctx);
+    // These upstream views share the existing clickable file mention renderer.
+    // Keep this hook for delayed slot injections as declarations change.
+    const register = slots.register;
+    slots.register = function(options, Component) {
+      const view = options.name === 'conversation.chat.node' && (options.key === 'user' || options.key === 'steering')
+        ? adaptFileMessageRenderer(Component) : Component;
+      return register.call(this, options, view);
+    };
+    ctx.effect(() => () => { slots.register = register; });
     slots.install(createSlotRenderer());
     ctx.effect(() => slots.onEntryError((key, _entry, error) => {
       notify('error', `${key}：${error instanceof Error ? error.message : String(error)}`);
@@ -81,12 +92,17 @@ export async function createDshClient(projectId) {
         // A scoped address must originate in this project's client catalog.
         if (file.scope === 'session' && ctx.sessions.list.getSnapshot().byId[file.sessionId] === undefined)
           throw new Error('文件引用不属于当前项目会话');
-        notify('file', { path: file.path, line: options?.params?.line });
+        const fixed = fixedFileFromPath(file.path);
+        if (fixed) {
+          notify('file', { ...fixed, line: options?.params?.line, sessionId: file.scope === 'session' ? file.sessionId : undefined });
+          return;
+        }
+        notify('file', { path: file.path, line: options?.params?.line, sessionId: file.scope === 'session' ? file.sessionId : undefined });
       },
       openTab(_kind, options) { notify('external', options?.params?.url); },
     });
     slots.register({ name: 'root', children: {
-      main: { kind: 'keyed', scope: 'root' },
+      main: { kind: 'keyed', scope: 'session-maybe' },
       'shell.overlay': { kind: 'list', scope: 'root' },
       'settings.section': { kind: 'list', scope: 'root' },
     } }, HostFrame);
@@ -110,13 +126,7 @@ export async function createDshClient(projectId) {
       scope.slots.register({ name: 'settings.section', id: 'general', order: 0, locale: 'settings',
         children: { 'settings.general.item': { kind: 'list', scope: 'root' } } }, GeneralSection);
       scope.provide('uiWorkspace', {
-        openSession(target, signal) {
-          const next = scope.sessions.retain(target, { source: 'mainView', signal });
-          const previous = reference;
-          reference = next;
-          previous?.release();
-          notify('session', next.sessionId);
-        },
+        openSession(target) { notify('session', target); },
         async openWorkspace(workspaceId, beforeOpen) {
           const id = await scope.sessions.create({ workspaceId });
           beforeOpen?.(id);
@@ -126,10 +136,19 @@ export async function createDshClient(projectId) {
           void scope.uiWorkspace.openWorkspace(workspaceId).catch(error => notify('error', error.message));
         },
       });
-      scope.effect(() => () => { reference?.release(); reference = undefined; });
     } }).await();
     await install(conversation, { alwaysShowTrajectory: true }).await();
-    for (const plugin of [chat, trajectory, tools, approval, attachments, inputTrigger, commands, references, permissions,
+    for (const plugin of [chat, trajectory, tools, approval, attachments, inputTrigger, commands]) await install(plugin).await();
+    // Adapt the existing @ source at its registration boundary: candidates,
+    // explicit chips and the original composer keep one serializer contract.
+    const registerSource = ctx.inputTriggers.registerSource;
+    ctx.inputTriggers.registerSource = function(source) {
+      return registerSource.call(this, source.name === 'reference'
+        ? adaptFileReferences(source, transport.fetch, data => notify('file', data)) : source);
+    };
+    try { await install(references).await(); }
+    finally { ctx.inputTriggers.registerSource = registerSource; }
+    for (const plugin of [permissions,
       questions, plugins, settingsPlugins, settingsInventory, settingsAgent, settingsSubagent, settingsShell]) await install(plugin).await();
     await Promise.all(fibers.map(fiber => fiber.await()));
     // Missing inject services otherwise leave a silent, permanently blank component tree.
@@ -152,7 +171,8 @@ export async function createDshClient(projectId) {
     return {
       ctx,
       async select(id, signal) {
-        if (disposed || id === null) return;
+        if (disposed) throw new Error('助手客户端已关闭');
+        if (typeof id !== 'string' || id.length === 0) throw new Error('会话页面必须指定 Session ID');
         const opening = AbortSignal.any([lifetime.signal, signal ?? new AbortController().signal, AbortSignal.timeout(15000)]);
         // The native catalog is authoritative, but the original client receives
         // it asynchronously through session/control before a retain is legal.
@@ -169,13 +189,13 @@ export async function createDshClient(projectId) {
           if (opening.aborted) abort(); else check();
         });
         opening.throwIfAborted();
-        ctx.uiWorkspace.openSession(id, opening);
-        const selected = reference;
+        const selected = ctx.sessions.retain(id, { source: 'mainView', signal: opening });
         try {
           await selected.ready;
           opening.throwIfAborted();
+          if (!residentSessions.has(id)) residentSessions.set(id, ctx.sessions.retain(id, { source: 'projectContent' }));
+          return selected;
         } catch (error) {
-          if (reference === selected) reference = undefined;
           selected.release();
           throw error;
         }
@@ -185,16 +205,19 @@ export async function createDshClient(projectId) {
         listener('busy', currentBusy());
         return () => listeners.delete(listener);
       },
-      insertFile(path) {
-        if (reference === undefined) throw new Error('请先选择项目会话');
-        const scope = ctx.sessions.scope(reference.sessionId);
+      async insertFile(sessionId, path, sourceRef) {
+        if (ctx.sessions.binding(sessionId) === undefined) throw new Error('请先选择项目会话');
+        const scope = ctx.sessions.scope(sessionId);
         const input = scope === undefined ? undefined : ctx.conversation.input.for(scope);
         if (input === undefined) throw new Error('助手输入框尚未就绪');
         const mention = formatFileMention({ path, kind: 'file' }, false);
         if (mention === undefined) throw new Error('此文件路径不能作为助手引用');
         const state = input.state.getSnapshot();
         const end = state.draft.length;
-        if (!input.insertReference({ source: 'reference', ref: mention, label: path, appearance: 'file', clipboardText: mention },
+        sourceRef ??= await resolveFileReference(transport.fetch, sessionId, path, lifetime.signal);
+        lifetime.signal.throwIfAborted();
+        if (ctx.sessions.binding(sessionId) === undefined) throw new Error('目标会话已关闭');
+        if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef), label: path, appearance: 'file', clipboardText: mention },
           { start: end, end, draftRev: state.draftRev })) throw new Error('输入框正在提交，请稍后引用文件');
         input.focus();
       },

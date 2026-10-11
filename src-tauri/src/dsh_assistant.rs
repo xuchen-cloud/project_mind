@@ -1,4 +1,4 @@
-//! DSH owns one Node process and native authenticated client carriers.
+//! DSH owns one Node process per Project and native authenticated client carriers.
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -32,8 +32,38 @@ const INVALID_READY: &str = "助手启动返回了无效地址，请重试";
 pub(crate) struct DshAssistantState {
     stopping: AtomicBool,
     // Serializes runtime identity changes and authenticated carrier mutations.
-    inner: Mutex<RuntimeState>,
+    inner: Mutex<ProjectRuntimes>,
     requests: std::sync::Mutex<HashMap<String, PendingRequest>>,
+}
+
+#[derive(Default)]
+struct ProjectRuntimes {
+    projects: HashMap<i64, RuntimeState>,
+}
+
+impl ProjectRuntimes {
+    fn project_mut(&mut self, project_id: i64) -> Result<&mut RuntimeState, String> {
+        self.projects.get_mut(&project_id).ok_or_else(|| "助手尚未就绪，请重新打开助手".into())
+    }
+
+    fn active_count(&mut self) -> Result<usize, String> {
+        let mut count = 0;
+        for runtime in self.projects.values_mut() {
+            if let Some(process) = runtime.process.as_mut() {
+                if process.child.try_wait().map_err(|_| "无法检查助手进程状态")?.is_none() { count += 1; }
+            }
+        }
+        Ok(count)
+    }
+
+    async fn stop(&mut self) -> Result<(), String> {
+        let mut failure = None;
+        for runtime in self.projects.values_mut() {
+            if let Err(error) = runtime.stop().await { failure.get_or_insert(error); }
+        }
+        self.projects.clear();
+        failure.map_or(Ok(()), Err)
+    }
 }
 
 #[derive(Default)]
@@ -44,7 +74,7 @@ struct RuntimeState {
     connections: HashMap<String, NativeConnection>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct Identity {
     workspace_id: String,
     workspace_generation: String,
@@ -53,7 +83,7 @@ struct Identity {
     project: ProjectContext,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct ProjectContext {
     id: i64,
     name: String,
@@ -196,6 +226,15 @@ fn authorize_project_label(label: &str, project_id: i64) -> Result<(), String> {
     }
 }
 
+fn local_caller_url(url: &Url, dev_url: Option<&Url>, is_dev: bool) -> bool {
+    if is_dev {
+        dev_url.is_some_and(|dev| dev.origin() == url.origin())
+    } else {
+        (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+            || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"))
+    }
+}
+
 fn authorize_caller(caller: &Webview) -> Result<(), String> {
     let label = caller.label();
     let local_label = label == "main"
@@ -203,19 +242,7 @@ fn authorize_caller(caller: &Webview) -> Result<(), String> {
             .strip_prefix("project-")
             .is_some_and(|suffix| !suffix.is_empty());
     let url = caller.url().map_err(|_| "无法验证助手调用窗口")?;
-    let local_url = if cfg!(debug_assertions) {
-        caller
-            .app_handle()
-            .config()
-            .build
-            .dev_url
-            .as_ref()
-            .is_some_and(|dev| dev.origin() == url.origin())
-    } else {
-        (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-            || (matches!(url.scheme(), "http" | "https")
-                && url.host_str() == Some("tauri.localhost"))
-    };
+    let local_url = local_caller_url(&url, caller.app_handle().config().build.dev_url.as_ref(), cfg!(dev));
     if !local_label || caller.window().label() != label || !local_url {
         return Err("此窗口不能操作助手".into());
     }
@@ -259,17 +286,25 @@ struct AssistantProcess {
     session_cookie: Option<reqwest::header::HeaderValue>,
     closed: watch::Sender<bool>,
     sensitive: Arc<Vec<String>>,
+    source_stdin: Option<Arc<Mutex<Option<tokio::process::ChildStdin>>>>,
+    source_revoked: Arc<AtomicBool>,
+    source_gate: Arc<std::sync::Mutex<()>>,
 }
 
 impl Drop for AssistantProcess {
     fn drop(&mut self) {
+        self.revoke_sources();
         let _ = self.closed.send(true);
         self.drain.abort();
     } // Child also has kill_on_drop.
 }
 
 impl AssistantProcess {
-    async fn launch(mut command: Command, config: &serde_json::Value) -> Result<Self, String> {
+    async fn launch(command: Command, config: &serde_json::Value) -> Result<Self, String> {
+        Self::launch_with_source(command, config, None).await
+    }
+
+    async fn launch_with_source(mut command: Command, config: &serde_json::Value, source: Option<SourceHandler>) -> Result<Self, String> {
         let session_http = session_http_client()?;
         command
             .stdin(Stdio::piped())
@@ -324,8 +359,48 @@ impl AssistantProcess {
                 });
             }
         };
+        let source_revoked = Arc::new(AtomicBool::new(false));
+        let source_gate = Arc::new(std::sync::Mutex::new(()));
+        let gate = source_gate.clone();
+        let source_stdin = if source.is_some() { Some(Arc::new(Mutex::new(child.stdin.take()))) } else { None };
+        let writer = source_stdin.clone();
+        let revoked = source_revoked.clone();
         let drain = tokio::spawn(async move {
-            let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
+            if let (Some(handler), Some(writer)) = (source, writer) {
+                loop {
+                    let mut line = Vec::new();
+                    let read = (&mut reader).take(256 * 1024 + 1).read_until(b'\n', &mut line).await;
+                    match read { Ok(0) | Err(_) => break, Ok(size) if size > 256 * 1024 => break, _ => () }
+                    let Some(payload) = line.strip_prefix(b"MIND_DSH_SOURCE ") else { continue; };
+                    let Ok(frame) = serde_json::from_slice::<SourceFrame>(payload) else { break; };
+                    if revoked.load(Ordering::SeqCst) { break; }
+                    let task_handler = handler.clone();
+                    let task_revoked = revoked.clone();
+                    let task_gate = gate.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        let _guard = crate::lock_mutex(&task_gate);
+                        if task_revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+                        let result = task_handler(frame.payload, &task_revoked);
+                        if task_revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+                        result
+                    }).await.unwrap_or_else(|_| Err("Source handler failed".into()));
+                    if revoked.load(Ordering::SeqCst) { break; }
+                    let result = match result {
+                        Ok(value) => serde_json::json!({"ok":true,"value":value}),
+                        Err(message) => serde_json::json!({"ok":false,"error":{"message":message}}),
+                    };
+                    let mut bytes = serde_json::to_vec(&serde_json::json!({"type":"mind-source-response","id":frame.id,"result":result})).expect("JSON values serialize");
+                    bytes.push(b'\n');
+                    let mut locked = writer.lock().await;
+                    let Some(stdin) = locked.as_mut() else { break; };
+                    if revoked.load(Ordering::SeqCst) { break; }
+                    if stdin.write_all(&bytes).await.is_err() { break; }
+                }
+                revoked.store(true, Ordering::SeqCst);
+                writer.lock().await.take();
+            } else {
+                let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
+            }
         });
         let (closed, _) = watch::channel(false);
         let mut sensitive = vec![url
@@ -349,8 +424,159 @@ impl AssistantProcess {
             drain,
             session_http,
             session_cookie: None,
+            source_stdin,
+            source_revoked,
+            source_gate,
         })
     }
+
+    async fn stop(&mut self) -> Result<(), String> {
+        self.revoke_sources();
+        if let Some(writer) = &self.source_stdin {
+            if let Some(mut stdin) = writer.lock().await.take() { let _ = stdin.write_all(b"shutdown\n").await; }
+        }
+        stop_child(&mut self.child).await
+    }
+
+    fn revoke_sources(&self) {
+        let _guard = crate::lock_mutex(&self.source_gate);
+        self.source_revoked.store(true, Ordering::SeqCst);
+    }
+}
+
+type SourceHandler = Arc<dyn Fn(serde_json::Value, &AtomicBool) -> Result<serde_json::Value, String> + Send + Sync>;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceFrame { id: String, payload: serde_json::Value }
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "camelCase", deny_unknown_fields)]
+enum SourceRequest {
+    Resolve { #[serde(rename="sessionId")] session_id: String, path: String },
+    Prepare { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize },
+    Delivery { #[serde(rename="sessionId")] session_id: String, #[serde(rename="deliveryId")] delivery_id: String, projection: String, #[serde(rename="projectionHash")] projection_hash: String },
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all="camelCase", deny_unknown_fields)]
+struct SourceProjection {
+    id: String,
+    source_ref: crate::agent::models::SourceRef,
+    offset: usize,
+    limit: usize,
+    requested_limit: usize,
+    truncated: bool,
+    content: String,
+}
+
+fn render_source_projection(projection: &SourceProjection) -> Result<String, String> {
+    Ok(format!("@{}\n<mind-file-source>{}</mind-file-source>", source_file_token(&projection.source_ref)?, serde_json::to_string(projection).map_err(|_| "Invalid File projection")?.replace('<', "\\u003c").replace('>', "\\u003e")))
+}
+
+fn source_file_token(source: &crate::agent::models::SourceRef) -> Result<String, String> {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(source).map_err(|_| "Invalid File source")?);
+    let label: String = source.title.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
+    Ok(format!("mind-source/{encoded}/{label}"))
+}
+
+fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, id: &str, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize) -> Result<serde_json::Value, String> {
+    use crate::agent::access::{Caller, RequestContext, ScopeGrant};
+    if session_id.is_empty() || session_id.len() > 512 || session_id.chars().any(char::is_control)
+        || id.is_empty() || id.len() > 128 || offset == 0 || offset > u32::MAX as usize || limit == 0 || limit > 2000 { return Err("Invalid source read range or identity".into()); }
+    let input = source_file_input(db, identity, binding, path, fixed)?;
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
+    let (bytes, mut source_ref) = db.project_file_read_source(&request, binding, &input).map_err(|e| e.message)?;
+    let bytes = BASE64.decode(bytes.base64).map_err(|_| "Invalid File snapshot")?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "Unsupported: File is not UTF-8 text; text source read is unavailable")?;
+    if text.contains('\0') { return Err("Unsupported: binary File cannot be delivered as text".into()); }
+    let mut content = String::new();
+    let mut lines = Vec::new();
+    let total_lines = text.lines().count();
+    let mut truncated = false;
+    for (index, line) in text.lines().enumerate().skip(offset - 1).take(limit) {
+        let line = if line.chars().count() > 2000 {
+            truncated = true;
+            format!("{} [truncated after 2000 characters]", line.chars().take(2000).collect::<String>())
+        } else { line.to_owned() };
+        let rendered = format!("{}: {}", index + 1, line);
+        if content.len() + rendered.len() + 1 > 64 * 1024 { truncated = true; break; }
+        if !content.is_empty() { content.push('\n'); }
+        content.push_str(&rendered);
+        lines.push(serde_json::json!({"number":index + 1,"text":line}));
+    }
+    if offset - 1 + lines.len() < total_lines { truncated = true; }
+    if !lines.is_empty() { source_ref.locator = Some(crate::agent::models::SourceLocator::Line { start: offset as u32, end: (offset - 1 + lines.len()) as u32 }); }
+    let projection = render_source_projection(&SourceProjection { id: id.into(), source_ref: source_ref.clone(), offset, limit: lines.len(), requested_limit: limit, truncated, content })?;
+    Ok(serde_json::json!({"sourceRef":source_ref,"projection":projection,"readValue":{"path":source_file_token(&source_ref)?,"offset":offset,"lines":lines,"totalLines":total_lines,"truncated":truncated}}))
+}
+
+fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>) -> Result<crate::db::project_directory_files::FileBytesInput, String> {
+    use crate::agent::models::Scope;
+    // A model can continue reading a persisted fixed File token. The embedded
+    // object is still untrusted and passes the same native ownership/policy gate.
+    let fixed = if fixed.is_none() {
+        if let Some(encoded) = path.and_then(|p| p.strip_prefix("mind-source/")).and_then(|p| p.split('/').next()) {
+            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded).map_err(|_| "Invalid fixed File token")?;
+            Some(serde_json::from_slice(&bytes).map_err(|_| "Invalid fixed File token")?)
+        } else { None }
+    } else { fixed };
+    Ok(if let Some(source) = fixed {
+        if source.object.workspace_id != binding.workspace_id || source.object.scope != (Scope::Project { project_id: identity.project.id }) { return Err("File belongs to another Project".into()); }
+        crate::db::project_directory_files::FileBytesInput { object: source.object, version_number: source.file_version.ok_or("Fixed File version required")?, expected_content_hash: source.revision }
+    } else {
+        let requested = Path::new(path.ok_or("File path required")?);
+        let relative = if requested.is_absolute() { requested.strip_prefix(&identity.project.directory).map_err(|_| "File belongs to another Project")? } else { requested };
+        let relative = relative.to_str().ok_or("Invalid File path")?;
+        let file = db.project_file_register(&binding.workspace_id, identity.project.id, relative).map_err(|e| e.to_string())?;
+        if file.state != "ready" { return Err(format!("File requires confirmation: {}", file.state)); }
+        crate::db::project_directory_files::FileBytesInput { object: file.object, version_number: file.version_number, expected_content_hash: file.content_hash.ok_or("File version not ready")? }
+    })
+}
+
+fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, path: &str) -> Result<serde_json::Value, String> {
+    use crate::agent::{access::{Caller, RequestContext, ScopeGrant}, models::SourceRef};
+    let input = source_file_input(db, identity, binding, Some(path), None)?;
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
+    let actual = db.source_read_historical_file(&request, binding, &input.object).map_err(|e| e.message)?;
+    request.authorize_object(binding, &input.object, &actual, "source.read").map_err(|e| e.message)?;
+    let file = db.project_file_resolve(&input.object).map_err(|e| e.to_string())?;
+    let source = SourceRef { object: input.object, revision: input.expected_content_hash, file_version: Some(input.version_number), record_version: None, block_id: None, locator: None, title: file.name, excerpt: String::new() };
+    Ok(serde_json::json!({"sourceRef":source}))
+}
+
+fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation: String) -> SourceHandler {
+    Arc::new(move |payload, revoked| {
+        if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+        let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
+        let state = app.state::<crate::AppState>();
+        let current = crate::lock_mutex(&state.current_workspace);
+        let runtime = current.as_ref().ok_or("Source Workspace closed")?;
+        if !identity.matches_workspace(&runtime.agent_binding, &runtime.paths.root_path) || !runtime.ai_secrets_unlocked() { return Err("Source Workspace binding expired".into()); }
+        let mut db = crate::lock_mutex(&runtime.db);
+        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project.id)? != identity.project { return Err("Source Project binding changed".into()); }
+        let result = match operation {
+            SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
+            SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &identity, &runtime.agent_binding, &session_id, &format!("{runtime_generation}:{}", session_rpc_id()), path.as_deref(), source_ref, offset, limit),
+            SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
+                source_delivery(&db, &identity, &runtime.agent_binding, &session_id, &delivery_id, &projection, &projection_hash, revoked)?;
+                Ok(serde_json::Value::Null)
+            }
+        };
+        if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+        result
+    })
+}
+
+fn source_delivery(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, delivery_id: &str, projection: &str, projection_hash: &str, revoked: &AtomicBool) -> Result<(), String> {
+    if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+    let json = projection.split_once('\n').and_then(|(_, s)| s.strip_prefix("<mind-file-source>")).and_then(|s| s.strip_suffix("</mind-file-source>")).ok_or("Invalid source projection")?;
+    let metadata: SourceProjection = serde_json::from_str(json).map_err(|_| "Invalid source projection")?;
+    let expected = source_prepare(db, identity, binding, session_id, &metadata.id, None, Some(metadata.source_ref.clone()), metadata.offset, metadata.requested_limit)?;
+    if expected["projection"].as_str() != Some(projection) || format!("{:x}", Sha256::digest(projection.as_bytes())) != projection_hash { return Err("Source projection does not match fixed bytes".into()); }
+    if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+    db.dsh_record_source_evidence(binding, identity.project.id, session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
+    if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -733,6 +959,7 @@ impl RuntimeState {
         self.identity = None;
         let connections = std::mem::take(&mut self.connections);
         if let Some(process) = self.process.as_ref() {
+            process.revoke_sources();
             let _ = process.closed.send(true);
         }
         let mut failure = None;
@@ -742,7 +969,7 @@ impl RuntimeState {
             }
         }
         if let Some(mut process) = self.process.take() {
-            if let Err(error) = stop_child(&mut process.child).await {
+            if let Err(error) = process.stop().await {
                 failure.get_or_insert(error);
             }
         }
@@ -868,13 +1095,13 @@ impl RuntimeState {
             self.reject_running_replacement().await?;
         }
         self.stop().await?;
-        let process =
-            AssistantProcess::launch(runtime_command(app, &config)?, &config.message()).await?;
+        let process = AssistantProcess::launch_with_source(runtime_command(app, &config)?, &config.message(),
+            Some(source_handler(app.clone(), config.identity.clone(), session_rpc_id()))).await?;
         // Workspace/settings can change while Node boots. Never expose that stale runtime.
         let current = Configuration::resolve(app, project_id);
         if current.as_ref().map(|config| &config.identity).ok() != Some(&config.identity) {
             let mut process = process;
-            stop_child(&mut process.child).await?;
+            process.stop().await?;
             return Err(current
                 .err()
                 .unwrap_or_else(|| "工作区或模型设置已变化，请重新打开助手".into()));
@@ -924,17 +1151,16 @@ impl DshAssistantState {
                     }
                 }
             }
-            let mut inner = state.inner.lock().await;
-            let ids: Vec<_> = inner
-                .connections
-                .iter()
-                .filter(|(_, connection)| connection.owner == owner)
-                .map(|(id, _)| id.clone())
-                .collect();
-            for id in ids {
-                if let Some(connection) = inner.connections.remove(&id) {
-                    if connection.finish().await.is_err() {
-                        eprintln!("DSH assistant carrier disposal failed");
+            let mut runtimes = state.inner.lock().await;
+            for inner in runtimes.projects.values_mut() {
+                let ids: Vec<_> = inner.connections.iter()
+                    .filter(|(_, connection)| connection.owner == owner)
+                    .map(|(id, _)| id.clone()).collect();
+                for id in ids {
+                    if let Some(connection) = inner.connections.remove(&id) {
+                        if connection.finish().await.is_err() {
+                            eprintln!("DSH assistant carrier disposal failed");
+                        }
                     }
                 }
             }
@@ -953,6 +1179,16 @@ impl DshAssistantState {
     }
 }
 
+/// Real process count; no new concurrency cap is imposed here.
+#[tauri::command]
+pub(crate) async fn dsh_assistant_runtime_status(
+    caller: Webview,
+    state: State<'_, DshAssistantState>,
+) -> Result<usize, String> {
+    authorize_caller(&caller)?;
+    state.inner.lock().await.active_count()
+}
+
 #[tauri::command]
 pub(crate) async fn dsh_assistant_start(
     caller: Webview,
@@ -961,11 +1197,12 @@ pub(crate) async fn dsh_assistant_start(
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
     authorize_project_label(caller.label(), project_id)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
-    let has_pending_requests = !crate::lock_mutex(&state.requests).is_empty();
+    let has_pending_requests = crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project_id);
+    let inner = runtimes.projects.entry(project_id).or_default();
     inner
         .ensure_ready(caller.app_handle(), project_id, has_pending_requests)
         .await
@@ -978,7 +1215,8 @@ pub(crate) async fn dsh_assistant_sessions(
     project_id: i64,
 ) -> Result<Vec<AssistantSession>, String> {
     authorize_caller(&caller)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -1011,7 +1249,8 @@ pub(crate) async fn dsh_assistant_select_session(
     session_id: Option<String>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -1275,7 +1514,7 @@ fn spawn_socket(
 fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     if matches!(
         endpoint,
-        "$events" | "$events/result" | "mind/session/delete"
+        "$events" | "$events/result" | "mind/session/delete" | "mind/source/prepare" | "mind/source/resolve"
     ) {
         return Ok(());
     }
@@ -1597,7 +1836,8 @@ pub(crate) async fn dsh_assistant_fetch(
         }
         let (endpoint, payload, _) = carrier_path(&path, &method, &body)?;
         let (url, client, cookie, generation, mut runtime_closed, sensitive) = {
-            let mut inner = state.inner.lock().await;
+            let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
             inner.authorize_project(caller.label(), project_id)?;
             inner.ensure_current_project(&caller).await?;
             if let Some(payload) = payload {
@@ -1675,7 +1915,8 @@ pub(crate) async fn dsh_assistant_fetch(
             output = fetch_bytes(&client, url, cookie, &method, body, endpoint == "session/uploadFileBinary", &sensitive) => output?,
             _ = runtime_closed.changed() => return Err("项目已切换，请重新打开助手".into()),
         };
-        let mut inner = state.inner.lock().await;
+        let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
         inner.authorize_project(caller.label(), project_id)?;
         if inner.generation != generation {
             return Err("项目已切换，请重新打开助手".into());
@@ -1719,7 +1960,8 @@ pub(crate) async fn dsh_assistant_connect(
     on_frame: tauri::ipc::Channel<CarrierOutput>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
     inner.authorize_project(caller.label(), project_id)?;
     inner.ensure_current_project(&caller).await?;
     // A dead physical connection is never reused for a new logical generation.
@@ -1765,7 +2007,8 @@ pub(crate) async fn dsh_assistant_send(
 ) -> Result<(), String> {
     use tokio_tungstenite::tungstenite::Message;
     authorize_caller(&caller)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
     inner.authorize_project(caller.label(), project_id)?;
     inner.ensure_current_project(&caller).await?;
     inner
@@ -1834,7 +2077,8 @@ pub(crate) async fn dsh_assistant_disconnect(
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
     authorize_project_label(caller.label(), project_id)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
+    let Some(inner) = runtimes.projects.get_mut(&project_id) else { return Ok(()); };
     if let Some(connection) = inner.connections.get(&connection_id) {
         if connection.owner != caller.label() || connection.project_id != project_id {
             return Err("此窗口不能关闭其他项目的助手连接".into());
@@ -1857,7 +2101,8 @@ pub(crate) async fn dsh_assistant_create_session(
     project_id: i64,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
-    let mut inner = state.inner.lock().await;
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
     inner.authorize_project(caller.label(), project_id)?;
     inner.ensure_current_project(&caller).await?;
     let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
@@ -1879,8 +2124,9 @@ pub(crate) async fn dsh_assistant_delete_session(
     session_id: String,
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
-    let mut inner = state.inner.lock().await;
-    if !crate::lock_mutex(&state.requests).is_empty() {
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.project_mut(project_id)?;
+    if crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project_id) {
         return Err("助手请求尚未完成，请稍后再删除会话".into());
     }
     inner.authorize_project(caller.label(), project_id)?;
@@ -1926,6 +2172,268 @@ pub(crate) async fn dsh_assistant_delete_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packaged_debug_caller_origin_accepts_only_local_tauri_urls() {
+        let dev = Url::parse("http://localhost:1420").unwrap();
+        for origin in ["tauri://localhost/", "http://tauri.localhost/", "https://tauri.localhost/"] {
+            assert!(local_caller_url(&Url::parse(origin).unwrap(), Some(&dev), false));
+        }
+        for origin in ["http://localhost:1420", "https://example.com", "tauri://other/", "http://tauri.localhost.example.com/"] {
+            assert!(!local_caller_url(&Url::parse(origin).unwrap(), Some(&dev), false));
+        }
+        assert!(local_caller_url(&dev, Some(&dev), true));
+        assert!(!local_caller_url(&Url::parse("tauri://localhost/").unwrap(), Some(&dev), true));
+        assert!(!local_caller_url(&dev, None, true));
+    }
+
+    #[test]
+    fn source_bridge_fixed_version_survives_live_replacement_and_rejects_forged_projection() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = crate::db::Database::open(&root.path().join("sources.sqlite"), root.path(), None).unwrap();
+        db.bind_native_workspace("source-workspace").unwrap();
+        let project = db.project_create(crate::models::ProjectCreateInput { name: "Source".into(), summary: None, status: None }).unwrap();
+        let directory = PathBuf::from(&project.root_path);
+        std::fs::write(directory.join("fixed.txt"), "old first\nold second\n").unwrap();
+        let identity = Identity { workspace_id: "source-workspace".into(), workspace_generation: "open-one".into(), root: root.path().into(), fingerprint: "model".into(), project: ProjectContext { id: project.id, name: project.name, directory: directory.clone() } };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: identity.workspace_id.clone(), generation: identity.workspace_generation.clone() };
+        let prepared = source_prepare(&db, &identity, &binding, "session-a", "prep-a", Some("fixed.txt"), None, 2, 1).unwrap();
+        let metadata: SourceProjection = serde_json::from_str(prepared["projection"].as_str().unwrap().split_once('\n').unwrap().1.strip_prefix("<mind-file-source>").unwrap().strip_suffix("</mind-file-source>").unwrap()).unwrap();
+        assert_eq!(metadata.content, "2: old second");
+        assert!(matches!(metadata.source_ref.locator, Some(crate::agent::models::SourceLocator::Line { start: 2, end: 2 })));
+        std::fs::write(directory.join("fixed.txt"), "new bytes\n").unwrap();
+        let fixed = source_prepare(&db, &identity, &binding, "session-a", "prep-a", Some("fixed.txt"), Some(metadata.source_ref.clone()), 2, 1).unwrap();
+        assert_eq!(prepared, fixed);
+        let projection = prepared["projection"].as_str().unwrap();
+        let hash = format!("{:x}", Sha256::digest(projection.as_bytes()));
+        let revoked = AtomicBool::new(false);
+        source_delivery(&db, &identity, &binding, "session-a", "composer:message-a:prep-a", projection, &hash, &revoked).unwrap();
+        assert!(source_prepare(&db, &identity, &binding, "session-a", "prep-b", Some("../outside.txt"), None, 1, 1).is_err());
+        let mut changed = metadata;
+        changed.content = "2: fabricated".into();
+        let forged = render_source_projection(&changed).unwrap();
+        assert!(source_delivery(&db, &identity, &binding, "session-a", "composer:message-b:prep-a", &forged, &format!("{:x}", Sha256::digest(forged.as_bytes())), &revoked).is_err());
+        revoked.store(true, Ordering::SeqCst);
+        assert!(source_delivery(&db, &identity, &binding, "session-a", "composer:message-a:prep-a", projection, &hash, &revoked).is_err());
+        std::fs::write(directory.join("long.txt"), "x".repeat(2100) + "\nsecond\nthird").unwrap();
+        let snippet = source_prepare(&db, &identity, &binding, "session-a", "prep-long", Some("long.txt"), None, 1, 1).unwrap();
+        assert_eq!(snippet["readValue"]["truncated"], true);
+        assert!(snippet["projection"].as_str().unwrap().contains("truncated after 2000 characters"));
+        assert_eq!(snippet["sourceRef"]["locator"], serde_json::json!({"kind":"line","start":1,"end":1}));
+        std::fs::write(directory.join("binary.bin"), [0u8,255]).unwrap();
+        assert!(source_prepare(&db, &identity, &binding, "session-a", "prep-binary", Some("binary.bin"), None, 1, 1).unwrap_err().contains("UTF-8"));
+        std::fs::write(directory.join("budget.txt"), ("x".repeat(1800) + "\n").repeat(80)).unwrap();
+        let bounded = source_prepare(&db, &identity, &binding, "session-a", "prep-budget", Some("budget.txt"), None, 1, 100).unwrap();
+        let actual = bounded["readValue"]["lines"].as_array().unwrap().len();
+        assert!(actual > 0 && actual < 100);
+        assert_eq!(bounded["sourceRef"]["locator"]["end"], actual);
+        assert_eq!(bounded["readValue"]["truncated"], true);
+        let metadata: SourceProjection = serde_json::from_str(bounded["projection"].as_str().unwrap().split_once('\n').unwrap().1.strip_prefix("<mind-file-source>").unwrap().strip_suffix("</mind-file-source>").unwrap()).unwrap();
+        assert_eq!(metadata.limit, actual);
+        assert_eq!(metadata.requested_limit, 100);
+        std::fs::write(directory.join("picked.txt"), "selected file bytes\n").unwrap();
+        let selected = source_resolve(&db, &identity, &binding, "session-a", "picked.txt").unwrap();
+        let selected_ref: crate::agent::models::SourceRef = serde_json::from_value(selected["sourceRef"].clone()).unwrap();
+        std::fs::rename(directory.join("picked.txt"), directory.join("moved.txt")).unwrap();
+        std::fs::write(directory.join("picked.txt"), "different occupying file\n").unwrap();
+        let from_chip = source_prepare(&db, &identity, &binding, "session-a", "prep-picked", Some("picked.txt"), Some(selected_ref.clone()), 1, 1).unwrap();
+        assert_eq!(from_chip["sourceRef"]["object"], selected["sourceRef"]["object"]);
+        assert!(from_chip["projection"].as_str().unwrap().contains("selected file bytes"));
+        assert!(!from_chip["projection"].as_str().unwrap().contains("different occupying file"));
+        let reread = source_prepare(&db, &identity, &binding, "session-a", "prep-token", Some(&source_file_token(&selected_ref).unwrap()), None, 1, 1).unwrap();
+        assert_eq!(reread["sourceRef"]["object"], selected["sourceRef"]["object"]);
+    }
+
+    #[tokio::test]
+    async fn source_bridge_stdio_returns_correlated_result_and_stop_revokes_capability() {
+        let root = tempfile::tempdir().unwrap();
+        let script = root.path().join("source-runtime.mjs");
+        let completed = root.path().join("completed");
+        std::fs::write(&script, r#"import {createInterface} from 'node:readline'; import {writeFileSync} from 'node:fs'; const input=createInterface({input:process.stdin}); let configured=false; input.on('line',line=>{if(line==='shutdown'){process.exit(0)} if(!configured){configured=true; console.log('MIND_DSH_READY '+JSON.stringify({url:'http://127.0.0.1:23456/?token=fixture-token'}));console.log('MIND_DSH_SOURCE '+JSON.stringify({id:'reverse-a',payload:{operation:'prepare',sessionId:'a',path:'fixed.txt',offset:1,limit:1}}));}else{const frame=JSON.parse(line); if(frame.id!=='reverse-a'||frame.result.value.projection!=='fixed bytes')process.exit(2);writeFileSync(process.argv[2],'done')}});input.on('close',()=>process.exit(0));"#).unwrap();
+        let node = development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap();
+        let mut command = Command::new(node);
+        command.arg(script).arg(&completed);
+        let called = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = called.clone();
+        let handler: SourceHandler = Arc::new(move |payload, revoked| {
+            assert!(!revoked.load(Ordering::SeqCst));
+            assert_eq!(payload["sessionId"], "a");
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(serde_json::json!({"projection":"fixed bytes"}))
+        });
+        let mut process = AssistantProcess::launch_with_source(command, &serde_json::json!({"type":"configure"}), Some(handler)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async { while !completed.exists() { tokio::time::sleep(Duration::from_millis(10)).await; } }).await.unwrap();
+        assert_eq!(called.load(Ordering::SeqCst), 1);
+        process.stop().await.unwrap();
+        assert!(process.source_revoked.load(Ordering::SeqCst));
+        assert!(process.source_stdin.as_ref().unwrap().lock().await.is_none());
+        assert!(serde_json::from_value::<SourceRequest>(serde_json::json!({"operation":"prepare","workspaceId":"forged","sessionId":"a","path":"fixed.txt","offset":1,"limit":1})).is_err());
+    }
+
+    #[tokio::test]
+    async fn source_bridge_real_node_model_and_native_file_evidence() {
+        use axum::{routing::post, Json, Router};
+        let root = tempfile::tempdir().unwrap();
+        let db_path = root.path().join("source.sqlite");
+        let mut db = crate::db::Database::open(&db_path, root.path(), None).unwrap();
+        db.bind_native_workspace("native-source").unwrap();
+        let project = db.project_create(crate::models::ProjectCreateInput { name: "Source".into(), summary: None, status: None }).unwrap();
+        let directory = PathBuf::from(&project.root_path);
+        std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
+        let file = db.project_file_register("native-source", project.id, "fixed.txt").unwrap();
+        let fixed = crate::agent::models::SourceRef { object: file.object, revision: file.content_hash.unwrap(), file_version: Some(file.version_number), record_version: None, block_id: None, locator: None, title: "fixed.txt".into(), excerpt: String::new() };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: "native-source".into(), generation: "open-source".into() };
+        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), project: ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() } };
+        let database = Arc::new(std::sync::Mutex::new(db));
+        let shared = database.clone();
+        let source_identity = identity.clone();
+        let source_binding = binding.clone();
+        let handler: SourceHandler = Arc::new(move |payload, revoked| {
+            let db = crate::lock_mutex(&shared);
+            match serde_json::from_value::<SourceRequest>(payload).map_err(|_| "Invalid source operation")? {
+                SourceRequest::Resolve { session_id, path } => source_resolve(&db, &source_identity, &source_binding, &session_id, &path),
+                SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &source_identity, &source_binding, &session_id, &session_rpc_id(), path.as_deref(), source_ref, offset, limit),
+                SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
+                    source_delivery(&db, &source_identity, &source_binding, &session_id, &delivery_id, &projection, &projection_hash, revoked)?;
+                    Ok(serde_json::Value::Null)
+                }
+            }
+        });
+        let bodies = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let received = bodies.clone();
+        let ptc_token = source_file_token(&fixed).unwrap();
+        let router = Router::new().route("/v1/chat/completions", post(move |Json(body): Json<serde_json::Value>| {
+            let captured = received.clone();
+            let ptc_token = ptc_token.clone();
+            async move {
+                crate::lock_mutex(&captured).push(body.clone());
+                let messages = body["messages"].as_array().unwrap();
+                let wants_read = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use read");
+                let has_tool = messages.last().is_some_and(|m| m["role"] == "tool");
+                let wants_ptc = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use PTC" || m["content"] == "Use PTC replaced");
+                let replaced = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use PTC replaced");
+                let delta = if wants_read && !has_tool {
+                    serde_json::json!({"tool_calls":[{"index":0,"id":"native-read-call","type":"function","function":{"name":"read","arguments":"{\"file_path\":\"fixed.txt\",\"offset\":1,\"limit\":1}"}}]})
+                } else if wants_ptc && !has_tool {
+                    let args = serde_json::json!({"description":if replaced { "replace parent" } else { "fixed nested source" },"code":format!("await tools.read({{ file_path: {}, offset: 1, limit: 1 }}); return 'summary only';", serde_json::to_string(&ptc_token).unwrap())});
+                    serde_json::json!({"tool_calls":[{"index":0,"id":if replaced {"native-ptc-replaced"} else {"native-ptc-call"},"type":"function","function":{"name":"run_code","arguments":args.to_string()}}]})
+                } else { serde_json::json!({"content":"Source accepted"}) };
+                let finish = if (wants_read || wants_ptc) && !has_tool { "tool_calls" } else { "stop" };
+                let frame = |delta, reason: Option<&str>| serde_json::json!({"id":"native-local","object":"chat.completion.chunk","created":0,"model":"local-test-model","choices":[{"index":0,"delta":delta,"finish_reason":reason}]}).to_string();
+                ([("content-type", "text/event-stream")], format!("data: {}\n\ndata: {}\n\ndata: [DONE]\n\n", frame(delta, None), frame(serde_json::json!({}), Some(finish))))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}/v1", listener.local_addr().unwrap());
+        let provider = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+        let package = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("packages/dsh-assistant");
+        let patch = root.path().join("ptc.patch.yml");
+        let policy = root.path().join("ptc-policy.mjs");
+        std::fs::write(&policy, "export const name='native-source-test-policy'; export function apply(ctx) { ctx.on('tools/post-execute', (exec, result, next) => exec.name==='run_code' && exec.arguments.description==='replace parent' ? {kind:'accept',content:[{type:'text',text:'policy replaced parent'}]} : next()); }").unwrap();
+        std::fs::write(&patch, format!("- id: tools\n  config:\n    mode: both\n- insert:\n    - id: native-source-test-policy\n      name: {}\n", serde_json::to_string(&policy.to_str().unwrap()).unwrap())).unwrap();
+        let mut command = Command::new(development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap());
+        command.env("PROJECT_MIND_DSH_PATCH", patch);
+        command.arg(package.join("scripts/runtime.mjs")).args(["--embedded", "--port", "0", "--no-open"])
+            .current_dir(&package).env("PROJECT_MIND_DSH_USER_DATA", root.path().join("runtime"))
+            .env("PROJECT_MIND_DSH_PROFILE_DIR", root.path().join("profile"));
+        let config = serde_json::json!({"type":"configure","provider":{"name":"local","baseUrl":origin,"modelId":"local-test-model","apiKey":"local-integration-key","supportsImage":false},"project":{"id":project.id,"name":project.name,"directory":directory}});
+        let mut process = AssistantProcess::launch_with_source(command, &config, Some(handler)).await.unwrap();
+        async fn rpc(process: &mut AssistantProcess, method: &str, request: serde_json::Value) -> serde_json::Value {
+            authenticate(&process.url, &process.session_http, &mut process.session_cookie).await.unwrap();
+            let args = if method == "session/list" { serde_json::json!({"_request":request}) } else { serde_json::json!({"request":request}) };
+            let value: serde_json::Value = process.session_http.post(process.url.join(&format!("/api/{method}")).unwrap())
+                .header(reqwest::header::ORIGIN, process.url.origin().ascii_serialization())
+                .header(reqwest::header::COOKIE, process.session_cookie.clone().unwrap())
+                .json(&serde_json::json!({"type":"client-request","rpcId":session_rpc_id(),"method":method,"payload":{"args":args}}))
+                .send().await.unwrap().json().await.unwrap();
+            assert_eq!(value["result"]["ok"], true, "{value}");
+            value["result"]["value"].clone()
+        }
+        let session = rpc(&mut process, "session/create", serde_json::json!({})).await["sessionId"].as_str().unwrap().to_owned();
+        let prepared = rpc(&mut process, "mind/source/prepare", serde_json::json!({"sessionId":session,"path":"fixed.txt","sourceRef":fixed})).await;
+        std::fs::write(directory.join("fixed.txt"), "current changed bytes\n").unwrap();
+        rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":prepared["projection"]}]})).await;
+        let evidence = rusqlite::Connection::open(&db_path).unwrap();
+        let count = || evidence.query_row("SELECT count(*) FROM agent_evidence", [], |row| row.get::<_,i64>(0)).unwrap();
+        tokio::time::timeout(Duration::from_secs(15), async { while count() < 1 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
+        assert!(crate::lock_mutex(&bodies).iter().any(|body| body["messages"].to_string().contains("historical bytes")));
+        assert_eq!(count(), 1);
+        // The changed live file has not been confirmed as a new File version;
+        // read must surface that state instead of silently using path bytes.
+        std::fs::write(directory.join("tool.txt"), "actual tool bytes\n").unwrap();
+        // Restore the original registered target before the model-driven read.
+        std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
+        rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use read"}]})).await;
+        tokio::time::timeout(Duration::from_secs(15), async { while count() < 2 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
+        let rows: Vec<String> = evidence.prepare("SELECT locator_json FROM content_reference_edges WHERE relation='evidence'").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        assert!(rows.iter().any(|row| row.contains("composer:")));
+        assert!(rows.iter().any(|row| row.contains("read:")));
+        assert!(rows.iter().all(|row| row.contains(&session)));
+        // PTC consumes the exact historical token even after its live path changes.
+        std::fs::write(directory.join("fixed.txt"), "current replacement during PTC\n").unwrap();
+        rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use PTC"}]})).await;
+        tokio::time::timeout(Duration::from_secs(15), async { while count() < 3 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
+        let captured = crate::lock_mutex(&bodies).clone();
+        let message = captured.iter().flat_map(|body| body["messages"].as_array().unwrap()).find(|message| message["role"] == "tool" && message["tool_call_id"] == "native-ptc-call").unwrap();
+        let text = message["content"].as_str().unwrap();
+        assert!(text.contains("summary only") && text.contains("historical bytes"));
+        assert!(!text.contains("current replacement during PTC"));
+        let start = text.find("@mind-source/").unwrap();
+        let end = start + text[start..].find("</mind-file-source>").unwrap() + "</mind-file-source>".len();
+        let projection = text[start..end].to_owned();
+        let digest = format!("{:x}", Sha256::digest(projection.as_bytes()));
+        let locators: Vec<String> = evidence.prepare("SELECT locator_json FROM content_reference_edges WHERE relation='evidence'").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        let locator = locators.iter().map(|json| serde_json::from_str::<serde_json::Value>(json).unwrap()).find(|value| value["projectionHash"] == digest);
+        assert!(locator.is_some(), "Actual provider projection must match native persisted hash {digest}: {locators:?}");
+        let locator = locator.unwrap();
+        assert_eq!(locator["sessionId"], session);
+        let delivered: SourceProjection = serde_json::from_str(projection.split_once('\n').unwrap().1.strip_prefix("<mind-file-source>").unwrap().strip_suffix("</mind-file-source>").unwrap()).unwrap();
+        assert_eq!(locator["sourceRef"], serde_json::to_value(delivered.source_ref).unwrap());
+        assert!(locator["deliveryId"].as_str().unwrap().starts_with("read:"));
+        rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use PTC replaced"}]})).await;
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let seen = crate::lock_mutex(&bodies).iter().any(|body| body["messages"].as_array().unwrap().iter().any(|m| m["tool_call_id"] == "native-ptc-replaced" && m["content"] == "policy replaced parent"));
+                if seen && !rpc(&mut process, "session/list", serde_json::json!({})).await["items"].as_array().unwrap().iter().any(|item| item["sessionId"] == session && item["running"] == true) { break; }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }).await.unwrap();
+        assert_eq!(count(), 3, "Policy replacement must not create source evidence");
+        process.stop().await.unwrap();
+        provider.abort();
+    }
+
+    #[tokio::test]
+    async fn project_runtime_pool_keeps_independent_instances_and_counts_active_processes() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("parallel-runtime.mjs");
+        std::fs::write(&script, r#"
+import { createInterface } from 'node:readline';
+const input = createInterface({ input: process.stdin });
+input.on('line', line => {
+  if (line === 'shutdown') process.exit(0);
+  else console.log('MIND_DSH_READY ' + JSON.stringify({ url: 'http://127.0.0.1:23456/?token=fixture-token' }));
+});
+input.on('close', () => process.exit(0));
+"#).unwrap();
+        let node = development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap();
+        let mut pool = ProjectRuntimes::default();
+        for id in [1, 2] {
+            let mut command = Command::new(&node);
+            command.arg(&script);
+            let process = AssistantProcess::launch(command, &serde_json::json!({"type":"configure"})).await.unwrap();
+            pool.projects.insert(id, RuntimeState { process: Some(process), generation: id as u64, ..Default::default() });
+        }
+        assert_eq!(pool.active_count().unwrap(), 2);
+        assert_eq!(pool.project_mut(2).unwrap().generation, 2);
+        assert!(pool.project_mut(3).is_err());
+        pool.project_mut(1).unwrap().stop().await.unwrap();
+        assert_eq!(pool.active_count().unwrap(), 1);
+        assert!(pool.project_mut(2).unwrap().process.as_mut().unwrap().child.try_wait().unwrap().is_none());
+        pool.stop().await.unwrap();
+        assert_eq!(pool.active_count().unwrap(), 0);
+        assert!(pool.projects.is_empty());
+    }
 
     #[test]
     fn readiness_accepts_only_authenticated_numeric_loopback_without_leaking_errors() {
@@ -2818,7 +3326,7 @@ mod tests {
         assert_eq!(receipt["ok"], true);
         assert_eq!(receipt["value"]["file"]["bytes"], 3);
         assert!(receipt["value"]["receiptId"].as_str().is_some());
-        stop_child(&mut process.child).await.unwrap();
+        process.stop().await.unwrap();
         assert!(process.child.try_wait().unwrap().unwrap().success());
     }
 
@@ -3078,7 +3586,7 @@ input.on('close', dispose);
                     .unwrap();
                 assert!(status.success());
             } else {
-                stop_child(&mut process.child).await.unwrap();
+                process.stop().await.unwrap();
                 assert!(process.child.try_wait().unwrap().unwrap().success());
             }
             assert_eq!(std::fs::read_to_string(marker).unwrap(), "disposed");

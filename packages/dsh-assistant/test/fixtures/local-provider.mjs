@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const defaultChunks = ['Local test ', 'provider reply.'];
 
-function planResponse({ chunks = defaultChunks, delayMs = 0, initialDelayMs = 0, manual = false, status = 200 } = {}) {
+function planResponse({ chunks = defaultChunks, delayMs = 0, initialDelayMs = 0, manual = false, status = 200, toolCalls } = {}) {
   if (!Array.isArray(chunks) || chunks.length === 0 || chunks.some((chunk) => typeof chunk !== 'string')) {
     throw new TypeError('chunks must be a nonempty array of strings');
   }
@@ -16,7 +16,7 @@ function planResponse({ chunks = defaultChunks, delayMs = 0, initialDelayMs = 0,
   let permits = 0;
   let wake;
   return {
-    chunks: [...chunks], delayMs, initialDelayMs, manual, status,
+    chunks: [...chunks], delayMs, initialDelayMs, manual, status, toolCalls,
     advance(count = 1) {
       if (!Number.isSafeInteger(count) || count < 1) throw new TypeError('advance count must be positive');
       permits += count;
@@ -58,7 +58,7 @@ function planResponse({ chunks = defaultChunks, delayMs = 0, initialDelayMs = 0,
  * Records expose outcome ('streaming', 'completed', 'failed', 'aborted') for waits.
  * close() is idempotent and terminates pending/manual streams and sockets.
  */
-export async function startLocalProvider({ chunks = defaultChunks, delayMs = 0, initialDelayMs = 0, maxRequests = 100, maxBodyBytes = 1024 * 1024 } = {}) {
+export async function startLocalProvider({ chunks = defaultChunks, delayMs = 0, initialDelayMs = 0, maxRequests = 100, maxBodyBytes = 1024 * 1024, onSyntheticRequest } = {}) {
   const defaults = planResponse({ chunks, delayMs, initialDelayMs });
   for (const value of [maxRequests, maxBodyBytes]) {
     if (!Number.isSafeInteger(value) || value < 1) throw new TypeError('limits must be positive integers');
@@ -109,6 +109,7 @@ export async function startLocalProvider({ chunks = defaultChunks, delayMs = 0, 
         roles: body.messages.map((message) => message.role), outcome: 'streaming',
       };
       requests.push(record);
+      onSyntheticRequest?.(body);
       const content = body.messages.findLast((message) => message.role === 'user')?.content;
       const prompt = typeof content === 'string' ? content : Array.isArray(content)
         ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('') : '';
@@ -135,7 +136,8 @@ export async function startLocalProvider({ chunks = defaultChunks, delayMs = 0, 
         await plan.next(signal);
         send(chat({ content: text }));
       }
-      send(chat({}, 'stop'));
+      if (plan.toolCalls) send(chat({ tool_calls: plan.toolCalls }));
+      send(chat({}, plan.toolCalls ? 'tool_calls' : 'stop'));
       if (body.stream_options?.include_usage) send({ id, object: 'chat.completion.chunk', created: 0, model: body.model, choices: [], usage: { prompt_tokens: 1, completion_tokens: plan.chunks.length, total_tokens: 1 + plan.chunks.length } });
       res.write('data: [DONE]\n\n');
       record.outcome = 'completed';

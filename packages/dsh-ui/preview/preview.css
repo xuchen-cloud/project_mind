@@ -1,0 +1,7 @@
+.dsh-file-preview { height:100%; min-height:0; position:relative; display:flex; flex-direction:column; color:var(--color-text); background:var(--color-bg); }
+.dsh-file-preview__scroll { overflow:auto; position:relative; min-height:0; flex:1; white-space:pre-wrap; }
+.dsh-file-preview::before,.dsh-file-preview::after { content:""; position:absolute; z-index:2; left:0; right:0; height:32px; pointer-events:none; }
+.dsh-file-preview::before { top:0; opacity:var(--preview-fade-top,0); background:linear-gradient(to bottom,var(--color-bg),transparent); }
+.dsh-file-preview::after { bottom:0; opacity:var(--preview-fade-bottom,0); background:linear-gradient(to top,var(--color-bg),transparent); }
+.dsh-file-preview [data-document-markdown] { white-space:normal; }
+.dsh-file-preview [data-document-zoom-frame] { flex:1; min-height:0; }

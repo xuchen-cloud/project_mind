@@ -2695,7 +2695,9 @@ mod tests {
                 assert_eq!(
                     output.status.signal(),
                     Some(9),
-                    "{hook} {stage}: {}",
+                    "{hook} {stage}: {}; stdout: {}; stderr: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
                     String::from_utf8_lossy(&output.stderr)
                 );
                 let (metadata, paths) = crate::workspace::load_metadata(root.path()).unwrap();
@@ -3706,7 +3708,9 @@ mod tests {
             assert_eq!(
                 output.status.signal(),
                 Some(9),
-                "stage {stage}: {}",
+                "stage {stage}: {}; stdout: {}; stderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
             let (metadata, paths) = crate::workspace::load_metadata(root.path()).unwrap();

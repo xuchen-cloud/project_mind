@@ -1,22 +1,26 @@
 import { desktopApi } from "./desktopApi";
 
-let latestStart: { key: string; promise: Promise<void> } | undefined;
-let runtimeTail: Promise<unknown> = Promise.resolve();
+const starts = new Map<number, { key: string; promise: Promise<void> }>();
+const runtimeTails = new Map<number, Promise<unknown>>();
 
-function runtimeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const next = runtimeTail.then(() => desktopApi.command<T>(command, args));
-  runtimeTail = next.catch(() => {});
+function runtimeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  const projectId = args.projectId as number;
+  const next = (runtimeTails.get(projectId) ?? Promise.resolve()).then(() => desktopApi.command<T>(command, args));
+  const tail = next.catch(() => {});
+  runtimeTails.set(projectId, tail);
+  void tail.then(() => { if (runtimeTails.get(projectId) === tail) runtimeTails.delete(projectId); });
   return next;
 }
 
-// Window-local queue; native owns the shared runtime, origin and credentials.
+// Window-local queues per Project; native owns each Project runtime, origin and credentials.
 export const dshAssistantApi = {
   start(syncKey: string, projectId: number): Promise<void> {
     const key = JSON.stringify([syncKey, projectId]);
+    const latestStart = starts.get(projectId);
     if (latestStart?.key === key) return latestStart.promise;
     const next = runtimeCommand<void>("dsh_assistant_start", { projectId });
-    latestStart = { key, promise: next };
-    const clear = () => { if (latestStart?.promise === next) latestStart = undefined; };
+    starts.set(projectId, { key, promise: next });
+    const clear = () => { if (starts.get(projectId)?.promise === next) starts.delete(projectId); };
     void next.then(clear, clear);
     return next;
   },

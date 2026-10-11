@@ -7,19 +7,23 @@ const scope = { kind: "project", projectId: 1 } as const;
 const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope, kind: "record", id: "1" };
 beforeEach(() => useAgentPanelStore.getState().clearWorkspace());
 
-it("retains run ownership on close, prevents rebinding during execution and ignores a different Project's callbacks", () => {
+it("tracks background runs by Project, permits panel rebinding and ignores an old Workspace's callbacks", () => {
   const state = useAgentPanelStore.getState();
   state.openPanel("/workspace", scope); state.setRunBusy("/workspace", 1, true);
   state.closePanel();
-  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual(scope);
   state.openPanel("/workspace", { kind: "project", projectId: 2 });
-  expect(useAgentPanelStore.getState().binding?.scope).toEqual(scope);
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 });
+  state.setRunBusy("/workspace", 2, true);
+  expect(Object.values(useAgentPanelStore.getState().runsByProject).map(run => run.scope))
+    .toEqual([scope, { kind: "project", projectId: 2 }]);
+  state.setRunBusy("/workspace", 1, false);
+  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "project", projectId: 2 });
   state.openPanel("/other", scope);
   expect(useAgentPanelStore.getState().binding?.workspaceRoot).toBe("/workspace");
-  state.setRunBusy("/workspace", 2, false);
-  expect(useAgentPanelStore.getState().runningBinding).not.toBeNull();
-  state.setRunBusy("/workspace", 1, false); state.openPanel("/workspace", { kind: "project", projectId: 2 });
-  expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 });
+  state.bindWorkspace("/other");
+  state.setRunBusy("/workspace", 1, true);
+  expect(useAgentPanelStore.getState().runsByProject).toEqual({});
+  expect(useAgentPanelStore.getState().runningBinding).toBeNull();
 });
 
 it("defaults to expanded, retains a deliberate minimize on reopen, and expands new scopes", () => {
@@ -75,4 +79,14 @@ describe("explicit assistant discussion target", () => {
     expect(state.setDiscussionTarget(binding, { ...object, scope: { kind: "workspace" } }, "直属记录")).toBe(false);
     expect(state.setDiscussionTarget(binding, { ...object, scope: { kind: "project", projectId: 2 } }, "别的项目")).toBe(false);
   });
+});
+
+it('records a running content Session without opening the assistant panel', () => {
+  const state = useAgentPanelStore.getState();
+  state.bindWorkspace('/workspace');
+  state.setRunBusy('/workspace', 4, true);
+  expect(useAgentPanelStore.getState().open).toBe(false);
+  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: 'project', projectId: 4 });
+  state.clearWorkspace();
+  expect(useAgentPanelStore.getState().runsByProject).toEqual({});
 });

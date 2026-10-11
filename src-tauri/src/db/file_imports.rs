@@ -1615,9 +1615,11 @@ mod tests {
                 let barrier = barrier.clone();
                 let root_path = root.path().to_path_buf();
                 let source = source.clone();
+                // Initialize connections before the barrier: concurrent startup
+                // migrations are outside the File import concurrency seam.
+                let (_, paths) = crate::workspace::load_metadata(&root_path).unwrap();
+                let mut db = Database::open(&paths.db_path, &root_path, None).unwrap();
                 std::thread::spawn(move || {
-                    let (_, paths) = crate::workspace::load_metadata(&root_path).unwrap();
-                    let mut db = Database::open(&paths.db_path, &root_path, None).unwrap();
                     barrier.wait();
                     db.document_import(DocumentImportInput {
                         project_id: project.id,

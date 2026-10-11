@@ -63,6 +63,19 @@ fn resolve(root: &Path, relative: &str) -> Result<ResolvedPath> {
     {
         bail!("路径必须是项目目录内的相对路径，不能包含 .. 或绝对路径");
     }
+    if relative
+        .split('/')
+        .any(crate::db::project_directory_files::internal_component)
+    {
+        bail!("应用内部数据不属于项目业务文件");
+    }
+    if fs::symlink_metadata(root)
+        .with_context(|| format!("无法访问项目目录：{}", root.display()))?
+        .file_type()
+        .is_symlink()
+    {
+        bail!("项目目录不能是符号链接");
+    }
     let root = root
         .canonicalize()
         .with_context(|| format!("无法访问项目目录：{}", root.display()))?;
@@ -70,6 +83,13 @@ fn resolve(root: &Path, relative: &str) -> Result<ResolvedPath> {
         bail!("项目根路径不是目录：{}", root.display());
     }
     let requested = root.join(relative);
+    crate::db::file_versions::relative(&root, &requested).or_else(|error| {
+        if relative.is_empty() {
+            Ok(String::new())
+        } else {
+            Err(error)
+        }
+    })?;
     let canonical = requested
         .canonicalize()
         .with_context(|| format!("无法访问项目路径：{relative}"))?;
@@ -110,6 +130,9 @@ fn list(root: &Path, relative: &str) -> Result<Vec<DirectoryEntry>> {
             .file_name()
             .into_string()
             .map_err(|_| anyhow::anyhow!("项目目录包含无法显示的非 UTF-8 文件名"))?;
+        if crate::db::project_directory_files::internal_component(&name) {
+            continue;
+        }
         let relative_path = if relative.is_empty() {
             name.clone()
         } else {
@@ -258,7 +281,7 @@ fn authorize_identity(
 
 fn authorize_caller(caller: &Webview, project_id: i64) -> Result<(), String> {
     let url = caller.url().map_err(|_| "无法验证目录浏览调用窗口")?;
-    let local_origin = if cfg!(debug_assertions) {
+    let local_origin = if cfg!(dev) {
         caller
             .app_handle()
             .config()
@@ -314,12 +337,20 @@ fn reference_relative(root: &Path, reference: &str) -> Result<String> {
     }
     let root = root.canonicalize()?;
     let path = Path::new(reference);
-    if path.components().any(|part| matches!(part, Component::ParentDir)) {
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
         bail!("文件引用不能包含 ..");
     }
     let target = path.canonicalize()?;
-    let relative = target.strip_prefix(&root).context("文件引用位于当前项目目录之外")?;
-    let relative = relative.to_str().context("文件路径不能显示为 UTF-8")?.replace('\\', "/");
+    let relative = target
+        .strip_prefix(&root)
+        .context("文件引用位于当前项目目录之外")?;
+    let relative = relative
+        .to_str()
+        .context("文件路径不能显示为 UTF-8")?
+        .replace('\\', "/");
     let resolved = resolve(&root, &relative)?;
     resolved.verify()?;
     Ok(relative)
@@ -333,7 +364,8 @@ pub(crate) fn project_directory_resolve_reference(
     reference: String,
 ) -> Result<String, String> {
     authorize_caller(&caller, project_id)?;
-    reference_relative(&project_root(state, project_id)?, &reference).map_err(|error| format!("{error:#}"))
+    reference_relative(&project_root(state, project_id)?, &reference)
+        .map_err(|error| format!("{error:#}"))
 }
 
 #[tauri::command]
@@ -356,17 +388,52 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn directory_business_access_excludes_internal_data_and_all_symlinks() {
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join(".project-mind")).unwrap();
+        fs::write(root.path().join(".project-mind/private"), b"secret").unwrap();
+        fs::write(root.path().join("visible"), b"safe").unwrap();
+        assert_eq!(list(root.path(), "").unwrap().len(), 1);
+        assert!(preview(root.path(), ".project-mind/private").is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.path().join("visible"), root.path().join("alias"))
+                .unwrap();
+            assert!(preview(root.path(), "alias").is_err());
+        }
+    }
+
+    #[test]
     fn assistant_references_resolve_only_inside_the_actual_project() {
         let project = tempdir().unwrap();
         let outside = tempdir().unwrap();
         fs::write(project.path().join("file.txt"), "inside").unwrap();
         fs::write(outside.path().join("secret.txt"), "outside").unwrap();
-        assert_eq!(reference_relative(project.path(), "file.txt").unwrap(), "file.txt");
-        assert_eq!(reference_relative(project.path(), project.path().join("file.txt").to_str().unwrap()).unwrap(), "file.txt");
-        assert!(reference_relative(project.path(), outside.path().join("secret.txt").to_str().unwrap()).is_err());
+        assert_eq!(
+            reference_relative(project.path(), "file.txt").unwrap(),
+            "file.txt"
+        );
+        assert_eq!(
+            reference_relative(
+                project.path(),
+                project.path().join("file.txt").to_str().unwrap()
+            )
+            .unwrap(),
+            "file.txt"
+        );
+        assert!(reference_relative(
+            project.path(),
+            outside.path().join("secret.txt").to_str().unwrap()
+        )
+        .is_err());
         assert!(reference_relative(project.path(), "../secret.txt").is_err());
-        #[cfg(unix)] {
-            std::os::unix::fs::symlink(outside.path().join("secret.txt"), project.path().join("escape.txt")).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                outside.path().join("secret.txt"),
+                project.path().join("escape.txt"),
+            )
+            .unwrap();
             assert!(reference_relative(project.path(), "escape.txt").is_err());
         }
     }
@@ -469,5 +536,277 @@ mod tests {
                 ..
             }
         ));
+    }
+}
+
+use crate::agent::models::{ObjectRef, Scope, WorkspaceBinding};
+use crate::db::project_directory_files::{
+    DirectoryFile, DirectoryScan, FileBytesInput, FileBytesResult, FileServiceError,
+};
+
+fn object_project(object: &ObjectRef) -> Result<i64, FileServiceError> {
+    match object.scope {
+        Scope::Project { project_id } if project_id > 0 => Ok(project_id),
+        _ => Err(FileServiceError {
+            code: "ownership_mismatch",
+            message: "File requires a Project".into(),
+        }),
+    }
+}
+fn file_caller(caller: &Webview, project: i64) -> Result<(), FileServiceError> {
+    authorize_caller(caller, project).map_err(|message| FileServiceError {
+        code: "ownership_mismatch",
+        message,
+    })
+}
+pub(crate) fn bound_file_command<S, T>(
+    store: &S,
+    binding: &WorkspaceBinding,
+    task: impl FnOnce(&crate::db::Database) -> Result<T>,
+) -> Result<T, FileServiceError>
+where
+    S: crate::source_service::BoundSourceStore + crate::committed_changes::CommittedChangePublisher,
+{
+    use crate::agent::errors::{AgentError, ErrorCode};
+    let request_id = format!("gui:{:032x}", rand::random::<u128>());
+    let (result, changes) = store
+        .with_current(|current, db| {
+            if current != binding {
+                return Err(AgentError::new(
+                    ErrorCode::WorkspaceChanged,
+                    "File Workspace was closed or reopened",
+                ));
+            }
+            crate::committed_changes::capture_committed(current, db, &request_id, || {
+                Ok(task(db).map_err(FileServiceError::from_error))
+            })
+        })
+        .map_err(|error| FileServiceError {
+            code: if error.code == ErrorCode::WorkspaceChanged {
+                "workspace_changed"
+            } else {
+                "io_failed"
+            },
+            message: error.message,
+        })?;
+    if let Some(changes) = changes {
+        store.publish_committed(changes);
+    }
+    result.map_err(|error| FileServiceError {
+        code: "io_failed",
+        message: error.message,
+    })?
+}
+fn file_db<T>(
+    state: State<'_, AppState>,
+    binding: &WorkspaceBinding,
+    task: impl FnOnce(&crate::db::Database) -> Result<T>,
+) -> Result<T, FileServiceError> {
+    bound_file_command(&*state, binding, task)
+}
+#[tauri::command]
+pub(crate) fn project_file_register(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    project_id: i64,
+    relative_path: String,
+) -> Result<DirectoryFile, FileServiceError> {
+    file_caller(&caller, project_id)?;
+    file_db(state, &binding, |db| {
+        db.project_file_register(&binding.workspace_id, project_id, &relative_path)
+    })
+}
+#[tauri::command]
+pub(crate) fn project_file_resolve(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+) -> Result<DirectoryFile, FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    file_db(state, &binding, |db| db.project_file_resolve(&object))
+}
+#[tauri::command]
+pub(crate) fn project_file_read_bytes(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    input: FileBytesInput,
+) -> Result<FileBytesResult, FileServiceError> {
+    file_caller(&caller, object_project(&input.object)?)?;
+    file_db(state, &binding, |db| db.project_file_read_bytes(&input))
+}
+#[tauri::command]
+pub(crate) fn project_file_move(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+    relative_path: String,
+    expected_version_number: u32,
+    expected_content_hash: String,
+) -> Result<DirectoryFile, FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    file_db(state, &binding, |db| {
+        db.project_file_move(
+            &object,
+            &relative_path,
+            expected_version_number,
+            &expected_content_hash,
+        )
+    })
+}
+#[tauri::command]
+pub(crate) fn project_file_rename(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+    name: String,
+    expected_version_number: u32,
+    expected_content_hash: String,
+) -> Result<DirectoryFile, FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    file_db(state, &binding, |db| {
+        db.project_file_rename(
+            &object,
+            &name,
+            expected_version_number,
+            &expected_content_hash,
+        )
+    })
+}
+#[tauri::command]
+pub(crate) fn project_file_reconcile(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+    relative_path: String,
+    expected_version_number: u32,
+    expected_content_hash: String,
+    confirmation: String,
+) -> Result<DirectoryFile, FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    file_db(state, &binding, |db| {
+        db.project_file_reconcile(
+            &object,
+            &relative_path,
+            expected_version_number,
+            &expected_content_hash,
+            &confirmation,
+        )
+    })
+}
+#[tauri::command]
+pub(crate) fn project_file_scan(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    project_id: i64,
+    cursor: Option<String>,
+    limit: Option<u32>,
+    cancelled: Option<bool>,
+) -> Result<DirectoryScan, FileServiceError> {
+    file_caller(&caller, project_id)?;
+    file_db(state, &binding, |db| {
+        db.project_file_scan(
+            &binding.workspace_id,
+            project_id,
+            cursor.as_deref(),
+            limit.unwrap_or(50),
+            cancelled.unwrap_or(false),
+        )
+    })
+}
+
+#[tauri::command]
+pub(crate) fn project_file_resolve_related(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+    relative_reference: String,
+) -> Result<DirectoryFile, FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    file_db(state, &binding, |db| {
+        db.project_file_resolve_related(&object, &relative_reference)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn project_file_open_local(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+) -> Result<(), FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    file_db(state, &binding, |db| {
+        db.project_file_open_local_with(&object, crate::open_path_with_system_app)
+    })
+}
+
+#[cfg(test)]
+mod bound_tests {
+    use super::*;
+    use crate::{
+        agent::errors::AgentResult,
+        committed_changes::{CommittedChangePublisher, CommittedChanges},
+        models::ProjectCreateInput,
+        source_service::BoundSourceStore,
+    };
+    struct Store {
+        db: crate::db::Database,
+        binding: WorkspaceBinding,
+    }
+    impl BoundSourceStore for Store {
+        fn with_current<T>(
+            &self,
+            action: impl FnOnce(&WorkspaceBinding, &crate::db::Database) -> AgentResult<T>,
+        ) -> AgentResult<T> {
+            action(&self.binding, &self.db)
+        }
+    }
+    impl CommittedChangePublisher for Store {
+        fn publish_committed(&self, _changes: CommittedChanges) {}
+    }
+    #[test]
+    fn directory_file_bound_commands_reject_old_generation_after_same_workspace_reopens() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db =
+            crate::db::Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        db.bind_native_workspace("workspace").unwrap();
+        let project = db
+            .project_create(ProjectCreateInput {
+                name: "Generation".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        fs::write(Path::new(&project.root_path).join("data.bin"), [0, 255]).unwrap();
+        let current = WorkspaceBinding {
+            workspace_id: "workspace".into(),
+            generation: "reopened".into(),
+        };
+        let stale = WorkspaceBinding {
+            workspace_id: "workspace".into(),
+            generation: "closed".into(),
+        };
+        let store = Store {
+            db,
+            binding: current.clone(),
+        };
+        let rejected = bound_file_command(&store, &stale, |db| {
+            db.project_file_register("workspace", project.id, "data.bin")
+        })
+        .unwrap_err();
+        assert_eq!(rejected.code, "workspace_changed");
+        let allowed = bound_file_command(&store, &current, |db| {
+            db.project_file_register("workspace", project.id, "data.bin")
+        })
+        .unwrap();
+        assert_eq!(allowed.version_number, 1);
     }
 }

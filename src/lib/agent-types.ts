@@ -69,6 +69,7 @@ export interface AgentSourceRef {
   recordVersion: number | null;
   blockId: string | null;
   locator:
+    | { kind: "line"; start: number; end: number }
     | { kind: "paragraph"; start: number; end: number }
     | { kind: "page"; page: number; start: number; end: number }
     | { kind: "time"; startMs: number; endMs: number }

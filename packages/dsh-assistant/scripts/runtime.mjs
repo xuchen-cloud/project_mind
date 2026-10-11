@@ -9,6 +9,7 @@ import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential, installSharedSelection } from './shared-model.mjs';
 import { readProject, bindProject } from './project-workspace.mjs';
+import { createSourceBridge, installSourceService } from './source-bridge.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const embedded = process.argv.includes('--embedded');
@@ -16,6 +17,7 @@ const args = process.argv.slice(2).filter(arg => arg !== '--embedded');
 let input;
 let sharedModel;
 let project;
+let sourceBridge;
 let parentClosed = false;
 if (embedded) {
   input = createInterface({ input: process.stdin });
@@ -26,6 +28,7 @@ if (embedded) {
   });
   sharedModel = readSharedModel(frame);
   project = await readProject(frame);
+  sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
 }
 Object.assign(process.env, assistantEnvironment());
 const home = process.env.DSH_HOME;
@@ -53,6 +56,7 @@ let ctx;
 let closing;
 let stopping = false;
 const dispose = () => closing ??= (async () => {
+  sourceBridge?.close();
   try { await ctx?.fiber.dispose(); } finally { await releaseProxy(); }
 })();
 const stop = code => {
@@ -74,7 +78,10 @@ try {
     if (embedded) { installSharedCredential(host, sharedModel); installSharedSelection(host, sharedModel); }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });
   });
-  if (embedded) await bindProject(ctx, project);
+  if (embedded) {
+    await bindProject(ctx, project);
+    await installSourceService(ctx, project, sourceBridge);
+  }
   for (const listener of readyListeners) listener();
   if (process.send) process.send({ type: 'ready', port: ctx.webServer.port });
   if (embedded) {

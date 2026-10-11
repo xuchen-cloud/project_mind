@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork, execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { createInterface } from 'node:readline';
 import { mkdtemp, mkdir, realpath, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -25,7 +26,7 @@ async function waitFor(read, description, timeoutMs = 15000) {
   throw new Error(`Timed out: ${description}`);
 }
 
-async function launch(data, patch, sharedProvider, project, profileDirectory) {
+async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler) {
   const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), '--port', '0', '--no-open'], {
     cwd: root, execArgv: [], silent: true,
     env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data,
@@ -39,6 +40,14 @@ async function launch(data, patch, sharedProvider, project, profileDirectory) {
   let spawnError;
   child.stdout.on('data', (chunk) => { output = (output + chunk).slice(-64000); });
   child.stderr.on('data', (chunk) => { output = (output + chunk).slice(-64000); });
+  if (sourceHandler) createInterface({ input: child.stdout }).on('line', async line => {
+    if (!line.startsWith('MIND_DSH_SOURCE ')) return;
+    const frame = JSON.parse(line.slice('MIND_DSH_SOURCE '.length));
+    let result;
+    try { result = { ok: true, value: await sourceHandler(frame.payload) }; }
+    catch (error) { result = { ok: false, error: { message: String(error.message) } }; }
+    child.stdin.write(JSON.stringify({ type: 'mind-source-response', id: frame.id, result }) + '\n');
+  });
   child.on('message', (message) => { if (message?.type === 'ready') ready = message; });
   child.on('error', (error) => { spawnError = error; });
   const exited = new Promise((resolve) => child.once('exit', (code, signal) => { ended = { code, signal }; resolve(ended); }));
@@ -88,7 +97,7 @@ async function launch(data, patch, sharedProvider, project, profileDirectory) {
     return { child, origin, headers, rpc, stop, diagnostics: () => redact(output).slice(-8000) };
   } catch (error) {
     await stop().catch(() => {});
-    throw error;
+    throw new Error(`${error.message}\n${redact(output).slice(-8000)}`, { cause: error });
   }
 }
 
@@ -127,6 +136,115 @@ async function follow(runtime, sessionId) {
 
 const events = (stream) => stream.frames.flatMap((frame) => frame.type === 'snapshot' ? frame.records.map((record) => record.event) : frame.type === 'event' ? [frame.event] : []);
 const assistantText = (event) => event.data.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+
+test('source stdio delivers fixed composer and actual read projections to a local model with real message identities', { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-integration-'));
+  const bodies = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
+  const directory = await realpath(temp);
+  const sourceRef = { object: { workspaceId: 'synthetic', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'old.md', excerpt: '' };
+  const operations = [];
+  const sourceHandler = payload => {
+    operations.push(payload);
+    if (payload.operation === 'delivery') {
+      assert.equal(payload.projectionHash, createHash('sha256').update(payload.projection).digest('hex'));
+      assert.match(payload.deliveryId, /^(composer|read):/);
+      return null;
+    }
+    const metadata = { id: randomUUID(), sourceRef: payload.sourceRef ?? sourceRef, offset: payload.offset, limit: payload.limit, content: payload.sourceRef ? '1: fixed historical bytes' : '1: tool snapshot bytes' };
+    return { sourceRef: metadata.sourceRef, projection: `<mind-file-source>${JSON.stringify(metadata)}</mind-file-source>`, readValue: {path:"renamed.md", offset:1, lines:[{number:1,text:metadata.content.slice(3)}], totalLines:1} };
+  };
+  runtime = await launch(path.join(temp, 'data'), undefined, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, { id: 7, name: 'Source', directory }, undefined, sourceHandler);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  stream = await follow(runtime, sessionId);
+  const prepared = await runtime.rpc('mind/source/prepare', { sessionId, path: 'renamed.md', sourceRef });
+  await writeFile(path.join(temp, 'renamed.md'), 'different live bytes');
+  await prompt(runtime, stream, sessionId, prepared.projection);
+  assert.ok(bodies.some(body => JSON.stringify(body.messages).includes('fixed historical bytes')));
+  assert.ok(operations.some(item => item.operation === 'prepare' && item.sourceRef?.fileVersion === 1));
+  assert.ok(operations.some(item => item.operation === 'delivery' && item.deliveryId.startsWith('composer:') && item.sessionId === sessionId));
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'source-read-call', type: 'function', function: { name: 'read', arguments: JSON.stringify({ file_path: 'renamed.md', offset: 1, limit: 1 }) } }] });
+  await prompt(runtime, stream, sessionId, 'Use the read tool');
+  assert.ok(operations.some(item => item.operation === 'prepare' && !item.sourceRef && item.path === 'renamed.md'), JSON.stringify(bodies.at(-1)?.messages));
+  assert.ok(operations.some(item => item.operation === 'delivery' && item.deliveryId.startsWith('read:') && item.projection.includes('tool snapshot bytes')));
+  assert.ok(bodies.some(body => body.messages.some(message => message.role === 'tool' && JSON.stringify(message.content).includes('tool snapshot bytes'))));
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'source-edit-call', type: 'function', function: { name: 'edit', arguments: JSON.stringify({ file_path: 'renamed.md', old_string: 'different live bytes', new_string: 'edited after source read' }) } }] });
+  await prompt(runtime, stream, sessionId, 'Edit the file just read');
+  assert.equal(await readFile(path.join(temp, 'renamed.md'), 'utf8'), 'edited after source read');
+});
+test('PTC nested read summary delivers its fixed projection under the actual parent message', { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-ptc-'));
+  const directory = await realpath(temp);
+  const bodies = [], operations = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
+  const patch = path.join(temp, 'ptc.patch.yml');
+  const policy = path.join(temp, 'source-policy.mjs');
+  await writeFile(policy, `export const name = 'source-projection-test-policy';
+export function apply(ctx) {
+  ctx.on('tools/execute', async (exec, next) => {
+    const result = await next();
+    if (exec.name === 'read' && exec.arguments.file_path === 'dispatch-value.md') return { ...result, value: { path: 'dispatch-value.md', offset: 1, lines: [{ number: 1, text: 'dispatch replaced value' }], totalLines: 1 } };
+    return result;
+  });
+  ctx.on('tools/post-execute', (exec, result, next) => {
+    const target = exec.name === 'read' ? exec.arguments.file_path : exec.arguments.description;
+    if (target === 'child-content.md' || target === 'parent-content') return { kind: 'accept', content: [{ type: 'text', text: 'policy replaced content' }] };
+    if (target === 'child-value.md') return { kind: 'accept', value: { path: 'child-value.md', offset: 1, lines: [{ number: 1, text: 'policy replaced value' }], totalLines: 1 } };
+    if (target === 'parent-value') return { kind: 'accept', value: { logs: [], result: 'policy replaced value' } };
+    if (target === 'child-block.md' || target === 'parent-block') return { kind: 'block', feedback: [{ type: 'text', text: 'policy blocked' }] };
+    return next();
+  });
+}
+`);
+  await writeFile(patch, '- id: tools\n  config:\n    mode: both\n- insert:\n    - id: source-projection-test-policy\n      name: ' + JSON.stringify(policy) + '\n');
+  for (const name of ['child-content.md', 'child-value.md', 'child-block.md', 'dispatch-value.md']) await writeFile(path.join(temp, name), 'immutable nested bytes');
+  await writeFile(path.join(temp, 'nested.md'), 'immutable nested bytes');
+  const sourceRef = { object: { workspaceId: 'ptc', scope: { kind: 'project', projectId: 8 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, locator: { kind: 'line', start: 1, end: 1 }, title: 'nested.md' };
+  let prepared;
+  runtime = await launch(path.join(temp, 'data'), patch, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, { id: 8, name: 'PTC', directory }, undefined, payload => {
+    operations.push(payload);
+    if (payload.operation === 'delivery') return null;
+    const metadata = { id: randomUUID(), sourceRef, offset: 1, limit: 1, requestedLimit: 1, truncated: false, content: '1: immutable nested bytes' };
+    prepared = `<mind-file-source>${JSON.stringify(metadata)}</mind-file-source>`;
+    return { projection: prepared, sourceRef, readValue: { path: 'nested.md', offset: 1, lines: [{ number: 1, text: 'immutable nested bytes' }], totalLines: 1, truncated: false } };
+  });
+  const { sessionId } = await runtime.rpc('session/create', {});
+  stream = await follow(runtime, sessionId);
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'nested-run', type: 'function', function: { name: 'run_code', arguments: JSON.stringify({ description: 'summarize a File', code: "await tools.read({ file_path: 'nested.md', offset: 1, limit: 1 }); return 'summary only';" }) } }] });
+  await prompt(runtime, stream, sessionId, 'Read from a program and return only a summary');
+  assert.ok(operations.some(item => item.operation === 'prepare'), runtime.diagnostics());
+  const finalTool = bodies.flatMap(body => body.messages).find(message => message.role === 'tool' && message.tool_call_id === 'nested-run' && JSON.stringify(message.content).includes('immutable nested bytes'));
+  assert.ok(finalTool, JSON.stringify(bodies.at(-1)?.messages.filter(message => message.role === 'tool')));
+  assert.ok(JSON.stringify(finalTool.content).includes('summary only'));
+  const delivery = operations.find(item => item.operation === 'delivery');
+  assert.equal(delivery.sessionId, sessionId);
+  assert.equal(delivery.projection, prepared);
+  assert.equal(delivery.projectionHash, createHash('sha256').update(prepared).digest('hex'));
+  assert.match(delivery.deliveryId, /^read:/);
+  for (const [name, file, description] of [
+    ['dispatch-value', 'dispatch-value.md', 'dispatch value replacement'],
+    ['child-content', 'child-content.md', 'child content replacement'],
+    ['child-value', 'child-value.md', 'child value replacement'],
+    ['child-block', 'child-block.md', 'child block'],
+    ['parent-content', 'nested.md', 'parent-content'],
+    ['parent-value', 'nested.md', 'parent-value'],
+    ['parent-block', 'nested.md', 'parent-block'],
+  ]) {
+    const before = operations.filter(item => item.operation === 'delivery').length;
+    const callId = 'nested-policy-' + name;
+    provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: callId, type: 'function', function: { name: 'run_code', arguments: JSON.stringify({ description, code: `await tools.read({ file_path: '${file}', offset: 1, limit: 1 }); return 'summary only';` }) } }] });
+    await prompt(runtime, stream, sessionId, 'Policy case ' + name);
+    const message = bodies.at(-1).messages.find(item => item.role === 'tool' && item.tool_call_id === callId);
+    assert.ok(message, runtime.diagnostics());
+    assert.ok(!JSON.stringify(message.content).includes('<mind-file-source>'), name);
+    assert.equal(operations.filter(item => item.operation === 'delivery').length, before, name);
+  }
+});
+
 async function prompt(runtime, stream, sessionId, text, expectedKind = 'completed') {
   const from = stream.frames.length;
   const result = await runtime.rpc('session/prompt', { sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text }] });
@@ -434,4 +552,56 @@ test('orphan blank project session recovers durable ownership across a shared-pr
   stream = await follow(runtime, sessionId);
   await prompt(runtime, stream, sessionId, 'First prompt after blank session restart');
   assert.equal(provider.requests[1].model, shared.modelId);
+});
+
+test('two Project runtimes stream concurrently, survive view disconnect and stop only their own Session', { timeout: 90000 }, async t => {
+  const temporary = await mkdtemp(path.join(tmpdir(), 'mind-dsh-parallel-'));
+  const providers = await Promise.all([startLocalProvider(), startLocalProvider()]);
+  const projects = [1, 2].map(id => ({ id, name: `Parallel Project ${id}`, directory: path.join(temporary, String(id)) }));
+  for (const project of projects) { await mkdir(project.directory); project.directory = await realpath(project.directory); }
+  const runtimes = [], streams = [];
+  t.after(async () => {
+    await Promise.all(streams.map(stream => stream?.close()));
+    await Promise.all(runtimes.map(runtime => runtime.stop()));
+    await Promise.all(providers.map(provider => provider.close()));
+    await rm(temporary, { recursive: true, force: true });
+  });
+  const ids = [];
+  const controls = [];
+  for (let index = 0; index < 2; index++) {
+    const provider = providers[index];
+    const runtime = await launch(path.join(temporary, 'history', String(index)), undefined,
+      { name: 'Main model', baseUrl: provider.url, modelId: 'parallel-model', apiKey: 'local-integration-key', supportsImage: false },
+      projects[index], path.join(temporary, 'profiles', 'assistant'));
+    runtimes.push(runtime);
+    const { sessionId } = await runtime.rpc('session/create', {}); ids.push(sessionId);
+    await runtime.rpc('session/rename', { sessionId, title: `Concurrent ${index}` });
+    streams.push(await follow(runtime, sessionId));
+    const control = provider.enqueueResponse({ manual: true, chunks: [`Project ${index} incremental`, `Project ${index} done`] });
+    controls.push(control);
+    assert.deepEqual(await runtime.rpc('session/prompt', { sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: `Project ${index} prompt` }] }), { accepted: true });
+    await waitFor(() => provider.requests.length === 1, `provider ${index} started`);
+    control.advance();
+    await streams[index].read(frame => frame.type === 'assistant-stream' && frame.frame.type === 'chunk' && frame.frame.chunk.type === 'text-delta', `Project ${index} incremental output`);
+  }
+  assert.notEqual(runtimes[0].child.pid, runtimes[1].child.pid);
+  assert.notEqual(runtimes[0].origin, runtimes[1].origin);
+  assert.equal(providers[0].requests[0].outcome, 'streaming');
+  assert.equal(providers[1].requests[0].outcome, 'streaming');
+  // Closing the view carrier leaves Project A running and discoverable.
+  await streams[0].close(); streams[0] = undefined;
+  const catalogA = await runtimes[0].rpc('session/list', {}, '_request');
+  assert.ok(catalogA.items.some(item => item.sessionId === ids[0] && item.running));
+  streams[0] = await follow(runtimes[0], ids[0]);
+  await assert.rejects(runtimes[1].rpc('session/cancel', { sessionId: ids[0] }));
+  assert.deepEqual(await runtimes[0].rpc('session/cancel', { sessionId: ids[0] }), { accepted: true });
+  await waitFor(() => providers[0].requests[0].outcome === 'aborted', 'A stop propagates');
+  assert.equal(providers[1].requests[0].outcome, 'streaming');
+  controls[1].advance();
+  await streams[1].read(frame => frame.type === 'event' && frame.event.type === 'turn/end', 'B completes independently');
+  assert.ok(events(streams[1]).some(event => event.type === 'assistant/message' && assistantText(event) === 'Project 1 incrementalProject 1 done'));
+  assert.ok(!JSON.stringify(streams[1].frames).includes('Project 0 incremental'));
+  await streams[0].close(); streams[0] = undefined;
+  await runtimes[0].stop();
+  assert.ok((await runtimes[1].rpc('session/list', {}, '_request')).items.some(item => item.sessionId === ids[1]));
 });

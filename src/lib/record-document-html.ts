@@ -88,13 +88,13 @@ const neutralTags = new Set(["div", "span", "tbody", "thead", "tfoot", "colgroup
 const customTypes = new Set(["attachment", "internal-reference", "contact-mention", "tag-mention", "taskList", "taskItem"]);
 const semanticAttributes = new Set(["data-type", "data-block-id", "data-language", "data-language-explicit", "data-path",
   "data-mime-type", "data-document-id", "data-annotation-state", "data-title", "data-href", "data-meta", "data-is-starred",
-  "data-ref-kind", "data-ref-id", "data-label", "data-contact-id", "data-tag-id", "data-color-key", "data-checked", "data-rich-editor-openable", "data-style-derived"]);
+  "data-ref-kind", "data-ref-id", "data-label", "data-source-ref", "data-contact-id", "data-tag-id", "data-color-key", "data-checked", "data-rich-editor-openable", "data-style-derived"]);
 const presentationAttributes = new Set(["class", "style", "contenteditable", "role", "tabindex"]);
 const nodeAttributes: Record<string, readonly string[]> = {
   image: ["src", "alt", "title", "width", "height", "data-path", "data-mime-type", "data-document-id", "data-annotation-state"],
   attachment: ["data-type", "data-title", "data-href", "data-path", "data-mime-type", "data-document-id", "data-is-starred", "data-meta", "data-rich-editor-openable"],
   codeBlock: ["data-language", "data-language-explicit"],
-  internalReference: ["data-type", "data-ref-kind", "data-ref-id", "data-label"],
+  internalReference: ["data-type", "data-ref-kind", "data-ref-id", "data-label", "data-source-ref"],
   contactMention: ["data-type", "data-contact-id", "data-label"],
   tagMention: ["data-type", "data-tag-id", "data-label", "data-color-key"],
   table: ["data-style-derived"], tableCell: ["colspan", "rowspan", "colwidth"], tableHeader: ["colspan", "rowspan", "colwidth"],

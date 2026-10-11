@@ -12,6 +12,7 @@ export const queryKeys = {
     ["project-tag-settings"],
     ["contacts"],
     ["documentVersions"],
+    ["project-content-binding"],
   ] as const,
   workspaceStatus: ["workspace-status"] as const,
   searchAll: ["search"] as const,
@@ -19,6 +20,7 @@ export const queryKeys = {
     all: ["projects", "all"] as const,
   },
   projectPage: (projectId: number | null) => ["project-page", projectId] as const,
+  projectContentBinding: (workspaceRoot: string) => ["project-content-binding", workspaceRoot] as const,
   workspacePage: ["workspace-page"] as const,
   todoViews: {
     all: ["todo-views"] as const,

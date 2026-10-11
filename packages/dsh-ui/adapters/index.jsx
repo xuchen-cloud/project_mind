@@ -11,6 +11,11 @@ function acquire(projectId) {
   if (entry === undefined) {
     entry = { users: 0, promise: createDshClient(projectId) };
     clients.set(projectId, entry);
+    void entry.promise.catch(() => { if (clients.get(projectId) === entry) clients.delete(projectId); });
+    void entry.promise.then(client => client.subscribe((type, busy) => {
+      if (type === 'busy' && clients.get(projectId) === entry)
+        window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy } }));
+    }), () => {});
   }
   entry.users++;
   let released = false;
@@ -18,26 +23,23 @@ function acquire(projectId) {
     if (released) return;
     released = true;
     entry.users--;
-    // React StrictMode's immediate effect remount keeps the same graph.
-    queueMicrotask(() => {
-      if (entry.users !== 0 || clients.get(projectId) !== entry) return;
-      clients.delete(projectId);
-      void entry.promise.then(client => client.dispose(), () => {}).catch(error => console.error('DSH 客户端关闭失败', error));
-    });
+    // A content page only releases its UI seat. The project graph and Session
+    // stores survive Tab closure; workspace teardown owns graph disposal.
   } };
 }
 
-export async function insertDshFileReference(projectId, path) {
+export async function insertDshFileReference(projectId, sessionId, path, sourceRef) {
   const entry = clients.get(projectId);
-  if (entry === undefined || entry.users === 0) throw new Error('请先打开当前项目的助手，再引用文件');
-  (await entry.promise).insertFile(path);
+  if (entry === undefined) throw new Error('请先打开当前项目的助手，再引用文件');
+  await (await entry.promise).insertFile(sessionId, path, sourceRef);
 }
 
-function Host({ projectId, sessionId, mode, ...callbacks }) {
+function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {
   const element = useRef(null);
   const handlers = useRef(callbacks);
-  handlers.current = callbacks;
+  handlers.current = { ...callbacks, focused };
   const [client, setClient] = useState(null);
+  const [reference, setReference] = useState(null);
   const [error, setError] = useState('');
   const [portal, setPortal] = useState(null);
   useEffect(() => {
@@ -66,9 +68,9 @@ function Host({ projectId, sessionId, mode, ...callbacks }) {
       if (!active) return;
       unsubscribe = value.subscribe((type, data) => {
         if (!active) return;
-        if (type === 'session') handlers.current.onSessionChange?.(data);
+        if (type === 'session' && handlers.current.focused) handlers.current.onSessionChange?.(data);
         else if (type === 'busy') handlers.current.onBusyChange?.(data);
-        else if (type === 'file') handlers.current.onFileOpen?.(data.path, data.line);
+        else if (type === 'file' && (data.sessionId ? data.sessionId === sessionId : handlers.current.focused)) handlers.current.onFileOpen?.(data.path, data.line, data.sourceRef);
         else if (type === 'filesChanged') handlers.current.onFilesChanged?.();
         else if (type === 'error') handlers.current.onError?.(data);
       });
@@ -81,28 +83,46 @@ function Host({ projectId, sessionId, mode, ...callbacks }) {
       handlers.current.onError?.(message);
     });
     return () => { active = false; unsubscribe?.(); handle.release(); };
-  }, [projectId]);
+  }, [projectId, sessionId]);
   useEffect(() => {
-    if (client === null || mode !== 'chat' || sessionId === null) return;
+    setReference(null);
+    setError('');
+    if (client === null || mode !== 'chat') return;
     const opening = new AbortController();
-    void client.select(sessionId, opening.signal).then(() => {
-      if (!opening.signal.aborted) handlers.current.onReady?.();
+    let selected;
+    void client.select(sessionId, opening.signal).then(value => {
+      if (opening.signal.aborted) { value.release(); return; }
+      selected = value;
+      setReference(value);
+      handlers.current.onReady?.();
     }, cause => {
       if (opening.signal.aborted) return;
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       handlers.current.onError?.(message);
     });
-    return () => { opening.abort(); };
+    return () => { opening.abort(); selected?.release(); };
   }, [client, sessionId, mode]);
   useEffect(() => {
     if (client && element.current) return installScrollEdges(element.current);
   }, [client]);
   return <div ref={element} className="dsh-ui-host" data-dsh-component-host data-mode={mode}>
-    {error ? <p role="alert">{error}</p> : client === null || portal === null
+    {error ? <p role="alert">{error}</p> : client === null || portal === null || (mode === 'chat' && reference?.sessionId !== sessionId)
       ? <p role="status">正在连接助手…</p>
-      : <HostPortalProvider value={portal}>{client.ctx.slots.renderSlot('root', { mode })}</HostPortalProvider>}
+      : <HostPortalProvider value={portal}>{client.ctx.slots.renderSlot('root', { mode, reference })}</HostPortalProvider>}
   </div>;
 }
-export function DshConversationHost(props) { return <Host {...props} mode="chat" />; }
+export function DshConversationHost(props) {
+  if (typeof props.sessionId !== 'string' || props.sessionId.length === 0) throw new Error('会话页面必须指定 Session ID');
+  return <Host {...props} mode="chat" />;
+}
 export function DshSettingsHost(props) { return <Host {...props} sessionId={null} />; }
+
+export async function disposeDshClients() {
+  const entries = [...clients.values()];
+  clients.clear();
+  await Promise.all(entries.map(entry => entry.promise.then(client => client.dispose(), () => {})));
+}
+window.addEventListener('mind:dsh-workspace-close', () => {
+  void disposeDshClients().catch(error => console.error('DSH 客户端关闭失败', error));
+});

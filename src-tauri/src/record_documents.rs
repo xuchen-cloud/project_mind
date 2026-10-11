@@ -506,6 +506,25 @@ fn safe_record_link(value: Option<&Value>) -> bool {
         )
 }
 
+/// Structural validation shared by canonical attributes and native edge CAS.
+pub(crate) fn validate_file_source_ref(value: &Value) -> AgentResult<crate::agent::models::SourceRef> {
+    use crate::agent::models::{ObjectKind, SourceLocator, SourceRef};
+    let source: SourceRef = serde_json::from_value(value.clone()).map_err(|_| invalid("Invalid fixed File SourceRef"))?;
+    source.object.key().map_err(|_| invalid("Invalid fixed File identity"))?;
+    let id = source.object.id.parse::<u64>().ok().filter(|id| *id > 0 && *id <= 9_007_199_254_740_991);
+    if source.object.kind != ObjectKind::File || !matches!(source.object.scope, Scope::Project { .. })
+        || id.is_none() || id.unwrap().to_string() != source.object.id
+        || !crate::db::file_versions::valid_hash(&source.revision) || source.file_version.is_none_or(|version| version == 0)
+        || source.record_version.is_some() || source.block_id.is_some()
+        || source.title.chars().count() > 1000 || source.excerpt.chars().count() > 2000
+        || source.locator.as_ref().is_some_and(|locator| !matches!(locator,
+            SourceLocator::Line { start, end } | SourceLocator::Paragraph { start, end } if *start > 0 && end >= start)
+            && !matches!(locator, SourceLocator::Page { page, start, end } if *page > 0 && end > start)) {
+        return Err(invalid("Invalid fixed File SourceRef"));
+    }
+    Ok(source)
+}
+
 fn validate_attrs(value: Option<&Value>, ty: &EditorType) -> AgentResult<()> {
     let Some(value) = value else {
         return Ok(());
@@ -514,6 +533,10 @@ fn validate_attrs(value: Option<&Value>, ty: &EditorType) -> AgentResult<()> {
         .as_object()
         .ok_or_else(|| invalid("Invalid node attributes"))?;
     for (name, value) in attrs {
+        if ty.name == "internalReference" && name == "sourceRef" && !value.is_null() {
+            validate_file_source_ref(value)?;
+            continue;
+        }
         let default = ty
             .attrs
             .get(name)
@@ -791,6 +814,15 @@ fn validate_node(
         )
     {
         return Err(invalid("Invalid internal reference kind"));
+    }
+    if name == "internalReference" {
+        if let Some(value) = node.pointer("/attrs/sourceRef").filter(|value| !value.is_null()) {
+            let source = validate_file_source_ref(value)?;
+            if node.pointer("/attrs/refKind").and_then(Value::as_str) != Some("document")
+                || node.pointer("/attrs/refId").and_then(positive_object_id) != source.object.id.parse::<u64>().ok() {
+                return Err(invalid("Fixed File reference identity differs"));
+            }
+        }
     }
     if name == "text" {
         if !node

@@ -11,7 +11,11 @@ export function sameAgentScope(a: AgentScope, b: AgentScope) {
 export function canDiscussObject(panelScope: AgentScope, objectScope: AgentScope) {
   return panelScope.kind === "workspace" || sameAgentScope(panelScope, objectScope);
 }
+export function dshProjectRunKey(workspaceRoot: string, projectId: number) { return JSON.stringify([workspaceRoot, projectId]); }
 interface AgentPanelState {
+  workspaceRoot: string | null;
+  runsByProject: Record<string, AgentPanelBinding>;
+  bindWorkspace: (workspaceRoot: string | null) => void;
   binding: AgentPanelBinding | null;
   open: boolean;
   expanded: boolean;
@@ -26,13 +30,23 @@ interface AgentPanelState {
   clearWorkspace: () => void;
 }
 
-// Window-local UI state. Closing preserves the Host and its run subscription.
+// Window-local UI seats and independently subscribed Project runtime facts.
 export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
+  workspaceRoot: null, runsByProject: {},
   binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null,
+  bindWorkspace: workspaceRoot => {
+    if (get().workspaceRoot === workspaceRoot) return;
+    set({ workspaceRoot, runsByProject: {}, runningBinding: null, binding: null, open: false, discussionTarget: null });
+  },
   setRunBusy: (workspaceRoot, projectId, busy) => {
-    const binding = get().binding;
-    if (binding?.workspaceRoot !== workspaceRoot || binding.scope.kind !== "project" || binding.scope.projectId !== projectId) return;
-    set({ runningBinding: busy ? binding : null });
+    if (get().workspaceRoot !== workspaceRoot) return;
+    set(state => {
+      const runsByProject = { ...state.runsByProject };
+      const key = dshProjectRunKey(workspaceRoot, projectId);
+      if (busy) runsByProject[key] = { workspaceRoot, scope: { kind: "project", projectId } };
+      else delete runsByProject[key];
+      return { runsByProject, runningBinding: Object.values(runsByProject)[0] ?? null };
+    });
   },
   setDiscussionTarget: (binding, object, label) => {
     const panel = get().binding;
@@ -44,7 +58,7 @@ export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
   clearDiscussionTarget: () => set({ discussionTarget: null }),
   openPanel: (workspaceRoot, scope) => {
     const running = get().runningBinding;
-    if (running && (running.workspaceRoot !== workspaceRoot || !sameAgentScope(running.scope, scope))) {
+    if (running && (running.workspaceRoot !== workspaceRoot)) {
       showDshBusyFeedback();
       return;
     }
@@ -52,11 +66,11 @@ export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
     const previous = state.binding;
     const same = previous?.workspaceRoot === workspaceRoot && previous.scope.kind === scope.kind
       && (scope.kind === "workspace" || (previous.scope.kind === "project" && previous.scope.projectId === scope.projectId));
-    return { binding: same ? previous : { workspaceRoot, scope }, open: true, expanded: same ? state.expanded : true,
+    return { workspaceRoot, binding: same ? previous : { workspaceRoot, scope }, open: true, expanded: same ? state.expanded : true,
       discussionTarget: same ? state.discussionTarget : null };
     });
   },
   closePanel: () => set({ open: false }),
   toggleExpanded: () => set(state => ({ expanded: !state.expanded })),
-  clearWorkspace: () => set({ binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null }),
+  clearWorkspace: () => set({ workspaceRoot: null, runsByProject: {}, binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null }),
 }));

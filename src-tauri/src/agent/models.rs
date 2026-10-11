@@ -70,6 +70,11 @@ pub struct ObjectRef {
     rename_all_fields = "camelCase"
 )]
 pub enum SourceLocator {
+    /// Inclusive, one-based lines of the immutable UTF-8 File snapshot.
+    Line {
+        start: u32,
+        end: u32,
+    },
     Paragraph {
         start: u32,
         end: u32,

@@ -1,0 +1,1 @@
+export function prepareStaticHtml(data:Uint8Array,readRelated:((relativePath:string,signal:AbortSignal)=>Promise<{mime:string;base64:string}>)|undefined,signal:AbortSignal):Promise<{data:Uint8Array;warnings:string[]}>;

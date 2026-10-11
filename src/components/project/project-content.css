@@ -1,0 +1,37 @@
+.project-content { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--color-bg); }
+.home-window-shell .project-content { padding-top: var(--home-toolbar-height, 44px); }
+.project-content__toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding: 0 10px; border-bottom: 1px solid var(--color-border); font-size: 12px; color: var(--color-text-muted); }
+.project-content__toolbar > div { display: flex; gap: 8px; }
+.project-content__toolbar button { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 4px; }
+.project-content__toolbar button:hover { background: var(--color-bg-subtle); color: var(--color-text); }
+.project-content__grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 36px minmax(0, 1fr); flex: 1; min-height: 0; min-width: 0; }
+.project-content[data-split]:not([data-narrow]) .project-content__grid { grid-template-columns: minmax(0, var(--content-ratio)) minmax(0, 1fr); }
+.project-content__pane-tabs { min-width: 0; border-bottom: 1px solid var(--color-border); background: var(--color-bg-subtle); }
+.project-content__pane-tabs[data-focused] { box-shadow: inset 0 -1px var(--color-accent); }
+.project-content__tab-frame { height: 100%; position: relative; }
+.project-content__tab-frame::before, .project-content__tab-frame::after { content: ""; position: absolute; top: 0; bottom: 0; width: min(40px, 35%); z-index: 2; pointer-events: none; }
+.project-content__tab-frame::before { left: 0; opacity: var(--tab-fade-left); background: linear-gradient(to right, var(--color-bg-subtle), transparent); }
+.project-content__tab-frame::after { right: 0; opacity: var(--tab-fade-right); background: linear-gradient(to left, var(--color-bg-subtle), transparent); }
+.project-content__tab-scroll { height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.project-content__tabs { display: flex; width: max-content; min-width: 100%; height: 100%; }
+.project-content__tab { position: relative; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 10px; border-right: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
+.project-content__tab[data-selected] { background: var(--color-bg); color: var(--color-text); }
+.project-content__tab > button { display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 3px; }
+.project-content__tab > button:hover { background: var(--color-bg-subtle); }
+.project-content__tab > [role=tab] { gap: 6px; max-width: 200px; }
+.project-content__tab [role=tab] > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-content__tab small { font-size: 10px; white-space: nowrap; color: var(--color-text-muted); }
+.project-content__tab-menu { position: fixed; z-index: 90; min-width: 176px; }
+.project-content__page { min-height: 0; min-width: 0; overflow: hidden; }
+.project-content__file-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.project-content__file-page > .project-file-content { flex: 1; min-height: 0; }
+.project-content__page[hidden], .project-content__empty[hidden] { display: none; }
+.project-content__empty { display: flex; flex-direction: column; justify-content: center; padding: 32px; color: var(--color-text-muted); font-size: 13px; }
+.project-content__empty p { margin-bottom: 8px; font-weight: 500; color: var(--color-text); }
+.project-content__empty span { max-width: 32ch; line-height: 1.7; }
+.project-content__divider { position: absolute; left: var(--content-ratio); top: 0; bottom: 0; width: 7px; transform: translateX(-50%); cursor: col-resize; z-index: 4; touch-action: none; }
+.project-content__divider::after { content: ""; position: absolute; left: 3px; width: 1px; top: 0; bottom: 0; background: var(--color-border); transition: background-color var(--duration-fast) var(--ease-soft); }
+.project-content__divider:hover::after, .project-content__divider:focus-visible::after { background: var(--color-accent); }
+.project-content__error { display: flex; gap: 12px; align-items: center; padding: 8px 12px; font-size: 12px; color: var(--color-text); background: var(--color-bg-subtle); border-bottom: 1px solid var(--color-border); }
+.project-content__error button { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { .project-content__divider::after { transition: none; } }

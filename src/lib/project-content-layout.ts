@@ -1,8 +1,12 @@
 import { parseSourceNavigation } from "./source-navigation";
+import type { AgentSourceRef } from "./agent-types";
 
 export type ContentScope = { workspaceId: string; projectId: number };
 export type ContentObject = { kind: "record" | "file" | "session"; id: number | string; title: string };
-export type ContentView = { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceQuery?: string };
+export type ContentView = { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceQuery?: string;
+  sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
+  sourceMode?: boolean;
+  fileViews?: Record<string, { scrollTop?: number; zoom?: number }> };
 export type ContentTab = { id: string; object: ContentObject; view: ContentView };
 export type ContentPane = { id: "left" | "right"; tabIds: string[]; selectedTabId: string | null };
 export type ProjectContentLayout = { tabs: ContentTab[]; panes: ContentPane[]; focusedPaneId: "left" | "right"; ratio: number };
@@ -35,14 +39,43 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export function sanitizeContentView(value: unknown): ContentView | null {
   if (!isObject(value)) return null;
   const view: ContentView = {};
+  if (Object.prototype.hasOwnProperty.call(value, "sourceMode")) {
+    if (value.sourceMode !== undefined && typeof value.sourceMode !== "boolean") return null;
+    view.sourceMode = value.sourceMode as boolean | undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "sourceLocator")) {
+    const locator = value.sourceLocator;
+    if (locator === undefined) view.sourceLocator = undefined;
+    else {
+      if (!isObject(locator) || !["line", "paragraph", "page"].includes(String(locator.kind))) return null;
+      const { start, end, page } = locator;
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || Number(start) < (locator.kind === "page" ? 0 : 1)
+        || Number(end) < Number(start) || Number(end) > 4294967295) return null;
+      if (locator.kind === "page") {
+        if (!Number.isSafeInteger(page) || Number(page) <= 0 || Number(page) > 4294967295 || Number(end) === Number(start)) return null;
+        view.sourceLocator = { kind: "page", page: Number(page), start: Number(start), end: Number(end) };
+      } else view.sourceLocator = { kind: locator.kind as "line" | "paragraph", start: Number(start), end: Number(end) };
+    }
+  }
   for (const key of ["versionNumber", "line", "page", "scrollTop", "zoom"] as const) {
     if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
     const number = value[key];
     if (number === undefined) { view[key] = undefined; continue; }
     if (typeof number !== "number" || !Number.isFinite(number)) return null;
-    if (key === "scrollTop" ? number < 0 : number <= 0) return null;
+    if (key === "scrollTop" || key === "zoom" ? number < 0 : number <= 0) return null;
     if (key !== "scrollTop" && key !== "zoom" && !Number.isSafeInteger(number)) return null;
     view[key] = number;
+  }
+  if (value.fileViews !== undefined) {
+    if (!isObject(value.fileViews)) return null;
+    const versions: NonNullable<ContentView["fileViews"]> = {};
+    for (const [key, candidate] of Object.entries(value.fileViews)) {
+      if (!/^[1-9]\d*$/u.test(key) || !Number.isSafeInteger(Number(key)) || !isObject(candidate)) return null;
+      const position = sanitizeContentView({ scrollTop: candidate.scrollTop, zoom: candidate.zoom });
+      if (!position) return null;
+      versions[key] = { scrollTop: position.scrollTop, zoom: position.zoom };
+    }
+    view.fileViews = versions;
   }
   if (Object.prototype.hasOwnProperty.call(value, "sourceQuery")) {
     const query = value.sourceQuery;
@@ -79,6 +112,7 @@ function sanitizeLayout(value: unknown): ProjectContentLayout | null {
     const { kind, id, title } = tab.object;
     if ((kind !== "record" && kind !== "file" && kind !== "session") || typeof title !== "string"
       || (typeof id !== "string" && typeof id !== "number")) return null;
+    if (kind === "session" ? typeof id !== "string" : typeof id !== "number") return null;
     if (typeof id === "string" ? !id : !Number.isSafeInteger(id) || id <= 0) return null;
     const objectKey = JSON.stringify([kind, id]);
     const view = sanitizeContentView(tab.view);

@@ -15,21 +15,21 @@ describe("DSH native command serialization", () => {
     expect(native.command.mock.calls).toEqual(Array(3).fill(["dsh_assistant_start", { projectId: 1 }]));
   });
 
-  it("serializes project 1 → 2 → 1 rather than reusing the superseded first startup", async () => {
+  it("shares Project 1 readiness while Project 2 starts independently", async () => {
     const { dshAssistantApi } = await import("./dshAssistantApi");
     let release!: () => void;
     native.command.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
     const first = dshAssistantApi.start("project1", 1);
     const second = dshAssistantApi.start("project2", 2);
     const back = dshAssistantApi.start("project1", 1);
-    expect(back).not.toBe(first);
+    expect(back).toBe(first);
     await Promise.resolve(); release(); await Promise.all([first, second, back]);
     expect(native.command.mock.calls).toEqual([
-      ["dsh_assistant_start", { projectId: 1 }], ["dsh_assistant_start", { projectId: 2 }], ["dsh_assistant_start", { projectId: 1 }],
+      ["dsh_assistant_start", { projectId: 1 }], ["dsh_assistant_start", { projectId: 2 }],
     ]);
   });
 
-  it("serializes session selection before a following project start and preserves command contracts", async () => {
+  it("serializes each Project independently and preserves command contracts", async () => {
     const { dshAssistantApi } = await import("./dshAssistantApi");
     native.command.mockResolvedValueOnce([{ id: "chat", title: "会话" }]);
     await expect(dshAssistantApi.sessions(1)).resolves.toEqual([{ id: "chat", title: "会话" }]);
@@ -37,7 +37,7 @@ describe("DSH native command serialization", () => {
     native.command.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
     const select = dshAssistantApi.selectSession("chat", 1);
     const start = dshAssistantApi.start("project2", 2);
-    await Promise.resolve(); expect(native.command).toHaveBeenCalledTimes(2);
+    await Promise.resolve(); expect(native.command).toHaveBeenCalledTimes(3);
     release(); await Promise.all([select, start]); await dshAssistantApi.selectSession(null, 2);
     expect(native.command.mock.calls).toEqual([
       ["dsh_assistant_sessions", { projectId: 1 }], ["dsh_assistant_select_session", { projectId: 1, sessionId: "chat" }],
@@ -56,4 +56,16 @@ describe("DSH native command serialization", () => {
       ["dsh_assistant_delete_session", { projectId: 7, sessionId: "foreign" }],
     ]);
   });
+});
+
+it('does not hold Project B startup behind Project A pending I/O', async () => {
+  const { dshAssistantApi } = await import('./dshAssistantApi');
+  let release!: () => void;
+  native.command.mockImplementation((_, args) => args.projectId === 1
+    ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve());
+  const a = dshAssistantApi.start('a', 1);
+  const b = dshAssistantApi.start('b', 2);
+  await b;
+  expect(native.command).toHaveBeenCalledWith('dsh_assistant_start', { projectId: 2 });
+  release(); await a;
 });

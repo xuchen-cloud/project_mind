@@ -88,7 +88,7 @@ export interface ProjectSidebarDocumentItem {
   isStarred: boolean;
   currentVersionNumber: number;
   versionCount: number;
-  health: "normal" | "missing";
+  health: DocumentRecord["health"];
   tags: Array<{ id: number; label: string; colorKey: TagColorKey }>;
 }
 
@@ -520,6 +520,7 @@ export function ProjectSidebar({
   };
 
   const openDocument = (document: ProjectSidebarDocumentItem) => {
+    if (openPreview(document)) return;
     if (document.health === "missing") {
       pushToast({
         tone: "error",
@@ -529,7 +530,6 @@ export function ProjectSidebar({
       return;
     }
 
-    if (openPreview(document)) return;
     void runDesktopAction(desktopApi.openFile(document.managedPath), "打开文件失败", document.managedPath);
   };
 
@@ -1085,9 +1085,9 @@ export function ProjectSidebar({
                                 ) : null}
                               </>
                             )}
-                            {document.health === "missing" ? (
+                            {document.health !== "normal" ? (
                               <StatusBadge tone="danger" className="shrink-0 px-1 py-0 text-[10px] tracking-[0.1em]">
-                                失效
+                                {document.health === "missing" ? "缺失" : document.health === "changed" ? "待核对" : "不可用"}
                               </StatusBadge>
                             ) : null}
                           </span>

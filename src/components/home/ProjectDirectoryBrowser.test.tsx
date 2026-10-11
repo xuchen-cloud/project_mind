@@ -1,19 +1,33 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useProjectFileNavigation } from "../../lib/project-file-navigation";
+import { projectFileApi } from "../../services/projectFileApi";
+import { recordDocumentApi } from "../../services/recordDocumentApi";
+import { queryKeys } from "../../lib/queryKeys";
 import { HomeProjectFiles } from "./HomeProjectFiles";
-import { projectDirectoryApi, type ProjectDirectoryEntry, type ProjectDirectoryPreview } from "../../services/projectDirectoryApi";
+import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { list: vi.fn(), preview: vi.fn(), open: vi.fn() } }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { scan: vi.fn() } }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
 vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: () => <div>已登记文档</div> }));
 const folder: ProjectDirectoryEntry = { name: "generated", relativePath: "generated", kind: "directory", bytes: 0 };
 const file: ProjectDirectoryEntry = { name: "result.txt", relativePath: "generated/result.txt", kind: "file", bytes: 20 };
 const project = { id: 7, name: "Project", rootPath: "/project" };
-function panel() { return render(<HomeProjectFiles project={project} documents={[]} />); }
+function panel() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/workspace" } });
+  const wrap = (id: number) => <QueryClientProvider client={client}><HomeProjectFiles project={{ ...project, id }} documents={[]} /></QueryClientProvider>;
+  return { ...render(wrap(7)), client, wrap };
+}
 function directoryTab() { fireEvent.click(screen.getByRole("tab", { name: "项目目录" })); }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 
 beforeEach(() => {
   vi.resetAllMocks();
+  useProjectFileNavigation.setState({ request: null, revisions: {} });
+  vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue({ workspaceId: "w", generation: "g" });
   vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, relative) => relative === "generated" ? [file] : [folder]);
   vi.mocked(projectDirectoryApi.preview).mockResolvedValue({ kind: "text", text: "generated content", bytes: 20 });
   vi.mocked(projectDirectoryApi.open).mockResolvedValue(undefined);
@@ -38,49 +52,33 @@ it("keeps managed Files available and navigates the physical tree, breadcrumbs a
   expect(screen.getByText("已登记文档")).toBeVisible();
 });
 
-it("previews text safely in the main dialog and opens unsupported files through the guarded command", async () => {
+it("routes physical files to the unified identity preview without reading an independent dialog", async () => {
   vi.mocked(projectDirectoryApi.list).mockResolvedValue([file]);
-  vi.mocked(projectDirectoryApi.preview).mockResolvedValue({ kind: "text", text: "<svg><script>unsafe()</script></svg>", bytes: 40 });
   panel(); directoryTab();
   fireEvent.click(await screen.findByRole("button", { name: /result.txt/ }));
-  const dialog = await screen.findByRole("dialog");
-  expect(await within(dialog).findByText("<svg><script>unsafe()</script></svg>")).toBeVisible();
-  expect(dialog.querySelector("script")).toBeNull();
-  expect(dialog.querySelector("img")).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "关闭对话框" }));
-  vi.mocked(projectDirectoryApi.preview).mockResolvedValue({ kind: "open", reason: "tooLarge", bytes: 3_000_000 });
-  fireEvent.click(screen.getByRole("button", { name: /result.txt/ }));
-  expect(await screen.findByText("文件超过预览大小限制，请在本地应用打开。")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "在本地应用打开" }));
-  await waitFor(() => expect(projectDirectoryApi.open).toHaveBeenCalledWith(7, "generated/result.txt"));
+  expect(useProjectFileNavigation.getState().request).toMatchObject({ projectId: 7, path: "generated/result.txt" });
+  expect(projectDirectoryApi.preview).not.toHaveBeenCalled();
+  expect(projectDirectoryApi.open).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-it("shows real filesystem errors and uses raster base64 for image previews", async () => {
+it("shows real filesystem errors and retries directory listing", async () => {
   vi.mocked(projectDirectoryApi.list).mockRejectedValueOnce(new Error("项目根目录不存在"));
   panel(); directoryTab();
   expect(await screen.findByRole("alert")).toHaveTextContent("项目根目录不存在");
   vi.mocked(projectDirectoryApi.list).mockResolvedValue([file]);
-  vi.mocked(projectDirectoryApi.preview).mockResolvedValue({ kind: "image", mime: "image/png", base64: "fixture", bytes: 6 });
   fireEvent.click(screen.getByRole("button", { name: "刷新项目目录" }));
-  fireEvent.click(await screen.findByRole("button", { name: /result.txt/ }));
-  expect(await screen.findByRole("img", { name: "result.txt" })).toHaveAttribute("src", "data:image/png;base64,fixture");
-  vi.mocked(projectDirectoryApi.open).mockRejectedValue(new Error("文件已移动"));
-  fireEvent.click(screen.getByRole("button", { name: "在本地应用打开" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("文件已移动");
+  expect(await screen.findByRole("button", { name: /result.txt/ })).toBeVisible();
 });
 
-it("remounts the directory browser on project changes and ignores the old preview response", async () => {
-  const stale = deferred<ProjectDirectoryPreview>();
-  vi.mocked(projectDirectoryApi.preview).mockReturnValue(stale.promise);
+it("remounts on project changes and ignores an old directory response", async () => {
+  const stale = deferred<ProjectDirectoryEntry[]>();
+  vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(stale.promise);
   const view = panel(); directoryTab();
-  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
-  fireEvent.click(await screen.findByRole("button", { name: /result.txt/ }));
-  await screen.findByRole("dialog");
-  view.rerender(<HomeProjectFiles project={{ ...project, id: 8 }} documents={[]} />);
+  view.rerender(view.wrap(8));
   await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenLastCalledWith(8, ""));
-  expect(screen.queryByRole("dialog")).toBeNull();
-  await act(async () => { stale.resolve({ kind: "text", text: "old project secret", bytes: 20 }); });
-  expect(screen.queryByText("old project secret")).toBeNull();
+  await act(async () => stale.resolve([file]));
+  expect(screen.queryByRole("button", { name: /result.txt/ })).toBeNull();
   expect(screen.getByRole("button", { name: "项目根目录" })).toHaveAttribute("aria-current", "page");
 });
 
@@ -92,4 +90,46 @@ it("ignores a pending directory response after switching back to managed Files",
   await act(async () => { stale.resolve([file]); });
   expect(screen.queryByRole("button", { name: /result.txt/ })).toBeNull();
   expect(screen.getByText("已登记文档")).toBeVisible();
+});
+
+const registered = { object: { workspaceId: "w", scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "4" }, relativePath: "result.txt", name: "result.txt", versionNumber: 1, contentHash: "sha256:known", state: "ready" as const, reason: null };
+it("scans bounded pages and displays failed and excluded rows without discarding successful Files", async () => {
+  vi.mocked(projectFileApi.scan).mockResolvedValueOnce({ files: [registered], failures: [{ relativePath: "bad", reason: "unreadable" }], excluded: [{ relativePath: "link", reason: "symlink" }], nextCursor: "next", complete: false, cancelled: false })
+    .mockResolvedValueOnce({ files: [], failures: [], excluded: [], nextCursor: null, complete: true, cancelled: false });
+  const view = panel(); directoryTab();
+  const invalidated = vi.spyOn(view.client, "invalidateQueries");
+  fireEvent.click(screen.getByRole("button", { name: "纳管整个目录" }));
+  expect(await screen.findByText(/纳管完成：1 个 File/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText(/纳管完成：1 个 File/));
+  expect(screen.getByText("bad：unreadable")).toBeVisible();
+  expect(screen.getByText("link：符号链接")).toBeVisible();
+  expect(projectFileApi.scan).toHaveBeenNthCalledWith(2, { workspaceId: "w", generation: "g" }, 7, "next");
+  expect(invalidated).toHaveBeenCalledWith({ queryKey: queryKeys.projectPage(7) });
+});
+it("cancel stops further pages and preserves the completed registration page", async () => {
+  const pending = deferred<Awaited<ReturnType<typeof projectFileApi.scan>>>();
+  vi.mocked(projectFileApi.scan).mockReturnValueOnce(pending.promise);
+  panel(); directoryTab(); fireEvent.click(screen.getByRole("button", { name: "纳管整个目录" }));
+  await waitFor(() => expect(projectFileApi.scan).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  await act(async () => pending.resolve({ files: [registered], failures: [], excluded: [], nextCursor: "next", complete: false, cancelled: false }));
+  expect(screen.getByText(/已取消：1 个 File/)).toBeInTheDocument();
+  expect(projectFileApi.scan).toHaveBeenCalledOnce();
+});
+
+it("pauses a retained failing directory cursor and explicitly retries after repair", async () => {
+  const blocked = { files: [registered], failures: [{ relativePath: "blocked", reason: "Permission denied" }], excluded: [], nextCursor: "blocked-cursor", complete: false, cancelled: false };
+  vi.mocked(projectFileApi.scan).mockResolvedValueOnce(blocked)
+    .mockResolvedValueOnce({ ...blocked, files: [] })
+    .mockResolvedValueOnce({ files: [registered], failures: [], excluded: [], nextCursor: null, complete: true, cancelled: false });
+  panel(); directoryTab();
+  fireEvent.click(screen.getByRole("button", { name: "纳管整个目录" }));
+  const summary = await screen.findByText(/纳管未完成：1 个 File，1 项失败/);
+  expect(projectFileApi.scan).toHaveBeenCalledTimes(2);
+  fireEvent.click(summary);
+  expect(screen.getByText("blocked：Permission denied")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "取消" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "纳管整个目录" }));
+  expect(await screen.findByText(/纳管完成：1 个 File，0 项失败/)).toBeInTheDocument();
+  expect(projectFileApi.scan).toHaveBeenNthCalledWith(3, { workspaceId: "w", generation: "g" }, 7, null);
 });

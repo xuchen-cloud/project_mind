@@ -17,7 +17,7 @@ import { formatDateTime } from "../../lib/formatters";
 import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, TagColorKey, WorkspaceStatusSnapshot } from "../../lib/types";
 import { tagColorValue } from "../../lib/constants";
 import { queryKeys } from "../../lib/queryKeys";
-import { isHtmlPreviewFile, openFilePreview } from "../../state/file-preview-store";
+import { openFilePreview } from "../../state/file-preview-store";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { projectMindApi } from "../../services/projectMindApi";
 import { PopoverPanel, StatusBadge } from "../../ui/components";
@@ -25,12 +25,11 @@ import { cn } from "../../ui/lib/cn";
 
 const FileVersionHistory = lazy(() => import("./FileVersionHistory"));
 
-/** Returns true for handled HTML, including a visible missing-workspace error. */
+/** Every managed File enters the same Project layout, including unsupported formats. */
 export function useDocumentPreview() {
   const queryClient = useQueryClient();
   const pushToast = useFeedbackStore(state => state.pushToast);
   return (document: Pick<DocumentRecord, "id" | "projectId" | "name" | "baseName" | "mimeType">, versionNumber?: number) => {
-    if (!isHtmlPreviewFile(document)) return false;
     const workspaceRoot = queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
     if (!workspaceRoot) {
       pushToast({ tone: "error", title: "无法打开文件", detail: "工作区信息尚未就绪，请稍后重试。" });
@@ -44,7 +43,7 @@ export function useDocumentPreview() {
 
 // Helper functions
 export function canRenameDocument(document: DocumentRecord) {
-  return document.health !== "missing";
+  return document.health === "normal";
 }
 
 export function stopPropagation(event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>) {

@@ -9,7 +9,11 @@
       "types": "./adapters/index.d.ts",
       "default": "./adapters/index.jsx"
     },
-    "./styles/scoped.css": "./styles/scoped.css"
+    "./styles/scoped.css": "./styles/scoped.css",
+    "./preview": {
+      "types": "./preview/index.d.ts",
+      "default": "./preview/index.jsx"
+    }
   },
   "peerDependencies": {
     "react": "^19.2.0",

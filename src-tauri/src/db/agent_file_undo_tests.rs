@@ -69,8 +69,9 @@ fn open_db(f: &Fixture) -> Database {
 }
 fn fixture() -> Fixture {
     let root = tempfile::tempdir().unwrap();
-    let (metadata, paths) = create_workspace(root.path(), "password").unwrap();
-    let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+    let canonical_root = root.path().canonicalize().unwrap();
+    let (metadata, paths) = create_workspace(&canonical_root, "password").unwrap();
+    let mut db = Database::open(&paths.db_path, &canonical_root, None).unwrap();
     db.bind_native_workspace(&metadata.workspace_id).unwrap();
     let project = db
         .project_create(ProjectCreateInput {

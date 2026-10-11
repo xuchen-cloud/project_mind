@@ -320,6 +320,23 @@
       "paths": [
         "upstream/client/ui-settings-plugin-inventory/src/client/index.ts"
       ]
+    },
+    {
+      "reason": "Project File renderer subset: filenames replace Session address parsing; Markdown accepts only host-resolved data image resources, without Session/path preview access; PDF assets imported from build-owned exact PDF.js inventory. Original body rendering and lifecycle retained. Explicit PDF out-of-version page location notice. Static HTML uses unchanged upstream sanitizer/CSP and BasicHtmlFrame with interactive preference permanently false.",
+      "paths": [
+        "upstream/client/ui-sidebar-documentpreview/src/client/code/CodeBody.tsx",
+        "upstream/client/ui-sidebar-documentpreview/src/client/markdown/MarkdownBody.tsx",
+        "upstream/client/ui-sidebar-documentpreview/src/client/image/ImageBody.tsx",
+        "upstream/client/ui-sidebar-documentpreview/src/client/pdf/locales.ts",
+        "upstream/client/ui-sidebar-documentpreview/src/client/pdf/assets.ts",
+        "upstream/client/ui-sidebar-documentpreview/src/client/pdf/pdf.tsx"
+      ]
+    },
+    {
+      "reason": "Pinned DSH Worker ownership tests: only relative imports adapted to the preview source subset.",
+      "paths": [
+        "preview/pdf-runtime.test.ts"
+      ]
     }
   ],
   "derivedAssets": [
@@ -337,6 +354,16 @@
         "upstream/client/ui-theme/src/styles/shiki.css"
       ],
       "reason": "Only selector scoping to .dsh-ui-host; declarations unchanged. Host and portal surface mirror data-ds-dark-theme; original HTML platform/input-modality attributes remain ancestors."
+    },
+    {
+      "path": "preview/pdf-assets.json",
+      "generator": "preview/generate-pdf-assets.mjs",
+      "sources": [
+        "pdfjs-dist@6.2.108/cmaps",
+        "pdfjs-dist@6.2.108/standard_fonts",
+        "pdfjs-dist@6.2.108/wasm"
+      ],
+      "reason": "Version-pinned binary assets embedded in the preview bundle, without external fetch; full hashes and notices in preview/pdf-assets-provenance.json and preview/licenses."
     }
   ],
   "dependencyPolicy": "Exact DSH rc.2 and third-party dependencies locked in root package-lock.json. Generated /remote contributions use plain npm ESM; browser /client entries use source aliases. React and React DOM deduplicated to root React 19.",
@@ -4405,6 +4432,246 @@
       "path": "upstream/typert/registry/src/types.ts",
       "sha256": "462f577ca91f8b4807107b89ec3d58935f10053634e4dfe890dce762d8349c41",
       "originalSha256": "462f577ca91f8b4807107b89ec3d58935f10053634e4dfe890dce762d8349c41"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/package.json",
+      "sha256": "4ea2db009dfd41cb3830a073849ded96d2a6636b334a50d78d6127f68836ebae",
+      "originalSha256": "4ea2db009dfd41cb3830a073849ded96d2a6636b334a50d78d6127f68836ebae"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/TextPreview.module.css",
+      "sha256": "807a437e79912284c87b36c4f2556d9c155a966f04b4e034f951e705cf1029ee",
+      "originalSha256": "807a437e79912284c87b36c4f2556d9c155a966f04b4e034f951e705cf1029ee"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/LoadingIndicator.tsx",
+      "sha256": "93ba0482fd2333d67f3938d552d795027ce4f0c737f24f2b6cf3550854eda61e",
+      "originalSha256": "93ba0482fd2333d67f3938d552d795027ce4f0c737f24f2b6cf3550854eda61e"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/LoadingIndicator.module.css",
+      "sha256": "636ca4bb3f68ccdeabd4667d3d6fcaeaf0c8e318e534b6afba0e922310ba38bd",
+      "originalSha256": "636ca4bb3f68ccdeabd4667d3d6fcaeaf0c8e318e534b6afba0e922310ba38bd"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/document/contract.ts",
+      "sha256": "4af0752858bede4d19c7e45cb9bb446196238d0cecf808a606e2269fbcfa75fe",
+      "originalSha256": "4af0752858bede4d19c7e45cb9bb446196238d0cecf808a606e2269fbcfa75fe"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/text/TextBody.tsx",
+      "sha256": "b693bcd6c6a27dc92c3a38c63054f666306f0007851190e3b595756518ffbc86",
+      "originalSha256": "b693bcd6c6a27dc92c3a38c63054f666306f0007851190e3b595756518ffbc86"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/text/lines.ts",
+      "sha256": "17685969b23cb5bcc7a42233cf061be5180bef43e7f82c838a6897d9a9340109",
+      "originalSha256": "17685969b23cb5bcc7a42233cf061be5180bef43e7f82c838a6897d9a9340109"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/code/CodeBody.tsx",
+      "sha256": "c2301a10f8b49629e77b2f955523f7df306efd08be6407706921cd60f63cb572",
+      "originalSha256": "189768299c97227af982f21aec4f21f72e00b37f170f7ad41114377512c52d77"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/code/CodeBody.module.css",
+      "sha256": "009e8dcf43a3aa9add6788b1774624a0f717f657d1ae0c8a86170219eea20fc8",
+      "originalSha256": "009e8dcf43a3aa9add6788b1774624a0f717f657d1ae0c8a86170219eea20fc8"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/code/locales.ts",
+      "sha256": "0a1b8d422527804117c8f2ecbf098e5b7ff7429ca97108479f393c2d6423188e",
+      "originalSha256": "0a1b8d422527804117c8f2ecbf098e5b7ff7429ca97108479f393c2d6423188e"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/markdown/MarkdownBody.tsx",
+      "sha256": "caa44f73b879011ba3f6570d3888d3a842da4cf03f19d293fc6fe532cb6b482e",
+      "originalSha256": "51bff640299be091cebbbef6bd26ba4bc9aab4dd1f965f0ba1b12f1e26649654"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/markdown/MarkdownBody.module.css",
+      "sha256": "a7e17eb759b96e3b81ce38fc2da2ad9654a26f75da6e2fb07110fe8bf217a415",
+      "originalSha256": "a7e17eb759b96e3b81ce38fc2da2ad9654a26f75da6e2fb07110fe8bf217a415"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/markdown/path-images.ts",
+      "sha256": "8244f5a09e97bcb66128da677c90486c501e096361c5e4d82d0eb7f3c034a646",
+      "originalSha256": "8244f5a09e97bcb66128da677c90486c501e096361c5e4d82d0eb7f3c034a646"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/markdown/locales.ts",
+      "sha256": "ef908eca03863203f18635d56f76a77ce130051060b6d3b4a1640007a2679903",
+      "originalSha256": "ef908eca03863203f18635d56f76a77ce130051060b6d3b4a1640007a2679903"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/image/ImageBody.tsx",
+      "sha256": "266f224f0546df131b11e98323785f06276a977d749686405a67e575e3d9dbda",
+      "originalSha256": "2d478bc45d304a1198cc275a587027da3096af87813b65cdab00dd02a00031f3"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/image/ImageBody.module.css",
+      "sha256": "65b56f071490860ce7e8f12fd26d7d0e302525add8a7b86e83e8c4505d45c5bb",
+      "originalSha256": "65b56f071490860ce7e8f12fd26d7d0e302525add8a7b86e83e8c4505d45c5bb"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/image/locales.ts",
+      "sha256": "a5b74c49083547fa4a6c89cfa8e424e1f109403f03cd5eac23fa71e9e4afb606",
+      "originalSha256": "a5b74c49083547fa4a6c89cfa8e424e1f109403f03cd5eac23fa71e9e4afb606"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/locales.ts",
+      "sha256": "05018487040c4bbca548fc89b2e09f1d37e262640707c81a6a8b8d34b97b3eb0",
+      "originalSha256": "05018487040c4bbca548fc89b2e09f1d37e262640707c81a6a8b8d34b97b3eb0"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/ZoomControls.tsx",
+      "sha256": "47b74d6fee777be7cc030b3b8b8b28482f08891a888e6fc68d5fb4a14b8b076a",
+      "originalSha256": "47b74d6fee777be7cc030b3b8b8b28482f08891a888e6fc68d5fb4a14b8b076a"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/ZoomViewport.module.css",
+      "sha256": "597acbd5b4b858bc9712b61b5b2b6300d6a9b085adf075ec840116b484c87840",
+      "originalSha256": "597acbd5b4b858bc9712b61b5b2b6300d6a9b085adf075ec840116b484c87840"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/types.ts",
+      "sha256": "aee361914c9687c510d588e658bd09d545b7b043378ed445049298874111820b",
+      "originalSha256": "aee361914c9687c510d588e658bd09d545b7b043378ed445049298874111820b"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/ZoomViewport.tsx",
+      "sha256": "b7a427c072ae528377aa3740c75ddefae5e9bef9010430e43611649e0b8eb79c",
+      "originalSha256": "b7a427c072ae528377aa3740c75ddefae5e9bef9010430e43611649e0b8eb79c"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/ZoomControls.module.css",
+      "sha256": "b73e0fd34444dd0b4ff17e3d5ca595971f2c1c99180538e35a85dd8a33ce2acd",
+      "originalSha256": "b73e0fd34444dd0b4ff17e3d5ca595971f2c1c99180538e35a85dd8a33ce2acd"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/zoom/store.ts",
+      "sha256": "3655b9f42d1982cb2b4e53907c4f4fd6e5933f976a7d025000ccd6609e1d7d8a",
+      "originalSha256": "3655b9f42d1982cb2b4e53907c4f4fd6e5933f976a7d025000ccd6609e1d7d8a"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/errors.ts",
+      "sha256": "0ff246e8f6dc151c6c40912442a2575017c5add738a3dd8416692c2374be7b25",
+      "originalSha256": "0ff246e8f6dc151c6c40912442a2575017c5add738a3dd8416692c2374be7b25"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/locales.ts",
+      "sha256": "d8f305dc80d7f5648f070c350c0b47c1c623332b06f189c09e90dc845fac4b69",
+      "originalSha256": "2cc6bf377485ed2b08decff62959f761fc759426f1fc69e4d2b58a03158fa0c4"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/text.ts",
+      "sha256": "575842a362c6ddf310df42325abf251eebc461d2d2f83e49419d7d58e41f8f60",
+      "originalSha256": "575842a362c6ddf310df42325abf251eebc461d2d2f83e49419d7d58e41f8f60"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/document.ts",
+      "sha256": "580881e2d93332089f2eb6f4a7851fd03e78fcfcdd876901bd49b5f2d7380936",
+      "originalSha256": "580881e2d93332089f2eb6f4a7851fd03e78fcfcdd876901bd49b5f2d7380936"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/assets.ts",
+      "sha256": "8c0203270394ce83e796e4ce1504ad5b1c7013078b963506cf80c2900ee88296",
+      "originalSha256": "bfce49c3fe4e6e316f4adcfddcc9a3f274f36d39d4f64d78b9546bdf9afa433c"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/runtime.ts",
+      "sha256": "ebb28e4a1748ce8ff1493713b2d66df855beaf22adf0d77db174acbcc1760425",
+      "originalSha256": "ebb28e4a1748ce8ff1493713b2d66df855beaf22adf0d77db174acbcc1760425"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/PdfBody.module.css",
+      "sha256": "6f057689cb3239eb107a6a820838badf2364cdb25adbfddb59fd0e56abb9fb6c",
+      "originalSha256": "6f057689cb3239eb107a6a820838badf2364cdb25adbfddb59fd0e56abb9fb6c"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/asset-imports.d.ts",
+      "sha256": "105daf6bdd9f009d4146bd814ce971f9904beab0fa8a9a2a8ecd1593df87ac83",
+      "originalSha256": "105daf6bdd9f009d4146bd814ce971f9904beab0fa8a9a2a8ecd1593df87ac83"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/pdf.tsx",
+      "sha256": "6d4b89065e6b563976afa93d5e19a24191d31a00349bf71884cdffe5590222b3",
+      "originalSha256": "62398432150c88965ad970a2bfab21aa1ac3f6908ebbd1c57ab53beb145c4b97"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/pdf/store.ts",
+      "sha256": "f4f66954114eb831d09970f4f4e44b75e87a3aa8ba7d233fe16b0be061a80bc2",
+      "originalSha256": "f4f66954114eb831d09970f4f4e44b75e87a3aa8ba7d233fe16b0be061a80bc2"
+    },
+    {
+      "path": "preview/fixtures/pdf-fixture.ts",
+      "sha256": "8726cbff10bdcd928ac981831378cf625eec11119cb1b6cb0e9328f5b4f2b7cc",
+      "originalSha256": "8726cbff10bdcd928ac981831378cf625eec11119cb1b6cb0e9328f5b4f2b7cc"
+    },
+    {
+      "path": "preview/pdf-runtime.test.ts",
+      "sha256": "dadddb62c35d2388e0e34f28e2c2be36ece74e60503aefb40527d6791902420b",
+      "originalSha256": "6caceb687e4daef6f2e691ecdcf5ba73211fc37b2ff81948bd2d42dbf2b6132b"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/bytes.ts",
+      "sha256": "b6da60105672540f9352db43d4d12b6bb937c80e8c14b0093cc9311766cbc130",
+      "originalSha256": "b6da60105672540f9352db43d4d12b6bb937c80e8c14b0093cc9311766cbc130"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/locales.ts",
+      "sha256": "d528547e8aa3aa17256f19e3ee17a98a86597b5eb1385e374d053696f77da28c",
+      "originalSha256": "d528547e8aa3aa17256f19e3ee17a98a86597b5eb1385e374d053696f77da28c"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/HtmlBody.module.css",
+      "sha256": "39a8e289e5bf57e19d63342fa81bcb8d879c3c9151399608974816376cd2d4e4",
+      "originalSha256": "39a8e289e5bf57e19d63342fa81bcb8d879c3c9151399608974816376cd2d4e4"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/HtmlBody.tsx",
+      "sha256": "e10a34ded1bc1f3fceff037756bee3408c2feec34061c96fa925c1dcd6d63dc5",
+      "originalSha256": "e10a34ded1bc1f3fceff037756bee3408c2feec34061c96fa925c1dcd6d63dc5"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/read-relative.ts",
+      "sha256": "ed161215d99b5f1c19bbcc46bfdd4ac63e59caf7fc49edc0e556ab43270c954e",
+      "originalSha256": "ed161215d99b5f1c19bbcc46bfdd4ac63e59caf7fc49edc0e556ab43270c954e"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/basic-document.ts",
+      "sha256": "d229243c4fc237c4a6a423a9c73b29153b7a2ab4cc0f29b9d1a715044ef82922",
+      "originalSha256": "d229243c4fc237c4a6a423a9c73b29153b7a2ab4cc0f29b9d1a715044ef82922"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/bootstrap.ts",
+      "sha256": "4c9c9834166fdde444659d4bd311d07b080ce087d229064536fc665ec199dd52",
+      "originalSha256": "4c9c9834166fdde444659d4bd311d07b080ce087d229064536fc665ec199dd52"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/html/pack.ts",
+      "sha256": "7b63276004fb6b3eea706051fa23027b5291be1a1741ecaeb061093006e0d67e",
+      "originalSha256": "7b63276004fb6b3eea706051fa23027b5291be1a1741ecaeb061093006e0d67e"
+    },
+    {
+      "path": "upstream/client/ui-sidebar-documentpreview/src/client/rpc.ts",
+      "sha256": "f677141daadaad6b9530a304931c63a7227526a354d754b9230580aca74727b4",
+      "originalSha256": "f677141daadaad6b9530a304931c63a7227526a354d754b9230580aca74727b4"
     }
-  ]
+  ],
+  "previewSource": {
+    "directory": "upstream/client/ui-sidebar-documentpreview",
+    "entry": "preview/index.jsx",
+    "scope": "Selected actual document bodies, not standalone Session-sidebars or Office conversion."
+  },
+  "previewDependencies": {
+    "dompurify": "3.4.11",
+    "pdfjs-dist": "6.2.108",
+    "licenses": [
+      "preview/licenses/dompurify-LICENSE",
+      "upstream/THIRD_PARTY_NOTICES.md",
+      "preview/licenses/"
+    ],
+    "policy": "DOMPurify follows fixed DSH manifest; PDF.js reuses existing locked host version, worker/assets same version and real-render tests."
+  }
 }

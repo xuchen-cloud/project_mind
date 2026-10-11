@@ -14,7 +14,7 @@ try {
   const entry = path.join(work, 'entry.ts');
   await fs.writeFile(entry, manifest.packages.map((pkg, index) =>
     `export * as package${index} from '${pkg.name}/client';`).join('\n') +
-    `\n${process.argv.includes('--source-only') ? '' : "export * as adapters from '@project-mind/dsh-ui/adapters';"}\nimport ${JSON.stringify(fileURLToPath(new URL('./styles/scoped.css', import.meta.url)))};\n`);
+    `\nexport * as preview from '${fileURLToPath(new URL('./preview/index.jsx', import.meta.url))}';\n${process.argv.includes('--source-only') ? '' : "export * as adapters from '@project-mind/dsh-ui/adapters';"}\nimport ${JSON.stringify(fileURLToPath(new URL('./styles/scoped.css', import.meta.url)))};\n`);
   let modules = 0;
   await build({
     configFile: false, root, plugins: [react(), {

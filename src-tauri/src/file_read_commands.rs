@@ -149,6 +149,14 @@ where
         store,
         &crate::file_version_service::FilesystemFileReader,
     );
+    let directory = store.with_current(|binding, db| {
+        db.source_read_historical_file(request, binding, &input.object)?;
+        db.project_file_is_directory(&input.object)
+            .map_err(|e| AgentError::new(ErrorCode::IoFailed, e.to_string()))
+    })?;
+    if directory {
+        return service.restore_version(request, input);
+    }
     let prepared = service.prepare_gui(&request.binding, &plan.input)?;
     if prepared.expected_version_number != input.expected_version_number
         || prepared.registered_content_hash.as_deref() != Some(input.expected_content_hash.as_str())
@@ -177,6 +185,129 @@ where
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn directory_file_gui_history_restore_uses_bound_original_location_service() {
+        use crate::{
+            agent::access::{Caller, ScopeGrant},
+            committed_changes::{CommittedChangePublisher, CommittedChanges},
+            db::file_versions::{GuiFileVersionMetadata, GuiFileVersionPrepare},
+            file_version_service::{BoundFileCommitStore, BoundFileVersionStore, FileCommitHost},
+            models::{DocumentListVersionsInput, ProjectCreateInput},
+            workspace::{create_workspace, WorkspacePaths},
+            workspace_commit_fence::WorkspaceCommitFence,
+        };
+        struct Store {
+            db: crate::db::Database,
+            binding: WorkspaceBinding,
+            paths: WorkspacePaths,
+            fence: std::sync::Arc<WorkspaceCommitFence>,
+        }
+        impl BoundSourceStore for Store {
+            fn with_current<T>(
+                &self,
+                action: impl FnOnce(&WorkspaceBinding, &crate::db::Database) -> AgentResult<T>,
+            ) -> AgentResult<T> {
+                action(&self.binding, &self.db)
+            }
+        }
+        impl CommittedChangePublisher for Store {
+            fn publish_committed(&self, _: CommittedChanges) {}
+        }
+        impl BoundFileVersionStore for Store {
+            fn gui_metadata(
+                &self,
+                _: &WorkspaceBinding,
+                input: &GuiFileVersionPrepare,
+            ) -> AgentResult<GuiFileVersionMetadata> {
+                self.db.file_version_gui_metadata(input)
+            }
+        }
+        impl BoundFileCommitStore for Store {
+            fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<FileCommitHost> {
+                if *binding != self.binding {
+                    return Err(AgentError::new(ErrorCode::WorkspaceChanged, "reopened"));
+                }
+                Ok(FileCommitHost::for_test(
+                    self.binding.clone(),
+                    self.paths.clone(),
+                    None,
+                    self.fence.clone(),
+                ))
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let (metadata, paths) = create_workspace(&root, "password").unwrap();
+        let mut db = crate::db::Database::open(&paths.db_path, &root, None).unwrap();
+        db.bind_native_workspace(&metadata.workspace_id).unwrap();
+        let project = db
+            .project_create(ProjectCreateInput {
+                name: "History".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let live = std::path::Path::new(&project.root_path).join("live.bin");
+        std::fs::write(&live, [0, 255, 1]).unwrap();
+        let first = db
+            .project_file_register(&metadata.workspace_id, project.id, "live.bin")
+            .unwrap();
+        std::fs::write(&live, [2, 128, 0]).unwrap();
+        let second = db.project_file_resolve(&first.object).unwrap();
+        let history = db
+            .document_list_versions(DocumentListVersionsInput {
+                document_id: first.object.id.parse().unwrap(),
+            })
+            .unwrap();
+        let old = history
+            .iter()
+            .find(|version| version.version_number == 1)
+            .unwrap();
+        let input = crate::file_version_restore::FileVersionRestore {
+            object: first.object.clone(),
+            version_id: old.id.to_string(),
+            expected_version_number: 2,
+            expected_content_hash: second.content_hash.unwrap(),
+        };
+        let binding = WorkspaceBinding {
+            workspace_id: metadata.workspace_id,
+            generation: "opened".into(),
+        };
+        let request = RequestContext {
+            binding: binding.clone(),
+            caller: Caller::Gui,
+            request_id: "gui-restore".into(),
+            scope_grant: ScopeGrant {
+                object_keys: None,
+                workspace_id: binding.workspace_id.clone(),
+                workspace_content: false,
+                project_ids: vec![project.id],
+                operations: vec!["source.read".into(), "file.restore".into()],
+            },
+        };
+        let store = Store {
+            db,
+            binding,
+            paths,
+            fence: std::sync::Arc::new(WorkspaceCommitFence::new()),
+        };
+        assert_eq!(
+            restore_gui_file_history(&store, &request, &input)
+                .unwrap()
+                .receipt
+                .version_number,
+            3
+        );
+        assert_eq!(std::fs::read(&live).unwrap(), [0, 255, 1]);
+        assert_eq!(std::fs::read(&old.managed_path).unwrap(), [0, 255, 1]);
+        assert_eq!(
+            restore_gui_file_history(&store, &request, &input)
+                .unwrap()
+                .receipt
+                .version_number,
+            3
+        );
+    }
     #[test]
     fn file_read_envelopes_reject_paths_authority_and_missing_fixed_versions() {
         let input = json!({"binding":{"workspaceId":"workspace","generation":"one"},"requestId":"read","data":{"object":{"workspaceId":"workspace","scope":{"kind":"project","projectId":1},"kind":"file","id":"1"},"versionNumber":1}});

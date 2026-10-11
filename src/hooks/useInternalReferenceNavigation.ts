@@ -1,6 +1,8 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { resolveFixedFileLocator, validateInternalReferenceSourceRef } from "../lib/internalReferences";
+import { projectFileApi } from "../services/projectFileApi";
 import type { InternalReferenceTarget } from "../lib/internalReferences";
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import { withdrawnReference } from "../lib/withdrawn-reference";
@@ -8,6 +10,7 @@ import { agentApi } from "../services/agentApi";
 import { desktopApi } from "../services/desktopApi";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
+import { openProjectContent } from "../services/projectContentApi";
 
 export function useInternalReferenceNavigation() {
   const navigate = useNavigate();
@@ -21,7 +24,26 @@ export function useInternalReferenceNavigation() {
         if (!current || current.workspaceId !== expected.workspaceId || current.generation !== expected.generation) throw new Error("工作区已切换，请回到引用所属工作区。");
       };
       try {
+        const documentBinding = reference.refKind === "document" ? expected ?? (await agentApi.statusGet()).binding : null;
+        if (reference.refKind === "document" && !documentBinding) throw new Error("请先打开工作区");
         await checkBinding();
+        if (reference.sourceRef) {
+          const source = validateInternalReferenceSourceRef(reference.sourceRef);
+          if (reference.refKind !== "document" || source.object.id !== String(reference.refId)
+            || source.object.workspaceId !== documentBinding!.workspaceId || source.object.scope.kind !== "project")
+            throw new Error("引用不属于当前工作区或文件");
+          // Verify exact retained bytes. Never resolve a live path or substitute
+          // a newer version when historical evidence is unavailable.
+          await projectFileApi.readBytes(documentBinding!, { object: source.object,
+            versionNumber: source.fileVersion!, expectedContentHash: source.revision });
+          const workspace = await projectMindApi.workspaceStatusGet();
+          if (!workspace.currentWorkspace) throw new Error("请先打开工作区");
+          await openProjectContent({ workspaceRoot: workspace.currentWorkspace.rootPath, projectId: source.object.scope.projectId,
+            object: { kind: "file", id: reference.refId, title: reference.label },
+            view: { versionNumber: source.fileVersion!, line: undefined, page: undefined, sourceLocator: undefined,
+              ...resolveFixedFileLocator(source) }, expectedBinding: documentBinding! });
+          return true;
+        }
         const resolved = await projectMindApi.internalReferenceResolve({
           kind: reference.refKind,
           id: reference.refId,
@@ -38,6 +60,13 @@ export function useInternalReferenceNavigation() {
         }
 
         if (resolved.kind === "document") {
+          if (resolved.projectId !== null) {
+            const workspace = await projectMindApi.workspaceStatusGet();
+            if (!workspace.currentWorkspace) throw new Error("请先打开工作区");
+            await openProjectContent({ workspaceRoot: workspace.currentWorkspace.rootPath, projectId: resolved.projectId,
+              object: { kind: "file", id: resolved.id, title: resolved.label }, expectedBinding: documentBinding! });
+            return true;
+          }
           if (!resolved.managedPath) {
             pushToast({
               tone: "error",
@@ -82,8 +111,8 @@ export function useInternalReferenceNavigation() {
         }
         pushToast({
           tone: "error",
-          title: "打开引用失败",
-          detail: "请稍后重试。",
+          title: reference.sourceRef ? "历史文件不可用" : "打开引用失败",
+          detail: reference.sourceRef ? (failure instanceof Error ? failure.message : String(failure)) : "请稍后重试。",
         });
         return false;
       }

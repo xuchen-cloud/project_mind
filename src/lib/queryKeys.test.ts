@@ -17,6 +17,7 @@ describe("search query keys", () => {
       ["project-tag-settings"],
       ["contacts"],
       ["documentVersions"],
+      ["project-content-binding"],
     ]);
   });
 

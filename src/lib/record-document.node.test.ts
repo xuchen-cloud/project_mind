@@ -74,3 +74,16 @@ it("requires complete supported reference identities instead of defaulting malfo
     { type: "contactMention", attrs: {} },
   ]) expect(() => initializeRecordDocument({ type: "doc", content: [{ type: "paragraph", content: [node] }] }, schema)).toThrow(/reference|mention/i);
 });
+
+it("keeps old reference canonical JSON unchanged when the optional SourceRef attribute is introduced", () => {
+  const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true }));
+  const old = { type: "doc", content: [{ type: "paragraph", attrs: { blockId: "a".repeat(32) }, content: [
+    { type: "internalReference", attrs: { refKind: "document", refId: 51, label: "Legacy" } },
+  ] }] };
+  const canonical = initializeRecordDocument(old, schema);
+  expect(canonicalDocumentJson(canonical)).toBe(canonicalDocumentJson(old));
+  expect(serializeRecordDocument(canonical, schema).document).toEqual(old);
+  const explicitEmpty = structuredClone(old) as import("@tiptap/core").JSONContent;
+  explicitEmpty.content![0].content![0].attrs!.sourceRef = null;
+  expect(initializeRecordDocument(explicitEmpty, schema)).toEqual(old);
+});

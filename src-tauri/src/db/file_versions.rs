@@ -74,7 +74,7 @@ fn agent_failure(error: anyhow::Error) -> AgentError {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum CommitPayload {
+pub(super) enum CommitPayload {
     Native {
         document_id: i64,
         new_hash: String,
@@ -105,7 +105,7 @@ enum CommitPayload {
         register_current_bytes: bool,
     },
 }
-fn registered_payload(
+pub(super) fn registered_payload(
     update: &FileVersionUpdate,
     patch_hash: Option<&str>,
     stage_id: Option<&str>,
@@ -354,7 +354,7 @@ pub(super) fn snapshot(
 ) -> Result<(String, FileIdentity, FileIdentity)> {
     snapshot_bounded(source, destination, None)
 }
-fn snapshot_bounded(
+pub(super) fn snapshot_bounded(
     source: &Path,
     destination: &Path,
     byte_limit: Option<u64>,
@@ -1351,6 +1351,9 @@ impl Database {
             expected_content_hash: input.expected_content_hash.clone(),
             new_content_hash: source.content_hash.clone(),
         };
+        if self.document_record(input.object.id.parse().map_err(|_|AgentError::new(ErrorCode::InvalidArgument,"Invalid File ID"))?).map_err(agent_failure)?.storage_mode == "project_directory" {
+            return self.project_file_restore_bound(request,binding,input,source,fence,precommit);
+        }
         self.file_version_commit(
             DocumentAddVersionInput {
                 document_id: input
@@ -1567,6 +1570,9 @@ impl Database {
         }
         if current.storage_mode == "managed_note_image" {
             bail!("Inline assets are not File Versions");
+        }
+        if current.storage_mode == "project_directory" {
+            return Err(conflict(ErrorCode::ScopeDenied,"Directory File updates must use the directory service; managed-copy commits cannot relocate its live path or immutable snapshots"));
         }
         let original = PathBuf::from(&current.managed_path);
         if let Some((_, update)) = registered {
@@ -3266,9 +3272,11 @@ mod tests {
             let update = fixture.update.clone();
             let staged = fixture.staged.clone();
             let barrier = barrier.clone();
+            // Initialize connections before the barrier; the concurrent seam
+            // under test is the File commit, not Workspace startup migrations.
+            let (_, paths) = crate::workspace::load_metadata(&root).unwrap();
+            let mut db = Database::open(&paths.db_path, &root, None).unwrap();
             handles.push(std::thread::spawn(move || {
-                let (_, paths) = crate::workspace::load_metadata(&root).unwrap();
-                let mut db = Database::open(&paths.db_path, &root, None).unwrap();
                 barrier.wait();
                 db.file_version_update_registered(&request, &binding, &update, &staged)
             }));
@@ -3544,6 +3552,12 @@ mod tests {
                 .env("MIND_FILE_VERSION_CRASH_STAGE", stage.to_string())
                 .output()
                 .unwrap();
+            eprintln!(
+                "File version crash stage {stage}: {}; stdout: {}; stderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
             assert_crashed(output.status);
             let opened = crate::workspace_initialization::open_workspace_database(
                 &paths.db_path,

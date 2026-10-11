@@ -1,5 +1,38 @@
 import type { AgentObjectRef } from "./agent-types";
 
+/** Exact retained bytes: never falls back to the latest version or live path. */
+export interface FileBytesInput {
+  object: AgentObjectRef;
+  versionNumber: number;
+  expectedContentHash: string;
+}
+export interface FileBytesResult {
+  object: AgentObjectRef;
+  versionNumber: number;
+  contentHash: string;
+  name: string;
+  mime: string;
+  byteLength: number;
+  base64: string;
+}
+export interface ProjectDirectoryFile {
+  object: AgentObjectRef;
+  relativePath: string;
+  name: string;
+  versionNumber: number;
+  contentHash: string | null;
+  state: "ready" | "missing" | "ambiguous" | "unavailable";
+  reason: string | null;
+}
+export interface ProjectDirectoryScanResult {
+  files: ProjectDirectoryFile[];
+  failures: { relativePath: string; reason: string }[];
+  excluded: { relativePath: string; reason: "internal" | "symlink" | "special" }[];
+  nextCursor: string | null;
+  complete: boolean;
+  cancelled: boolean;
+}
+
 export interface FileVersionMetadata {
   id: string;
   versionNumber: number;

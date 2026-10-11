@@ -60,6 +60,8 @@ mod file_metadata;
 mod file_deletions;
 mod file_relocations;
 pub(crate) mod file_content;
+pub(crate) mod project_directory_files;
+pub(crate) mod dsh_source_evidence;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -2615,7 +2617,20 @@ impl Database {
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
         let path = self.encode_path_ref(Path::new(&current.root_path));
-        let transaction = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        // Check every File before cascading deletion can erase retained source
+        // evidence. The same write transaction prevents new references from
+        // appearing between this check and deletion.
+        let document_ids = transaction
+            .prepare("SELECT id FROM documents WHERE project_id=?1")?
+            .query_map([input.project_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for document_id in document_ids {
+            self.file_delete_require_unreferenced(&self.document_record(document_id)?)?;
+        }
         native_changes::append_project_deletions(&transaction, self.native_workspace_id.as_deref(), input.project_id)?;
         transaction.execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
         transaction.execute("INSERT INTO project_asset_cleanup(project_id, path) VALUES (?1, ?2)", params![input.project_id, path])?;

@@ -1,3 +1,4 @@
+import { validateInternalReferenceSourceRef } from "./internalReferences";
 import type { JSONContent } from "@tiptap/core";
 import type { Schema, AttributeSpec } from "@tiptap/pm/model";
 import { TableMap } from "@tiptap/pm/tables";
@@ -50,6 +51,10 @@ function checkShape(document: JSONContent, schema: Schema) {
     const identity = node.type === "internalReference" ? "refId" : node.type === "tagMention" ? "tagId" : node.type === "contactMention" ? "contactId" : null;
     if (identity && positiveRecordObjectId(node.attrs?.[identity]) === null) fail("Invalid reference or mention identity");
     if (node.type === "internalReference" && !["note", "workspace_record", "todo", "document"].includes(node.attrs?.refKind ?? "note")) fail("Invalid internal reference kind");
+    if (node.type === "internalReference" && node.attrs?.sourceRef != null) {
+      const source = validateInternalReferenceSourceRef(node.attrs.sourceRef);
+      if (node.attrs.refKind !== "document" || Number(source.object.id) !== positiveRecordObjectId(node.attrs.refId)) fail("Fixed File reference identity differs");
+    }
     if (node.content !== undefined) {
       if (!Array.isArray(node.content) || node.type === "text") fail("Invalid node content");
       node.content.forEach((child) => visit(child, depth + 1, node.type));
@@ -71,6 +76,10 @@ function checkAttrs(attrs: JSONContent["attrs"], allowed: Record<string, Attribu
   if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) fail(`Invalid attributes in ${owner}`);
   for (const [key, value] of Object.entries(attrs)) {
     if (!Object.prototype.hasOwnProperty.call(allowed, key)) fail(`Unknown attribute ${key} in ${owner}`);
+    if (key === "sourceRef" && owner === "node internalReference" && value !== null) {
+      validateInternalReferenceSourceRef(value);
+      continue;
+    }
     const scalar = value === null || typeof value === "string" || typeof value === "boolean"
       || (typeof value === "number" && Number.isFinite(value));
     const widths = key === "colwidth" && Array.isArray(value)
@@ -95,6 +104,7 @@ function normalize(document: JSONContent, schema: Schema, initialize: boolean): 
   const copy = structuredClone(document);
   const ids = new Set<string>();
   const visit = (node: JSONContent) => {
+    if (node.type === "internalReference" && node.attrs?.sourceRef != null) node.attrs.refId = Number(node.attrs.refId);
     if (node.type === "image" || node.type === "attachment") {
       const path = node.attrs?.path;
       const urlKey = node.type === "image" ? "src" : "href";
@@ -134,7 +144,15 @@ function normalize(document: JSONContent, schema: Schema, initialize: boolean): 
       if (node.type.name === "table" && TableMap.get(node).problems?.length) fail("Invalid table grid");
       if (node.type.name === "tableRow" && node.childCount === 0) fail("Invalid empty table row");
     });
-    return structuredClone(parsed.toJSON());
+    const canonical = structuredClone(parsed.toJSON());
+    // Adding an optional citation must not alter old committed body hashes or
+    // prevent restoring immutable versions that predate this attribute.
+    const omitEmptySourceRef = (node: JSONContent) => {
+      if (node.type === "internalReference" && node.attrs?.sourceRef === null) delete node.attrs.sourceRef;
+      node.content?.forEach(omitEmptySourceRef);
+    };
+    omitEmptySourceRef(canonical);
+    return canonical;
   } catch (error) {
     fail(`Invalid editor document: ${error instanceof Error ? error.message : String(error)}`);
   }

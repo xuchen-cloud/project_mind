@@ -349,9 +349,59 @@ impl Database {
         }
         Ok(())
     }
+    pub(super) fn file_delete_require_unreferenced(&self, record: &DocumentRecord) -> Result<()> {
+        if record.storage_mode == "managed_note_image" { return Ok(()); }
+        let suffix = format!("%/project:{}/file/{}", record.project_id, record.id);
+        let current_reference: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM content_reference_edges WHERE target_object_key LIKE ?1 AND target_revision IS NOT NULL)",
+            [suffix], |row| row.get(0))?;
+        let retained_reference: bool = self.conn.query_row(
+            "WITH retained(json) AS (
+                SELECT document_snapshot FROM record_versions
+                UNION ALL SELECT source_ref_json FROM agent_evidence
+                UNION ALL SELECT sources_json FROM agent_outputs
+            ) SELECT EXISTS(SELECT 1 FROM retained,json_tree(retained.json) AS node
+                WHERE node.type='object'
+                AND json_extract(node.value,'$.object.kind')='file'
+                AND json_extract(node.value,'$.object.scope.kind')='project'
+                AND json_extract(node.value,'$.object.scope.projectId')=?1
+                AND json_extract(node.value,'$.object.id')=?2
+                AND (?3 IS NULL OR json_extract(node.value,'$.object.workspaceId')=?3)
+                AND json_type(node.value,'$.fileVersion')='integer'
+                AND json_extract(node.value,'$.fileVersion')>0
+                AND length(json_extract(node.value,'$.revision'))=71
+                AND json_extract(node.value,'$.revision') LIKE 'sha256:%'
+                AND substr(json_extract(node.value,'$.revision'),8) NOT GLOB '*[^0-9a-f]*')",
+            params![record.project_id,record.id.to_string(),self.native_workspace_id], |row|row.get(0))?;
+        if current_reference || retained_reference {
+            return Err(anyhow!("File has fixed content references; deletion is blocked to retain its identity, versions and snapshots"));
+        }
+        Ok(())
+    }
+    // Removing a directory File means removing the catalogue entry. The user
+    // owns its live bytes; snapshots are retained without a cleanup policy.
+    fn file_delete_directory_registration(&self, current: &DocumentRecord) -> Result<()> {
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)?;
+        self.file_delete_require_unreferenced(current)?;
+        tx.execute("DELETE FROM documents WHERE id=?1", [current.id])?;
+        tx.execute("UPDATE projects SET updated_at=?1 WHERE id=?2", params![super::now_iso(), current.project_id])?;
+        if let Some(workspace_id) = &self.native_workspace_id {
+            let object = ObjectRef { workspace_id: workspace_id.clone(), scope: Scope::Project { project_id: current.project_id }, kind: ObjectKind::File, id: current.id.to_string() };
+            tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'file.directory.unmanage','deleted',?3)", params![object.key().map_err(|e|anyhow!(e.message))?,object.scope.key(),super::now_iso()])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn document_delete(&mut self, input: DocumentDeleteInput) -> Result<DocumentRecord> {
         let _locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
+        self.file_delete_require_unreferenced(&current)?;
+        if current.storage_mode == "project_directory" {
+            let object = ObjectRef { workspace_id: self.native_workspace_id.clone().ok_or_else(||anyhow!("Workspace identity unavailable for directory File deletion"))?, scope: Scope::Project { project_id: current.project_id }, kind: ObjectKind::File, id: current.id.to_string() };
+            self.directory_restore_recover_locked(&object)?;
+            self.file_delete_directory_registration(&current)?;
+            return Ok(current);
+        }
         self.ensure_project_file_layout(current.project_id)?;
         let current = self.document_record(input.document_id)?;
         let old = self.file_delete_state(&current)?;
@@ -479,6 +529,7 @@ impl Database {
                             "File metadata changed before deletion",
                         ));
                     }
+                    self.file_delete_require_unreferenced(&record).map_err(|error| AgentError::new(ErrorCode::ScopeDenied, error.to_string()))?;
                     tx.execute("DELETE FROM documents WHERE id=?1", [current.id])
                         .map_err(io_error)?;
                     tx.execute(

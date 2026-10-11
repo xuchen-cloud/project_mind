@@ -308,6 +308,9 @@ impl Database {
         &mut self,
         input: DocumentUpdateMetaInput,
     ) -> Result<DocumentRecord> {
+        if self.document_record(input.document_id)?.storage_mode == "project_directory" {
+            return self.project_file_update_meta(&input);
+        }
         let _locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(current.project_id)?;
@@ -615,7 +618,9 @@ mod tests {
             assert_eq!(
                 output.status.signal(),
                 Some(9),
-                "{}",
+                "stage {stage}: {}; stdout: {}; stderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
         }

@@ -907,7 +907,7 @@ impl Database {
             scope,
             &portable,
             &reference_identities(&portable)?,
-            "preflight",
+            self.native_workspace_id.as_deref().unwrap_or("preflight"),
         )?;
         Ok(portable)
     }

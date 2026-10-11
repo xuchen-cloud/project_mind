@@ -1,0 +1,8 @@
+.project-file-content { display:flex; flex-direction:column; min-width:0; min-height:0; height:100%; }
+.project-file-content[hidden] { display:none; }
+.project-file-content__toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--color-border); font-size:12px; }
+.project-file-content__toolbar strong { overflow:hidden; text-overflow:ellipsis; flex:1; min-width:80px; }
+.project-file-content__toolbar select,.project-file-content__toolbar button { background:var(--color-bg); color:var(--color-text); border:1px solid var(--color-border); border-radius:5px; padding:4px 8px; }
+.project-file-content__body { flex:1; min-height:0; overflow:hidden; }
+.project-file-content__notice { font-size:12px; margin:6px 12px; color:var(--color-text-soft); }
+.project-file-content > [role=alert],.project-file-content > [role=status] { margin:12px; }

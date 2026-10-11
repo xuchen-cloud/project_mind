@@ -1,10 +1,9 @@
-import { useEffect } from "react";
-import { closeFilePreview, openFilePreview, useFilePreviewStore, type FilePreviewRequest } from "./state/file-preview-store";
+import { closeFilePreview, openFilePreview, useFilePreviewStore } from "./state/file-preview-store";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 const buildMode = vi.hoisted(() => ({ debug: true }));
 vi.mock("./lib/build-mode", () => ({ get isDebugBuild() { return buildMode.debug; } }));
@@ -15,13 +14,23 @@ import {
   WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
-import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
+import { RecordSaveCoordinator, projectRecordSaveKey } from "./lib/record-save-coordinator";
 import { queryKeys } from "./lib/queryKeys";
 import { fixtureEditorState } from "./test/recordDocumentFixture";
 import type { RecordTarget } from "./lib/record-document-types";
 import type { ProjectPageData, WorkspacePageData } from "./lib/types";
-vi.mock("./components/document/FileHtmlPreview", () => ({ FileHtmlPreview: ({ request, onClose }: { request: FilePreviewRequest; onClose: () => void }) =>
-  <section aria-label="测试文件预览"><p>{request.title}</p><button onClick={onClose}>关闭预览</button></section> }));
+import { fileDocumentApi } from "./services/fileDocumentApi";
+import { projectFileApi } from "./services/projectFileApi";
+import { openProjectFilePreview, useProjectFileNavigation } from "./lib/project-file-navigation";
+import { projectDirectoryApi } from "./services/projectDirectoryApi";
+import { getContentLayout } from "./lib/project-content-layout";
+import { useProjectContentStore } from "./state/project-content-store";
+vi.mock("./services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
+vi.mock("./services/projectFileApi", async importOriginal => ({
+  ...(await importOriginal<typeof import("./services/projectFileApi")>()),
+  projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), register: vi.fn() },
+}));
+vi.mock("./services/projectDirectoryApi", () => ({ projectDirectoryApi: { resolveReference: vi.fn(), list: vi.fn(async () => ({ entries: [] })), tree: vi.fn(async () => ({ entries: [] })) } }));
 const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn(), bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
 vi.mock("./services/agentApi", () => ({ agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: { ...recordMocks, editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
@@ -230,7 +239,7 @@ describe("workspaceSearchResultRoute", () => {
         projectId: null,
       }),
     ).toBeNull();
-    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe("/projects/3?focus=record-8");
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe("/projects/3/records/8");
     expect(
       workspaceSearchResultRoute({
         ...baseResult,
@@ -256,7 +265,7 @@ describe("workspaceSearchResultRoute", () => {
 });
 
 describe("WorkspaceLayout", () => {
-  afterEach(() => { buildMode.debug = true; vi.unstubAllEnvs(); });
+  afterEach(() => { buildMode.debug = true; vi.unstubAllEnvs(); vi.restoreAllMocks(); });
   it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("creates Workspace with native-generated DEV credentials or required release password ($label)", async ({ debug: dev }) => {
     buildMode.debug = dev;
     vi.mocked(projectMindApi.workspaceStatusGet).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" });
@@ -276,6 +285,8 @@ describe("WorkspaceLayout", () => {
   });
   beforeEach(() => {
     closeFilePreview();
+    useProjectContentStore.setState({ layouts: {} });
+    useProjectFileNavigation.setState({ request: null, revisions: {} });
     vi.resetAllMocks();
     vi.mocked(desktopApi.listenForCloseRequest).mockResolvedValue(() => undefined);
     vi.mocked(desktopApi.listenForWorkspaceLifecycleFlush).mockResolvedValue(
@@ -288,46 +299,81 @@ describe("WorkspaceLayout", () => {
     useUiStore.setState(createUiStoreState());
   });
 
-  it("keeps the underlying page mounted and its route unchanged when viewing files, and closes files on navigation or workspace change", async () => {
+  it("migrates legacy preview and assistant path entries into the real cached Project shell while preserving a pinned view", async () => {
+    await import("./components/document/ProjectFileContent");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-    const status = { currentWorkspace: { rootPath: "/tmp/workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", displayName: "Test Workspace", createdAt: "now" }, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" };
-    client.setQueryData(queryKeys.workspaceStatus, status);
-    client.setQueryData(queryKeys.projects.all, []);
-    client.setQueryData(queryKeys.workspacePage, { quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] });
-    const mounted = vi.fn();
-    function BusinessPage() { useEffect(() => { mounted(); }, []); return <button>原业务页面</button>; }
-    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [{ path: "workspace", element: <BusinessPage /> }] }], { initialEntries: ["/workspace"] });
+    const timestamp = "2026-10-11T00:00:00Z";
+    const projects = [7, 8].map(id => ({ id, name: `Project ${id}`, kind: "normal" as const, status: "active",
+      rootPath: `/tmp/project-${id}`, quickNote: "", isArchived: false, createdAt: timestamp, updatedAt: timestamp, openTodoCount: 0 }));
+    const record = { id: 70, projectId: 7, title: "保留的记录", contentMarkdown: "canonical body", contentHtml: "<p>canonical body</p>",
+      defaultCodeLanguage: null, tags: [], createdAt: timestamp, updatedAt: timestamp };
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", displayName: "Test Workspace", createdAt: timestamp }, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" });
+    client.setQueryData(queryKeys.projects.all, projects);
+    for (const project of projects) {
+      client.setQueryData(queryKeys.projectPage(project.id), { project, records: project.id === 7 ? [record] : [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+      client.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+    }
+    client.setQueryData(queryKeys.aiSettings, null); configureCanonicalRecords(client);
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    const versions = [3, 2, 1].map(versionNumber => ({ id: `v${versionNumber}`, versionNumber, name: "context.txt", createdAt: timestamp, contentHash: `sha256:v${versionNumber}`, isCurrent: versionNumber === 3 }));
+    vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_binding, { object }) => ({ object, currentVersionNumber: 3, currentContentHash: "sha256:v3", versions, nextCursor: null }));
+    vi.mocked(projectFileApi.readBytes).mockImplementation(async (_binding, input) => {
+      const text = `retained version ${input.versionNumber}`;
+      return { object: input.object, versionNumber: input.versionNumber, contentHash: input.expectedContentHash, name: "context.txt", mime: "text/plain", byteLength: text.length, base64: btoa(text) };
+    });
+    vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_binding, input) => {
+      const text = `retained version ${input.versionNumber}`;
+      return { object: input.object, versionNumber: input.versionNumber, contentHash: input.expectedContentHash!, title: "context.txt", byteLength: text.length,
+        format: "text", text, startChar: 0, endChar: text.length, totalChars: text.length, nextCursor: null, complete: true };
+    });
+    vi.mocked(projectDirectoryApi.resolveReference).mockResolvedValue("notes/context.txt");
+    const object = { workspaceId: "fixture-workspace", scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "51" };
+    const identity = { object, name: "context.txt", relativePath: "notes/context.txt", state: "ready" as const, versionNumber: 3, contentHash: "sha256:v3", reason: null };
+    vi.mocked(projectFileApi.register).mockResolvedValue(identity); vi.mocked(projectFileApi.resolve).mockResolvedValue(identity);
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist: vi.fn(async snapshot => ({ updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 })) } });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
+      children: [{ path: "projects/:projectId", element: <p>legacy overview</p> }, { path: "projects/:projectId/records/:noteId", element: <p>legacy record</p> }] }], { initialEntries: ["/projects/7/records/70"] });
     render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
-    const business = await screen.findByRole("button", { name: "原业务页面" });
-    const request = { workspaceRoot: "/tmp/workspace", projectId: 7, documentId: 51, title: "页面.html" };
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const recordPage = document.querySelector('[data-focus-page-key="7:70"]')!;
+    const projectShell = document.querySelector('[data-project-resident-id="7"]')!;
+    const request = { workspaceRoot: "/tmp/workspace", projectId: 7, documentId: 51, title: "context.txt", versionNumber: 2 };
     act(() => openFilePreview(request));
-    expect(await screen.findByRole("region", { name: "测试文件预览" })).toBeVisible();
-    expect(business).not.toBeVisible();
-    expect(mounted).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
-    expect(business).toBeVisible();
-    expect(mounted).toHaveBeenCalledOnce();
-    act(() => openFilePreview(request));
-    await act(async () => { await router.navigate("/workspace?focus=todo-1"); });
-    expect(useFilePreviewStore.getState().request).toBeNull();
-    expect(business).toBeVisible();
-    expect(mounted).toHaveBeenCalledOnce();
-    act(() => openFilePreview(request));
-    act(() => openFilePreview({ ...request, documentId: 52, title: "新页面.html", versionNumber: 2 }));
-    expect(await screen.findByText("新页面.html")).toBeVisible();
-    expect(useFilePreviewStore.getState().request?.documentId).toBe(52);
-    expect(router.state.location.pathname + router.state.location.search).toBe("/workspace?focus=todo-1");
-    // Reopening latest for the same document replaces the fixed-version request without routing.
-    act(() => openFilePreview({ ...request, documentId: 52, title: "新页面.html" }));
-    expect(useFilePreviewStore.getState().request?.versionNumber).toBeUndefined();
-    expect(router.state.location.search).toBe("?focus=todo-1");
-    await act(async () => { await router.navigate("/workspace?focus=record-3"); });
-    expect(useFilePreviewStore.getState().request).toBeNull();
-    act(() => openFilePreview(request));
-    act(() => { client.setQueryData(queryKeys.workspaceStatus, { ...status, currentWorkspace: { ...status.currentWorkspace, rootPath: "/other/workspace" } }); });
+    await waitFor(() => expect(screen.getByRole("tab", { name: /context.txt/ })).toBeVisible());
+    await waitFor(() => {
+      const preview = screen.getByRole("region", { name: "项目文件预览" });
+      expect(preview).toHaveTextContent("retained version 2");
+    }, { timeout: 5000 });
+    expect(screen.getByLabelText("文件查看版本")).toHaveValue("2");
+    expect(recordPage).not.toBeVisible(); expect(recordPage).toBeInTheDocument();
+    expect(document.querySelector('[data-project-resident-id="7"]')).toBe(projectShell);
+    const fileTab = screen.getByRole("tab", { name: /context.txt/ }); const pageId = fileTab.getAttribute("aria-controls");
+    expect(router.state.location.pathname).toBe("/projects/7"); expect(router.state.location.search).toContain("content=");
+    act(() => openFilePreview({ ...request, versionNumber: undefined }));
     await waitFor(() => expect(useFilePreviewStore.getState().request).toBeNull());
-    expect(screen.queryByRole("region", { name: "测试文件预览" })).not.toBeInTheDocument();
-  });
+    expect(screen.getByLabelText("文件查看版本")).toHaveValue("2");
+    act(() => openProjectFilePreview(7, "/tmp/project-7/notes/context.txt", 4));
+    await waitFor(() => expect(useProjectFileNavigation.getState().request).toBeNull());
+    expect(screen.getByRole("tab", { name: /context.txt/ })).toHaveAttribute("aria-controls", pageId!);
+    expect(projectFileApi.register).toHaveBeenCalledWith({ workspaceId: "fixture-workspace", generation: "open-1" }, 7, "notes/context.txt");
+    expect(screen.getByLabelText("文件查看版本")).toHaveValue("2");
+    expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: 7 }).tabs).toHaveLength(2);
+    await act(() => router.navigate("/projects/8"));
+    expect(projectShell).not.toBeVisible();
+    await act(() => router.navigate(`/projects/7?content=${encodeURIComponent(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: 7 }).tabs.find(tab => tab.object.kind === "file")!.id)}`));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /context.txt/ })).toBeVisible());
+    await waitFor(() => {
+      const preview = screen.getByRole("region", { name: "项目文件预览" });
+      expect(preview).toHaveTextContent("retained version 2");
+    }, { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: "关闭context.txt" }));
+    await waitFor(() => expect(recordPage).toBeVisible());
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+    expect(router.state.location.pathname).toBe("/projects/7/records/70");
+    expect(screen.queryByRole("region", { name: "项目文件预览" })).not.toBeInTheDocument();
+    expect(screen.queryByText("legacy record")).not.toBeInTheDocument();
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+  }, 15_000);
 
   it("keeps the top-bar search global while a Project is active", async () => {
     vi.mocked(projectMindApi.projectsList).mockResolvedValue([
@@ -1067,7 +1113,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         isArchived: false,
         createdAt: "",
         updatedAt: "",
@@ -1081,7 +1127,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         summaryMarkdown: "",
         summaryHtml: "",
         isArchived: false,
@@ -1099,7 +1145,7 @@ describe("WorkspaceLayout", () => {
       [
         {
           path: "/",
-          element: <WorkspaceLayout />,
+          element: <WorkspaceLayout cacheProjectOverviewPages />,
           children: [
             {
               path: "projects/:projectId",
@@ -1125,21 +1171,33 @@ describe("WorkspaceLayout", () => {
       { initialEntries: ["/projects/1"] },
     );
 
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => fixtureEditorState(target, {
+      id: 99, projectId: 1, title: null, contentMarkdown: "", contentHtml: "<p></p>", defaultCodeLanguage: null, tags: [], createdAt: "now", updatedAt: "now",
+    }));
     render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
 
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    recordMocks.create.mockImplementationOnce(async () => {
+      const page = client.getQueryData<ProjectPageData>(queryKeys.projectPage(1))!;
+      const record = { id: 99, projectId: 1, title: null, contentMarkdown: "", contentHtml: "<p></p>", defaultCodeLanguage: null, tags: [], createdAt: "now", updatedAt: "now" };
+      vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({ ...page, records: [record] });
+      return { record };
+    });
     await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
 
     await waitFor(() => expect(recordMocks.create).toHaveBeenCalledWith(expect.any(Object), {
       scope: { kind: "project", projectId: 1 }, title: null, document: { type: "doc", content: [{ type: "paragraph" }] }, tagIds: [], codeLanguage: null,
     }, expect.any(String)));
     expect(projectMindApi.projectRecordUpsert).not.toHaveBeenCalled();
-    expect(await screen.findByText("record focus route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/99");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    expect(screen.getByRole("tab", { name: "未命名记录" })).toHaveAttribute("aria-selected", "true");
+    expect(router.state.location.pathname).toBe("/projects/1/records/99");
+    expect(screen.queryByText("record focus route body")).not.toBeInTheDocument();
   });
 
   it("opens a project record focus page when a sidebar record is double clicked", async () => {
@@ -1155,7 +1213,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         isArchived: false,
         createdAt: "",
         updatedAt: "",
@@ -1169,7 +1227,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         summaryMarkdown: "",
         summaryHtml: "",
         isArchived: false,
@@ -1199,7 +1257,7 @@ describe("WorkspaceLayout", () => {
       [
         {
           path: "/",
-          element: <WorkspaceLayout />,
+          element: <WorkspaceLayout cacheProjectOverviewPages />,
           children: [
             {
               path: "projects/:projectId",
@@ -1225,17 +1283,21 @@ describe("WorkspaceLayout", () => {
       { initialEntries: ["/projects/1?recordQuery=kickoff"] },
     );
 
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    configureCanonicalRecords(client);
     render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
 
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
-    fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
+    await userEvent.setup().dblClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
 
-    expect(await screen.findByText("record focus route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/7?recordQuery=kickoff");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toHaveValue("Kickoff Review"));
+    expect(screen.getByRole("tab", { name: "Kickoff Review" })).toHaveAttribute("aria-selected", "true");
+    expect(router.state.location.pathname + router.state.location.search).toBe("/projects/1/records/7?recordQuery=kickoff");
+    expect(screen.queryByText("record focus route body")).not.toBeInTheDocument();
   });
 
   it("commits Record navigation before a delayed forced save resolves", async () => {
@@ -1388,7 +1450,8 @@ describe("WorkspaceLayout", () => {
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });
 
-  it("keeps a global two-entry Record Focus LRU through the production WorkspaceLayout routes", async () => {
+  it("keeps Project content Records resident independently of the Workspace Record LRU through production routes", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
     const timestamp = "2026-08-23T00:00:00.000Z";
     const project = (id: number, name: string) => ({
       id,
@@ -1479,7 +1542,14 @@ describe("WorkspaceLayout", () => {
     queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
     queryClient.setQueryData(queryKeys.projectTags.project(2), { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
-    const persist = vi.fn(() => new Promise<{ updatedAt: string }>(() => undefined));
+    let finishWorkspaceSave!: () => void;
+    const workspaceSave = new Promise<void>(resolve => { finishWorkspaceSave = resolve; });
+    // A failed assertion or deadline must not leave the save/React act pending into the next test.
+    onTestFinished(() => finishWorkspaceSave());
+    const persist = vi.fn(async (snapshot) => {
+      if (snapshot.scope === "workspace") await workspaceSave;
+      return { updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+    });
     configureCanonicalRecords(queryClient);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
@@ -1515,9 +1585,6 @@ describe("WorkspaceLayout", () => {
       </QueryClientProvider>,
     );
 
-    const fallback = document.querySelector("[data-record-focus-cached-fallback]");
-    expect(fallback).toHaveTextContent("Alpha A 正文");
-    expect(screen.queryByRole("status", { name: "正在打开记录" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
     expect(alphaA).not.toBeNull();
@@ -1526,6 +1593,18 @@ describe("WorkspaceLayout", () => {
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"] input[placeholder="记录标题"]')).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "分栏" }));
+    const alphaB = document.querySelector('[data-focus-page-key="1:8"]')!;
+    expect(alphaA).toBeVisible(); expect(alphaB).toBeVisible();
+    expect(within(alphaA as HTMLElement).getByPlaceholderText("记录标题")).toBeEnabled();
+    expect(within(alphaB as HTMLElement).getByPlaceholderText("记录标题")).toBeEnabled();
+    expect(screen.getAllByRole("tablist", { name: /栏内容/ })).toHaveLength(2);
+    fireEvent.focus(within(alphaA as HTMLElement).getByPlaceholderText("记录标题"));
+    expect(screen.getByRole("tablist", { name: "左栏内容" }).closest(".project-content__pane-tabs")).toHaveAttribute("data-focused", "true");
+    expect(screen.getByRole("tablist", { name: "右栏内容" }).closest(".project-content__pane-tabs")).not.toHaveAttribute("data-focused");
+    fireEvent.click(screen.getByRole("button", { name: "合并分栏" }));
+    expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA);
+    expect(document.querySelector('[data-focus-page-key="1:8"]')).toBe(alphaB);
     await act(() => router.navigate("/projects/1/records/7"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
 
@@ -1551,16 +1630,20 @@ describe("WorkspaceLayout", () => {
         persist.mock.calls.filter(([snapshot]) => snapshot.scope === "workspace" && snapshot.recordId === 27),
       ).toHaveLength(1);
     });
+    await act(async () => { finishWorkspaceSave(); await coordinator.flush(); });
     await act(() => router.navigate("/workspace/records/27"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
 
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
-    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
-    expect(alphaA).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-project-resident-id] [data-content-object^="record:"]')).toHaveLength(3);
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(1);
+    expect(alphaA).toBeInTheDocument();
+    expect(alphaA).not.toBeVisible();
+    expect(screen.getByRole("tab", { name: "Alpha B" })).toHaveAttribute("aria-selected", "true");
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   async function renderResidentProjectFixture(startWithRecord = false) {
     const timestamp = "2026-08-23T00:00:00.000Z";
@@ -1627,7 +1710,9 @@ describe("WorkspaceLayout", () => {
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
       adapter: {
-        persist: vi.fn(async (snapshot) => ({ updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 })),
+        persist: vi.fn(async (snapshot) => {
+          return { updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+        }),
       },
     });
 
@@ -1660,7 +1745,7 @@ describe("WorkspaceLayout", () => {
     return { router, coordinator, projectA };
   }
 
-  it("keeps five unified Project shells resident and evicts only the LRU shell", async () => {
+  it("keeps five Project overviews resident while preserving all opened content shells", async () => {
     const { router, projectA } = await renderResidentProjectFixture();
     for (const projectId of [2, 3, 4, 5]) {
       await act(() => router.navigate(`/projects/${projectId}`));
@@ -1671,7 +1756,7 @@ describe("WorkspaceLayout", () => {
         ),
       );
     }
-    await waitFor(() => expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5));
+    await waitFor(() => expect(screen.getAllByTestId("project-overview-focus-page")).toHaveLength(5));
     expect(projectA).toHaveAttribute("aria-hidden", "true");
     expect(projectA).toHaveAttribute("inert");
 
@@ -1685,8 +1770,9 @@ describe("WorkspaceLayout", () => {
 
     await act(() => router.navigate("/projects/6"));
     await waitFor(() => {
-      expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
-      expect(document.querySelector('[data-project-resident-id="2"]')).toBeNull();
+      expect(screen.getAllByTestId("project-overview-focus-page")).toHaveLength(5);
+      expect(document.querySelector('[data-project-resident-id="2"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-project-resident-id="2"] [data-testid="project-overview-focus-page"]')).toBeNull();
     });
     expect(document.querySelector('[data-project-resident-id="1"]')).toBe(projectA);
 
@@ -1697,25 +1783,52 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
   }, 15_000);
 
-  it("bounds Project and Record Focus residency across six record routes without refetching", async () => {
-    const { router, coordinator } = await renderResidentProjectFixture(true);
+  it("retains opened Project content shells and Record editors across six project switches without refetching", async () => {
+    const { router } = await renderResidentProjectFixture(true);
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
     for (const projectId of [8, 9, 10, 11, 12]) {
       const recordId = projectId * 10;
-      await act(async () => {
-        await router.navigate(`/projects/${projectId}/records/${recordId}`);
-        await coordinator.flush();
-      });
+      await act(() => router.navigate(`/projects/${projectId}/records/${recordId}`));
       await waitFor(() =>
         expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`)).not.toBeNull(),
       );
       await waitFor(() => expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"] input[placeholder="记录标题"]`)).toBeEnabled());
     }
-    expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
-    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(12);
+    expect(document.querySelectorAll('[data-project-resident-id] [data-content-object^="record:"]')).toHaveLength(6);
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeInTheDocument();
+    await act(() => router.navigate("/projects/7/records/70"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeVisible());
+    expect(screen.getByRole("tab", { name: "Record 7" })).toHaveAttribute("aria-selected", "true");
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
   }, 15_000);
+  it.each(["project", "workspace"] as const)("retains a hidden Record and its Project when the %s close guard fails, without blocking another Project", async target => {
+    const { router, coordinator, projectA } = await renderResidentProjectFixture(true);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    const recordPage = document.querySelector('[data-focus-page-key="7:70"]');
+    await act(() => router.navigate("/projects/8/records/80"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="8:80"] input[placeholder="记录标题"]')).toBeEnabled());
+    await coordinator.flush();
+    const flush = coordinator.flush.bind(coordinator);
+    vi.spyOn(coordinator, "flush").mockImplementation(async key => {
+      if (key === projectRecordSaveKey(7, 70)) throw new Error("Project 7 保存失败");
+      return flush(key);
+    });
+    fireEvent.click(screen.getByRole("button", { name: target === "project" ? "关闭 Project 7" : "切换 Workspace" }));
+    expect(await screen.findByText(target === "project" ? "项目内容尚不能关闭" : "切换 Workspace 失败")).toBeInTheDocument();
+    expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-project-resident-id="7"]')).toBe(projectA);
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+    expect(recordPage).not.toBeVisible();
+    expect(router.state.location.pathname).toBe("/projects/8/records/80");
+    expect(screen.getByRole("tab", { name: "Project 7" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭 Project 8" }));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "Project 8" })).not.toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Project 7" })).toBeInTheDocument();
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+  }, 15_000);
+
   it.each([
     ["/projects/1/records/999", "/workspace"],
     ["/workspace/records/999", "/projects/2"],

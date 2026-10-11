@@ -1,3 +1,7 @@
+import { validateInternalReferenceSourceRef } from "../../lib/internalReferences";
+import { agentApi } from "../../services/agentApi";
+import { projectFileApi } from "../../services/projectFileApi";
+import type { AgentObjectRef } from "../../lib/agent-types";
 import { Suspense, forwardRef, lazy, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -7,7 +11,7 @@ import { revealSourceBlock, type SourceBlockNavigation } from "../../lib/source-
 import { prepareRecordCutHtml, registerRecordCutHtml, type RecordCutTransport } from "./extensions/StableRecordBlocks";
 import { readRecordCutClipboard, recordCutPasteEvent } from "./recordCutClipboard";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
-import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import { Mapping } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
@@ -361,6 +365,9 @@ interface EditorSkillWidgetState {
 
 interface RichEditorProps {
   html?: string;
+  /** In-memory state from this exact Record; never serialize into layout storage. */
+  session?: RichEditorSession | null;
+  onSessionReady?: () => void;
   defaultHtml?: string;
   variant?: RichEditorVariant;
   showToolbar?: boolean;
@@ -419,7 +426,17 @@ export interface RichEditorSelectionPayload {
   removeSelectionAndSave: () => Promise<unknown>;
 }
 
+export interface RichEditorSession {
+  identity: string | undefined;
+  recordKey: string | undefined;
+  state: EditorState;
+  committedValue: RichEditorValue;
+  persistedHtml: string;
+}
+
 export interface RichEditorController {
+  isBusy: () => boolean;
+  captureSession: () => RichEditorSession | null;
   getValue: () => RichEditorValue;
   getCommittedValue: () => RichEditorValue;
   getDocumentJson: () => JSONContent;
@@ -447,6 +464,8 @@ export interface RichEditorSelectionAction {
 
 export function RichEditor({
   html,
+  session,
+  onSessionReady,
   defaultHtml,
   variant = "toolbar",
   showToolbar = true,
@@ -704,6 +723,9 @@ export function RichEditor({
   const imageInterpretationReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableImageDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "image_default"));
   const effectiveReadOnly = readOnly;
+  const referenceSelectionContextRef = useRef({ contentIdentity, recordKey, readOnly, context: internalReferences?.context });
+  referenceSelectionContextRef.current = { contentIdentity, recordKey, readOnly, context: internalReferences?.context };
+  const referenceSelectionRequestRef = useRef(0);
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
     : !editorRewriteReady
@@ -911,23 +933,59 @@ export function RichEditor({
       }
 
       const target = buildInternalReferenceTarget(reference);
-      const referenceNode = nodeType.create({
-        refKind: target.refKind,
-        refId: target.refId,
-        label: target.label,
-      });
-      const tr = view.state.tr.delete(trigger.start, trigger.end);
-
-      tr.insert(trigger.start, referenceNode);
-
-      const nextSelectionPos = trigger.start + referenceNode.nodeSize;
-      tr.insertText(" ", nextSelectionPos);
-      tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
-      view.dispatch(tr.scrollIntoView());
-      closeInternalReferencePicker();
+      const insert = () => {
+        const referenceNode = nodeType.create(target);
+        const tr = view.state.tr.delete(trigger.start, trigger.end);
+        tr.insert(trigger.start, referenceNode);
+        const nextSelectionPos = trigger.start + referenceNode.nodeSize;
+        tr.insertText(" ", nextSelectionPos);
+        tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
+        view.dispatch(tr.scrollIntoView());
+        closeInternalReferencePicker();
+      };
+      const request = ++referenceSelectionRequestRef.current;
+      if (reference.kind !== "document") { insert(); return true; }
+      const before = view.state;
+      const identity = referenceSelectionContextRef.current;
+      const stillCurrent = () => {
+        const current = referenceSelectionContextRef.current;
+        const picker = referencePickerRef.current;
+        return !view.isDestroyed && !current.readOnly && current.contentIdentity === identity.contentIdentity
+          && current.recordKey === identity.recordKey && current.context?.scope === identity.context?.scope
+          && current.context?.projectId === identity.context?.projectId && request === referenceSelectionRequestRef.current
+          && view.state.doc === before.doc && view.state.selection.eq(before.selection)
+          && picker?.start === trigger.start && picker.end === trigger.end && picker.query === trigger.query;
+      };
+      // Only a deliberate picker selection may attach evidence; preview and
+      // autosave never initiate this read or convert a path into a fixed ref.
+      void (async () => {
+        try {
+          const binding = (await agentApi.statusGet()).binding;
+          if (!binding) throw new Error("请先打开工作区");
+          if (identity.recordKey && !identity.recordKey.startsWith(`${binding.workspaceId}:`))
+            throw new Error("工作区已切换，请重新选择引用");
+          if (reference.projectId === null || !reference.projectId
+            || (identity.context?.scope === "project" && reference.projectId !== identity.context.projectId))
+            throw new Error("文件不属于引用所在项目");
+          const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: reference.projectId },
+            kind: "file", id: String(reference.id) };
+          const file = await projectFileApi.resolve(binding, object);
+          if (file.state !== "ready" || !file.contentHash) throw new Error(file.reason || "文件版本尚不可读取");
+          const bytes = await projectFileApi.readBytes(binding, { object, versionNumber: file.versionNumber, expectedContentHash: file.contentHash });
+          const current = (await agentApi.statusGet()).binding;
+          if (!current || current.workspaceId !== binding.workspaceId || current.generation !== binding.generation)
+            throw new Error("工作区已切换，请重新选择引用");
+          if (!stillCurrent()) throw new Error("编辑内容或引用位置已变化，请重新选择文件");
+          target.sourceRef = validateInternalReferenceSourceRef({ object: bytes.object, revision: bytes.contentHash, fileVersion: bytes.versionNumber,
+            recordVersion: null, blockId: null, locator: null, title: bytes.name, excerpt: "" });
+          insert();
+        } catch (failure) {
+          pushToast({ tone: "error", title: "插入文件引用失败", detail: failure instanceof Error ? failure.message : String(failure) });
+        }
+      })();
       return true;
     },
-    [closeInternalReferencePicker],
+    [closeInternalReferencePicker, pushToast],
   );
 
   const closeContactMentionPicker = useCallback(() => {
@@ -1606,7 +1664,19 @@ export function RichEditor({
         return false;
       },
     },
+    onBeforeCreate: ({ editor: nextEditor }) => {
+      if (session && session.identity === contentIdentity && session.recordKey === recordKey) {
+        // Extension plugins (including trailing nodes) must be built against
+        // the same schema as the restored history's steps and document.
+        nextEditor.schema = session.state.schema;
+        nextEditor.extensionManager.schema = session.state.schema;
+      }
+    },
     onCreate: ({ editor: nextEditor }) => {
+      if (session && session.identity === contentIdentity && session.recordKey === recordKey) {
+        nextEditor.view.updateState(session.state.reconfigure({ plugins: nextEditor.state.plugins }));
+        lastPersistedHtmlRef.current = session.persistedHtml;
+      }
       captureCommittedValue(nextEditor);
       updatePersistState("idle");
     },
@@ -2431,6 +2501,18 @@ export function RichEditor({
     }
 
     controllerRef.current = {
+      isBusy: () => saveInFlightRef.current || assetBusyRef.current !== null,
+      captureSession: () => {
+        if (!editor || saveInFlightRef.current || assetBusyRef.current !== null
+          || rewriteSessionsRef.current.length > 0) return null;
+        return {
+          identity: contentIdentity, recordKey,
+          // Only history needs plugin state across mounts. Other plugin fields
+          // may hold view decorations or UI callbacks and are freshly initialized.
+          state: editor.state.reconfigure({ plugins: editor.state.plugins.filter((plugin) => "key" in plugin && typeof plugin.key === "string" && plugin.key.startsWith("history$")) }),
+          committedValue: captureCommittedValue(editor), persistedHtml: lastPersistedHtmlRef.current,
+        };
+      },
       getValue: getCurrentValue,
       getCommittedValue: () => latestCommittedValueRef.current ?? getCurrentValue(),
       getDocumentJson: () => editor?.getJSON() ?? { type: "doc", content: [] },
@@ -2505,7 +2587,14 @@ export function RichEditor({
     return () => {
       controllerRef.current = null;
     };
-  }, [captureCommittedValue, clearChangePublishTimer, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState]);
+  }, [captureCommittedValue, clearChangePublishTimer, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState, contentIdentity, recordKey]);
+
+  useEffect(() => {
+    if (editor && !saveInFlightRef.current && assetBusy === null
+      && rewriteSessions.length === 0 && persistState !== "saving" && persistState !== "error") {
+      onSessionReady?.();
+    }
+  }, [editor, assetBusy, rewriteSessions.length, persistState, onSessionReady]);
 
   useEffect(() => {
     if (!editor || !sourceBlockNavigation) return;
@@ -4524,6 +4613,13 @@ export function RichEditor({
         ref={frameRef}
         className="rich-editor__frame"
         onKeyDownCapture={(event) => {
+          if (!effectiveReadOnly && !event.nativeEvent.isComposing
+            && event.key.toLowerCase() === "s" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleManualSave({ force: true }).catch(() => undefined);
+            return;
+          }
           if (
             !event.nativeEvent.isComposing &&
             event.key.toLowerCase() === "f" &&

@@ -1,5 +1,6 @@
 import { create } from "zustand";
-interface ProjectFileRequest { projectId: number; path: string; line?: number }
+import type { AgentSourceRef } from "./agent-types";
+interface ProjectFileRequest { projectId: number; path: string; line?: number; originSessionId?: string; sourceRef?: AgentSourceRef }
 interface ProjectFileNavigation {
   request: ProjectFileRequest | null;
   revisions: Record<number, number>;
@@ -14,8 +15,8 @@ export const useProjectFileNavigation = create<ProjectFileNavigation>(set => ({
   close: () => set({ request: null }),
   refresh: projectId => set(state => ({ revisions: { ...state.revisions, [projectId]: (state.revisions[projectId] ?? 0) + 1 } })),
 }));
-export function openProjectFilePreview(projectId: number, path: string, line?: number) {
-  useProjectFileNavigation.getState().open({ projectId, path, line });
+export function openProjectFilePreview(projectId: number, path: string, line?: number, originSessionId?: string, sourceRef?: AgentSourceRef) {
+  useProjectFileNavigation.getState().open({ projectId, path, line, originSessionId, sourceRef });
 }
 export function notifyProjectFilesChanged(projectId: number) {
   useProjectFileNavigation.getState().refresh(projectId);

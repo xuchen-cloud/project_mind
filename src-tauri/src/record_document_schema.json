@@ -14,6 +14,7 @@
       "attrs": {
         "refKind": "note",
         "refId": null,
+        "sourceRef": null,
         "label": "未命名引用"
       },
       "group": "inline"

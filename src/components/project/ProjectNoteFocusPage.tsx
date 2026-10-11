@@ -61,6 +61,19 @@ import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
 import { useRecordClipboard } from "../../hooks/useRecordClipboard";
 
+import type { RichEditorSession } from "../rich-editor/RichEditor";
+
+export interface ProjectNoteFocusPageProps {
+  projectIdOverride?: number;
+  recordIdOverride?: number;
+  visible?: boolean;
+  focused?: boolean;
+  embedded?: boolean;
+  searchParamsOverride?: URLSearchParams;
+  onBack?: () => void;
+  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
+}
+
 interface ProjectRecordDraft {
   title: string;
   content: RichEditorValue;
@@ -73,14 +86,16 @@ export function ProjectNoteFocusPage({
   projectIdOverride,
   recordIdOverride,
   visible = true,
-}: {
-  projectIdOverride?: number;
-  recordIdOverride?: number;
-  visible?: boolean;
-} = {}) {
+  focused = visible,
+  embedded = false,
+  searchParamsOverride,
+  onBack,
+  registerCloseGuard,
+}: ProjectNoteFocusPageProps = {}) {
   const navigate = useNavigate();
   const params = useParams();
-  const [searchParams] = useSearchParams();
+  const [routeSearchParams] = useSearchParams();
+  const searchParams = searchParamsOverride ?? routeSearchParams;
   const queryClient = useQueryClient();
   const workspaceSaveCoordinator = useRecordSaveCoordinator();
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
@@ -128,6 +143,19 @@ export function ProjectNoteFocusPage({
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const tagInputRef = useRef<HTMLInputElement | null>(null);
   const editorControllerRef = useRef<RichEditorController | null>(null);
+  const editorSessionRef = useRef<RichEditorSession | null>(null);
+  const [editorPaused, setEditorPaused] = useState(false);
+  const [sessionReadyRevision, setSessionReadyRevision] = useState(0);
+  const pausedScrollTopRef = useRef<number | null>(null);
+  const onSessionReady = useCallback(() => {
+    if (visibleRef.current && pausedScrollTopRef.current !== null && focusScrollRef.current) {
+      focusScrollRef.current.scrollTop = pausedScrollTopRef.current;
+      pausedScrollTopRef.current = null;
+    }
+    setSessionReadyRevision((value) => value + 1);
+  }, []);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const resolvingConflictRef = useRef(false);
   const lastSavedTitleRef = useRef(initialDraft?.title ?? "");
   const titleValueRef = useRef(initialDraft?.title ?? "");
@@ -199,8 +227,14 @@ export function ProjectNoteFocusPage({
     target: projectId !== null && recordId !== null ? { scope: { kind: "project", projectId }, recordId } : null,
     coordinator: saveCoordinator, enabled: draftReady,
     flushEditor: async () => {
+      if (canonical.incomingConflict || canonical.syncError || resolvingConflictRef.current) return "busy";
       const editor = editorControllerRef.current;
-      if (!editor) return "busy";
+      if (!editor && editorSessionRef.current) {
+        if (!submitCurrentRecord()) return "busy";
+        await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
+        return "saved";
+      }
+      if (!editor || editor.isBusy()) return "busy";
       if (editor.getPendingAiReviewCount() > 0) return "review_pending";
       const signature = () => JSON.stringify({ title: titleValueRef.current, tags: tagIdsValueRef.current,
         language: codeLanguageValueRef.current, document: editor.getCommittedDocumentJson() });
@@ -214,13 +248,21 @@ export function ProjectNoteFocusPage({
       const sameTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
         === [...previous.metadata.tagIds].sort((a, b) => a - b).join(",");
       if (titleValueRef.current !== (previous.metadata.title ?? "") || !sameTags
-        || codeLanguageValueRef.current !== previous.codeLanguage
-        || !editorControllerRef.current?.applyIncomingContent(state.record.contentHtml ?? "<p></p>")) return false;
+        || codeLanguageValueRef.current !== previous.codeLanguage) return false;
+      const editor = editorControllerRef.current;
+      if (editor) {
+        if (!editor.applyIncomingContent(state.record.contentHtml ?? "<p></p>")) return false;
+      } else {
+        // A paused editor has already saved and has no pending AI preview.
+        // Incoming committed content replaces its old in-memory editor state.
+        if (!editorSessionRef.current || !editorPaused) return false;
+        editorSessionRef.current = null;
+      }
       const draft = recordFocusDraftFromRecord(state.record);
       setTitle(draft.title); titleValueRef.current = draft.title;
       lastSavedTitleRef.current = draft.title;
       setTagIds(draft.tagIds); tagIdsValueRef.current = draft.tagIds;
-      setContent(editorControllerRef.current.getCommittedValue());
+      setContent(editor?.getCommittedValue() ?? draft.content);
       setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
       lastSavedUpdatedAtRef.current = state.record.updatedAt;
       return true;
@@ -233,6 +275,8 @@ export function ProjectNoteFocusPage({
     canonical.state?.head.headRevision ?? null);
   useLayoutEffect(() => {
     if (!canonical.state || !canonical.loadIdentity || hydratedRecordKey === canonical.loadIdentity) return;
+    editorSessionRef.current = null;
+    setEditorPaused(false);
     const pending = projectId !== null && recordId !== null
       ? saveCoordinator.getLatestSnapshot(projectRecordSaveKey(projectId, recordId)) : null;
     const draft = pending ? recordFocusDraftFromSnapshot(pending) : recordFocusDraftFromRecord(canonical.state.record);
@@ -302,13 +346,13 @@ export function ProjectNoteFocusPage({
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
       if (resolvingConflictRef.current || !editingReady || projectId === null || recordId === null) return false;
-      const document = editorControllerRef.current?.getCommittedDocumentJson();
+      const document = editorControllerRef.current?.getCommittedDocumentJson() ?? editorSessionRef.current?.state.doc.toJSON();
       if (!document) return false;
       const canonicalBody = canonical.capture(document, origin);
       if (!canonicalBody) return false;
       const committed =
         value ??
-        editorControllerRef.current?.getCommittedValue() ??
+        editorControllerRef.current?.getCommittedValue() ?? editorSessionRef.current?.committedValue ??
         Object.freeze({ ...content });
       // Keep the controlled prop in lockstep with the exact snapshot sent to
       // the save coordinator so a pending AI session cannot reconcile against
@@ -334,7 +378,7 @@ export function ProjectNoteFocusPage({
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
       if (!submitCurrentRecord(value)) return false;
-      await saveCoordinator.flush();
+      await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
       return true;
     },
     [saveCoordinator, submitCurrentRecord],
@@ -355,7 +399,7 @@ export function ProjectNoteFocusPage({
   const saveCurrentRecord = useCallback(async () => {
     if (!submitCurrentRecord()) return false;
     try {
-      await saveCoordinator.flush();
+      await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
       setPersistState("saved");
       return true;
     } catch (error) {
@@ -387,7 +431,6 @@ export function ProjectNoteFocusPage({
   }, [recordId, projectId, saveCoordinator]);
 
   useEffect(() => {
-    if (!visible) return;
     const handleSaveRequest = (event: Event) => {
       const detail = (event as CustomEvent<ProjectRecordFocusSaveRequestDetail>).detail;
       if (!detail || detail.projectId !== projectId || detail.recordId !== recordId) {
@@ -401,7 +444,68 @@ export function ProjectNoteFocusPage({
     return () => {
       window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     };
-  }, [draftReady, recordId, projectId, submitCurrentRecord, visible]);
+  }, [draftReady, recordId, projectId, submitCurrentRecord]);
+
+  const closeStateRef = useRef({ conflict: false, syncError: false });
+  closeStateRef.current = { conflict: !!canonical.incomingConflict, syncError: !!canonical.syncError };
+  const closeGuardRef = useRef<() => Promise<void>>(async () => undefined);
+  closeGuardRef.current = async () => {
+    if (!draftReady) {
+      return;
+    }
+    if (canonical.incomingConflict || canonical.syncError || resolvingConflictRef.current) {
+      throw new Error("记录存在冲突或同步失败，请处理后关闭");
+    }
+    const editor = editorControllerRef.current;
+    if ((editor?.getPendingAiReviewCount() ?? 0) > 0) throw new Error("请先处理待审阅 AI 修改");
+    if (editor?.isBusy() || (!editor && !editorSessionRef.current)) throw new Error("编辑器忙碌，请稍后关闭");
+    const signature = () => JSON.stringify({ title: titleValueRef.current, tags: tagIdsValueRef.current,
+      language: codeLanguageValueRef.current,
+      document: editorControllerRef.current?.getCommittedDocumentJson() ?? editorSessionRef.current?.state.doc.toJSON() });
+    const before = signature();
+    if (!submitCurrentRecord()) throw new Error("编辑器尚未就绪，草稿已保留");
+    try {
+      await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
+      // Recheck after I/O: preview, conflict and ordinary edits may have changed.
+      const currentEditor = editorControllerRef.current;
+      if ((currentEditor?.getPendingAiReviewCount() ?? 0) > 0 || currentEditor?.isBusy()
+        || closeStateRef.current.conflict || closeStateRef.current.syncError || signature() !== before) {
+        throw new Error("记录状态已变化，请稍后关闭");
+      }
+      setPersistState("saved");
+    } catch (error) {
+      setPersistState("error");
+      throw error;
+    }
+  };
+  const identityRef = useRef(`${projectId}:${recordId}`);
+  identityRef.current = `${projectId}:${recordId}`;
+  useEffect(() => {
+    const identity = `${projectId}:${recordId}`;
+    return registerCloseGuard?.(async () => {
+      if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
+      await closeGuardRef.current();
+      if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
+    });
+  }, [registerCloseGuard, projectId, recordId]);
+
+  useEffect(() => {
+    if (visible) { setEditorPaused(false); return; }
+    if (!embedded || !editingReady || editorPaused || persistState === "error") return;
+    let cancelled = false;
+    void closeGuardRef.current().then(() => {
+      if (cancelled || visibleRef.current) return;
+      const session = editorControllerRef.current?.captureSession();
+      if (!session) return;
+      editorSessionRef.current = session;
+      pausedScrollTopRef.current = focusScrollRef.current?.scrollTop ?? 0;
+      setEditorPaused(true);
+    }).catch(() => { /* Failed or pending-review pages retain their live editor. */ });
+    return () => { cancelled = true; };
+  }, [visible, embedded, editingReady, editorPaused, sessionReadyRevision]);
+  useEffect(() => {
+    if (canonical.incomingConflict || canonical.syncError || persistState === "error") setEditorPaused(false);
+  }, [canonical.incomingConflict, canonical.syncError, persistState]);
 
   const saveTitleIfChanged = async () => {
     if (!draftReady || titleValueRef.current === lastSavedTitleRef.current) {
@@ -417,14 +521,16 @@ export function ProjectNoteFocusPage({
     }
 
     event.preventDefault();
+    const input = event.currentTarget;
     void saveTitleIfChanged()
       .then(() => {
-        tagInputRef.current?.focus();
+        if (visibleRef.current && input.isConnected && document.activeElement === input) tagInputRef.current?.focus();
       })
       .catch(() => undefined);
   };
 
   const handleBack = () => {
+    if (onBack) { onBack(); return; }
     const target = projectId === null
       ? `${workspacePath()}?view=record`
       : projectPath(projectId, draftReady ? `record-${recordId}` : undefined);
@@ -630,11 +736,13 @@ export function ProjectNoteFocusPage({
                   const next = editorControllerRef.current?.appendMarkdown(minutes);
                   if (!next || !submitCurrentRecord(next)) throw new Error("未能写入正文");
                   setContent(next);
-                  await saveCoordinator.flush();
+                  await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
                 }}
               />
             ) : null}
-            <RichEditor
+            {(!editorPaused || visible) ? <RichEditor
+              session={editorSessionRef.current}
+              onSessionReady={onSessionReady}
               key={canonical.loadIdentity ?? `${projectId}:${recordId}:loading`}
               contentIdentity={`project-record:${projectId}:${recordId}`}
               recordKey={canonical.recordKey}
@@ -650,7 +758,7 @@ export function ProjectNoteFocusPage({
               }}
               variant="page"
               showToolbar={false}
-              autoFocus={visible && !hasSavedPosition && !sourceNavigation.requested}
+              autoFocus={focused && visible && !editorSessionRef.current && !hasSavedPosition && !sourceNavigation.requested}
               readOnly={!visible || !editingReady}
               placeholder="写记录，正文里的 #标签 会自动同步。"
               assetHandlers={assetHandlers}
@@ -684,12 +792,12 @@ export function ProjectNoteFocusPage({
               onBeforeAiCommit={() => submitCurrentRecord()}
               onAiCommit={(value) => { submitCurrentRecord(value, "editor_ai"); }}
               onPersistStateChange={setPersistState}
-            />
+            /> : null}
           </div>
         </div>
       </div>
       </div>
-      <HomeWorkspaceRail>
+      {!embedded ? <HomeWorkspaceRail>
         <TodoModuleRail
           scope={projectTodoViewMode === "workspace" ? { kind: "workspace" } : { kind: "current-project", projectId }}
           enabled={visible}
@@ -700,7 +808,7 @@ export function ProjectNoteFocusPage({
           onOpenInternalReference={openInternalReference}
           onOpenContactMention={openContactMention}
         />
-      </HomeWorkspaceRail>
+      </HomeWorkspaceRail> : null}
     </div>
   );
 }

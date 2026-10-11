@@ -23,9 +23,9 @@ vi.mock("@project-mind/dsh-ui/adapters", () => ({
 }));
 const props = { open: true, expanded: true, workspaceRoot: "/workspace", projectId: 1, onClose: vi.fn(), onToggleExpanded: vi.fn() };
 const starts = () => mocks.command.mock.calls.filter(([command]) => command === "dsh_assistant_start");
-function setup(initial = props, strict = false) {
+function setup(initial: typeof props & { onOpenSession?: (id: string, title: string) => void } = props, strict = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const shell = (value: typeof props) => <QueryClientProvider client={client}>{strict ? <StrictMode><DshAssistantPanel {...value} /></StrictMode> : <DshAssistantPanel {...value} />}</QueryClientProvider>;
+  const shell = (value: typeof initial) => <QueryClientProvider client={client}>{strict ? <StrictMode><DshAssistantPanel {...value} /></StrictMode> : <DshAssistantPanel {...value} />}</QueryClientProvider>;
   const view = render(shell(initial));
   return { ...view, client, update: (value: Partial<typeof props>) => view.rerender(shell({ ...initial, ...value })) };
 }
@@ -101,12 +101,12 @@ describe("React DSH project shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "项目会话" })); fireEvent.click(screen.getByRole("button", { name: "项目会话" }));
     await waitFor(() => expect(mocks.command.mock.calls.filter(([command]) => command === "dsh_assistant_sessions")).toHaveLength(3));
   });
-  it("keeps the executing Host, defers config refresh and prevents project replacement", async () => {
+  it("keeps the executing Host, defers its config refresh and allows a different Project panel", async () => {
     const view = setup(); await screen.findByTestId("host");
     act(() => mocks.hosts.at(-1)!.onBusyChange?.(true));
     expect(screen.getByRole("button", { name: "新建会话" })).toBeDisabled();
     act(() => { view.client.setQueryData(queryKeys.aiSettings, { bindings: [], profiles: [], aiSecretsUnlocked: true }); useAgentPanelStore.getState().openPanel("/workspace", { kind: "project", projectId: 2 }); });
-    expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 1 }); expect(starts()).toHaveLength(1); expect(mocks.unmounts).toBe(0);
+    expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }); expect(starts()).toHaveLength(1); expect(mocks.unmounts).toBe(0);
     view.update({ open: false }); expect(useAgentPanelStore.getState().runningBinding).not.toBeNull();
     view.update({ open: true }); act(() => mocks.hosts.at(-1)!.onBusyChange?.(false));
     await waitFor(() => expect(starts()).toHaveLength(2)); await screen.findByTestId("host");
@@ -114,7 +114,7 @@ describe("React DSH project shell", () => {
   it("queues unopened assistant references until Host and actual session are ready, reports insertion failure", async () => {
     const view = setup({ ...props, open: false });
     act(() => requestDshFileReference(1, "src/main.ts")); expect(useAgentPanelStore.getState().open).toBe(true); expect(mocks.insert).not.toHaveBeenCalled();
-    view.update({ open: true }); await waitFor(() => expect(mocks.insert).toHaveBeenCalledWith(1, "src/main.ts"));
+    view.update({ open: true }); await waitFor(() => expect(mocks.insert).toHaveBeenCalledWith(1, "saved", "src/main.ts", undefined));
     mocks.insert.mockRejectedValueOnce(new Error("引用失败")); act(() => requestDshFileReference(1, "other.ts"));
     await waitFor(() => expect(useFeedbackStore.getState().toasts[0]?.detail).toBe("引用失败"));
     expect(mocks.insert).toHaveBeenCalledTimes(2);
@@ -122,6 +122,7 @@ describe("React DSH project shell", () => {
   it("restores history without creating a session and replaces a deleted current session with a real ID", async () => {
     setup(); await screen.findByTestId("host");
     expect(screen.getByTestId("host")).toHaveAttribute("data-session", "saved");
+    await waitFor(() => expect(screen.getByRole("button", { name: "项目会话" })).toBeEnabled());
     expect(mocks.command).toHaveBeenCalledWith("dsh_assistant_select_session", { projectId: 1, sessionId: "saved" });
     fireEvent.click(screen.getByRole("button", { name: "项目会话" }));
     fireEvent.click(await screen.findByRole("button", { name: "删除会话 历史会话" }));
@@ -158,6 +159,21 @@ describe("React DSH project shell", () => {
   it("forwards only current-project file callbacks to the main app", async () => {
     setup(); await screen.findByTestId("host");
     act(() => { mocks.hosts.at(-1)!.onFileOpen?.("src/main.ts", 12); mocks.hosts.at(-1)!.onFilesChanged?.(); });
-    expect(mocks.file).toHaveBeenCalledWith(1, "src/main.ts", 12); expect(mocks.changed).toHaveBeenCalledWith(1);
+    expect(mocks.file).toHaveBeenCalledWith(1, "src/main.ts", 12, "saved", undefined); expect(mocks.changed).toHaveBeenCalledWith(1);
   });
+});
+
+it('uses the callback mode as a list/create launcher without duplicating a conversation editor', async () => {
+  const onOpenSession = vi.fn();
+  setup({ ...props, onOpenSession });
+  await waitFor(() => expect(screen.getByRole('button', { name: '项目会话' })).toBeEnabled());
+  expect(mocks.mounts).toBe(0);
+  expect(onOpenSession).not.toHaveBeenCalled();
+  expect(mocks.command).not.toHaveBeenCalledWith('dsh_assistant_select_session', expect.anything());
+  fireEvent.click(screen.getByRole('button', { name: '项目会话' }));
+  fireEvent.click(await screen.findByRole('button', { name: '历史会话' }));
+  await waitFor(() => expect(onOpenSession).toHaveBeenCalledWith('saved', '历史会话'));
+  fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+  await waitFor(() => expect(onOpenSession).toHaveBeenCalledWith('actual-created', '新会话'));
+  expect(mocks.mounts).toBe(0);
 });

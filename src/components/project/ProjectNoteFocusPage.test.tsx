@@ -10,7 +10,7 @@ import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   requestProjectRecordFocusSave,
 } from "../../lib/record-focus-save";
-import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
+import { RecordSaveCoordinator, RecordSaveFailure } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
@@ -23,6 +23,8 @@ vi.mock("../../todo", () => ({
 }));
 
 const richEditorMocks = vi.hoisted(() => ({
+  pendingReviews: 0,
+  busy: false,
   focus: vi.fn(),
   sourceReveal: vi.fn((_blockId: string) => true),
 }));
@@ -41,6 +43,12 @@ const aiMetadataMocks = vi.hoisted(() => ({
 
 import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test/recordDocumentFixture";
 import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
+import type { RecordHeadChanged } from "../../lib/record-document-events";
+const headChanges = vi.hoisted(() => ({ listeners: new Set<(event: RecordHeadChanged) => void>() }));
+vi.mock("../../lib/record-document-events", () => ({ subscribeRecordHeadChanges: async (listener: (event: RecordHeadChanged) => void) => {
+  headChanges.listeners.add(listener);
+  return () => { headChanges.listeners.delete(listener); };
+} }));
 const recordMocks = vi.hoisted(() => ({
   queryClient: null as QueryClient | null,
   saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), metadataGet: vi.fn(), metadataApply: vi.fn(),
@@ -127,6 +135,8 @@ vi.mock("../rich-editor", () => ({
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => value,
   RichEditor: ({
     html,
+    session,
+    onSessionReady,
     controllerRef,
     onSave,
     variant,
@@ -137,6 +147,8 @@ vi.mock("../rich-editor", () => ({
     onSourceBlockResult,
   }: {
     html?: string;
+    session?: { committedValue: { markdown: string } } | null;
+    onSessionReady?: () => void;
     onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown>;
     variant?: string;
     showToolbar?: boolean;
@@ -146,6 +158,10 @@ vi.mock("../rich-editor", () => ({
     onSourceBlockResult?: (located: boolean) => void;
     controllerRef?: {
       current: {
+        captureSession: () => object | null;
+        isBusy: () => boolean;
+        getPendingAiReviewCount: () => number;
+        acknowledgeCommittedContent: ReturnType<typeof vi.fn>;
         getValue: () => { html: string; text: string; markdown: string };
         getCommittedValue: () => { html: string; text: string; markdown: string };
         getCommittedDocumentJson: () => ReturnType<typeof fixtureDocument>;
@@ -154,7 +170,7 @@ vi.mock("../rich-editor", () => ({
       } | null;
     };
   }) => {
-    const [value, setValue] = useState(toPlainText(html ?? ""));
+    const [value, setValue] = useState(session?.committedValue.markdown ?? toPlainText(html ?? ""));
     const valueRef = useRef(value);
     valueRef.current = value;
     useEffect(() => {
@@ -167,6 +183,13 @@ vi.mock("../rich-editor", () => ({
       }
 
       controllerRef.current = {
+        captureSession: () => richEditorMocks.busy || richEditorMocks.pendingReviews ? null : ({
+          committedValue: buildMockRichValue(valueRef.current),
+          state: { doc: { toJSON: () => fixtureDocument(valueRef.current) } },
+        }),
+        isBusy: () => richEditorMocks.busy,
+        getPendingAiReviewCount: () => richEditorMocks.pendingReviews,
+        acknowledgeCommittedContent: vi.fn(),
         getValue: () => buildMockRichValue(valueRef.current),
         getCommittedValue: () => buildMockRichValue(valueRef.current.replace("[AI preview]", "")),
         getCommittedDocumentJson: () => fixtureDocument(valueRef.current.replace("[AI preview]", "")),
@@ -178,6 +201,7 @@ vi.mock("../rich-editor", () => ({
         controllerRef.current = null;
       };
     }, [controllerRef, onSave]);
+    useEffect(() => { onSessionReady?.(); }, [onSessionReady]);
 
     return (
       <textarea
@@ -352,6 +376,9 @@ function ResidentFocusVisibilityHarness() {
 
 describe("ProjectNoteFocusPage keyboard flow", () => {
   beforeEach(() => {
+    headChanges.listeners.clear();
+  richEditorMocks.pendingReviews = 0;
+  richEditorMocks.busy = false;
     recordMocks.queryClient = null;
     recordMocks.bodySave.mockReset();
     recordMocks.editorGet.mockReset();
@@ -532,17 +559,18 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const hiddenSaveCount = persist.mock.calls.length;
     let result;
     act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
-    expect(result).toBe("unhandled");
-    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount);
+    expect(result).toBe("submitted");
+    await coordinator.flush();
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 1);
 
     await user.click(screen.getByRole("button", { name: "切换可见性" }));
     act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
     expect(result).toBe("submitted");
     await coordinator.flush();
-    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 1);
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 2);
   });
 
-  it.each([false, true])("hidden resident navigation save is unhandled with draft=%s", (hasDraft) => {
+  it.each([false, true])("hidden resident navigation save responds by identity with draft=%s", (hasDraft) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     if (hasDraft) queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     const persist = vi.fn(async () => ({}));
@@ -560,9 +588,165 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     let result;
     act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
 
-    expect(result).toBe("unhandled");
+    expect(result).toBe(hasDraft ? "failed" : "not_needed");
     expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
     expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("keeps two visible pages editable with independent source positions, focus and saves", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), { ...buildProjectPage(), records: [currentNote, { ...baseNote, id: 8, title: "Second", contentHtml: "<p>Other</p>" }] });
+    const persist = vi.fn(async (value) => ({ headRevision: value.canonicalBody.baseRevision + 1 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const guards = new Map<number, () => Promise<void>>();
+    const register = (id: number) => (guard: () => Promise<void>) => { guards.set(id, guard); return () => { guards.delete(id); }; };
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}>
+      <ProjectNoteFocusPage projectIdOverride={1} recordIdOverride={7} visible focused={false} embedded
+        searchParamsOverride={new URLSearchParams("sourceBlock=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")} registerCloseGuard={register(7)} />
+      <ProjectNoteFocusPage projectIdOverride={1} recordIdOverride={8} visible focused embedded
+        searchParamsOverride={new URLSearchParams("sourceBlock=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")} registerCloseGuard={register(8)} />
+    </RecordSaveCoordinatorProvider>, queryClient);
+    await waitFor(() => expect(screen.getAllByLabelText("正文编辑器").every((editor) => !editor.hasAttribute("readonly"))).toBe(true));
+    expect(screen.queryByLabelText("笔记待办")).not.toBeInTheDocument();
+    expect(richEditorMocks.sourceReveal).toHaveBeenCalledWith("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(richEditorMocks.sourceReveal).toHaveBeenCalledWith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    fireEvent.change(screen.getAllByLabelText("正文编辑器")[0], { target: { value: "Changed[AI preview]" } });
+    await act(async () => { await guards.get(7)!(); });
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ recordId: 7, committedContent: expect.objectContaining({ markdown: "Changed" }) }));
+    expect(persist.mock.calls.some(([snapshot]) => snapshot.recordId === 8)).toBe(false);
+  });
+
+  it.each(["save", "conflict", "review", "busy"])("preserves the editor and rejects explicit close on %s failure", async (failure) => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async () => {
+      if (failure === "conflict") throw new RecordSaveFailure("revision conflict", { retryable: false, code: "REVISION_CONFLICT" });
+      throw new Error("save failed");
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    fireEvent.change(editor, { target: { value: "Kept[AI preview]" } });
+    richEditorMocks.pendingReviews = failure === "review" ? 1 : 0;
+    richEditorMocks.busy = failure === "busy";
+    await act(async () => { await expect(guard()).rejects.toThrow(); });
+    expect(editor).toBeInTheDocument();
+    expect(editor).toHaveValue("Kept[AI preview]");
+    if (failure === "save" || failure === "conflict") expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("Kept");
+    else expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("closes only its own save queue even when another Record has a failed save", async () => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async (snapshot) => {
+      if (snapshot.recordId === 8) throw new Error("other Record failed");
+      return { headRevision: snapshot.canonicalBody.baseRevision + 1 };
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    coordinator.submit({ scope: "project", workspaceKey: "/tmp/workspace", projectId: 1, recordId: 8,
+      title: "Other", tagIds: [], defaultCodeLanguage: null, committedContent: buildMockRichValue("Other") });
+    await expect(coordinator.flush("project:1:8")).rejects.toThrow("other Record failed");
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    expect(coordinator.getRecordStatus("project:1:8").phase).toBe("error");
+    expect(coordinator.getRecordStatus("project:1:7").phase).toBe("idle");
+  });
+
+  it("retains the same editor and draft when its stable parent changes grid columns", async () => {
+    function Harness() {
+      const [column, setColumn] = useState(1);
+      return <><button onClick={() => setColumn(2)}>Move Record</button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+          <div key="record-7" style={{ gridColumn: column }}><ProjectNoteFocusPage embedded /></div>
+        </div></>;
+    }
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    fireEvent.change(editor, { target: { value: "Moved draft" } });
+    fireEvent.click(screen.getByText("Move Record"));
+    expect(screen.getByDisplayValue("Moved draft")).toBe(editor);
+    act(() => { expect(requestProjectRecordFocusSave({ projectId: 1, recordId: 7 })).toBe("submitted"); });
+    await waitFor(() => expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(expect.objectContaining({ noteId: 7, markdown: "Moved draft" })));
+  });
+
+  it("keeps a hidden page with pending AI review mounted and permits missing objects without a draft to close", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    const guards = new Map<number, () => Promise<void>>();
+    const register = (id: number) => (value: () => Promise<void>) => { guards.set(id, value); return () => undefined; };
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(false)}>Hide pending</button>
+        <ProjectNoteFocusPage embedded visible={visible} registerCloseGuard={register(7)} />
+        <ProjectNoteFocusPage embedded projectIdOverride={1} recordIdOverride={999} visible={false} registerCloseGuard={register(999)} />
+      </>;
+    }
+    render(<Harness />, queryClient);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    richEditorMocks.pendingReviews = 1;
+    fireEvent.change(editor, { target: { value: "Normal[AI preview]" } });
+    fireEvent.click(screen.getByText("Hide pending"));
+    await act(async () => { await expect(guards.get(7)!()).rejects.toThrow("AI"); });
+    expect(editor).toBeInTheDocument();
+    expect(editor).toHaveValue("Normal[AI preview]");
+    await expect(guards.get(999)!()).resolves.toBeUndefined();
+  });
+
+  it("pauses a safely saved hidden embedded editor and restores its draft on return", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: {
+      persist: vi.fn(async (value) => ({ headRevision: value.canonicalBody.baseRevision + 1 })),
+    } });
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(!visible)}>Toggle embedded</button>
+        <ProjectNoteFocusPage embedded visible={visible} /></>;
+    }
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><Harness /></RecordSaveCoordinatorProvider>, queryClient);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const scroll = screen.getByTestId("project-record-focus-scroll");
+    scroll.scrollTop = 184;
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "Suspended draft" } });
+    fireEvent.click(screen.getByText("Toggle embedded"));
+    await waitFor(() => expect(screen.queryByLabelText("正文编辑器")).not.toBeInTheDocument());
+    let outcome;
+    act(() => { outcome = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+    expect(outcome).toBe("submitted");
+    scroll.scrollTop = 0;
+    fireEvent.click(screen.getByText("Toggle embedded"));
+    expect(await screen.findByDisplayValue("Suspended draft")).toBeInTheDocument();
+    expect(scroll.scrollTop).toBe(184);
+  });
+
+  it("accepts committed Agent content while a saved embedded editor is paused", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(value => !value)}>Toggle incoming</button><ProjectNoteFocusPage embedded visible={visible} /></>;
+    }
+    render(<Harness />, client);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.click(screen.getByText("Toggle incoming"));
+    await waitFor(() => expect(screen.queryByLabelText("正文编辑器")).not.toBeInTheDocument());
+    const target: RecordTarget = { scope: { kind: "project", projectId: 1 }, recordId: 7 };
+    const incoming = fixtureEditorState(target, { ...currentNote, contentMarkdown: "Agent committed", contentHtml: "<p>Agent committed</p>" });
+    incoming.head.headRevision = 9;
+    recordMocks.editorGet.mockResolvedValue(incoming);
+    await act(async () => {
+      for (const listener of headChanges.listeners) listener({ binding: { workspaceId: "fixture-workspace", generation: "open-1" }, target,
+        requestId: "agent-update", headRevision: 9, metadataRevision: null });
+    });
+    fireEvent.click(screen.getByText("Toggle incoming"));
+    expect(await screen.findByDisplayValue("Agent committed")).toBeInTheDocument();
+    expect(screen.queryByText(/记录已在其他位置更新/)).not.toBeInTheDocument();
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {
@@ -709,6 +893,24 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     );
     expect(apiMocks.projectRecordUpsert).not.toHaveBeenCalled();
     expect(recordMocks.bodySave).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ metadata: expect.objectContaining({ title: "新标题" }) }), expect.any(String));
+  });
+
+  it("does not steal body focus when title saving completes after the reader moved on", async () => {
+    let finish!: (record: NoteRecord) => void;
+    recordMocks.saveProjectRecord.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const user = userEvent.setup();
+    render(<ProjectNoteFocusPage />);
+    const title = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(title).toBeEnabled());
+    await user.clear(title);
+    await user.type(title, "新标题");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(recordMocks.saveProjectRecord).toHaveBeenCalledOnce());
+    const body = screen.getByRole("textbox", { name: "正文编辑器" });
+    body.focus();
+    await act(async () => finish({ ...currentNote, title: "新标题" }));
+    expect(body).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "新增标签" })).not.toHaveFocus();
   });
 
   it("keeps the focus page height constrained so its content area can scroll", async () => {

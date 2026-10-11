@@ -47,3 +47,18 @@ it("migrates Project-relative managed paths using a trusted portable base withou
   expect(parseRecordHtml(projection.html, schema)).toEqual(document);
   expect(() => parseRecordHtml(html, schema, { assetBasePath: '../outside' })).toThrow(/base/);
 });
+
+it("preserves fixed File SourceRef in canonical projection and legacy HTML conversion", () => {
+  const sourceRef = { object: { workspaceId: "w1", scope: { kind: "project", projectId: 7 }, kind: "file", id: "51" },
+    revision: `sha256:${"a".repeat(64)}`, fileVersion: 2, recordVersion: null, blockId: null, locator: null,
+    title: '材料 "<>&.pdf', excerpt: "证据 & <quote>" };
+  const json = JSON.stringify(sourceRef).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+  const document = parseRecordHtml(`<p><span data-type="internal-reference" data-ref-kind="document" data-ref-id="51" data-label="材料" data-source-ref="${json}">材料</span></p>`, schema);
+  expect(document.content![0].content![0].attrs!.sourceRef).toEqual(sourceRef);
+  const projection = serializeRecordDocument(document, schema);
+  expect(projection.document.content![0].content![0].attrs!.sourceRef).toEqual(sourceRef);
+  expect(projection.document.content![0].content![0].attrs!.refId).toBe(51);
+  expect(parseRecordHtml(projection.html, schema)).toEqual(document);
+  expect(() => parseRecordHtml(projection.html.replace('data-ref-id="51"', 'data-ref-id="52"'), schema)).toThrow(/identity/);
+  expect(() => parseRecordHtml(projection.html.replace('data-ref-kind="document"', 'data-ref-kind="todo"'), schema)).toThrow(/identity/);
+});

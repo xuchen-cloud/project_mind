@@ -316,6 +316,11 @@ export const desktopApi = {
     }
   },
 
+  /** File services need native failure codes to distinguish unavailable snapshots from conflicts. */
+  fileCommand<T>(name: string, payload: Record<string, unknown>) {
+    return invoke<T>(name, payload);
+  },
+
   async pickDirectory(title = "选择文件夹") {
     const selected = await open({
       title,

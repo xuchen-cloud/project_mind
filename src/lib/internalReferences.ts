@@ -1,3 +1,4 @@
+import type { AgentSourceRef } from "./agent-types";
 import type {
   InternalReferenceKind,
   InternalReferenceResolveResult,
@@ -8,6 +9,7 @@ export interface InternalReferenceTarget {
   refKind: InternalReferenceKind;
   refId: number;
   label: string;
+  sourceRef?: AgentSourceRef;
 }
 
 export type InternalReferenceTextSegment =
@@ -70,6 +72,7 @@ export function buildInternalReferenceTarget(
       refKind: reference.refKind,
       refId: reference.refId,
       label: sanitizeInternalReferenceLabel(reference.label, reference.refKind),
+      ...(reference.sourceRef ? { sourceRef: reference.sourceRef } : {}),
     };
   }
 
@@ -177,6 +180,7 @@ export function buildInternalReferenceHtml(reference: InternalReferenceTarget) {
     ` data-ref-kind="${escapeHtml(normalized.refKind)}"`,
     ` data-ref-id="${normalized.refId}"`,
     ` data-label="${escapeHtml(normalized.label)}"`,
+    normalized.sourceRef ? ` data-source-ref="${escapeHtml(JSON.stringify(normalized.sourceRef))}"` : "",
     ` class="internal-reference-chip"`,
     ` role="link"`,
     ` aria-label="${escapeHtml(`${kindLabel} ${normalized.label}`)}"`,
@@ -213,6 +217,7 @@ export function readInternalReferenceElement(
     refKind,
     refId,
     label,
+    ...(element.getAttribute("data-source-ref") ? { sourceRef: parseInternalReferenceSourceRef(element.getAttribute("data-source-ref")!) } : {}),
   };
 }
 
@@ -276,4 +281,51 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+/** Fixed File evidence must never degrade into an ordinary current-file link. */
+export function validateInternalReferenceSourceRef(value: unknown): AgentSourceRef {
+  const fail = (): never => { throw new Error("无效的固定文件引用"); };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fail();
+  const source = value as AgentSourceRef;
+  const object = source.object;
+  if (!object || object.kind !== "file" || typeof object.workspaceId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(object.workspaceId)
+    || typeof object.id !== "string" || !/^[1-9]\d*$/.test(object.id) || !Number.isSafeInteger(Number(object.id))
+    || object.scope?.kind !== "project" || !Number.isSafeInteger(object.scope.projectId) || object.scope.projectId <= 0
+    || typeof source.revision !== "string" || !/^sha256:[0-9a-f]{64}$/.test(source.revision)
+    || !Number.isSafeInteger(source.fileVersion) || source.fileVersion! <= 0 || source.fileVersion! > 4294967295
+    || source.recordVersion !== null || source.blockId !== null
+    || typeof source.title !== "string" || Array.from(source.title).length > 1000
+    || typeof source.excerpt !== "string" || Array.from(source.excerpt).length > 2000) return fail();
+  if (source.locator !== null) {
+    const locator = source.locator;
+    if (!locator || !["line", "paragraph", "page"].includes(locator.kind)
+      || !("start" in locator) || !Number.isSafeInteger(locator.start) || locator.start < (locator.kind === "page" ? 0 : 1) || locator.start > 4294967295
+      || !("end" in locator) || !Number.isSafeInteger(locator.end) || locator.end < locator.start || locator.end > 4294967295
+      || (locator.kind === "page" && (!Number.isSafeInteger(locator.page) || locator.page <= 0 || locator.page > 4294967295))) return fail();
+  }
+  return source;
+}
+export function parseInternalReferenceSourceRef(json: string): AgentSourceRef {
+  return validateInternalReferenceSourceRef(JSON.parse(json));
+}
+
+export type FixedFileLocatorView = {
+  line?: number;
+  page?: number;
+  sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
+};
+
+/** Map only coordinates understood by File preview. Extracted paragraph ordinals
+ * have no reliable source-line mapping; preserve them for an explicit notice.
+ * Page offsets are zero-based Unicode offsets, not lines or scroll positions.
+ * Range/offset highlighting is owned by the preview consuming sourceLocator. */
+export function resolveFixedFileLocator(source: AgentSourceRef): FixedFileLocatorView {
+  const locator = source.locator;
+  if (!locator) return {};
+  return {
+    ...(locator.kind === "line" ? { line: locator.start }
+      : locator.kind === "page" ? { page: locator.page } : {}),
+    sourceLocator: locator,
+  };
 }

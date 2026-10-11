@@ -1,5 +1,7 @@
 import { isDebugBuild } from "./lib/build-mode";
-import { FilePreviewWorkspace } from "./components/document/FilePreviewWorkspace";
+import { ProjectContentWorkspace, projectContentTabRoute } from "./components/project/ProjectContentWorkspace";
+import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
+import { prepareProjectContentClose, prepareWorkspaceContentClose } from "./lib/project-content-lifecycle";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
 import { blocksDshProjectNavigation, DSH_BUSY_MESSAGE, setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events";
@@ -168,7 +170,7 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
     case "project":
       return null;
     case "note":
-      return projectPath(result.projectId, recordFocusId(result.id));
+      return recordPath(result.projectId, result.id);
     case "todo":
       return result.scope === "workspace"
         ? `${workspacePath()}?focus=todo-${result.id}`
@@ -310,6 +312,16 @@ export function WorkspaceLayout({
     queryFn: projectMindApi.workspaceStatusGet,
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
+  useEffect(() => {
+    const open = (event: Event) => {
+      const request = (event as CustomEvent<ProjectContentOpenResult>).detail;
+      if (!request || request.workspaceRoot !== currentWorkspace?.rootPath) return;
+      openProjectTab(request.scope.projectId);
+      navigate(projectContentTabRoute(request.scope.projectId, { id: request.tabId, object: request.object, view: request.view ?? {} }));
+    };
+    window.addEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
+    return () => window.removeEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
+  }, [currentWorkspace?.rootPath, navigate, openProjectTab]);
   useEffect(() => { setDshWorkspaceRoot(currentWorkspace?.rootPath ?? null); }, [currentWorkspace?.rootPath]);
   const agentPanelBinding = useAgentPanelStore(state => state.binding);
   const agentPanelOpen = useAgentPanelStore(state => state.open);
@@ -317,7 +329,20 @@ export function WorkspaceLayout({
   const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath
     && activeProjectId !== null && agentPanelBinding?.scope.kind === "project" && agentPanelBinding.scope.projectId === activeProjectId;
   const filePreviewRequest = useFilePreviewStore(state => state.request);
-  const filePreviewVisible = !!filePreviewRequest && filePreviewRequest.workspaceRoot === currentWorkspace?.rootPath;
+  useEffect(() => {
+    if (!filePreviewRequest || filePreviewRequest.workspaceRoot !== currentWorkspace?.rootPath) return;
+    const controller = new AbortController();
+    void openProjectContent({ workspaceRoot: filePreviewRequest.workspaceRoot, projectId: filePreviewRequest.projectId,
+      object: { kind: "file", id: filePreviewRequest.documentId, title: filePreviewRequest.title },
+      ...(filePreviewRequest.versionNumber !== undefined ? { view: { versionNumber: filePreviewRequest.versionNumber } } : {}), signal: controller.signal,
+    }).then(() => useFilePreviewStore.getState().closePreview(), reason => {
+      if (!controller.signal.aborted) {
+        useFilePreviewStore.getState().closePreview();
+        pushToast({ tone: "error", title: "无法打开文件", detail: String(reason) });
+      }
+    });
+    return () => controller.abort();
+  }, [filePreviewRequest, currentWorkspace?.rootPath, pushToast]);
   const previousPreviewNavigation = useRef(location.key);
   useEffect(() => {
     if (previousPreviewNavigation.current === location.key) return;
@@ -354,12 +379,13 @@ export function WorkspaceLayout({
     injectedRecordSaveCoordinator ?? internalRecordSaveCoordinator;
   const recordSaveStatus = useRecordSaveStatus(recordSaveCoordinator);
   const flushRecordSaves = useCallback(async () => {
+    if (currentWorkspace) await prepareWorkspaceContentClose(currentWorkspace.rootPath);
     if (!submitActiveFocusRecord()) {
       throw new Error("无法捕获当前 Record 的 Committed Content");
     }
     await recordSaveCoordinator.flush();
     await flushQuickNotes();
-  }, [recordSaveCoordinator, submitActiveFocusRecord]);
+  }, [recordSaveCoordinator, submitActiveFocusRecord, currentWorkspace?.rootPath]);
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -847,6 +873,7 @@ export function WorkspaceLayout({
           : resolveProjectNavigationPath(projectId);
 
       try {
+        if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
         await openProjectInNewWindow(projectId, route);
       } catch {
         return;
@@ -859,6 +886,7 @@ export function WorkspaceLayout({
     },
     [
       activeProjectId,
+      currentWorkspace?.rootPath,
       closeProjectTab,
       location.pathname,
       location.search,
@@ -870,12 +898,18 @@ export function WorkspaceLayout({
 
   const closeProjectTabAndMaybeNavigate = useCallback(
     async (projectId: number) => {
+      try {
+        if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
+      } catch (reason) {
+        pushToast({ tone: "error", title: "项目内容尚不能关闭", detail: String(reason) });
+        return;
+      }
       closeProjectTab(projectId);
       if (activeProjectId === projectId) {
         navigate(workspacePath());
       }
     },
-    [activeProjectId, closeProjectTab, navigate],
+    [activeProjectId, closeProjectTab, navigate, currentWorkspace?.rootPath, pushToast],
   );
 
   const updateProjectRecordFilters = useCallback(
@@ -1002,6 +1036,13 @@ export function WorkspaceLayout({
           navigate(route);
         }
       } else if (result.projectId !== null) {
+        if (result.kind === "document" && currentWorkspace) {
+          try {
+            await openProjectContent({ workspaceRoot: currentWorkspace.rootPath, projectId: result.projectId,
+              object: { kind: "file", id: result.id, title: result.title } });
+          } catch (reason) { pushToast({ tone: "error", title: "打开文件失败", detail: String(reason) }); }
+          return;
+        }
         const route = workspaceSearchResultRoute(result);
         if (route) {
           if (result.kind === "todo") {
@@ -1017,6 +1058,8 @@ export function WorkspaceLayout({
     },
     [
       activeProjectId,
+      currentWorkspace?.rootPath,
+      pushToast,
       navigate,
       openProjectInTab,
       openProjectTab,
@@ -1459,10 +1502,6 @@ export function WorkspaceLayout({
           const resident =
             active || residentProjectIds.includes(project.id);
 
-          if (!resident) {
-            return null;
-          }
-
           const route = active
             ? `${location.pathname}${location.search}`
             : (projectRecentPaths[project.id] ?? projectPath(project.id));
@@ -1478,16 +1517,12 @@ export function WorkspaceLayout({
               aria-hidden={active ? undefined : true}
               inert={!active}
             >
-              <div
-                className="h-full min-h-0"
-                style={{ display: overviewActive ? undefined : "none" }}
-                aria-hidden={overviewActive ? undefined : true}
-                inert={!overviewActive}
-              >
+              <ProjectContentWorkspace workspaceRoot={currentWorkspace.rootPath} projectId={project.id} active={active}
+                overview={visible => resident ? (
                 <ProjectOverviewPage
                   projectIdOverride={project.id}
                   searchParamsOverride={cachedSearchParams}
-                  visible={overviewActive}
+                  visible={visible}
                   onSearchParamsOverride={(nextSearchParams, options) => {
                     const nextRoute = buildProjectOverviewRoute(
                       project.id,
@@ -1500,8 +1535,7 @@ export function WorkspaceLayout({
                     }
                   }}
                 />
-              </div>
-              <RecordFocusResidentPages projectId={project.id} />
+                ) : null} />
             </div>
           );
         })}
@@ -1602,14 +1636,13 @@ export function WorkspaceLayout({
 
         <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>
           <main className="workspace-content-main" inert={agentPanelVisible && agentPanelExpanded}>
-            <div className="h-full min-h-0 overflow-hidden" hidden={filePreviewVisible} inert={filePreviewVisible}>
+            <div className="h-full min-h-0 overflow-hidden">
               {cachedWorkspaceResidentShell}
               {cachedProjectResidentShells}
               {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
                 ? null
                 : mainContent}
             </div>
-            <FilePreviewWorkspace workspaceRoot={currentWorkspace.rootPath} />
           </main>
           <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} currentProjectId={activeProjectId} />
         </div>
@@ -1664,7 +1697,7 @@ export function WorkspaceLayout({
         }}
       />
 
-      <ProjectFilePreviewLayer currentProjectId={activeProjectId ?? null} />
+      <ProjectFilePreviewLayer currentProjectId={activeProjectId ?? null} workspaceRoot={currentWorkspace.rootPath} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
     </RecordFocusResidencyProvider>

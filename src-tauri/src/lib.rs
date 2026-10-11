@@ -1424,7 +1424,7 @@ pub fn run() {
                 return;
             }
             let url = payload.url();
-            let local = if cfg!(debug_assertions) {
+            let local = if cfg!(dev) {
                 webview.app_handle().config().build.dev_url.as_ref()
                     .is_some_and(|dev| dev.origin() == url.origin())
             } else {
@@ -1713,6 +1713,7 @@ pub fn run() {
             workspace_search,
             dsh_assistant::dsh_assistant_start,
             dsh_assistant::dsh_assistant_sessions,
+            dsh_assistant::dsh_assistant_runtime_status,
             dsh_assistant::dsh_assistant_select_session,
             dsh_assistant::dsh_assistant_fetch,
             dsh_assistant::dsh_assistant_cancel,
@@ -1725,6 +1726,15 @@ pub fn run() {
             project_directory::project_directory_preview,
             project_directory::project_directory_open,
             project_directory::project_directory_resolve_reference,
+            project_directory::project_file_register,
+            project_directory::project_file_resolve,
+            project_directory::project_file_resolve_related,
+            project_directory::project_file_read_bytes,
+            project_directory::project_file_open_local,
+            project_directory::project_file_move,
+            project_directory::project_file_rename,
+            project_directory::project_file_reconcile,
+            project_directory::project_file_scan,
             app_exit,
             app_restart
         ])

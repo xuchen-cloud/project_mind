@@ -1,0 +1,1381 @@
+use super::*;
+use crate::models::ProjectCreateInput;
+use base64::{engine::general_purpose::STANDARD, Engine};
+fn fixture() -> (tempfile::TempDir, Database, i64, PathBuf) {
+    let root = tempfile::tempdir().unwrap();
+    let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+    db.bind_native_workspace("wp1-workspace").unwrap();
+    let project = db
+        .project_create(ProjectCreateInput {
+            name: "Files".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    let project_root = PathBuf::from(project.root_path);
+    (root, db, project.id, project_root)
+}
+fn bytes(db: &Database, file: &DirectoryFile) -> Vec<u8> {
+    STANDARD
+        .decode(
+            db.project_file_read_bytes(&FileBytesInput {
+                object: file.object.clone(),
+                version_number: file.version_number,
+                expected_content_hash: file.content_hash.clone().unwrap(),
+            })
+            .unwrap()
+            .base64,
+        )
+        .unwrap()
+}
+#[test]
+fn directory_file_register_is_idempotent_keeps_location_and_reads_binary_snapshot() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("data.bin"), [0, 255, 128, 42]).unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "data.bin")
+        .unwrap();
+    assert_eq!(first.state, "ready");
+    assert_eq!(bytes(&db, &first), [0, 255, 128, 42]);
+    let repeated = db
+        .project_file_register("wp1-workspace", project, "data.bin")
+        .unwrap();
+    assert_eq!(first.object, repeated.object);
+    assert_eq!(repeated.version_number, 1);
+    assert_eq!(fs::read(path.join("data.bin")).unwrap(), [0, 255, 128, 42]);
+    fs::write(path.join("copy.bin"), [0, 255, 128, 42]).unwrap();
+    let copy = db
+        .project_file_register("wp1-workspace", project, "copy.bin")
+        .unwrap();
+    assert_ne!(copy.object, first.object);
+}
+
+#[test]
+fn directory_file_external_edits_keep_old_bytes_and_replacement_requires_confirmation() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("note.txt"), b"first").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "note.txt")
+        .unwrap();
+    fs::write(path.join("note.txt"), b"second").unwrap();
+    let second = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(second.object, first.object);
+    assert_eq!(second.version_number, 2);
+    assert_eq!(bytes(&db, &first), b"first");
+    assert_eq!(bytes(&db, &second), b"second");
+    fs::write(path.join("replacement"), b"third").unwrap();
+    fs::rename(path.join("replacement"), path.join("note.txt")).unwrap();
+    let ambiguous = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(ambiguous.state, "ambiguous");
+    assert_eq!(ambiguous.version_number, 2);
+    assert_eq!(bytes(&db, &second), b"second");
+    let rejected = db
+        .project_file_reconcile(
+            &first.object,
+            "note.txt",
+            2,
+            second.content_hash.as_ref().unwrap(),
+            "location",
+        )
+        .unwrap_err();
+    assert_eq!(FileServiceError::from_error(rejected).code, "hash_mismatch");
+    let confirmed = db
+        .project_file_reconcile(
+            &first.object,
+            "note.txt",
+            2,
+            second.content_hash.as_ref().unwrap(),
+            "replacement",
+        )
+        .unwrap();
+    assert_eq!(confirmed.version_number, 3);
+    assert_eq!(bytes(&db, &confirmed), b"third");
+}
+
+#[test]
+fn directory_file_move_and_rename_keep_identity_versions_and_recover_intent() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("old.txt"), b"unchanged").unwrap();
+    fs::create_dir(path.join("sub")).unwrap();
+    let original = db
+        .project_file_register("wp1-workspace", project, "old.txt")
+        .unwrap();
+    let moved = db
+        .project_file_move(
+            &original.object,
+            "sub/moved.txt",
+            1,
+            original.content_hash.as_ref().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(moved.object, original.object);
+    assert_eq!(moved.version_number, 1);
+    assert!(!path.join("old.txt").exists());
+    assert_eq!(bytes(&db, &original), b"unchanged");
+    let renamed = db
+        .project_file_rename(
+            &original.object,
+            "renamed.txt",
+            1,
+            original.content_hash.as_ref().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(renamed.relative_path, "sub/renamed.txt");
+    assert_eq!(renamed.object, original.object);
+    assert_eq!(renamed.version_number, 1);
+    // Recovery seam: a committed move intent survives interruption between the
+    // physical move and the catalogue update. Resume through normal resolve.
+    let identity = serde_json::to_string(
+        &file_versions::path_identity(&path.join("sub/renamed.txt")).unwrap(),
+    )
+    .unwrap();
+    db.conn.execute("INSERT INTO project_directory_moves(document_id,original_path,target_path,physical_identity,content_hash,version_number) VALUES (?1,?2,?3,?4,?5,1)",params![original.object.id.parse::<i64>().unwrap(),db.encode_path_ref(&path.join("sub/renamed.txt")),db.encode_path_ref(&path.join("recovered.txt")),identity,original.content_hash]).unwrap();
+    file_versions::move_exclusive(&path.join("sub/renamed.txt"), &path.join("recovered.txt"))
+        .unwrap();
+    let recovered = db.project_file_resolve(&original.object).unwrap();
+    assert_eq!(recovered.relative_path, "recovered.txt");
+    assert_eq!(recovered.version_number, 1);
+    assert_eq!(bytes(&db, &recovered), b"unchanged");
+}
+
+#[test]
+fn directory_file_scan_is_resumable_reports_exclusions_errors_and_cancellation() {
+    let (_root, mut db, project, path) = fixture();
+    fs::create_dir(path.join(".project-mind")).unwrap();
+    fs::write(path.join(".project-mind/secret"), b"private").unwrap();
+    fs::create_dir(path.join("sub")).unwrap();
+    fs::write(path.join("a.bin"), [0, 255]).unwrap();
+    fs::write(path.join("sub/z.unknown"), b"unsupported preview").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(path.join("a.bin"), path.join("alias")).unwrap();
+    let page = db
+        .project_file_scan("wp1-workspace", project, None, 1, false)
+        .unwrap();
+    assert_eq!(page.files.len(), 1);
+    assert!(!page.complete);
+    assert!(page.excluded.iter().any(|e| e.reason == "internal"));
+    let cancelled = db
+        .project_file_scan(
+            "wp1-workspace",
+            project,
+            page.next_cursor.as_deref(),
+            1,
+            true,
+        )
+        .unwrap();
+    assert!(cancelled.cancelled);
+    assert!(!cancelled.complete);
+    assert!(cancelled.files.is_empty());
+    let next = db
+        .project_file_scan(
+            "wp1-workspace",
+            project,
+            page.next_cursor.as_deref(),
+            10,
+            false,
+        )
+        .unwrap();
+    assert!(next.complete);
+    assert_eq!(next.files.len(), 1);
+    assert_eq!(next.files[0].relative_path, "sub/z.unknown");
+    #[cfg(unix)]
+    assert!(next.excluded.iter().any(|e| e.reason == "symlink"));
+    let repeated = db
+        .project_file_scan("wp1-workspace", project, None, 10, false)
+        .unwrap();
+    assert_eq!(repeated.files[0].object, page.files[0].object);
+    // Removing the real root is an error, never an empty successful scan.
+    fs::rename(&path, path.with_extension("offline")).unwrap();
+    let failed = db
+        .project_file_scan("wp1-workspace", project, None, 10, false)
+        .unwrap();
+    assert!(!failed.failures.is_empty());
+    assert!(!failed.complete);
+}
+
+#[test]
+fn directory_file_budgets_preserve_identity_without_faking_initial_versions() {
+    let (_root, db, project, path) = fixture();
+    let huge = fs::File::create(path.join("huge.bin")).unwrap();
+    huge.set_len(crate::file_text_patch::MAX_FILE_BYTES as u64 + 1)
+        .unwrap();
+    let unavailable = db
+        .project_file_register("wp1-workspace", project, "huge.bin")
+        .unwrap();
+    assert_eq!(unavailable.state, "unavailable");
+    assert_eq!(unavailable.version_number, 0);
+    assert_eq!(unavailable.content_hash, None);
+    let repeated = db
+        .project_file_register("wp1-workspace", project, "huge.bin")
+        .unwrap();
+    assert_eq!(repeated.object, unavailable.object);
+    let large = fs::File::create(path.join("large.bin")).unwrap();
+    large.set_len(10 * 1024 * 1024 + 1).unwrap();
+    let registered = db
+        .project_file_register("wp1-workspace", project, "large.bin")
+        .unwrap();
+    assert_eq!(registered.state, "ready");
+    assert_eq!(registered.version_number, 1);
+    let error = db
+        .project_file_read_bytes(&FileBytesInput {
+            object: registered.object,
+            version_number: 1,
+            expected_content_hash: registered.content_hash.unwrap(),
+        })
+        .unwrap_err();
+    assert_eq!(FileServiceError::from_error(error).code, "budget_exceeded");
+}
+
+#[test]
+fn directory_file_existing_metadata_rename_preserves_history_and_applies_tags_atomically() {
+    let (_root, db, project, path) = fixture();
+    fs::write(path.join("old.txt"), b"first").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "old.txt")
+        .unwrap();
+    fs::write(path.join("old.txt"), b"second").unwrap();
+    let second = db.project_file_resolve(&first.object).unwrap();
+    let mut db = db;
+    let renamed = db
+        .document_update_meta(crate::models::DocumentUpdateMetaInput {
+            document_id: first.object.id.parse().unwrap(),
+            base_name: Some("new.txt".into()),
+            is_starred: Some(true),
+            tag_ids: Some(vec![]),
+        })
+        .unwrap();
+    assert_eq!(renamed.name, "new.txt");
+    assert!(renamed.is_starred);
+    assert_eq!(
+        db.project_file_resolve(&first.object)
+            .unwrap()
+            .relative_path,
+        "new.txt"
+    );
+    assert_eq!(bytes(&db, &first), b"first");
+    assert_eq!(bytes(&db, &second), b"second");
+    assert_eq!(fs::read(path.join("new.txt")).unwrap(), b"second");
+    assert!(!path.join("old.txt").exists());
+}
+#[test]
+fn directory_file_fixed_bytes_reject_forged_owner_hash_and_missing_snapshot() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("owned.bin"), [1, 2, 3]).unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "owned.bin")
+        .unwrap();
+    let read = |object: ObjectRef, hash: String| FileBytesInput {
+        object,
+        version_number: 1,
+        expected_content_hash: hash,
+    };
+    let mut forged = file.object.clone();
+    forged.workspace_id = "other".into();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_read_bytes(&read(forged, file.content_hash.clone().unwrap()))
+                .unwrap_err()
+        )
+        .code,
+        "ownership_mismatch"
+    );
+    let other = db
+        .project_create(ProjectCreateInput {
+            name: "Other".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    let mut forged = file.object.clone();
+    forged.scope = Scope::Project {
+        project_id: other.id,
+    };
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_read_bytes(&read(forged, file.content_hash.clone().unwrap()))
+                .unwrap_err()
+        )
+        .code,
+        "ownership_mismatch"
+    );
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_read_bytes(&read(
+                file.object.clone(),
+                "sha256:".to_owned() + &"0".repeat(64)
+            ))
+            .unwrap_err()
+        )
+        .code,
+        "hash_mismatch"
+    );
+    let versions = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: file.object.id.parse().unwrap(),
+        })
+        .unwrap();
+    fs::remove_file(&versions[0].managed_path).unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_read_bytes(&read(file.object.clone(), file.content_hash.unwrap()))
+                .unwrap_err()
+        )
+        .code,
+        "snapshot_missing"
+    );
+    assert!(path.join("owned.bin").exists());
+}
+#[test]
+fn directory_file_external_move_is_ambiguous_and_crossproject_physical_ownership_is_rejected() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("old.bin"), b"same").unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "old.bin")
+        .unwrap();
+    fs::rename(path.join("old.bin"), path.join("external.bin")).unwrap();
+    assert_eq!(
+        db.project_file_resolve(&file.object).unwrap().state,
+        "missing"
+    );
+    let candidate = db
+        .project_file_register("wp1-workspace", project, "external.bin")
+        .unwrap();
+    assert_eq!(candidate.object, file.object);
+    assert_eq!(candidate.state, "ambiguous");
+    let confirmed = db
+        .project_file_reconcile(
+            &file.object,
+            "external.bin",
+            1,
+            file.content_hash.as_ref().unwrap(),
+            "location",
+        )
+        .unwrap();
+    assert_eq!(confirmed.object, file.object);
+    let other = db
+        .project_create(ProjectCreateInput {
+            name: "Other".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    fs::hard_link(
+        path.join("external.bin"),
+        Path::new(&other.root_path).join("alias.bin"),
+    )
+    .unwrap();
+    let error = db
+        .project_file_register("wp1-workspace", other.id, "alias.bin")
+        .unwrap_err();
+    assert_eq!(
+        FileServiceError::from_error(error).code,
+        "ownership_mismatch"
+    );
+    db.conn
+        .execute(
+            "UPDATE projects SET root_path=?1 WHERE id=?2",
+            params![db.encode_path_ref(&path), other.id],
+        )
+        .unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_register("wp1-workspace", project, "external.bin")
+                .unwrap_err()
+        )
+        .code,
+        "ownership_mismatch"
+    );
+}
+
+#[test]
+fn directory_file_related_resources_resolve_from_actual_parent_with_bound_project_checks() {
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("docs")).unwrap();
+    fs::create_dir(path.join("images")).unwrap();
+    fs::write(path.join("docs/note.md"), b"![image](../images/pic.png)").unwrap();
+    fs::write(path.join("images/pic.png"), [0, 255, 4]).unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "docs/note.md")
+        .unwrap();
+    let resource = db
+        .project_file_resolve_related(&file.object, "../images/pic.png?raw=1#anchor")
+        .unwrap();
+    assert_eq!(resource.relative_path, "images/pic.png");
+    assert_eq!(bytes(&db, &resource), [0, 255, 4]);
+    for reference in [
+        "../../outside",
+        "https://example.com/a",
+        "data:image/png;base64,a",
+        "/images/pic.png",
+        "../.project-mind/secrets",
+    ] {
+        assert!(
+            db.project_file_resolve_related(&file.object, reference)
+                .is_err(),
+            "{reference}"
+        );
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(path.join("images/pic.png"), path.join("images/link.png"))
+            .unwrap();
+        assert!(db
+            .project_file_resolve_related(&file.object, "../images/link.png")
+            .is_err());
+    }
+}
+
+#[test]
+fn directory_file_model_source_ref_matches_actual_fixed_history_and_enforces_source_policy() {
+    use crate::agent::{
+        access::{Caller, RequestContext, ScopeGrant},
+        models::WorkspaceBinding,
+    };
+    let (_root, db, project, path) = fixture();
+    fs::write(path.join("evidence.txt"), b"model actually read old").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "evidence.txt")
+        .unwrap();
+    fs::write(path.join("evidence.txt"), b"current changed").unwrap();
+    db.project_file_resolve(&first.object).unwrap();
+    let binding = WorkspaceBinding {
+        workspace_id: "wp1-workspace".into(),
+        generation: "opened".into(),
+    };
+    let request = RequestContext {
+        binding: binding.clone(),
+        caller: Caller::BuiltinRun {
+            run_id: "actual-model-read".into(),
+        },
+        request_id: "read-fixed-history".into(),
+        scope_grant: ScopeGrant {
+            object_keys: None,
+            workspace_id: binding.workspace_id.clone(),
+            workspace_content: false,
+            project_ids: vec![project],
+            operations: vec!["source.read".into()],
+        },
+    };
+    let input = FileBytesInput {
+        object: first.object.clone(),
+        version_number: 1,
+        expected_content_hash: first.content_hash.clone().unwrap(),
+    };
+    let (read, source) = db
+        .project_file_read_source(&request, &binding, &input)
+        .unwrap();
+    assert_eq!(
+        STANDARD.decode(read.base64).unwrap(),
+        b"model actually read old"
+    );
+    assert_eq!(source.object, first.object);
+    assert_eq!(source.file_version, Some(1));
+    assert_eq!(source.revision, first.content_hash.unwrap());
+    db.conn
+        .execute(
+            "INSERT INTO source_access_policies(object_key,excluded,revision) VALUES (?1,1,1)",
+            [input.object.key().unwrap()],
+        )
+        .unwrap();
+    assert!(db
+        .project_file_read_source(&request, &binding, &input)
+        .is_err());
+    let denied = RequestContext {
+        scope_grant: ScopeGrant {
+            project_ids: vec![],
+            ..request.scope_grant.clone()
+        },
+        ..request
+    };
+    assert!(db
+        .project_file_read_source(&denied, &binding, &input)
+        .is_err());
+}
+
+#[test]
+fn directory_file_delete_unmanages_without_deleting_user_live_bytes_or_snapshots() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("keep.bin"), b"user-owned").unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "keep.bin")
+        .unwrap();
+    let versions = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: file.object.id.parse().unwrap(),
+        })
+        .unwrap();
+    db.document_delete(crate::models::DocumentDeleteInput {
+        document_id: file.object.id.parse().unwrap(),
+    })
+    .unwrap();
+    assert_eq!(fs::read(path.join("keep.bin")).unwrap(), b"user-owned");
+    assert_eq!(fs::read(&versions[0].managed_path).unwrap(), b"user-owned");
+    assert!(db.project_file_resolve(&file.object).is_err());
+}
+
+#[test]
+fn directory_file_fixed_reference_blocks_deletion_and_retains_exact_history() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("cited.txt"), b"cited old version").unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "cited.txt")
+        .unwrap();
+    fs::write(path.join("cited.txt"), b"latest").unwrap();
+    db.project_file_resolve(&file.object).unwrap();
+    db.conn.execute("INSERT INTO content_reference_edges(source_object_key,target_object_key,relation,locator_json,target_revision) VALUES ('wp1-workspace/project:1/record/12',?1,'internal_reference','{}',?2)",params![file.object.key().unwrap(),file.content_hash]).unwrap();
+    let error = db
+        .document_delete(crate::models::DocumentDeleteInput {
+            document_id: file.object.id.parse().unwrap(),
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("fixed content references"));
+    assert_eq!(bytes(&db, &file), b"cited old version");
+    assert_eq!(fs::read(path.join("cited.txt")).unwrap(), b"latest");
+}
+
+fn restore_request(project: i64) -> crate::agent::access::RequestContext {
+    use crate::agent::{
+        access::{Caller, RequestContext, ScopeGrant},
+        models::WorkspaceBinding,
+    };
+    RequestContext {
+        binding: WorkspaceBinding {
+            workspace_id: "wp1-workspace".into(),
+            generation: "opened".into(),
+        },
+        caller: Caller::Gui,
+        request_id: "restore-history".into(),
+        scope_grant: ScopeGrant {
+            object_keys: None,
+            workspace_id: "wp1-workspace".into(),
+            workspace_content: false,
+            project_ids: vec![project],
+            operations: vec!["source.read".into(), "file.restore".into()],
+        },
+    }
+}
+
+#[test]
+fn directory_file_restore_a15_creates_new_head_at_original_location_and_keeps_immutable_history() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("live.bin"), [0, 255, 1]).unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "live.bin")
+        .unwrap();
+    fs::write(path.join("live.bin"), [2, 128, 0]).unwrap();
+    let second = db.project_file_resolve(&first.object).unwrap();
+    let id = first.object.id.parse().unwrap();
+    let before = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    let old = before.iter().find(|v| v.version_number == 1).unwrap();
+    let input = crate::file_version_restore::FileVersionRestore {
+        object: first.object.clone(),
+        version_id: old.id.to_string(),
+        expected_version_number: 2,
+        expected_content_hash: second.content_hash.clone().unwrap(),
+    };
+    let request = restore_request(project);
+    let source = db
+        .file_version_restore_source(&request, &request.binding, &input)
+        .unwrap();
+    let fence = crate::workspace_commit_fence::WorkspaceCommitFence::new();
+    let result = db
+        .file_version_restore_commit_bound(
+            &request,
+            &request.binding,
+            &input,
+            &source,
+            &fence,
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(result.receipt.version_number, 3);
+    assert_eq!(fs::read(path.join("live.bin")).unwrap(), [0, 255, 1]);
+    let latest = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(latest.object, first.object);
+    assert_eq!(latest.relative_path, "live.bin");
+    assert_eq!(latest.version_number, 3);
+    assert_eq!(bytes(&db, &first), [0, 255, 1]);
+    assert_eq!(bytes(&db, &second), [2, 128, 0]);
+    let after = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    for old in before {
+        let retained = after.iter().find(|v| v.id == old.id).unwrap();
+        assert_eq!(retained.managed_path, old.managed_path);
+        assert_eq!(retained.name, old.name);
+    }
+    let replay = db
+        .file_version_restore_commit_bound(
+            &request,
+            &request.binding,
+            &input,
+            &source,
+            &fence,
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert!(!replay.committed);
+    assert_eq!(replay.receipt.version_number, 3);
+    assert_eq!(
+        db.project_file_resolve(&first.object)
+            .unwrap()
+            .version_number,
+        3
+    );
+}
+
+#[test]
+fn directory_file_same_bytes_replacement_keeps_registered_snapshot_path() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("live.bin"), b"same").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "live.bin")
+        .unwrap();
+    let before = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: first.object.id.parse().unwrap(),
+        })
+        .unwrap();
+    fs::write(path.join("atomic.bin"), b"same").unwrap();
+    fs::rename(path.join("atomic.bin"), path.join("live.bin")).unwrap();
+    assert_eq!(
+        db.project_file_resolve(&first.object).unwrap().state,
+        "ambiguous"
+    );
+    db.project_file_reconcile(
+        &first.object,
+        "live.bin",
+        1,
+        first.content_hash.as_ref().unwrap(),
+        "replacement",
+    )
+    .unwrap();
+    let after = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: first.object.id.parse().unwrap(),
+        })
+        .unwrap();
+    assert_eq!(after[0].managed_path, before[0].managed_path);
+}
+
+#[test]
+fn directory_file_open_local_uses_only_ready_live_file_and_ignores_preview_budget() {
+    let (_root, db, project, path) = fixture();
+    fs::File::create(path.join("large.unknown"))
+        .unwrap()
+        .set_len(10 * 1024 * 1024 + 1)
+        .unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "large.unknown")
+        .unwrap();
+    db.project_file_open_local_with(&file.object, |actual| {
+        assert_eq!(actual, path.join("large.unknown"));
+        Ok(())
+    })
+    .unwrap();
+    fs::write(path.join("replacement"), b"foreign").unwrap();
+    fs::rename(path.join("replacement"), path.join("large.unknown")).unwrap();
+    assert!(db
+        .project_file_open_local_with(&file.object, |_| panic!(
+            "ambiguous live bytes must not open"
+        ))
+        .is_err());
+    fs::remove_file(path.join("large.unknown")).unwrap();
+    assert!(db
+        .project_file_open_local_with(&file.object, |_| panic!(
+            "history must not replace missing live file"
+        ))
+        .is_err());
+}
+
+#[test]
+fn directory_file_restore_failed_sql_commit_restores_original_live_and_can_retry() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("live.txt"), b"old").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "live.txt")
+        .unwrap();
+    fs::write(path.join("live.txt"), b"current").unwrap();
+    let second = db.project_file_resolve(&first.object).unwrap();
+    let old = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: first.object.id.parse().unwrap(),
+        })
+        .unwrap()
+        .into_iter()
+        .find(|v| v.version_number == 1)
+        .unwrap();
+    let input = crate::file_version_restore::FileVersionRestore {
+        object: first.object.clone(),
+        version_id: old.id.to_string(),
+        expected_version_number: 2,
+        expected_content_hash: second.content_hash.clone().unwrap(),
+    };
+    let request = restore_request(project);
+    let source = db
+        .file_version_restore_source(&request, &request.binding, &input)
+        .unwrap();
+    let fence = crate::workspace_commit_fence::WorkspaceCommitFence::new();
+    db.conn.execute_batch("CREATE TRIGGER fail_directory_restore BEFORE INSERT ON document_versions WHEN NEW.version_number=3 BEGIN SELECT RAISE(ABORT,'disk full'); END;").unwrap();
+    assert!(db
+        .file_version_restore_commit_bound(
+            &request,
+            &request.binding,
+            &input,
+            &source,
+            &fence,
+            &|| Ok(())
+        )
+        .is_err());
+    assert_eq!(fs::read(path.join("live.txt")).unwrap(), b"current");
+    assert_eq!(
+        db.project_file_resolve(&first.object)
+            .unwrap()
+            .version_number,
+        2
+    );
+    assert_eq!(bytes(&db, &first), b"old");
+    assert_eq!(bytes(&db, &second), b"current");
+    db.conn
+        .execute_batch("DROP TRIGGER fail_directory_restore;")
+        .unwrap();
+    assert_eq!(
+        db.file_version_restore_commit_bound(
+            &request,
+            &request.binding,
+            &input,
+            &source,
+            &fence,
+            &|| Ok(())
+        )
+        .unwrap()
+        .receipt
+        .version_number,
+        3
+    );
+}
+
+#[test]
+fn directory_file_concurrent_registration_keeps_one_identity() {
+    let (root, db, project, path) = fixture();
+    fs::write(path.join("same.bin"), b"identity").unwrap();
+    drop(db);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let root = root.path().canonicalize().unwrap();
+            let barrier = barrier.clone();
+            let mut db =
+                Database::open_runtime_connection(&root.join("test.sqlite"), &root, None).unwrap();
+            db.bind_native_workspace("wp1-workspace").unwrap();
+            std::thread::spawn(move || {
+                barrier.wait();
+                db.project_file_register("wp1-workspace", project, "same.bin")
+                    .unwrap()
+            })
+        })
+        .collect();
+    let results: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    assert_eq!(results[0].object, results[1].object);
+    assert_eq!(results[0].version_number, 1);
+    assert_eq!(results[1].version_number, 1);
+}
+
+#[test]
+fn directory_file_retained_agent_json_sources_protect_fixed_history_without_head_edges() {
+    for owner in ["evidence", "output"] {
+        let (_root, mut db, project, path) = fixture();
+        fs::write(path.join("cited.bin"), b"fixed original").unwrap();
+        let file = db
+            .project_file_register("wp1-workspace", project, "cited.bin")
+            .unwrap();
+        let source = serde_json::json!({"object":file.object,"revision":file.content_hash,"fileVersion":1,"title":"cited.bin","excerpt":""});
+        if owner == "evidence" {
+            db.conn.execute("INSERT INTO agent_evidence(id,owner_kind,owner_id,source_ref_json,excerpt) VALUES ('fixed','overview','saved',?1,'')",[source.to_string()]).unwrap();
+        } else {
+            db.conn.execute_batch("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,created_at,updated_at) VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','project:1','Source','pi','active','.project-mind/agent/sessions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/session.jsonl','now','now'); INSERT INTO agent_runs(id,session_id,client_request_id,state,context_manifest_json,grant_json,started_at) VALUES ('saved','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','saved','completed','{}','{}','now');").unwrap();
+            db.conn.execute("INSERT INTO agent_outputs(id,run_id,ordinal,kind,intent,payload_json,sources_json,state) VALUES ('saved','saved',0,'record','create','{}',?1,'committed')",[serde_json::json!([source]).to_string()]).unwrap();
+        }
+        assert_eq!(
+            db.conn
+                .query_row("SELECT count(*) FROM content_reference_edges", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert!(db
+            .document_delete(crate::models::DocumentDeleteInput {
+                document_id: file.object.id.parse().unwrap()
+            })
+            .unwrap_err()
+            .to_string()
+            .contains("fixed content references"));
+        assert_eq!(bytes(&db, &file), b"fixed original");
+        // A legacy navigation object without an explicit fixed version is not
+        // historical evidence, even when it happens to carry a hash string.
+        if owner == "evidence" {
+            db.conn.execute("UPDATE agent_evidence SET source_ref_json=json_remove(source_ref_json,'$.fileVersion')",[]).unwrap();
+        } else {
+            db.conn.execute("UPDATE agent_outputs SET sources_json=json_remove(sources_json,'$[0].fileVersion')",[]).unwrap();
+        }
+        db.document_delete(crate::models::DocumentDeleteInput {
+            document_id: file.object.id.parse().unwrap(),
+        })
+        .unwrap();
+        assert_eq!(fs::read(path.join("cited.bin")).unwrap(), b"fixed original");
+    }
+}
+
+#[test]
+fn directory_file_project_delete_rejects_fixed_references_without_losing_project_or_history() {
+    for reference in ["head", "retained_json"] {
+        let (_root, mut db, project, path) = fixture();
+        fs::write(path.join("cited.bin"), b"historical evidence").unwrap();
+        let first = db
+            .project_file_register("wp1-workspace", project, "cited.bin")
+            .unwrap();
+        fs::write(path.join("cited.bin"), b"current evidence").unwrap();
+        let second = db.project_file_resolve(&first.object).unwrap();
+        let id = first.object.id.parse().unwrap();
+        let before = db
+            .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+            .unwrap();
+        if reference == "head" {
+            db.conn.execute("INSERT INTO content_reference_edges(source_object_key,target_object_key,relation,target_revision) VALUES ('consumer',?1,'internal_reference',?2)",params![first.object.key().unwrap(),first.content_hash]).unwrap();
+        } else {
+            let source = serde_json::json!({"object":first.object,"revision":first.content_hash,"fileVersion":1,"title":"cited.bin","excerpt":""});
+            db.conn.execute("INSERT INTO agent_evidence(id,owner_kind,owner_id,source_ref_json,excerpt) VALUES ('historical','overview','retained',?1,'')",[source.to_string()]).unwrap();
+            assert_eq!(
+                db.conn
+                    .query_row("SELECT count(*) FROM content_reference_edges", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .unwrap(),
+                0
+            );
+        }
+        let watermark = db.committed_change_watermark().unwrap();
+        let error = db
+            .project_delete(crate::models::ProjectDeleteInput {
+                project_id: project,
+            })
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("fixed content references"),
+            "{error:#}"
+        );
+        assert_eq!(db.project_record(project).unwrap().id, project);
+        assert_eq!(db.document_record(id).unwrap().current_version_number, 2);
+        let after = db
+            .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&after).unwrap(),
+            serde_json::to_value(&before).unwrap()
+        );
+        assert_eq!(bytes(&db, &first), b"historical evidence");
+        assert_eq!(bytes(&db, &second), b"current evidence");
+        assert_eq!(
+            fs::read(path.join("cited.bin")).unwrap(),
+            b"current evidence"
+        );
+        assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT count(*) FROM project_asset_cleanup WHERE project_id=?1",
+                    [project],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn directory_file_project_delete_without_fixed_references_keeps_existing_cleanup_behavior() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("uncited.bin"), b"ordinary file").unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "uncited.bin")
+        .unwrap();
+    let id = file.object.id.parse().unwrap();
+    let versions = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    assert_eq!(
+        db.project_delete(crate::models::ProjectDeleteInput {
+            project_id: project
+        })
+        .unwrap()
+        .id,
+        project
+    );
+    assert!(db.project_record(project).is_err());
+    assert!(db.document_record(id).is_err());
+    assert_eq!(
+        db.conn
+            .query_row(
+                "SELECT count(*) FROM document_versions WHERE document_id=?1",
+                [id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert!(!path.exists());
+    assert!(!Path::new(&versions[0].managed_path).exists());
+    assert_eq!(
+        db.conn
+            .query_row(
+                "SELECT count(*) FROM project_asset_cleanup WHERE project_id=?1",
+                [project],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+
+const RESTORE_OLD_BYTES: &[u8] = &[0, 255, 1, 13, 10];
+const RESTORE_CURRENT_BYTES: &[u8] = &[128, 2, 0, 13, 10];
+
+fn directory_restore_crash_setup() -> (
+    tempfile::TempDir,
+    DirectoryFile,
+    DirectoryFile,
+    crate::file_version_restore::FileVersionRestore,
+) {
+    let (root, mut db, project, path) = fixture();
+    fs::write(path.join("live.bin"), RESTORE_OLD_BYTES).unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "live.bin")
+        .unwrap();
+    fs::write(path.join("live.bin"), RESTORE_CURRENT_BYTES).unwrap();
+    let second = db.project_file_resolve(&first.object).unwrap();
+    let versions = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: first.object.id.parse().unwrap(),
+        })
+        .unwrap();
+    let input = crate::file_version_restore::FileVersionRestore {
+        object: first.object.clone(),
+        version_id: versions
+            .iter()
+            .find(|v| v.version_number == 1)
+            .unwrap()
+            .id
+            .to_string(),
+        expected_version_number: 2,
+        expected_content_hash: second.content_hash.clone().unwrap(),
+    };
+    db.conn.execute("INSERT INTO content_reference_edges(source_object_key,target_object_key,relation,target_revision) VALUES ('saved-reference',?1,'internal_reference',?2)",params![first.object.key().unwrap(),first.content_hash]).unwrap();
+    fs::write(
+        root.path().join(".project-mind/restore-fixture.json"),
+        serde_json::to_vec(&input).unwrap(),
+    )
+    .unwrap();
+    (root, first, second, input)
+}
+
+fn directory_restore_crash_open(root: &Path) -> Database {
+    let opened = crate::workspace_initialization::open_workspace_database(
+        &root.join("test.sqlite"),
+        root,
+        None,
+        "wp1-workspace",
+    )
+    .unwrap();
+    assert!(opened.checkpoint_error.is_none());
+    opened.db
+}
+
+fn directory_restore_crash(root: &Path, stage: u8) {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "db::project_directory_files::tests::directory_file_restore_crash_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("MIND_DIRECTORY_RESTORE_CRASH_FIXTURE", root)
+        .env("MIND_DIRECTORY_RESTORE_CRASH_STAGE", stage.to_string())
+        .output()
+        .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            output.status.signal(),
+            Some(9),
+            "stage {stage}: must be SIGKILL, not cleanup or panic: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    #[cfg(not(unix))]
+    assert_eq!(
+        output.status.code(),
+        Some(91),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "subprocess-only fixture started by directory restore crash tests"]
+fn directory_file_restore_crash_process_fixture() {
+    let Ok(root) = std::env::var("MIND_DIRECTORY_RESTORE_CRASH_FIXTURE") else {
+        return;
+    };
+    let root = Path::new(&root);
+    let input: crate::file_version_restore::FileVersionRestore =
+        serde_json::from_slice(&fs::read(root.join(".project-mind/restore-fixture.json")).unwrap())
+            .unwrap();
+    let mut db = directory_restore_crash_open(root);
+    let request = restore_request(file_id(&input.object).unwrap().0);
+    let source = db
+        .file_version_restore_source(&request, &request.binding, &input)
+        .unwrap();
+    db.file_version_restore_commit_bound(
+        &request,
+        &request.binding,
+        &input,
+        &source,
+        &crate::workspace_commit_fence::WorkspaceCommitFence::new(),
+        &|| Ok(()),
+    )
+    .unwrap();
+    panic!("directory restore crash boundary not reached");
+}
+
+#[test]
+fn directory_file_restore_process_crashes_recover_all_durable_boundaries_and_retry_once() {
+    // 1: journal committed; 2: original moved away; 3: historical live bytes
+    // placed before SQL; 4: new version and receipt committed before cleanup.
+    for stage in 1..=4 {
+        let (root, first, second, input) = directory_restore_crash_setup();
+        let mut db = directory_restore_crash_open(root.path());
+        let before = db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: first.object.id.parse().unwrap(),
+            })
+            .unwrap();
+        let watermark = db.committed_change_watermark().unwrap();
+        drop(db);
+        directory_restore_crash(root.path(), stage);
+        let mut db = directory_restore_crash_open(root.path());
+        assert_eq!(
+            db.conn
+                .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1,
+            "durable intent at stage {stage}"
+        );
+        let live = root.path().join("Files/live.bin");
+        match stage {
+            1 => assert_eq!(fs::read(&live).unwrap(), RESTORE_CURRENT_BYTES),
+            2 => assert!(!live.exists()),
+            _ => assert_eq!(fs::read(&live).unwrap(), RESTORE_OLD_BYTES),
+        }
+        let expected_number = if stage == 4 { 3 } else { 2 };
+        let recovered = db.project_file_resolve(&first.object).unwrap();
+        assert_eq!(recovered.state, "ready", "stage {stage}");
+        assert_eq!(recovered.version_number, expected_number, "stage {stage}");
+        assert_eq!(bytes(&db, &recovered), fs::read(&live).unwrap());
+        assert_eq!(
+            fs::read(&live).unwrap(),
+            if stage == 4 {
+                RESTORE_OLD_BYTES
+            } else {
+                RESTORE_CURRENT_BYTES
+            }
+        );
+        assert_eq!(
+            db.committed_change_watermark().unwrap(),
+            watermark + i64::from(stage == 4)
+        );
+        assert_eq!(
+            db.conn
+                .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        let after_recovery = db.committed_change_watermark().unwrap();
+        drop(db);
+        let mut db = directory_restore_crash_open(root.path());
+        assert_eq!(
+            db.project_file_resolve(&first.object)
+                .unwrap()
+                .version_number,
+            expected_number
+        );
+        assert_eq!(db.committed_change_watermark().unwrap(), after_recovery);
+        let request = restore_request(file_id(&first.object).unwrap().0);
+        let source = db
+            .file_version_restore_source(&request, &request.binding, &input)
+            .unwrap();
+        let fence = crate::workspace_commit_fence::WorkspaceCommitFence::new();
+        let committed = db
+            .file_version_restore_commit_bound(
+                &request,
+                &request.binding,
+                &input,
+                &source,
+                &fence,
+                &|| Ok(()),
+            )
+            .unwrap();
+        assert_eq!(committed.receipt.version_number, 3);
+        assert_eq!(committed.committed, stage != 4);
+        assert!(
+            !db.file_version_restore_commit_bound(
+                &request,
+                &request.binding,
+                &input,
+                &source,
+                &fence,
+                &|| Ok(())
+            )
+            .unwrap()
+            .committed
+        );
+        let latest = db.project_file_resolve(&first.object).unwrap();
+        assert_eq!(latest.version_number, 3);
+        assert_eq!(bytes(&db, &latest), RESTORE_OLD_BYTES);
+        assert_eq!(fs::read(&live).unwrap(), RESTORE_OLD_BYTES);
+        assert_eq!(bytes(&db, &first), RESTORE_OLD_BYTES);
+        assert_eq!(bytes(&db, &second), RESTORE_CURRENT_BYTES);
+        let versions = db
+            .document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: first.object.id.parse().unwrap(),
+            })
+            .unwrap();
+        assert_eq!(versions.len(), 3);
+        for original in &before {
+            let retained = versions.iter().find(|v| v.id == original.id).unwrap();
+            assert_eq!(
+                serde_json::to_value(retained).unwrap(),
+                serde_json::to_value(original).unwrap()
+            );
+        }
+        assert_eq!(db.conn.query_row("SELECT count(*) FROM agent_operation_receipts WHERE caller_id='gui' AND request_id='restore-history' AND operation='file.version.commit'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert_eq!(db.conn.query_row("SELECT count(*) FROM content_reference_edges WHERE target_object_key=?1 AND target_revision=?2",params![first.object.key().unwrap(),first.content_hash],|r|r.get::<_,i64>(0)).unwrap(),1);
+    }
+}
+
+#[test]
+fn directory_file_restore_process_crashes_never_overwrite_foreign_live_files() {
+    for stage in 2..=4 {
+        let (root, first, second, _) = directory_restore_crash_setup();
+        directory_restore_crash(root.path(), stage);
+        let db = directory_restore_crash_open(root.path());
+        let journal: String = db
+            .conn
+            .query_row("SELECT journal FROM project_directory_restores", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let journal: serde_json::Value = serde_json::from_str(&journal).unwrap();
+        let backup = db.decode_path_ref(journal["backup"].as_str().unwrap());
+        let live = root.path().join("Files/live.bin");
+        if live.exists() {
+            fs::rename(&live, root.path().join("Files/displaced.bin")).unwrap();
+        }
+        // Matching bytes still do not authorize a foreign physical identity.
+        let foreign_bytes = if stage == 2 {
+            RESTORE_CURRENT_BYTES
+        } else {
+            RESTORE_OLD_BYTES
+        };
+        fs::write(&live, foreign_bytes).unwrap();
+        let identity = file_versions::path_identity(&live).unwrap();
+        assert_eq!(
+            db.project_file_resolve(&first.object).unwrap().state,
+            "ambiguous"
+        );
+        assert_eq!(fs::read(&live).unwrap(), foreign_bytes);
+        assert_eq!(file_versions::path_identity(&live).unwrap(), identity);
+        assert_eq!(bytes(&db, &first), RESTORE_OLD_BYTES);
+        assert_eq!(bytes(&db, &second), RESTORE_CURRENT_BYTES);
+        assert_eq!(
+            db.document_record(first.object.id.parse().unwrap())
+                .unwrap()
+                .current_version_number,
+            if stage == 4 { 3 } else { 2 }
+        );
+        if stage < 4 {
+            assert_eq!(fs::read(&backup).unwrap(), RESTORE_CURRENT_BYTES);
+            assert_eq!(
+                db.conn
+                    .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+        }
+        let watermark = db.committed_change_watermark().unwrap();
+        drop(db);
+        let db = directory_restore_crash_open(root.path());
+        assert_eq!(
+            db.project_file_resolve(&first.object).unwrap().state,
+            "ambiguous"
+        );
+        assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+        assert_eq!(fs::read(&live).unwrap(), foreign_bytes);
+        assert_eq!(file_versions::path_identity(&live).unwrap(), identity);
+    }
+}
+
+#[test]
+fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retries_once() {
+    let (root, first, second, input) = directory_restore_crash_setup();
+    let ready = root.path().join("restore-ready.marker");
+    let resume = root.path().join("restore-resume.marker");
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "db::project_directory_files::tests::directory_file_restore_crash_process_fixture",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("MIND_DIRECTORY_RESTORE_CRASH_FIXTURE", root.path())
+        .env_remove("MIND_DIRECTORY_RESTORE_CRASH_STAGE")
+        .env("MIND_DIRECTORY_RESTORE_PAUSE_STAGE", "3")
+        .env("MIND_DIRECTORY_RESTORE_READY", &ready)
+        .env("MIND_DIRECTORY_RESTORE_RESUME", &resume)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !ready.exists() {
+        if child.try_wait().unwrap().is_some() || std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "restore handshake failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // A real SQLite reader holds COMMIT at the exclusive-lock boundary. The
+    // newly created rollback journal proves the publisher entered its write
+    // transaction, after the historical live bytes were already placed.
+    let reader = rusqlite::Connection::open(root.path().join("test.sqlite")).unwrap();
+    assert_eq!(
+        reader
+            .query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "delete"
+    );
+    reader
+        .execute_batch("BEGIN; SELECT count(*) FROM documents;")
+        .unwrap();
+    let sqlite_journal = root.path().join("test.sqlite-journal");
+    assert!(!sqlite_journal.exists());
+    fs::write(&resume, b"resume").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !fs::metadata(&sqlite_journal).is_ok_and(|metadata| metadata.len() > 512) {
+        if child.try_wait().unwrap().is_some() || std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "restore SQL transaction boundary not reached: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(
+        reader
+            .query_row(
+                "SELECT current_version_number FROM documents WHERE id=?1",
+                [first.object.id.parse::<i64>().unwrap()],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        fs::read(root.path().join("Files/live.bin")).unwrap(),
+        RESTORE_OLD_BYTES
+    );
+    child.kill().unwrap();
+    let output = child.wait_with_output().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(output.status.signal(), Some(9));
+    }
+    #[cfg(not(unix))]
+    assert!(!output.status.success());
+    reader.execute_batch("ROLLBACK;").unwrap();
+    drop(reader);
+    let mut db = directory_restore_crash_open(root.path());
+    let recovered = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(recovered.state, "ready");
+    assert_eq!(recovered.version_number, 2);
+    assert_eq!(
+        fs::read(root.path().join("Files/live.bin")).unwrap(),
+        RESTORE_CURRENT_BYTES
+    );
+    assert_eq!(bytes(&db, &first), RESTORE_OLD_BYTES);
+    assert_eq!(bytes(&db, &second), RESTORE_CURRENT_BYTES);
+    assert_eq!(
+        db.conn
+            .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.project_file_resolve(&first.object)
+            .unwrap()
+            .version_number,
+        2
+    );
+    let request = restore_request(file_id(&first.object).unwrap().0);
+    let source = db
+        .file_version_restore_source(&request, &request.binding, &input)
+        .unwrap();
+    let fence = crate::workspace_commit_fence::WorkspaceCommitFence::new();
+    assert_eq!(
+        db.file_version_restore_commit_bound(
+            &request,
+            &request.binding,
+            &input,
+            &source,
+            &fence,
+            &|| Ok(())
+        )
+        .unwrap()
+        .receipt
+        .version_number,
+        3
+    );
+    assert!(
+        !db.file_version_restore_commit_bound(
+            &request,
+            &request.binding,
+            &input,
+            &source,
+            &fence,
+            &|| Ok(())
+        )
+        .unwrap()
+        .committed
+    );
+    assert_eq!(
+        fs::read(root.path().join("Files/live.bin")).unwrap(),
+        RESTORE_OLD_BYTES
+    );
+}

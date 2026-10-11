@@ -92,7 +92,7 @@ export interface DocumentRecord {
   isStarred: boolean;
   currentVersionNumber: number;
   versionCount: number;
-  health: "normal" | "missing";
+  health: "normal" | "missing" | "changed" | "unavailable";
   tags: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
