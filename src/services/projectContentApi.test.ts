@@ -1,0 +1,64 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useProjectContentStore } from "../state/project-content-store";
+import { getContentLayout } from "../lib/project-content-layout";
+import { openProjectContent } from "./projectContentApi";
+
+const mocks = vi.hoisted(() => ({ binding: vi.fn(), record: vi.fn(), file: vi.fn(), sessions: vi.fn(), start: vi.fn() }));
+vi.mock("./recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: mocks.binding, editorGet: mocks.record } }));
+vi.mock("./fileDocumentApi", () => ({ fileDocumentApi: { versionsList: mocks.file } }));
+vi.mock("./dshAssistantApi", () => ({ dshAssistantApi: { start: mocks.start, sessions: mocks.sessions } }));
+
+const binding = { workspaceId: "workspace-a", generation: "one" };
+const scope = { workspaceId: "workspace-a", projectId: 7 };
+const input = { workspaceRoot: "/workspace", projectId: 7, object: { kind: "record" as const, id: 12, title: "caller title" } };
+beforeEach(() => {
+  vi.clearAllMocks();
+  useProjectContentStore.setState({ layouts: {} });
+  mocks.binding.mockResolvedValue(binding);
+  mocks.record.mockResolvedValue({ head: { target: { scope: { kind: "project", projectId: 7 }, recordId: 12 } }, record: { id: 12, title: "Actual record" } });
+  mocks.start.mockResolvedValue(undefined);
+  mocks.sessions.mockResolvedValue([{ id: "session-a", title: "Actual session", running: false }]);
+});
+describe("authoritative project content open", () => {
+  it("deduplicates concurrent opens after async authority checks and uses the actual title", async () => {
+    const [first, second] = await Promise.all([openProjectContent(input), openProjectContent(input)]);
+    expect(first.tabId).toBe(second.tabId);
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(1);
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs[0].object.title).toBe("Actual record");
+  });
+  it("rejects an unrelated Record before changing layout", async () => {
+    mocks.record.mockResolvedValue({ head: { target: { scope: { kind: "project", projectId: 8 }, recordId: 12 } }, record: { id: 12 } });
+    await expect(openProjectContent(input)).rejects.toThrow("归属");
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
+  });
+  it("rejects a late response from an older Workspace generation", async () => {
+    mocks.binding.mockResolvedValueOnce(binding).mockResolvedValueOnce({ ...binding, generation: "two" });
+    await expect(openProjectContent(input)).rejects.toThrow("工作区已切换");
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
+  });
+  it("rejects an already stale reference binding before loading the object", async () => {
+    await expect(openProjectContent({ ...input, expectedBinding: { ...binding, generation: "old" } })).rejects.toThrow("工作区已切换");
+    expect(mocks.record).not.toHaveBeenCalled();
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
+  });
+  it("cancels an outstanding navigation before mutating the layout", async () => {
+    const controller = new AbortController();
+    mocks.record.mockImplementation(async () => { controller.abort(); return { head: { target: { scope: { kind: "project", projectId: 7 }, recordId: 12 } }, record: { id: 12 } }; });
+    await expect(openProjectContent({ ...input, signal: controller.signal })).rejects.toThrow("取消");
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
+  });
+  it("normalizes numeric File identities and keeps an existing pinned view on ordinary open", async () => {
+    mocks.file.mockResolvedValue({ object: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 7 }, kind: "file", id: "31" }, versions: [{ name: "File", versionNumber: 1 }], currentVersionNumber: 1 });
+    const file = { ...input, object: { kind: "file" as const, id: "31", title: "File" }, view: { versionNumber: 1, line: 4 } };
+    await openProjectContent(file);
+    await openProjectContent({ ...file, object: { ...file.object, id: 31 }, view: undefined });
+    const layout = getContentLayout(useProjectContentStore.getState(), scope);
+    expect(layout.panes).toHaveLength(1);
+    expect(layout.tabs).toHaveLength(1);
+    expect(layout.tabs[0].view).toEqual({ versionNumber: 1, line: 4 });
+  });
+  it("does not create or substitute an unknown Session", async () => {
+    await expect(openProjectContent({ ...input, object: { kind: "session", id: "missing", title: "Session" } })).rejects.toThrow("会话");
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
+  });
+});
