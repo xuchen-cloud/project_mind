@@ -61,3 +61,9 @@
 .workspace-topbar__tab-icon { display: inline-flex; flex: 0 0 16px; width: 16px; align-items: center; justify-content: center; }
 .workspace-topbar__tab--workspace { flex: 0 0 30px; width: 30px; min-width: 30px; max-width: 30px; justify-content: center; padding: 0; }
 .workspace-topbar__indicator { display: none; }
+
+/* Hover uses ::before; keep the separator independent of the curved active tab. */
+.workspace-topbar__tab[role="presentation"]:not([data-selected]) + .workspace-topbar__tab[role="presentation"]:not([data-selected])::after {
+  content: ""; position: absolute; left: -2px; top: 50%; width: 1px; height: 14px;
+  transform: translateY(-50%); background: var(--color-border-strong); pointer-events: none;
+}
