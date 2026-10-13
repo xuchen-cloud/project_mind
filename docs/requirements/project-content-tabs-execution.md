@@ -32,10 +32,10 @@
 
 ### 2026-10-13 Record／AI 对话彩色图标设计包（#124）
 
-- 依赖：上一包 DSH 彩色 FileTypeIcon 的图形和静态配色；用户要求新增 Record 与 AI 对话设计。交付：两个可缩放 SVG、放大及 16／20／28／32px 预览；应用内接入另包。本包不涉及运行时、文件映射、版本、数据或 Tab 排版。
-- 设计：Record 使用 DSH 蓝色 `#4176E6`、既有折角纸页轮廓和原创白色记录线；AI 对话使用 DSH 图片／视频紫色 `#8B76F6`、原创圆角气泡和白色星芒。相同 28px 网格，透明背景；Record 的来源轮廓仍受仓库既有 DSH MIT 许可覆盖。
+- 依赖：上一包 DSH 彩色 FileTypeIcon 的图形和静态配色；用户要求新增 Record 与 AI 对话设计。交付：Record 两种配色与 AI 对话的可缩放 SVG、放大及 16／20／28／32px 预览；应用内接入另包。本包不涉及运行时、文件映射、版本、数据或 Tab 排版。
+- 设计：用户反馈初版 Record 折角纸页与文件相似，并要求简化装订细节。Record 改为原创圆角笔记本、连续书脊和两条白色记录线，交付绿色 `#1ED760`、粉色 `#FB7299` 两个配色方案；AI 对话沿用 DSH 图片／视频紫色 `#8B76F6`、原创圆角气泡和白色星芒。相同 28px 网格，透明背景；Record 通过颜色与笔记本轮廓和原文件图标区分。
 - 验收与验证：两份 SVG XML／viewBox 和无脚本／外部图片检查通过；通过 bundled Sharp 从 SVG 渲染 PNG，确认 16px 非空且透明背景保留；主 agent 检查预览中线条、星芒及轮廓，小尺寸清晰，Standards／Spec 自查通过。纯静态设计资产未运行应用构建或单元全量，未启动窗口。
-- 文件：`src/assets/icons/record-color.svg`、`ai-chat-color.svg`；`docs/design/record-ai-chat-icons-20261013.html` 和 `.png`。当前临时图标选择页已将两个设计置顶，保留 59 个 DSH 彩色参考项，用户可刷新查看。
+- 文件：`src/assets/icons/record-color.svg`（绿色）、`record-color-pink.svg`、`ai-chat-color.svg`；`docs/design/record-ai-chat-icons-20261013.html` 和 `.png`，以及两种 Record 配色对比 `record-file-comparison-20261013.png`。当前临时选择页置顶 Record 两种配色和 AI 对话，保留 59 个 DSH 彩色参考项，用户可刷新查看。两种简化 Record 的最终 16px 渲染和透明背景已验证；主 agent 检查配色与装订点移除，纯资产变更复用原验证范围。
 
 ### 2026-10-13 文件与应用图标工作包（#124）
 
