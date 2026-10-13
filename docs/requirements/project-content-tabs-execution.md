@@ -38,6 +38,8 @@
 - 文件：`src/assets/icons/record-color.svg`（绿色）、`record-color-pink.svg`、`ai-chat-color.svg`；`docs/design/record-ai-chat-icons-20261013.html` 和 `.png`，以及两种 Record 配色对比 `record-file-comparison-20261013.png`。当前临时选择页置顶 Record 两种配色和 AI 对话，保留 59 个 DSH 彩色参考项，用户可刷新查看。两种简化 Record 的最终 16px 渲染和透明背景已验证；主 agent 检查配色与装订点移除，纯资产变更复用原验证范围。
 - 绿黑试版：按用户要求新增独立 `record-color-spotify.svg`，绿色书脊 `#1ED760`、近黑封面 `#191414`、纯黑记录线 `#000`；保留原绿色和粉色方案。新增 `record-spotify-trial-20261013.png`，HTML 和临时选择页置顶试版。XML 与 16px 渲染中绿色／深色／透明像素检查通过，主 agent 目视确认形状和配色；黑色记录线在小尺寸下较隐约。仅修改静态设计资产，未接入应用，未运行应用构建或启动窗口。
 
+- 绿黑试版调整：按用户最新反馈将内部两条记录线改为与书脊相同的 `#1ED760`，同步 SVG、HTML、临时选择页和 PNG。复查 XML 与 16px 渲染，主 agent 目视确认绿色线条在黑色封面上的辨识度；仅静态资产变更。
+
 ### 2026-10-13 文件与应用图标工作包（#124）
 
 - 依赖：现有 DSH `FileTypeIcon`／分类器、File 当前原件身份核验、Workspace generation、紧凑工具栏。接收时无 `tauri dev` 监听进程；保留 Agent／Overview／Voice 等并行未提交改动。
