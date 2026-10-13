@@ -54,6 +54,27 @@ it("shows both selected pages but focuses only the pane the user operates", () =
   const view = screen.getByTestId("page-1");
   expect(view).toHaveAttribute("data-visible", "true");
 });
+it("selects and drags through the full tab surface, while closing never selects it", async () => {
+  const a = open(1, "短名"); const b = open(2, "另一条内容"); render(<Harness />);
+  const surface = screen.getByRole("tab", { name: "短名" }).closest<HTMLElement>(".project-content__tab")!;
+  fireEvent.click(surface);
+  expect(getContentLayout(useProjectContentStore.getState(), scope).panes[0].selectedTabId).toBe(a);
+  pointer("pointerDown", surface, { clientX: 120, clientY: 15 });
+  expect(screen.getByRole("tab", { name: "短名" })).toHaveFocus();
+  pointer("pointerCancel", window, { clientX: 120, clientY: 15 });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "关闭另一条内容" })));
+  expect(getContentLayout(useProjectContentStore.getState(), scope).panes[0].selectedTabId).toBe(a);
+  expect(getContentLayout(useProjectContentStore.getState(), scope).tabs.some(tab => tab.id === b)).toBe(false);
+});
+it("removes the long-title mask after a background rename without remounting the page", () => {
+  const id = open(1, "长标题在后台更名");
+  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function () { return this.classList.contains("compact-tab__label") && this.textContent?.startsWith("长标题") ? 900 : 20; });
+  render(<Harness />);
+  expect(screen.getByText("长标题在后台更名")).toHaveAttribute("data-clipped");
+  act(() => useProjectContentStore.getState().updateTitle(scope, id, "短名"));
+  expect(screen.getByText("短名")).not.toHaveAttribute("data-clipped");
+  expect(mounts).toHaveBeenCalledTimes(1);
+});
 it("moves and merges an existing editor without remounting or losing its draft", () => {
   open(1, "甲"); open(2, "乙"); render(<Harness />);
   const input = screen.getByLabelText("草稿乙"); fireEvent.change(input, { target: { value: "未保存的编辑" } });
@@ -162,16 +183,16 @@ it("drops before and after a tab and across panes rather than always inserting b
   const a = open(1, "甲"); const b = open(2, "乙"); const c = open(3, "丙"); render(<Harness />);
   const left = screen.getByRole("tablist").parentElement!;
   vi.spyOn(left, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 500, 42));
-  for (const [i, name] of ["甲", "乙", "丙"].entries()) vi.spyOn(screen.getByRole("tab", { name }).parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(i * 100, 0, 100, 32));
+  for (const [i, name] of ["甲", "乙", "丙"].entries()) vi.spyOn(screen.getByRole("tab", { name }).closest<HTMLElement>(".project-content__tab")!, "getBoundingClientRect").mockReturnValue(new DOMRect(i * 100, 0, 100, 32));
   pointer("pointerDown", screen.getByRole("tab", { name: "甲" }), { clientX: 30, clientY: 15 });
   pointer("pointerMove", window, { clientX: 180, clientY: 15 });
-  expect(screen.getByRole("tab", { name: "乙" }).parentElement!).toHaveAttribute("data-drop", "after");
+  expect(screen.getByRole("tab", { name: "乙" }).closest<HTMLElement>(".project-content__tab")!).toHaveAttribute("data-drop", "after");
   pointer("pointerUp", window, { clientX: 180, clientY: 15 });
   expect(getContentLayout(useProjectContentStore.getState(), scope).panes[0].tabIds).toEqual([b, a, c]);
   fireEvent.click(screen.getByRole("button", { name: "分栏" }));
   const right = screen.getByRole("tablist", { name: "右栏内容" }).parentElement!;
   vi.spyOn(right, "getBoundingClientRect").mockReturnValue(new DOMRect(500, 0, 500, 42));
-  vi.spyOn(screen.getByRole("tab", { name: "甲" }).parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(500, 0, 100, 32));
+  vi.spyOn(screen.getByRole("tab", { name: "甲" }).closest<HTMLElement>(".project-content__tab")!, "getBoundingClientRect").mockReturnValue(new DOMRect(500, 0, 100, 32));
   pointer("pointerDown", screen.getByRole("tab", { name: "乙" }), { clientX: 30, clientY: 15 });
   pointer("pointerMove", window, { clientX: 680, clientY: 15 });
   pointer("pointerUp", window, { clientX: 680, clientY: 15 });
@@ -199,11 +220,11 @@ it("marks only the exact running Session and exposes file format and object type
   useProjectContentStore.getState().open(scope, { kind: "session", id: "alpha", title: "运行会话" });
   useProjectContentStore.getState().open(scope, { kind: "session", id: "beta", title: "空闲会话" });
   useProjectContentStore.getState().open(scope, { kind: "file", id: 3, title: "计划.md" }); render(<Harness />);
-  expect(screen.getByRole("tab", { name: "运行会话" }).parentElement).toHaveAttribute("data-running", "true");
-  expect(screen.getByRole("tab", { name: "空闲会话" }).parentElement).not.toHaveAttribute("data-running");
+  expect(screen.getByRole("tab", { name: "运行会话" }).closest(".project-content__tab")).toHaveAttribute("data-running", "true");
+  expect(screen.getByRole("tab", { name: "空闲会话" }).closest(".project-content__tab")).not.toHaveAttribute("data-running");
   expect(screen.getByRole("tab", { name: "计划.md" })).toHaveAttribute("title", expect.stringContaining("Markdown"));
   act(() => useAgentPanelStore.getState().setSessionRuns("/workspace", 7, {}));
-  expect(screen.getByRole("tab", { name: "运行会话" }).parentElement).not.toHaveAttribute("data-running");
+  expect(screen.getByRole("tab", { name: "运行会话" }).closest(".project-content__tab")).not.toHaveAttribute("data-running");
   expect(useAgentPanelStore.getState().sessionsByProject[dshProjectRunKey("/workspace", 7)]).toBeUndefined();
 });
 it("reveals the selected tab after route selection and keyboard navigation", () => {
@@ -211,7 +232,7 @@ it("reveals the selected tab after route selection and keyboard navigation", () 
   const viewport = screen.getByRole("tablist").parentElement!;
   Object.defineProperty(viewport, "scrollWidth", { configurable: true, value: 1000 });
   vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 300, 36));
-  vi.spyOn(screen.getByRole("tab", { name: "甲" }).parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(500, 0, 120, 30));
+  vi.spyOn(screen.getByRole("tab", { name: "甲" }).closest<HTMLElement>(".project-content__tab")!, "getBoundingClientRect").mockReturnValue(new DOMRect(500, 0, 120, 30));
   act(() => useProjectContentStore.getState().select(scope, "left", a));
   expect(viewport.scrollLeft).toBeGreaterThan(0);
 });
@@ -277,13 +298,13 @@ it("drops before a target, permits an empty destination pane, and cancels Escape
   const a = open(1, "甲"); const b = open(2, "乙"); render(<Harness />);
   const viewport = screen.getByRole("tablist").parentElement!;
   vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 500, 42));
-  vi.spyOn(screen.getByRole("tab", { name: "甲" }).parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 32));
-  vi.spyOn(screen.getByRole("tab", { name: "乙" }).parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 0, 100, 32));
+  vi.spyOn(screen.getByRole("tab", { name: "甲" }).closest<HTMLElement>(".project-content__tab")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 32));
+  vi.spyOn(screen.getByRole("tab", { name: "乙" }).closest<HTMLElement>(".project-content__tab")!, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 0, 100, 32));
   pointer("pointerDown", screen.getByRole("tab", { name: "乙" }), { clientX: 150, clientY: 15 });
   pointer("pointerMove", window, { clientX: 20, clientY: 15 });
-  expect(screen.getByRole("tab", { name: "甲" }).parentElement!).toHaveAttribute("data-drop", "before");
+  expect(screen.getByRole("tab", { name: "甲" }).closest<HTMLElement>(".project-content__tab")!).toHaveAttribute("data-drop", "before");
   fireEvent.keyDown(window, { key: "Escape" });
-  expect(screen.getByRole("tab", { name: "甲" }).parentElement!).not.toHaveAttribute("data-drop");
+  expect(screen.getByRole("tab", { name: "甲" }).closest<HTMLElement>(".project-content__tab")!).not.toHaveAttribute("data-drop");
   expect(getContentLayout(useProjectContentStore.getState(), scope).panes[0].tabIds).toEqual([a, b]);
   pointer("pointerDown", screen.getByRole("tab", { name: "乙" }), { clientX: 150, clientY: 15 });
   pointer("pointerMove", window, { clientX: 20, clientY: 15 });
@@ -314,7 +335,7 @@ it("keeps a manually scrolled strip while the selected page saves view metadata,
   const viewport = screen.getByRole("tablist").parentElement!;
   Object.defineProperty(viewport, "scrollWidth", { configurable: true, value: 1000 });
   vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 300, 42));
-  vi.spyOn(screen.getByRole("tab", { name: "甲" }).parentElement!, "getBoundingClientRect").mockImplementation(() => new DOMRect(-viewport.scrollLeft, 0, 100, 32));
+  vi.spyOn(screen.getByRole("tab", { name: "甲" }).closest<HTMLElement>(".project-content__tab")!, "getBoundingClientRect").mockImplementation(() => new DOMRect(-viewport.scrollLeft, 0, 100, 32));
   viewport.scrollLeft = 250; fireEvent.scroll(viewport);
   act(() => useProjectContentStore.getState().updateView(scope, b, { scrollTop: 1200 }));
   expect(viewport.scrollLeft).toBe(250);

@@ -856,9 +856,9 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-side__search, .home-record-filters>.search-field, .home-window-shell .workspace-topbar .search-field { height:var(--search-height); min-height:var(--search-height); padding-block:4px; box-sizing:border-box; }
 /* Browser-style tabs: rounded shoulders join the active page at the bottom. */
 .home-window-shell>.workspace-topbar { background:var(--home-topbar); box-shadow:none; padding-left:0; }
-.home-window-shell .workspace-topbar__tablist { overflow:hidden; align-items:flex-end; gap:8px; padding-inline:10px; }
+.home-window-shell .workspace-topbar__tablist { overflow:visible; align-items:flex-end; gap:2px; padding-inline:4px; }
 .home-window-shell .workspace-topbar__tab {
-  position:relative; height:30px; border:0; border-radius:10px 10px 0 0; padding-inline:8px; overflow:visible;
+  position:relative; height:30px; border:0; border-radius:10px 10px 0 0; padding-inline:6px; overflow:visible;
   background:transparent; color:var(--color-text-secondary);
 }
 /* Inactive hover is an inset pill; it never joins the page surface. */
@@ -899,7 +899,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .workspace-topbar__tab-trigger { align-items:center; }
 .home-window-shell .workspace-topbar__tab-label { font-size:13px; line-height:20px; }
 .home-window-shell .workspace-topbar__tab--active .workspace-topbar__tab-label { font-weight:600; }
-.home-window-shell .workspace-topbar__tab-close { width:22px; height:22px; color:var(--color-text-tertiary); }
+.home-window-shell .workspace-topbar__tab-close { width:20px; height:22px; color:var(--color-text-tertiary); }
 /* Sticky offsets are relative to this scroll container's padded content edge. */
 .home-window-shell .home-quick-note:not(.home-quick-note--expanded) { top:-8px; }
 /* Keep sticky geometry independent of scroll-container padding and rubber banding. */

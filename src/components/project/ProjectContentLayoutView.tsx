@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowRight, Columns2, CircleX, FileText, Home, Maximize2, MessageSquare, Merge, Minimize2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns2, FileText, Home, Maximize2, MessageSquare, Merge, Minimize2, X } from "lucide-react";
+import { TabStripScroll } from "../../ui/components/TabStripScroll";
+import "../../ui/tab-strip.css";
+import { measureTabLabels } from "../../ui/tab-strip";
 import { FileIcon } from "../document/FileIcon";
 import type { ContentPane, ContentScope, ContentTab, ProjectContentLayout } from "../../lib/project-content-layout";
 import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
@@ -36,7 +39,7 @@ function tabTypeLabel(tab: ContentTab): string {
 }
 function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, dragZones, shown }: {
   pane: ContentPane; layout: ProjectContentLayout; scope: ContentScope; shown: boolean;
-  dragging: string | null; startDrag: (event: React.PointerEvent<HTMLButtonElement>, id: string) => void;
+  dragging: string | null; startDrag: (event: React.PointerEvent<HTMLElement>, id: string) => void;
   dragZones: Map<PaneId, TabDragZone>;
   onSelect: (paneId: PaneId, tabId: string) => void;
   onClose: (tabId: string) => void;
@@ -50,7 +53,7 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
   const scrollFrame = useRef<number | null>(null);
   const sessionRuns = useAgentPanelStore(state => state.workspaceRoot
     ? state.sessionsByProject[dshProjectRunKey(state.workspaceRoot, scope.projectId)] : undefined);
-  function measure() {
+  function measure(labels = false) {
     const node = viewport.current;
     if (!node) return;
     const max = Math.max(0, node.scrollWidth - node.clientWidth);
@@ -58,13 +61,11 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
     const distance = Math.min(64, max / 2);
     const next = { left: distance ? Math.min(1, position / distance) : 0, right: distance ? Math.min(1, (max - position) / distance) : 0 };
     setEdges(previous => previous.left === next.left && previous.right === next.right ? previous : next);
-    content.current?.querySelectorAll<HTMLElement>(".project-content__tab-title").forEach(label => {
-      label.toggleAttribute("data-clipped", label.scrollWidth > label.clientWidth);
-    });
+    if (labels) measureTabLabels(content.current);
   }
   function revealSelected() {
     const node = viewport.current;
-    const selected = document.getElementById(`content-tab-${pane.selectedTabId}`)?.parentElement;
+    const selected = document.getElementById(`content-tab-${pane.selectedTabId}`)?.closest<HTMLElement>(".project-content__tab");
     if (!node || !selected || !shown) return;
     const bounds = node.getBoundingClientRect(), tab = selected.getBoundingClientRect();
     const max = Math.max(0, node.scrollWidth - node.clientWidth);
@@ -106,7 +107,7 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
   }, [dragging]);
   useEffect(() => stopAutoScroll, []);
   useLayoutEffect(() => {
-    const update = () => { measure(); revealSelected(); };
+    const update = () => { measure(true); revealSelected(); };
     update();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(update);
@@ -114,8 +115,8 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
     if (content.current) observer.observe(content.current);
     return () => observer.disconnect();
   }, [pane.selectedTabId, shown]);
-  useLayoutEffect(() => { measure(); revealSelected(); }, [memberKey]);
-  useLayoutEffect(measure, [layout.tabs]);
+  useLayoutEffect(() => { measure(true); revealSelected(); }, [memberKey]);
+  useLayoutEffect(() => measure(true), [layout.tabs]);
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
@@ -167,9 +168,9 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
     tabRects.current = next;
     return () => animations.forEach(animation => animation.cancel());
   }, [memberKey]);
-  return <div className="project-content__tab-frame" data-drop-empty={landing && !pane.tabIds.length || undefined}
+  return <div className="project-content__tab-frame tab-strip-frame" data-drop-empty={landing && !pane.tabIds.length || undefined}
     style={{ "--tab-fade-left": edges.left, "--tab-fade-right": edges.right } as CSSProperties}>
-    <div ref={viewport} className="project-content__tab-scroll" onScroll={() => {
+    <div ref={viewport} className="project-content__tab-scroll tab-strip-viewport" onScroll={() => {
       measure();
       content.current?.querySelectorAll<HTMLElement>("[data-tab-id]").forEach(tab => tabRects.current.set(tab.dataset.tabId!, tab.getBoundingClientRect()));
     }}>
@@ -179,13 +180,15 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
           const type = tabTypeLabel(tab);
           const Icon = tab.object.kind === "record" ? FileText : MessageSquare;
           const running = tab.object.kind === "session" && sessionRuns?.[String(tab.object.id)] === true;
-          return <div key={id} className="project-content__tab" data-tab-id={id} data-selected={pane.selectedTabId === id || undefined}
+          return <div key={id} className="project-content__tab compact-tab" data-tab-id={id} data-selected={pane.selectedTabId === id || undefined}
             data-running={running || undefined} data-dragging={dragging === id || undefined} data-drop={landing?.id === id ? landing.edge : undefined}
+            onClick={event => { if (!(event.target instanceof Element && event.target.closest(".compact-tab__close"))) onSelect(pane.id, id); }}
+            onPointerDown={event => { if (!(event.target instanceof Element && event.target.closest(".compact-tab__close"))) startDrag(event, id); }}
             >
-            <button type="button" role="tab" id={`content-tab-${id}`} aria-controls={`content-page-${id}`} aria-selected={pane.selectedTabId === id}
+            <div className="compact-tab__body">
+            <button type="button" role="tab" className="compact-tab__trigger" id={`content-tab-${id}`} aria-controls={`content-page-${id}`} aria-selected={pane.selectedTabId === id}
               aria-label={tab.object.title} aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight Control+Alt+Shift+ArrowLeft Control+Alt+Shift+ArrowRight"
-              onPointerDown={event => startDrag(event, id)}
-              tabIndex={pane.selectedTabId === id ? 0 : -1} onClick={() => onSelect(pane.id, id)}
+              tabIndex={pane.selectedTabId === id ? 0 : -1}
               title={`${tab.object.title} · ${type}${running ? " · 正在执行" : ""}
 Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
               onKeyDown={event => {
@@ -206,15 +209,18 @@ Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
               }}>
               {tab.object.kind === "file" ? <FileIcon name={tab.object.title} size={16} className="project-content__tab-icon" />
                 : <Icon size={13} className="project-content__tab-icon" aria-hidden="true" />}
-              <span className="project-content__tab-title">{tab.object.title}</span>
-              {tab.object.kind === "file" && tab.view.versionNumber !== undefined ? <small>v{tab.view.versionNumber}</small> : null}
               {running ? <span className="project-content__running" role="status" aria-label="正在执行" /> : null}
+              <span className="project-content__tab-title compact-tab__label">{tab.object.title}
+                {tab.object.kind === "file" && tab.view.versionNumber !== undefined ? <small>v{tab.view.versionNumber}</small> : null}
+              </span>
             </button>
-            <button type="button" className="project-content__tab-close" aria-label={`关闭${tab.object.title}`} title="关闭内容 Tab（Alt+W）" onClick={() => onClose(id)}><CircleX size={12} /></button>
+            <button type="button" className="project-content__tab-close compact-tab__close" aria-label={`关闭${tab.object.title}`} title="关闭内容 Tab（Alt+W）" onClick={() => onClose(id)}><X size={14} strokeWidth={1.5} /></button>
+            </div>
           </div>;
         })}
       </div>
     </div>
+    <TabStripScroll viewportRef={viewport} contentKey={memberKey} ariaLabel={`${pane.id === "left" ? "左" : "右"}栏标签滚动`} />
   </div>;
 }
 
@@ -235,9 +241,9 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
   const dragPreview = useRef<HTMLDivElement>(null);
   const pointerDrag = useRef<{ id: string; pointerId: number; startX: number; startY: number; moving: boolean; capture: HTMLElement } | null>(null);
   const suppressClick = useRef(false);
-  function startDrag(event: React.PointerEvent<HTMLButtonElement>, id: string) {
+  function startDrag(event: React.PointerEvent<HTMLElement>, id: string) {
     if (!active || event.button !== 0) return;
-    event.preventDefault(); event.currentTarget.focus();
+    event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>("[role=tab]")?.focus();
     const capture = event.currentTarget;
     capture.setPointerCapture?.(event.pointerId);
     pointerDrag.current = { id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false, capture };

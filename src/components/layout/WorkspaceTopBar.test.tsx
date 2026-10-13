@@ -1,10 +1,35 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { WorkspaceTopBar, shouldDetachProjectTabRelease } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
+  it("scrolls width-bounded project tabs with continuous edge masks and keeps close separate from activation", () => {
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { callbacks.push(callback); } observe() {} disconnect() {} });
+    const onOpen = vi.fn(), onClose = vi.fn();
+    const projects = ["Alpha", "Beta"].map((name, index) => ({ id: index + 1, name, kind: "normal" as const, status: "active" as const, rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 }));
+    try {
+      render(<WorkspaceTopBar projects={projects} activeProjectId={1} showWorkspace={false} searchInput="" onSearchInput={vi.fn()} searchResults={[]} searching={false} onOpenProject={onOpen} onCloseProject={onClose} onOpenWorkspace={vi.fn()} onSwitchWorkspace={vi.fn()} onOpenSettings={vi.fn()} onSearchSelect={vi.fn()} />);
+      const list = screen.getByRole("tablist", { name: "Workspace 与项目" });
+      const viewport = list.parentElement!, frame = viewport.parentElement!;
+      let width = 300;
+      Object.defineProperties(viewport, { clientWidth: { configurable: true, get: () => width }, scrollWidth: { configurable: true, value: 700 } });
+      const resize = () => act(() => callbacks.forEach(callback => callback()));
+      const edges = () => [frame.style.getPropertyValue("--tab-fade-left"), frame.style.getPropertyValue("--tab-fade-right")].map(Number);
+      resize(); expect(edges()).toEqual([0, 1]);
+      fireEvent.wheel(viewport, { deltaY: 32 }); expect(viewport.scrollLeft).toBe(32); expect(edges()).toEqual([.5, 1]);
+      viewport.scrollLeft = 400; fireEvent.scroll(viewport); expect(edges()).toEqual([1, 0]);
+      viewport.scrollLeft = 368; fireEvent.scroll(viewport); expect(edges()).toEqual([1, .5]);
+      viewport.scrollLeft = 0; fireEvent.scroll(viewport); expect(edges()).toEqual([0, 1]);
+      fireEvent.click(screen.getByRole("tab", { name: "Beta" }).closest(".workspace-topbar__tab")!);
+      expect(onOpen).toHaveBeenCalledExactlyOnceWith(2);
+      fireEvent.click(screen.getByRole("button", { name: "关闭 Beta" }));
+      expect(onClose).toHaveBeenCalledExactlyOnceWith(2); expect(onOpen).toHaveBeenCalledTimes(1);
+      width = 800; resize(); expect(edges()).toEqual([0, 0]); expect(screen.queryByRole("scrollbar")).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("exposes an explicit Workspace switch action", async () => {
     const user = userEvent.setup();
     const onSwitchWorkspace = vi.fn();

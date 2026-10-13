@@ -1,0 +1,64 @@
+.tab-strip-frame {
+  position: relative;
+}
+
+.tab-strip-viewport {
+  scrollbar-width: none;
+}
+
+.tab-strip-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-strip-scroll {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  height: 8px;
+  opacity: 0;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  transition: opacity var(--duration-standard) var(--ease-soft);
+}
+
+/* Visibility follows the shared frame, including focus in any of its tabs. */
+.tab-strip-frame:hover > .tab-strip-scroll,
+.tab-strip-frame:has(:focus-visible) > .tab-strip-scroll,
+.tab-strip-scroll[data-dragging="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tab-strip-scroll:focus-visible {
+  outline: 1px solid var(--color-text-tertiary);
+  outline-offset: -1px;
+}
+
+.tab-strip-scroll__thumb {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 8px;
+  cursor: grab;
+}
+
+.tab-strip-scroll__thumb::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+}
+
+.tab-strip-scroll[data-dragging="true"] .tab-strip-scroll__thumb {
+  cursor: grabbing;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-strip-scroll {
+    transition: none;
+  }
+}

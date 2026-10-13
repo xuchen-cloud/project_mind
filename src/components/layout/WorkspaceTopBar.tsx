@@ -3,7 +3,7 @@ import { ProjectHomeIcon } from "../home/HomeCover";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import {
   ArrowLeftRight,
-  CircleX,
+  X,
   FolderKanban,
   ExternalLink,
   LoaderCircle,
@@ -16,7 +16,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type CSSProperties,
   useEffect,
-  useMemo,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -34,6 +34,9 @@ import {
   StatusBadge,
 } from "../../ui/components";
 import { getRovingTabTargetIndex } from "../../ui/rovingTabs";
+import { TabStripScroll } from "../../ui/components/TabStripScroll";
+import "../../ui/tab-strip.css";
+import { measureTabLabels } from "../../ui/tab-strip";
 
 interface WorkspaceTopBarProps {
   homePanels?: { rightWidth?: number; leftWidth: number; workspaceName: string; leftOpen: boolean; rightOpen: boolean; toggleLeft: () => void; toggleRight: () => void };
@@ -95,7 +98,53 @@ export function WorkspaceTopBar({
   onDetachProject,
 }: WorkspaceTopBarProps) {
   const tabListRef = useRef<HTMLDivElement | null>(null);
-  const indicatorRef = useTabIndicator(tabListRef, `${workspaceActive}:${activeProjectId}:${projects.map(project => project.id).join(",")}`);
+  const tabViewportRef = useRef<HTMLDivElement | null>(null);
+  const [tabEdges, setTabEdges] = useState({ left: 0, right: 0 });
+  const projectKey = projects.map(project => `${project.id}:${project.name}`).join("|");
+  function measureTabs(labels = false) {
+    const node = tabViewportRef.current;
+    if (!node) return;
+    const max = Math.max(0, node.scrollWidth - node.clientWidth);
+    const position = Math.max(0, Math.min(max, node.scrollLeft));
+    const distance = Math.min(64, max / 2);
+    const next = { left: distance ? Math.min(1, position / distance) : 0, right: distance ? Math.min(1, (max - position) / distance) : 0 };
+    setTabEdges(previous => previous.left === next.left && previous.right === next.right ? previous : next);
+    if (labels) measureTabLabels(tabListRef.current);
+  }
+  useLayoutEffect(() => {
+    const node = tabViewportRef.current;
+    const reveal = () => {
+      measureTabs(true);
+      const selected = tabListRef.current?.querySelector<HTMLElement>("[data-selected]");
+      if (!node || !selected) return;
+      const bounds = node.getBoundingClientRect(), tab = selected.getBoundingClientRect();
+      const delta = tab.left < bounds.left + 4 ? tab.left - bounds.left - 4
+        : tab.right > bounds.right - 4 ? tab.right - bounds.right + 4 : 0;
+      node.scrollLeft = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, node.scrollLeft + delta));
+      measureTabs();
+    };
+    reveal();
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(node);
+    if (tabListRef.current) observer.observe(tabListRef.current);
+    return () => observer.disconnect();
+  }, [activeProjectId, workspaceActive, showWorkspace, projectKey]);
+  useEffect(() => {
+    const node = tabViewportRef.current;
+    if (!node) return;
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return;
+      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientWidth : 1;
+      const delta = (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY) * factor;
+      const next = Math.max(0, Math.min(node.scrollWidth - node.clientWidth, node.scrollLeft + delta));
+      if (next === node.scrollLeft) return;
+      event.preventDefault(); node.scrollLeft = next; measureTabs();
+    };
+    node.addEventListener("wheel", wheel, { passive: false });
+    return () => node.removeEventListener("wheel", wheel);
+  }, []);
+  const indicatorRef = useTabIndicator(tabListRef, `${workspaceActive}:${activeProjectId}:${projectKey}`);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const compactSearchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dragStateRef = useRef<{
@@ -227,14 +276,6 @@ export function WorkspaceTopBar({
     };
   }, [dragEnabled, onDetachProject]);
 
-  const tabClassName = useMemo(
-    () =>
-      [
-        "workspace-topbar__tab group inline-flex h-8 min-w-0 items-center rounded-[var(--radius-6)] border pr-0.5 text-ui font-medium transition-[background-color,color,border-color,opacity] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
-      ].join(" "),
-    [],
-  );
-
   const projectTabContextMenuPortal =
     projectTabContextMenu && onDetachProject && typeof document !== "undefined"
       ? createPortal(
@@ -263,11 +304,12 @@ export function WorkspaceTopBar({
   return (
     <header data-tauri-drag-region style={homePanels ? { "--home-left-width": `${homePanels.leftWidth}px`, "--home-right-width": `${homePanels.rightWidth ?? 340}px` } as CSSProperties : undefined} data-home-left-open={homePanels?.leftOpen || undefined} data-home-right-open={homePanels?.rightOpen || undefined} className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
       {homePanels && !homePanels.leftOpen ? <IconButton type="button" aria-label="切换左侧栏" aria-expanded={homePanels.leftOpen} onClick={homePanels.toggleLeft}><PanelLeft size={16} /></IconButton> : null}
-      <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+      <div data-tauri-drag-region className="workspace-topbar__tab-frame tab-strip-frame" style={{ "--tab-fade-left": tabEdges.left, "--tab-fade-right": tabEdges.right } as CSSProperties}>
+        <div ref={tabViewportRef} id="project-tabs-scroll" className="workspace-topbar__tab-scroll tab-strip-viewport" onScroll={() => measureTabs()}>
         <div
           data-tauri-drag-region
           ref={tabListRef}
-          className="workspace-topbar__tablist flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden"
+          className="workspace-topbar__tablist"
           role="tablist"
           aria-label="Workspace 与项目"
         >
@@ -276,11 +318,8 @@ export function WorkspaceTopBar({
             <button
               type="button"
               className={[
-                "workspace-topbar__tab workspace-topbar__tab--workspace inline-flex h-8 min-w-0 items-center gap-1 rounded-[var(--radius-6)] border px-2 text-ui font-medium transition-[background-color,color,border-color] duration-[var(--duration-standard)] ease-[var(--ease-soft)]",
+                "workspace-topbar__tab workspace-topbar__tab--workspace compact-tab",
                 workspaceActive ? "workspace-topbar__tab--active" : "",
-                workspaceActive
-                  ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                  : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
               ].join(" ")}
               onClick={onOpenWorkspace}
               onKeyDown={(event) =>
@@ -288,6 +327,7 @@ export function WorkspaceTopBar({
               }
               role="tab"
               aria-selected={workspaceActive}
+              data-selected={workspaceActive || undefined}
               tabIndex={workspaceActive || activeProjectId === null ? 0 : -1}
               aria-label="Workspace"
               title="Workspace"
@@ -300,19 +340,31 @@ export function WorkspaceTopBar({
             <div
               key={project.id}
               className={[
-                tabClassName,
+                "workspace-topbar__tab compact-tab",
                 project.id === activeProjectId ? "workspace-topbar__tab--active" : "",
-                project.id === activeProjectId
-                  ? "border-[color-mix(in_srgb,var(--color-accent)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] text-accent"
-                  : "border-transparent text-text-muted hover:bg-bg-hover hover:text-text",
                 draggingProjectId === project.id ? "opacity-60" : "",
               ].join(" ")}
+              onClick={() => onOpenProject(project.id)}
+              onPointerDown={(event) => {
+                  if (!dragEnabled || event.button !== 0 || (event.target instanceof Element && event.target.closest(".compact-tab__close"))) {
+                    return;
+                  }
+
+                  dragStateRef.current = {
+                    projectId: project.id,
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    dragging: false,
+                  };
+                }}
               role="presentation"
+              data-selected={project.id === activeProjectId || undefined}
             >
+              <div className="compact-tab__body">
               <button
                 type="button"
-                className="workspace-topbar__tab-trigger flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-[var(--radius-6)] px-2"
-                onClick={() => onOpenProject(project.id)}
+                className="workspace-topbar__tab-trigger compact-tab__trigger"
                 onKeyDown={(event) =>
                   handleTabKeyDown(event, (tab) => tab.click())
                 }
@@ -338,30 +390,17 @@ export function WorkspaceTopBar({
                     y: event.clientY,
                   });
                 }}
-                onPointerDown={(event) => {
-                  if (!dragEnabled || event.button !== 0) {
-                    return;
-                  }
-
-                  dragStateRef.current = {
-                    projectId: project.id,
-                    pointerId: event.pointerId,
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    dragging: false,
-                  };
-                }}
                 title={project.name}
               >
                 <span className="workspace-topbar__tab-icon" aria-hidden="true"><ProjectHomeIcon rootPath={project.rootPath} size={14} /></span>
-                <span className="workspace-topbar__tab-label min-w-0 flex-1">{project.name}</span>
+                <span className="workspace-topbar__tab-label compact-tab__label">{project.name}</span>
               </button>
               {onCloseProject ? (
                 <button
                   type="button"
                   aria-label={`关闭 ${project.name}`}
                   className={[
-                    "workspace-topbar__tab-close inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-6)] text-current opacity-55 transition-[background-color,opacity] hover:bg-bg/80 hover:opacity-100",
+                    "workspace-topbar__tab-close compact-tab__close",
                     project.id === activeProjectId ? "workspace-topbar__tab-close--persistent" : "",
                   ].join(" ")}
                   onClick={(event) => {
@@ -369,12 +408,15 @@ export function WorkspaceTopBar({
                     onCloseProject(project.id);
                   }}
                 >
-                  <CircleX size={12} />
+                  <X size={14} strokeWidth={1.5} />
                 </button>
               ) : null}
+              </div>
             </div>
           ))}
         </div>
+        </div>
+        <TabStripScroll viewportRef={tabViewportRef} contentKey={`${showWorkspace}:${projectKey}`} ariaLabel="项目标签滚动" viewportId="project-tabs-scroll" />
       </div>
 
       <div className="workspace-topbar__actions flex shrink-0 items-center gap-2">
