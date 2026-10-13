@@ -336,7 +336,6 @@ impl AppState {
                 &runtime.metadata,
                 std::env::var("PROJECT_MIND_DEV_WORKSPACE_PASSWORD").ok().as_deref(),
                 debug_cached_workspace_password,
-                debug_cache_workspace_password,
             )? {
                 if let Some(error) = runtime.set_secret_password(Some(password))? {
                     let _ = self.app_handle.emit("record:checkpoint-error", error);
@@ -380,8 +379,6 @@ impl AppState {
     fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
         verify_workspace_password(&runtime.metadata, password)?;
-        #[cfg(debug_assertions)]
-        debug_cache_workspace_password(&runtime.metadata.workspace_id, password)?;
         if let Some(error) = runtime.set_secret_password(Some(password.to_string()))? {
             let _ = self.app_handle.emit("record:checkpoint-error", error);
         }
@@ -411,21 +408,45 @@ impl AppState {
 type CommandResult<T> = std::result::Result<T, String>;
 
 #[cfg(debug_assertions)]
-fn debug_cached_workspace_password(workspace_id: &str) -> Result<Option<String>> {
-    let entry = keyring::Entry::new("ProjectMind.Debug.Workspace", workspace_id)
-        .map_err(|_| anyhow!("无法访问开发模式工作区钥匙串"))?;
-    match entry.get_password() {
+fn debug_workspace_key_path(app_data: &Path, workspace_id: &str) -> Result<PathBuf> {
+    if workspace_id.len() != 32 || !workspace_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("invalid workspace identity for development cache");
+    }
+    Ok(app_data.join("debug-workspace-keys").join(workspace_id))
+}
+
+#[cfg(debug_assertions)]
+fn debug_read_workspace_key(app_data: &Path, workspace_id: &str) -> Result<Option<String>> {
+    match fs::read_to_string(debug_workspace_key_path(app_data, workspace_id)?) {
         Ok(password) => Ok(Some(password)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err(anyhow!("无法读取开发模式工作区钥匙串")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).context("failed to read development workspace key"),
     }
 }
 
 #[cfg(debug_assertions)]
+fn debug_write_workspace_key(app_data: &Path, workspace_id: &str, password: &str) -> Result<()> {
+    use std::io::Write;
+    let path = debug_workspace_key_path(app_data, workspace_id)?;
+    let directory = path.parent().unwrap();
+    fs::create_dir_all(directory)?;
+    // NamedTempFile creates a private file (0600 on Unix) and atomically
+    // replaces the key. Production builds have no development key cache.
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    temporary.write_all(password.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn debug_cached_workspace_password(workspace_id: &str) -> Result<Option<String>> {
+    debug_read_workspace_key(&default_app_data_dir()?, workspace_id)
+}
+
+#[cfg(debug_assertions)]
 fn debug_cache_workspace_password(workspace_id: &str, password: &str) -> Result<()> {
-    keyring::Entry::new("ProjectMind.Debug.Workspace", workspace_id)
-        .and_then(|entry| entry.set_password(password))
-        .map_err(|_| anyhow!("无法保存开发模式工作区密码到系统钥匙串"))
+    debug_write_workspace_key(&default_app_data_dir()?, workspace_id, password)
 }
 
 #[cfg(debug_assertions)]
@@ -433,21 +454,21 @@ fn debug_workspace_password(
     metadata: &WorkspaceMetadata,
     fixture_password: Option<&str>,
     read: impl FnOnce(&str) -> Result<Option<String>>,
-    save: impl FnOnce(&str, &str) -> Result<()>,
 ) -> Result<Option<String>> {
+    if let Some(password) = fixture_password {
+        // Explicit acceptance configuration needs no cache access. It can
+        // unlock only the workspace whose verifier matches that password.
+        match verify_workspace_password(metadata, password) {
+            Ok(()) => return Ok(Some(password.to_owned())),
+            Err(error) if error.to_string() == "workspace password is incorrect" => {},
+            Err(error) => return Err(error),
+        }
+    }
     if let Some(password) = read(&metadata.workspace_id)? {
         verify_workspace_password(metadata, &password)?;
         return Ok(Some(password));
     }
-    let Some(password) = fixture_password else { return Ok(None); };
-    // The acceptance password is only a fallback for workspaces it actually decrypts.
-    match verify_workspace_password(metadata, password) {
-        Ok(()) => {}
-        Err(error) if error.to_string() == "workspace password is incorrect" => return Ok(None),
-        Err(error) => return Err(error),
-    }
-    save(&metadata.workspace_id, password)?;
-    Ok(Some(password.to_owned()))
+    Ok(None)
 }
 
 #[cfg(debug_assertions)]
@@ -460,7 +481,7 @@ fn debug_create_workspace(
     if let Err(error) = save(&metadata.workspace_id, &password) {
         // No database exists yet; allow creation to be retried without losing a generated key.
         std::fs::remove_file(&paths.metadata_path)
-            .context("failed to roll back workspace metadata after keychain failure")?;
+            .context("failed to roll back workspace metadata after development key cache failure")?;
         return Err(error);
     }
     Ok(())
@@ -1853,51 +1874,65 @@ mod workspace_lifecycle_tests {
 
 #[cfg(all(test, debug_assertions))]
 mod debug_workspace_auto_unlock_tests {
-    use super::{debug_create_workspace, debug_workspace_password};
+    use super::{debug_create_workspace, debug_workspace_password, debug_read_workspace_key, debug_write_workspace_key, debug_workspace_key_path};
     use crate::workspace::{create_workspace, load_metadata, verify_workspace_password};
-    use std::{cell::RefCell, collections::HashMap};
 
     #[test]
-    fn new_workspace_uses_generated_key_and_reopens_from_workspace_scoped_cache() {
+    fn new_workspace_uses_local_generated_key_and_reopens_without_keychain() {
         let temp = tempfile::tempdir().unwrap();
-        let cache = RefCell::new(HashMap::<String, String>::new());
-        debug_create_workspace(temp.path(), |id, password| {
-            cache.borrow_mut().insert(id.to_owned(), password.to_owned());
-            Ok(())
-        }).unwrap();
-        let (metadata, _) = load_metadata(temp.path()).unwrap();
+        let root = temp.path().join("workspace");
+        let app_data = temp.path().join("app-data");
+        debug_create_workspace(&root, |id, password| debug_write_workspace_key(&app_data, id, password)).unwrap();
+        let (metadata, _) = load_metadata(&root).unwrap();
         let password = debug_workspace_password(&metadata, None,
-            |id| Ok(cache.borrow().get(id).cloned()), |_, _| panic!("already cached"),
+            |id| debug_read_workspace_key(&app_data, id),
         ).unwrap().unwrap();
         verify_workspace_password(&metadata, &password).unwrap();
-        assert_eq!(cache.borrow().len(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let key = debug_workspace_key_path(&app_data, &metadata.workspace_id).unwrap();
+            assert_eq!(std::fs::metadata(key).unwrap().permissions().mode() & 0o777, 0o600);
+        }
     }
 
     #[test]
-    fn uncached_workspace_stays_locked_and_fixture_fallback_must_verify() {
+    fn explicit_fixture_configuration_unlocks_without_any_cache_access() {
+        let temp = tempfile::tempdir().unwrap();
+        let (metadata, _) = create_workspace(temp.path(), "fixture-password").unwrap();
+        let password = debug_workspace_password(&metadata, Some("fixture-password"),
+            |_| panic!("explicit fixture must not access a password cache"),
+        ).unwrap();
+        assert_eq!(password.as_deref(), Some("fixture-password"));
+    }
+
+    #[test]
+    fn uncached_workspace_stays_locked_and_wrong_fixture_cannot_unlock_it() {
         let temp = tempfile::tempdir().unwrap();
         let (metadata, _) = create_workspace(temp.path(), "existing-password").unwrap();
-        for fallback in [None, Some("other-fixture-password")] {
-            assert!(debug_workspace_password(&metadata, fallback, |_| Ok(None),
-                |_, _| panic!("unverified password must not be cached"),
-            ).unwrap().is_none());
+        for fixture in [None, Some("other-fixture-password")] {
+            assert!(debug_workspace_password(&metadata, fixture, |_| Ok(None)).unwrap().is_none());
         }
-        let saved = RefCell::new(None);
-        let result = debug_workspace_password(&metadata, Some("existing-password"),
-            |_| Ok(None), |id, password| {
-                *saved.borrow_mut() = Some((id.to_owned(), password.to_owned()));
-                Ok(())
-            },
-        ).unwrap();
-        assert_eq!(result.as_deref(), Some("existing-password"));
-        assert_eq!(saved.borrow().as_ref().unwrap().0, metadata.workspace_id);
-        assert!(debug_workspace_password(&metadata, None, |_| Ok(Some("wrong".into())),
-            |_, _| panic!("invalid cached password"),
-        ).is_err());
+        assert!(debug_workspace_password(&metadata, None, |_| Ok(Some("wrong".into()))).is_err());
     }
 
     #[test]
-    fn keychain_failure_does_not_leave_an_unrecoverable_generated_workspace() {
+    fn development_key_cache_is_workspace_scoped_and_rejects_path_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = "00000000000000000000000000000001";
+        let second = "00000000000000000000000000000002";
+        debug_write_workspace_key(temp.path(), first, "first generated key").unwrap();
+        debug_write_workspace_key(temp.path(), second, "second generated key").unwrap();
+        assert_eq!(debug_read_workspace_key(temp.path(), first).unwrap().as_deref(), Some("first generated key"));
+        assert_eq!(debug_read_workspace_key(temp.path(), second).unwrap().as_deref(), Some("second generated key"));
+        for id in ["../outside", "/absolute", "", "0000000000000000000000000000000g"] {
+            assert!(debug_write_workspace_key(temp.path(), id, "key").is_err());
+            assert!(debug_read_workspace_key(temp.path(), id).is_err());
+        }
+    }
+
+    #[test]
+    fn local_cache_failure_does_not_leave_an_unrecoverable_generated_workspace() {
         let temp = tempfile::tempdir().unwrap();
         assert!(debug_create_workspace(temp.path(), |_, _| Err(anyhow::anyhow!("store unavailable"))).is_err());
         assert!(load_metadata(temp.path()).is_err());
