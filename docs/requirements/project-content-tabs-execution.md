@@ -127,6 +127,30 @@ macOS WebView 另发现代码预览 MutationObserver 对未变化的遮罩数值
 
 10 月 13 日用户在隔离验收应用操作后出现“导入文件失败 / File changed while preparing its version”。按用户要求委派实现子 agent，定位到版本复制前后 stamp/路径身份不一致的拒绝边界；已有导入失败回滚测试 1/1 通过，普通文件和 APFS 压缩文件的独立 metadata 探针未复现。随后用户补充源文件应该是 iCloud 尚未下载到本地的文件，并明确不优先处理。本项降为后续排查，未确认具体源文件和云占位状态，不认定已解决或已证实根因。继续保留 stamp/hash/CAS 校验；解锁条件为提供可重复的未下载云文件样例，比较下载前后状态，设计可操作的等待下载提示。
 
+### 2026-10-13 助手标题下方白屏修复包（#124）
+
+- 依赖：WP5 的统一内容会话入口、现有 `DshAssistantPanel` 和 `AgentWorkspacePanel`。交付：打开助手后展示可操作的项目会话入口或明确空态，创建/打开会话进入原有内容 Tab；关闭及项目切换可正常返回。非目标：模型/运行时协议、iCloud 导入及新布局能力。
+- 验收：有会话及无会话项目均有正文；异步启动失败显式显示错误；关闭/重开、A/B 切换及打开会话不会串入另一项目。验证限定真实 callback 模式组件及 launcher/退出接入；最终前端构建、macOS 包装与真实 GUI 集中复验。
+- 现场：用户报告两个项目显示“DSH 助手”标题、下方全白，随后恢复。主 agent 在项目 A 概览点击助手准确复现，标题和顶部会话/新建按钮可用、正文为空；点击关闭助手可回到主页。本次确认了白屏，尚未复现原生进程冻结，不把两者混为同一结论。
+- 修复：真实 `AgentWorkspacePanel` 使用 `onOpenSession` 目录模式时，启动完成后原代码既不挂载 Host，也不显示目录。复用原会话列表、删除确认和 `HomeSidebarList`，补上常驻目录/空态与刷新；创建或打开会话仍走原内容 Tab，未增加第二个运行时。
+- 红绿：真实 workspace launcher 的已有/空会话、项目切换和错误重试 4/4 基线失败，修复后 4/4 通过；受影响组件四文件 37/37 通过。主 App 关闭/重开及跨项目 `inert` 恢复用例通过。集中五文件去重共 71 项：其中四文件 59 项先通过、3 项超时；只重跑失败范围诊断，再保留原 15 秒上限后 3/3 通过；另内容 Workspace 9/9 通过。
+- 测试清理：连续 App 用例出现超时、单项可通过，补齐 fixture 的延迟保存释放/flush、unmount、Router dispose、QueryClient 取消/清理。最终三项 3/3，共享 fixture 其余受影响三项 3/3；未放宽断言和原超时上限。证据不足以把资源竞争或 cleanup 缺口认定为唯一原因。日志为 `assistant-app-resident-final.log` 和 `assistant-app-resident-cleanup-affected.log`；未变化的已通过用例复用。
+
+### 2026-10-13 导入后位置未核验修复包（#124）
+
+- 依赖：既有文件导入事务、不可变版本与项目目录文件身份核验。交付：新导入事务保存已核验的物理身份，首次打开冻结既有 head；已导入且缺少核验记录的文件，显示明确待核对原因，并通过现有“文件位置”确认入口恢复。非目标：PPT 预览能力、云占位下载及移动/替换规则调整。
+- 验收：完整“导入 → resolve”链路、历史导入首次打开、内容变化及物理替换拒绝边界；针对性 Rust 回归后集中构建 macOS 包，并打开现场文件核验。不以直接标记 ready、吞错或放松身份检查消除错误。
+- 现场：项目 B 的 `Presentation12.pptx` 显示 `File location has not been checked`。该文案由缺少目录身份记录的投影返回，预览在格式判断前被位置核验拦住。导入服务未写入新服务需要的身份记录。
+- 修复：导入时建立目录 schema，将放置时核验的物理身份与 File/head 同事务写入；首次 resolve 复用原快照发布服务。旧导入无身份或首次快照前内容变化保持 `ambiguous`，显示明确核对原因；register 同样经过核验，避免绕过 resolve 信任任意替换。
+- 验证：完整导入/打开路径基线 3/3 失败；目录组 27/27、导入组 11/11 通过，各有一个供父测试调用的子进程 fixture 按约忽略。新增/扩展测试覆盖复制和就地导入、重开数据库、首次快照保留 v1、同字节物理替换、首次打开前内容变化、旧版提交 journal 缺少身份表的恢复。日志为隔离验收目录下 `file-location-*.log`。
+
+### 两项修复的构建、检查与现场复验状态
+
+- 源码提交：助手目录及退出测试 `21faeb5`；导入身份核验 `fe7f5f2`。上述测试和构建针对这两包的最终源码；提交后未修改业务实现。
+- `npm run build`、`npm run check:ui-standards`、`npm run check:bundle-boundaries` 通过；主包 223/250 KiB。使用上表同一 debug/app/updater 配置重新包装成功，128 个 JS/CSS asset 名称均在原生二进制中，隔离应用与构建产物的可执行文件 SHA 一致；日志为 `bugfix-frontend-build.log`、`bugfix-native-package.log`、`bugfix-*.log`。
+- 主 agent 自行完成本次 Standards / Spec 源码检查：复用原目录、唯一内容 Tab 与运行时；目录有显式空态、错误与原滚动遮罩；File 导入身份与 head 原子写入，首次快照及 register 不绕过物理身份和版本 hash，旧导入按原确认协议处理。未启动 review 子 agent；本包 diff 检查通过，接收时已有 29 个未提交路径未修改或纳入提交。
+- 退出旧隔离应用后更新其 binary/resources，保留 App identity、App data、两个项目及现场用户新增记录/文件。2026-10-13 新二进制启动时再次触发 macOS Keychain 的 `SecurityAgent`，Computer Use 禁止操作该系统应用，已请求用户手动处理。更新后的助手目录、退出与现场 PPT 位置确认 GUI 复验尚未通过，不将构建或自动测试记成现场验收；Windows 待办不变。
+
 ### 主 agent 双轴检查与发布状态
 
 - Standards 源码检查完成：核查布局元数据与业务权威分离、异步归属/generation、File 身份与 CAS、恢复 intent/原子回执、历史引用保留、Record canonical 保存、每 Session/Project 运行归属、预览资源/许可和实际生命周期。上述代码发现均已修复并验证；未启动 review 子 agent。
