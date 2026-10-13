@@ -2,7 +2,7 @@ import type { AgentSourceRef } from '../../lib/agent-types';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { DshConversationHost, insertDshFileReference } from "@project-mind/dsh-ui/adapters";
-import { ChevronDown, Maximize2, Minimize2, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, RefreshCw, Maximize2, Minimize2, Plus, Trash2, X } from "lucide-react";
 import { consumeDshFileReference, useDshFileReferences } from "../../lib/dsh-host-events";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { getErrorMessage } from "../../lib/errors";
@@ -139,11 +139,13 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
     void dshAssistantApi.sessions(projectId).then(value => {
       if (!cancelled) {
         setSessions(value); setSessionsLoading(false);
+        if (onOpenSession) setSessionsOpen(false);
         if (workspaceRoot) useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, value.some(session => session.running));
       }
     }, reason => {
       if (!cancelled) { setError(getErrorMessage(reason, "读取项目会话失败")); setSessionsOpen(false); setSessionsLoading(false); }
     });
+    if (onOpenSession) return () => { cancelled = true; };
     const outside = (event: PointerEvent) => { if (!sessionMenu.current?.contains(event.target as Node)) setSessionsOpen(false); };
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSessionsOpen(false); };
     window.addEventListener("pointerdown", outside); window.addEventListener("keydown", escape);
@@ -196,25 +198,31 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   };
   const disabled = !open || !ready || !hostReady || !!error || sessionBusy;
 
+  const sessionList = <>
+    {sessionsLoading ? <p role="status">正在读取会话…</p> : null}
+    <HomeSidebarList label="项目会话">
+      {!sessionsLoading && sessions.length === 0 ? <p>{onOpenSession ? "暂无会话，点击新建会话开始。" : "暂无会话"}</p> : null}
+      {sessions.map(session => <div key={session.id} className="dsh-assistant__session-row">
+        <Button size="sm" variant={selectedSession?.id === session.id ? "secondary" : "ghost"} disabled={sessionBusy || sessionsLoading || (!onOpenSession && runBusy)}
+          aria-pressed={selectedSession?.id === session.id} onClick={() => void operate(session)}>{session.title || "未命名会话"}{session.running ? "（运行中）" : ""}</Button>
+        <Button size="sm" variant="ghost" aria-label={`删除会话 ${session.title || "未命名会话"}`} disabled={sessionBusy || sessionsLoading || runBusy || session.running}
+          leadingIcon={<Trash2 size={14} />} onClick={() => setDeleting(session)} />
+      </div>)}
+    </HomeSidebarList>
+    {deleting ? <div role="group" aria-label="确认删除会话"><p>删除“{deleting.title || "未命名会话"}”？会话将从项目列表中移除，历史文件保留。</p>
+      <Button size="sm" disabled={sessionBusy || runBusy} onClick={() => void operate(deleting, true)}>确认删除</Button>
+      <Button size="sm" variant="ghost" disabled={sessionBusy} onClick={() => setDeleting(null)}>取消</Button></div> : null}
+  </>;
+
   return <section className="dsh-assistant" hidden={!open} aria-label="DSH 助手面板">
     <header className="dsh-assistant__header"><h2>DSH 助手</h2><div className="dsh-assistant__actions">
       <div ref={sessionMenu} className="dsh-assistant__session-menu">
-        <Button size="sm" variant="ghost" aria-label="项目会话" aria-haspopup="dialog" aria-expanded={sessionsOpen}
-          disabled={disabled} leadingIcon={<ChevronDown size={14} />} onClick={() => setSessionsOpen(value => !value)}>{selectedSession?.title || "会话"}</Button>
-        {sessionsOpen ? <PopoverPanel motion="trigger" className="dsh-assistant__sessions" role="dialog" aria-label="项目会话列表">
-          {sessionsLoading ? <p role="status">正在读取会话…</p> : null}
-          <HomeSidebarList label="项目会话">
-            {!sessionsLoading && sessions.length === 0 ? <p>暂无会话</p> : null}
-            {sessions.map(session => <div key={session.id} className="dsh-assistant__session-row">
-              <Button size="sm" variant={selectedSession?.id === session.id ? "secondary" : "ghost"} disabled={sessionBusy || sessionsLoading || (!onOpenSession && runBusy)}
-                aria-pressed={selectedSession?.id === session.id} onClick={() => void operate(session)}>{session.title || "未命名会话"}{session.running ? "（运行中）" : ""}</Button>
-              <Button size="sm" variant="ghost" aria-label={`删除会话 ${session.title || "未命名会话"}`} disabled={sessionBusy || sessionsLoading || runBusy || session.running}
-                leadingIcon={<Trash2 size={14} />} onClick={() => setDeleting(session)} />
-            </div>)}
-          </HomeSidebarList>
-          {deleting ? <div role="group" aria-label="确认删除会话"><p>删除“{deleting.title || "未命名会话"}”？会话将从项目列表中移除，历史文件保留。</p>
-            <Button size="sm" disabled={sessionBusy || runBusy} onClick={() => void operate(deleting, true)}>确认删除</Button>
-            <Button size="sm" variant="ghost" disabled={sessionBusy} onClick={() => setDeleting(null)}>取消</Button></div> : null}
+        <Button size="sm" variant="ghost" aria-label="项目会话" aria-haspopup={onOpenSession ? undefined : "dialog"} aria-expanded={onOpenSession ? undefined : sessionsOpen}
+          disabled={disabled || sessionsLoading} leadingIcon={onOpenSession ? <RefreshCw size={14} /> : <ChevronDown size={14} />}
+          title={onOpenSession ? "刷新项目会话" : undefined}
+          onClick={() => setSessionsOpen(value => onOpenSession ? true : !value)}>{onOpenSession ? "刷新会话" : selectedSession?.title || "会话"}</Button>
+        {sessionsOpen && !onOpenSession ? <PopoverPanel motion="trigger" className="dsh-assistant__sessions" role="dialog" aria-label="项目会话列表">
+          {sessionList}
         </PopoverPanel> : null}
       </div>
       <Button size="sm" variant="ghost" aria-label="新建会话" leadingIcon={<Plus size={14} />} disabled={disabled || (!onOpenSession && runBusy)} onClick={() => void operate(null)} />
@@ -229,6 +237,9 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
     <div className="dsh-assistant__host">
       {error ? <div className="dsh-assistant__status" role="alert"><p>{error}</p><Button size="sm" disabled={runBusy}
         onClick={() => { setError(null); setAttempt(value => value + 1); }}>重试</Button></div> : !ready ? <p className="dsh-assistant__status" role="status">正在启动 DSH 助手…</p> : null}
+      {ready && !error && onOpenSession ? <div className="dsh-assistant__directory">
+        <h3>项目会话</h3>{sessionList}
+      </div> : null}
       {ready && selectedSession && !onOpenSession ? <DshConversationHost key={syncedKey!} projectId={projectId} sessionId={selectedSession.id} {...callbacks} /> : null}
     </div>
   </section>;

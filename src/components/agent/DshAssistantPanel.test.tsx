@@ -1,8 +1,9 @@
 import { StrictMode, useEffect } from "react";
 import type { DshConversationHostProps } from "@project-mind/dsh-ui/adapters";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentWorkspacePanel } from "./AgentWorkspacePanel";
 import { DshAssistantPanel } from "./DshAssistantPanel";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { useUiStore } from "../../state/ui-store";
@@ -10,7 +11,8 @@ import { useFeedbackStore } from "../../state/feedback-store";
 import { requestDshFileReference, setDshWorkspaceRoot } from "../../lib/dsh-host-events";
 import { queryKeys } from "../../lib/queryKeys";
 
-const mocks = vi.hoisted(() => ({ command: vi.fn(), insert: vi.fn(), file: vi.fn(), changed: vi.fn(), hosts: [] as DshConversationHostProps[], mounts: 0, unmounts: 0, autoReady: true }));
+const mocks = vi.hoisted(() => ({ command: vi.fn(), insert: vi.fn(), file: vi.fn(), changed: vi.fn(), hosts: [] as DshConversationHostProps[], mounts: 0, unmounts: 0, autoReady: true, openContent: vi.fn() }));
+vi.mock("../../services/projectContentApi", () => ({ openProjectContent: mocks.openContent }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { command: mocks.command } }));
 vi.mock("../../lib/project-file-navigation", () => ({ openProjectFilePreview: mocks.file, notifyProjectFilesChanged: mocks.changed }));
 vi.mock("@project-mind/dsh-ui/adapters", () => ({
@@ -33,6 +35,7 @@ function deferred() { let resolve!: () => void; const promise = new Promise<void
 beforeEach(() => {
   mocks.command.mockReset().mockImplementation(async (command, args) => command === "dsh_assistant_sessions" ? [{ id: "saved", title: "历史会话" }] : command === "dsh_assistant_select_session" ? args.sessionId ?? "actual-created" : undefined);
   mocks.insert.mockReset().mockResolvedValue(undefined); mocks.file.mockReset(); mocks.changed.mockReset();
+  mocks.openContent.mockReset().mockResolvedValue(undefined);
   mocks.hosts = []; mocks.mounts = 0; mocks.unmounts = 0; mocks.autoReady = true;
   useAgentPanelStore.getState().clearWorkspace();
   useAgentPanelStore.getState().openPanel("/workspace", { kind: "project", projectId: 1 });
@@ -176,4 +179,65 @@ it('uses the callback mode as a list/create launcher without duplicating a conve
   fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
   await waitFor(() => expect(onOpenSession).toHaveBeenCalledWith('actual-created', '新会话'));
   expect(mocks.mounts).toBe(0);
+});
+
+function setupWorkspace(projectId = 1) {
+  useAgentPanelStore.getState().openPanel("/workspace", { kind: "project", projectId });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const shell = (id: number) => <QueryClientProvider client={client}>
+    <main aria-label="项目内容">项目内容 {id}</main>
+    <AgentWorkspacePanel workspaceRoot="/workspace" currentProjectId={id} />
+  </QueryClientProvider>;
+  const view = render(shell(projectId));
+  return { ...view, switchProject: (id: number) => view.rerender(shell(id)) };
+}
+
+describe("real workspace session launcher", () => {
+  it("shows saved sessions in the body immediately and returns to project content after opening and closing", async () => {
+    setupWorkspace();
+    const list = await screen.findByRole("region", { name: "项目会话" });
+    fireEvent.click(within(list).getByRole("button", { name: "历史会话" }));
+    await waitFor(() => expect(mocks.openContent).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceRoot: "/workspace", projectId: 1, object: { kind: "session", id: "saved", title: "历史会话" },
+    })));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "DSH 助手面板" })).toBeNull());
+    expect(screen.getByRole("main", { name: "项目内容" })).toBeVisible();
+    act(() => useAgentPanelStore.getState().openPanel("/workspace", { kind: "project", projectId: 1 }));
+    expect(screen.getByRole("region", { name: "项目会话" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    expect(screen.queryByRole("region", { name: "DSH 助手面板" })).toBeNull();
+    expect(screen.getByRole("main", { name: "项目内容" })).toBeVisible();
+    expect(mocks.mounts).toBe(0);
+  });
+
+  it("shows an explicit zero-session state and creates only on user request", async () => {
+    mocks.command.mockImplementation(async (command, args) => command === "dsh_assistant_sessions" ? [] : command === "dsh_assistant_select_session" ? args.sessionId ?? "actual-created" : undefined);
+    setupWorkspace();
+    expect(await screen.findByText("暂无会话，点击新建会话开始。", { exact: true })).toBeVisible();
+    expect(mocks.command).not.toHaveBeenCalledWith("dsh_assistant_select_session", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
+    await waitFor(() => expect(mocks.openContent).toHaveBeenCalledWith(expect.objectContaining({ object: { kind: "session", id: "actual-created", title: "新会话" } })));
+    expect(mocks.mounts).toBe(0);
+  });
+
+  it("switches project session lists without showing another project's sessions", async () => {
+    mocks.command.mockImplementation(async (command, args) => command === "dsh_assistant_sessions" ? [{ id: `session-${args.projectId}`, title: `项目 ${args.projectId} 会话` }] : command === "dsh_assistant_select_session" ? args.sessionId : undefined);
+    const view = setupWorkspace();
+    await screen.findByRole("button", { name: "项目 1 会话" });
+    view.switchProject(2);
+    await screen.findByRole("button", { name: "项目 2 会话" });
+    expect(screen.queryByRole("button", { name: "项目 1 会话" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "项目 2 会话" }));
+    await waitFor(() => expect(mocks.openContent).toHaveBeenCalledWith(expect.objectContaining({ projectId: 2, object: { kind: "session", id: "session-2", title: "项目 2 会话" } })));
+  });
+
+  it("shows startup failure explicitly and keeps close and retry actionable", async () => {
+    mocks.command.mockRejectedValueOnce(new Error("主模型凭据已锁定，请解锁"));
+    setupWorkspace();
+    expect(await screen.findByRole("alert")).toHaveTextContent("主模型凭据已锁定，请解锁");
+    expect(screen.getByRole("button", { name: "关闭助手" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByRole("region", { name: "项目会话" })).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });

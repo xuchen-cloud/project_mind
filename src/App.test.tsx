@@ -23,8 +23,17 @@ import { fileDocumentApi } from "./services/fileDocumentApi";
 import { projectFileApi } from "./services/projectFileApi";
 import { openProjectFilePreview, useProjectFileNavigation } from "./lib/project-file-navigation";
 import { projectDirectoryApi } from "./services/projectDirectoryApi";
+import { dshAssistantApi } from "./services/dshAssistantApi";
+import { useAgentPanelStore } from "./state/agent-panel-store";
 import { getContentLayout } from "./lib/project-content-layout";
 import { useProjectContentStore } from "./state/project-content-store";
+// The directory/exit test exercises the real panel; the separately bundled
+// conversation adapter is verified by its own suite and native GUI acceptance.
+vi.mock("@project-mind/dsh-ui/adapters", () => ({
+  DshConversationHost: () => <div data-testid="dsh-conversation-host" />,
+  DshSettingsHost: () => <div data-testid="dsh-settings-host" />,
+  insertDshFileReference: vi.fn(),
+}));
 vi.mock("./services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("./services/projectFileApi", async importOriginal => ({
   ...(await importOriginal<typeof import("./services/projectFileApi")>()),
@@ -1544,8 +1553,6 @@ describe("WorkspaceLayout", () => {
     queryClient.setQueryData(queryKeys.aiSettings, null);
     let finishWorkspaceSave!: () => void;
     const workspaceSave = new Promise<void>(resolve => { finishWorkspaceSave = resolve; });
-    // A failed assertion or deadline must not leave the save/React act pending into the next test.
-    onTestFinished(() => finishWorkspaceSave());
     const persist = vi.fn(async (snapshot) => {
       if (snapshot.scope === "workspace") await workspaceSave;
       return { updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 };
@@ -1579,11 +1586,20 @@ describe("WorkspaceLayout", () => {
       { initialEntries: ["/projects/1/records/7"] },
     );
 
-    render(
+    const view = render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
+
+    onTestFinished(async () => {
+      // Release even on a failed assertion, then finish saves before resetting mocks.
+      await act(async () => { finishWorkspaceSave(); await coordinator.flush(); });
+      view.unmount();
+      router.dispose();
+      await queryClient.cancelQueries();
+      queryClient.clear();
+    });
 
     await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
@@ -1732,11 +1748,20 @@ describe("WorkspaceLayout", () => {
       ],
       { initialEntries: [startWithRecord ? "/projects/7/records/70" : "/projects/1?view=record"] },
     );
-    render(
+    const view = render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
+
+    onTestFinished(async () => {
+      // Unmount observers before cancelling queries; no previous fixture may
+      // continue publishing into the next test's shared API mocks.
+      view.unmount();
+      router.dispose();
+      await queryClient.cancelQueries();
+      queryClient.clear();
+    });
 
     const initialProjectId = startWithRecord ? 7 : 1;
     await waitFor(() => expect(document.querySelector(`[data-project-resident-id="${initialProjectId}"]`)).not.toBeNull());
@@ -1744,6 +1769,33 @@ describe("WorkspaceLayout", () => {
 
     return { router, coordinator, projectA };
   }
+
+  it("restores interactive Project content after closing the assistant and after switching Projects", async () => {
+    const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
+    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockResolvedValue([]);
+    useAgentPanelStore.getState().clearWorkspace();
+    onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); useAgentPanelStore.getState().clearWorkspace(); });
+    const { router } = await renderResidentProjectFixture();
+    const launcher = await screen.findByRole("button", { name: "助手" });
+    await waitFor(() => expect(launcher).toBeEnabled());
+    await userEvent.click(launcher);
+    expect(useAgentPanelStore.getState().open).toBe(true);
+    await screen.findByRole("heading", { name: "DSH 助手" });
+    const main = document.querySelector(".workspace-content-main")!;
+    await waitFor(() => expect(screen.getByRole("button", { name: "新建会话" })).toBeEnabled());
+    expect(main).toHaveAttribute("inert");
+    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    expect(main).not.toHaveAttribute("inert");
+    expect(screen.getByRole("button", { name: "助手" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "助手" }));
+    await act(() => router.navigate("/projects/2?view=overview"));
+    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
+    await waitFor(() => expect(sessions).toHaveBeenCalledWith(2));
+    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    expect(main).not.toHaveAttribute("inert");
+    expect(document.querySelector('[data-project-resident-id="2"]')).toHaveAttribute("data-project-resident-active", "true");
+    expect(screen.getByRole("button", { name: "助手" })).toBeEnabled();
+  });
 
   it("keeps five Project overviews resident while preserving all opened content shells", async () => {
     const { router, projectA } = await renderResidentProjectFixture();

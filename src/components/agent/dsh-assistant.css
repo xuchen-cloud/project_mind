@@ -23,3 +23,9 @@
 .dsh-settings__host { min-height:320px; height:clamp(320px,55dvh,640px); min-width:0; overflow:auto; }
 @media (max-width:900px) { .agent-workspace-panel { flex:1; border-left:0; } }
 @media (prefers-reduced-motion:reduce) { .agent-workspace-panel { transition:none; } }
+
+.dsh-assistant__directory { display:flex; flex:1; flex-direction:column; gap:8px; min-height:0; padding:16px; }
+.dsh-assistant__directory h3 { margin:0; font-size:var(--type-body-size); font-weight:600; }
+.dsh-assistant__directory .home-side__list-frame { flex:1; min-height:0; --home-sidebar:var(--color-bg); }
+.dsh-assistant__directory .home-side__list { height:100%; }
+.dsh-assistant__directory p { color:var(--color-text-muted); font-size:var(--type-caption-size); }
