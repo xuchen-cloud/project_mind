@@ -34,38 +34,14 @@ it('closes the caption window as soon as ending succeeds, before record refresh 
   view.unmount();
 });
 
-it('opens the new recording only after the record cache has refreshed', async () => {
+it('hides the idle start control without starting a recording', async () => {
   mocks.snapshotGet.mockReset().mockResolvedValue(null);
-  mocks.transcriptTail.mockReset().mockResolvedValue([]);
-  mocks.openVoiceCaptionWindow.mockReset().mockResolvedValue(undefined);
-  mocks.start.mockReset().mockResolvedValue({ sessionId: 'new-session', revision: 1, phase: 'recording', activeMs: 0, workspaceNoteId: 42 });
-  mocks.pushToast.mockReset();
-  let finishRefresh!: () => void;
-  const refresh = new Promise<void>(resolve => { finishRefresh = resolve; });
-  const onChanged = vi.fn(() => refresh);
-  const onOpenRecord = vi.fn();
-  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={onChanged} onOpenRecord={onOpenRecord} />);
-  fireEvent.click(await screen.findByRole('button', { name: '开始语音记录' }));
-  await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
-  expect(onOpenRecord).not.toHaveBeenCalled();
-  finishRefresh();
-  await waitFor(() => expect(onOpenRecord).toHaveBeenCalledWith(expect.objectContaining({ workspaceNoteId: 42 })));
-  await waitFor(() => expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce());
-  view.unmount();
-});
-
-it('recovers the existing recording instead of reporting another owner when the floating control has stale state', async () => {
-  const active = { sessionId: 'already-recording', revision: 3, phase: 'recording', activeMs: 30_000, workspaceNoteId: 17 };
-  mocks.snapshotGet.mockReset().mockImplementation(async () => mocks.start.mock.calls.length ? active : null);
-  mocks.transcriptTail.mockReset().mockResolvedValue([]);
-  mocks.start.mockReset().mockRejectedValue(new Error('another recording session already owns audio capture'));
-  mocks.pushToast.mockReset();
-  mocks.openVoiceCaptionWindow.mockReset().mockResolvedValue(undefined);
+  mocks.start.mockReset();
   const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
-  fireEvent.click(await screen.findByRole('button', { name: '开始语音记录' }));
-  expect(await screen.findByRole('button', { name: '结束' })).toBeInTheDocument();
-  expect(mocks.pushToast).not.toHaveBeenCalledWith(expect.objectContaining({ title: '语音记录操作失败' }));
-  await waitFor(() => expect(mocks.openVoiceCaptionWindow).toHaveBeenCalledOnce());
+  await waitFor(() => expect(mocks.snapshotGet).toHaveBeenCalled());
+  expect(screen.queryByRole('button', { name: '开始语音记录' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: '语音录制控制' })).not.toBeInTheDocument();
+  expect(mocks.start).not.toHaveBeenCalled();
   view.unmount();
 });
 

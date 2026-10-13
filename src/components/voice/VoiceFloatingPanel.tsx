@@ -1,4 +1,4 @@
-import { ExternalLink, LoaderCircle, Mic, Pause, Play, Square } from "lucide-react";
+import { ExternalLink, LoaderCircle, Pause, Play, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { VoiceSessionSnapshot, VoiceTarget, VoiceTranscriptSegment } from "../../lib/voice-types";
@@ -28,7 +28,7 @@ function formatDuration(milliseconds: number) {
     : [minutes, remainder].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
-export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChanged }: VoiceFloatingPanelProps) {
+export function VoiceFloatingPanel({ onChanged }: VoiceFloatingPanelProps) {
   const { pushToast } = useFeedbackStore();
   const pushToastRef = useRef(pushToast);
   pushToastRef.current = pushToast;
@@ -147,25 +147,7 @@ export function VoiceFloatingPanel({ target, targetLabel, onOpenRecord, onChange
     }
   }
 
-  if (!available) return null;
-
-  if (!session) {
-    return (
-      <div className="fixed bottom-9 right-4 z-40">
-        <Button
-          variant="primary"
-          leadingIcon={pending ? <LoaderCircle className="animate-spin motion-reduce:animate-none" size={14} /> : <Mic size={14} />}
-          disabled={pending}
-          onClick={() => void run(
-            () => voiceApi.start({ target, requestId: requestId() }),
-            `已开始录制到${targetLabel}`,
-          ).then((next) => next && onOpenRecord(next))}
-        >
-          开始语音记录
-        </Button>
-      </div>
-    );
-  }
+  if (!available || !session) return null;
 
   const paused = session.phase === "paused";
   return (
