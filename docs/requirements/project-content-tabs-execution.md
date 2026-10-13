@@ -30,6 +30,23 @@
 
 ## 验证与验收
 
+### 2026-10-13 DSH 调研后的界面优化包（#124）
+
+- 基线：`4b6a5aa`；依赖已实现的 File 身份／版本读取／外部打开、统一内容打开、DSH Session 绑定和布局存储。源码编辑前确认没有 `tauri dev` 文件监听进程。
+- 交付行为：File 单行工具栏、异常时位置恢复、外部打开当前原件、一键新建同 Project 会话引用；Project Tab 风格、类型及真实运行标记、拖动排序／跨栏、溢出滚动与连续遮罩、临时放大恢复；会话实际模型展示和统一设置入口。
+- 非目标：Markdown 编辑及 `.md` 保存已由用户暂停，后续单独设计；不新增格式渲染器、第三栏、业务身份或版本模型，不把阶段优化视为 #124 全部完成。
+- 验收：版本刷新与固定引用不漂移；外部打开失败明确；引用只入新会话草稿且防重复、取消和跨项目串入；Tab 拖动保留页面状态，滚动可发现，运行状态按实际 Session；放大不改持久布局，模型不以共享默认设置冒充实际运行。
+- 验证范围：受影响 File／引用／Workspace、布局／Store／事件、DSH adapter／模型观察和 Session 页面测试；集中前端构建及 UI／bundle 检查；macOS 集中 GUI 验收。复用仍有效的原生身份、版本、跨项目运行证据；Windows 条件与 #124 未完验收继续保留。主 agent 完成 Standards / Spec 自查，不启动 review 子 agent。
+- 已实施：引用在权威归属与工作区代次核验之后、布局变化之前入队，避免文件页隐藏取消投递。Tab 使用 pointer 拖动及 body portal，支持空栏落点、边缘滚动、Escape 取消及键盘移栏；阅读位置更新只测量溢出，不把手动滚动拉回选中项。放大与排序使用 220ms FLIP，支持 reduced-motion；按钮沿用共享动效 token 和 loading spinner。
+- 模型及运行状态来自真实 Session projection / catalog。宿主按客户端 entry 丢弃过期事件，工作区或客户端关闭清理 Session map；卸载展示停止模型回调，运行 catalog 继续订阅。第二栏恢复时自动聚焦遵循宿主 focused 状态；WebKit root reconciliation 暂时关闭非聚焦编辑器的 editability，随后由已有 layout effect 恢复，保留草稿、选择和历史。两处 vendored 修改均登记在 `packages/dsh-ui/provenance.json`。
+- 自动验证与复用：File worker 的 4 文件 93 项、布局／Store／事件／真实 Host 的 4 文件 45 项通过；整合后的受影响引用／Session／Workspace／统一打开 4 文件 47 项通过（`/tmp/project-mind-dsh-reference-handoff-green.log`），含初次投递、布局同步隐藏与归属拒绝；布局 22 项通过（`/tmp/project-mind-dsh-layout-final.log`）；模型观察器 2 项通过。最终真实双 Host/bootstrap 9 项通过（`/tmp/project-mind-dsh-focus-green.log`），验证实际模型回调身份、独立 running、卸载订阅及恢复焦点。93/45 与后续用例存在重叠，未相加为全量计数；源码未变的相关结果复用。
+- 新问题按证据补测：引用同步隐藏用例先失败后修复；双 Host 恢复焦点用例先失败后修复，macOS 复验又确认 WebKit DOM selection 会聚焦，补 root reconciliation 的宿主约束后再包装。每次新源码只重跑受影响测试与失效构建，未重跑前端或原生全量。
+- 最终 `npm run build`、`check:ui-standards`、`check:bundle-boundaries`、DSH `check:adapters` 和 vendor integrity 3 项通过；主包 230/250 KiB，39 source entries / 991 modules 无浏览器缺失导入。本地 debug `.app` 静默包装通过，使用原已验证的 runtime staging；本包没有修改 native command / DTO / 原生业务服务。日志在 `/tmp/project-mind-dsh-*.log`，不将可清理的临时日志当作永久附件。
+- macOS 实机：保留隔离 App identity / App data / Workspace 及用户现场新增测试文件。单行工具栏在 26% 窄栏可用，正常阅读不显示位置；文本原件在 TextEdit 打开且未改写。实际 pointer 排序、跨栏、键盘移栏、窄栏滚轮横向滚动及两侧遮罩分别确认。小引用按钮新建同 Project 会话，草稿含正确文件；发送前无消息，使用数值 loopback 合成 Provider 显示固定 v1 消息、该 Session 的运行标记和 `main-ui-model`，结束后标记清除。未调用外部模型或读取用户业务 Workspace。
+- 最后实机复验通过：左右会话同时可见，聚焦右栏后放大／恢复，再次放大仍显示右栏会话；左栏 DOM selection 不抢焦点，两边选中项与 26% 比例保持。复验后恢复 50% 分栏并展示文件／会话并排。隔离应用可执行文件 SHA 与最终包装产物一致，未将中间失败的投递或焦点操作记成通过。
+- 主 agent Standards / Spec 自查：核查真实归属／generation、版本 hash、异步取消和 UI 切换交接、原件与历史语义、Session 与模型身份、布局状态及拖动清理、滚动／动画 token 与来源许可。相关发现均在本包修复；完整 #124 的 Windows 等待办继续开放，本包为阶段交付，不自动关闭 Issue 或发布未验收的整个分支。
+
+
 实施中逐包补充命令、覆盖范围、结果和真实平台证据，阶段状态见下文。Windows 平台未提供，不能标记通过。完整确认范围交付前 #124 保持开放。
 
 ### WP2 状态与打开边界阶段

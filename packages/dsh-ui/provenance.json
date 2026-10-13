@@ -337,6 +337,13 @@
       "paths": [
         "preview/pdf-runtime.test.ts"
       ]
+    },
+    {
+      "reason": "Host pane focus: automatic composer focus on mount/unlock respects the exact visible host focused state. Explicit pointer, keyboard and reference focus operations remain available. Prevents a restored second pane from taking focus when exiting temporary maximize. WebKit root reconciliation temporarily suspends editor editability in the unfocused pane, then the existing layout effect restores it; draft, Lexical selection and history remain intact.",
+      "paths": [
+        "upstream/client/ui-conversation/src/client/input/editor/view-binding.ts",
+        "upstream/client/ui-conversation/src/client/input/editor/ComposerContentEditable.tsx"
+      ]
     }
   ],
   "derivedAssets": [
@@ -1940,7 +1947,7 @@
     },
     {
       "path": "upstream/client/ui-conversation/src/client/input/editor/ComposerContentEditable.tsx",
-      "sha256": "1a2a70d24d48b04e13057c40b3cec916c5f3a81c71b8c5a6006b83861b972cd8",
+      "sha256": "fb9b3e1f6d240e6a09ca665dbb89a2ea2ad36ccc4e45d44b0cfc441dd4e47a3a",
       "originalSha256": "1a2a70d24d48b04e13057c40b3cec916c5f3a81c71b8c5a6006b83861b972cd8"
     },
     {
@@ -1995,7 +2002,7 @@
     },
     {
       "path": "upstream/client/ui-conversation/src/client/input/editor/view-binding.ts",
-      "sha256": "aadba7dc4bc548f1d679a1e63e9de367cb3fd691ea5540c45ea13c25e83df65f",
+      "sha256": "0d6a4513bfe10c82b01852c089150cd92b1677882506f6608aeb8a33de0c89bd",
       "originalSha256": "aadba7dc4bc548f1d679a1e63e9de367cb3fd691ea5540c45ea13c25e83df65f"
     },
     {

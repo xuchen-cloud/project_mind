@@ -418,40 +418,69 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
   fixture.catalog = true; fixture.dual = true; fixture.blank = false; fixture.followReleases.clear(); fixture.rpcRequests = [];
   const fontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts');
   Object.defineProperty(document, 'fonts', { configurable: true, value: Object.assign(new EventTarget(), { ready: Promise.resolve() }) });
-  const readyA = vi.fn(), readyB = vi.fn(), busy = vi.fn();
+  const readyA = vi.fn(), readyB = vi.fn(), busy = vi.fn(), modelA = vi.fn(), modelB = vi.fn(), sessionRuns = vi.fn();
   window.addEventListener('mind:dsh-project-busy', busy);
+  window.addEventListener('mind:dsh-session-runs', sessionRuns);
   const shell = (first = true) => <div>
-    {first ? <DshConversationHost projectId={7} sessionId="fixture-session" focused={false} onReady={readyA} /> : null}
-    <DshConversationHost projectId={7} sessionId="second-session" focused onReady={readyB} />
+    {first ? <DshConversationHost projectId={7} sessionId="fixture-session" focused={false} onReady={readyA} onModelChange={modelA} /> : null}
+    <DshConversationHost projectId={7} sessionId="second-session" focused onReady={readyB} onModelChange={modelB} />
   </div>;
   const view = render(shell());
   try {
     await waitFor(() => expect(fixture.followReleases.size).toBe(2));
     await act(async () => { fixture.followReleases.get('second-session')!(); fixture.followReleases.get('fixture-session')!(); });
     await waitFor(() => { expect(readyA).toHaveBeenCalledOnce(); expect(readyB).toHaveBeenCalledOnce(); });
+    expect(modelA).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'fixture-session', running: false }));
+    expect(modelB).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'second-session', running: false }));
     await act(async () => { await insertDshFileReference(7, 'fixture-session', 'first.md'); });
     const hosts = [...document.querySelectorAll('[data-dsh-component-host]')] as HTMLElement[];
     expect(within(hosts[0]).getByRole('textbox')).toHaveTextContent('first.md');
     expect(within(hosts[1]).getByRole('textbox')).not.toHaveTextContent('first.md');
     await act(async () => {
       fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['fixture-session', true] });
-      fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['second-session', true] });
     });
+    await waitFor(() => expect(modelA).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'fixture-session', running: true })));
+    expect(modelB).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'second-session', running: false }));
+    await act(async () => { fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['second-session', true] }); });
+    await waitFor(() => expect(modelB).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'second-session', running: true })));
     fireEvent.click(await within(hosts[1]).findByRole('button', { name: /Stop generating|停止生成/ }));
     await waitFor(() => expect(fixture.rpcRequests).toHaveLength(1));
     expect(fixture.rpcRequests[0].payload.args.request.sessionId).toBe('second-session');
     view.rerender(shell(false));
     expect(fixture.rpcRequests).toHaveLength(1);
+    const secondInput = within(hosts[1]).getByRole('textbox');
+    act(() => secondInput.focus());
+    view.rerender(shell());
+    await waitFor(() => expect(readyA).toHaveBeenCalledTimes(2));
+    expect(document.activeElement).toBe(secondInput);
     view.unmount();
-    busy.mockClear();
+    busy.mockClear(); modelA.mockClear(); modelB.mockClear(); sessionRuns.mockClear();
     fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['fixture-session', false] });
     fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['second-session', false] });
     await waitFor(() => expect(busy.mock.calls.some(([event]) => event.detail.busy === false)).toBe(true));
+    await waitFor(() => expect(sessionRuns).toHaveBeenCalledWith(expect.objectContaining({ detail: { projectId: 7, runningBySession: { 'fixture-session': false, 'second-session': false } } })));
+    expect(modelA).not.toHaveBeenCalled(); expect(modelB).not.toHaveBeenCalled();
     render(<DshConversationHost projectId={7} sessionId="fixture-session" />);
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveTextContent('first.md'));
   } finally {
-    cleanup(); await disposeDshClients(); window.removeEventListener('mind:dsh-project-busy', busy);
+    cleanup(); await disposeDshClients(); window.removeEventListener('mind:dsh-project-busy', busy); window.removeEventListener('mind:dsh-session-runs', sessionRuns);
     fixture.catalog = false; fixture.dual = false;
     if (fontsDescriptor) Object.defineProperty(document, 'fonts', fontsDescriptor); else Reflect.deleteProperty(document, 'fonts');
   }
+});
+
+it('publishes exact Session running facts from the original catalog and clears on disposal', async () => {
+  fixture.catalog = true; fixture.dual = true;
+  const client = await createDshClient(7); const listener = vi.fn();
+  try {
+    await waitFor(() => expect(client.ctx.sessions.list.getSnapshot().byId['second-session']).toBeDefined());
+    client.subscribe(listener);
+    expect(listener).toHaveBeenCalledWith('sessionRuns', { 'fixture-session': false, 'second-session': false });
+    fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['fixture-session', true] });
+    await waitFor(() => expect(listener).toHaveBeenCalledWith('sessionRuns', { 'fixture-session': true, 'second-session': false }));
+    fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['fixture-session', false] });
+    await waitFor(() => expect(listener.mock.calls.filter(call => call[0] === 'sessionRuns').at(-1)?.[1]).toEqual({ 'fixture-session': false, 'second-session': false }));
+    await client.dispose();
+    expect(listener.mock.calls.filter(call => call[0] === 'sessionRuns').at(-1)?.[1]).toEqual({});
+  } finally { await client.dispose(); fixture.catalog = false; fixture.dual = false; }
 });

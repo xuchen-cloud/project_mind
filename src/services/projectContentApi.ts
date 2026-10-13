@@ -22,6 +22,8 @@ export interface ProjectContentOpenInput {
   reveal?: boolean;
   signal?: AbortSignal;
   expectedBinding?: AgentWorkspaceBinding;
+  /** Deliver a verified reference before the layout change can hide its origin. */
+  beforeOpen?: () => void;
 }
 
 function assertCurrent(before: AgentWorkspaceBinding, after: AgentWorkspaceBinding, signal?: AbortSignal) {
@@ -62,6 +64,7 @@ export async function openProjectContent(input: ProjectContentOpenInput): Promis
   }
   assertCurrent(binding, await recordDocumentApi.bindingGet(input.workspaceRoot), input.signal);
   const scope = { workspaceId: binding.workspaceId, projectId: input.projectId };
+  input.beforeOpen?.();
   const tabId = useProjectContentStore.getState().open(scope, object, { paneId: input.paneId, view: input.view });
   const result = { workspaceRoot: input.workspaceRoot, scope, tabId, object, view: input.view };
   if (input.reveal !== false) window.dispatchEvent(new CustomEvent(PROJECT_CONTENT_OPEN_EVENT, { detail: result }));

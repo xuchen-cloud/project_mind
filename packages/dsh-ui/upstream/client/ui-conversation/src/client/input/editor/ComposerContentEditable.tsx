@@ -28,6 +28,9 @@ export function ComposerContentEditable({ editor, editable, ...rest }: ComposerC
   useLayoutEffect(() => {
     const el = ref.current
     if (editor === null || el === null) return
+    // WebKit focuses a restored DOM selection while setRootElement reconciles.
+    // The next layout effect restores editability without moving that selection.
+    if (el.closest('[data-dsh-component-host][data-dsh-focused="false"]')) editor.setEditable(false)
     editor.setRootElement(el)
     return () => { editor.setRootElement(null) }
   }, [editor])

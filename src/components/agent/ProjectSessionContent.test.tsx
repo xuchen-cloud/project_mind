@@ -7,6 +7,7 @@ import { ProjectSessionContent } from './ProjectSessionContent';
 import { requestDshFileReference, setDshWorkspaceRoot, useDshFileReferences } from '../../lib/dsh-host-events';
 import type { AgentSourceRef } from '../../lib/agent-types';
 import { useProjectFileNavigation } from '../../lib/project-file-navigation';
+import { useUiStore } from '../../state/ui-store';
 const fixture = vi.hoisted(() => ({ command: vi.fn(), insert: vi.fn(), hosts: [] as DshConversationHostProps[] }));
 vi.mock('../../services/desktopApi', () => ({ desktopApi: { command: fixture.command } }));
 vi.mock('@project-mind/dsh-ui/adapters', () => ({
@@ -52,6 +53,27 @@ it('keeps fixed source and origin Session through insertion and message navigati
   await waitFor(() => expect(fixture.insert).toHaveBeenCalledWith(1, 'fixed-session', 'renamed.md', sourceRef));
   act(() => fixture.hosts.at(-1)!.onFileOpen?.('old.md', 2, sourceRef));
   expect(useProjectFileNavigation.getState().request).toEqual({ projectId: 1, path: 'old.md', line: 2, originSessionId: 'fixed-session', sourceRef });
+  view.unmount();
+});
+
+it('delivers a reference queued before the new Session page mounts', async () => {
+  act(() => requestDshFileReference(1, 'initial.md', 'initial-session'));
+  const view = render(<QueryClientProvider client={new QueryClient()}><ProjectSessionContent workspaceRoot="/workspace" projectId={1} sessionId="initial-session" visible focused /></QueryClientProvider>);
+  await waitFor(() => expect(fixture.insert).toHaveBeenCalledWith(1, 'initial-session', 'initial.md', undefined));
+  expect(useDshFileReferences.getState().pending).toHaveLength(0);
+  view.unmount();
+});
+
+it('shows the actual Session model and opens shared model settings even when configuration is missing', async () => {
+  const view = render(<QueryClientProvider client={new QueryClient()}><ProjectSessionContent workspaceRoot="/workspace" projectId={1} sessionId="model-session" visible focused /></QueryClientProvider>);
+  const settings = screen.getByRole('button', { name: '模型设置' });
+  fireEvent.click(settings);
+  expect(useUiStore.getState().settingsSection).toBe('ai-models');
+  await screen.findByTestId('model-session');
+  act(() => fixture.hosts.at(-1)!.onModelChange?.({ sessionId: 'model-session', model: 'actual-model', reasoningEffort: 'high', running: true }));
+  expect(screen.getByLabelText('会话模型')).toHaveTextContent('运行中 · actual-model · high');
+  act(() => fixture.hosts.at(-1)!.onModelChange?.({ sessionId: 'another-session', model: 'wrong-model', running: false }));
+  expect(screen.getByLabelText('会话模型')).not.toHaveTextContent('wrong-model');
   view.unmount();
 });
 

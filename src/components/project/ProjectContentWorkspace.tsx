@@ -39,13 +39,13 @@ function Page({ tab, visible, focused, registerCloseGuard, workspaceRoot, projec
   return <Suspense fallback={<p role="status" className="p-5 text-sm text-text-muted">正在打开{tab.object.kind === "record" ? "记录" : tab.object.kind === "file" ? "文件" : "会话"}…</p>}>
     {tab.object.kind === "record" ? <RecordPage projectIdOverride={projectId} recordIdOverride={Number(tab.object.id)} visible={visible} focused={focused} embedded
       searchParamsOverride={params} onBack={onBack} registerCloseGuard={registerCloseGuard} />
-      : tab.object.kind === "file" ? <div className="project-content__file-page"><FileIdentityActions workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} visible={visible} />
-        <FileSessionReference workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} versionNumber={tab.view.versionNumber} sourceRef={fileSource} />
-        <FilePage workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} versionNumber={tab.view.versionNumber}
+      : tab.object.kind === "file" ? <div className="project-content__file-page"><FilePage workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} versionNumber={tab.view.versionNumber}
         line={tab.view.line} page={tab.view.page} sourceLocator={tab.view.sourceLocator} visible={visible} focused={focused}
         initialSourceMode={tab.view.sourceMode}
         initialView={fileSource?.fileVersion ? tab.view.fileViews?.[fileSource.fileVersion]
           ?? (tab.view.versionNumber === fileSource.fileVersion ? { scrollTop: tab.view.scrollTop, zoom: tab.view.zoom } : undefined) : undefined}
+        identityRecovery={<FileIdentityActions workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} visible={visible} />}
+        toolbarActions={<FileSessionReference workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} versionNumber={tab.view.versionNumber} sourceRef={fileSource} visible={visible} />}
         onSourceReady={setFileSource}
         onViewChange={view => {
           const store = useProjectContentStore.getState();

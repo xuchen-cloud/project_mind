@@ -9,7 +9,7 @@ import { projectFileApi } from "../../services/projectFileApi";
 import { ProjectFileContent } from "./ProjectFileContent";
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
-vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), openLocal: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
 const binding = { workspaceId: "w", generation: "g" };
 const object = { workspaceId: "w", scope: { kind: "project" as const, projectId: 2 }, kind: "file" as const, id: "7" };
 const input = { workspaceRoot: "/workspace", projectId: 2, fileId: 7, visible: true, focused: true };
@@ -497,4 +497,61 @@ it('restores Markdown source mode from the shell without rereading bytes when th
   fireEvent.click(screen.getByRole('button', {name:'源码 / 行定位'}));
   expect(changed).toHaveBeenLastCalledWith({sourceMode:true});
   expect(projectFileApi.readBytes).toHaveBeenCalledOnce();
+});
+
+it('exposes external open on unsupported and pinned File views as the current original', async () => {
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 1, contentHash: 'hash1', name: 'sample.docx', mime: 'application/octet-stream', byteLength: 2, base64: btoa('PK') });
+  view({ ...input, versionNumber: 1 } as typeof input);
+  const open = await screen.findByRole('button', { name: '在外部应用打开当前原件' });
+  await screen.findByText(/此格式暂不支持应用内预览或编辑/);
+  expect(open).toHaveAttribute('title', expect.stringContaining('当前原件'));
+  fireEvent.click(open);
+  await waitFor(() => expect(projectFileApi.openLocal).toHaveBeenCalledWith(binding, object));
+  expect(screen.getByLabelText('文件查看版本')).toHaveValue('1');
+});
+it('shows external open failures and permits retry without changing the fixed version', async () => {
+  vi.mocked(projectFileApi.openLocal).mockRejectedValueOnce(new Error('没有关联应用')).mockResolvedValueOnce(undefined);
+  view({ ...input, versionNumber: 1 } as typeof input); await screen.findByText('version1');
+  fireEvent.click(screen.getByRole('button', {name:'在外部应用打开当前原件'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('没有关联应用');
+  fireEvent.click(screen.getByRole('button', {name:'在外部应用打开当前原件'}));
+  await waitFor(() => expect(projectFileApi.openLocal).toHaveBeenCalledTimes(2));
+  expect(screen.getByLabelText('文件查看版本')).toHaveValue('1');
+});
+it('shows the recovery slot only after current File identity needs attention', async () => {
+  const client = new QueryClient();
+  const wrap = () => <QueryClientProvider client={client}><ProjectFileContent {...input} identityRecovery={<button>文件位置核对入口</button>} /></QueryClientProvider>;
+  const rendered = render(wrap()); await screen.findByText('version2');
+  expect(screen.queryByText('文件位置核对入口')).toBeNull();
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath:'sample.txt', name:'sample.txt', versionNumber:2, contentHash:'hash2', state:'missing', reason:'文件缺失' });
+  fireEvent.click(screen.getByRole('button',{name:'刷新'}));
+  expect(await screen.findByText('文件位置核对入口')).toBeInTheDocument();
+  expect(await screen.findByRole('alert')).toHaveTextContent('文件缺失');
+  fireEvent.change(screen.getByLabelText('文件查看版本'), {target:{value:'1'}});
+  await screen.findByText('version1');
+  expect(screen.getByText('文件位置核对入口')).toBeInTheDocument();
+  rendered.unmount();
+});
+
+it.each([{projectId:3},{fileId:8},{visible:false}])('cancels an external-open lookup when the File page changes %j', async change => {
+  const rendered=view(); await screen.findByText('version2');
+  let finish!: (value:typeof binding)=>void;
+  vi.mocked(recordDocumentApi.bindingGet).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  fireEvent.click(screen.getByRole('button',{name:'在外部应用打开当前原件'}));
+  await waitFor(()=>expect(finish).toBeTypeOf('function'));
+  rendered.rerender(rendered.wrap({...input,...change}));
+  await act(async()=>finish(binding));
+  expect(projectFileApi.openLocal).not.toHaveBeenCalled();
+});
+it('preserves the compact toolbar and fixed version label through refresh without resetting to latest',async()=>{
+  const client=new QueryClient();
+  render(<QueryClientProvider client={client}><ProjectFileContent {...input} versionNumber={1} toolbarActions={<button>测试引用入口</button>} /></QueryClientProvider>);
+  await screen.findByText('version1');
+  const select=screen.getByRole('combobox',{name:'文件查看版本'});
+  expect(select).toHaveDisplayValue('v1 · 固定');
+  expect(screen.getByRole('button',{name:'测试引用入口'}).closest('header')).toBe(select.closest('header'));
+  expect(screen.queryByRole('button',{name:'复制完整源码'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'刷新'}));
+  await waitFor(()=>expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2));
+  expect(select).toHaveValue('1'); expect(projectFileApi.resolve).not.toHaveBeenCalled();
 });

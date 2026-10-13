@@ -51,6 +51,8 @@ export function revealDraftSelection(scrollRef: RefObject<HTMLDivElement>): void
  * @param revealSelection - reveal the selection after Lexical restores it.
  */
 export function focusDraftEditor(editor: LexicalEditor, revealSelection: () => void): void {
+  // A restored second pane is visible but must not take the focused pane's caret.
+  if (editor.getRootElement()?.closest('[data-dsh-component-host][data-dsh-focused="false"]')) return
   // Lexical's focus() restores the editor selection but never calls the DOM
   // focus itself; preventScroll keeps the conversation scrollport still.
   editor.getRootElement()?.focus({ preventScroll: true })

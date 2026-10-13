@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Code2, ExternalLink, Eye, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import type { AgentObjectRef, AgentSourceRef } from "../../lib/agent-types";
@@ -19,6 +20,8 @@ export interface ProjectFileContentProps {
   initialView?: { scrollTop?: number; zoom?: number };
   initialSourceMode?: boolean;
   sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
+  toolbarActions?: ReactNode;
+  identityRecovery?: ReactNode;
   onSourceReady?: (source: AgentSourceRef | null) => void;
   visible: boolean; focused: boolean; onViewChange?: (partialView: ProjectFileView) => void;
 }
@@ -45,7 +48,7 @@ function message(error: unknown): string {
 export function ProjectFileContent(props: ProjectFileContentProps) {
   return <FileContent key={`${props.workspaceRoot}:${props.projectId}:${props.fileId}`} {...props} />;
 }
-function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady }: ProjectFileContentProps) {
+function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery }: ProjectFileContentProps) {
   const queryClient = useQueryClient();
   const views = useRef(new Map<number, ProjectFileView>());
   const dependentIds = useRef(new Set<number>());
@@ -54,6 +57,9 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
   const [availableVersions, setAvailableVersions] = useState<FileVersionMetadata[]>([]);
   const [loaded, setLoaded] = useState<Loaded>();
   const [error, setError] = useState<string>();
+  const [needsRecovery, setNeedsRecovery] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const externalRequest = useRef<AbortController | null>(null);
   const [reading, setReading] = useState(false);
   const [source, setSource] = useState(initialSourceMode ?? false);
   const lastSourceMode = useRef(initialSourceMode);
@@ -62,6 +68,10 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
   const callbacks = useRef(onViewChange); callbacks.current = onViewChange;
   const sourceCallback = useRef(onSourceReady); sourceCallback.current = onSourceReady;
   const lastRequested = useRef(versionNumber);
+  useEffect(() => {
+    setOpening(false);
+    return () => { externalRequest.current?.abort(); externalRequest.current = null; };
+  }, [visible]);
   useEffect(() => {
     if (initialSourceMode !== lastSourceMode.current) {
       lastSourceMode.current = initialSourceMode;
@@ -93,6 +103,8 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
       const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
       const live = selection === undefined ? await projectFileApi.resolve(binding, object) : undefined;
       signal.throwIfAborted();
+      if (live && !sameObject(live.object, object)) throw new Error("当前文件所属项目不符。");
+      if (live) setNeedsRecovery(live.state !== "ready");
       if (live) setLoaded(previous => previous?.kind === "html" && live.state === "ready" && previous.version === live.versionNumber && previous.contentHash === live.contentHash ? previous : undefined);
       const history = await fileDocumentApi.versionsList(binding, { object, limit: 50 });
       signal.throwIfAborted();
@@ -189,18 +201,35 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
     callbacks.current?.(partial);
   }
   function choose(value: number | undefined) { sourceCallback.current?.(null); setSelection(value); callbacks.current?.({ versionNumber: value, sourceLocator: undefined, line: undefined, page: undefined }); }
+  async function openExternal() {
+    if (!visible || externalRequest.current) return;
+    const controller = new AbortController(); externalRequest.current = controller;
+    setOpening(true); setError(undefined);
+    try {
+      const binding = await recordDocumentApi.bindingGet(workspaceRoot);
+      controller.signal.throwIfAborted();
+      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      await projectFileApi.openLocal(binding, object);
+      controller.signal.throwIfAborted();
+    } catch (failure) { if (!controller.signal.aborted) setError(message(failure)); }
+    finally { if (!controller.signal.aborted) { externalRequest.current = null; setOpening(false); } }
+  }
   return <section className="project-file-content" hidden={!visible} data-focused={focused || undefined} aria-label="项目文件预览">
     <header className="project-file-content__toolbar">
-      <strong>{valid?.name ?? "文件"}</strong>
-      <label>版本<select aria-label="文件查看版本" value={selection ?? "latest"} onChange={event => choose(event.target.value === "latest" ? undefined : Number(event.target.value))}>
-        <option value="latest">最新版本</option>{availableVersions.map(item => <option key={item.id} value={item.versionNumber}>v{item.versionNumber}</option>)}
+      <strong title={valid?.name}>{valid?.name ?? "文件"}</strong>
+      <select aria-label="文件查看版本" title="文件查看版本" value={selection ?? "latest"} onChange={event => choose(event.target.value === "latest" ? undefined : Number(event.target.value))}>
+        <option value="latest">{valid && selection === undefined ? `v${valid.version} · 最新` : "最新版本"}</option>
+        {availableVersions.map(item => <option key={item.id} value={item.versionNumber}>v{item.versionNumber} · 固定</option>)}
         {selection !== undefined && !availableVersions.some(item => item.versionNumber === selection) ? <option value={selection}>v{selection} · 固定</option> : null}
-      </select></label>
-      {valid ? <span>{`v${valid.version}${selection !== undefined ? " · 固定版本" : " · 最新已登记版本"}`}</span> : null}
-      <button type="button" disabled={reading} onClick={() => { sourceCallback.current?.(null); setReload(value => value + 1); }}>刷新</button>
-      {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"}</button> : null}
-      {valid?.text !== undefined ? <button type="button" onClick={() => void navigator.clipboard.writeText(valid.text!).catch(failure => setError(message(failure)))}>复制完整源码</button> : null}
+      </select>
+      {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" className="project-file-content__icon-button" aria-label={source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
+      <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => { sourceCallback.current?.(null); setReload(value => value + 1); }}><RefreshCw size={14} aria-hidden="true" /></button>
+      <button type="button" className="project-file-content__external-button" aria-label="在外部应用打开当前原件"
+        title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : "在外部应用打开当前原件"}
+        disabled={opening} onClick={() => void openExternal()}><ExternalLink size={14} aria-hidden="true" /><span>外部打开</span></button>
+      {toolbarActions}
     </header>
+    {needsRecovery ? identityRecovery : null}
     {error ? <p role="alert">{error}</p> : null}
     {reading && visible ? <p role="status">正在读取固定版本…</p> : null}
     {valid?.kind === "html" ? <p className="project-file-content__notice">静态 HTML 预览：脚本、导航与表单提交已禁用，不提供交互执行。复杂 CSS 依赖未递归加载。</p> : null}
@@ -210,7 +239,7 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
     {valid?.kind === "markdown" && line !== undefined && !source ? <p className="project-file-content__notice">行定位请使用源码视图。</p> : null}
     {valid?.warnings.map(warning => <p key={warning} role="status" className="project-file-content__notice">未加载资源：{warning}</p>)}
     <div className="project-file-content__body">
-      {valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。请从项目文件菜单在本地打开原件。</p>
+      {valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
         : valid ? <DshFilePreview key={`${valid.version}:${valid.rendererId}:${valid.kind}:${showSource}`} kind={showSource ? "text" : valid.kind} name={valid.renderName} text={valid.text} bytes={showSource ? undefined : valid.bytes} resources={valid.resources} signal={valid.signal} line={line} page={page} initialView={initialView || views.current.has(valid.version) ? { ...initialView, ...views.current.get(valid.version) } : undefined} onViewChange={viewChanged} /> : null}
     </div>
   </section>;

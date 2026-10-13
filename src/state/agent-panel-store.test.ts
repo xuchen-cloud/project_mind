@@ -90,3 +90,15 @@ it('records a running content Session without opening the assistant panel', () =
   state.clearWorkspace();
   expect(useAgentPanelStore.getState().runsByProject).toEqual({});
 });
+
+it("replaces per-Session facts by exact identity, clears released runtimes and rejects old workspaces", () => {
+  const state = useAgentPanelStore.getState(); state.bindWorkspace("/workspace");
+  state.setSessionRuns("/workspace", 7, { alpha: true, beta: false });
+  expect(Object.values(useAgentPanelStore.getState().sessionsByProject)).toEqual([{ alpha: true, beta: false }]);
+  state.setSessionRuns("/workspace", 7, { beta: true });
+  expect(Object.values(useAgentPanelStore.getState().sessionsByProject)).toEqual([{ beta: true }]);
+  state.setSessionRuns("/workspace", 7, {});
+  expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
+  state.bindWorkspace("/other"); state.setSessionRuns("/workspace", 7, { alpha: true });
+  expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
+});

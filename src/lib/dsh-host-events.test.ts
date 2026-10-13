@@ -39,3 +39,14 @@ it('preserves the fixed File version for the selected Session', () => {
   requestDshFileReference(7, 'renamed.md', 'session-a', source);
   expect(useDshFileReferences.getState().pending[0]).toMatchObject({ sessionId: 'session-a', path: 'renamed.md', sourceRef: source });
 });
+
+it("bridges exact Session facts and clears them when the workspace closes or a project releases", () => {
+  const emit = (runningBySession: Record<string, boolean>) => window.dispatchEvent(new CustomEvent("mind:dsh-session-runs", { detail: { projectId: 7, runningBySession } }));
+  setDshWorkspaceRoot("/workspace"); emit({ alpha: true, beta: false });
+  expect(Object.values(useAgentPanelStore.getState().sessionsByProject)).toEqual([{ alpha: true, beta: false }]);
+  emit({}); expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
+  emit({ alpha: true }); setDshWorkspaceRoot("/other");
+  expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
+  setDshWorkspaceRoot(null); emit({ ignored: true });
+  expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
+});

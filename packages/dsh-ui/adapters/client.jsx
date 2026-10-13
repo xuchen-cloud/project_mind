@@ -155,6 +155,7 @@ export async function createDshClient(projectId) {
     for (const fiber of fibers) if (fiber.state === 0) {
       throw new Error(`助手组件依赖未就绪：${Object.keys(fiber.inject).filter(name => ctx.get(name) === undefined).join('、')}`);
     }
+    const currentSessionRuns = () => Object.fromEntries(Object.entries(ctx.sessions.list.getSnapshot().byId).map(([id, item]) => [id, item.running]));
     const currentBusy = () => Object.values(ctx.sessions.list.getSnapshot().byId).some(item => item.running);
     let busyPending = false;
     const unsubscribeList = ctx.sessions.list.subscribe(() => {
@@ -162,7 +163,10 @@ export async function createDshClient(projectId) {
       busyPending = true;
       queueMicrotask(() => {
         busyPending = false;
-        if (!disposed) notify('busy', currentBusy());
+        if (!disposed) {
+          notify('busy', currentBusy());
+          notify('sessionRuns', currentSessionRuns());
+        }
       });
     });
     const unsubscribeStatus = ctx.remote.$on('api-session/status', (_id, running) => {
@@ -203,6 +207,7 @@ export async function createDshClient(projectId) {
       subscribe(listener) {
         listeners.add(listener);
         listener('busy', currentBusy());
+        listener('sessionRuns', currentSessionRuns());
         return () => listeners.delete(listener);
       },
       async insertFile(sessionId, path, sourceRef) {
@@ -227,6 +232,7 @@ export async function createDshClient(projectId) {
         lifetime.abort();
         unsubscribeList();
         unsubscribeStatus();
+        notify('sessionRuns', {});
         listeners.clear();
         await ctx.fiber.dispose();
         await transport.close();

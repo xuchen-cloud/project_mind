@@ -27,8 +27,10 @@ describe("authoritative project content open", () => {
     expect(getContentLayout(useProjectContentStore.getState(), scope).tabs[0].object.title).toBe("Actual record");
   });
   it("rejects an unrelated Record before changing layout", async () => {
+    const beforeOpen = vi.fn();
     mocks.record.mockResolvedValue({ head: { target: { scope: { kind: "project", projectId: 8 }, recordId: 12 } }, record: { id: 12 } });
-    await expect(openProjectContent(input)).rejects.toThrow("归属");
+    await expect(openProjectContent({ ...input, beforeOpen })).rejects.toThrow("归属");
+    expect(beforeOpen).not.toHaveBeenCalled();
     expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
   });
   it("rejects a late response from an older Workspace generation", async () => {

@@ -2,7 +2,16 @@
 
 更新：2026-10-13。接收对象：后续负责项目内容页与助手交互的实施 agent。
 
-状态：实际调研已完成本节记录的操作；D1–D4 是待实施建议。本文交接调研方法、证据与候选工作包，产品规则以[项目内容 Tab 完整需求](project-content-tabs.md)和[统一 AI 主规格](ai-work-context-spec.md)为准。关联背景为 #124；文件格式扩展属于 [#118](project-file-integration.md)。优化候选尚未独立关联 Issue，开始实施时按[议题跟踪规则](../agents/issue-tracker.md)落实范围与工单。
+状态：实际调研已完成本文记录的操作；D1–D4 是调研时的候选建议。2026-10-13 用户确认的实施调整见下节，已纳入 #124 界面优化包。本文交接调研方法、证据与候选工作包，产品规则以[项目内容 Tab 完整需求](project-content-tabs.md)和[统一 AI 主规格](ai-work-context-spec.md)为准；文件格式扩展属于 [#118](project-file-integration.md)。
+
+## 2026-10-13 后续确认
+
+- 本次补充实机检查 `/Applications/DSH Desktop.app` 的版本为 **0.11.1**，与下面调研时记录及仓库 vendored `0.2.0-rc.2` 分别注明。确认 Markdown→纯文本→Markdown 可以恢复；分栏产生空白“开始”页，关闭后恢复原组；内容全屏展开文件区域，退出恢复；收起／展开右栏保留所选文件。未修改文档或发起模型请求。
+- 用户采用并调整 D1：正常阅读隐藏文件位置，工具栏单行提供版本、源码、刷新、外部打开和小型引用按钮；引用直接新建当前 Project 的会话并加入固定版本草稿，不选择已有目标。
+- 用户采用并调整 D2：内容 Tab 参照 Project Tab；删除位置小菜单，以拖动排序和跨栏，保留键盘替代；精简滚动条，按实际溢出显示连续边缘遮罩，标记真实 Session 运行状态。另接入 D3 模型入口及 D4 临时放大／恢复。
+- 不新增纯文本阅读切换。Markdown 直接编辑保存曾讨论，随后用户明确暂停，后续单独设计编辑、历史版本继续修改、资源回存和冲突规则。本轮保留现有阅读渲染，不交付 `.md` 写入。
+- Tab 参考：[VS Code 编辑器分组与 Tabs](https://code.visualstudio.com/docs/editing/getting-started/userinterface)、[Atlassian 溢出阴影](https://atlassian.design/foundations/elevation/)、[WAI-ARIA Tabs 键盘模式](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)。采用拖动分组、轻量横向滚动与按溢出提示，适配本仓库设计系统和 reduced-motion。
+- 本包范围、验证与尚未完成的产品验收记录在[执行记录](project-content-tabs-execution.md)，不以 DSH 现场观察替代 ProjectMind 验收。
 
 ## 1. 接收后如何推进
 

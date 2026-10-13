@@ -1,5 +1,11 @@
 import type { AgentSourceRef } from '../../../src/lib/agent-types';
 import type { ReactElement } from 'react';
+export interface DshSessionModel {
+  sessionId: string;
+  running: boolean;
+  model: string | null;
+  reasoningEffort?: string;
+}
 export interface DshConversationHostProps {
   projectId: number;
   sessionId: string;
@@ -11,6 +17,7 @@ export interface DshConversationHostProps {
   onReady?: () => void;
   onError?: (message: string) => void;
   onSettings?: () => void;
+  onModelChange?: (model: DshSessionModel) => void;
 }
 export function DshConversationHost(props: DshConversationHostProps): ReactElement;
 export function DshSettingsHost(props: { projectId: number; mode: 'settings' | 'plugins'; onError?: (message: string) => void }): ReactElement;

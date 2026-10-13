@@ -49,3 +49,11 @@ window.addEventListener('mind:dsh-project-busy', event => {
   const { projectId, busy } = (event as CustomEvent<{ projectId: number; busy: boolean }>).detail;
   useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, busy);
 });
+
+/** The adapter filters stale runtime entries before publishing this catalog snapshot. */
+window.addEventListener('mind:dsh-session-runs', event => {
+  const workspaceRoot = useDshFileReferences.getState().workspaceRoot;
+  if (!workspaceRoot) return;
+  const { projectId, runningBySession } = (event as CustomEvent<{ projectId: number; runningBySession: Record<string, boolean> }>).detail;
+  useAgentPanelStore.getState().setSessionRuns(workspaceRoot, projectId, runningBySession);
+});

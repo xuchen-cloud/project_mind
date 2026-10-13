@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -25,8 +25,8 @@ vi.mock("./ProjectNoteFocusPage", () => ({ ProjectNoteFocusPage: function Record
     <input aria-label={`编辑${props.recordIdOverride}`} value={value} onChange={event => setValue(event.target.value)} />
   </section>;
 } }));
-vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: (props: { fileId: number; versionNumber?: number; line?: number }) =>
-  <p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p> }));
+vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: (props: { fileId: number; versionNumber?: number; line?: number; toolbarActions?: ReactNode }) =>
+  <section aria-label="文件页"><header aria-label="文件工具栏">{props.toolbarActions}</header><p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p></section> }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(), editorGet: vi.fn() } }));
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn() } }));
 const binding = { workspaceId: "workspace-tabs", generation: "open-1" };
@@ -72,7 +72,7 @@ it("renders two visible Records with one focus and keeps their state when moved"
   expect(screen.getByRole("region", { name: "Record 1" })).toHaveAttribute("data-visible", "true");
   expect(screen.getByRole("region", { name: "Record 2" })).toHaveAttribute("data-focused", "true");
   expect(screen.getByRole("region", { name: "Record 1" })).toHaveAttribute("data-focused", "false");
-  fireEvent.click(screen.getByRole("button", { name: "Record 2的操作" })); fireEvent.click(screen.getByRole("menuitem", { name: "移动到左栏" }));
+  fireEvent.keyDown(screen.getByRole("tab", { name: "Record 2" }), { key: "ArrowLeft", altKey: true, shiftKey: true, ctrlKey: true });
   expect(screen.getByLabelText("编辑2")).toBe(input); expect(input).toHaveValue("跨栏草稿");
   expect(page.mounts.mock.calls.filter(([, id]) => id === 2)).toHaveLength(1);
 });
@@ -161,4 +161,14 @@ it("restores the selected pinned File Tab through browser history after opening 
   expect(screen.getAllByRole("tab")).toHaveLength(2);
   expect(screen.getByRole("tab", { name: /context.txt/ })).toHaveAttribute("aria-selected", "true");
   expect(fileDocumentApi.versionsList).toHaveBeenCalledTimes(1);
+});
+
+it("places the File reference action inside its toolbar and omits the normal location panel",async()=>{
+  fixture("/projects/7"); await screen.findByText("项目概览入口");
+  await act(async()=>{await openProjectContent({workspaceRoot,projectId:7,object:{kind:"file",id:51,title:"context.txt"}});});
+  const reference=await screen.findByRole("button",{name:"引用到新会话"});
+  expect(reference.closest('header')).toHaveAttribute('aria-label','文件工具栏');
+  expect(reference).toBeDisabled();
+  expect(screen.queryByRole("button",{name:"文件位置"})).toBeNull();
+  expect(screen.queryByRole("combobox",{name:"目标会话"})).toBeNull();
 });

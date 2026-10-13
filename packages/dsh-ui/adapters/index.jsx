@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { HostPortalProvider } from '@deepseek-ai/dsh-client-ui-primitives';
 import { installScrollEdges } from './scroll-edges.mjs';
 import { createDshClient } from './client.jsx';
+import { observeSessionModel } from './session-model.mjs';
 import '../styles/scoped.css';
 import './host.css';
 
@@ -12,9 +13,12 @@ function acquire(projectId) {
     entry = { users: 0, promise: createDshClient(projectId) };
     clients.set(projectId, entry);
     void entry.promise.catch(() => { if (clients.get(projectId) === entry) clients.delete(projectId); });
-    void entry.promise.then(client => client.subscribe((type, busy) => {
-      if (type === 'busy' && clients.get(projectId) === entry)
-        window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy } }));
+    void entry.promise.then(client => client.subscribe((type, data) => {
+      if (clients.get(projectId) !== entry) return;
+      if (type === 'busy')
+        window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy: data } }));
+      else if (type === 'sessionRuns')
+        window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: data } }));
     }), () => {});
   }
   entry.users++;
@@ -90,9 +94,13 @@ function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {
     if (client === null || mode !== 'chat') return;
     const opening = new AbortController();
     let selected;
+    let unsubscribeModel;
     void client.select(sessionId, opening.signal).then(value => {
       if (opening.signal.aborted) { value.release(); return; }
       selected = value;
+      unsubscribeModel = observeSessionModel(value, model => {
+        if (!opening.signal.aborted) handlers.current.onModelChange?.(model);
+      });
       setReference(value);
       handlers.current.onReady?.();
     }, cause => {
@@ -101,12 +109,12 @@ function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {
       setError(message);
       handlers.current.onError?.(message);
     });
-    return () => { opening.abort(); selected?.release(); };
+    return () => { opening.abort(); unsubscribeModel?.(); selected?.release(); };
   }, [client, sessionId, mode]);
   useEffect(() => {
     if (client && element.current) return installScrollEdges(element.current);
   }, [client]);
-  return <div ref={element} className="dsh-ui-host" data-dsh-component-host data-mode={mode}>
+  return <div ref={element} className="dsh-ui-host" data-dsh-component-host data-dsh-focused={focused} data-mode={mode}>
     {error ? <p role="alert">{error}</p> : client === null || portal === null || (mode === 'chat' && reference?.sessionId !== sessionId)
       ? <p role="status">正在连接助手…</p>
       : <HostPortalProvider value={portal}>{client.ctx.slots.renderSlot('root', { mode, reference })}</HostPortalProvider>}
@@ -120,6 +128,8 @@ export function DshSettingsHost(props) { return <Host {...props} sessionId={null
 
 export async function disposeDshClients() {
   const entries = [...clients.values()];
+  for (const projectId of clients.keys())
+    window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: {} } }));
   clients.clear();
   await Promise.all(entries.map(entry => entry.promise.then(client => client.dispose(), () => {})));
 }

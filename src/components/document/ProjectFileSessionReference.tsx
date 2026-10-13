@@ -1,82 +1,91 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentObjectRef, AgentSourceRef } from "../../lib/agent-types";
+import { LoaderCircle, Quote } from "lucide-react";
+import type { AgentObjectRef, AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-types";
 import { requestDshFileReference } from "../../lib/dsh-host-events";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { projectFileApi } from "../../services/projectFileApi";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
-import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT } from "../../services/projectContentApi";
+import { openProjectContent } from "../../services/projectContentApi";
+import "./project-file-content.css";
 
-/** Explicit destination; a different pane's active Session never determines the recipient. */
-export function ProjectFileSessionReference({ workspaceRoot, projectId, fileId, versionNumber, sourceRef }: {
-  workspaceRoot: string; projectId: number; fileId: number; versionNumber?: number; sourceRef: AgentSourceRef | null;
-}) {
-  const [open, setOpen] = useState(false);
-  const [sessions, setSessions] = useState<Array<{ id: string; title: string }>>([]);
-  const [selected, setSelected] = useState("");
+interface ReferenceProps {
+  workspaceRoot: string; projectId: number; fileId: number; versionNumber?: number; sourceRef: AgentSourceRef | null; visible?: boolean;
+}
+function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
+  return a.workspaceId === b.workspaceId && a.kind === "file" && a.id === b.id
+    && a.scope.kind === "project" && b.scope.kind === "project" && a.scope.projectId === b.scope.projectId;
+}
+
+/** A click creates a new same-Project Session and inserts only the displayed, verified version. */
+export function ProjectFileSessionReference(props: ReferenceProps) {
+  const identity = JSON.stringify([props.workspaceRoot, props.projectId, props.fileId, props.versionNumber,
+    props.sourceRef?.object, props.sourceRef?.fileVersion, props.sourceRef?.revision]);
+  return <SessionReference key={identity} {...props} />;
+}
+function SessionReference({ workspaceRoot, projectId, fileId, versionNumber, sourceRef, visible = true }: ReferenceProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const pending = useRef<AbortController | undefined>(undefined);
+  const pending = useRef<AbortController | null>(null);
+  // A failed delivery may already have created a Session; retry that destination once verified again.
+  const created = useRef<{ id: string; generation: string } | null>(null);
   useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController(); pending.current = controller;
-    setBusy(true); setError(undefined); setSessions([]); setSelected("");
-    void (async () => {
-      await dshAssistantApi.start(JSON.stringify([workspaceRoot, projectId]), projectId);
-      controller.signal.throwIfAborted();
-      const choices = await dshAssistantApi.sessions(projectId);
-      controller.signal.throwIfAborted();
-      setSessions(choices);
-    })().catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason)); })
-      .finally(() => { if (!controller.signal.aborted) { setBusy(false); pending.current = undefined; } });
-    return () => { controller.abort(); pending.current?.abort(); pending.current = undefined; };
-  }, [open, workspaceRoot, projectId, fileId, versionNumber]);
+    setBusy(false);
+    return () => { pending.current?.abort(); pending.current = null; };
+  }, [visible]);
+  async function checkBinding(binding: AgentWorkspaceBinding, signal: AbortSignal) {
+    const current = await recordDocumentApi.bindingGet(workspaceRoot);
+    signal.throwIfAborted();
+    if (current.workspaceId !== binding.workspaceId || current.generation !== binding.generation) throw new Error("工作区已切换，请重新读取文件。");
+  }
   async function insert() {
-    if (!selected || busy || pending.current || !sourceRef?.fileVersion) return;
+    if (!visible || busy || pending.current || !sourceRef?.fileVersion) return;
     const controller = new AbortController(); pending.current = controller;
+    const signal = controller.signal;
     setBusy(true); setError(undefined);
     try {
+      if (versionNumber !== undefined && sourceRef.fileVersion !== versionNumber) throw new Error("预览版本已变化，请重新读取。");
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
-      controller.signal.throwIfAborted();
+      signal.throwIfAborted();
       const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      if (!sameObject(sourceRef.object, object)) throw new Error("预览文件归属已变化，请重新读取。");
       const file = await projectFileApi.resolve(binding, object);
-      controller.signal.throwIfAborted();
-      if (sourceRef.object.workspaceId !== binding.workspaceId || sourceRef.object.kind !== "file" || sourceRef.object.id !== object.id
-        || sourceRef.object.scope.kind !== "project" || sourceRef.object.scope.projectId !== projectId) throw new Error("预览文件归属已变化，请重新读取。");
+      signal.throwIfAborted();
+      if (!sameObject(file.object, object)) throw new Error("文件归属与引用目标不符。");
       const version = sourceRef.fileVersion;
       const history = await fileDocumentApi.versionsList(binding, { object, cursor: version + 1, limit: 1 });
-      controller.signal.throwIfAborted();
+      signal.throwIfAborted();
+      if (!sameObject(history.object, object)) throw new Error("历史版本归属与引用目标不符。");
       const retained = history.versions.find(item => item.versionNumber === version);
       if (!retained?.contentHash || retained.contentHash !== sourceRef.revision) throw new Error("此版本没有可核验的内容，无法建立固定引用。");
       const bytes = await projectFileApi.readBytes(binding, { object, versionNumber: version, expectedContentHash: retained.contentHash });
-      controller.signal.throwIfAborted();
-      if (bytes.object.id !== object.id || bytes.object.workspaceId !== binding.workspaceId
-        || bytes.object.scope.kind !== "project" || bytes.object.scope.projectId !== projectId
-        || bytes.versionNumber !== version || bytes.contentHash !== retained.contentHash) throw new Error("文件版本与引用目标不符。");
-      const destination = sessions.find(item => item.id === selected);
-      if (!destination) throw new Error("请选择目标会话。");
+      signal.throwIfAborted();
+      if (!sameObject(bytes.object, object) || bytes.versionNumber !== version || bytes.contentHash !== retained.contentHash) throw new Error("文件版本与引用目标不符。");
+      await checkBinding(binding, signal);
+      await dshAssistantApi.start(`${binding.workspaceId}:${binding.generation}`, projectId);
+      signal.throwIfAborted();
+      await checkBinding(binding, signal);
+      if (!created.current || created.current.generation !== binding.generation) {
+        const id = await dshAssistantApi.selectSession(null, projectId);
+        signal.throwIfAborted();
+        created.current = { id, generation: binding.generation };
+      }
+      const destination = created.current.id;
       const source: AgentSourceRef = { object, revision: bytes.contentHash, fileVersion: version, recordVersion: null,
         blockId: null, locator: null, title: bytes.name, excerpt: "" };
-      const opened = await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", id: selected, title: destination.title },
-        expectedBinding: binding, signal: controller.signal, reveal: false });
-      controller.signal.throwIfAborted();
-      requestDshFileReference(projectId, file.relativePath, selected, source);
-      window.dispatchEvent(new CustomEvent(PROJECT_CONTENT_OPEN_EVENT, { detail: opened }));
-      setOpen(false);
-    } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { if (!controller.signal.aborted) { setBusy(false); pending.current = undefined; } }
+      await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", id: destination, title: "新会话" },
+        expectedBinding: binding, signal, beforeOpen: () => {
+          requestDshFileReference(projectId, file.relativePath, destination, source);
+          created.current = null;
+        } });
+    } catch (reason) { if (!signal.aborted) setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { if (!signal.aborted) { setBusy(false); pending.current = null; } }
   }
-  return <section className="project-file-identity">
-    <button type="button" disabled={!sourceRef} aria-expanded={open} onClick={() => setOpen(value => !value)}>引用到会话</button>
-    {open ? <div className="project-file-identity__panel">
-      <label>目标会话<select aria-label="目标会话" value={selected} disabled={busy} onChange={event => setSelected(event.target.value)}>
-        <option value="">请选择会话</option>{sessions.map(session => <option key={session.id} value={session.id}>{session.title}</option>)}
-      </select></label>
-      <p className="project-file-identity__hint">插入正在查看版本的固定引用，发送时会核验并读取该版本。</p>
-      {busy ? <p role="status">正在准备引用…</p> : null}
-      {!busy && !error && !sessions.length ? <p>此项目暂无会话，请先在助手中创建会话。</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="button" disabled={busy || !selected || !sourceRef} onClick={() => void insert()}>插入引用</button>
-    </div> : null}
-  </section>;
+  return <div className="project-file-content__reference">
+    <button type="button" className="project-file-content__icon-button" disabled={!visible || !sourceRef || busy}
+      aria-label="引用到新会话" title="引用当前查看版本到新会话（仅加入草稿）" aria-busy={busy || undefined} onClick={() => void insert()}>
+      {busy ? <LoaderCircle size={14} className="spin" aria-hidden="true" /> : <Quote size={14} aria-hidden="true" />}
+    </button>
+    {error ? <p role="alert" className="project-file-content__reference-error">{error}</p> : null}
+  </div>;
 }

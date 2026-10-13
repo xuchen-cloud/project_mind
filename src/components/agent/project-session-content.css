@@ -1,0 +1,6 @@
+.project-session-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+.project-session-content > .dsh-ui-host { flex: 1; height: auto; min-height: 0; }
+.project-session-content > [role="status"], .project-session-content > [role="alert"] { padding: 12px; }
+.project-session-content__model { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: 8px; min-height: 28px; padding: 0 12px 4px; color: var(--color-text-muted); font-size: 11px; }
+.project-session-content__model > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-session-content__model > button { flex: none; font-size: 11px; }

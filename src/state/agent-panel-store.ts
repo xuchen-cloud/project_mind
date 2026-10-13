@@ -15,6 +15,8 @@ export function dshProjectRunKey(workspaceRoot: string, projectId: number) { ret
 interface AgentPanelState {
   workspaceRoot: string | null;
   runsByProject: Record<string, AgentPanelBinding>;
+  sessionsByProject: Record<string, Record<string, boolean>>;
+  setSessionRuns: (workspaceRoot: string, projectId: number, runningBySession: Record<string, boolean>) => void;
   bindWorkspace: (workspaceRoot: string | null) => void;
   binding: AgentPanelBinding | null;
   open: boolean;
@@ -32,11 +34,21 @@ interface AgentPanelState {
 
 // Window-local UI seats and independently subscribed Project runtime facts.
 export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
-  workspaceRoot: null, runsByProject: {},
+  workspaceRoot: null, runsByProject: {}, sessionsByProject: {},
   binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null,
   bindWorkspace: workspaceRoot => {
     if (get().workspaceRoot === workspaceRoot) return;
-    set({ workspaceRoot, runsByProject: {}, runningBinding: null, binding: null, open: false, discussionTarget: null });
+    set({ workspaceRoot, runsByProject: {}, sessionsByProject: {}, runningBinding: null, binding: null, open: false, discussionTarget: null });
+  },
+  setSessionRuns: (workspaceRoot, projectId, runningBySession) => {
+    if (get().workspaceRoot !== workspaceRoot) return;
+    set(state => {
+      const sessionsByProject = { ...state.sessionsByProject };
+      const key = dshProjectRunKey(workspaceRoot, projectId);
+      if (Object.keys(runningBySession).length) sessionsByProject[key] = runningBySession;
+      else delete sessionsByProject[key];
+      return { sessionsByProject };
+    });
   },
   setRunBusy: (workspaceRoot, projectId, busy) => {
     if (get().workspaceRoot !== workspaceRoot) return;
@@ -72,5 +84,5 @@ export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
   },
   closePanel: () => set({ open: false }),
   toggleExpanded: () => set(state => ({ expanded: !state.expanded })),
-  clearWorkspace: () => set({ workspaceRoot: null, runsByProject: {}, binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null }),
+  clearWorkspace: () => set({ workspaceRoot: null, runsByProject: {}, sessionsByProject: {}, binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null }),
 }));
