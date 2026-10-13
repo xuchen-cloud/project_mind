@@ -1,0 +1,3 @@
+import { defineConfig } from 'vite';
+import { editAndExport } from './build/backend.mjs';
+export default defineConfig({root:'browser',server:{host:'127.0.0.1',port:1439,strictPort:true},plugins:[{name:'genoffice-probe',configureServer(server){server.middlewares.use('/probe/edit-export',async(req,res)=>{try{if(req.method!=='POST'){res.statusCode=405;res.end();return;}const parts=[];for await(const p of req)parts.push(p);const result=await editAndExport(JSON.parse(Buffer.concat(parts).toString()));res.setHeader('Content-Type','application/json');res.end(JSON.stringify(result));}catch(e){res.statusCode=500;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:e.message}));}});}}]});

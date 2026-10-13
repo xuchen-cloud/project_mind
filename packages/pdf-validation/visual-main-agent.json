@@ -1,0 +1,40 @@
+{
+  "owner": "main agent",
+  "scope": "simple original / PDF.js edited page1 visual comparison only; no SDK rerun",
+  "renderer": "Poppler pdftoppm 26.05.0",
+  "imageSize": [
+    850,
+    1100
+  ],
+  "diffBoundsPixels": [
+    69,
+    205,
+    442,
+    239
+  ],
+  "diffLimitedToFields": true,
+  "visualObserved": [
+    "Alice→Bob visible",
+    "empty checkbox→checkmark visible",
+    "static English body unchanged"
+  ],
+  "sourceHashes": {
+    "simple.original.pdf": "4ade196ca0dc73b88ca5a93f4ba1d6333992dacf9b49e6899475db78d9cb4c31",
+    "simple.pdfjs-form.pdf": "949a8132e614410b81942fd3a435f95549addebde0b68f35a55401939350612f"
+  },
+  "images": {
+    "simple.original.page1.png": "46236e95007e7bbdca15badcbf458f096fd6084bca5a5e7824cb7e29c464f88b",
+    "simple.pdfjs-form.page1.png": "2fccca049134ece04c934c20097d813452a6397535bdf177fdb706c26f1d1232"
+  },
+  "warnings": [
+    "Fontconfig default config absent; Latin source/candidate same renderer and font resources.",
+    "Complex CID CJK fixture emitted missing Adobe-GB1/font messages; its Chinese appearance not claimed."
+  ],
+  "notVerified": [
+    "all pages/all candidate families",
+    "Chinese field appearance",
+    "annotation GUI",
+    "Tauri",
+    "GenOffice original text editing"
+  ]
+}

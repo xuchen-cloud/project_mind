@@ -1,0 +1,4521 @@
+{
+  "kind": "simple",
+  "mode": "browser-text-only",
+  "original": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/simple.original.pptx",
+  "candidate": "browser/output/chromium/simple.browser-edited.pptx",
+  "status": "passed",
+  "elapsed_ms": 9.35,
+  "checks": [
+    {
+      "name": "original_checksum_unchanged",
+      "passed": true,
+      "expected": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "actual": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d"
+    },
+    {
+      "name": "slide_count",
+      "passed": true,
+      "expected": 3,
+      "actual": 3
+    },
+    {
+      "name": "slide_dimensions",
+      "passed": true,
+      "expected": [
+        12191695,
+        6858000
+      ],
+      "actual": [
+        12191695,
+        6858000
+      ]
+    },
+    {
+      "name": "relationship_integrity",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_1_texts_and_order",
+      "passed": true,
+      "expected": [
+        "第一页：项目概况",
+        "项目进展更新",
+        "固定页序标识：PAGE-1",
+        "未编辑图片说明：黄方块与白圆。"
+      ],
+      "actual": [
+        "第一页：项目概况",
+        "项目进展更新",
+        "固定页序标识：PAGE-1",
+        "未编辑图片说明：黄方块与白圆。"
+      ]
+    },
+    {
+      "name": "slide_1_tables",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_1_charts",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_1_notes",
+      "passed": true,
+      "expected": null,
+      "actual": null
+    },
+    {
+      "name": "slide_1_images_bytes_and_position",
+      "passed": true,
+      "expected": [
+        {
+          "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+          "left": 731520,
+          "top": 2560320,
+          "width": 2926080,
+          "height": 1645920,
+          "crop": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "actual": [
+        {
+          "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+          "left": 731520,
+          "top": 2560320,
+          "width": 2926080,
+          "height": 1645920,
+          "crop": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "slide_1_layout_name",
+      "passed": true,
+      "expected": "Blank",
+      "actual": "Blank"
+    },
+    {
+      "name": "slide_1_layout_xml",
+      "passed": true,
+      "expected": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+      "actual": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106"
+    },
+    {
+      "name": "slide_1_master_xml",
+      "passed": true,
+      "expected": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154",
+      "actual": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+    },
+    {
+      "name": "slide_1_relationship_types",
+      "passed": true,
+      "expected": [
+        "image",
+        "slideLayout"
+      ],
+      "actual": [
+        "image",
+        "slideLayout"
+      ]
+    },
+    {
+      "name": "slide_1_layout_relationship_target",
+      "passed": true,
+      "expected": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ],
+      "actual": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ]
+    },
+    {
+      "name": "slide_2_texts_and_order",
+      "passed": true,
+      "expected": [
+        "第二页：数据保留",
+        "未编辑中文：第二页原文。",
+        "固定页序标识：PAGE-2"
+      ],
+      "actual": [
+        "第二页：数据保留",
+        "未编辑中文：第二页原文。",
+        "固定页序标识：PAGE-2"
+      ]
+    },
+    {
+      "name": "slide_2_tables",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_2_charts",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_2_notes",
+      "passed": true,
+      "expected": null,
+      "actual": null
+    },
+    {
+      "name": "slide_2_images_bytes_and_position",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_2_layout_name",
+      "passed": true,
+      "expected": "Blank",
+      "actual": "Blank"
+    },
+    {
+      "name": "slide_2_layout_xml",
+      "passed": true,
+      "expected": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+      "actual": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106"
+    },
+    {
+      "name": "slide_2_master_xml",
+      "passed": true,
+      "expected": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154",
+      "actual": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+    },
+    {
+      "name": "slide_2_relationship_types",
+      "passed": true,
+      "expected": [
+        "slideLayout"
+      ],
+      "actual": [
+        "slideLayout"
+      ]
+    },
+    {
+      "name": "slide_2_layout_relationship_target",
+      "passed": true,
+      "expected": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ],
+      "actual": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ]
+    },
+    {
+      "name": "slide_3_texts_and_order",
+      "passed": true,
+      "expected": [
+        "第三页：收尾记录",
+        "未编辑中文：第三页原文。",
+        "固定页序标识：PAGE-3"
+      ],
+      "actual": [
+        "第三页：收尾记录",
+        "未编辑中文：第三页原文。",
+        "固定页序标识：PAGE-3"
+      ]
+    },
+    {
+      "name": "slide_3_tables",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_3_charts",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_3_notes",
+      "passed": true,
+      "expected": null,
+      "actual": null
+    },
+    {
+      "name": "slide_3_images_bytes_and_position",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_3_layout_name",
+      "passed": true,
+      "expected": "Blank",
+      "actual": "Blank"
+    },
+    {
+      "name": "slide_3_layout_xml",
+      "passed": true,
+      "expected": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+      "actual": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106"
+    },
+    {
+      "name": "slide_3_master_xml",
+      "passed": true,
+      "expected": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154",
+      "actual": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+    },
+    {
+      "name": "slide_3_relationship_types",
+      "passed": true,
+      "expected": [
+        "slideLayout"
+      ],
+      "actual": [
+        "slideLayout"
+      ]
+    },
+    {
+      "name": "slide_3_layout_relationship_target",
+      "passed": true,
+      "expected": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ],
+      "actual": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ]
+    },
+    {
+      "name": "zip_notes_part_count",
+      "passed": true,
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "name": "zip_masters_part_count",
+      "passed": true,
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "name": "zip_layouts_part_count",
+      "passed": true,
+      "expected": 11,
+      "actual": 11
+    },
+    {
+      "name": "zip_charts_part_count",
+      "passed": true,
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "name": "zip_embeddings_part_count",
+      "passed": true,
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "name": "zip_notes_masters_part_count",
+      "passed": true,
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "name": "layout_master_relationships",
+      "passed": true,
+      "expected": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      },
+      "actual": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "embedded_chart_workbook_content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "browser_semantics_slide_size",
+      "passed": true,
+      "expected": {
+        "cx": "12191695",
+        "cy": "6858000",
+        "type": "screen4x3"
+      },
+      "actual": {
+        "cx": "12191695",
+        "cy": "6858000",
+        "type": "screen4x3"
+      }
+    },
+    {
+      "name": "browser_semantics_layers",
+      "passed": true,
+      "expected": {
+        "ppt/slideMasters/slideMaster1.xml": {
+          "type": null,
+          "name": null,
+          "placeholders": [
+            {
+              "name": "Title Placeholder 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "274638"
+                },
+                "ext": {
+                  "cx": "8229600",
+                  "cy": "1143000"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1600200"
+                },
+                "ext": {
+                  "cx": "8229600",
+                  "cy": "4525963"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "6356350"
+                },
+                "ext": {
+                  "cx": "2133600",
+                  "cy": "365125"
+                }
+              }
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "3",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "3124200",
+                  "y": "6356350"
+                },
+                "ext": {
+                  "cx": "2895600",
+                  "cy": "365125"
+                }
+              }
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "4",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "6553200",
+                  "y": "6356350"
+                },
+                "ext": {
+                  "cx": "2133600",
+                  "cy": "365125"
+                }
+              }
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout1.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout10.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout11.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout2.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout3.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout4.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout5.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout6.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout7.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout8.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout9.xml"
+            },
+            {
+              "type": "theme",
+              "target": "ppt/theme/theme1.xml"
+            }
+          ],
+          "color_map": {
+            "bg1": "lt1",
+            "tx1": "dk1",
+            "bg2": "lt2",
+            "tx2": "dk2",
+            "accent1": "accent1",
+            "accent2": "accent2",
+            "accent3": "accent3",
+            "accent4": "accent4",
+            "accent5": "accent5",
+            "accent6": "accent6",
+            "hlink": "hlink",
+            "folHlink": "folHlink"
+          },
+          "background_xml": "<p:bg xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><p:bgRef idx=\"1001\"><a:schemeClr val=\"bg1\"/></p:bgRef></p:bg>"
+        },
+        "ppt/slideLayouts/slideLayout11.xml": {
+          "type": "vertTitleAndTx",
+          "name": "Vertical Title and Text",
+          "placeholders": [
+            {
+              "name": "Vertical Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "vert"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "6629400",
+                  "y": "274638"
+                },
+                "ext": {
+                  "cx": "2057400",
+                  "cy": "5851525"
+                }
+              }
+            },
+            {
+              "name": "Vertical Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "vert"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "274638"
+                },
+                "ext": {
+                  "cx": "6019800",
+                  "cy": "5851525"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout1.xml": {
+          "type": "title",
+          "name": "Title Slide",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "ctrTitle",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "685800",
+                  "y": "2130425"
+                },
+                "ext": {
+                  "cx": "7772400",
+                  "cy": "1470025"
+                }
+              }
+            },
+            {
+              "name": "Subtitle 2",
+              "placeholder": {
+                "type": "subTitle",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master subtitle style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1371600",
+                  "y": "3886200"
+                },
+                "ext": {
+                  "cx": "6400800",
+                  "cy": "1752600"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout2.xml": {
+          "type": "obj",
+          "name": "Title and Content",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Content Placeholder 2",
+              "placeholder": {
+                "type": "obj",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": null
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout3.xml": {
+          "type": "secHead",
+          "name": "Section Header",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "722313",
+                  "y": "4406900"
+                },
+                "ext": {
+                  "cx": "7772400",
+                  "cy": "1362075"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "722313",
+                  "y": "2906713"
+                },
+                "ext": {
+                  "cx": "7772400",
+                  "cy": "1500187"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout4.xml": {
+          "type": "twoObj",
+          "name": "Two Content",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Content Placeholder 2",
+              "placeholder": {
+                "type": "obj",
+                "idx": "1",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1600200"
+                },
+                "ext": {
+                  "cx": "4038600",
+                  "cy": "4525963"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 3",
+              "placeholder": {
+                "type": "obj",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "4648200",
+                  "y": "1600200"
+                },
+                "ext": {
+                  "cx": "4038600",
+                  "cy": "4525963"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 4",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 5",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 6",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout5.xml": {
+          "type": "twoTxTwoObj",
+          "name": "Comparison",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1535113"
+                },
+                "ext": {
+                  "cx": "4040188",
+                  "cy": "639762"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 3",
+              "placeholder": {
+                "type": "obj",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "2174875"
+                },
+                "ext": {
+                  "cx": "4040188",
+                  "cy": "3951288"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 4",
+              "placeholder": {
+                "type": "body",
+                "idx": "3",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "4645025",
+                  "y": "1535113"
+                },
+                "ext": {
+                  "cx": "4041775",
+                  "cy": "639762"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 5",
+              "placeholder": {
+                "type": "obj",
+                "idx": "4",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "4645025",
+                  "y": "2174875"
+                },
+                "ext": {
+                  "cx": "4041775",
+                  "cy": "3951288"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 6",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 7",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 8",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout6.xml": {
+          "type": "titleOnly",
+          "name": "Title Only",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Date Placeholder 2",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 3",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 4",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout7.xml": {
+          "type": "blank",
+          "name": "Blank",
+          "placeholders": [
+            {
+              "name": "Date Placeholder 1",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 2",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 3",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout8.xml": {
+          "type": "objTx",
+          "name": "Content with Caption",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "273050"
+                },
+                "ext": {
+                  "cx": "3008313",
+                  "cy": "1162050"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 2",
+              "placeholder": {
+                "type": "obj",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "3575050",
+                  "y": "273050"
+                },
+                "ext": {
+                  "cx": "5111750",
+                  "cy": "5853113"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 3",
+              "placeholder": {
+                "type": "body",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1435100"
+                },
+                "ext": {
+                  "cx": "3008313",
+                  "cy": "4691063"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 4",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 5",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 6",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout9.xml": {
+          "type": "picTx",
+          "name": "Picture with Caption",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1792288",
+                  "y": "4800600"
+                },
+                "ext": {
+                  "cx": "5486400",
+                  "cy": "566738"
+                }
+              }
+            },
+            {
+              "name": "Picture Placeholder 2",
+              "placeholder": {
+                "type": "pic",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1792288",
+                  "y": "612775"
+                },
+                "ext": {
+                  "cx": "5486400",
+                  "cy": "4114800"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 3",
+              "placeholder": {
+                "type": "body",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1792288",
+                  "y": "5367338"
+                },
+                "ext": {
+                  "cx": "5486400",
+                  "cy": "804862"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 4",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 5",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 6",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout10.xml": {
+          "type": "vertTx",
+          "name": "Title and Vertical Text",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Vertical Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "vert"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": null
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        }
+      },
+      "actual": {
+        "ppt/slideMasters/slideMaster1.xml": {
+          "type": null,
+          "name": null,
+          "placeholders": [
+            {
+              "name": "Title Placeholder 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "274638"
+                },
+                "ext": {
+                  "cx": "8229600",
+                  "cy": "1143000"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1600200"
+                },
+                "ext": {
+                  "cx": "8229600",
+                  "cy": "4525963"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "6356350"
+                },
+                "ext": {
+                  "cx": "2133600",
+                  "cy": "365125"
+                }
+              }
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "3",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "3124200",
+                  "y": "6356350"
+                },
+                "ext": {
+                  "cx": "2895600",
+                  "cy": "365125"
+                }
+              }
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "4",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "6553200",
+                  "y": "6356350"
+                },
+                "ext": {
+                  "cx": "2133600",
+                  "cy": "365125"
+                }
+              }
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout1.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout10.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout11.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout2.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout3.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout4.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout5.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout6.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout7.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout8.xml"
+            },
+            {
+              "type": "slideLayout",
+              "target": "ppt/slideLayouts/slideLayout9.xml"
+            },
+            {
+              "type": "theme",
+              "target": "ppt/theme/theme1.xml"
+            }
+          ],
+          "color_map": {
+            "bg1": "lt1",
+            "tx1": "dk1",
+            "bg2": "lt2",
+            "tx2": "dk2",
+            "accent1": "accent1",
+            "accent2": "accent2",
+            "accent3": "accent3",
+            "accent4": "accent4",
+            "accent5": "accent5",
+            "accent6": "accent6",
+            "hlink": "hlink",
+            "folHlink": "folHlink"
+          },
+          "background_xml": "<p:bg xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><p:bgRef idx=\"1001\"><a:schemeClr val=\"bg1\"/></p:bgRef></p:bg>"
+        },
+        "ppt/slideLayouts/slideLayout11.xml": {
+          "type": "vertTitleAndTx",
+          "name": "Vertical Title and Text",
+          "placeholders": [
+            {
+              "name": "Vertical Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "vert"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "6629400",
+                  "y": "274638"
+                },
+                "ext": {
+                  "cx": "2057400",
+                  "cy": "5851525"
+                }
+              }
+            },
+            {
+              "name": "Vertical Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "vert"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "274638"
+                },
+                "ext": {
+                  "cx": "6019800",
+                  "cy": "5851525"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout1.xml": {
+          "type": "title",
+          "name": "Title Slide",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "ctrTitle",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "685800",
+                  "y": "2130425"
+                },
+                "ext": {
+                  "cx": "7772400",
+                  "cy": "1470025"
+                }
+              }
+            },
+            {
+              "name": "Subtitle 2",
+              "placeholder": {
+                "type": "subTitle",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master subtitle style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1371600",
+                  "y": "3886200"
+                },
+                "ext": {
+                  "cx": "6400800",
+                  "cy": "1752600"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout2.xml": {
+          "type": "obj",
+          "name": "Title and Content",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Content Placeholder 2",
+              "placeholder": {
+                "type": "obj",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": null
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout3.xml": {
+          "type": "secHead",
+          "name": "Section Header",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "722313",
+                  "y": "4406900"
+                },
+                "ext": {
+                  "cx": "7772400",
+                  "cy": "1362075"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "722313",
+                  "y": "2906713"
+                },
+                "ext": {
+                  "cx": "7772400",
+                  "cy": "1500187"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout4.xml": {
+          "type": "twoObj",
+          "name": "Two Content",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Content Placeholder 2",
+              "placeholder": {
+                "type": "obj",
+                "idx": "1",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1600200"
+                },
+                "ext": {
+                  "cx": "4038600",
+                  "cy": "4525963"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 3",
+              "placeholder": {
+                "type": "obj",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "4648200",
+                  "y": "1600200"
+                },
+                "ext": {
+                  "cx": "4038600",
+                  "cy": "4525963"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 4",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 5",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 6",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout5.xml": {
+          "type": "twoTxTwoObj",
+          "name": "Comparison",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1535113"
+                },
+                "ext": {
+                  "cx": "4040188",
+                  "cy": "639762"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 3",
+              "placeholder": {
+                "type": "obj",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "2174875"
+                },
+                "ext": {
+                  "cx": "4040188",
+                  "cy": "3951288"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 4",
+              "placeholder": {
+                "type": "body",
+                "idx": "3",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "4645025",
+                  "y": "1535113"
+                },
+                "ext": {
+                  "cx": "4041775",
+                  "cy": "639762"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 5",
+              "placeholder": {
+                "type": "obj",
+                "idx": "4",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "4645025",
+                  "y": "2174875"
+                },
+                "ext": {
+                  "cx": "4041775",
+                  "cy": "3951288"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 6",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 7",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 8",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout6.xml": {
+          "type": "titleOnly",
+          "name": "Title Only",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Date Placeholder 2",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 3",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 4",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout7.xml": {
+          "type": "blank",
+          "name": "Blank",
+          "placeholders": [
+            {
+              "name": "Date Placeholder 1",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 2",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 3",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout8.xml": {
+          "type": "objTx",
+          "name": "Content with Caption",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "273050"
+                },
+                "ext": {
+                  "cx": "3008313",
+                  "cy": "1162050"
+                }
+              }
+            },
+            {
+              "name": "Content Placeholder 2",
+              "placeholder": {
+                "type": "obj",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": {
+                "off": {
+                  "x": "3575050",
+                  "y": "273050"
+                },
+                "ext": {
+                  "cx": "5111750",
+                  "cy": "5853113"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 3",
+              "placeholder": {
+                "type": "body",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "457200",
+                  "y": "1435100"
+                },
+                "ext": {
+                  "cx": "3008313",
+                  "cy": "4691063"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 4",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 5",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 6",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout9.xml": {
+          "type": "picTx",
+          "name": "Picture with Caption",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1792288",
+                  "y": "4800600"
+                },
+                "ext": {
+                  "cx": "5486400",
+                  "cy": "566738"
+                }
+              }
+            },
+            {
+              "name": "Picture Placeholder 2",
+              "placeholder": {
+                "type": "pic",
+                "idx": "1",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1792288",
+                  "y": "612775"
+                },
+                "ext": {
+                  "cx": "5486400",
+                  "cy": "4114800"
+                }
+              }
+            },
+            {
+              "name": "Text Placeholder 3",
+              "placeholder": {
+                "type": "body",
+                "idx": "2",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master text styles"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": {
+                "off": {
+                  "x": "1792288",
+                  "y": "5367338"
+                },
+                "ext": {
+                  "cx": "5486400",
+                  "cy": "804862"
+                }
+              }
+            },
+            {
+              "name": "Date Placeholder 4",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 5",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 6",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        },
+        "ppt/slideLayouts/slideLayout10.xml": {
+          "type": "vertTx",
+          "name": "Title and Vertical Text",
+          "placeholders": [
+            {
+              "name": "Title 1",
+              "placeholder": {
+                "type": "title",
+                "idx": "0",
+                "size": "full",
+                "orient": "horz"
+              },
+              "text": [
+                "Click to edit Master title style"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Vertical Text Placeholder 2",
+              "placeholder": {
+                "type": "body",
+                "idx": "1",
+                "size": "full",
+                "orient": "vert"
+              },
+              "text": [
+                "Click to edit Master text styles",
+                "Second level",
+                "Third level",
+                "Fourth level",
+                "Fifth level"
+              ],
+              "dynamic_fields": [],
+              "paragraph_count": 5,
+              "geometry": null
+            },
+            {
+              "name": "Date Placeholder 3",
+              "placeholder": {
+                "type": "dt",
+                "idx": "10",
+                "size": "half",
+                "orient": "horz"
+              },
+              "text": [
+                "1/27/13"
+              ],
+              "dynamic_fields": [
+                "datetimeFigureOut"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Footer Placeholder 4",
+              "placeholder": {
+                "type": "ftr",
+                "idx": "11",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [],
+              "dynamic_fields": [],
+              "paragraph_count": 1,
+              "geometry": null
+            },
+            {
+              "name": "Slide Number Placeholder 5",
+              "placeholder": {
+                "type": "sldNum",
+                "idx": "12",
+                "size": "quarter",
+                "orient": "horz"
+              },
+              "text": [
+                "‹#›"
+              ],
+              "dynamic_fields": [
+                "slidenum"
+              ],
+              "paragraph_count": 1,
+              "geometry": null
+            }
+          ],
+          "relationships": [
+            {
+              "type": "slideMaster",
+              "target": "ppt/slideMasters/slideMaster1.xml"
+            }
+          ],
+          "color_map": null,
+          "background_xml": null
+        }
+      }
+    },
+    {
+      "name": "browser_semantics_themes",
+      "passed": true,
+      "expected": {
+        "ppt/theme/theme1.xml": {
+          "name": "Office Theme",
+          "resolved_colors": {
+            "dk1": "000000",
+            "lt1": "FFFFFF",
+            "dk2": "1F497D",
+            "lt2": "EEECE1",
+            "accent1": "4F81BD",
+            "accent2": "C0504D",
+            "accent3": "9BBB59",
+            "accent4": "8064A2",
+            "accent5": "4BACC6",
+            "accent6": "F79646",
+            "hlink": "0000FF",
+            "folHlink": "800080"
+          },
+          "fonts": {
+            "majorFont": {
+              "latin": "Calibri",
+              "ea": "",
+              "cs": "",
+              "font-Jpan": "ＭＳ Ｐゴシック",
+              "font-Hang": "맑은 고딕",
+              "font-Hans": "宋体",
+              "font-Hant": "新細明體",
+              "font-Arab": "Times New Roman",
+              "font-Hebr": "Times New Roman",
+              "font-Thai": "Angsana New",
+              "font-Ethi": "Nyala",
+              "font-Beng": "Vrinda",
+              "font-Gujr": "Shruti",
+              "font-Khmr": "MoolBoran",
+              "font-Knda": "Tunga",
+              "font-Guru": "Raavi",
+              "font-Cans": "Euphemia",
+              "font-Cher": "Plantagenet Cherokee",
+              "font-Yiii": "Microsoft Yi Baiti",
+              "font-Tibt": "Microsoft Himalaya",
+              "font-Thaa": "MV Boli",
+              "font-Deva": "Mangal",
+              "font-Telu": "Gautami",
+              "font-Taml": "Latha",
+              "font-Syrc": "Estrangelo Edessa",
+              "font-Orya": "Kalinga",
+              "font-Mlym": "Kartika",
+              "font-Laoo": "DokChampa",
+              "font-Sinh": "Iskoola Pota",
+              "font-Mong": "Mongolian Baiti",
+              "font-Viet": "Times New Roman",
+              "font-Uigh": "Microsoft Uighur",
+              "font-Geor": "Sylfaen"
+            },
+            "minorFont": {
+              "latin": "Calibri",
+              "ea": "",
+              "cs": "",
+              "font-Jpan": "ＭＳ Ｐゴシック",
+              "font-Hang": "맑은 고딕",
+              "font-Hans": "宋体",
+              "font-Hant": "新細明體",
+              "font-Arab": "Arial",
+              "font-Hebr": "Arial",
+              "font-Thai": "Cordia New",
+              "font-Ethi": "Nyala",
+              "font-Beng": "Vrinda",
+              "font-Gujr": "Shruti",
+              "font-Khmr": "DaunPenh",
+              "font-Knda": "Tunga",
+              "font-Guru": "Raavi",
+              "font-Cans": "Euphemia",
+              "font-Cher": "Plantagenet Cherokee",
+              "font-Yiii": "Microsoft Yi Baiti",
+              "font-Tibt": "Microsoft Himalaya",
+              "font-Thaa": "MV Boli",
+              "font-Deva": "Mangal",
+              "font-Telu": "Gautami",
+              "font-Taml": "Latha",
+              "font-Syrc": "Estrangelo Edessa",
+              "font-Orya": "Kalinga",
+              "font-Mlym": "Kartika",
+              "font-Laoo": "DokChampa",
+              "font-Sinh": "Iskoola Pota",
+              "font-Mong": "Mongolian Baiti",
+              "font-Viet": "Arial",
+              "font-Uigh": "Microsoft Uighur",
+              "font-Geor": "Sylfaen"
+            }
+          }
+        }
+      },
+      "actual": {
+        "ppt/theme/theme1.xml": {
+          "name": "Office Theme",
+          "resolved_colors": {
+            "dk1": "000000",
+            "lt1": "FFFFFF",
+            "dk2": "1F497D",
+            "lt2": "EEECE1",
+            "accent1": "4F81BD",
+            "accent2": "C0504D",
+            "accent3": "9BBB59",
+            "accent4": "8064A2",
+            "accent5": "4BACC6",
+            "accent6": "F79646",
+            "hlink": "0000FF",
+            "folHlink": "800080"
+          },
+          "fonts": {
+            "majorFont": {
+              "latin": "Calibri",
+              "ea": "",
+              "cs": "",
+              "font-Jpan": "ＭＳ Ｐゴシック",
+              "font-Hang": "맑은 고딕",
+              "font-Hans": "宋体",
+              "font-Hant": "新細明體",
+              "font-Arab": "Times New Roman",
+              "font-Hebr": "Times New Roman",
+              "font-Thai": "Angsana New",
+              "font-Ethi": "Nyala",
+              "font-Beng": "Vrinda",
+              "font-Gujr": "Shruti",
+              "font-Khmr": "MoolBoran",
+              "font-Knda": "Tunga",
+              "font-Guru": "Raavi",
+              "font-Cans": "Euphemia",
+              "font-Cher": "Plantagenet Cherokee",
+              "font-Yiii": "Microsoft Yi Baiti",
+              "font-Tibt": "Microsoft Himalaya",
+              "font-Thaa": "MV Boli",
+              "font-Deva": "Mangal",
+              "font-Telu": "Gautami",
+              "font-Taml": "Latha",
+              "font-Syrc": "Estrangelo Edessa",
+              "font-Orya": "Kalinga",
+              "font-Mlym": "Kartika",
+              "font-Laoo": "DokChampa",
+              "font-Sinh": "Iskoola Pota",
+              "font-Mong": "Mongolian Baiti",
+              "font-Viet": "Times New Roman",
+              "font-Uigh": "Microsoft Uighur",
+              "font-Geor": "Sylfaen"
+            },
+            "minorFont": {
+              "latin": "Calibri",
+              "ea": "",
+              "cs": "",
+              "font-Jpan": "ＭＳ Ｐゴシック",
+              "font-Hang": "맑은 고딕",
+              "font-Hans": "宋体",
+              "font-Hant": "新細明體",
+              "font-Arab": "Arial",
+              "font-Hebr": "Arial",
+              "font-Thai": "Cordia New",
+              "font-Ethi": "Nyala",
+              "font-Beng": "Vrinda",
+              "font-Gujr": "Shruti",
+              "font-Khmr": "DaunPenh",
+              "font-Knda": "Tunga",
+              "font-Guru": "Raavi",
+              "font-Cans": "Euphemia",
+              "font-Cher": "Plantagenet Cherokee",
+              "font-Yiii": "Microsoft Yi Baiti",
+              "font-Tibt": "Microsoft Himalaya",
+              "font-Thaa": "MV Boli",
+              "font-Deva": "Mangal",
+              "font-Telu": "Gautami",
+              "font-Taml": "Latha",
+              "font-Syrc": "Estrangelo Edessa",
+              "font-Orya": "Kalinga",
+              "font-Mlym": "Kartika",
+              "font-Laoo": "DokChampa",
+              "font-Sinh": "Iskoola Pota",
+              "font-Mong": "Mongolian Baiti",
+              "font-Viet": "Arial",
+              "font-Uigh": "Microsoft Uighur",
+              "font-Geor": "Sylfaen"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "browser_semantics_slide_layout_links",
+      "passed": true,
+      "expected": {
+        "ppt/slides/slide1.xml": [
+          "ppt/slideLayouts/slideLayout7.xml"
+        ],
+        "ppt/slides/slide2.xml": [
+          "ppt/slideLayouts/slideLayout7.xml"
+        ],
+        "ppt/slides/slide3.xml": [
+          "ppt/slideLayouts/slideLayout7.xml"
+        ]
+      },
+      "actual": {
+        "ppt/slides/slide1.xml": [
+          "ppt/slideLayouts/slideLayout7.xml"
+        ],
+        "ppt/slides/slide2.xml": [
+          "ppt/slideLayouts/slideLayout7.xml"
+        ],
+        "ppt/slides/slide3.xml": [
+          "ppt/slideLayouts/slideLayout7.xml"
+        ]
+      }
+    },
+    {
+      "name": "browser_semantics_text_shapes",
+      "passed": true,
+      "expected": [
+        [
+          {
+            "text": "第一页：项目概况",
+            "box": [
+              548640,
+              365760,
+              10058400,
+              914400
+            ],
+            "runs": [
+              [
+                "第一页：项目概况",
+                "Microsoft YaHei",
+                355600,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "项目进展更新",
+            "box": [
+              548640,
+              1463040,
+              10058400,
+              548640
+            ],
+            "runs": [
+              [
+                "项目进展更新",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "固定页序标识：PAGE-1",
+            "box": [
+              548640,
+              5943600,
+              8229600,
+              365760
+            ],
+            "runs": [
+              [
+                "固定页序标识：PAGE-1",
+                "Microsoft YaHei",
+                203200,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "box": [
+              4114800,
+              2926080,
+              6400800,
+              914400
+            ],
+            "runs": [
+              [
+                "未编辑图片说明：黄方块与白圆。",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          }
+        ],
+        [
+          {
+            "text": "第二页：数据保留",
+            "box": [
+              548640,
+              365760,
+              10058400,
+              914400
+            ],
+            "runs": [
+              [
+                "第二页：数据保留",
+                "Microsoft YaHei",
+                355600,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "未编辑中文：第二页原文。",
+            "box": [
+              548640,
+              1463040,
+              10058400,
+              548640
+            ],
+            "runs": [
+              [
+                "未编辑中文：第二页原文。",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "固定页序标识：PAGE-2",
+            "box": [
+              548640,
+              5943600,
+              8229600,
+              365760
+            ],
+            "runs": [
+              [
+                "固定页序标识：PAGE-2",
+                "Microsoft YaHei",
+                203200,
+                null,
+                null
+              ]
+            ]
+          }
+        ],
+        [
+          {
+            "text": "第三页：收尾记录",
+            "box": [
+              548640,
+              365760,
+              10058400,
+              914400
+            ],
+            "runs": [
+              [
+                "第三页：收尾记录",
+                "Microsoft YaHei",
+                355600,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "未编辑中文：第三页原文。",
+            "box": [
+              548640,
+              1463040,
+              10058400,
+              548640
+            ],
+            "runs": [
+              [
+                "未编辑中文：第三页原文。",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "固定页序标识：PAGE-3",
+            "box": [
+              548640,
+              5943600,
+              8229600,
+              365760
+            ],
+            "runs": [
+              [
+                "固定页序标识：PAGE-3",
+                "Microsoft YaHei",
+                203200,
+                null,
+                null
+              ]
+            ]
+          }
+        ]
+      ],
+      "actual": [
+        [
+          {
+            "text": "第一页：项目概况",
+            "box": [
+              548640,
+              365760,
+              10058400,
+              914400
+            ],
+            "runs": [
+              [
+                "第一页：项目概况",
+                "Microsoft YaHei",
+                355600,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "项目进展更新",
+            "box": [
+              548640,
+              1463040,
+              10058400,
+              548640
+            ],
+            "runs": [
+              [
+                "项目进展更新",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "固定页序标识：PAGE-1",
+            "box": [
+              548640,
+              5943600,
+              8229600,
+              365760
+            ],
+            "runs": [
+              [
+                "固定页序标识：PAGE-1",
+                "Microsoft YaHei",
+                203200,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "box": [
+              4114800,
+              2926080,
+              6400800,
+              914400
+            ],
+            "runs": [
+              [
+                "未编辑图片说明：黄方块与白圆。",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          }
+        ],
+        [
+          {
+            "text": "第二页：数据保留",
+            "box": [
+              548640,
+              365760,
+              10058400,
+              914400
+            ],
+            "runs": [
+              [
+                "第二页：数据保留",
+                "Microsoft YaHei",
+                355600,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "未编辑中文：第二页原文。",
+            "box": [
+              548640,
+              1463040,
+              10058400,
+              548640
+            ],
+            "runs": [
+              [
+                "未编辑中文：第二页原文。",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "固定页序标识：PAGE-2",
+            "box": [
+              548640,
+              5943600,
+              8229600,
+              365760
+            ],
+            "runs": [
+              [
+                "固定页序标识：PAGE-2",
+                "Microsoft YaHei",
+                203200,
+                null,
+                null
+              ]
+            ]
+          }
+        ],
+        [
+          {
+            "text": "第三页：收尾记录",
+            "box": [
+              548640,
+              365760,
+              10058400,
+              914400
+            ],
+            "runs": [
+              [
+                "第三页：收尾记录",
+                "Microsoft YaHei",
+                355600,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "未编辑中文：第三页原文。",
+            "box": [
+              548640,
+              1463040,
+              10058400,
+              548640
+            ],
+            "runs": [
+              [
+                "未编辑中文：第三页原文。",
+                "Microsoft YaHei",
+                279400,
+                null,
+                null
+              ]
+            ]
+          },
+          {
+            "text": "固定页序标识：PAGE-3",
+            "box": [
+              548640,
+              5943600,
+              8229600,
+              365760
+            ],
+            "runs": [
+              [
+                "固定页序标识：PAGE-3",
+                "Microsoft YaHei",
+                203200,
+                null,
+                null
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "actual_file_part_set",
+      "passed": true,
+      "expected": [
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "docProps/app.xml",
+        "docProps/core.xml",
+        "docProps/thumbnail.jpeg",
+        "ppt/_rels/presentation.xml.rels",
+        "ppt/media/image1.png",
+        "ppt/presProps.xml",
+        "ppt/presentation.xml",
+        "ppt/printerSettings/printerSettings1.bin",
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout10.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout11.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout7.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout8.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout9.xml.rels",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/slideLayouts/slideLayout10.xml",
+        "ppt/slideLayouts/slideLayout11.xml",
+        "ppt/slideLayouts/slideLayout2.xml",
+        "ppt/slideLayouts/slideLayout3.xml",
+        "ppt/slideLayouts/slideLayout4.xml",
+        "ppt/slideLayouts/slideLayout5.xml",
+        "ppt/slideLayouts/slideLayout6.xml",
+        "ppt/slideLayouts/slideLayout7.xml",
+        "ppt/slideLayouts/slideLayout8.xml",
+        "ppt/slideLayouts/slideLayout9.xml",
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+        "ppt/slideMasters/slideMaster1.xml",
+        "ppt/slides/_rels/slide1.xml.rels",
+        "ppt/slides/_rels/slide2.xml.rels",
+        "ppt/slides/_rels/slide3.xml.rels",
+        "ppt/slides/slide1.xml",
+        "ppt/slides/slide2.xml",
+        "ppt/slides/slide3.xml",
+        "ppt/tableStyles.xml",
+        "ppt/theme/theme1.xml",
+        "ppt/viewProps.xml"
+      ],
+      "actual": [
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "docProps/app.xml",
+        "docProps/core.xml",
+        "docProps/thumbnail.jpeg",
+        "ppt/_rels/presentation.xml.rels",
+        "ppt/media/image1.png",
+        "ppt/presProps.xml",
+        "ppt/presentation.xml",
+        "ppt/printerSettings/printerSettings1.bin",
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout10.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout11.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout7.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout8.xml.rels",
+        "ppt/slideLayouts/_rels/slideLayout9.xml.rels",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/slideLayouts/slideLayout10.xml",
+        "ppt/slideLayouts/slideLayout11.xml",
+        "ppt/slideLayouts/slideLayout2.xml",
+        "ppt/slideLayouts/slideLayout3.xml",
+        "ppt/slideLayouts/slideLayout4.xml",
+        "ppt/slideLayouts/slideLayout5.xml",
+        "ppt/slideLayouts/slideLayout6.xml",
+        "ppt/slideLayouts/slideLayout7.xml",
+        "ppt/slideLayouts/slideLayout8.xml",
+        "ppt/slideLayouts/slideLayout9.xml",
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+        "ppt/slideMasters/slideMaster1.xml",
+        "ppt/slides/_rels/slide1.xml.rels",
+        "ppt/slides/_rels/slide2.xml.rels",
+        "ppt/slides/_rels/slide3.xml.rels",
+        "ppt/slides/slide1.xml",
+        "ppt/slides/slide2.xml",
+        "ppt/slides/slide3.xml",
+        "ppt/tableStyles.xml",
+        "ppt/theme/theme1.xml",
+        "ppt/viewProps.xml"
+      ]
+    },
+    {
+      "name": "only_target_slide_xml_changed",
+      "passed": true,
+      "expected": [
+        "ppt/slides/slide1.xml"
+      ],
+      "actual": [
+        "ppt/slides/slide1.xml"
+      ]
+    },
+    {
+      "name": "external_original_checksum_unchanged",
+      "passed": true,
+      "expected": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "actual": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d"
+    }
+  ],
+  "original_inventory": {
+    "sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+    "bytes": 31879,
+    "size": [
+      12191695,
+      6858000
+    ],
+    "slides": [
+      {
+        "texts": [
+          "第一页：项目概况",
+          "项目进展正常",
+          "固定页序标识：PAGE-1",
+          "未编辑图片说明：黄方块与白圆。"
+        ],
+        "pictures": [
+          {
+            "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+            "left": 731520,
+            "top": 2560320,
+            "width": 2926080,
+            "height": 1645920,
+            "crop": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "tables": [],
+        "charts": [],
+        "notes": null,
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第二页：数据保留",
+          "未编辑中文：第二页原文。",
+          "固定页序标识：PAGE-2"
+        ],
+        "pictures": [],
+        "tables": [],
+        "charts": [],
+        "notes": null,
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第三页：收尾记录",
+          "未编辑中文：第三页原文。",
+          "固定页序标识：PAGE-3"
+        ],
+        "pictures": [],
+        "tables": [],
+        "charts": [],
+        "notes": null,
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      }
+    ],
+    "zip": {
+      "notes": {},
+      "masters": {
+        "ppt/slideMasters/slideMaster1.xml": "44cc65956f47c1cf689803dcc7a1d9225c93d3fd90754a9f85e2bdcea27565bc"
+      },
+      "layouts": {
+        "ppt/slideLayouts/slideLayout11.xml": "355ac266c2671b83b662759afb0ee0ecfb7cdd6ec936019ecef60dbc95c14dac",
+        "ppt/slideLayouts/slideLayout1.xml": "25c93a2f186df69897585729d52fc610349e29dcf0b5b6080160df6490698709",
+        "ppt/slideLayouts/slideLayout2.xml": "5f800acd9e43b9b438c987bd71cf0966b27ad02ce8df14df80708510cbd700be",
+        "ppt/slideLayouts/slideLayout3.xml": "e83a85b737e1447051ac7fd9bbaaba4ac1b4210cfc630cdcfcdbc191fdb141d1",
+        "ppt/slideLayouts/slideLayout4.xml": "1ebe316051a0caaac0e972989a7591e66d1fbb4a0764fe984c31a4ab5b6554bf",
+        "ppt/slideLayouts/slideLayout5.xml": "3df8e6f498622ef440f5568a2c967c97f47c74b46b47a976304c7b7c9ab54c74",
+        "ppt/slideLayouts/slideLayout6.xml": "18e5b26c6f7c30dabe0b294faf38b2d2ef60ae778fbba9c3fe71f6560143a402",
+        "ppt/slideLayouts/slideLayout7.xml": "e4d86b009a8ca6ca9ecfadc97c68b7123b60544df09a7ea42864a4f5f74ce09c",
+        "ppt/slideLayouts/slideLayout8.xml": "950b9d16468d58fe59a8c0aeb17a03b7d18a9f5bbeac438e38a2248462a72cbe",
+        "ppt/slideLayouts/slideLayout9.xml": "4e9439878755a7faea188d684939b2fb7d26b7e09086e792789f9137ca353e15",
+        "ppt/slideLayouts/slideLayout10.xml": "1f8304c9d6c08ff9bd41b639d0c7e866b6515f61e6081c9ccc89ed8d0f8b4194"
+      },
+      "charts": {},
+      "embeddings": {},
+      "notes_masters": {},
+      "slide_order_ids": [
+        "256",
+        "257",
+        "258"
+      ],
+      "slide_relationships": {
+        "ppt/slides/slide1.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          },
+          {
+            "type": "image",
+            "target": "ppt/media/image1.png",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide2.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide3.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          }
+        ]
+      },
+      "layout_relationships": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      },
+      "embedded_workbooks": {},
+      "dangling_relationships": []
+    }
+  },
+  "candidate_inventory": {
+    "sha256": "49c7472bf43ff79852deb5bdda83f68574b8c75fc5a8b45995ddeab6643419fc",
+    "bytes": 44753,
+    "size": [
+      12191695,
+      6858000
+    ],
+    "slides": [
+      {
+        "texts": [
+          "第一页：项目概况",
+          "项目进展更新",
+          "固定页序标识：PAGE-1",
+          "未编辑图片说明：黄方块与白圆。"
+        ],
+        "pictures": [
+          {
+            "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+            "left": 731520,
+            "top": 2560320,
+            "width": 2926080,
+            "height": 1645920,
+            "crop": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "tables": [],
+        "charts": [],
+        "notes": null,
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第二页：数据保留",
+          "未编辑中文：第二页原文。",
+          "固定页序标识：PAGE-2"
+        ],
+        "pictures": [],
+        "tables": [],
+        "charts": [],
+        "notes": null,
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第三页：收尾记录",
+          "未编辑中文：第三页原文。",
+          "固定页序标识：PAGE-3"
+        ],
+        "pictures": [],
+        "tables": [],
+        "charts": [],
+        "notes": null,
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      }
+    ],
+    "zip": {
+      "notes": {},
+      "masters": {
+        "ppt/slideMasters/slideMaster1.xml": "44cc65956f47c1cf689803dcc7a1d9225c93d3fd90754a9f85e2bdcea27565bc"
+      },
+      "layouts": {
+        "ppt/slideLayouts/slideLayout11.xml": "355ac266c2671b83b662759afb0ee0ecfb7cdd6ec936019ecef60dbc95c14dac",
+        "ppt/slideLayouts/slideLayout1.xml": "25c93a2f186df69897585729d52fc610349e29dcf0b5b6080160df6490698709",
+        "ppt/slideLayouts/slideLayout2.xml": "5f800acd9e43b9b438c987bd71cf0966b27ad02ce8df14df80708510cbd700be",
+        "ppt/slideLayouts/slideLayout3.xml": "e83a85b737e1447051ac7fd9bbaaba4ac1b4210cfc630cdcfcdbc191fdb141d1",
+        "ppt/slideLayouts/slideLayout4.xml": "1ebe316051a0caaac0e972989a7591e66d1fbb4a0764fe984c31a4ab5b6554bf",
+        "ppt/slideLayouts/slideLayout5.xml": "3df8e6f498622ef440f5568a2c967c97f47c74b46b47a976304c7b7c9ab54c74",
+        "ppt/slideLayouts/slideLayout6.xml": "18e5b26c6f7c30dabe0b294faf38b2d2ef60ae778fbba9c3fe71f6560143a402",
+        "ppt/slideLayouts/slideLayout7.xml": "e4d86b009a8ca6ca9ecfadc97c68b7123b60544df09a7ea42864a4f5f74ce09c",
+        "ppt/slideLayouts/slideLayout8.xml": "950b9d16468d58fe59a8c0aeb17a03b7d18a9f5bbeac438e38a2248462a72cbe",
+        "ppt/slideLayouts/slideLayout9.xml": "4e9439878755a7faea188d684939b2fb7d26b7e09086e792789f9137ca353e15",
+        "ppt/slideLayouts/slideLayout10.xml": "1f8304c9d6c08ff9bd41b639d0c7e866b6515f61e6081c9ccc89ed8d0f8b4194"
+      },
+      "charts": {},
+      "embeddings": {},
+      "notes_masters": {},
+      "slide_order_ids": [
+        "256",
+        "257",
+        "258"
+      ],
+      "slide_relationships": {
+        "ppt/slides/slide1.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          },
+          {
+            "type": "image",
+            "target": "ppt/media/image1.png",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide2.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide3.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          }
+        ]
+      },
+      "layout_relationships": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      },
+      "embedded_workbooks": {},
+      "dangling_relationships": []
+    }
+  },
+  "added_directory_entries": [
+    "_rels/",
+    "docProps/",
+    "ppt/",
+    "ppt/_rels/",
+    "ppt/media/",
+    "ppt/printerSettings/",
+    "ppt/slideLayouts/",
+    "ppt/slideLayouts/_rels/",
+    "ppt/slideMasters/",
+    "ppt/slideMasters/_rels/",
+    "ppt/slides/",
+    "ppt/slides/_rels/",
+    "ppt/theme/"
+  ],
+  "semantic_verifier_reuse": "inventory/replace_text definitions only",
+  "image_delta_emu": 0
+}

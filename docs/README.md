@@ -24,6 +24,13 @@
 
 - [未完成事项](remaining-work.md)：唯一的仓库内待办总表；GitHub Issues 是正式跟踪器。
 
+## 文件能力选型参考
+
+- [GenOffice、Univer SDK 与 DSH 插件集成调研](technical/office-integration-candidate-research-20261013.md)：核对应用内 Office 预览、基础编辑、原格式回存与主项目接缝；源码评估不代表格式能力已交付。
+- [Univer / GenOffice 实际验证](technical/univer-office-validation-20261013.md)：三格式样本往返、Chrome/WebKit 编辑与保存限制；GenOffice 无水印 PPT 探针与同样本 Word/Excel 对比。
+- [Markdown 选型与验证](technical/markdown-integration-candidate-research-20261013.md)：复用 GFM 预览、源码编辑方案、源字节和资源保留边界。
+- [PDF 选型与验证](technical/pdf-integration-candidate-research-20261013.md)：预览、批注/表单、原文修改分别评价；GenOffice PDFium 候选与实际限制。
+
 ## AI 能力实施规格与参考
 
 - [LLM Wiki 渐进式披露专项调研](technical/llm-wiki-progressive-disclosure-research.md)：原始模式与qmd源码核对，区分设计借鉴与实际集成。

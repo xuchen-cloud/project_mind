@@ -1,0 +1,26 @@
+{
+  "unitId": "rust-pptx-unit",
+  "slideId": "slide-1",
+  "textElementId": "shape-3",
+  "textElementType": "shape",
+  "textPath": "slides.slide-1.elements.shape-3.shapeData.shapeText",
+  "dataStreamPath": "slides.slide-1.elements.shape-3.shapeData.shapeText.dataModel.doc.body.dataStream",
+  "before": "项目进展正常\r\n",
+  "after": "项目进展更新\r\n",
+  "imageElementId": "image-5",
+  "imageTransformBefore": {
+    "height": 129.6,
+    "left": 57.6,
+    "rotation": 0,
+    "top": 201.6,
+    "width": 230.4
+  },
+  "imageDeltaPoints": 18,
+  "imageTransformAfter": {
+    "height": 129.6,
+    "left": 75.6,
+    "rotation": 0,
+    "top": 201.6,
+    "width": 230.4
+  }
+}

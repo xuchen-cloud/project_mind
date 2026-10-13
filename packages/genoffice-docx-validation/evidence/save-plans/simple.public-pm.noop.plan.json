@@ -1,0 +1,37 @@
+{
+  "saveBlocks": [
+    {
+      "kind": "original",
+      "docxIndex": 0
+    },
+    {
+      "kind": "original",
+      "docxIndex": 1
+    },
+    {
+      "kind": "original",
+      "docxIndex": 2
+    },
+    {
+      "kind": "original",
+      "docxIndex": 3
+    },
+    {
+      "kind": "original",
+      "docxIndex": 4
+    },
+    {
+      "kind": "original",
+      "docxIndex": 5
+    },
+    {
+      "kind": "original",
+      "docxIndex": 6
+    }
+  ],
+  "chartPatches": [],
+  "saveBlockIndexByDocx": {},
+  "changedCount": 0,
+  "deletedCount": 0,
+  "totalOriginal": 7
+}

@@ -1,0 +1,76 @@
+{
+  "producer": "main agent",
+  "validationAgent": "XLSX agent; candidate read-only, no conversion rerun",
+  "viewer": "thin HTML grid/form; not GenOffice Univer UI; does not render merge/chart/image/hidden sheets",
+  "checks": "openpyxl + ZIP + metadata + compressed payload preservation + XML scope + real sidecar-reopen sdk from backend events",
+  "runs": [
+    {
+      "engine": "chromium",
+      "kind": "simple",
+      "candidate": "browser/output/chromium/simple.browser-edited.xlsx",
+      "candidateSha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b",
+      "events": "browser/output/chromium/simple.events.json",
+      "eventsSha256": "2f9642d7b7ad136d755df1caaba603c182af1c25e26d9f38b18908d8da1beb04",
+      "mainOriginalComparison": {
+        "status": "passed",
+        "assertions": 70
+      },
+      "independentReport": "simple.chromium.independent.json",
+      "status": "passed",
+      "assertions": 80,
+      "failed_assertions": 0,
+      "failures": []
+    },
+    {
+      "engine": "chromium",
+      "kind": "complex",
+      "candidate": "browser/output/chromium/complex.browser-edited.xlsx",
+      "candidateSha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5",
+      "events": "browser/output/chromium/complex.events.json",
+      "eventsSha256": "d71f1905c461ff66adb14ff6cf2c5412b81e5685eb1664729787f2a714d5ea02",
+      "mainOriginalComparison": {
+        "status": "passed",
+        "assertions": 84
+      },
+      "independentReport": "complex.chromium.independent.json",
+      "status": "passed",
+      "assertions": 94,
+      "failed_assertions": 0,
+      "failures": []
+    },
+    {
+      "engine": "webkit",
+      "kind": "simple",
+      "candidate": "browser/output/webkit/simple.browser-edited.xlsx",
+      "candidateSha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b",
+      "events": "browser/output/webkit/simple.events.json",
+      "eventsSha256": "93945eba89907ae12d746ecc135bbbfce483471fc8374facdf8e5d373114efca",
+      "mainOriginalComparison": {
+        "status": "passed",
+        "assertions": 70
+      },
+      "independentReport": "simple.webkit.independent.json",
+      "status": "passed",
+      "assertions": 80,
+      "failed_assertions": 0,
+      "failures": []
+    },
+    {
+      "engine": "webkit",
+      "kind": "complex",
+      "candidate": "browser/output/webkit/complex.browser-edited.xlsx",
+      "candidateSha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5",
+      "events": "browser/output/webkit/complex.events.json",
+      "eventsSha256": "9aff303ec2e95db055c14e891411cbe45d2e585dc6826f32400301e9f6a6499e",
+      "mainOriginalComparison": {
+        "status": "passed",
+        "assertions": 84
+      },
+      "independentReport": "complex.webkit.independent.json",
+      "status": "passed",
+      "assertions": 94,
+      "failed_assertions": 0,
+      "failures": []
+    }
+  ]
+}

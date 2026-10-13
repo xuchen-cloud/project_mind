@@ -1,0 +1,155 @@
+{
+  "issue": "#118/F03 PDF extension",
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "versions": {
+    "pdfjs": "6.2.108",
+    "pdf_lib": "1.17.1"
+  },
+  "started": "2026-10-13T13:11:18.757Z",
+  "runs": [
+    {
+      "name": "simple",
+      "family": "pdfjs-form",
+      "source_sha256": "4ade196ca0dc73b88ca5a93f4ba1d6333992dacf9b49e6899475db78d9cb4c31",
+      "status": "passed",
+      "timing_ms": {
+        "edit_save": 54.89087499999994,
+        "independent_reopen": 225.7808339999999,
+        "appearance_assertion_recheck": 3.6523749986372422
+      },
+      "field_targets": {
+        "customer": [
+          {
+            "id": "6R",
+            "type": "text",
+            "value": "Alice"
+          }
+        ],
+        "approved": [
+          {
+            "id": "13R",
+            "type": "checkbox",
+            "value": "Off",
+            "exportValues": "Yes"
+          }
+        ]
+      },
+      "output": "/Users/xuchen/project_mind/packages/pdf-validation/simple.pdfjs-form.pdf",
+      "output_bytes": 8560,
+      "output_sha256": "949a8132e614410b81942fd3a435f95549addebde0b68f35a55401939350612f",
+      "checks": "/Users/xuchen/project_mind/packages/pdf-validation/simple.pdfjs-form.checks.json",
+      "failures": [],
+      "source_unchanged": true
+    },
+    {
+      "name": "simple",
+      "family": "pdflib-form",
+      "source_sha256": "4ade196ca0dc73b88ca5a93f4ba1d6333992dacf9b49e6899475db78d9cb4c31",
+      "status": "passed",
+      "timing_ms": {
+        "edit_save": 13.075167000000079,
+        "independent_reopen": 94.73045899999988,
+        "appearance_assertion_recheck": 1.917207999213133
+      },
+      "output": "/Users/xuchen/project_mind/packages/pdf-validation/simple.pdflib-form.pdf",
+      "output_bytes": 7826,
+      "output_sha256": "33ef6a1d668129fae33fd4fce0a3aa1e50799b9e17671ad0f0b86cd8f9fb471a",
+      "checks": "/Users/xuchen/project_mind/packages/pdf-validation/simple.pdflib-form.checks.json",
+      "failures": [],
+      "source_unchanged": true
+    },
+    {
+      "name": "complex",
+      "family": "pdfjs-form",
+      "source_sha256": "39cc5a2215b176d5589dd9fa3a306ec8cf738c4fb4e6a1d1c3cdcce573d92b71",
+      "status": "passed",
+      "timing_ms": {
+        "edit_save": 5.954542000000174,
+        "independent_reopen": 108.88387499999999,
+        "appearance_assertion_recheck": 15.952084000673494
+      },
+      "field_targets": {
+        "customer": [
+          {
+            "id": "6R",
+            "type": "text",
+            "value": "Alice"
+          }
+        ],
+        "approved": [
+          {
+            "id": "13R",
+            "type": "checkbox",
+            "value": "Off",
+            "exportValues": "Yes"
+          }
+        ]
+      },
+      "output": "/Users/xuchen/project_mind/packages/pdf-validation/complex.pdfjs-form.pdf",
+      "output_bytes": 10460,
+      "output_sha256": "fe54ba137c2731339d286426c3f2cbbbba438def43ee91ff74784c2ca3decf5b",
+      "checks": "/Users/xuchen/project_mind/packages/pdf-validation/complex.pdfjs-form.checks.json",
+      "failures": [],
+      "source_unchanged": true
+    },
+    {
+      "name": "complex",
+      "family": "pdflib-form",
+      "source_sha256": "39cc5a2215b176d5589dd9fa3a306ec8cf738c4fb4e6a1d1c3cdcce573d92b71",
+      "status": "passed",
+      "timing_ms": {
+        "edit_save": 3.6367079999999987,
+        "independent_reopen": 101.46104200000013,
+        "appearance_assertion_recheck": 3.8459169991256204
+      },
+      "output": "/Users/xuchen/project_mind/packages/pdf-validation/complex.pdflib-form.pdf",
+      "output_bytes": 9702,
+      "output_sha256": "b2152c190c859d5336acf3002c46b2a3f69f5e99764ab3aed689b99ba89890b8",
+      "checks": "/Users/xuchen/project_mind/packages/pdf-validation/complex.pdflib-form.checks.json",
+      "failures": [],
+      "source_unchanged": true
+    }
+  ],
+  "gui": false,
+  "cjk_default_font": {
+    "status": "failed",
+    "name": "Error",
+    "message": "WinAnsi cannot encode \"中\" (0x4e2d)",
+    "scope": "pdf-lib default appearance font only; custom CJK font embedding not tested"
+  },
+  "overlay": {
+    "status": "limited",
+    "output": "/Users/xuchen/project_mind/packages/pdf-validation/simple.overlay-counterexample.pdf",
+    "sha256": "4b48f8d8db75395054b1e64ea67389ed82ca7c3a9c40732c5b3521bd75be504a",
+    "original_text_still_extractable": true,
+    "replacement_text_extractable": true,
+    "note": "This is a visual cover/add operation. It does not edit or remove the original page text."
+  },
+  "finished": "2026-10-13T13:11:19.470Z",
+  "status": "limited",
+  "not_verified": [
+    "GenOffice PDFium text editing runtime",
+    "PDF.js annotation editor GUI",
+    "CJK field appearance with custom font",
+    "visual fidelity",
+    "Tauri/WebView",
+    "File CAS/version integration"
+  ],
+  "runtime_warnings": [
+    {
+      "library": "pdf.js 6.2.108",
+      "scope": "both form saves in Node",
+      "message": "_getAppearance: OffscreenCanvas is not supported, annotation may not render correctly.",
+      "observation": "Independent pypdf checks verify Bob in AP text and checkbox AS/Yes; visual rendering is not verified."
+    }
+  ],
+  "independent_reader": {
+    "library": "pypdf",
+    "version": "6.10.0",
+    "python": "3.12.14"
+  },
+  "assertion_recheck_note": "Reused all saved candidates by their recorded SHA; strengthened independent appearance checks only. No SDK rerun.",
+  "node_executable": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+}

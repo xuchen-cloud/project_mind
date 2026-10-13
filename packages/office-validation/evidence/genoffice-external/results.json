@@ -1,0 +1,1095 @@
+{
+  "issue": "#118/F03",
+  "candidate": "GenOffice PPTX",
+  "started": "2026-10-13T12:56:31.814263+00:00",
+  "runtime": {
+    "python": "3.12.14",
+    "pypdf": "6.10.0",
+    "soffice": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+    "pdftotext": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext"
+  },
+  "cases": [
+    {
+      "sample": "simple",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/simple.original.pptx",
+      "source_sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "source_bytes": 31879,
+      "started": "2026-10-13T12:56:31.815386+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-original-0ba04d437657/input/simple.original.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-original-0ba04d437657/pdf/simple.original.pdf",
+      "status": "reopened",
+      "conversion": {
+        "method": "reused-exact-input-hash",
+        "returncode": 0,
+        "elapsed_ms": 0,
+        "original_conversion": {
+          "returncode": 0,
+          "elapsed_ms": 701.1539579998498,
+          "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/input/simple.original.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/pdf/simple.original.pdf using filter : impress_pdf_Export\n",
+          "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+          "timeout": false
+        }
+      },
+      "reuse": {
+        "evidence": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "record_id": "sdk--pptx-simple-original-0ba04d437657",
+        "original_input_sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+        "source_pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/pdf/simple.original.pdf",
+        "source_pdf_sha256": "17813e70039d659449635ee293295a8a1a0efad17a2d8e3f7576ce3a3b8f91f2",
+        "prior_text_diagnostic": "/tmp/project-mind-univer-validation-20261013/scratch/external/text-diagnostic.json"
+      },
+      "source_sha256_after": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-original-0ba04d437657/pdf/simple.original.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-original-0ba04d437657/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 107.16333399977884,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 23353,
+      "pdf_sha256": "17813e70039d659449635ee293295a8a1a0efad17a2d8e3f7576ce3a3b8f91f2",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-original-0ba04d437657/text-poppler.txt",
+      "chart_title_business_quantity_present": false,
+      "finished": "2026-10-13T12:56:31.938494+00:00"
+    },
+    {
+      "sample": "simple",
+      "branch": "noop",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/simple.noop.pptx",
+      "source_sha256": "9988f62fdfd84d52a91f945220d5763ab1fefad7819a06ebf1222851364c927f",
+      "source_bytes": 44627,
+      "started": "2026-10-13T12:56:31.939018+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/input/simple.noop.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/pdf/simple.noop.pdf",
+      "status": "reopened",
+      "conversion": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/input/simple.noop.pptx"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 964.7557500002222,
+        "stdout": "convert /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/input/simple.noop.pptx as a Impress document -> /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/pdf/simple.noop.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false,
+        "method": "actual-headless-conversion"
+      },
+      "source_sha256_after": "9988f62fdfd84d52a91f945220d5763ab1fefad7819a06ebf1222851364c927f",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/pdf/simple.noop.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 13.850459000423143,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 23353,
+      "pdf_sha256": "5575b30e6fdada1cd1873835990f5eff439bd4f9653a3cc46ac65628da60669f",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-noop-9988f62fdfd8/text-poppler.txt",
+      "chart_title_business_quantity_present": false,
+      "finished": "2026-10-13T12:56:32.922766+00:00"
+    },
+    {
+      "sample": "simple",
+      "branch": "edited",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/simple.edited.pptx",
+      "source_sha256": "6aeffd3681eae995f3dda61457f883fd7841a3758f474e4de4588db737faf808",
+      "source_bytes": 44786,
+      "started": "2026-10-13T12:56:32.923430+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/input/simple.edited.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/pdf/simple.edited.pdf",
+      "status": "reopened",
+      "conversion": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/input/simple.edited.pptx"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 613.359875000242,
+        "stdout": "convert /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/input/simple.edited.pptx as a Impress document -> /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/pdf/simple.edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false,
+        "method": "actual-headless-conversion"
+      },
+      "source_sha256_after": "6aeffd3681eae995f3dda61457f883fd7841a3758f474e4de4588db737faf808",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/pdf/simple.edited.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 14.025082999978622,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 23354,
+      "pdf_sha256": "e25128fbddf164c579823c42a461e7075d9e400e2c65f40708bf059d62c438e3",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-edited-6aeffd3681ea/text-poppler.txt",
+      "chart_title_business_quantity_present": false,
+      "finished": "2026-10-13T12:56:33.555810+00:00"
+    },
+    {
+      "sample": "complex",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/complex.original.pptx",
+      "source_sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "source_bytes": 45538,
+      "started": "2026-10-13T12:56:33.556447+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-original-dd650366d8e7/input/complex.original.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-original-dd650366d8e7/pdf/complex.original.pdf",
+      "status": "reopened",
+      "conversion": {
+        "method": "reused-exact-input-hash",
+        "returncode": 0,
+        "elapsed_ms": 0,
+        "original_conversion": {
+          "returncode": 0,
+          "elapsed_ms": 693.3123750004597,
+          "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/input/complex.original.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/pdf/complex.original.pdf using filter : impress_pdf_Export\n",
+          "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+          "timeout": false
+        }
+      },
+      "reuse": {
+        "evidence": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "record_id": "sdk--pptx-complex-original-dd650366d8e7",
+        "original_input_sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+        "source_pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/pdf/complex.original.pdf",
+        "source_pdf_sha256": "6e783e5267391a6e08971f7c30b12cd594b435099e64c52e7c4c18cc1860839a",
+        "prior_text_diagnostic": "/tmp/project-mind-univer-validation-20261013/scratch/external/text-diagnostic.json"
+      },
+      "source_sha256_after": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-original-dd650366d8e7/pdf/complex.original.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-original-dd650366d8e7/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 15.325917000154732,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 44516,
+      "pdf_sha256": "6e783e5267391a6e08971f7c30b12cd594b435099e64c52e7c4c18cc1860839a",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-original-dd650366d8e7/text-poppler.txt",
+      "chart_title_business_quantity_present": true,
+      "finished": "2026-10-13T12:56:33.578670+00:00"
+    },
+    {
+      "sample": "complex",
+      "branch": "noop",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/complex.noop.pptx",
+      "source_sha256": "0ae3d4e42bc4e6de9a4d20759638a36a395a3964952550c6ca70b3a6f7386a11",
+      "source_bytes": 59685,
+      "started": "2026-10-13T12:56:33.579348+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/input/complex.noop.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/pdf/complex.noop.pdf",
+      "status": "reopened",
+      "conversion": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/input/complex.noop.pptx"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 678.69249999967,
+        "stdout": "convert /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/input/complex.noop.pptx as a Impress document -> /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/pdf/complex.noop.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false,
+        "method": "actual-headless-conversion"
+      },
+      "source_sha256_after": "0ae3d4e42bc4e6de9a4d20759638a36a395a3964952550c6ca70b3a6f7386a11",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/pdf/complex.noop.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 14.786000000640342,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 44516,
+      "pdf_sha256": "a075e16ba0bb68eddce64ed370147835da9fb676babc2beac1bdc50166365acf",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-noop-0ae3d4e42bc4/text-poppler.txt",
+      "chart_title_business_quantity_present": true,
+      "finished": "2026-10-13T12:56:34.279998+00:00"
+    },
+    {
+      "sample": "complex",
+      "branch": "edited",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/complex.edited.pptx",
+      "source_sha256": "862e8dafbebec985408e8371539dffa81a7d32605549a25beb052209a7dc8f2b",
+      "source_bytes": 59840,
+      "started": "2026-10-13T12:56:34.280748+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/input/complex.edited.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/pdf/complex.edited.pdf",
+      "status": "reopened",
+      "conversion": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/input/complex.edited.pptx"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 655.7174170002327,
+        "stdout": "convert /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/input/complex.edited.pptx as a Impress document -> /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/pdf/complex.edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false,
+        "method": "actual-headless-conversion"
+      },
+      "source_sha256_after": "862e8dafbebec985408e8371539dffa81a7d32605549a25beb052209a7dc8f2b",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/pdf/complex.edited.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 14.33612499931769,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 44517,
+      "pdf_sha256": "0532e9d62abb65da097e6c6bf358178ab14f110ac2f7aef971e9044dfcea791a",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/complex-edited-862e8dafbebe/text-poppler.txt",
+      "chart_title_business_quantity_present": true,
+      "finished": "2026-10-13T12:56:34.957358+00:00"
+    },
+    {
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "chromium",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/browser/output/chromium/simple.browser-edited.pptx",
+      "source_sha256": "49c7472bf43ff79852deb5bdda83f68574b8c75fc5a8b45995ddeab6643419fc",
+      "source_bytes": 44753,
+      "started": "2026-10-13T12:56:34.958638+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/input/simple.browser-edited.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/pdf/simple.browser-edited.pdf",
+      "status": "reopened",
+      "conversion": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/input/simple.browser-edited.pptx"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 614.5882920000076,
+        "stdout": "convert /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/input/simple.browser-edited.pptx as a Impress document -> /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/pdf/simple.browser-edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false,
+        "method": "actual-headless-conversion"
+      },
+      "source_sha256_after": "49c7472bf43ff79852deb5bdda83f68574b8c75fc5a8b45995ddeab6643419fc",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/pdf/simple.browser-edited.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 13.548459000048751,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 23354,
+      "pdf_sha256": "2f26a8007f0f03ee63f14a9c7a41bb343f1c0bbb80797e3bb7672ef18bcd2024",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-chromium-49c7472bf43f/text-poppler.txt",
+      "chart_title_business_quantity_present": false,
+      "finished": "2026-10-13T12:56:35.591643+00:00"
+    },
+    {
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "webkit",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/browser/output/webkit/simple.browser-edited.pptx",
+      "source_sha256": "ecef1b5e872d1203accba68f5331861da19cf136ab56b7b431522780b96738e8",
+      "source_bytes": 44754,
+      "started": "2026-10-13T12:56:35.593061+00:00",
+      "input_copy": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/input/simple.browser-edited.pptx",
+      "pdf": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/pdf/simple.browser-edited.pdf",
+      "status": "reopened",
+      "conversion": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/input/simple.browser-edited.pptx"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 644.2186659996878,
+        "stdout": "convert /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/input/simple.browser-edited.pptx as a Impress document -> /private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/pdf/simple.browser-edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false,
+        "method": "actual-headless-conversion"
+      },
+      "source_sha256_after": "ecef1b5e872d1203accba68f5331861da19cf136ab56b7b431522780b96738e8",
+      "source_unchanged": true,
+      "text_extraction": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-enc",
+          "UTF-8",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/pdf/simple.browser-edited.pdf",
+          "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/text-poppler.txt"
+        ],
+        "returncode": 0,
+        "elapsed_ms": 13.968874999591208,
+        "stdout": "",
+        "stderr": "",
+        "timeout": false
+      },
+      "pdf_pages": 3,
+      "pdf_bytes": 23354,
+      "pdf_sha256": "87f4c2fde9f6f5c79a2eb7879a13419d04d1a8ad1fd997f3fece257629b4cca3",
+      "pages": [
+        {
+          "page": 1,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 1,
+          "image_resource_count": 1,
+          "drawn_image_resources": [
+            "/Im11"
+          ]
+        },
+        {
+          "page": 2,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        },
+        {
+          "page": 3,
+          "width_points": 959.981102362205,
+          "height_points": 540.0,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "images": [
+            {
+              "name": "Im11.png",
+              "width_pixels": 320,
+              "height_pixels": 180,
+              "rgba_pixels_sha256": "5f94fdbada46119bce8b4bea4cafd3325793edab8a267e1aa1813c6b542faecb"
+            }
+          ],
+          "image_count": 0,
+          "image_resource_count": 1,
+          "drawn_image_resources": []
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "text_file": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/external/cases/simple-webkit-ecef1b5e872d/text-poppler.txt",
+      "chart_title_business_quantity_present": false,
+      "finished": "2026-10-13T12:56:36.256401+00:00"
+    }
+  ],
+  "scope": "External reopen only; source files remain read-only; no SDK re-run, GUI, extra PNG or browser watermark check.",
+  "visual_limit": "Earlier exact-hash original PDFs show missing/box Chinese in the bundled headless renderer; Poppler extraction succeeds. No new PNG produced; Chinese visual fidelity remains unverified.",
+  "comparisons": [
+    {
+      "sample": "simple",
+      "branch": "noop",
+      "engine": null,
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/simple.noop.pptx",
+      "source_sha256": "9988f62fdfd84d52a91f945220d5763ab1fefad7819a06ebf1222851364c927f",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "page_sizes_equal": true,
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "original_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "candidate_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "embedded_image_pixels_equal": true,
+      "original_chart_title_present": false,
+      "candidate_chart_title_present": false,
+      "page_text_diffs": []
+    },
+    {
+      "sample": "simple",
+      "branch": "edited",
+      "engine": null,
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/simple.edited.pptx",
+      "source_sha256": "6aeffd3681eae995f3dda61457f883fd7841a3758f474e4de4588db737faf808",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "page_sizes_equal": true,
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "original_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "candidate_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "embedded_image_pixels_equal": true,
+      "original_chart_title_present": false,
+      "candidate_chart_title_present": false,
+      "page_text_diffs": [
+        {
+          "page": 1,
+          "diff": "--- original-page-1\n+++ edited-page-1\n@@ -1,5 +1,5 @@\n 第一页：项目概况\n-项目进展正常\n+项目进展更新\n \n 未编辑图片说明：黄方块与白圆。\n "
+        }
+      ]
+    },
+    {
+      "sample": "complex",
+      "branch": "noop",
+      "engine": null,
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/complex.noop.pptx",
+      "source_sha256": "0ae3d4e42bc4e6de9a4d20759638a36a395a3964952550c6ca70b3a6f7386a11",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "page_sizes_equal": true,
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "original_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "candidate_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "embedded_image_pixels_equal": true,
+      "original_chart_title_present": true,
+      "candidate_chart_title_present": true,
+      "page_text_diffs": []
+    },
+    {
+      "sample": "complex",
+      "branch": "edited",
+      "engine": null,
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/complex.edited.pptx",
+      "source_sha256": "862e8dafbebec985408e8371539dffa81a7d32605549a25beb052209a7dc8f2b",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "page_sizes_equal": true,
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "original_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "candidate_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "embedded_image_pixels_equal": true,
+      "original_chart_title_present": true,
+      "candidate_chart_title_present": true,
+      "page_text_diffs": [
+        {
+          "page": 1,
+          "diff": "--- original-page-1\n+++ edited-page-1\n@@ -1,5 +1,5 @@\n 第一页：项目概况\n-项目进展正常\n+项目进展更新\n \n 未编辑图片说明：黄方块与白圆。\n "
+        }
+      ]
+    },
+    {
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "chromium",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/browser/output/chromium/simple.browser-edited.pptx",
+      "source_sha256": "49c7472bf43ff79852deb5bdda83f68574b8c75fc5a8b45995ddeab6643419fc",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "page_sizes_equal": true,
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "original_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "candidate_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "embedded_image_pixels_equal": true,
+      "original_chart_title_present": false,
+      "candidate_chart_title_present": false,
+      "page_text_diffs": [
+        {
+          "page": 1,
+          "diff": "--- original-page-1\n+++ browser-edited-page-1\n@@ -1,5 +1,5 @@\n 第一页：项目概况\n-项目进展正常\n+项目进展更新\n \n 未编辑图片说明：黄方块与白圆。\n "
+        }
+      ]
+    },
+    {
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "webkit",
+      "source": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/browser/output/webkit/simple.browser-edited.pptx",
+      "source_sha256": "ecef1b5e872d1203accba68f5331861da19cf136ab56b7b431522780b96738e8",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "page_sizes_equal": true,
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "original_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "candidate_image_counts": [
+        1,
+        0,
+        0
+      ],
+      "embedded_image_pixels_equal": true,
+      "original_chart_title_present": false,
+      "candidate_chart_title_present": false,
+      "page_text_diffs": [
+        {
+          "page": 1,
+          "diff": "--- original-page-1\n+++ browser-edited-page-1\n@@ -1,5 +1,5 @@\n 第一页：项目概况\n-项目进展正常\n+项目进展更新\n \n 未编辑图片说明：黄方块与白圆。\n "
+        }
+      ]
+    }
+  ],
+  "finished": "2026-10-13T12:56:36.257318+00:00",
+  "summary": {
+    "cases": 8,
+    "reopened": 8,
+    "actual_headless_conversions": 6,
+    "reused_original_conversions": 2,
+    "source_unchanged": true,
+    "all_page_counts_equal": true
+  },
+  "image_count_note": "image_count counts actual direct image Do drawing operations, not globally shared image resources; images lists available embedded pixel data. All tested pages use direct image operations, with no Form XObject draw path."
+}

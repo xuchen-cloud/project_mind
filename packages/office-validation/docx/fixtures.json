@@ -1,0 +1,237 @@
+{
+  "issue": "#118/F03",
+  "edit_targets": {
+    "paragraph": {
+      "before": "待修改中文段落：春风拂面。",
+      "after": "已修改中文段落：秋风拂面。"
+    },
+    "table_cell": {
+      "table": 0,
+      "row": 1,
+      "column": 1,
+      "before": "待改单元",
+      "after": "已改单元"
+    }
+  },
+  "cases": {
+    "simple": {
+      "path": "simple.original.docx",
+      "bytes": 37853,
+      "sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "paragraphs": [
+        "中文文档往返验证",
+        "第一节 基础内容",
+        "待修改中文段落：春风拂面。",
+        "未修改段落：山川日月保持原样。",
+        "",
+        "图片后未修改段落。"
+      ],
+      "tables": [
+        [
+          [
+            "姓名",
+            "状态"
+          ],
+          [
+            "张三",
+            "待改单元"
+          ]
+        ]
+      ],
+      "headings": [
+        {
+          "text": "中文文档往返验证",
+          "style": "Title"
+        },
+        {
+          "text": "第一节 基础内容",
+          "style": "Heading1"
+        }
+      ],
+      "media": [
+        {
+          "bytes_sha256": "d3a9d4b514d7cb75f205e56cd7515d172b9f7daad639177a614ba9d3643191b0",
+          "size": [
+            160,
+            80
+          ],
+          "pixels_sha256": "9a0ca688b2d678aa5c0545f400fce37c5cef1dab3d6eddac378b35f1c075a457"
+        }
+      ],
+      "image_extents": [
+        {
+          "cx": "1463040",
+          "cy": "731520"
+        }
+      ],
+      "sections": [
+        {
+          "pgSz": [
+            {
+              "w": "12240",
+              "h": "15840"
+            }
+          ],
+          "pgMar": [
+            {
+              "top": "1440",
+              "right": "1800",
+              "bottom": "1440",
+              "left": "1800",
+              "header": "720",
+              "footer": "720",
+              "gutter": "0"
+            }
+          ],
+          "type": [],
+          "cols": [
+            {
+              "space": "720"
+            }
+          ]
+        }
+      ],
+      "headers_footers": {
+        "header": [],
+        "footer": []
+      },
+      "headers_footers_reference_counts": {
+        "header": 0,
+        "footer": 0
+      },
+      "page_break_count": 0,
+      "hyperlinks": []
+    },
+    "complex": {
+      "path": "complex.original.docx",
+      "bytes": 40331,
+      "sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "paragraphs": [
+        "中文文档往返验证",
+        "第一节 基础内容",
+        "待修改中文段落：春风拂面。",
+        "未修改段落：山川日月保持原样。",
+        "",
+        "图片后未修改段落。",
+        "",
+        "分页后内容：第二页保留。",
+        "未修改链接：示例链接",
+        "",
+        "第二节 分节内容",
+        "分节后内容：第三页保留。"
+      ],
+      "tables": [
+        [
+          [
+            "姓名",
+            "状态"
+          ],
+          [
+            "张三",
+            "待改单元"
+          ]
+        ]
+      ],
+      "headings": [
+        {
+          "text": "中文文档往返验证",
+          "style": "Title"
+        },
+        {
+          "text": "第一节 基础内容",
+          "style": "Heading1"
+        },
+        {
+          "text": "第二节 分节内容",
+          "style": "Heading1"
+        }
+      ],
+      "media": [
+        {
+          "bytes_sha256": "d3a9d4b514d7cb75f205e56cd7515d172b9f7daad639177a614ba9d3643191b0",
+          "size": [
+            160,
+            80
+          ],
+          "pixels_sha256": "9a0ca688b2d678aa5c0545f400fce37c5cef1dab3d6eddac378b35f1c075a457"
+        }
+      ],
+      "image_extents": [
+        {
+          "cx": "1463040",
+          "cy": "731520"
+        }
+      ],
+      "sections": [
+        {
+          "pgSz": [
+            {
+              "w": "11909",
+              "h": "16834"
+            }
+          ],
+          "pgMar": [
+            {
+              "top": "1440",
+              "right": "1800",
+              "bottom": "1440",
+              "left": "1800",
+              "header": "720",
+              "footer": "720",
+              "gutter": "0"
+            }
+          ],
+          "type": [],
+          "cols": [
+            {
+              "space": "720"
+            }
+          ]
+        },
+        {
+          "pgSz": [
+            {
+              "w": "11909",
+              "h": "16834"
+            }
+          ],
+          "pgMar": [
+            {
+              "top": "1440",
+              "right": "1800",
+              "bottom": "1440",
+              "left": "1800",
+              "header": "720",
+              "footer": "720",
+              "gutter": "0"
+            }
+          ],
+          "type": [],
+          "cols": [
+            {
+              "space": "720"
+            }
+          ]
+        }
+      ],
+      "headers_footers": {
+        "header": [
+          "第一页页眉：保留中文抬头",
+          "第二节页眉：独立抬头"
+        ],
+        "footer": [
+          "第一页页脚：保留中文页脚",
+          "第二节页脚：独立页脚"
+        ]
+      },
+      "headers_footers_reference_counts": {
+        "header": 2,
+        "footer": 2
+      },
+      "page_break_count": 1,
+      "hyperlinks": [
+        "https://example.com/docx-validation"
+      ]
+    }
+  }
+}

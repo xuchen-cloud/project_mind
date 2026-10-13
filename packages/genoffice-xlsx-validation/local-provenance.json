@@ -1,0 +1,11 @@
+{
+  "fixtureOrigin": "/tmp/project-mind-univer-validation-20261013/xlsx",
+  "fixtureMetadataOriginalSha256": "92a476cd60b958300b1372b35e0db743e55c169ce2bd52c9d2b88e13fca69a02",
+  "verifierOrigin": "packages/office-validation/xlsx/compare.py",
+  "verifierOriginalSha256": "43f77a3a7c640d25111c878d2418475758fad280f1d4e6021bfde98a3137d1e6",
+  "verifierReuse": "read-only inspect/compare functions copied; no authoring",
+  "downloadErrorHistory": [
+    "curl exit 35 SSL_ERROR_SYSCALL for xlsx-cf.ts; retry of missing verified files succeeded"
+  ],
+  "upstreamMutation": "none"
+}

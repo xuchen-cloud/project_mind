@@ -1,0 +1,426 @@
+{
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha": "3017411926aa8731558e70c3d16f6ce0b6f68d5c",
+      "bytes": 11345
+    },
+    {
+      "path": "NOTICE",
+      "sha": "34d8590f9b07df119df295d6eb02194bfd75cdd5",
+      "bytes": 2489
+    },
+    {
+      "path": "apps/markdown/package.json",
+      "sha": "2447f8646abcf289bbc8211fe2fbe601d8803b4d",
+      "bytes": 2363
+    },
+    {
+      "path": "apps/markdown/src/main/asset-lifecycle.ts",
+      "sha": "cce50430286a8f92055f4a8e78f022b94904f74e",
+      "bytes": 44067
+    },
+    {
+      "path": "apps/markdown/src/main/atomic-write.ts",
+      "sha": "f23b024fa57b60c22a233a2f1b8d1a505bf51ce5",
+      "bytes": 301
+    },
+    {
+      "path": "apps/markdown/src/main/conversion-lifecycle.ts",
+      "sha": "0757ad6bb4a014eafec18bdd4b1218afa2406469",
+      "bytes": 4555
+    },
+    {
+      "path": "apps/markdown/src/main/image-export.ts",
+      "sha": "def9c7f8e7bc6dacd805b2b8e40f003c67e541d5",
+      "bytes": 2166
+    },
+    {
+      "path": "apps/markdown/src/main/image-host.ts",
+      "sha": "1f198014be11e704f0c3b8587f42ed1c96976b3c",
+      "bytes": 11682
+    },
+    {
+      "path": "apps/markdown/src/main/index.ts",
+      "sha": "cb55837cf58c0bb0595df9db7c0b79e44382de6d",
+      "bytes": 85
+    },
+    {
+      "path": "apps/markdown/src/main/markdown-main.ts",
+      "sha": "e9c0fe5f7623815615d647f1d42d582cd3736625",
+      "bytes": 49288
+    },
+    {
+      "path": "apps/markdown/src/main/print-pdf.ts",
+      "sha": "56c12e2c11ca1fcf83b257167f1348e04c72caec",
+      "bytes": 968
+    },
+    {
+      "path": "apps/markdown/src/preload/index.ts",
+      "sha": "735c201e7ab192c10e219fe6aadcae3b36e75c93",
+      "bytes": 8525
+    },
+    {
+      "path": "apps/markdown/src/renderer/App.tsx",
+      "sha": "6cd87ffef2026ae2d10c262a9241b4b63e889728",
+      "bytes": 49606
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/AiPanel.tsx",
+      "sha": "95de981502bc08e49cbe4a39578ed65c929c8500",
+      "bytes": 51239
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/EditQueueCard.tsx",
+      "sha": "fdafacb7c24b11cfcfc5bac5d55900b09f22f621",
+      "bytes": 7368
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/doc-nav.ts",
+      "sha": "e93f819c5572598ac8f2f3f83a57cc274a858f98",
+      "bytes": 1237
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/doc-writer.ts",
+      "sha": "0472a90a7b4ce361a1e272b3b3f5ba5b7d07563e",
+      "bytes": 8563
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/edit-queue.ts",
+      "sha": "b69808b71ae305748352eaad2239891125a38f14",
+      "bytes": 5443
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/markdown-skill.ts",
+      "sha": "ce76931f42a4f462f965cb6b17edb5b4225eeb6e",
+      "bytes": 9129
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/search-skill.ts",
+      "sha": "6f997ff79f76a8849af8943c886c358ed951654c",
+      "bytes": 2357
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/tools.ts",
+      "sha": "3dfa388cf72dd79533ca53914c93d5da595d5bd0",
+      "bytes": 22650
+    },
+    {
+      "path": "apps/markdown/src/renderer/ai/transport.ts",
+      "sha": "8eb87e8299a89a8b9c1762880d99a195134ff79c",
+      "bytes": 883
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/AiAskPopover.tsx",
+      "sha": "a422d98b96169ef5ba608d5e27965e1c8553865f",
+      "bytes": 13697
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/FrontmatterPanel.tsx",
+      "sha": "c3190187a227038af17f49663e49979cddb49cce",
+      "bytes": 912
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/ImageHostDialog.tsx",
+      "sha": "bb53ec38c43c06dc56b59d5fce399cea6877198b",
+      "bytes": 6158
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/OutlinePane.tsx",
+      "sha": "64585c252ce52ddb9c666797dee7abd00571c70e",
+      "bytes": 2723
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/RedactMenu.tsx",
+      "sha": "7981b72372862f4cccba0b0e207acd95540fd4fa",
+      "bytes": 4925
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/Ribbon.tsx",
+      "sha": "74b6d9814b705c9952617cae671c446c158d7617",
+      "bytes": 19841
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/SlashMenu.tsx",
+      "sha": "8816996c4bcde0d3255acb997680110996b95839",
+      "bytes": 2088
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/SourcePane.tsx",
+      "sha": "381fc6f8ec404262d2ad6683a69e22fb1939c9b8",
+      "bytes": 1147
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/TableMenu.tsx",
+      "sha": "c72f05367fd46b8ff9e470d8105d287296286be1",
+      "bytes": 4349
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/icons.tsx",
+      "sha": "af1d369a27cab00467d266c29d66e588be3fbdae",
+      "bytes": 5625
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/toast-bus.ts",
+      "sha": "3437986995db7d984218b494849299c1e956e7cb",
+      "bytes": 626
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/toast.tsx",
+      "sha": "6b76c2f792f726b162e46a8ad2eddd552e186b55",
+      "bytes": 2264
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/CodeBlockView.tsx",
+      "sha": "2fb853d9d8c3ddac43dfdb2e80e440375f100b05",
+      "bytes": 5462
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/RedactDialog.tsx",
+      "sha": "1cad695ed790b5513ba2f374c77ea8a1fde85f90",
+      "bytes": 2422
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/Redaction.ts",
+      "sha": "673cc12a08406b19356f66d22e6828ee29a2ce94",
+      "bytes": 5231
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/aiHighlight.ts",
+      "sha": "13deac295956132acc4e6a0b9b135351b77ac8f7",
+      "bytes": 3290
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/aiQueueAnchors.ts",
+      "sha": "08584006685da7680d95511131d9a7a4931bea7e",
+      "bytes": 3714
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/blockDragHandle.ts",
+      "sha": "c15397d4af9c262f9dd3498703ad7799db778be4",
+      "bytes": 11414
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/blockKeymap.ts",
+      "sha": "484393dfb5f64bad529c8f6948f0114cba741b23",
+      "bytes": 1141
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/boundedTokenizers.ts",
+      "sha": "f4f2ba6ab29524afa69990ba5c964dbb014ff004",
+      "bytes": 4669
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/diagrams.ts",
+      "sha": "2fa18ca939b2376cae502fc91bb7f80d485a646d",
+      "bytes": 5856
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/extensions.ts",
+      "sha": "2839c9893997cdaf6da45ff97e7450f61028a4a0",
+      "bytes": 4981
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/findTarget.ts",
+      "sha": "6d0acd1cb6e7299a695bf2894913aabc9968d149",
+      "bytes": 2755
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/inactiveSelection.ts",
+      "sha": "a7f2a9380be606cc17e667e7376da4b09bfe6881",
+      "bytes": 1891
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/inlineTokens.ts",
+      "sha": "4d6d3d56b6d0c6d83e03d5a75cd8c033ebde9196",
+      "bytes": 6500
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/localImage.ts",
+      "sha": "f822cf8dc1df58bfb488c346c5d6a064b8ff9381",
+      "bytes": 9902
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/looseLists.ts",
+      "sha": "43e3ad562fd885353086129b0749c2723ac6ee59",
+      "bytes": 1547
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/markdownEscape.ts",
+      "sha": "008dce72fb4a072933e17bd37d5616ba597a768b",
+      "bytes": 4746
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/markdownStyleRenderers.ts",
+      "sha": "7ac369f0e080dda7892e15aa961a0a1cf5fde95a",
+      "bytes": 6865
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/math.ts",
+      "sha": "c24ea04dd7a2af39db06bcc96017029b6c99a119",
+      "bytes": 10272
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/mathEdit.ts",
+      "sha": "22ca1e5087bd6ceb8e6fbddf51884e3d82ef9c45",
+      "bytes": 5475
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/mathSyntax.ts",
+      "sha": "cd5faca8fac845bcd773432f8eb6864f92c21e80",
+      "bytes": 1893
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/mermaid.ts",
+      "sha": "cd894617bff2fdc8576a06fd163795a40f200441",
+      "bytes": 1372
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/ops.ts",
+      "sha": "73cc9d926557d41853125e4b72817e4cbf1d71f3",
+      "bytes": 41296
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/outline.ts",
+      "sha": "1a88b8cf7e8c859947fe226b4b1aef8ca9978372",
+      "bytes": 950
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/redact.ts",
+      "sha": "53eff350d681fcf23e6ab0e9aae5664afb98ed5a",
+      "bytes": 8888
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/searchHighlight.ts",
+      "sha": "70dad84eb6b3bf0e1c00a93a1b498c34ca3eb939",
+      "bytes": 1347
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/slashCommand.ts",
+      "sha": "9ba155751df694dfd846e4ebd4bd229bdbcbff8c",
+      "bytes": 5867
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/wavedrom.ts",
+      "sha": "1a4dabd2a89bbdde7048af606984c0c0bb46a9d0",
+      "bytes": 4722
+    },
+    {
+      "path": "apps/markdown/src/renderer/env.d.ts",
+      "sha": "ddca70e3f9b2d88914321986ccc7fa6afcc086e4",
+      "bytes": 324
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/docxExport.ts",
+      "sha": "0faad24e8c06252cd93242a27ed9a45e38dc53a8",
+      "bytes": 11387
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/exportImage.ts",
+      "sha": "5f958cac13c4061cfc3bef354f5cfa117b62741f",
+      "bytes": 5940
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/imageExport.ts",
+      "sha": "28f17d1774552ce9e83df6cd4786ce8671e9766a",
+      "bytes": 1979
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/printHtml.ts",
+      "sha": "771a9ba9eedd6b8c0fc2e426668d8a5521815aa3",
+      "bytes": 3908
+    },
+    {
+      "path": "apps/markdown/src/renderer/i18n/locale.tsx",
+      "sha": "04f8274f4e511cf75be2d7aa9753e9ac2fc3cb91",
+      "bytes": 4645
+    },
+    {
+      "path": "apps/markdown/src/renderer/i18n/strings.ts",
+      "sha": "b86b2f9cca6ec0805ab9961a8cb6f8f03f1e0c4d",
+      "bytes": 258149
+    },
+    {
+      "path": "apps/markdown/src/renderer/imageHostCache.ts",
+      "sha": "3f5d566535705611d4526ebe0a476149c06fc8b0",
+      "bytes": 786
+    },
+    {
+      "path": "apps/markdown/src/renderer/main.tsx",
+      "sha": "daf3a61aa37a60cca95bd659a28bc0fc5254660f",
+      "bytes": 2226
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/docText.ts",
+      "sha": "bf500cd7408884279a30084d21c4e28a56412167",
+      "bytes": 4402
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/markdownStyle.ts",
+      "sha": "aac66b96d46e021b39b50352261c1422f46a2a51",
+      "bytes": 5968
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/roundtripSerializer.ts",
+      "sha": "9810c84fd68d2da0368a0a4dcaf4fc0830d1c254",
+      "bytes": 1266
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/sourceSplice.ts",
+      "sha": "ce9e1a67ae858f9fd1e2a8da2c45c068bc95c98f",
+      "bytes": 14569
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/sourceView.ts",
+      "sha": "730e07995f5a2515a9d4c4e4fe1974178dd113b1",
+      "bytes": 1363
+    },
+    {
+      "path": "apps/markdown/src/renderer/source/PlainTextEditor.tsx",
+      "sha": "98842569ddc03cd02267bdf994dd9f4816a9db12",
+      "bytes": 6539
+    },
+    {
+      "path": "apps/markdown/src/renderer/source/plain-find.ts",
+      "sha": "7e8245a6081c989765eb741843cc980c2cdee5a8",
+      "bytes": 3527
+    },
+    {
+      "path": "apps/markdown/src/renderer/types/wavedrom.d.ts",
+      "sha": "e13917ae3e3728d8a4f5b3ea1ac4bcd12823c7d6",
+      "bytes": 347
+    },
+    {
+      "path": "apps/markdown/src/shared/export-image-mime.ts",
+      "sha": "99472bb697305c2bf2b9a522305d60f4fbb81de0",
+      "bytes": 2750
+    },
+    {
+      "path": "apps/markdown/src/shared/ipc.ts",
+      "sha": "28cdeb200ac421bfbfa343742928c16073b449eb",
+      "bytes": 13874
+    },
+    {
+      "path": "apps/markdown/src/shared/rename-mode.ts",
+      "sha": "3123e4ccbcb71eff1fda82cc0613cc20eba015ce",
+      "bytes": 738
+    },
+    {
+      "path": "apps/markdown/src/shared/source-text.ts",
+      "sha": "18f02b55c01e15c52ce1032beccb773413317f80",
+      "bytes": 1113
+    },
+    {
+      "path": "apps/markdown/src/shared/text-mode.ts",
+      "sha": "140335a1bb85a5de0208da96943cc18c32de4b20",
+      "bytes": 664
+    },
+    {
+      "path": "packages/cli/src/formats/markdown.ts",
+      "sha": "f86b073d51bfa6728a52f5a5ec478dcba8bc503e",
+      "bytes": 4184
+    }
+  ]
+}

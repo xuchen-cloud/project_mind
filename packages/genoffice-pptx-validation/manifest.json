@@ -1,0 +1,65 @@
+{
+  "issue": 118,
+  "package": "F03",
+  "old_text": "项目进展正常",
+  "new_text": "项目进展更新",
+  "target_slide_index": 0,
+  "picture_delta_emu": 228600,
+  "versions": {
+    "python": "3.12.14",
+    "python-pptx": "1.0.2",
+    "Pillow": "12.3.0",
+    "lxml": "6.1.1"
+  },
+  "samples": {
+    "simple": {
+      "path": "./simple.original.pptx",
+      "sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "bytes": 31879,
+      "picture": {
+        "slide_index": 0,
+        "shape_id": 5,
+        "name": "validation-picture",
+        "left": 731520,
+        "top": 2560320,
+        "width": 2926080,
+        "height": 1645920,
+        "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305"
+      },
+      "required_features": [
+        "text",
+        "image",
+        "slide_order",
+        "layout_master"
+      ],
+      "source_original_path": "./simple.original.pptx",
+      "evidence_original_source_path": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.original.pptx"
+    },
+    "complex": {
+      "path": "./complex.original.pptx",
+      "sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "bytes": 45538,
+      "picture": {
+        "slide_index": 0,
+        "shape_id": 7,
+        "name": "validation-picture",
+        "left": 731520,
+        "top": 2560320,
+        "width": 2926080,
+        "height": 1645920,
+        "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305"
+      },
+      "required_features": [
+        "text",
+        "image",
+        "slide_order",
+        "layout_master",
+        "table",
+        "chart",
+        "notes"
+      ],
+      "source_original_path": "./complex.original.pptx",
+      "evidence_original_source_path": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.original.pptx"
+    }
+  }
+}

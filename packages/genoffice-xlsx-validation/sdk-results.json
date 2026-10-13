@@ -1,0 +1,1957 @@
+{
+  "issue": "#118/F03",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "runtime": {
+    "node": "v26.8.1",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "runs": [
+    {
+      "kind": "simple",
+      "branch": "noop",
+      "status": "passed",
+      "sourceHash": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "importMs": 36.279292000000005,
+      "edits": [],
+      "mutation": {
+        "touchedEntries": [],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 17.514167,
+      "output": {
+        "file": "simple.noop.xlsx",
+        "sha256": "ff8d8ec0532a5319afb55f3e9a151f7a830ab1c123c9846458b3d2bf9d51a1cc"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "苹果",
+          "actual": "苹果",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 10,
+          "actual": 10,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)",
+          "actual": "=SUM(B3:B4)",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "=SUM(B3:B4)",
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 20,
+          "actual": 20,
+          "formula": "=B3*2",
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "='明细'!B5",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-default",
+      "status": "failed",
+      "sourceHash": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "importMs": 20.01741700000001,
+      "edits": [
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 0,
+          "writeValue": true,
+          "cell": {
+            "value": "香蕉（SDK编辑）"
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": 15
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 4,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": null,
+            "formula": "=SUM(B3:B4)+5"
+          }
+        }
+      ],
+      "mutation": {
+        "touchedEntries": [
+          "xl/worksheets/sheet1.xml"
+        ],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 11.862625000000008,
+      "output": {
+        "file": "simple.edited-default.xlsx",
+        "sha256": "57737676a14020482f54c55b8181e73d6f41dca6bac159e15a347d41e4b6ea26"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 15,
+          "actual": 15,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": null,
+          "formula": "=SUM(B3:B4)+5",
+          "passed": false
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 20,
+          "formula": "=B3*2",
+          "passed": false
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 30,
+          "formula": "='明细'!B5",
+          "passed": false
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-ironcalc",
+      "status": "failed",
+      "sourceHash": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "importMs": 27.643,
+      "recalc": {
+        "cached": false,
+        "cells": [
+          {
+            "column": 0,
+            "formatted": "中文销售统计",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "品名",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "金额",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "状态",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "香蕉（SDK编辑）",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "15.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 15,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "已完成",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "梨子",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "20.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 20,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "待处理",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "40.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑公式（依赖B3）",
+            "isError": false,
+            "isFormula": false,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "30.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 30,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留百分比",
+            "isError": false,
+            "isFormula": false,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "12.5%",
+            "isError": false,
+            "isFormula": false,
+            "number": 0.125,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留中文及换行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "原样保留\n第二行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑工作表：请保留中文",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "固定值",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "123.456",
+            "isError": false,
+            "isFormula": false,
+            "number": 123.456,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "跨表合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "40",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 2,
+            "sheet": "说明"
+          }
+        ]
+      },
+      "calculationChecks": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        }
+      ],
+      "edits": [
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 0,
+          "writeValue": true,
+          "cell": {
+            "value": "香蕉（SDK编辑）"
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": 15
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 4,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": null,
+            "formula": "=SUM(B3:B4)+5"
+          }
+        }
+      ],
+      "formulaValues": [
+        {
+          "sheetName": "明细",
+          "cells": [
+            {
+              "row": 4,
+              "column": 1,
+              "value": 40
+            },
+            {
+              "row": 6,
+              "column": 1,
+              "value": 30
+            }
+          ]
+        },
+        {
+          "sheetName": "说明",
+          "cells": [
+            {
+              "row": 2,
+              "column": 1,
+              "value": 40
+            }
+          ]
+        }
+      ],
+      "mutation": {
+        "touchedEntries": [
+          "xl/worksheets/sheet1.xml"
+        ],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 8.677665999999988,
+      "output": {
+        "file": "simple.edited-ironcalc.xlsx",
+        "sha256": "4798e9ceacba898441178e3857f70eaedb7ed9be1e63f9c5537a568c73c01999"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 15,
+          "actual": 15,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "formula": "=SUM(B3:B4)+5",
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "=B3*2",
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 30,
+          "formula": "='明细'!B5",
+          "passed": false
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-ironcalc-cache-sheet-touch",
+      "status": "passed",
+      "sourceHash": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "importMs": 28.983333000000016,
+      "recalc": {
+        "cached": false,
+        "cells": [
+          {
+            "column": 0,
+            "formatted": "中文销售统计",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "品名",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "金额",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "状态",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "香蕉（SDK编辑）",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "15.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 15,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "已完成",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "梨子",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "20.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 20,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "待处理",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "40.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑公式（依赖B3）",
+            "isError": false,
+            "isFormula": false,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "30.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 30,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留百分比",
+            "isError": false,
+            "isFormula": false,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "12.5%",
+            "isError": false,
+            "isFormula": false,
+            "number": 0.125,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留中文及换行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "原样保留\n第二行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑工作表：请保留中文",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "固定值",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "123.456",
+            "isError": false,
+            "isFormula": false,
+            "number": 123.456,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "跨表合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "40",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 2,
+            "sheet": "说明"
+          }
+        ]
+      },
+      "calculationChecks": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        }
+      ],
+      "cacheSheetMarker": {
+        "sheetName": "说明",
+        "row": 2,
+        "column": 1,
+        "writeValue": false,
+        "cell": {
+          "value": 30,
+          "formula": "='明细'!B5"
+        }
+      },
+      "edits": [
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 0,
+          "writeValue": true,
+          "cell": {
+            "value": "香蕉（SDK编辑）"
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": 15
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 4,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": null,
+            "formula": "=SUM(B3:B4)+5"
+          }
+        },
+        {
+          "sheetName": "说明",
+          "row": 2,
+          "column": 1,
+          "writeValue": false,
+          "cell": {
+            "value": 30,
+            "formula": "='明细'!B5"
+          }
+        }
+      ],
+      "formulaValues": [
+        {
+          "sheetName": "明细",
+          "cells": [
+            {
+              "row": 4,
+              "column": 1,
+              "value": 40
+            },
+            {
+              "row": 6,
+              "column": 1,
+              "value": 30
+            }
+          ]
+        },
+        {
+          "sheetName": "说明",
+          "cells": [
+            {
+              "row": 2,
+              "column": 1,
+              "value": 40
+            }
+          ]
+        }
+      ],
+      "mutation": {
+        "touchedEntries": [
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml"
+        ],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 14.542709000000002,
+      "output": {
+        "file": "simple.edited-ironcalc-cache-sheet-touch.xlsx",
+        "sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 15,
+          "actual": 15,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "formula": "=SUM(B3:B4)+5",
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "=B3*2",
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "formula": "='明细'!B5",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "branch": "noop",
+      "status": "passed",
+      "sourceHash": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "importMs": 42.92387500000001,
+      "edits": [],
+      "mutation": {
+        "touchedEntries": [],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 7.714166999999975,
+      "output": {
+        "file": "complex.noop.xlsx",
+        "sha256": "e0a89fcefaaf3259246e4c94056de5562546441e86fc534d9ac8dc40c7d4e502"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "苹果",
+          "actual": "苹果",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 10,
+          "actual": 10,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)",
+          "actual": "=SUM(B3:B4)",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "=SUM(B3:B4)",
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 20,
+          "actual": 20,
+          "formula": "=B3*2",
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "='明细'!B5",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-default",
+      "status": "failed",
+      "sourceHash": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "importMs": 44.08137500000004,
+      "edits": [
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 0,
+          "writeValue": true,
+          "cell": {
+            "value": "香蕉（SDK编辑）"
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": 15
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 4,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": null,
+            "formula": "=SUM(B3:B4)+5"
+          }
+        }
+      ],
+      "mutation": {
+        "touchedEntries": [
+          "xl/worksheets/sheet1.xml"
+        ],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 8.245208999999988,
+      "output": {
+        "file": "complex.edited-default.xlsx",
+        "sha256": "e20db5c62ab4441aa08340a6912de22540a7e5c0ba50ecd5bf68b5a70afa7bf6"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 15,
+          "actual": 15,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": null,
+          "formula": "=SUM(B3:B4)+5",
+          "passed": false
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 20,
+          "formula": "=B3*2",
+          "passed": false
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 30,
+          "formula": "='明细'!B5",
+          "passed": false
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-ironcalc",
+      "status": "failed",
+      "sourceHash": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "importMs": 20.745374999999967,
+      "recalc": {
+        "cached": false,
+        "cells": [
+          {
+            "column": 0,
+            "formatted": "中文销售统计",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "品名",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "金额",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "状态",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "香蕉（SDK编辑）",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "15.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 15,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "已完成",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "梨子",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "20.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 20,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "待处理",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "40.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑公式（依赖B3）",
+            "isError": false,
+            "isFormula": false,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "30.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 30,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留百分比",
+            "isError": false,
+            "isFormula": false,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "12.5%",
+            "isError": false,
+            "isFormula": false,
+            "number": 0.125,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留中文及换行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "原样保留\n第二行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑工作表：请保留中文",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "固定值",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "123.456",
+            "isError": false,
+            "isFormula": false,
+            "number": 123.456,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "跨表合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "40",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 2,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "未触碰隐藏资料",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "隐藏数据"
+          },
+          {
+            "column": 1,
+            "formatted": "99",
+            "isError": false,
+            "isFormula": false,
+            "number": 99,
+            "row": 0,
+            "sheet": "隐藏数据"
+          }
+        ]
+      },
+      "calculationChecks": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        }
+      ],
+      "edits": [
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 0,
+          "writeValue": true,
+          "cell": {
+            "value": "香蕉（SDK编辑）"
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": 15
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 4,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": null,
+            "formula": "=SUM(B3:B4)+5"
+          }
+        }
+      ],
+      "formulaValues": [
+        {
+          "sheetName": "明细",
+          "cells": [
+            {
+              "row": 4,
+              "column": 1,
+              "value": 40
+            },
+            {
+              "row": 6,
+              "column": 1,
+              "value": 30
+            }
+          ]
+        },
+        {
+          "sheetName": "说明",
+          "cells": [
+            {
+              "row": 2,
+              "column": 1,
+              "value": 40
+            }
+          ]
+        },
+        {
+          "sheetName": "隐藏数据",
+          "cells": []
+        }
+      ],
+      "mutation": {
+        "touchedEntries": [
+          "xl/worksheets/sheet1.xml"
+        ],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 10.38650000000007,
+      "output": {
+        "file": "complex.edited-ironcalc.xlsx",
+        "sha256": "fe78b390bf17a158171caa2c761ae1d277768b3df292cb9840dd4c86489b5168"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 15,
+          "actual": 15,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "formula": "=SUM(B3:B4)+5",
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "=B3*2",
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 30,
+          "formula": "='明细'!B5",
+          "passed": false
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-ironcalc-cache-sheet-touch",
+      "status": "passed",
+      "sourceHash": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "importMs": 44.18933299999992,
+      "recalc": {
+        "cached": false,
+        "cells": [
+          {
+            "column": 0,
+            "formatted": "中文销售统计",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "品名",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "金额",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "状态",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "香蕉（SDK编辑）",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "15.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 15,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "已完成",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "梨子",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "20.00",
+            "isError": false,
+            "isFormula": false,
+            "number": 20,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 2,
+            "formatted": "待处理",
+            "isError": false,
+            "isFormula": false,
+            "row": 3,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "40.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 4,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑公式（依赖B3）",
+            "isError": false,
+            "isFormula": false,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "30.00",
+            "isError": false,
+            "isFormula": true,
+            "number": 30,
+            "row": 6,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留百分比",
+            "isError": false,
+            "isFormula": false,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "12.5%",
+            "isError": false,
+            "isFormula": false,
+            "number": 0.125,
+            "row": 7,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "保留中文及换行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 1,
+            "formatted": "原样保留\n第二行",
+            "isError": false,
+            "isFormula": false,
+            "row": 8,
+            "sheet": "明细"
+          },
+          {
+            "column": 0,
+            "formatted": "未编辑工作表：请保留中文",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "固定值",
+            "isError": false,
+            "isFormula": false,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "123.456",
+            "isError": false,
+            "isFormula": false,
+            "number": 123.456,
+            "row": 1,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "跨表合计",
+            "isError": false,
+            "isFormula": false,
+            "row": 2,
+            "sheet": "说明"
+          },
+          {
+            "column": 1,
+            "formatted": "40",
+            "isError": false,
+            "isFormula": true,
+            "number": 40,
+            "row": 2,
+            "sheet": "说明"
+          },
+          {
+            "column": 0,
+            "formatted": "未触碰隐藏资料",
+            "isError": false,
+            "isFormula": false,
+            "row": 0,
+            "sheet": "隐藏数据"
+          },
+          {
+            "column": 1,
+            "formatted": "99",
+            "isError": false,
+            "isFormula": false,
+            "number": 99,
+            "row": 0,
+            "sheet": "隐藏数据"
+          }
+        ]
+      },
+      "calculationChecks": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "passed": true
+        }
+      ],
+      "cacheSheetMarker": {
+        "sheetName": "说明",
+        "row": 2,
+        "column": 1,
+        "writeValue": false,
+        "cell": {
+          "value": 30,
+          "formula": "='明细'!B5"
+        }
+      },
+      "edits": [
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 0,
+          "writeValue": true,
+          "cell": {
+            "value": "香蕉（SDK编辑）"
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 2,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": 15
+          }
+        },
+        {
+          "sheetName": "明细",
+          "row": 4,
+          "column": 1,
+          "writeValue": true,
+          "cell": {
+            "value": null,
+            "formula": "=SUM(B3:B4)+5"
+          }
+        },
+        {
+          "sheetName": "说明",
+          "row": 2,
+          "column": 1,
+          "writeValue": false,
+          "cell": {
+            "value": 30,
+            "formula": "='明细'!B5"
+          }
+        }
+      ],
+      "formulaValues": [
+        {
+          "sheetName": "明细",
+          "cells": [
+            {
+              "row": 4,
+              "column": 1,
+              "value": 40
+            },
+            {
+              "row": 6,
+              "column": 1,
+              "value": 30
+            }
+          ]
+        },
+        {
+          "sheetName": "说明",
+          "cells": [
+            {
+              "row": 2,
+              "column": 1,
+              "value": 40
+            }
+          ]
+        },
+        {
+          "sheetName": "隐藏数据",
+          "cells": []
+        }
+      ],
+      "mutation": {
+        "touchedEntries": [
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml"
+        ],
+        "removedEntries": [],
+        "addedEntries": []
+      },
+      "saveMs": 12.958833000000027,
+      "output": {
+        "file": "complex.edited-ironcalc-cache-sheet-touch.xlsx",
+        "sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5"
+      },
+      "sdkChecks": [
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 0,
+          "field": "value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 2,
+          "column": 1,
+          "field": "value",
+          "expected": 15,
+          "actual": 15,
+          "rawPassed": true,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": null
+        },
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "field": "formula",
+          "expected": "SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "rawPassed": false,
+          "semanticPassed": true,
+          "passed": true,
+          "normalization": "optional leading = only"
+        }
+      ],
+      "sdkFormulaCaches": [
+        {
+          "sheet": "明细",
+          "row": 4,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "formula": "=SUM(B3:B4)+5",
+          "passed": true
+        },
+        {
+          "sheet": "明细",
+          "row": 6,
+          "column": 1,
+          "value": 30,
+          "actual": 30,
+          "formula": "=B3*2",
+          "passed": true
+        },
+        {
+          "sheet": "说明",
+          "row": 2,
+          "column": 1,
+          "value": 40,
+          "actual": 40,
+          "formula": "='明细'!B5",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

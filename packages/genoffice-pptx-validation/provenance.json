@@ -1,0 +1,17 @@
+{
+  "upstreamSha": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "sourceLock": "source-lock.json",
+  "node": "v26.8.1",
+  "python": "3.12.14",
+  "python-pptx": "1.0.2",
+  "openpyxl": "bundled runtime",
+  "scope": "Technical execution; no review; GUI exercised by main task",
+  "scratch": "/tmp/project-mind-genoffice-pptx-validation-20261013",
+  "archive": "packages/genoffice-pptx-validation",
+  "sourceModifications": "none; archived harness paths made relative",
+  "sourceIntegrity": "each fetched file checked against Git blob SHA1 from fixed commit tree",
+  "browserHashes": {
+    "webkit": "ecef1b5e872d1203accba68f5331861da19cf136ab56b7b431522780b96738e8",
+    "chromium": "49c7472bf43ff79852deb5bdda83f68574b8c75fc5a8b45995ddeab6643419fc"
+  }
+}

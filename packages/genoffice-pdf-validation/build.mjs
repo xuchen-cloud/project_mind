@@ -1,0 +1,10 @@
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import {createRequire} from 'node:module';
+const scratch=process.env.GENOFFICE_PDF_SCRATCH??'/tmp/project-mind-genoffice-pdf-validation-20261013';
+const req=createRequire(path.join(scratch,'package.json'));
+const {build}=req('esbuild');
+await fs.mkdir(path.join(scratch,'generated'),{recursive:true});
+const source=path.join(scratch,'upstream');
+await build({entryPoints:[path.join(source,'apps/pdf/src/main/text-edit.ts')],bundle:true,platform:'node',format:'esm',target:'node24',outfile:path.join(scratch,'generated/core.mjs'),alias:{'@genoffice/font-metrics':path.join(source,'packages/font-metrics/src/index.ts')},external:['@embedpdf/pdfium','pdf-lib'],metafile:true}).then(async r=>fs.writeFile(path.join(scratch,'generated/metafile.json'),JSON.stringify(r.metafile,null,2)));
+console.log('Built unchanged public core with actual workspace font-metrics alias.');

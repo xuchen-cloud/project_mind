@@ -1,0 +1,1119 @@
+{
+  "issue": 118,
+  "package": "F03",
+  "format": "pptx",
+  "startedAt": "2026-10-13T12:29:51.808Z",
+  "runtime": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "exchange": "1.0.4",
+    "binding": "1.0.2",
+    "slides": "1.0.4",
+    "core": "1.0.4"
+  },
+  "license": {
+    "injected": false,
+    "bypassed": false,
+    "credentialOutput": false
+  },
+  "samples": {
+    "simple": {
+      "steps": [
+        {
+          "name": "import_product",
+          "status": "passed",
+          "elapsedMs": 8.316
+        },
+        {
+          "name": "import_aggregate",
+          "status": "passed",
+          "elapsedMs": 5.816
+        },
+        {
+          "name": "export_product_unchanged",
+          "status": "passed",
+          "elapsedMs": 3.157
+        },
+        {
+          "name": "reimport_product_unchanged",
+          "status": "passed",
+          "elapsedMs": 5.006
+        },
+        {
+          "name": "export_aggregate_unchanged",
+          "status": "passed",
+          "elapsedMs": 2.167
+        },
+        {
+          "name": "reimport_aggregate_unchanged",
+          "status": "passed",
+          "elapsedMs": 4.408
+        },
+        {
+          "name": "export_product_edited",
+          "status": "passed",
+          "elapsedMs": 2.396
+        },
+        {
+          "name": "reimport_product_edited",
+          "status": "passed",
+          "elapsedMs": 4.452
+        }
+      ],
+      "checks": [
+        {
+          "name": "reimport_text_edit",
+          "passed": true
+        },
+        {
+          "name": "reimport_picture_position",
+          "passed": true,
+          "expected": 75.6,
+          "actual": 75.6
+        },
+        {
+          "name": "original_checksum_unchanged",
+          "passed": true
+        }
+      ],
+      "candidates": [
+        {
+          "mode": "product-unchanged",
+          "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.product-unchanged.pptx",
+          "bytes": 25552,
+          "sha256": "0190e54ea45f17551cc0bd7f8ffb2b2060f2c5d714fd32c4f67662ba130bd157"
+        },
+        {
+          "mode": "aggregate-unchanged",
+          "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.aggregate-unchanged.pptx",
+          "bytes": 25552,
+          "sha256": "0190e54ea45f17551cc0bd7f8ffb2b2060f2c5d714fd32c4f67662ba130bd157"
+        },
+        {
+          "mode": "edited",
+          "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.edited.pptx",
+          "bytes": 25551,
+          "sha256": "fd2cb8000797014fdadf64ddcd682ab984b4d3efe8f04ea82abdbd306013d19a"
+        }
+      ],
+      "original": {
+        "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.original.pptx",
+        "sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d"
+      },
+      "importedSummary": {
+        "unitId": "rust-pptx-unit",
+        "slideOrder": [
+          "slide-1",
+          "slide-2",
+          "slide-3"
+        ],
+        "pageSize": {
+          "height": 540,
+          "width": 959.9759842519685
+        },
+        "masterPageOrder": [
+          "master-1"
+        ],
+        "layoutPageOrder": [
+          "layout-1",
+          "layout-2",
+          "layout-3",
+          "layout-4",
+          "layout-5",
+          "layout-6",
+          "layout-7",
+          "layout-8",
+          "layout-9",
+          "layout-10",
+          "layout-11"
+        ],
+        "resources": [],
+        "slides": [
+          {
+            "id": "slide-1",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第一页：项目概况"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "项目进展正常"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-1"
+              },
+              {
+                "id": "image-5",
+                "type": "image",
+                "name": "validation-picture",
+                "transform": {
+                  "height": 129.6,
+                  "left": 57.6,
+                  "rotation": 0,
+                  "top": 201.6,
+                  "width": 230.4
+                },
+                "text": "",
+                "imageSourceBytes": 1426,
+                "imageSourceSha256": "194ed40697eb26853e5c566d3b1af4bf74cb16e4ffad37416b1f92f4e778c8f5"
+              },
+              {
+                "id": "shape-6",
+                "type": "shape",
+                "name": "TextBox 5",
+                "transform": {
+                  "height": 72,
+                  "left": 324,
+                  "rotation": 0,
+                  "top": 230.4,
+                  "width": 504
+                },
+                "text": "未编辑图片说明：黄方块与白圆。"
+              }
+            ]
+          },
+          {
+            "id": "slide-2",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第二页：数据保留"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第二页原文。"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-2"
+              }
+            ]
+          },
+          {
+            "id": "slide-3",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第三页：收尾记录"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第三页原文。"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-3"
+              }
+            ]
+          }
+        ]
+      },
+      "editLocator": {
+        "unitId": "rust-pptx-unit",
+        "slideId": "slide-1",
+        "textElementId": "shape-3",
+        "textElementType": "shape",
+        "textPath": "slides.slide-1.elements.shape-3.shapeData.shapeText",
+        "dataStreamPath": "slides.slide-1.elements.shape-3.shapeData.shapeText.dataModel.doc.body.dataStream",
+        "before": "项目进展正常\r\n",
+        "after": "项目进展更新\r\n",
+        "imageElementId": "image-5",
+        "imageTransformBefore": {
+          "height": 129.6,
+          "left": 57.6,
+          "rotation": 0,
+          "top": 201.6,
+          "width": 230.4
+        },
+        "imageDeltaPoints": 18,
+        "imageTransformAfter": {
+          "height": 129.6,
+          "left": 75.6,
+          "rotation": 0,
+          "top": 201.6,
+          "width": 230.4
+        }
+      },
+      "reimportSummary": {
+        "unitId": "rust-pptx-unit",
+        "slideOrder": [
+          "slide-1",
+          "slide-2",
+          "slide-3"
+        ],
+        "pageSize": {
+          "height": 540,
+          "width": 959.9759842519685
+        },
+        "masterPageOrder": [
+          "master-1"
+        ],
+        "layoutPageOrder": [
+          "layout-1",
+          "layout-2",
+          "layout-3",
+          "layout-4",
+          "layout-5",
+          "layout-6",
+          "layout-7",
+          "layout-8",
+          "layout-9",
+          "layout-10",
+          "layout-11"
+        ],
+        "resources": [],
+        "slides": [
+          {
+            "id": "slide-1",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第一页：项目概况"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "项目进展更新"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-1"
+              },
+              {
+                "id": "image-5",
+                "type": "image",
+                "name": "validation-picture",
+                "transform": {
+                  "height": 129.6,
+                  "left": 75.6,
+                  "rotation": 0,
+                  "top": 201.6,
+                  "width": 230.4
+                },
+                "text": "",
+                "imageSourceBytes": 1426,
+                "imageSourceSha256": "194ed40697eb26853e5c566d3b1af4bf74cb16e4ffad37416b1f92f4e778c8f5"
+              },
+              {
+                "id": "shape-6",
+                "type": "shape",
+                "name": "TextBox 5",
+                "transform": {
+                  "height": 72,
+                  "left": 324,
+                  "rotation": 0,
+                  "top": 230.4,
+                  "width": 504
+                },
+                "text": "未编辑图片说明：黄方块与白圆。"
+              }
+            ]
+          },
+          {
+            "id": "slide-2",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第二页：数据保留"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第二页原文。"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-2"
+              }
+            ]
+          },
+          {
+            "id": "slide-3",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第三页：收尾记录"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第三页原文。"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-3"
+              }
+            ]
+          }
+        ]
+      },
+      "status": "conversion_passed_content_verification_pending"
+    },
+    "complex": {
+      "steps": [
+        {
+          "name": "import_product",
+          "status": "passed",
+          "elapsedMs": 8.763
+        },
+        {
+          "name": "import_aggregate",
+          "status": "passed",
+          "elapsedMs": 7.53
+        },
+        {
+          "name": "export_product_unchanged",
+          "status": "passed",
+          "elapsedMs": 3.184
+        },
+        {
+          "name": "reimport_product_unchanged",
+          "status": "passed",
+          "elapsedMs": 6.494
+        },
+        {
+          "name": "export_aggregate_unchanged",
+          "status": "passed",
+          "elapsedMs": 2.811
+        },
+        {
+          "name": "reimport_aggregate_unchanged",
+          "status": "passed",
+          "elapsedMs": 6.281
+        },
+        {
+          "name": "export_product_edited",
+          "status": "passed",
+          "elapsedMs": 3.068
+        },
+        {
+          "name": "reimport_product_edited",
+          "status": "passed",
+          "elapsedMs": 6.67
+        }
+      ],
+      "checks": [
+        {
+          "name": "reimport_text_edit",
+          "passed": true
+        },
+        {
+          "name": "reimport_picture_position",
+          "passed": true,
+          "expected": 75.6,
+          "actual": 75.6
+        },
+        {
+          "name": "original_checksum_unchanged",
+          "passed": true
+        }
+      ],
+      "candidates": [
+        {
+          "mode": "product-unchanged",
+          "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.product-unchanged.pptx",
+          "bytes": 30842,
+          "sha256": "e3fc94f2797c889daeb074cfaaf7075d14e4a60b78fa4703f82e0e2b8251c756"
+        },
+        {
+          "mode": "aggregate-unchanged",
+          "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.aggregate-unchanged.pptx",
+          "bytes": 30842,
+          "sha256": "e3fc94f2797c889daeb074cfaaf7075d14e4a60b78fa4703f82e0e2b8251c756"
+        },
+        {
+          "mode": "edited",
+          "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.edited.pptx",
+          "bytes": 30840,
+          "sha256": "aab8203b4953cd6524b3e36f2a688276287f0b5577ae22eedf97b63fbb9967cd"
+        }
+      ],
+      "original": {
+        "path": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.original.pptx",
+        "sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891"
+      },
+      "importedSummary": {
+        "unitId": "rust-pptx-unit",
+        "slideOrder": [
+          "slide-1",
+          "slide-2",
+          "slide-3"
+        ],
+        "pageSize": {
+          "height": 540,
+          "width": 959.9759842519685
+        },
+        "masterPageOrder": [
+          "master-1"
+        ],
+        "layoutPageOrder": [
+          "layout-1",
+          "layout-2",
+          "layout-3",
+          "layout-4",
+          "layout-5",
+          "layout-6",
+          "layout-7",
+          "layout-8",
+          "layout-9",
+          "layout-10",
+          "layout-11"
+        ],
+        "resources": [
+          {
+            "name": "SLIDE_CHART_PLUGIN",
+            "dataBytes": 664
+          },
+          {
+            "name": "SLIDE_TABLE_PLUGIN",
+            "dataBytes": 8772
+          }
+        ],
+        "slides": [
+          {
+            "id": "slide-1",
+            "layoutPageId": "layout-1",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第一页：项目概况"
+              },
+              {
+                "id": "shape-5",
+                "type": "shape",
+                "name": "TextBox 4",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "项目进展正常"
+              },
+              {
+                "id": "shape-6",
+                "type": "shape",
+                "name": "TextBox 5",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-1"
+              },
+              {
+                "id": "image-7",
+                "type": "image",
+                "name": "validation-picture",
+                "transform": {
+                  "height": 129.6,
+                  "left": 57.6,
+                  "rotation": 0,
+                  "top": 201.6,
+                  "width": 230.4
+                },
+                "text": "",
+                "imageSourceBytes": 1426,
+                "imageSourceSha256": "194ed40697eb26853e5c566d3b1af4bf74cb16e4ffad37416b1f92f4e778c8f5"
+              },
+              {
+                "id": "shape-8",
+                "type": "shape",
+                "name": "TextBox 7",
+                "transform": {
+                  "height": 72,
+                  "left": 324,
+                  "rotation": 0,
+                  "top": 230.4,
+                  "width": 504
+                },
+                "text": "未编辑图片说明：黄方块与白圆。"
+              }
+            ]
+          },
+          {
+            "id": "slide-2",
+            "layoutPageId": "layout-6",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第二页：数据保留"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第二页原文。"
+              },
+              {
+                "id": "shape-5",
+                "type": "shape",
+                "name": "TextBox 4",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-2"
+              },
+              {
+                "id": "table-6",
+                "type": "table",
+                "name": "Table 5",
+                "transform": {
+                  "height": 144,
+                  "left": 57.6,
+                  "rotation": 0,
+                  "top": 180,
+                  "width": 518.4000000000001
+                },
+                "text": "",
+                "tableId": "table-data-6-slide-2"
+              }
+            ]
+          },
+          {
+            "id": "slide-3",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第三页：收尾记录"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第三页原文。"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-3"
+              },
+              {
+                "id": "chart-5",
+                "type": "chart",
+                "name": "Chart 4",
+                "transform": {
+                  "height": 266.4,
+                  "left": 57.6,
+                  "rotation": 0,
+                  "top": 172.8,
+                  "width": 633.6
+                },
+                "text": "",
+                "chartId": "chart-data-5-chart1"
+              }
+            ]
+          }
+        ]
+      },
+      "editLocator": {
+        "unitId": "rust-pptx-unit",
+        "slideId": "slide-1",
+        "textElementId": "shape-5",
+        "textElementType": "shape",
+        "textPath": "slides.slide-1.elements.shape-5.shapeData.shapeText",
+        "dataStreamPath": "slides.slide-1.elements.shape-5.shapeData.shapeText.dataModel.doc.body.dataStream",
+        "before": "项目进展正常\r\n",
+        "after": "项目进展更新\r\n",
+        "imageElementId": "image-7",
+        "imageTransformBefore": {
+          "height": 129.6,
+          "left": 57.6,
+          "rotation": 0,
+          "top": 201.6,
+          "width": 230.4
+        },
+        "imageDeltaPoints": 18,
+        "imageTransformAfter": {
+          "height": 129.6,
+          "left": 75.6,
+          "rotation": 0,
+          "top": 201.6,
+          "width": 230.4
+        }
+      },
+      "reimportSummary": {
+        "unitId": "rust-pptx-unit",
+        "slideOrder": [
+          "slide-1",
+          "slide-2",
+          "slide-3"
+        ],
+        "pageSize": {
+          "height": 540,
+          "width": 959.9759842519685
+        },
+        "masterPageOrder": [
+          "master-1"
+        ],
+        "layoutPageOrder": [
+          "layout-1",
+          "layout-2",
+          "layout-3",
+          "layout-4",
+          "layout-5",
+          "layout-6",
+          "layout-7",
+          "layout-8",
+          "layout-9",
+          "layout-10",
+          "layout-11"
+        ],
+        "resources": [
+          {
+            "name": "SLIDE_CHART_PLUGIN",
+            "dataBytes": 1017
+          },
+          {
+            "name": "SLIDE_TABLE_PLUGIN",
+            "dataBytes": 9386
+          }
+        ],
+        "slides": [
+          {
+            "id": "slide-1",
+            "layoutPageId": "layout-1",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第一页：项目概况"
+              },
+              {
+                "id": "shape-5",
+                "type": "shape",
+                "name": "TextBox 4",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "项目进展更新"
+              },
+              {
+                "id": "shape-6",
+                "type": "shape",
+                "name": "TextBox 5",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-1"
+              },
+              {
+                "id": "image-7",
+                "type": "image",
+                "name": "validation-picture",
+                "transform": {
+                  "height": 129.6,
+                  "left": 75.6,
+                  "rotation": 0,
+                  "top": 201.6,
+                  "width": 230.4
+                },
+                "text": "",
+                "imageSourceBytes": 1426,
+                "imageSourceSha256": "194ed40697eb26853e5c566d3b1af4bf74cb16e4ffad37416b1f92f4e778c8f5"
+              },
+              {
+                "id": "shape-8",
+                "type": "shape",
+                "name": "TextBox 7",
+                "transform": {
+                  "height": 72,
+                  "left": 324,
+                  "rotation": 0,
+                  "top": 230.4,
+                  "width": 504
+                },
+                "text": "未编辑图片说明：黄方块与白圆。"
+              }
+            ]
+          },
+          {
+            "id": "slide-2",
+            "layoutPageId": "layout-6",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第二页：数据保留"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第二页原文。"
+              },
+              {
+                "id": "shape-5",
+                "type": "shape",
+                "name": "TextBox 4",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-2"
+              },
+              {
+                "id": "table-6",
+                "type": "table",
+                "name": "Table 5",
+                "transform": {
+                  "height": 144,
+                  "left": 57.6,
+                  "rotation": 0,
+                  "top": 180,
+                  "width": 518.4000000000001
+                },
+                "text": "",
+                "tableId": "table-data-6-slide-2"
+              }
+            ]
+          },
+          {
+            "id": "slide-3",
+            "layoutPageId": "layout-7",
+            "masterPageId": "master-1",
+            "speakerNotes": null,
+            "elements": [
+              {
+                "id": "shape-2",
+                "type": "shape",
+                "name": "TextBox 1",
+                "transform": {
+                  "height": 72,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 28.8,
+                  "width": 792
+                },
+                "text": "第三页：收尾记录"
+              },
+              {
+                "id": "shape-3",
+                "type": "shape",
+                "name": "TextBox 2",
+                "transform": {
+                  "height": 43.2,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 115.2,
+                  "width": 792
+                },
+                "text": "未编辑中文：第三页原文。"
+              },
+              {
+                "id": "shape-4",
+                "type": "shape",
+                "name": "TextBox 3",
+                "transform": {
+                  "height": 28.8,
+                  "left": 43.2,
+                  "rotation": 0,
+                  "top": 468,
+                  "width": 648
+                },
+                "text": "固定页序标识：PAGE-3"
+              },
+              {
+                "id": "chart-5",
+                "type": "chart",
+                "name": "Chart 4",
+                "transform": {
+                  "height": 266.4,
+                  "left": 57.6,
+                  "rotation": 0,
+                  "top": 172.8,
+                  "width": 633.6
+                },
+                "text": "",
+                "chartId": "chart-data-5-chart1"
+              }
+            ]
+          }
+        ]
+      },
+      "status": "conversion_passed_content_verification_pending"
+    }
+  },
+  "finishedAt": "2026-10-13T12:29:51.905Z"
+}

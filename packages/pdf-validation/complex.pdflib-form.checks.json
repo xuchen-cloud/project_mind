@@ -1,0 +1,355 @@
+{
+  "status": "passed",
+  "source": {
+    "path": "/Users/xuchen/project_mind/packages/pdf-validation/complex.original.pdf",
+    "bytes": 9292,
+    "sha256": "39cc5a2215b176d5589dd9fa3a306ec8cf738c4fb4e6a1d1c3cdcce573d92b71",
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n未编辑中文段落：山川日月保持原样。\n",
+        "content_sha256": "bce240c86ac0ed4f3a5d98df26542e72acf41e98dc15e3ad8156c54cbf9486f6",
+        "nonwidget_annotations": [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        "images": [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "pixels_sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ]
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n第二页中文原文。\n",
+        "content_sha256": "8c9668de9cc108ee85fccda760721ee9de4c5059aa3d502b252efc1e5b8f3813",
+        "nonwidget_annotations": [],
+        "images": []
+      }
+    ],
+    "page_count": 2,
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Alice"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Off"
+      }
+    },
+    "widgets": [
+      {
+        "name": "customer",
+        "appearance_present": true,
+        "appearance_state": "None",
+        "appearance_text": [
+          "Alice"
+        ],
+        "appearance_states": []
+      },
+      {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Off",
+        "appearance_text": [],
+        "appearance_states": [
+          "/Off",
+          "/Yes"
+        ]
+      }
+    ],
+    "outline_count": 1
+  },
+  "candidate": {
+    "path": "/Users/xuchen/project_mind/packages/pdf-validation/complex.pdflib-form.pdf",
+    "bytes": 9702,
+    "sha256": "b2152c190c859d5336acf3002c46b2a3f69f5e99764ab3aed689b99ba89890b8",
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n未编辑中文段落：山川日月保持原样。\n",
+        "content_sha256": "bce240c86ac0ed4f3a5d98df26542e72acf41e98dc15e3ad8156c54cbf9486f6",
+        "nonwidget_annotations": [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        "images": [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "pixels_sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ]
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n第二页中文原文。\n",
+        "content_sha256": "8c9668de9cc108ee85fccda760721ee9de4c5059aa3d502b252efc1e5b8f3813",
+        "nonwidget_annotations": [],
+        "images": []
+      }
+    ],
+    "page_count": 2,
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Bob"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Yes"
+      }
+    },
+    "widgets": [
+      {
+        "name": "customer",
+        "appearance_present": true,
+        "appearance_state": "None",
+        "appearance_text": [
+          "Bob"
+        ],
+        "appearance_states": []
+      },
+      {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Yes",
+        "appearance_text": [],
+        "appearance_states": [
+          "/Off",
+          "/Yes"
+        ]
+      }
+    ],
+    "outline_count": 1
+  },
+  "checks": [
+    {
+      "assertion": "page_count",
+      "passed": true,
+      "expected": 2,
+      "actual": 2
+    },
+    {
+      "assertion": "outline_count",
+      "passed": true,
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "assertion": "unchanged_size",
+      "passed": true,
+      "expected": [
+        [
+          612.0,
+          792.0
+        ],
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "actual": [
+        [
+          612.0,
+          792.0
+        ],
+        [
+          612.0,
+          792.0
+        ]
+      ]
+    },
+    {
+      "assertion": "unchanged_text",
+      "passed": true,
+      "expected": [
+        "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n未编辑中文段落：山川日月保持原样。\n",
+        "PAGE-2 UNEDITED CONTENT\n第二页中文原文。\n"
+      ],
+      "actual": [
+        "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n未编辑中文段落：山川日月保持原样。\n",
+        "PAGE-2 UNEDITED CONTENT\n第二页中文原文。\n"
+      ]
+    },
+    {
+      "assertion": "unchanged_content_sha256",
+      "passed": true,
+      "expected": [
+        "bce240c86ac0ed4f3a5d98df26542e72acf41e98dc15e3ad8156c54cbf9486f6",
+        "8c9668de9cc108ee85fccda760721ee9de4c5059aa3d502b252efc1e5b8f3813"
+      ],
+      "actual": [
+        "bce240c86ac0ed4f3a5d98df26542e72acf41e98dc15e3ad8156c54cbf9486f6",
+        "8c9668de9cc108ee85fccda760721ee9de4c5059aa3d502b252efc1e5b8f3813"
+      ]
+    },
+    {
+      "assertion": "unchanged_nonwidget_annotations",
+      "passed": true,
+      "expected": [
+        [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        []
+      ],
+      "actual": [
+        [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        []
+      ]
+    },
+    {
+      "assertion": "unchanged_images",
+      "passed": true,
+      "expected": [
+        [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "pixels_sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ],
+        []
+      ],
+      "actual": [
+        [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "pixels_sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ],
+        []
+      ]
+    },
+    {
+      "assertion": "customer_value",
+      "passed": true,
+      "expected": "Bob",
+      "actual": {
+        "type": "/Tx",
+        "value": "Bob"
+      }
+    },
+    {
+      "assertion": "approved_value",
+      "passed": true,
+      "expected": "/Yes",
+      "actual": {
+        "type": "/Btn",
+        "value": "/Yes"
+      }
+    },
+    {
+      "assertion": "widgets_have_appearances",
+      "passed": true,
+      "actual": [
+        {
+          "name": "customer",
+          "appearance_present": true,
+          "appearance_state": "None",
+          "appearance_text": [
+            "Bob"
+          ],
+          "appearance_states": []
+        },
+        {
+          "name": "approved",
+          "appearance_present": true,
+          "appearance_state": "/Yes",
+          "appearance_text": [],
+          "appearance_states": [
+            "/Off",
+            "/Yes"
+          ]
+        }
+      ]
+    },
+    {
+      "assertion": "customer_appearance_contains_Bob",
+      "passed": true,
+      "actual": [
+        "Bob"
+      ]
+    },
+    {
+      "assertion": "approved_appearance_selects_Yes",
+      "passed": true,
+      "actual": {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Yes",
+        "appearance_text": [],
+        "appearance_states": [
+          "/Off",
+          "/Yes"
+        ]
+      }
+    }
+  ],
+  "not_verified": [
+    "GUI edit",
+    "visual field appearance/fonts",
+    "Tauri WebView",
+    "CAS/business save"
+  ]
+}

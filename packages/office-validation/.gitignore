@@ -1,0 +1,25 @@
+node_modules/
+dist/
+browser/output/
+external/cases/
+external/results.json
+external/findings.md
+browser/verification.json
+browser/verification.md
+__pycache__/
+*.pyc
+.playwright-cli/
+# Regenerated runtime artifacts stay beside their scripts, never replace evidence.
+/docx/*.json
+!/docx/fixtures.json
+/docx/*.docx
+!/docx/*.original.docx
+/xlsx/*.json
+!/xlsx/fixtures.json
+/xlsx/*.xlsx
+!/xlsx/*.original.xlsx
+/pptx/*.json
+!/pptx/manifest.json
+/pptx/*.pptx
+!/pptx/*.original.pptx
+/pptx/*.diff.txt

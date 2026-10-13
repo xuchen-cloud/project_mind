@@ -1,0 +1,722 @@
+{
+  "issue": "#118/F03",
+  "format": "xlsx",
+  "runtime": {
+    "python": "3.12.14",
+    "pypdf": "6.10.0",
+    "soffice": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+    "pdftotext": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext"
+  },
+  "cases": [
+    {
+      "kind": "simple",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/simple.original.xlsx",
+      "source_sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "source_bytes": 6188,
+      "status": "reopened",
+      "conversion": {
+        "method": "reuse-exact-source-and-pdf-hash",
+        "returncode": 0,
+        "source_evidence": "/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "original_id": "sdk--xlsx-simple-original-4db4acbc9182",
+        "pdf_sha256": "ba4b0b28647dc5c1441c3c3e2fb585273f89d0ac5d9b590f44df3f73a96a6193"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-original/simple.original.pdf",
+      "pdf_sha256": "ba4b0b28647dc5c1441c3c3e2fb585273f89d0ac5d9b590f44df3f73a96a6193",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "noop",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/simple.noop.xlsx",
+      "source_sha256": "ff8d8ec0532a5319afb55f3e9a151f7a830ab1c123c9846458b3d2bf9d51a1cc",
+      "source_bytes": 6188,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-noop/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-noop",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-noop/input/simple.noop.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-noop/input/simple.noop.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-noop/simple.noop.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-noop/simple.noop.pdf",
+      "pdf_sha256": "00a2e10995e0334020def647aba089bedf2183642128d26c48671cb1e81749b8",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-default",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/simple.edited-default.xlsx",
+      "source_sha256": "57737676a14020482f54c55b8181e73d6f41dca6bac159e15a347d41e4b6ea26",
+      "source_bytes": 6252,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-default/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-default",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-default/input/simple.edited-default.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-default/input/simple.edited-default.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-default/simple.edited-default.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-default/simple.edited-default.pdf",
+      "pdf_sha256": "9c3b209e290bf3cc9154d3b39a7a33f390b58a8f47019820e6632f6a8d5b902f",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-ironcalc",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/simple.edited-ironcalc.xlsx",
+      "source_sha256": "4798e9ceacba898441178e3857f70eaedb7ed9be1e63f9c5537a568c73c01999",
+      "source_bytes": 6258,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc/input/simple.edited-ironcalc.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc/input/simple.edited-ironcalc.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc/simple.edited-ironcalc.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc/simple.edited-ironcalc.pdf",
+      "pdf_sha256": "0e6a6e428e51e26f66660e13ade267be31cfd0140be4b59f0af288e6f920a1b4",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-ironcalc-cache-sheet-touch",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/simple.edited-ironcalc-cache-sheet-touch.xlsx",
+      "source_sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b",
+      "source_bytes": 6267,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc-cache-sheet-touch/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc-cache-sheet-touch",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc-cache-sheet-touch/input/simple.edited-ironcalc-cache-sheet-touch.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc-cache-sheet-touch/input/simple.edited-ironcalc-cache-sheet-touch.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc-cache-sheet-touch/simple.edited-ironcalc-cache-sheet-touch.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-edited-ironcalc-cache-sheet-touch/simple.edited-ironcalc-cache-sheet-touch.pdf",
+      "pdf_sha256": "694cda1d6090d1d37c4e0d904fab83fea1e72243fb58919d2b80d18afcabe597",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "chromium",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/browser/output/chromium/simple.browser-edited.xlsx",
+      "source_sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b",
+      "source_bytes": 6267,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-chromium/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-chromium",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-chromium/input/simple.browser-edited.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-chromium/input/simple.browser-edited.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-chromium/simple.browser-edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-chromium/simple.browser-edited.pdf",
+      "pdf_sha256": "17f71fa51dbc6e740e14c9b8744c11f88499a34394821fe01a9420ecef966b48",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "webkit",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/browser/output/webkit/simple.browser-edited.xlsx",
+      "source_sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b",
+      "source_bytes": 6267,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-webkit/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-webkit",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-webkit/input/simple.browser-edited.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-webkit/input/simple.browser-edited.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-webkit/simple.browser-edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/simple-webkit/simple.browser-edited.pdf",
+      "pdf_sha256": "57f8ae35f608274d1d6256e73959a3c39f1d365b2f29bdbc2f26f9ed7e8f09c8",
+      "pages": 2,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/complex.original.xlsx",
+      "source_sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "source_bytes": 9106,
+      "status": "reopened",
+      "conversion": {
+        "method": "reuse-exact-source-and-pdf-hash",
+        "returncode": 0,
+        "source_evidence": "/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "original_id": "sdk--xlsx-complex-original-33966ea8ccc5",
+        "pdf_sha256": "86e70e7422b4198c9bace082c1bb9ba68a4f963db076a0a33849c6a072cdbb55"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-original/complex.original.pdf",
+      "pdf_sha256": "86e70e7422b4198c9bace082c1bb9ba68a4f963db076a0a33849c6a072cdbb55",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n苹果\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "noop",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/complex.noop.xlsx",
+      "source_sha256": "e0a89fcefaaf3259246e4c94056de5562546441e86fc534d9ac8dc40c7d4e502",
+      "source_bytes": 9106,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-noop/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-noop",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-noop/input/complex.noop.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-noop/input/complex.noop.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-noop/complex.noop.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-noop/complex.noop.pdf",
+      "pdf_sha256": "2e5bbf44b02b88c4daec0367bf12266b3079ef87f3d36767dd452b819f1d9ba5",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n苹果\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-default",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/complex.edited-default.xlsx",
+      "source_sha256": "e20db5c62ab4441aa08340a6912de22540a7e5c0ba50ecd5bf68b5a70afa7bf6",
+      "source_bytes": 9167,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-default/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-default",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-default/input/complex.edited-default.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-default/input/complex.edited-default.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-default/complex.edited-default.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-default/complex.edited-default.pdf",
+      "pdf_sha256": "6f590ef045c873b69c1106d44499d998ba35577314470a003a326d692813c588",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-ironcalc",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/complex.edited-ironcalc.xlsx",
+      "source_sha256": "fe78b390bf17a158171caa2c761ae1d277768b3df292cb9840dd4c86489b5168",
+      "source_bytes": 9172,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc/input/complex.edited-ironcalc.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc/input/complex.edited-ironcalc.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc/complex.edited-ironcalc.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc/complex.edited-ironcalc.pdf",
+      "pdf_sha256": "e2da9cabbdd519d019563f5b6c33e15bbabbad737dc0fea744af2ee8fd9b5e1d",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-ironcalc-cache-sheet-touch",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/complex.edited-ironcalc-cache-sheet-touch.xlsx",
+      "source_sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5",
+      "source_bytes": 9181,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc-cache-sheet-touch/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc-cache-sheet-touch",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc-cache-sheet-touch/input/complex.edited-ironcalc-cache-sheet-touch.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc-cache-sheet-touch/input/complex.edited-ironcalc-cache-sheet-touch.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc-cache-sheet-touch/complex.edited-ironcalc-cache-sheet-touch.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-edited-ironcalc-cache-sheet-touch/complex.edited-ironcalc-cache-sheet-touch.pdf",
+      "pdf_sha256": "fe11620f8dade566405a0adcd710942269c55ec455a0056fc9343eea0e097708",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "chromium",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/browser/output/chromium/complex.browser-edited.xlsx",
+      "source_sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5",
+      "source_bytes": 9181,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-chromium/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-chromium",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-chromium/input/complex.browser-edited.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-chromium/input/complex.browser-edited.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-chromium/complex.browser-edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-chromium/complex.browser-edited.pdf",
+      "pdf_sha256": "e8d0a7395024b61b562553c2b1fa604a933e5f9f42571d2a7aa58e3483629bfa",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "webkit",
+      "source": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/browser/output/webkit/complex.browser-edited.xlsx",
+      "source_sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5",
+      "source_bytes": 9181,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-webkit/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-webkit",
+          "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-webkit/input/complex.browser-edited.xlsx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-webkit/input/complex.browser-edited.xlsx as a Calc document -> /private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-webkit/complex.browser-edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-xlsx-validation-20261013/external/complex-webkit/complex.browser-edited.pdf",
+      "pdf_sha256": "525973be07287044ff2b6f541362811a8412723dff5104e4856985cabcc24985",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "text_exit": 0
+    }
+  ],
+  "comparisons": [
+    {
+      "kind": "simple",
+      "branch": "noop",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-default",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-ironcalc",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "simple",
+      "branch": "edited-ironcalc-cache-sheet-touch",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "simple",
+      "branch": "chromium",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "simple",
+      "branch": "webkit",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "complex",
+      "branch": "noop",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-default",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-ironcalc",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "complex",
+      "branch": "edited-ironcalc-cache-sheet-touch",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "complex",
+      "branch": "chromium",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    },
+    {
+      "kind": "complex",
+      "branch": "webkit",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": null
+    }
+  ],
+  "limits": [
+    "External PDF reopen is not pixel fidelity or Microsoft Office acceptance.",
+    "Prior exact-hash original evidence has Chinese rendering limitations; extractable text does not prove appearance.",
+    "XLSX external calculation may repair stale caches; inspect XLSX caches independently.",
+    "No Tauri, Windows, File CAS or DSH business submission verified."
+  ]
+}

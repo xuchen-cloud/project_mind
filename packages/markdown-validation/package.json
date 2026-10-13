@@ -1,0 +1,7 @@
+{
+  "name": "project-mind-markdown-validation",
+  "private": true,
+  "type": "module",
+  "scripts": {"build": "node build-probe.mjs", "probe": "node probe.mjs"},
+  "devDependencies": {"esbuild": "0.27.7"}
+}

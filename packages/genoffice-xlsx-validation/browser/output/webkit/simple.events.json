@@ -1,0 +1,992 @@
+{
+  "inputs": {
+    "text": "香蕉（SDK编辑）",
+    "number": "15",
+    "formula": "=SUM(B3:B4)+5"
+  },
+  "candidate": "browser/output/webkit/simple.browser-edited.xlsx",
+  "bytes": 6267,
+  "mutation": {
+    "touchedEntries": [
+      "xl/worksheets/sheet1.xml",
+      "xl/worksheets/sheet2.xml"
+    ],
+    "removedEntries": [],
+    "addedEntries": []
+  },
+  "recalc": {
+    "cached": true,
+    "cells": [
+      {
+        "column": 0,
+        "formatted": "中文销售统计",
+        "isError": false,
+        "isFormula": false,
+        "row": 0,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "品名",
+        "isError": false,
+        "isFormula": false,
+        "row": 1,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "金额",
+        "isError": false,
+        "isFormula": false,
+        "row": 1,
+        "sheet": "明细"
+      },
+      {
+        "column": 2,
+        "formatted": "状态",
+        "isError": false,
+        "isFormula": false,
+        "row": 1,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "香蕉（SDK编辑）",
+        "isError": false,
+        "isFormula": false,
+        "row": 2,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "15.00",
+        "isError": false,
+        "isFormula": false,
+        "number": 15,
+        "row": 2,
+        "sheet": "明细"
+      },
+      {
+        "column": 2,
+        "formatted": "已完成",
+        "isError": false,
+        "isFormula": false,
+        "row": 2,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "梨子",
+        "isError": false,
+        "isFormula": false,
+        "row": 3,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "20.00",
+        "isError": false,
+        "isFormula": false,
+        "number": 20,
+        "row": 3,
+        "sheet": "明细"
+      },
+      {
+        "column": 2,
+        "formatted": "待处理",
+        "isError": false,
+        "isFormula": false,
+        "row": 3,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "合计",
+        "isError": false,
+        "isFormula": false,
+        "row": 4,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "40.00",
+        "isError": false,
+        "isFormula": true,
+        "number": 40,
+        "row": 4,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "未编辑公式（依赖B3）",
+        "isError": false,
+        "isFormula": false,
+        "row": 6,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "30.00",
+        "isError": false,
+        "isFormula": true,
+        "number": 30,
+        "row": 6,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "保留百分比",
+        "isError": false,
+        "isFormula": false,
+        "row": 7,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "12.5%",
+        "isError": false,
+        "isFormula": false,
+        "number": 0.125,
+        "row": 7,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "保留中文及换行",
+        "isError": false,
+        "isFormula": false,
+        "row": 8,
+        "sheet": "明细"
+      },
+      {
+        "column": 1,
+        "formatted": "原样保留\n第二行",
+        "isError": false,
+        "isFormula": false,
+        "row": 8,
+        "sheet": "明细"
+      },
+      {
+        "column": 0,
+        "formatted": "未编辑工作表：请保留中文",
+        "isError": false,
+        "isFormula": false,
+        "row": 0,
+        "sheet": "说明"
+      },
+      {
+        "column": 0,
+        "formatted": "固定值",
+        "isError": false,
+        "isFormula": false,
+        "row": 1,
+        "sheet": "说明"
+      },
+      {
+        "column": 1,
+        "formatted": "123.456",
+        "isError": false,
+        "isFormula": false,
+        "number": 123.456,
+        "row": 1,
+        "sheet": "说明"
+      },
+      {
+        "column": 0,
+        "formatted": "跨表合计",
+        "isError": false,
+        "isFormula": false,
+        "row": 2,
+        "sheet": "说明"
+      },
+      {
+        "column": 1,
+        "formatted": "40",
+        "isError": false,
+        "isFormula": true,
+        "number": 40,
+        "row": 2,
+        "sheet": "说明"
+      }
+    ]
+  },
+  "model": {
+    "sessionId": "545f461c-5f7c-4bb7-acba-b84561388f15",
+    "activeSheetId": "sheet-1",
+    "styles": [
+      {
+        "bold": false,
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fontColor": "#000000",
+        "fontColorTheme": 1,
+        "fontFamily": "Calibri",
+        "fontScheme": "minor",
+        "fontSize": 11,
+        "italic": false,
+        "numberFormat": "General",
+        "strikethrough": false,
+        "underline": false,
+        "wrapText": false
+      },
+      {
+        "bold": true,
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fillColor": "#E2EFDA",
+        "fontColor": "#17365D",
+        "fontFamily": "Arial",
+        "fontSize": 16,
+        "italic": false,
+        "numberFormat": "General",
+        "strikethrough": false,
+        "underline": false,
+        "wrapText": false
+      },
+      {
+        "bold": true,
+        "borderBottom": {
+          "color": "#000000",
+          "style": "thin"
+        },
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fillColor": "#305496",
+        "fontColor": "#FFFFFF",
+        "fontFamily": "Arial",
+        "fontSize": 11,
+        "horizontalAlignment": "center",
+        "italic": false,
+        "numberFormat": "General",
+        "strikethrough": false,
+        "underline": false,
+        "wrapText": false
+      },
+      {
+        "bold": false,
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fontColor": "#000000",
+        "fontColorTheme": 1,
+        "fontFamily": "Calibri",
+        "fontScheme": "minor",
+        "fontSize": 11,
+        "italic": false,
+        "numberFormat": "#,##0.00",
+        "strikethrough": false,
+        "underline": false,
+        "wrapText": false
+      },
+      {
+        "bold": false,
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fontColor": "#000000",
+        "fontColorTheme": 1,
+        "fontFamily": "Calibri",
+        "fontScheme": "minor",
+        "fontSize": 11,
+        "italic": false,
+        "numberFormat": "0.0%",
+        "strikethrough": false,
+        "underline": false,
+        "wrapText": false
+      },
+      {
+        "bold": false,
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fontColor": "#000000",
+        "fontColorTheme": 1,
+        "fontFamily": "Calibri",
+        "fontScheme": "minor",
+        "fontSize": 11,
+        "italic": false,
+        "numberFormat": "General",
+        "strikethrough": false,
+        "underline": false,
+        "verticalAlignment": "center",
+        "wrapText": true
+      },
+      {
+        "bold": false,
+        "diagonalDown": false,
+        "diagonalUp": false,
+        "fontColor": "#000000",
+        "fontColorTheme": 1,
+        "fontFamily": "Calibri",
+        "fontScheme": "minor",
+        "fontSize": 11,
+        "italic": false,
+        "numberFormat": "0.000",
+        "strikethrough": false,
+        "underline": false,
+        "wrapText": false
+      }
+    ],
+    "visuals": [],
+    "sheets": [
+      {
+        "id": "sheet-1",
+        "name": "明细",
+        "hidden": false,
+        "veryHidden": false,
+        "rowCount": 9,
+        "columnCount": 3,
+        "columnWidths": [
+          {
+            "endColumn": 0,
+            "hidden": false,
+            "startColumn": 0,
+            "width": 28
+          },
+          {
+            "endColumn": 1,
+            "hidden": false,
+            "startColumn": 1,
+            "width": 22
+          },
+          {
+            "endColumn": 2,
+            "hidden": false,
+            "startColumn": 2,
+            "width": 16
+          }
+        ],
+        "defaultRowHeight": 15,
+        "freeze": {
+          "frozenColumns": 1,
+          "frozenRows": 2
+        },
+        "rows": [
+          {
+            "customHeight": true,
+            "height": 26,
+            "hidden": false,
+            "row": 0
+          },
+          {
+            "customHeight": true,
+            "height": 32,
+            "hidden": false,
+            "row": 8
+          }
+        ],
+        "merges": [
+          {
+            "endColumn": 2,
+            "endRow": 0,
+            "startColumn": 0,
+            "startRow": 0
+          }
+        ],
+        "cells": [
+          {
+            "row": 0,
+            "column": 0,
+            "value": "中文销售统计",
+            "styleIndex": 1
+          },
+          {
+            "row": 1,
+            "column": 0,
+            "value": "品名",
+            "styleIndex": 2
+          },
+          {
+            "row": 1,
+            "column": 1,
+            "value": "金额",
+            "styleIndex": 2
+          },
+          {
+            "row": 1,
+            "column": 2,
+            "value": "状态",
+            "styleIndex": 2
+          },
+          {
+            "row": 2,
+            "column": 0,
+            "value": "香蕉（SDK编辑）",
+            "styleIndex": 0
+          },
+          {
+            "row": 2,
+            "column": 1,
+            "value": 15,
+            "styleIndex": 3
+          },
+          {
+            "row": 2,
+            "column": 2,
+            "value": "已完成",
+            "styleIndex": 0
+          },
+          {
+            "row": 3,
+            "column": 0,
+            "value": "梨子",
+            "styleIndex": 0
+          },
+          {
+            "row": 3,
+            "column": 1,
+            "value": 20,
+            "styleIndex": 3
+          },
+          {
+            "row": 3,
+            "column": 2,
+            "value": "待处理",
+            "styleIndex": 0
+          },
+          {
+            "row": 4,
+            "column": 0,
+            "value": "合计",
+            "styleIndex": 0
+          },
+          {
+            "row": 4,
+            "column": 1,
+            "value": 40,
+            "formula": "=SUM(B3:B4)+5",
+            "styleIndex": 3
+          },
+          {
+            "row": 6,
+            "column": 0,
+            "value": "未编辑公式（依赖B3）",
+            "styleIndex": 0
+          },
+          {
+            "row": 6,
+            "column": 1,
+            "value": 30,
+            "formula": "=B3*2",
+            "styleIndex": 3
+          },
+          {
+            "row": 7,
+            "column": 0,
+            "value": "保留百分比",
+            "styleIndex": 0
+          },
+          {
+            "row": 7,
+            "column": 1,
+            "value": 0.125,
+            "styleIndex": 4
+          },
+          {
+            "row": 8,
+            "column": 0,
+            "value": "保留中文及换行",
+            "styleIndex": 0
+          },
+          {
+            "row": 8,
+            "column": 1,
+            "value": "原样保留\n第二行",
+            "styleIndex": 5
+          }
+        ],
+        "conditionalRules": [],
+        "dataValidations": [],
+        "indexingComplete": true
+      },
+      {
+        "id": "sheet-2",
+        "name": "说明",
+        "hidden": false,
+        "veryHidden": false,
+        "rowCount": 3,
+        "columnCount": 2,
+        "columnWidths": [],
+        "defaultRowHeight": 15,
+        "freeze": null,
+        "rows": [],
+        "merges": [],
+        "cells": [
+          {
+            "row": 0,
+            "column": 0,
+            "value": "未编辑工作表：请保留中文",
+            "styleIndex": 0
+          },
+          {
+            "row": 1,
+            "column": 0,
+            "value": "固定值",
+            "styleIndex": 0
+          },
+          {
+            "row": 1,
+            "column": 1,
+            "value": 123.456,
+            "styleIndex": 6
+          },
+          {
+            "row": 2,
+            "column": 0,
+            "value": "跨表合计",
+            "styleIndex": 0
+          },
+          {
+            "row": 2,
+            "column": 1,
+            "value": 40,
+            "formula": "='明细'!B5",
+            "styleIndex": 0
+          }
+        ],
+        "conditionalRules": [],
+        "dataValidations": [],
+        "indexingComplete": true
+      }
+    ]
+  },
+  "sdk": {
+    "metadata": {
+      "activeTab": 0,
+      "definedNames": [],
+      "dxfStyles": [],
+      "entryCount": 10,
+      "name": "simple.browser-edited.xlsx",
+      "normalFontName": "Calibri",
+      "sessionId": "545f461c-5f7c-4bb7-acba-b84561388f15",
+      "sheets": [
+        {
+          "baseColumnWidth": 8,
+          "columnCount": 3,
+          "columnWidths": [
+            {
+              "endColumn": 0,
+              "hidden": false,
+              "startColumn": 0,
+              "width": 28
+            },
+            {
+              "endColumn": 1,
+              "hidden": false,
+              "startColumn": 1,
+              "width": 22
+            },
+            {
+              "endColumn": 2,
+              "hidden": false,
+              "startColumn": 2,
+              "width": 16
+            }
+          ],
+          "comments": [],
+          "defaultColumnWidth": null,
+          "defaultRowHeight": 15,
+          "defaultRowHeightFixed": false,
+          "freeze": {
+            "frozenColumns": 1,
+            "frozenRows": 2
+          },
+          "hasScopedDefinedNames": false,
+          "hidden": false,
+          "id": "sheet-1",
+          "name": "明细",
+          "pivotRanges": [],
+          "pivotTables": [],
+          "rightToLeft": false,
+          "rowCount": 9,
+          "showFormulas": false,
+          "showGridLines": true,
+          "showRowColHeaders": true,
+          "sourceXmlBytes": 2267,
+          "storedCellCount": 18,
+          "tabColor": null,
+          "tables": [],
+          "valueCellCount": 18,
+          "valueColumnCount": 3,
+          "valueRowCount": 9
+        },
+        {
+          "baseColumnWidth": 8,
+          "columnCount": 2,
+          "columnWidths": [],
+          "comments": [],
+          "defaultColumnWidth": null,
+          "defaultRowHeight": 15,
+          "defaultRowHeightFixed": false,
+          "freeze": null,
+          "hasScopedDefinedNames": false,
+          "hidden": false,
+          "id": "sheet-2",
+          "name": "说明",
+          "pivotRanges": [],
+          "pivotTables": [],
+          "rightToLeft": false,
+          "rowCount": 3,
+          "showFormulas": false,
+          "showGridLines": true,
+          "showRowColHeaders": true,
+          "sourceXmlBytes": 887,
+          "storedCellCount": 5,
+          "tabColor": null,
+          "tables": [],
+          "valueCellCount": 5,
+          "valueColumnCount": 2,
+          "valueRowCount": 3
+        }
+      ],
+      "styles": [
+        {
+          "bold": false,
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fontColor": "#000000",
+          "fontColorTheme": 1,
+          "fontFamily": "Calibri",
+          "fontScheme": "minor",
+          "fontSize": 11,
+          "italic": false,
+          "numberFormat": "General",
+          "strikethrough": false,
+          "underline": false,
+          "wrapText": false
+        },
+        {
+          "bold": true,
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fillColor": "#E2EFDA",
+          "fontColor": "#17365D",
+          "fontFamily": "Arial",
+          "fontSize": 16,
+          "italic": false,
+          "numberFormat": "General",
+          "strikethrough": false,
+          "underline": false,
+          "wrapText": false
+        },
+        {
+          "bold": true,
+          "borderBottom": {
+            "color": "#000000",
+            "style": "thin"
+          },
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fillColor": "#305496",
+          "fontColor": "#FFFFFF",
+          "fontFamily": "Arial",
+          "fontSize": 11,
+          "horizontalAlignment": "center",
+          "italic": false,
+          "numberFormat": "General",
+          "strikethrough": false,
+          "underline": false,
+          "wrapText": false
+        },
+        {
+          "bold": false,
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fontColor": "#000000",
+          "fontColorTheme": 1,
+          "fontFamily": "Calibri",
+          "fontScheme": "minor",
+          "fontSize": 11,
+          "italic": false,
+          "numberFormat": "#,##0.00",
+          "strikethrough": false,
+          "underline": false,
+          "wrapText": false
+        },
+        {
+          "bold": false,
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fontColor": "#000000",
+          "fontColorTheme": 1,
+          "fontFamily": "Calibri",
+          "fontScheme": "minor",
+          "fontSize": 11,
+          "italic": false,
+          "numberFormat": "0.0%",
+          "strikethrough": false,
+          "underline": false,
+          "wrapText": false
+        },
+        {
+          "bold": false,
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fontColor": "#000000",
+          "fontColorTheme": 1,
+          "fontFamily": "Calibri",
+          "fontScheme": "minor",
+          "fontSize": 11,
+          "italic": false,
+          "numberFormat": "General",
+          "strikethrough": false,
+          "underline": false,
+          "verticalAlignment": "center",
+          "wrapText": true
+        },
+        {
+          "bold": false,
+          "diagonalDown": false,
+          "diagonalUp": false,
+          "fontColor": "#000000",
+          "fontColorTheme": 1,
+          "fontFamily": "Calibri",
+          "fontScheme": "minor",
+          "fontSize": 11,
+          "italic": false,
+          "numberFormat": "0.000",
+          "strikethrough": false,
+          "underline": false,
+          "wrapText": false
+        }
+      ],
+      "themeColors": [
+        "#FFFFFF",
+        "#000000",
+        "#EEECE1",
+        "#1F497D",
+        "#4F81BD",
+        "#C0504D",
+        "#9BBB59",
+        "#8064A2",
+        "#4BACC6",
+        "#F79646",
+        "#0000FF",
+        "#800080"
+      ],
+      "themeFonts": {
+        "major": "Cambria",
+        "minor": "Calibri"
+      },
+      "visuals": [],
+      "workbookProtection": {
+        "hasPassword": false,
+        "lockStructure": false
+      }
+    },
+    "ranges": {
+      "sheet-1": {
+        "autoFilter": null,
+        "autoFilterColumns": [],
+        "cells": [
+          {
+            "column": 0,
+            "row": 0,
+            "styleIndex": 1,
+            "value": "中文销售统计"
+          },
+          {
+            "column": 0,
+            "row": 1,
+            "styleIndex": 2,
+            "value": "品名"
+          },
+          {
+            "column": 1,
+            "row": 1,
+            "styleIndex": 2,
+            "value": "金额"
+          },
+          {
+            "column": 2,
+            "row": 1,
+            "styleIndex": 2,
+            "value": "状态"
+          },
+          {
+            "column": 0,
+            "row": 2,
+            "styleIndex": 0,
+            "value": "香蕉（SDK编辑）"
+          },
+          {
+            "column": 1,
+            "row": 2,
+            "styleIndex": 3,
+            "value": 15
+          },
+          {
+            "column": 2,
+            "row": 2,
+            "styleIndex": 0,
+            "value": "已完成"
+          },
+          {
+            "column": 0,
+            "row": 3,
+            "styleIndex": 0,
+            "value": "梨子"
+          },
+          {
+            "column": 1,
+            "row": 3,
+            "styleIndex": 3,
+            "value": 20
+          },
+          {
+            "column": 2,
+            "row": 3,
+            "styleIndex": 0,
+            "value": "待处理"
+          },
+          {
+            "column": 0,
+            "row": 4,
+            "styleIndex": 0,
+            "value": "合计"
+          },
+          {
+            "column": 1,
+            "formula": "=SUM(B3:B4)+5",
+            "row": 4,
+            "styleIndex": 3,
+            "value": 40
+          },
+          {
+            "column": 0,
+            "row": 6,
+            "styleIndex": 0,
+            "value": "未编辑公式（依赖B3）"
+          },
+          {
+            "column": 1,
+            "formula": "=B3*2",
+            "row": 6,
+            "styleIndex": 3,
+            "value": 30
+          },
+          {
+            "column": 0,
+            "row": 7,
+            "styleIndex": 0,
+            "value": "保留百分比"
+          },
+          {
+            "column": 1,
+            "row": 7,
+            "styleIndex": 4,
+            "value": 0.125
+          },
+          {
+            "column": 0,
+            "row": 8,
+            "styleIndex": 0,
+            "value": "保留中文及换行"
+          },
+          {
+            "column": 1,
+            "row": 8,
+            "styleIndex": 5,
+            "value": "原样保留\n第二行"
+          }
+        ],
+        "colBreaks": [],
+        "conditionalRules": [],
+        "dataValidations": [],
+        "hyperlinks": [],
+        "indexedThroughRow": 8,
+        "indexingComplete": true,
+        "merges": [
+          {
+            "endColumn": 2,
+            "endRow": 0,
+            "startColumn": 0,
+            "startRow": 0
+          }
+        ],
+        "pageSetup": {
+          "margins": {
+            "bottom": 1,
+            "footer": 0.5,
+            "header": 0.5,
+            "left": 0.75,
+            "right": 0.75,
+            "top": 1
+          }
+        },
+        "protectedRanges": [],
+        "rowBreaks": [],
+        "rows": [
+          {
+            "customHeight": true,
+            "height": 26,
+            "hidden": false,
+            "row": 0
+          },
+          {
+            "customHeight": true,
+            "height": 32,
+            "hidden": false,
+            "row": 8
+          }
+        ],
+        "sheetProtection": null
+      },
+      "sheet-2": {
+        "autoFilter": null,
+        "autoFilterColumns": [],
+        "cells": [
+          {
+            "column": 0,
+            "row": 0,
+            "styleIndex": 0,
+            "value": "未编辑工作表：请保留中文"
+          },
+          {
+            "column": 0,
+            "row": 1,
+            "styleIndex": 0,
+            "value": "固定值"
+          },
+          {
+            "column": 1,
+            "row": 1,
+            "styleIndex": 6,
+            "value": 123.456
+          },
+          {
+            "column": 0,
+            "row": 2,
+            "styleIndex": 0,
+            "value": "跨表合计"
+          },
+          {
+            "column": 1,
+            "formula": "='明细'!B5",
+            "row": 2,
+            "styleIndex": 0,
+            "value": 40
+          }
+        ],
+        "colBreaks": [],
+        "conditionalRules": [],
+        "dataValidations": [],
+        "hyperlinks": [],
+        "indexedThroughRow": 2,
+        "indexingComplete": true,
+        "merges": [],
+        "pageSetup": {
+          "margins": {
+            "bottom": 1,
+            "footer": 0.5,
+            "header": 0.5,
+            "left": 0.75,
+            "right": 0.75,
+            "top": 1
+          }
+        },
+        "protectedRanges": [],
+        "rowBreaks": [],
+        "rows": [],
+        "sheetProtection": null
+      }
+    }
+  }
+}

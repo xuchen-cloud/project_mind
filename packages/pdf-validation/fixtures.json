@@ -1,0 +1,123 @@
+{
+  "simple": {
+    "path": "/Users/xuchen/project_mind/packages/pdf-validation/simple.original.pdf",
+    "bytes": 7392,
+    "sha256": "4ade196ca0dc73b88ca5a93f4ba1d6333992dacf9b49e6899475db78d9cb4c31",
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n",
+        "content_sha256": "25499c7bfd9e12404ac5df6428006c054aac468b9d2b8ff280aa3ea3acd7040d",
+        "nonwidget_annotations": [],
+        "images": []
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n",
+        "content_sha256": "705c5a3267f2fd8111f986d7000ebf28fcace280eea2ae0df2f52303a63f0104",
+        "nonwidget_annotations": [],
+        "images": []
+      }
+    ],
+    "page_count": 2,
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Alice"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Off"
+      }
+    },
+    "widgets": [
+      {
+        "name": "customer",
+        "appearance_present": true,
+        "appearance_state": "None"
+      },
+      {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Off"
+      }
+    ],
+    "outline_count": 0
+  },
+  "complex": {
+    "path": "/Users/xuchen/project_mind/packages/pdf-validation/complex.original.pdf",
+    "bytes": 9292,
+    "sha256": "39cc5a2215b176d5589dd9fa3a306ec8cf738c4fb4e6a1d1c3cdcce573d92b71",
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n未编辑中文段落：山川日月保持原样。\n",
+        "content_sha256": "bce240c86ac0ed4f3a5d98df26542e72acf41e98dc15e3ad8156c54cbf9486f6",
+        "nonwidget_annotations": [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        "images": [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "pixels_sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ]
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n第二页中文原文。\n",
+        "content_sha256": "8c9668de9cc108ee85fccda760721ee9de4c5059aa3d502b252efc1e5b8f3813",
+        "nonwidget_annotations": [],
+        "images": []
+      }
+    ],
+    "page_count": 2,
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Alice"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Off"
+      }
+    },
+    "widgets": [
+      {
+        "name": "customer",
+        "appearance_present": true,
+        "appearance_state": "None"
+      },
+      {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Off"
+      }
+    ],
+    "outline_count": 1
+  }
+}

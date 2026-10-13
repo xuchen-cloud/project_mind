@@ -1,0 +1,8 @@
+{"kind":"simple","branch":"noop","status":"passed","mutation":{"touchedEntries":[],"removedEntries":[],"addedEntries":[]}}
+{"kind":"simple","branch":"edited-default","status":"failed","mutation":{"touchedEntries":["xl/worksheets/sheet1.xml"],"removedEntries":[],"addedEntries":[]}}
+{"kind":"simple","branch":"edited-ironcalc","status":"failed","mutation":{"touchedEntries":["xl/worksheets/sheet1.xml"],"removedEntries":[],"addedEntries":[]}}
+{"kind":"simple","branch":"edited-ironcalc-cache-sheet-touch","status":"passed","mutation":{"touchedEntries":["xl/worksheets/sheet1.xml","xl/worksheets/sheet2.xml"],"removedEntries":[],"addedEntries":[]}}
+{"kind":"complex","branch":"noop","status":"passed","mutation":{"touchedEntries":[],"removedEntries":[],"addedEntries":[]}}
+{"kind":"complex","branch":"edited-default","status":"failed","mutation":{"touchedEntries":["xl/worksheets/sheet1.xml"],"removedEntries":[],"addedEntries":[]}}
+{"kind":"complex","branch":"edited-ironcalc","status":"failed","mutation":{"touchedEntries":["xl/worksheets/sheet1.xml"],"removedEntries":[],"addedEntries":[]}}
+{"kind":"complex","branch":"edited-ironcalc-cache-sheet-touch","status":"passed","mutation":{"touchedEntries":["xl/worksheets/sheet1.xml","xl/worksheets/sheet2.xml"],"removedEntries":[],"addedEntries":[]}}

@@ -1,0 +1,434 @@
+{
+  "status": "passed",
+  "source": {
+    "path": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf",
+    "sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305",
+    "bytes": 8210,
+    "page_count": 2,
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "SIMPLE ORIGINAL TEXT\nUNEDITED PAGE-1 PARAGRAPH\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n",
+        "images": [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ],
+        "links": [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        "widgets": [
+          {
+            "subtype": "/Widget",
+            "rect": [
+              50.0,
+              390.0,
+              250.0,
+              414.0
+            ],
+            "name": "customer",
+            "value": "Alice",
+            "state": "None"
+          },
+          {
+            "subtype": "/Widget",
+            "rect": [
+              300.0,
+              390.0,
+              320.0,
+              410.0
+            ],
+            "name": "approved",
+            "value": "/Off",
+            "state": "/Off"
+          }
+        ],
+        "fonts": [
+          {
+            "base_font": "/Helvetica",
+            "subtype": "/Type1",
+            "embedded": []
+          }
+        ]
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n",
+        "images": [],
+        "links": [],
+        "widgets": [],
+        "fonts": [
+          {
+            "base_font": "/Helvetica",
+            "subtype": "/Type1",
+            "embedded": []
+          }
+        ]
+      }
+    ],
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Alice"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Off"
+      }
+    },
+    "outline_count": 1
+  },
+  "candidate": {
+    "path": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf",
+    "sha256": "d5dd1bfc769791a144568c788bdf7e2bcc037a43d65fa16336d0dd4c403b6e7d",
+    "bytes": 7736,
+    "page_count": 2,
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "SIMPLE REPLACED TEXT\nUNEDITED PAGE-1 PARAGRAPH\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n",
+        "images": [
+          {
+            "size": [
+              80,
+              40
+            ],
+            "sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+          }
+        ],
+        "links": [
+          {
+            "subtype": "/Link",
+            "rect": [
+              50.0,
+              460.0,
+              240.0,
+              480.0
+            ],
+            "uri": "https://example.com/pdf-validation"
+          }
+        ],
+        "widgets": [
+          {
+            "subtype": "/Widget",
+            "rect": [
+              50.0,
+              390.0,
+              250.0,
+              414.0
+            ],
+            "name": "customer",
+            "value": "Alice",
+            "state": "None"
+          },
+          {
+            "subtype": "/Widget",
+            "rect": [
+              300.0,
+              390.0,
+              320.0,
+              410.0
+            ],
+            "name": "approved",
+            "value": "/Off",
+            "state": "/Off"
+          }
+        ],
+        "fonts": [
+          {
+            "base_font": "/Helvetica",
+            "subtype": "/Type1",
+            "embedded": []
+          }
+        ]
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n",
+        "images": [],
+        "links": [],
+        "widgets": [],
+        "fonts": [
+          {
+            "base_font": "/Helvetica",
+            "subtype": "/Type1",
+            "embedded": []
+          },
+          {
+            "base_font": "/Helvetica",
+            "subtype": "/Type1",
+            "embedded": []
+          }
+        ]
+      }
+    ],
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Alice"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Off"
+      }
+    },
+    "outline_count": 1
+  },
+  "checks": [
+    {
+      "assertion": "page_count",
+      "passed": true,
+      "expected": 2,
+      "actual": 2
+    },
+    {
+      "assertion": "fields_unchanged",
+      "passed": true,
+      "expected": {
+        "customer": {
+          "type": "/Tx",
+          "value": "Alice"
+        },
+        "approved": {
+          "type": "/Btn",
+          "value": "/Off"
+        }
+      },
+      "actual": {
+        "customer": {
+          "type": "/Tx",
+          "value": "Alice"
+        },
+        "approved": {
+          "type": "/Btn",
+          "value": "/Off"
+        }
+      }
+    },
+    {
+      "assertion": "outline_count_unchanged",
+      "passed": true,
+      "expected": null,
+      "actual": null
+    },
+    {
+      "assertion": "old_target_full_text_absent",
+      "passed": true,
+      "expected": false,
+      "actual": false
+    },
+    {
+      "assertion": "new_target_full_text_present",
+      "passed": true,
+      "expected": true,
+      "actual": true
+    },
+    {
+      "assertion": "page_0_size_unchanged",
+      "passed": true,
+      "expected": [
+        612.0,
+        792.0
+      ],
+      "actual": [
+        612.0,
+        792.0
+      ]
+    },
+    {
+      "assertion": "page_0_images_unchanged",
+      "passed": true,
+      "expected": [
+        {
+          "size": [
+            80,
+            40
+          ],
+          "sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+        }
+      ],
+      "actual": [
+        {
+          "size": [
+            80,
+            40
+          ],
+          "sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+        }
+      ]
+    },
+    {
+      "assertion": "page_0_links_unchanged",
+      "passed": true,
+      "expected": [
+        {
+          "subtype": "/Link",
+          "rect": [
+            50.0,
+            460.0,
+            240.0,
+            480.0
+          ],
+          "uri": "https://example.com/pdf-validation"
+        }
+      ],
+      "actual": [
+        {
+          "subtype": "/Link",
+          "rect": [
+            50.0,
+            460.0,
+            240.0,
+            480.0
+          ],
+          "uri": "https://example.com/pdf-validation"
+        }
+      ]
+    },
+    {
+      "assertion": "page_0_widgets_unchanged",
+      "passed": true,
+      "expected": [
+        {
+          "subtype": "/Widget",
+          "rect": [
+            50.0,
+            390.0,
+            250.0,
+            414.0
+          ],
+          "name": "customer",
+          "value": "Alice",
+          "state": "None"
+        },
+        {
+          "subtype": "/Widget",
+          "rect": [
+            300.0,
+            390.0,
+            320.0,
+            410.0
+          ],
+          "name": "approved",
+          "value": "/Off",
+          "state": "/Off"
+        }
+      ],
+      "actual": [
+        {
+          "subtype": "/Widget",
+          "rect": [
+            50.0,
+            390.0,
+            250.0,
+            414.0
+          ],
+          "name": "customer",
+          "value": "Alice",
+          "state": "None"
+        },
+        {
+          "subtype": "/Widget",
+          "rect": [
+            300.0,
+            390.0,
+            320.0,
+            410.0
+          ],
+          "name": "approved",
+          "value": "/Off",
+          "state": "/Off"
+        }
+      ]
+    },
+    {
+      "assertion": "page_0_unedited_full_text_order",
+      "passed": true,
+      "expected": "UNEDITEDPAGE-1PARAGRAPHFONTREUSEALPHABETABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "actual": "UNEDITEDPAGE-1PARAGRAPHFONTREUSEALPHABETABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    },
+    {
+      "assertion": "page_0_unedited_character_inventory",
+      "passed": true,
+      "expected": "UNEDITEDPAGE-1PARAGRAPHFONTREUSEALPHABETABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "actual": "UNEDITEDPAGE-1PARAGRAPHFONTREUSEALPHABETABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    },
+    {
+      "assertion": "page_1_size_unchanged",
+      "passed": true,
+      "expected": [
+        612.0,
+        792.0
+      ],
+      "actual": [
+        612.0,
+        792.0
+      ]
+    },
+    {
+      "assertion": "page_1_images_unchanged",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "assertion": "page_1_links_unchanged",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "assertion": "page_1_widgets_unchanged",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "assertion": "page_1_unedited_full_text_order",
+      "passed": true,
+      "expected": "PAGE-2UNEDITEDCONTENT",
+      "actual": "PAGE-2UNEDITEDCONTENT"
+    },
+    {
+      "assertion": "page_1_unedited_character_inventory",
+      "passed": true,
+      "expected": "PAGE-2UNEDITEDCONTENT",
+      "actual": "PAGE-2UNEDITEDCONTENT"
+    },
+    {
+      "assertion": "page_2_full_text_unchanged",
+      "passed": true,
+      "expected": "PAGE-2UNEDITEDCONTENT",
+      "actual": "PAGE-2UNEDITEDCONTENT"
+    }
+  ],
+  "limitations": [
+    "Structure/text assertions do not prove rendering fidelity.",
+    "No application GUI/File CAS tested."
+  ]
+}

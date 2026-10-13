@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "scope": "Artifact/link/hash/syntax verification; reused 31 successful probe checks without rerun",
+  "localMarkdownLinksChecked": 44,
+  "jsonParsed": true,
+  "pythonSyntaxParsed": true,
+  "nodeScriptSyntaxChecked": [
+    "build-probe.mjs",
+    "probe.mjs"
+  ],
+  "probeSourceHashesMatched": 38,
+  "archivedSourceCasesMatched": 6,
+  "uiOrNativeCASExecuted": false,
+  "allowedWrites": [
+    "docs/technical/markdown-integration-candidate-research-20261013.md",
+    "packages/markdown-validation/"
+  ]
+}

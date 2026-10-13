@@ -1,0 +1,79 @@
+{
+  "execution_owner": "main agent",
+  "evidence_path": "../office-validation/evidence/genoffice-docx-external/results.json",
+  "evidence_sha256": "65d88d6619e59263fec206b80202b44608dcda025e32dd44ea4e20a66441fea1",
+  "records": 10,
+  "status": "reopened",
+  "pages": {
+    "simple": [
+      1
+    ],
+    "complex": [
+      3
+    ]
+  },
+  "comparisons": [
+    {
+      "kind": "simple",
+      "branch": "public-pm-noop",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "public-pm-edited",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "chromium",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "webkit",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "public-pm-noop",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "public-pm-edited",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "chromium",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "webkit",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    }
+  ],
+  "limits": [
+    "External PDF reopen is not pixel fidelity or Microsoft Office acceptance.",
+    "Prior exact-hash original evidence has Chinese rendering limitations; extractable text does not prove appearance.",
+    "XLSX external calculation may repair stale caches; inspect XLSX caches independently.",
+    "No Tauri, Windows, File CAS or DSH business submission verified."
+  ]
+}

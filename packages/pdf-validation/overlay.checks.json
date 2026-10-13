@@ -1,0 +1,51 @@
+{
+  "path": "/Users/xuchen/project_mind/packages/pdf-validation/simple.overlay-counterexample.pdf",
+  "bytes": 8012,
+  "sha256": "4b48f8d8db75395054b1e64ea67389ed82ca7c3a9c40732c5b3521bd75be504a",
+  "pages": [
+    {
+      "size": [
+        612,
+        792
+      ],
+      "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\nREPLACEMENT VISUAL LAYER\n",
+      "content_sha256": "8fe14abd5c07d9e844bc538fdcb276be29c9ae162e392b8610eb9cb9121f0685",
+      "nonwidget_annotations": [],
+      "images": []
+    },
+    {
+      "size": [
+        612,
+        792
+      ],
+      "text": "PAGE-2 UNEDITED CONTENT\n",
+      "content_sha256": "705c5a3267f2fd8111f986d7000ebf28fcace280eea2ae0df2f52303a63f0104",
+      "nonwidget_annotations": [],
+      "images": []
+    }
+  ],
+  "page_count": 2,
+  "fields": {
+    "customer": {
+      "type": "/Tx",
+      "value": "Alice"
+    },
+    "approved": {
+      "type": "/Btn",
+      "value": "/Off"
+    }
+  },
+  "widgets": [
+    {
+      "name": "customer",
+      "appearance_present": true,
+      "appearance_state": "None"
+    },
+    {
+      "name": "approved",
+      "appearance_present": true,
+      "appearance_state": "/Off"
+    }
+  ],
+  "outline_count": 0
+}

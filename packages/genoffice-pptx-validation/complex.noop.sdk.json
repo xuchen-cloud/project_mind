@@ -1,0 +1,972 @@
+{
+  "before": {
+    "size": {
+      "cx": 12191695,
+      "cy": 6858000
+    },
+    "slides": [
+      {
+        "path": "ppt/slides/slide1.xml",
+        "notes": "演讲者备注第1页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_3w",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 685800,
+                "y": 2130425,
+                "cx": 7772400,
+                "cy": 1470025
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_3x",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 1371600,
+                "y": 3886200,
+                "cx": 6400800,
+                "cy": 1752600
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_3y",
+            "type": "text",
+            "text": "第一页：项目概况",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_3z",
+            "type": "text",
+            "text": "项目进展正常",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_40",
+            "type": "text",
+            "text": "固定页序标识：PAGE-1",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "pic_41",
+            "type": "picture",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2560320,
+                "cx": 2926080,
+                "cy": 1645920
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "mediaRef": "ppt/media/image1.png"
+          },
+          {
+            "id": "sp_42",
+            "type": "text",
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "transform": {
+              "offset": {
+                "x": 4114800,
+                "y": 2926080,
+                "cx": 6400800,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide2.xml",
+        "notes": "演讲者备注第2页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_4d",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 457200,
+                "y": 274638,
+                "cx": 8229600,
+                "cy": 1143000
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4e",
+            "type": "text",
+            "text": "第二页：数据保留",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4f",
+            "type": "text",
+            "text": "未编辑中文：第二页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4g",
+            "type": "text",
+            "text": "固定页序标识：PAGE-2",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "tbl_4h",
+            "type": "table",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2286000,
+                "cx": 6583680,
+                "cy": 1828800
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide3.xml",
+        "notes": "演讲者备注第3页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_4r",
+            "type": "text",
+            "text": "第三页：收尾记录",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4s",
+            "type": "text",
+            "text": "未编辑中文：第三页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4t",
+            "type": "text",
+            "text": "固定页序标识：PAGE-3",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "chart_4u",
+            "type": "chart",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2194560,
+                "cx": 8046720,
+                "cy": 3383280
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "chart": {
+              "kind": "bar",
+              "categories": [
+                "一月",
+                "二月",
+                "三月"
+              ],
+              "series": [
+                {
+                  "values": [
+                    12,
+                    24,
+                    18
+                  ],
+                  "paletteIdx": 0,
+                  "name": "业务数量",
+                  "dataLabels": false
+                }
+              ],
+              "grouping": "clustered",
+              "barDir": "col",
+              "gapWidthPct": 150,
+              "themePalette": [
+                "#4F81BD",
+                "#C0504D",
+                "#9BBB59",
+                "#8064A2",
+                "#4BACC6",
+                "#F79646"
+              ],
+              "defaultTextPt": 18,
+              "valAxis": {
+                "crosses": "autoZero",
+                "gridColor": "#E6E6E6",
+                "gridColorAuto": true
+              },
+              "catAxis": {
+                "crosses": "autoZero"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "size": {
+      "cx": 12191695,
+      "cy": 6858000
+    },
+    "slides": [
+      {
+        "path": "ppt/slides/slide1.xml",
+        "notes": "演讲者备注第1页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_3w",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 685800,
+                "y": 2130425,
+                "cx": 7772400,
+                "cy": 1470025
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_3x",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 1371600,
+                "y": 3886200,
+                "cx": 6400800,
+                "cy": 1752600
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_3y",
+            "type": "text",
+            "text": "第一页：项目概况",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_3z",
+            "type": "text",
+            "text": "项目进展正常",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_40",
+            "type": "text",
+            "text": "固定页序标识：PAGE-1",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "pic_41",
+            "type": "picture",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2560320,
+                "cx": 2926080,
+                "cy": 1645920
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "mediaRef": "ppt/media/image1.png"
+          },
+          {
+            "id": "sp_42",
+            "type": "text",
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "transform": {
+              "offset": {
+                "x": 4114800,
+                "y": 2926080,
+                "cx": 6400800,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide2.xml",
+        "notes": "演讲者备注第2页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_4d",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 457200,
+                "y": 274638,
+                "cx": 8229600,
+                "cy": 1143000
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4e",
+            "type": "text",
+            "text": "第二页：数据保留",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4f",
+            "type": "text",
+            "text": "未编辑中文：第二页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4g",
+            "type": "text",
+            "text": "固定页序标识：PAGE-2",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "tbl_4h",
+            "type": "table",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2286000,
+                "cx": 6583680,
+                "cy": 1828800
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide3.xml",
+        "notes": "演讲者备注第3页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_4r",
+            "type": "text",
+            "text": "第三页：收尾记录",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4s",
+            "type": "text",
+            "text": "未编辑中文：第三页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_4t",
+            "type": "text",
+            "text": "固定页序标识：PAGE-3",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "chart_4u",
+            "type": "chart",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2194560,
+                "cx": 8046720,
+                "cy": 3383280
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "chart": {
+              "kind": "bar",
+              "categories": [
+                "一月",
+                "二月",
+                "三月"
+              ],
+              "series": [
+                {
+                  "values": [
+                    12,
+                    24,
+                    18
+                  ],
+                  "paletteIdx": 0,
+                  "name": "业务数量",
+                  "dataLabels": false
+                }
+              ],
+              "grouping": "clustered",
+              "barDir": "col",
+              "gapWidthPct": 150,
+              "themePalette": [
+                "#4F81BD",
+                "#C0504D",
+                "#9BBB59",
+                "#8064A2",
+                "#4BACC6",
+                "#F79646"
+              ],
+              "defaultTextPt": 18,
+              "valAxis": {
+                "crosses": "autoZero",
+                "gridColor": "#E6E6E6",
+                "gridColorAuto": true
+              },
+              "catAxis": {
+                "crosses": "autoZero"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "size": {
+      "cx": 12191695,
+      "cy": 6858000
+    },
+    "slides": [
+      {
+        "path": "ppt/slides/slide1.xml",
+        "notes": "演讲者备注第1页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_53",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 685800,
+                "y": 2130425,
+                "cx": 7772400,
+                "cy": 1470025
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_54",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 1371600,
+                "y": 3886200,
+                "cx": 6400800,
+                "cy": 1752600
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_55",
+            "type": "text",
+            "text": "第一页：项目概况",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_56",
+            "type": "text",
+            "text": "项目进展正常",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_57",
+            "type": "text",
+            "text": "固定页序标识：PAGE-1",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "pic_58",
+            "type": "picture",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2560320,
+                "cx": 2926080,
+                "cy": 1645920
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "mediaRef": "ppt/media/image1.png"
+          },
+          {
+            "id": "sp_59",
+            "type": "text",
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "transform": {
+              "offset": {
+                "x": 4114800,
+                "y": 2926080,
+                "cx": 6400800,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide2.xml",
+        "notes": "演讲者备注第2页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_5k",
+            "type": "text",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 457200,
+                "y": 274638,
+                "cx": 8229600,
+                "cy": 1143000
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_5l",
+            "type": "text",
+            "text": "第二页：数据保留",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_5m",
+            "type": "text",
+            "text": "未编辑中文：第二页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_5n",
+            "type": "text",
+            "text": "固定页序标识：PAGE-2",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "tbl_5o",
+            "type": "table",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2286000,
+                "cx": 6583680,
+                "cy": 1828800
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide3.xml",
+        "notes": "演讲者备注第3页：此内容必须保留。",
+        "elements": [
+          {
+            "id": "sp_5y",
+            "type": "text",
+            "text": "第三页：收尾记录",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_5z",
+            "type": "text",
+            "text": "未编辑中文：第三页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_60",
+            "type": "text",
+            "text": "固定页序标识：PAGE-3",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "chart_61",
+            "type": "chart",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2194560,
+                "cx": 8046720,
+                "cy": 3383280
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "chart": {
+              "kind": "bar",
+              "categories": [
+                "一月",
+                "二月",
+                "三月"
+              ],
+              "series": [
+                {
+                  "values": [
+                    12,
+                    24,
+                    18
+                  ],
+                  "paletteIdx": 0,
+                  "name": "业务数量",
+                  "dataLabels": false
+                }
+              ],
+              "grouping": "clustered",
+              "barDir": "col",
+              "gapWidthPct": 150,
+              "themePalette": [
+                "#4F81BD",
+                "#C0504D",
+                "#9BBB59",
+                "#8064A2",
+                "#4BACC6",
+                "#F79646"
+              ],
+              "defaultTextPt": 18,
+              "valAxis": {
+                "crosses": "autoZero",
+                "gridColor": "#E6E6E6",
+                "gridColorAuto": true
+              },
+              "catAxis": {
+                "crosses": "autoZero"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "semanticMatch": false
+}

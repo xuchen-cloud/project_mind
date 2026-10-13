@@ -1,0 +1,61 @@
+[
+  {
+    "phase": "ready",
+    "note": "需要打开受控样本；导出只是候选文件，不是主项目保存。"
+  },
+  {
+    "phase": "loaded",
+    "format": "xlsx",
+    "loadMs": 53,
+    "unitId": "uEjnY6qgUoBqRNovDR8"
+  },
+  {
+    "phase": "edited",
+    "format": "xlsx",
+    "after": "浏览器编辑"
+  },
+  {
+    "phase": "exported",
+    "format": "xlsx",
+    "ok": true,
+    "bytes": 8234,
+    "sha256": "870b5ea14949a8260e06a8119105922ecdfb0c50b52c8f4186771fdacf7aa032"
+  },
+  {
+    "phase": "loaded",
+    "format": "docx",
+    "loadMs": 70,
+    "unitId": "docx-rust-unit",
+    "before": "中文文档往返验证\r第一节 基础内容\r待修改中文段落：春风拂面。\r未修改段落：山川日月保持原样。\r\u001a\u001b\u001c姓名\r\n\u001d\u001c状态\r\n\u001d\u000e\u001b\u001c张三\r\n\u001d\u001c待改单元\r\n\u001d\u000e\u000f\r\b\r图片后未修改段落。\r\n"
+  },
+  {
+    "phase": "edited",
+    "format": "docx",
+    "after": "浏览器编辑：中文文档往返验证\r第一节 基础内容\r待修改中文段落：春风拂面。\r未修改段落：山川日月保持原样。\r\u001a\u001b\u001c姓名\r\n\u001d\u001c状态\r\n\u001d\u000e\u001b\u001c张三\r\n\u001d\u001c待改单元\r\n\u001d\u000e\u000f\r\b\r图片后未修改段落。\r\n"
+  },
+  {
+    "phase": "exported",
+    "format": "docx",
+    "ok": true,
+    "bytes": 19203,
+    "sha256": "cd29128ac69720341300be5186e87082b6f19c0e6eae46e8b1aa3d1f2ab60ec8"
+  },
+  {
+    "phase": "loaded",
+    "format": "pptx",
+    "loadMs": 38,
+    "unitId": "rust-pptx-unit"
+  },
+  {
+    "phase": "edited",
+    "format": "pptx",
+    "after": "slide-command-returned"
+  },
+  {
+    "phase": "exported",
+    "format": "pptx",
+    "ok": true,
+    "bytes": 25545,
+    "sha256": "eed68faccffc5ee97cc61f4f129245652df299858fd0047a67837741a4081dec"
+  }
+]

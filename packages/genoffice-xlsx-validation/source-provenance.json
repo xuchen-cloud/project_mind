@@ -1,0 +1,776 @@
+{
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "tree_sha": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "LICENSE",
+      "git_blob_sha1": "3017411926aa8731558e70c3d16f6ce0b6f68d5c",
+      "bytes": 11345
+    },
+    {
+      "path": "NOTICE",
+      "git_blob_sha1": "34d8590f9b07df119df295d6eb02194bfd75cdd5",
+      "bytes": 2489
+    },
+    {
+      "path": "apps/sheets/README.md",
+      "git_blob_sha1": "ce7cf70098d3ac914243293176653e7d52ba7963",
+      "bytes": 4445
+    },
+    {
+      "path": "apps/sheets/docs/architecture.md",
+      "git_blob_sha1": "e4427a00cc72a3ac03826c70193fb1b7fc6fa9f1",
+      "bytes": 4402
+    },
+    {
+      "path": "apps/sheets/docs/compatibility.md",
+      "git_blob_sha1": "17381a7ea7bca3c1712e3e3e6fbc4d74727df800",
+      "bytes": 19036
+    },
+    {
+      "path": "apps/sheets/docs/interface.md",
+      "git_blob_sha1": "903f3edc4b69925fcb510c6fe6d004b1227ad28f",
+      "bytes": 3682
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/.cargo/config.toml",
+      "git_blob_sha1": "dc4e228518fb3ad9f09749997d94285fb2cc6a58",
+      "bytes": 665
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/Cargo.lock",
+      "git_blob_sha1": "ecf155e64a437cc12aec64584c76fd52804edad9",
+      "bytes": 33500
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/Cargo.toml",
+      "git_blob_sha1": "f943efff9e5a46d65246f79a1ead7b5c27df89c5",
+      "bytes": 651
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/deny.toml",
+      "git_blob_sha1": "b44789e69b6124ddd9b4702084020af32e00f566",
+      "bytes": 427
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/archive.rs",
+      "git_blob_sha1": "dd0f0788504f2e833c4543089545b5b685fe2021",
+      "bytes": 24941
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/cell_images.rs",
+      "git_blob_sha1": "2a9035f8a4e1e9faa4d0cb68b7858d2b46d6943f",
+      "bytes": 6613
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/convert.rs",
+      "git_blob_sha1": "e8b97a3801947fdba548a05843aa18079bf9773a",
+      "bytes": 14690
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/find.rs",
+      "git_blob_sha1": "3c5db7e6da0ce760767fa2e06858cf9570f1f3dd",
+      "bytes": 25665
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/lib.rs",
+      "git_blob_sha1": "73808772616929950db4289b5b7285bae712a498",
+      "bytes": 35050
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/main.rs",
+      "git_blob_sha1": "3da7e300d40c06a050f7e0afd2a770c8476241d5",
+      "bytes": 4857
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/protocol.rs",
+      "git_blob_sha1": "62da22e797ac4c05e1a87e41b4d8ed80231e6310",
+      "bytes": 31501
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/recalc.rs",
+      "git_blob_sha1": "919754b545e0a4ac31450ac7a7d0b75b84416889",
+      "bytes": 48134
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/refs.rs",
+      "git_blob_sha1": "3b074ec438f7574a594b1a179ddd4cf0fb23f8bb",
+      "bytes": 3226
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/richdata.rs",
+      "git_blob_sha1": "07871b0ac004163fc8dbac07937f4062605600f0",
+      "bytes": 6905
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/shared_formulas.rs",
+      "git_blob_sha1": "b8bba376b791540287e6f786bb55c320d5d7ff95",
+      "bytes": 14318
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/sparklines.rs",
+      "git_blob_sha1": "92fdbd6ec507213f2dcfe88ecba075daf3218e63",
+      "bytes": 6573
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/table_styles.rs",
+      "git_blob_sha1": "9a01f697d2d67ba03ac7ad1529d0e4deffa53fc0",
+      "bytes": 40530
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/tests.rs",
+      "git_blob_sha1": "0d87680126b55e501376ba38023c456697c595f4",
+      "bytes": 249406
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/types.rs",
+      "git_blob_sha1": "add7cb84df14f03fb7b4292fa92b19b2c99ec3a8",
+      "bytes": 31287
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals.rs",
+      "git_blob_sha1": "a48e568c2980d31e8fe494534d7ee1ff6406219c",
+      "bytes": 79006
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/charts.rs",
+      "git_blob_sha1": "4d007e824340909e7324d2805006ded54f38a425",
+      "bytes": 43604
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/colors.rs",
+      "git_blob_sha1": "7cde305abf9417cd2e3c5bcecdc90bbd77c11daa",
+      "bytes": 18083
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/drawing.rs",
+      "git_blob_sha1": "d8e90d25d3d55e470b2bca09998e406b67804bf3",
+      "bytes": 44482
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/source_formats.rs",
+      "git_blob_sha1": "02f5297494b7ef18ba60beeb6afc0b41a58afed6",
+      "bytes": 14074
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/styles.rs",
+      "git_blob_sha1": "82f4908cc3e50da02388ffbbd50567bfd67f54d4",
+      "bytes": 20045
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/tests.rs",
+      "git_blob_sha1": "b7e2f1fd5848e5237fe4ac9c480dfa988fd8c2a0",
+      "bytes": 99454
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/workbook.rs",
+      "git_blob_sha1": "5a18711738c9694cd16dc529f93e9f372a5c57a1",
+      "bytes": 33451
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/worksheet.rs",
+      "git_blob_sha1": "194cd13756919f867244661287bf270f95caf82a",
+      "bytes": 67881
+    },
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/xml_util.rs",
+      "git_blob_sha1": "868f35e7ea1744c22c45bfe272f0f7c561592fbe",
+      "bytes": 9286
+    },
+    {
+      "path": "apps/sheets/package.json",
+      "git_blob_sha1": "4ff1c4470c25e941fdedc38837cab8f409de9092",
+      "bytes": 2879
+    },
+    {
+      "path": "apps/sheets/src/main/sheets-main.ts",
+      "git_blob_sha1": "0ef787d6862676eae17d44b406e91d0831ec5ec7",
+      "bytes": 214278
+    },
+    {
+      "path": "apps/sheets/src/main/xlsx-sidecar-client.ts",
+      "git_blob_sha1": "c64f103333686cbd88d44e887f61ab88ccf6bac6",
+      "bytes": 12773
+    },
+    {
+      "path": "apps/sheets/src/renderer/App.tsx",
+      "git_blob_sha1": "f88edd07e303479be1a82ec08e863030e5b32a7c",
+      "bytes": 237015
+    },
+    {
+      "path": "apps/sheets/src/renderer/control.ts",
+      "git_blob_sha1": "3049f2ac885f3b07403956db1f09b119da0b4d18",
+      "bytes": 3931
+    },
+    {
+      "path": "apps/sheets/src/renderer/create-univer.ts",
+      "git_blob_sha1": "66ff7fda74e97fc6eb0c93cb7bcabd956f7d366e",
+      "bytes": 2739
+    },
+    {
+      "path": "apps/sheets/src/renderer/edit-journal.ts",
+      "git_blob_sha1": "517c29fca457c438c52f734d10162a5b21da5b74",
+      "bytes": 93503
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-cached-fallback.ts",
+      "git_blob_sha1": "0b497e0375cf2e78068e5ce8654900eae44d45bd",
+      "bytes": 4631
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-closure.ts",
+      "git_blob_sha1": "1631257b6c6a7bf69676073ec7b3f6982410e35e",
+      "bytes": 11520
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-values.ts",
+      "git_blob_sha1": "b3b28ae80addbb0e2847c7f82e15eb47a3a62e2e",
+      "bytes": 9144
+    },
+    {
+      "path": "apps/sheets/src/renderer/save-actions.ts",
+      "git_blob_sha1": "c2fd34a93744d5a48c7c7425c9091826bc1ffea4",
+      "bytes": 26913
+    },
+    {
+      "path": "apps/sheets/src/renderer/univer-state.ts",
+      "git_blob_sha1": "af7dba482fc5d7ed24533a43988be04fed83dd4e",
+      "bytes": 17982
+    },
+    {
+      "path": "apps/sheets/src/renderer/univer-sync.ts",
+      "git_blob_sha1": "c4ebc4c7fe4498d04e71689c28bcdd0392e3643b",
+      "bytes": 328720
+    },
+    {
+      "path": "apps/sheets/src/shared/desktop-api.ts",
+      "git_blob_sha1": "47c55abacfe88232d9779f692dd5865b3f950ad9",
+      "bytes": 121354
+    },
+    {
+      "path": "package-lock.json",
+      "git_blob_sha1": "28868dd608af555ec75c6d92913e2243e4a9a2f0",
+      "bytes": 578738
+    },
+    {
+      "path": "package.json",
+      "git_blob_sha1": "71d21e1e09b372fea93bdd805dba538bb29f074c",
+      "bytes": 5374
+    },
+    {
+      "path": "packages/xlsx-gateway/package.json",
+      "git_blob_sha1": "aead05e97f94798ac21f4e8b44af801b14af7e9c",
+      "bytes": 727
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/cell-address.ts",
+      "git_blob_sha1": "ed471aa97b1f90a4605e5d3881816bc96d86ee8d",
+      "bytes": 3459
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/chart-recommend.ts",
+      "git_blob_sha1": "6474ec8ff8f6c85e7afff7313fc8482aee186685",
+      "bytes": 4601
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/chart-visual.ts",
+      "git_blob_sha1": "92dae8fff12b12d6163b69fbf46c20fef00c630c",
+      "bytes": 34269
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/flash-fill.ts",
+      "git_blob_sha1": "61a2bc12901b9e0f632d045fb58d06189d3d6c93",
+      "bytes": 2336
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/formula-shift.ts",
+      "git_blob_sha1": "d8fcae0baf10c43a809b31fec998933df8babe26",
+      "bytes": 16773
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/in-memory-workbook.ts",
+      "git_blob_sha1": "dcb21a04d66e8e910a5d819141936c4ca272fe19",
+      "bytes": 33518
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-chart.ts",
+      "git_blob_sha1": "4e46fae7b0578153f088f7924eadbba179ae66c8",
+      "bytes": 7145
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-engine.ts",
+      "git_blob_sha1": "7decd9961030b8bfd2f99b94fa847e5a8243fbc2",
+      "bytes": 33205
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-filters.ts",
+      "git_blob_sha1": "7333619d25f5643fa7e0b728c41348d7326714e1",
+      "bytes": 4175
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-formula.ts",
+      "git_blob_sha1": "3b7321a332aa12be3752f29a24a238ef2efb7ef7",
+      "bytes": 7439
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-grouping.ts",
+      "git_blob_sha1": "7d715ef8341543f3665d43f04818a5b10c20ce6f",
+      "bytes": 6660
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-layout.ts",
+      "git_blob_sha1": "6cad1355d5f8ccf8887fa6ee3a3d11d93c19ae42",
+      "bytes": 25246
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-timeline.ts",
+      "git_blob_sha1": "1d07ad6630ea71842e43a965b75638c4a374cab6",
+      "bytes": 2636
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/pivot-value-modes.ts",
+      "git_blob_sha1": "defa3c408643e97b33d5b017da02001154d0f7ac",
+      "bytes": 2067
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/sort-range.ts",
+      "git_blob_sha1": "afba6626f7716a6f258f56d8cd8a0ca50fb43e1c",
+      "bytes": 5218
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/style-color.ts",
+      "git_blob_sha1": "7d3f3af960a2d6ea63a5c2fd3140979cfb007e02",
+      "bytes": 8323
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/workbook-dsl.ts",
+      "git_blob_sha1": "c6e46a5f6414f158dda5ad28ed26c1548c656ccf",
+      "bytes": 88928
+    },
+    {
+      "path": "packages/xlsx-gateway/src/domain/workbook.types.ts",
+      "git_blob_sha1": "108decf7eaba7314bef40ad9bffe8d0951127aed",
+      "bytes": 4723
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/csv-import.ts",
+      "git_blob_sha1": "02128b904cf987db7bd875bea5e94faec10ed2bd",
+      "bytes": 16407
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/future-functions.ts",
+      "git_blob_sha1": "8cc6b8607ca35cbeb7f615466fe2a822609d5fe8",
+      "bytes": 6160
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-cf.ts",
+      "git_blob_sha1": "26d39ba58f453568e00479007bf6b7238c0baef0",
+      "bytes": 21842
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-chart.ts",
+      "git_blob_sha1": "b5f86a5ab00992ddda6a5292765888191119d787",
+      "bytes": 44199
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-default-styles.ts",
+      "git_blob_sha1": "fed75ae3374cc0847942206406a316161a00e78e",
+      "bytes": 1428
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-default-theme.ts",
+      "git_blob_sha1": "120db7a67de82811699ebd033374781060f66004",
+      "bytes": 7420
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-defined-names.ts",
+      "git_blob_sha1": "5d4b24371a4243fc7b91994725b92427309f7d73",
+      "bytes": 5546
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-drawing-add.ts",
+      "git_blob_sha1": "13feecdcffadeb5ca1347c1a489abebaeff0dd13",
+      "bytes": 39378
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-drawing-edit.ts",
+      "git_blob_sha1": "2a7bc7f63f4ced292a595d017be6977084c220be",
+      "bytes": 24992
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-dv.ts",
+      "git_blob_sha1": "edab189047eb8d6bb4e47f07e1625158fd319581",
+      "bytes": 14447
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-escapes.ts",
+      "git_blob_sha1": "533e7d2ef3ceba892454be73aa7f6af69e433427",
+      "bytes": 963
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-filter.ts",
+      "git_blob_sha1": "27894279ab2619f5199baed7f45da2fd60297035",
+      "bytes": 6946
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-gateway.ts",
+      "git_blob_sha1": "618f0e8537bfd0ec81923977b6bb19c7fdc675a1",
+      "bytes": 126565
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-hyperlinks.ts",
+      "git_blob_sha1": "0645eaf6258b83fd07a8618c86fc680308a91892",
+      "bytes": 5198
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-namespace.ts",
+      "git_blob_sha1": "9f437d9c69a59a9f58ac3dd37b1321d16c9f58cb",
+      "bytes": 3859
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-notes.ts",
+      "git_blob_sha1": "99fa41ef6b91e424fba3622cca962a467a5a7239",
+      "bytes": 13670
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-package-io.ts",
+      "git_blob_sha1": "0d3f54cbdfd084c37bc89db88b30808f7937e8f2",
+      "bytes": 18606
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-page-setup.ts",
+      "git_blob_sha1": "f29ac8c3a5f793d42a894ecf507c65936fbaebd0",
+      "bytes": 26496
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-pivot-add.ts",
+      "git_blob_sha1": "fa5c4d675fda51e25bfde7a93bfda00f261b487e",
+      "bytes": 45728
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-pivot-expand.ts",
+      "git_blob_sha1": "8a979fc286f6ba9ff3db67ee33a3bdd449cfef8e",
+      "bytes": 21448
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-pivot.ts",
+      "git_blob_sha1": "dfa301ce4f64c0fdc3ddb9b5be4e1d0b0ee47324",
+      "bytes": 18097
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-protection-hash.ts",
+      "git_blob_sha1": "594a342186fb6f3bde6ea4e5dd865188ce7e5fd5",
+      "bytes": 4205
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-protection.ts",
+      "git_blob_sha1": "566f07eadcf98c8741aba3f996823ef056128304",
+      "bytes": 11278
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-sheets.ts",
+      "git_blob_sha1": "63998542308d180f75eb4c5fc970edcb29ec1b2d",
+      "bytes": 26161
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-sparkline.ts",
+      "git_blob_sha1": "762b480c39512348127b2005d43ceaac85d2db00",
+      "bytes": 4805
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-structure.ts",
+      "git_blob_sha1": "162e020653e7d8e208b31a917d48a0265e6421b8",
+      "bytes": 72156
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-style-read.ts",
+      "git_blob_sha1": "e0bb8ae507ec01006bf96e7e751f48f35e8839d8",
+      "bytes": 4657
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-styles.ts",
+      "git_blob_sha1": "de8f9b4486e79a634a3578a820bb7aafde140483",
+      "bytes": 20130
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-tab-color.ts",
+      "git_blob_sha1": "c3c57ce5947261eaa5681ce0c06dbd814ee0c199",
+      "bytes": 1747
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-table-add.ts",
+      "git_blob_sha1": "b9637d212aa88fbbafb487e715ac7ef762cb17fc",
+      "bytes": 13305
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-table-edit.ts",
+      "git_blob_sha1": "bb732a8f30deb65fece655f8e9daeb8c203a21be",
+      "bytes": 13577
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-theme.ts",
+      "git_blob_sha1": "f4530b6c0f2d8c7af5dc685d2997815cefaa3d1f",
+      "bytes": 2733
+    },
+    {
+      "path": "packages/xlsx-gateway/src/gateway/xlsx-threaded-comments.ts",
+      "git_blob_sha1": "cdae529187b448cde02ca8551aec740c082d6c6a",
+      "bytes": 17792
+    },
+    {
+      "path": "packages/xlsx-gateway/src/shared/edit-schemas.ts",
+      "git_blob_sha1": "fc4188fbe057776a745e5fc77e3652f92ab07588",
+      "bytes": 14154
+    },
+    {
+      "path": "packages/xlsx-gateway/src/shared/grid-bounds.ts",
+      "git_blob_sha1": "0e077de105a7ecaeb386a0ea6b4b65938552d9cd",
+      "bytes": 166
+    },
+    {
+      "path": "packages/xlsx-gateway/src/shared/shape-types.ts",
+      "git_blob_sha1": "a4216b5de561585e6d9549ced642707e9710a2f5",
+      "bytes": 2242
+    },
+    {
+      "path": "packages/xlsx-gateway/src/shared/short-date.ts",
+      "git_blob_sha1": "2f406a4a1b42fdcebe2ed5702efc9b09c6c985c7",
+      "bytes": 2250
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/axis-tick-count.test.ts",
+      "git_blob_sha1": "8474ddcd348c84e0af08a073f65b80ecb442b82e",
+      "bytes": 1324
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/cell-address.test.ts",
+      "git_blob_sha1": "01decab332f2a9cc76b932d4941e997af19d00ca",
+      "bytes": 1246
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/cf-threshold-finite.test.ts",
+      "git_blob_sha1": "5f25c8f982fe885dd18f9290e2acf407c147917c",
+      "bytes": 2283
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/chart-visual-negative-axis.test.ts",
+      "git_blob_sha1": "7fba7db75105d7c0b7ec875f69ed24cf129b3132",
+      "bytes": 3987
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/chart-visual-ref-parsing.test.ts",
+      "git_blob_sha1": "e4c74d55af649280abff8394481978ccc559d151",
+      "bytes": 5024
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/col-def-attribute-order.test.ts",
+      "git_blob_sha1": "6555cd615bded59afe2c837226a6845bb1b2b6f5",
+      "bytes": 2219
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/csv-import.test.ts",
+      "git_blob_sha1": "ae849a741b80e38aafd58ed8a2d2291fda2d21a3",
+      "bytes": 6697
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/csv-roundtrip.test.ts",
+      "git_blob_sha1": "a3cd793409d9f0a6258f9704a5cea43a75b27564",
+      "bytes": 5801
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/dsl-grid-bounds.test.ts",
+      "git_blob_sha1": "292a080edfa695d41a3ed2203863e4db31f8c3a4",
+      "bytes": 3049
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/dv-dates.test.ts",
+      "git_blob_sha1": "f3a3f6fe9bf4c564129545007f71a861126dbe11",
+      "bytes": 2614
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/dv-sqref-replace.test.ts",
+      "git_blob_sha1": "8dc3a217493c29318c5b626811f9ca841c90ded9",
+      "bytes": 1814
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/dv-whole-column-sqref.test.ts",
+      "git_blob_sha1": "1b53ca360ab7f9f101ca77ba1a05e13a986bf38c",
+      "bytes": 2352
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/formula-shift.test.ts",
+      "git_blob_sha1": "3bc4c9193d9a1357dcc47937e589db0a9db38e82",
+      "bytes": 13339
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/hyperlink-reid-regex.test.ts",
+      "git_blob_sha1": "f37757be80e1298e02a43aa15ee7dab84553b446",
+      "bytes": 2678
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/non-finite-cell-value.test.ts",
+      "git_blob_sha1": "3c26d17d72f8d5e00ff2ce0a5530805949d29dce",
+      "bytes": 4392
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/package-rid-and-zip-gate.test.ts",
+      "git_blob_sha1": "6521c9c6cf2576a8166cebabf536177ab4a37035",
+      "bytes": 4822
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/pivot-expand-empty-cell.test.ts",
+      "git_blob_sha1": "7b545e13b0f8113723490718f5445fd4cabb525c",
+      "bytes": 6229
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/pivot-relayout-roundtrip.test.ts",
+      "git_blob_sha1": "5cc2249ff769f8ea26037f79a7656be6124316b7",
+      "bytes": 7247
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/pivot-serial-date-1900.test.ts",
+      "git_blob_sha1": "5ce3d08c006b8cccbb8c4d840a4a93c5e02552cf",
+      "bytes": 1757
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/pivot-source-read.test.ts",
+      "git_blob_sha1": "9de2b655a543fc57816f085167ae4e275d9bdfb8",
+      "bytes": 3349
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/pivot-text-number-coercion.test.ts",
+      "git_blob_sha1": "36cc64622ece063f403bcab32f06cc05f6f252e1",
+      "bytes": 1781
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/read-basic-workbook-dangling-sheet.test.ts",
+      "git_blob_sha1": "3714dff62011ad58d9dfba7a8166b0b384534470",
+      "bytes": 3000
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/self-closing-cell-patch.test.ts",
+      "git_blob_sha1": "85c64dc4a37185dc42dbcaa24015de8c131b15ec",
+      "bytes": 5172
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/set-range-jagged-message.test.ts",
+      "git_blob_sha1": "1da52430497355880ce91e63a042baf59672d0a0",
+      "bytes": 1410
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/sheet-protection.test.ts",
+      "git_blob_sha1": "1ba8aa514823bfbfc96fa03a0ace86a8f3f72130",
+      "bytes": 6803
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/sheet-very-hidden-state.test.ts",
+      "git_blob_sha1": "6e1fbfd22d05900af830faebf828804462d3362a",
+      "bytes": 2028
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/sort-range.test.ts",
+      "git_blob_sha1": "f7bd78e729c3522b9fd6b908d4c0b2549d98038c",
+      "bytes": 2470
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/structural-auto-filter.test.ts",
+      "git_blob_sha1": "ccce47f0da842afbb202123fed8b63bd712aa0ea",
+      "bytes": 2421
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/structural-cross-sheet.test.ts",
+      "git_blob_sha1": "1d99807ddd6f188792db5433368f4ecc5face704",
+      "bytes": 3385
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/structural-infer-addresses.test.ts",
+      "git_blob_sha1": "cebee98f6f422815bf9fab482a5a372b71c39075",
+      "bytes": 2170
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/structural-outline.test.ts",
+      "git_blob_sha1": "a999832f70f5f0ea88be2c00d8cffbc457c74a1d",
+      "bytes": 4493
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/structural-pivot-source.test.ts",
+      "git_blob_sha1": "92e2f7eba19992e54caacc70edcaf03b0af5cc27",
+      "bytes": 5723
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/structural-ranged-features.test.ts",
+      "git_blob_sha1": "9889e095e20d7e2cc6704d4dbab704fe884a8dbf",
+      "bytes": 2317
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/style-color.test.ts",
+      "git_blob_sha1": "35316e001accf62f2c7c9ff6c48d149dda5f4478",
+      "bytes": 2244
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/style-vert-align.test.ts",
+      "git_blob_sha1": "048dddf38007ba830e90635010e2b7896583606e",
+      "bytes": 1483
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/table-add-validation.test.ts",
+      "git_blob_sha1": "986b68d56130d997c66ef87e1fe8055db98a6049",
+      "bytes": 1918
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/threaded-comments-sync.test.ts",
+      "git_blob_sha1": "48291640e6924146e6bb96f9bfc675d745d9bfe8",
+      "bytes": 15564
+    },
+    {
+      "path": "packages/xlsx-gateway/tests/workbook-bounds.test.ts",
+      "git_blob_sha1": "a8e48d639d0d982fba519af2b679160b12e4402a",
+      "bytes": 1079
+    },
+    {
+      "path": "packages/xlsx-gateway/tsconfig.json",
+      "git_blob_sha1": "265812b0f92d9415924f8535c87a937dd5f1ce9b",
+      "bytes": 420
+    },
+    {
+      "path": "packages/xlsx-gateway/vitest.config.ts",
+      "git_blob_sha1": "fdc640f1949b0d570a01b420ee35e6f4c0070a17",
+      "bytes": 180
+    },
+    {
+      "path": "packages/zip-gate/package.json",
+      "git_blob_sha1": "02ba2de51e24650b618652dc826aee087a64e083",
+      "bytes": 587
+    },
+    {
+      "path": "packages/zip-gate/src/byte-stream.ts",
+      "git_blob_sha1": "1dbb2c3936f237f5233712cb19c6334f21fa574e",
+      "bytes": 1950
+    },
+    {
+      "path": "packages/zip-gate/src/index.ts",
+      "git_blob_sha1": "857e68cb3ce0e07d27a059fc00971292b12e0f77",
+      "bytes": 10391
+    },
+    {
+      "path": "packages/zip-gate/tests/zip-gate.test.ts",
+      "git_blob_sha1": "41b8b4374105a03861c115b3abad5460538820ab",
+      "bytes": 5629
+    },
+    {
+      "path": "packages/zip-gate/tsconfig.json",
+      "git_blob_sha1": "d4acc2b48025a89adff3fc4aa12086b48c8e60cb",
+      "bytes": 95
+    },
+    {
+      "path": "packages/zip-gate/vitest.config.ts",
+      "git_blob_sha1": "b31aa2a51f86a95aa5f989b9c40948b2ce9aac59",
+      "bytes": 156
+    },
+    {
+      "path": "tsconfig.base.json",
+      "git_blob_sha1": "fa90ac9303f35b65068f3323024d6b3b64e19002",
+      "bytes": 366
+    }
+  ]
+}

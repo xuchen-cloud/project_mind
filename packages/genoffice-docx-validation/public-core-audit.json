@@ -1,0 +1,708 @@
+{
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "verified_source_count": 528,
+  "bundled_upstream_source_count": 242,
+  "remaining_browser_imports": [],
+  "ee_in_bundle": false,
+  "source_matches": [
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 128,
+      "text": "isPictureWatermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 129,
+      "text": "pictureWatermarkPreviewImage,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 130,
+      "text": "readPictureWatermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 131,
+      "text": "readWatermarkText,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 132,
+      "text": "type PictureWatermarkInfo,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 133,
+      "text": "type PictureWatermarkSpec,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 134,
+      "text": "type Watermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 135,
+      "text": "type WatermarkSpec,"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "line": 136,
+      "text": "} from './watermark'"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 9,
+      "text": "import type { HfImage, PictureWatermarkInfo } from './types'"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 13,
+      "text": "* Text watermark support. Word implements watermarks as a VML shape with a"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 18,
+      "text": "/** namespaces the header part root needs when it carries a VML watermark */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 19,
+      "text": "export const WATERMARK_NS ="
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 24,
+      "text": "/** read the watermark text from a header part; null when it has none */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 25,
+      "text": "export function readWatermarkText(headerXml: string): string | null {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 39,
+      "text": "* Display geometry of a WordArt watermark pict: box size, rotation, anchor,"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 43,
+      "text": "export function readWatermarkShape(pictXml: string): HfImage | null {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 44,
+      "text": "const text = readWatermarkText(pictXml)"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 86,
+      "text": "/** Text watermark as written by set_watermark / the Design tab; a bare string is the text alone. */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 87,
+      "text": "export interface WatermarkSpec {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 100,
+      "text": "/** Picture watermark as written by set_watermark / Word's Design tab. */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 101,
+      "text": "export interface PictureWatermarkSpec {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 115,
+      "text": "export type Watermark = string | WatermarkSpec | PictureWatermarkSpec"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 117,
+      "text": "export function isPictureWatermark(wm: Watermark): wm is PictureWatermarkSpec {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 121,
+      "text": "const PICTURE_WATERMARK_ID ="
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 122,
+      "text": "/<v:shape\\b[^>]*\\bid=\"(?:WordPictureWatermark|PowerPlusWaterMarkObject)/"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 124,
+      "text": "/** header part child that carries the watermark (Word wraps the paragraph in a Watermarks-gallery sdt) */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 125,
+      "text": "export function isWatermarkChild(child: { name: string; xml: string }): boolean {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 130,
+      "text": "(PICTURE_WATERMARK_ID.test(child.xml) ||"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 131,
+      "text": "child.xml.includes('<w:docPartGallery w:val=\"Watermarks\"/>'))"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 135,
+      "text": "export type { PictureWatermarkInfo }"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 137,
+      "text": "/** a VML shape written as a picture watermark (Word's or ours) */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 138,
+      "text": "export function isPictureWatermarkShape(xml: string): boolean {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 139,
+      "text": "return PICTURE_WATERMARK_ID.test(xml)"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 143,
+      "text": "* The header image a pending (unsaved) picture watermark will parse back as,"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 146,
+      "text": "export function pictureWatermarkPreviewImage("
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 147,
+      "text": "spec: PictureWatermarkSpec,"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 150,
+      "text": "const box = pictureWatermarkBoxPt(spec, marginBox)"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 157,
+      "text": "watermark: true,"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 181,
+      "text": "* the picture watermark of a header part; null when it has none."
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 185,
+      "text": "* reclaim the relationship the old watermark owned and leaves it orphaned"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 188,
+      "text": "export function readPictureWatermark(headerXml: string): PictureWatermarkInfo | null {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 191,
+      "text": "if (!PICTURE_WATERMARK_ID.test(shape) && !isWatermarkChild({ name: 'w:p', xml: shape }))"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 206,
+      "text": "/** Box the picture watermark occupies, in points: explicit scale, or fitted inside the margin box. */"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 207,
+      "text": "export function pictureWatermarkBoxPt("
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 208,
+      "text": "spec: PictureWatermarkSpec,"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 227,
+      "text": "* The picture watermark Word generates (shapetype 75 = picture frame) in the"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 228,
+      "text": "* Watermarks building-block sdt, centered on the margin box behind the body."
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 231,
+      "text": "export function pictureWatermarkParagraphXml("
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 232,
+      "text": "spec: PictureWatermarkSpec,"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 236,
+      "text": "const box = pictureWatermarkBoxPt(spec, marginBox)"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 252,
+      "text": "'<v:shape id=\"WordPictureWatermark1\" o:spid=\"_x0000_s2050\" type=\"#_x0000_t75\"' +"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 258,
+      "text": "`<v:imagedata r:id=\"${escapeXmlAttr(rId)}\" o:title=\"watermark\"${washout}/>` +"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 261,
+      "text": "'<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Watermarks\"/><w:docPartUnique/></w:docPartObj></w:sdtPr>' +"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 267,
+      "text": "* The gray text watermark Word generates (shapetype 136 = text-on-path),"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 268,
+      "text": "* wrapped in the Watermarks building-block sdt so Word's Design tab"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 271,
+      "text": "export function watermarkParagraphXml(spec: string | WatermarkSpec): string {"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 285,
+      "text": "'<v:shape id=\"PowerPlusWaterMarkObject1\" o:spid=\"_x0000_s2049\" type=\"#_x0000_t136\"' +"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "line": 311,
+      "text": "'<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Watermarks\"/><w:docPartUnique/></w:docPartObj></w:sdtPr>' +"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 87,
+      "text": "WATERMARK_NS,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 88,
+      "text": "isPictureWatermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 89,
+      "text": "isWatermarkChild,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 90,
+      "text": "pictureWatermarkParagraphXml,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 91,
+      "text": "readPictureWatermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 92,
+      "text": "watermarkParagraphXml,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 93,
+      "text": "type Watermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 94,
+      "text": "} from './watermark'"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 276,
+      "text": "* watermark owned and to tell which ids the part already hands out, so the two"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 488,
+      "text": "* Watermark in the default page header: a string / text spec / picture spec"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 491,
+      "text": "watermark?: Watermark | null"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 695,
+      "text": "options.watermark === undefined &&"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 960,
+      "text": "/** header-part rels rewritten for a picture watermark (path -> xml) */"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 962,
+      "text": "// the page box the watermark is fitted to must be the one this save writes"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 989,
+      "text": "* The watermark paragraph XML for a header part: undefined = keep the part's"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 990,
+      "text": "* own watermark, '' = remove it, otherwise the regenerated sdt. A picture"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 991,
+      "text": "* watermark lands its media part and an image relationship in the part's"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 992,
+      "text": "* own rels; a superseded picture watermark's relationship is dropped."
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 994,
+      "text": "const watermarkXmlFor = async ("
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 995,
+      "text": "watermark: Watermark | null | undefined,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 999,
+      "text": "if (watermark === undefined) return undefined"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1007,
+      "text": "const old = originalXml ? readPictureWatermark(originalXml) : null"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1017,
+      "text": "if (watermark === null) xml = ''"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1018,
+      "text": "else if (!isPictureWatermark(watermark)) xml = watermarkParagraphXml(watermark)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1020,
+      "text": "const mediaPath = landMedia(watermark.image)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1027,
+      "text": "xml = pictureWatermarkParagraphXml(watermark, rId, marginBoxPt)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1035,
+      "text": "watermark: Watermark | null | undefined = undefined,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1037,
+      "text": "watermarkOnly = false,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1056,
+      "text": "kind === 'header' ? await watermarkXmlFor(watermark, path, originalXml) : undefined"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1057,
+      "text": "// A watermark-only change patches the original part in place (tables/logos/fields"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1061,
+      "text": "if (watermarkOnly && kind === 'header' && originalXml && wmXml !== undefined) {"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1062,
+      "text": "partXml = patchWatermarkInPart(originalXml, wmXml)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1075,
+      "text": "kind === 'header' ? await watermarkXmlFor(watermark, `word/${filename}`, null) : undefined"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1086,
+      "text": "// A watermark change forces a header-part rewrite even when the header text"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1087,
+      "text": "// itself is untouched; a header rewrite without a watermark change keeps the"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1088,
+      "text": "// part's own watermark bytes."
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1091,
+      "text": "(options.watermark !== undefined ? { text: parsed.headerText ?? '' } : undefined)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1095,
+      "text": "options.watermark,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1968,
+      "text": "* carry the page watermark shape when one is set."
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1970,
+      "text": "/** Add the namespaces a VML watermark needs to the original part's root tag (existing ones untouched) */"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1971,
+      "text": "function withWatermarkNs(openTag: string): string {"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1985,
+      "text": "* In-place patch for a watermark-only change: drop the old watermark paragraph (<w:p>"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1986,
+      "text": "* containing v:textpath), insert the new watermark at the start of the part, and keep"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1990,
+      "text": "function patchWatermarkInPart(originalXml: string, watermarkXml: string): string | null {"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1998,
+      "text": "const kept = splitXmlChildren(inner).filter((c) => !isWatermarkChild(c))"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 1999,
+      "text": "const rootOpen = watermarkXml ? withWatermarkNs(open) : open"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2000,
+      "text": "return `${prefix}${rootOpen}${watermarkXml}${kept.map((c) => c.xml).join('')}</w:hdr>`"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2003,
+      "text": "/** `watermarkXml`: undefined keeps the part's own watermark child, '' drops it, otherwise replaces it */"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2007,
+      "text": "watermarkXml: string | undefined = undefined,"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2094,
+      "text": "const body = `${watermarkXml ?? ''}${content}`"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2098,
+      "text": "// whole at the position of the first text paragraph. The watermark child is kept"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2099,
+      "text": "// verbatim unless watermarkXml replaces or drops it."
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2117,
+      "text": "c.name === 'w:p' && !isWatermarkChild(c) && !isProtectedPara(c.xml)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2127,
+      "text": "} else if (isWatermarkChild(c) && watermarkXml !== undefined) {"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2128,
+      "text": "// superseded by the watermark in body (or removed)"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2134,
+      "text": "const rootOpen = watermarkXml ? withWatermarkNs(open) : open"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2143,
+      "text": "`${WATERMARK_NS}>` +"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "line": 2583,
+      "text": "* original producer used: seeded from it alone, a document with no GenOffice"
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/extensions.ts",
+      "line": 96,
+      "text": "} from '@genoffice/docx-engine'"
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/extensions.ts",
+      "line": 1807,
+      "text": "// no rule matched before r117 — pasting a GenOffice list item degraded it"
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/extensions.ts",
+      "line": 3593,
+      "text": "// and redraws the table from the model on every mousemove (genoffice#1156)"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 9,
+      "text": "} from '@genoffice/docx-engine'"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 10,
+      "text": "import { decodeEntities } from '@genoffice/docx-engine'"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 817,
+      "text": "className=\"pv-watermark-img\""
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 830,
+      "text": "<span className=\"pv-watermark-img\" aria-hidden=\"true\" style={{ ...base, overflow: 'hidden' }}>"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 847,
+      "text": "<img className=\"pv-watermark-img\" src={img.dataUrl} alt=\"\" aria-hidden=\"true\" style={base} />"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 861,
+      "text": "watermark,"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 862,
+      "text": "watermarkDirty,"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 863,
+      "text": "watermarkPicture,"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 894,
+      "text": "watermark: string | null"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 895,
+      "text": "/** unsaved Design → Watermark edit: draw `watermark` as the ghost text and hide the parsed WordArt shape */"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 896,
+      "text": "watermarkDirty?: boolean"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 897,
+      "text": "/** unsaved picture watermark (set_watermark image): drawn in place of the parsed watermark shape */"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 898,
+      "text": "watermarkPicture?: HfImage | null"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 1589,
+      "text": "{watermark && watermarkDirty && ("
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 1590,
+      "text": "<div className=\"page-watermark\" aria-hidden=\"true\">"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 1591,
+      "text": "{watermark}"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 1622,
+      "text": "...(watermarkDirty && watermarkPicture ? [watermarkPicture] : []),"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 1627,
+      "text": "!(watermarkDirty && (img.wordArt || img.watermark)),"
+    },
+    {
+      "path": "apps/docs/src/renderer/components/PaginationPreview.tsx",
+      "line": 1630,
+      "text": "// picture watermark (anchored image in the header): drawn once"
+    }
+  ],
+  "conclusion": "公开 core 的 watermark 为 DOCX 内容/用户编辑功能；调查路径未发现强制品牌水印或运行时 license key。薄宿主实际交互由主 agent 验证，完整 PaginationPreview 尚未挂载。",
+  "license": "Apache-2.0; upstream LICENSE/NOTICE retained; third-party and font notices retained as fetched source, binary font assets not downloaded",
+  "preview_runtime_verified": false,
+  "archive_strategy": "Recorded source audit reused; upstream sources and generated bundles are re-fetched/rebuilt from locked provenance and excluded from submission; LICENSE/NOTICE retained separately."
+}

@@ -1,0 +1,99 @@
+{
+  "upstreamSha": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "node": "v26.8.1",
+  "results": [
+    {
+      "kind": "simple",
+      "mode": "noop",
+      "status": "failed",
+      "candidate": "/tmp/project-mind-genoffice-pptx-validation-20261013/simple.noop.pptx",
+      "sha256": "9988f62fdfd84d52a91f945220d5763ab1fefad7819a06ebf1222851364c927f",
+      "bytes": 44627,
+      "elapsedMs": 73.64887499999998,
+      "replacement": null,
+      "slides": 3,
+      "renderNodeCounts": [
+        5,
+        3,
+        3
+      ],
+      "sdkSemanticMatch": false
+    },
+    {
+      "kind": "simple",
+      "mode": "edited",
+      "status": "failed",
+      "candidate": "/tmp/project-mind-genoffice-pptx-validation-20261013/simple.edited.pptx",
+      "sha256": "6aeffd3681eae995f3dda61457f883fd7841a3758f474e4de4588db737faf808",
+      "bytes": 44786,
+      "elapsedMs": 45.05995800000005,
+      "replacement": {
+        "count": 1,
+        "changedSlides": [
+          0
+        ]
+      },
+      "slides": 3,
+      "renderNodeCounts": [
+        5,
+        3,
+        3
+      ],
+      "sdkSemanticMatch": false
+    },
+    {
+      "kind": "complex",
+      "mode": "noop",
+      "status": "failed",
+      "candidate": "/tmp/project-mind-genoffice-pptx-validation-20261013/complex.noop.pptx",
+      "sha256": "0ae3d4e42bc4e6de9a4d20759638a36a395a3964952550c6ca70b3a6f7386a11",
+      "bytes": 59685,
+      "elapsedMs": 73.83850000000007,
+      "replacement": null,
+      "slides": 3,
+      "renderNodeCounts": [
+        7,
+        5,
+        4
+      ],
+      "sdkSemanticMatch": false
+    },
+    {
+      "kind": "complex",
+      "mode": "edited",
+      "status": "failed",
+      "candidate": "/tmp/project-mind-genoffice-pptx-validation-20261013/complex.edited.pptx",
+      "sha256": "862e8dafbebec985408e8371539dffa81a7d32605549a25beb052209a7dc8f2b",
+      "bytes": 59840,
+      "elapsedMs": 60.06933300000003,
+      "replacement": {
+        "count": 1,
+        "changedSlides": [
+          0
+        ]
+      },
+      "slides": 3,
+      "renderNodeCounts": [
+        7,
+        5,
+        4
+      ],
+      "sdkSemanticMatch": false
+    }
+  ],
+  "originalHashes": [
+    {
+      "kind": "simple",
+      "source": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "copy": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "expected": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d"
+    },
+    {
+      "kind": "complex",
+      "source": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "copy": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "expected": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891"
+    }
+  ],
+  "originalsUnchanged": true
+}

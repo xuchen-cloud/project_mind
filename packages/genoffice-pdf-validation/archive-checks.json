@@ -1,0 +1,348 @@
+{
+  "scope": "Archive syntax/link/source/hash checks only; no runtime or PNG rerun",
+  "status": "passed",
+  "checks": [
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/main/text-edit.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/main/font-cmap.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/main/font-locate.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/main/font-subset.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/main/wasm-path.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/shared/ipc.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/shared/radicals.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/shared/x-layers.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:packages/font-metrics/src/index.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:packages/font-metrics/src/advance.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:packages/font-metrics/src/font-locate.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:packages/font-metrics/src/metrics.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:packages/font-metrics/src/sfnt.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/package.json",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:packages/font-metrics/package.json",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "unchanged_fixed_source:apps/pdf/src/main/save-pdf.ts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "private_verifier_exact_body_hash",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "python_syntax:bootstrap.py",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "python_syntax:fixture.py",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "python_syntax:archive-checks.py",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "python_syntax:external.py",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "node_syntax:validate.mjs",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "assertion": "node_syntax:final-verify.mjs",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "assertion": "node_syntax:build.mjs",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "assertion": "local_links:README.md",
+      "passed": true,
+      "details": []
+    },
+    {
+      "assertion": "local_links:findings.md",
+      "passed": true,
+      "details": []
+    },
+    {
+      "assertion": "local_links:work-package.md",
+      "passed": true,
+      "details": []
+    },
+    {
+      "assertion": "local_links:pdf-integration-candidate-research-20261013.md",
+      "passed": true,
+      "details": []
+    },
+    {
+      "assertion": "original_hash:simple",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "original_hash:complex",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "candidate_hash:simple",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "independent_pypdf:simple",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "candidate_hash:complex",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "independent_pypdf:complex",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "final_stage_hash:simple",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "final_stage_hash:complex",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "wasm_hash:pdfium.wasm",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "wasm_hash:hb-subset.wasm",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "font_source_hash",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "dependency_version:@embedpdf/pdfium",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "dependency_version:harfbuzzjs",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "dependency_version:pdf-lib",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "dependency_version:esbuild",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "prior_form_visual_hash:simple.original.pdf",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "prior_form_visual_hash:simple.pdfjs-form.pdf",
+      "passed": true,
+      "details": null
+    },
+    {
+      "assertion": "english_original_rect_failure_preserved",
+      "passed": true,
+      "details": null
+    }
+  ],
+  "evidence_inventory": [
+    {
+      "path": "complex.core-edited.pdf",
+      "bytes": 62294,
+      "sha256": "1f8b909fad8093714abe428980ddd87caa1231bb145c23bda7672b12c76426be"
+    },
+    {
+      "path": "complex.original.pdf",
+      "bytes": 47218,
+      "sha256": "db97c42390689d88168781d4ec3cb6f6b093593203ee0dc6be18630aeda82fac"
+    },
+    {
+      "path": "complex.pdflib-final-stage.pdf",
+      "bytes": 62871,
+      "sha256": "25499528bd62d1b919de3ba6705181ce823d1e941f50d4c9bd73464649434dfc"
+    },
+    {
+      "path": "evidence/visual/complex.core-edited/page-1.png",
+      "bytes": 18355,
+      "sha256": "dfa403f310a4bfa23401b6eb6e088e44b37bfabcfc8725f1fb7dee4c5ce4440e"
+    },
+    {
+      "path": "evidence/visual/complex.core-edited/page-2.png",
+      "bytes": 7690,
+      "sha256": "352061972510c003c01c6f923de4fdab4b1b0d300592255c2174d4040419767f"
+    },
+    {
+      "path": "evidence/visual/complex.core-edited/text.txt",
+      "bytes": 244,
+      "sha256": "e0b8ec2ca0b4bc1c9cd7f0c466534ed2685d6b58dc7655cdc7a9caa48f63c65e"
+    },
+    {
+      "path": "evidence/visual/complex.original/page-1.png",
+      "bytes": 18120,
+      "sha256": "2f97596861c5e203c806bb17a88c635e2fcef4e5b794a9b65eaf295b80e4a092"
+    },
+    {
+      "path": "evidence/visual/complex.original/page-2.png",
+      "bytes": 7690,
+      "sha256": "352061972510c003c01c6f923de4fdab4b1b0d300592255c2174d4040419767f"
+    },
+    {
+      "path": "evidence/visual/complex.original/text.txt",
+      "bytes": 244,
+      "sha256": "542ba5a4088e18cc00138ec9458d4c9e36eb6a423b38f9893daac4c2766be9db"
+    },
+    {
+      "path": "evidence/visual/complex.page1-comparison.png",
+      "bytes": 17094,
+      "sha256": "e67df060f20ddfae76afc739d587806972020e3a71ab80dfc51c20f70c8f3ab6"
+    },
+    {
+      "path": "evidence/visual/simple.core-edited/page-1.png",
+      "bytes": 13060,
+      "sha256": "53017d28f95c9def32d18e1a8665f750fc2a8ed5fbe959c0ae3347cffcbbbdf7"
+    },
+    {
+      "path": "evidence/visual/simple.core-edited/page-2.png",
+      "bytes": 4790,
+      "sha256": "1bde505418273d35bb8df678f37dcd6ad881902354741ec50b7a47d4ca97169f"
+    },
+    {
+      "path": "evidence/visual/simple.core-edited/text.txt",
+      "bytes": 133,
+      "sha256": "e9a53fcfd1a114585fd52a6dccd96e4ae0c5541618366df4cab8b19d1cc76295"
+    },
+    {
+      "path": "evidence/visual/simple.original/page-1.png",
+      "bytes": 13237,
+      "sha256": "6de41cbdc230d1603f220b041031f1834e2e7a8fa4f2e372c4f8be9c470c4fd3"
+    },
+    {
+      "path": "evidence/visual/simple.original/page-2.png",
+      "bytes": 4790,
+      "sha256": "1bde505418273d35bb8df678f37dcd6ad881902354741ec50b7a47d4ca97169f"
+    },
+    {
+      "path": "evidence/visual/simple.original/text.txt",
+      "bytes": 133,
+      "sha256": "6dd8f3c258939eb07c3edd67be2b41df245c4fcba97df365441caccc22a218f0"
+    },
+    {
+      "path": "evidence/visual/simple.page1-comparison.png",
+      "bytes": 12684,
+      "sha256": "b795b532abcb02d4bff1f66097ad733588f8b7571ad29acf4091cb0496b45218"
+    },
+    {
+      "path": "fixture-image.png",
+      "bytes": 149,
+      "sha256": "879ab05e9fc6eb8a9af3a2a4b43377576975978df790b64519a92862af412c83"
+    },
+    {
+      "path": "simple.core-edited.pdf",
+      "bytes": 7736,
+      "sha256": "d5dd1bfc769791a144568c788bdf7e2bcc037a43d65fa16336d0dd4c403b6e7d"
+    },
+    {
+      "path": "simple.mismatch-candidate.pdf",
+      "bytes": 8210,
+      "sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305"
+    },
+    {
+      "path": "simple.original.pdf",
+      "bytes": 8210,
+      "sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305"
+    },
+    {
+      "path": "simple.pdflib-final-stage.pdf",
+      "bytes": 8249,
+      "sha256": "60e187082df5804950d59ee06d2db6a405a473807692f86be6283ac660902399"
+    }
+  ]
+}

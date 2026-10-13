@@ -1,0 +1,34 @@
+{
+  "execution_owner": "main agent",
+  "reported_by": "user messages 2026-10-13",
+  "browsers": [
+    "Chrome/Chromium",
+    "WebKit"
+  ],
+  "fixtures": [
+    "simple",
+    "complex"
+  ],
+  "interaction": "upstream Editor + editorExtensions; select button sets real text selection, keyboard.type replaces paragraph and table cell; getJSON → savePmDoc → POST candidate → openDocx reopen",
+  "candidate_independent_checks": {
+    "chromium/simple": 20,
+    "chromium/complex": 20,
+    "webkit/simple": 20,
+    "webkit/complex": 20
+  },
+  "image": {
+    "visible": true,
+    "actual_natural_width": 160
+  },
+  "console": {
+    "chromium": "favicon404 only; no format exception reported"
+  },
+  "thin_host_limitations": [
+    "no full pagination",
+    "no header/footer UI",
+    "no complete toolbar"
+  ],
+  "screenshot_repository_path": "packages/office-validation/evidence/browser/screenshots/genoffice-docx-webkit.png",
+  "not_reexecuted_here": true,
+  "LO_external_reopen_owner": "main agent"
+}

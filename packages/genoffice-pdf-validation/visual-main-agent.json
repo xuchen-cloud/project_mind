@@ -1,0 +1,22 @@
+{
+  "owner": "main agent; observation relayed by authorized user",
+  "scope": "GenOffice controlled originals/core-edited only; no GUI editing claim",
+  "inspected": [
+    "evidence/visual/complex.original/page-1.png",
+    "evidence/visual/complex.core-edited/page-1.png",
+    "evidence/visual/complex.core-edited/page-2.png",
+    "evidence/visual/simple.page1-comparison.png"
+  ],
+  "observed": [
+    "Chinese source 山川 and replacement 星辰 are clear and genuinely visible",
+    "Unedited paragraphs, blue image, Alice form and page-two Chinese remain visible",
+    "No added watermark observed in inspected PNGs",
+    "No visible overlap in the English comparison; new glyph width extends the original edit rect by four pixels"
+  ],
+  "retained_limits": [
+    "English outside-original-rect pixel assertion remains false/limited",
+    "Not arbitrary fixed-box layout preservation",
+    "Not all PDFs, fonts, GUI or File CAS",
+    "Poppler reported default fontconfig config absent"
+  ]
+}

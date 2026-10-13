@@ -1,0 +1,1273 @@
+{
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "tree_sha": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "LICENSE",
+      "git_blob_sha1": "3017411926aa8731558e70c3d16f6ce0b6f68d5c",
+      "bytes": 11345
+    },
+    {
+      "path": "NOTICE",
+      "git_blob_sha1": "34d8590f9b07df119df295d6eb02194bfd75cdd5",
+      "bytes": 2489
+    },
+    {
+      "path": "packages/agent-core/package.json",
+      "git_blob_sha1": "a1d678658a4c462d62c5654de5c345e52c472915",
+      "bytes": 614
+    },
+    {
+      "path": "packages/agent-core/src/electron-transport.ts",
+      "git_blob_sha1": "4b0f073351c842431facfb477786f8733853717f",
+      "bytes": 6291
+    },
+    {
+      "path": "packages/agent-core/src/index.ts",
+      "git_blob_sha1": "34e0b20b3e7a991660058160773d106b679b2b97",
+      "bytes": 1188
+    },
+    {
+      "path": "packages/agent-core/src/knowledge-base-skill.ts",
+      "git_blob_sha1": "a18888c1580812c1123f114201c0801097d24cb8",
+      "bytes": 9056
+    },
+    {
+      "path": "packages/agent-core/src/loop.ts",
+      "git_blob_sha1": "7555adfc501b980491ffc6859bd07e4e7a9c2194",
+      "bytes": 56414
+    },
+    {
+      "path": "packages/agent-core/src/redact-core.ts",
+      "git_blob_sha1": "367cae89f74d29cc15fb78d481756a376546a41c",
+      "bytes": 7103
+    },
+    {
+      "path": "packages/agent-core/src/redact-range.ts",
+      "git_blob_sha1": "923f1bab049243fdcc943269185adcc9433de672",
+      "bytes": 8100
+    },
+    {
+      "path": "packages/agent-core/src/skill.ts",
+      "git_blob_sha1": "72b122c5c5c954c22fe55d573a341d4bc71c2f14",
+      "bytes": 3408
+    },
+    {
+      "path": "packages/agent-core/src/stream-text.ts",
+      "git_blob_sha1": "52d9d7da53d7c7c562936c43ff15a4c3dc35c586",
+      "bytes": 4872
+    },
+    {
+      "path": "packages/agent-core/src/types.ts",
+      "git_blob_sha1": "197002be9e6338fe64c0561aa502e9e2e68d9748",
+      "bytes": 4594
+    },
+    {
+      "path": "packages/agent-core/tests/compaction-reset.test.ts",
+      "git_blob_sha1": "1b4043a1003a1d54149856a9c13240eee4825a73",
+      "bytes": 5309
+    },
+    {
+      "path": "packages/agent-core/tests/electron-transport.test.ts",
+      "git_blob_sha1": "55cda78921346e19f2c0dbb183fd84da2db0c946",
+      "bytes": 8736
+    },
+    {
+      "path": "packages/agent-core/tests/knowledge-base-skill.test.ts",
+      "git_blob_sha1": "0a9f4878323c9d703fb62ff7e7d8316b52146c26",
+      "bytes": 6881
+    },
+    {
+      "path": "packages/agent-core/tests/loop-restore-orphan.test.ts",
+      "git_blob_sha1": "015012747950c32b307236c040ca2b4f778b8174",
+      "bytes": 3536
+    },
+    {
+      "path": "packages/agent-core/tests/loop.test.ts",
+      "git_blob_sha1": "d4a68cacf3c2362cc473a2cf44189d99416e130a",
+      "bytes": 92579
+    },
+    {
+      "path": "packages/agent-core/tests/redact-core.test.ts",
+      "git_blob_sha1": "78206b3a1d961f54ff8090ef0e6bba9b6bc47cd6",
+      "bytes": 5802
+    },
+    {
+      "path": "packages/agent-core/tests/redact-range.test.ts",
+      "git_blob_sha1": "3db21854d0cf07631da9d0904895c6ebf6aa6866",
+      "bytes": 7682
+    },
+    {
+      "path": "packages/agent-core/tests/sanitize-payload.test.ts",
+      "git_blob_sha1": "2fc5e1abaee490a641e332f06bd12ba69a71d645",
+      "bytes": 4559
+    },
+    {
+      "path": "packages/agent-core/tests/stream-text-guard.test.ts",
+      "git_blob_sha1": "57cbfc0d9c903b6ae7c9ac1bfcbeeeb3b64c42dd",
+      "bytes": 4891
+    },
+    {
+      "path": "packages/agent-core/tests/stream-text.test.ts",
+      "git_blob_sha1": "ed409ef56203d6a73412479f3155367d9dea8f23",
+      "bytes": 7095
+    },
+    {
+      "path": "packages/agent-core/tsconfig.json",
+      "git_blob_sha1": "d4acc2b48025a89adff3fc4aa12086b48c8e60cb",
+      "bytes": 95
+    },
+    {
+      "path": "packages/agent-core/vitest.config.ts",
+      "git_blob_sha1": "b31aa2a51f86a95aa5f989b9c40948b2ce9aac59",
+      "bytes": 156
+    },
+    {
+      "path": "packages/pptx-engine/package.json",
+      "git_blob_sha1": "609158edb91f5143c3e5c2635f4e99d2ece96e8e",
+      "bytes": 935
+    },
+    {
+      "path": "packages/pptx-engine/src/align.ts",
+      "git_blob_sha1": "5b084b5b01fe08568275f041aef1c9a44b9cf83c",
+      "bytes": 4838
+    },
+    {
+      "path": "packages/pptx-engine/src/animation.ts",
+      "git_blob_sha1": "4b8555b6e02d4f631d6784ca604b29c0f437a40b",
+      "bytes": 50637
+    },
+    {
+      "path": "packages/pptx-engine/src/background-promote.ts",
+      "git_blob_sha1": "eb204ce9ebca49c9e19612e893c29e16b21ee484",
+      "bytes": 4852
+    },
+    {
+      "path": "packages/pptx-engine/src/blank.ts",
+      "git_blob_sha1": "239af8b834238d2085d4f80e4af083255c2b7dc0",
+      "bytes": 8870
+    },
+    {
+      "path": "packages/pptx-engine/src/builtin-layouts.ts",
+      "git_blob_sha1": "fc83c034c82fc7b9bf4d2710722131dd3c45502c",
+      "bytes": 9019
+    },
+    {
+      "path": "packages/pptx-engine/src/chart-insert.ts",
+      "git_blob_sha1": "a36199f1cf91bd383579c6da2509af9c3076592e",
+      "bytes": 19030
+    },
+    {
+      "path": "packages/pptx-engine/src/chart.ts",
+      "git_blob_sha1": "c23671e7ffde58434b81946094ab1e7140405ba3",
+      "bytes": 63740
+    },
+    {
+      "path": "packages/pptx-engine/src/chartex.ts",
+      "git_blob_sha1": "15c2291e6416c2510a1c282abf8fec81ac196b6f",
+      "bytes": 4951
+    },
+    {
+      "path": "packages/pptx-engine/src/color.ts",
+      "git_blob_sha1": "6b23bd13b2e03c133c2c1697152d0090ed9a88cc",
+      "bytes": 11322
+    },
+    {
+      "path": "packages/pptx-engine/src/comments.ts",
+      "git_blob_sha1": "5f46507826303b34e344c4c95f70bb8818081e19",
+      "bytes": 8848
+    },
+    {
+      "path": "packages/pptx-engine/src/custgeom.ts",
+      "git_blob_sha1": "0d4eb02305d5c66cfd4fc0eb1f796ea024825862",
+      "bytes": 14446
+    },
+    {
+      "path": "packages/pptx-engine/src/dgm-hier.ts",
+      "git_blob_sha1": "c6b4659739a0c3e73a10f6463f704c3ae7d90880",
+      "bytes": 10928
+    },
+    {
+      "path": "packages/pptx-engine/src/embedded-fonts.ts",
+      "git_blob_sha1": "3c4d76ff9e5327fb7217d59d143c731e857173f6",
+      "bytes": 14912
+    },
+    {
+      "path": "packages/pptx-engine/src/format-brush.ts",
+      "git_blob_sha1": "2010c7aae9b64ab8fcca669b8ea5d0c32d926d63",
+      "bytes": 4670
+    },
+    {
+      "path": "packages/pptx-engine/src/generate.ts",
+      "git_blob_sha1": "67cd44fb0e4bf15bf41be6229bb9a9839348fde2",
+      "bytes": 77351
+    },
+    {
+      "path": "packages/pptx-engine/src/headerfooter.ts",
+      "git_blob_sha1": "7964d01105dc4c8932176a7d00177c3986b1a714",
+      "bytes": 5980
+    },
+    {
+      "path": "packages/pptx-engine/src/hyperlink.ts",
+      "git_blob_sha1": "d992f9443fd674b34d22de620a7e5e6ab5fa704d",
+      "bytes": 13121
+    },
+    {
+      "path": "packages/pptx-engine/src/identity.ts",
+      "git_blob_sha1": "3ab7727232a94c90bf5f8144e9f2b8915b1bcd7c",
+      "bytes": 5891
+    },
+    {
+      "path": "packages/pptx-engine/src/index.ts",
+      "git_blob_sha1": "63b4703be0d2a3a4e7b081f12677bfc2e934672d",
+      "bytes": 182628
+    },
+    {
+      "path": "packages/pptx-engine/src/insert.ts",
+      "git_blob_sha1": "560aa4ed199e6bf664a10fdd267a4334dc364e92",
+      "bytes": 28441
+    },
+    {
+      "path": "packages/pptx-engine/src/layout.ts",
+      "git_blob_sha1": "f2e811951dab52909e1185d0f5ac40113d306a4f",
+      "bytes": 11294
+    },
+    {
+      "path": "packages/pptx-engine/src/master-edit.ts",
+      "git_blob_sha1": "e3db22524f1815a135ea77cdb24b4ae6024b07b5",
+      "bytes": 5125
+    },
+    {
+      "path": "packages/pptx-engine/src/media-insert.ts",
+      "git_blob_sha1": "ef2b48fe96844b8dcd18a60ca048a6632c34adbd",
+      "bytes": 11293
+    },
+    {
+      "path": "packages/pptx-engine/src/named-action.ts",
+      "git_blob_sha1": "09bba1571f99f4532d35e757befdc5015032d8d4",
+      "bytes": 848
+    },
+    {
+      "path": "packages/pptx-engine/src/notes.ts",
+      "git_blob_sha1": "b79e992fbd70ed3e7452e4e6e801caa0f7edd96d",
+      "bytes": 10724
+    },
+    {
+      "path": "packages/pptx-engine/src/parse.ts",
+      "git_blob_sha1": "1d0431677018a2d1fe5e9366d94fc543d4056f3c",
+      "bytes": 170846
+    },
+    {
+      "path": "packages/pptx-engine/src/placeholder.ts",
+      "git_blob_sha1": "865fdca3556c9c3761a587f2d82009cc2ba9d0d6",
+      "bytes": 31219
+    },
+    {
+      "path": "packages/pptx-engine/src/preset-shape-types.ts",
+      "git_blob_sha1": "cb92e8b8baf0753a0ccc8165dbd214417a9bc30b",
+      "bytes": 3739
+    },
+    {
+      "path": "packages/pptx-engine/src/redaction-xml.ts",
+      "git_blob_sha1": "2ef7be35bb89ef69361378f1dc204a7889b6f95f",
+      "bytes": 8583
+    },
+    {
+      "path": "packages/pptx-engine/src/resource-cleanup.ts",
+      "git_blob_sha1": "719bbb480af1c7ee8cf90788c4827a5911eae49c",
+      "bytes": 12176
+    },
+    {
+      "path": "packages/pptx-engine/src/scan.ts",
+      "git_blob_sha1": "1c7b119732b0ce6209e05c0e54ebf74e99f60bb7",
+      "bytes": 3987
+    },
+    {
+      "path": "packages/pptx-engine/src/sections.ts",
+      "git_blob_sha1": "42edf147311b1a2b9062acf1f20b474107a81274",
+      "bytes": 14355
+    },
+    {
+      "path": "packages/pptx-engine/src/slide-ids.ts",
+      "git_blob_sha1": "ce0a5026b9bd21fbc9b2e39e753eb4b3368d6a48",
+      "bytes": 1061
+    },
+    {
+      "path": "packages/pptx-engine/src/slide-transfer.ts",
+      "git_blob_sha1": "66884021bfeafd628c5206ebc2630fc6413e3fdb",
+      "bytes": 18584
+    },
+    {
+      "path": "packages/pptx-engine/src/smartart-layout.ts",
+      "git_blob_sha1": "fb4a871717d336f67117746874a651ab1ef78460",
+      "bytes": 5468
+    },
+    {
+      "path": "packages/pptx-engine/src/smartart.ts",
+      "git_blob_sha1": "f65a326a1121bd20838bef6bbd1f2a1adac42b59",
+      "bytes": 3208
+    },
+    {
+      "path": "packages/pptx-engine/src/table-edit.ts",
+      "git_blob_sha1": "9015c6d9a51e303587c298e8c6646828c2a65dc4",
+      "bytes": 18730
+    },
+    {
+      "path": "packages/pptx-engine/src/table-grid.ts",
+      "git_blob_sha1": "3e64e71c321a2566e4dd0ca012d9066dca5008b8",
+      "bytes": 923
+    },
+    {
+      "path": "packages/pptx-engine/src/table-style.ts",
+      "git_blob_sha1": "4af6567c246922c533518f3a97e3a29796665594",
+      "bytes": 27712
+    },
+    {
+      "path": "packages/pptx-engine/src/theme-apply.ts",
+      "git_blob_sha1": "912bf7597b824f7db0ba9ff427d130a986338b13",
+      "bytes": 8717
+    },
+    {
+      "path": "packages/pptx-engine/src/theme.ts",
+      "git_blob_sha1": "b2f41c985af33da978a7883f2a346410929c9db4",
+      "bytes": 11597
+    },
+    {
+      "path": "packages/pptx-engine/src/types.ts",
+      "git_blob_sha1": "d43eec6f465aa735f63e60bba9bd84f34a86e498",
+      "bytes": 33550
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/LICENSE",
+      "git_blob_sha1": "4201f40d931f476b0459e1bf0ec4c84b4e466bfe",
+      "bytes": 17184
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/README.md",
+      "git_blob_sha1": "44130c860bf4bdec44f058d185079612a57b6a6e",
+      "bytes": 1060
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/ctf.ts",
+      "git_blob_sha1": "3b81e985731efae2cd3b6dd58095d575b53be814",
+      "bytes": 20769
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/index.ts",
+      "git_blob_sha1": "05f5df47db73b37a18d55eda53f4073176c11713",
+      "bytes": 444
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/lzcomp.ts",
+      "git_blob_sha1": "309d83b71d859cd8fd963c85fe77bdafa5b95ee0",
+      "bytes": 10845
+    },
+    {
+      "path": "packages/pptx-engine/src/xml-utils.ts",
+      "git_blob_sha1": "0039efa09dd24ecbdf8d9efb3b82877cac5be6ac",
+      "bytes": 4477
+    },
+    {
+      "path": "packages/pptx-engine/src/zip.ts",
+      "git_blob_sha1": "5f479b49f2e12051b7864253526f48bf2c2f5323",
+      "bytes": 10565
+    },
+    {
+      "path": "packages/pptx-engine/tests/align.test.ts",
+      "git_blob_sha1": "25079749a377604ad0e7ada06964ef1ab856ca57",
+      "bytes": 5847
+    },
+    {
+      "path": "packages/pptx-engine/tests/animation-incremental.test.ts",
+      "git_blob_sha1": "ab66e4eb8c3d4b75bcec23e1f97bbd79e262579b",
+      "bytes": 8766
+    },
+    {
+      "path": "packages/pptx-engine/tests/animation-media.test.ts",
+      "git_blob_sha1": "e3a98a000c6b19eada26e5a3524a6865aa6641a3",
+      "bytes": 7899
+    },
+    {
+      "path": "packages/pptx-engine/tests/animation-paragraph.test.ts",
+      "git_blob_sha1": "62062fd35d7a01ae1a112d01c3dfd419cb23c68b",
+      "bytes": 4967
+    },
+    {
+      "path": "packages/pptx-engine/tests/animation-prune-bounded.test.ts",
+      "git_blob_sha1": "ca968528a7f1bae81620f3c8b0dc03c01eee49de",
+      "bytes": 4221
+    },
+    {
+      "path": "packages/pptx-engine/tests/animation.test.ts",
+      "git_blob_sha1": "5fd648c2c433a335ef10df66c7ef679ea62111ba",
+      "bytes": 21562
+    },
+    {
+      "path": "packages/pptx-engine/tests/autofit-writeback.test.ts",
+      "git_blob_sha1": "d22c2890dc7f90f608651fed9c2bca7b47731997",
+      "bytes": 2599
+    },
+    {
+      "path": "packages/pptx-engine/tests/background-promote.test.ts",
+      "git_blob_sha1": "a927bd1db55735617f1e89f9bf645407d846c1a7",
+      "bytes": 4581
+    },
+    {
+      "path": "packages/pptx-engine/tests/bg-fill-inherit.test.ts",
+      "git_blob_sha1": "ed016d197498b04744bfddfca30f50ec9bd2e5b9",
+      "bytes": 3153
+    },
+    {
+      "path": "packages/pptx-engine/tests/blank.test.ts",
+      "git_blob_sha1": "1678709041c561695ff8e5dc032c8e61fc789355",
+      "bytes": 2562
+    },
+    {
+      "path": "packages/pptx-engine/tests/builtin-layouts.test.ts",
+      "git_blob_sha1": "46cf650f3b6372ca780c213da2de85af4b9f75b9",
+      "bytes": 5804
+    },
+    {
+      "path": "packages/pptx-engine/tests/chart-ptcount.test.ts",
+      "git_blob_sha1": "0295466b955d11674299226233a300226063ce31",
+      "bytes": 3226
+    },
+    {
+      "path": "packages/pptx-engine/tests/chart-series-cap.test.ts",
+      "git_blob_sha1": "b009dab48664bc27d7df90890d7eafa8cbb87b11",
+      "bytes": 2459
+    },
+    {
+      "path": "packages/pptx-engine/tests/chart-series-legend.test.ts",
+      "git_blob_sha1": "29af8c479b63a2db3ca9e4a30a185bcd0bc72f68",
+      "bytes": 5143
+    },
+    {
+      "path": "packages/pptx-engine/tests/chart.test.ts",
+      "git_blob_sha1": "980f6c486ab976727bec3aefb31e0ce322aca818",
+      "bytes": 78383
+    },
+    {
+      "path": "packages/pptx-engine/tests/chartex.test.ts",
+      "git_blob_sha1": "e8c5a29178bc29a7117c2f4dab6a5b6b9ec6eab9",
+      "bytes": 3771
+    },
+    {
+      "path": "packages/pptx-engine/tests/clipboard-table-transition.test.ts",
+      "git_blob_sha1": "061a5a7929e3b6e01300714987aa293b8fb35ecc",
+      "bytes": 22213
+    },
+    {
+      "path": "packages/pptx-engine/tests/color-missing-val.test.ts",
+      "git_blob_sha1": "ffb7af5482393e1ffd3ddf7e8675a4dd6d6ccc2b",
+      "bytes": 2807
+    },
+    {
+      "path": "packages/pptx-engine/tests/color-preset.test.ts",
+      "git_blob_sha1": "bded4d64d7d1fb8c40b931c10ca93d0cfecc856d",
+      "bytes": 3542
+    },
+    {
+      "path": "packages/pptx-engine/tests/color-sysclr.test.ts",
+      "git_blob_sha1": "b4b498d5210b1d3facefc2f35f785693c1f875db",
+      "bytes": 1108
+    },
+    {
+      "path": "packages/pptx-engine/tests/connector-connection.test.ts",
+      "git_blob_sha1": "74c7fe24bc928d84a38d4ad2bfc8c51d9ae374fe",
+      "bytes": 3936
+    },
+    {
+      "path": "packages/pptx-engine/tests/connector-decorations.test.ts",
+      "git_blob_sha1": "ce14ce1fc7afc02e7d23fa31b03734916a20823e",
+      "bytes": 5737
+    },
+    {
+      "path": "packages/pptx-engine/tests/connector-follow.test.ts",
+      "git_blob_sha1": "f3edde06825632baad52d94a13610c007da4c314",
+      "bytes": 3118
+    },
+    {
+      "path": "packages/pptx-engine/tests/connector-parse.test.ts",
+      "git_blob_sha1": "8b33f112f353fccd72f9969db6e6df17d63a02b4",
+      "bytes": 7281
+    },
+    {
+      "path": "packages/pptx-engine/tests/copy-slide-across-decks.test.ts",
+      "git_blob_sha1": "a46a63e8de54769d677d37e2b94c4e82a002e288",
+      "bytes": 11246
+    },
+    {
+      "path": "packages/pptx-engine/tests/corpus-edit-fuzz.test.ts",
+      "git_blob_sha1": "067667a986f61f33209e89bcfae6d611b1b6fdd0",
+      "bytes": 8558
+    },
+    {
+      "path": "packages/pptx-engine/tests/custgeom-write.test.ts",
+      "git_blob_sha1": "6f30d92b87fd5bc03d1ab4fe7eb334ee46240026",
+      "bytes": 4417
+    },
+    {
+      "path": "packages/pptx-engine/tests/custgeom.test.ts",
+      "git_blob_sha1": "0e1527a796b7bff5a5b4d6859c7383eb402b0a04",
+      "bytes": 13350
+    },
+    {
+      "path": "packages/pptx-engine/tests/default-text-style.test.ts",
+      "git_blob_sha1": "a4823d1bdbf3ef4049358ba3cbc321ee56f6cf65",
+      "bytes": 12081
+    },
+    {
+      "path": "packages/pptx-engine/tests/dgm-hier-bounds.test.ts",
+      "git_blob_sha1": "77a65c20f62376a10b98edc304c9d47aa4c43559",
+      "bytes": 2243
+    },
+    {
+      "path": "packages/pptx-engine/tests/dgm-hier.test.ts",
+      "git_blob_sha1": "d1126bc3c5dac183c522a63f9cbde4d64b35a680",
+      "bytes": 5528
+    },
+    {
+      "path": "packages/pptx-engine/tests/diagram-fallback.test.ts",
+      "git_blob_sha1": "af42253b1b961a0a721a714fe2b56f1cdee16e2d",
+      "bytes": 31800
+    },
+    {
+      "path": "packages/pptx-engine/tests/diagram-newline-paragraphs.test.ts",
+      "git_blob_sha1": "e2ab7ed414a69d4328362c9406a4e64566de5635",
+      "bytes": 2864
+    },
+    {
+      "path": "packages/pptx-engine/tests/duplicate-slide.test.ts",
+      "git_blob_sha1": "05387d4737c85f335d1c10414c5d7899cadba42c",
+      "bytes": 3846
+    },
+    {
+      "path": "packages/pptx-engine/tests/effects.test.ts",
+      "git_blob_sha1": "0a5d2f5e3d72cf3bce1b0533b9bfefc3e8150f01",
+      "bytes": 6112
+    },
+    {
+      "path": "packages/pptx-engine/tests/embedded-fonts.test.ts",
+      "git_blob_sha1": "8f25d9a0422ff1a1e30cbc8a6ac368ebbbb20a8b",
+      "bytes": 21475
+    },
+    {
+      "path": "packages/pptx-engine/tests/field-run-order.test.ts",
+      "git_blob_sha1": "8c003240beb359406d70135d2764a70a754d13f5",
+      "bytes": 3354
+    },
+    {
+      "path": "packages/pptx-engine/tests/fill-patch.test.ts",
+      "git_blob_sha1": "7baaad0e02e57605f8487c0918fafd7224f932fd",
+      "bytes": 8236
+    },
+    {
+      "path": "packages/pptx-engine/tests/find-replace.test.ts",
+      "git_blob_sha1": "60a05bccd18ce54c13ef17c92050f06a068b68c8",
+      "bytes": 9135
+    },
+    {
+      "path": "packages/pptx-engine/tests/fixtures/01_standard_business.pptx",
+      "git_blob_sha1": "d780f59dbd1e9992d9f77be4260adbdc124135f7",
+      "bytes": 32396
+    },
+    {
+      "path": "packages/pptx-engine/tests/fixtures/05_unicode_cjk_emoji.pptx",
+      "git_blob_sha1": "c68cc89943b9bbd9211b7c61df32521fc8c49824",
+      "bytes": 28318
+    },
+    {
+      "path": "packages/pptx-engine/tests/fixtures/LICENSE-python-pptx.txt",
+      "git_blob_sha1": "2ac707f60cac8a95bff24b454799041a22f14aaf",
+      "bytes": 1117
+    },
+    {
+      "path": "packages/pptx-engine/tests/fixtures/README.md",
+      "git_blob_sha1": "04817eee1e611cbb09aa0a96b3f6797255405a76",
+      "bytes": 469
+    },
+    {
+      "path": "packages/pptx-engine/tests/flip-writeback.test.ts",
+      "git_blob_sha1": "d6996a931f5d329ef387b3bdc309f7c55a1e8512",
+      "bytes": 2427
+    },
+    {
+      "path": "packages/pptx-engine/tests/format-brush.test.ts",
+      "git_blob_sha1": "6be3f331a07e7306120435ce77675eee4abfd1c0",
+      "bytes": 4820
+    },
+    {
+      "path": "packages/pptx-engine/tests/geometryless-shape.test.ts",
+      "git_blob_sha1": "5a6399bf3ca5ef8cbdf5616dbf404cc62706da57",
+      "bytes": 1446
+    },
+    {
+      "path": "packages/pptx-engine/tests/group-child-edit.test.ts",
+      "git_blob_sha1": "38ab1367c8bae64906941d62f9af64e3294b92bd",
+      "bytes": 12901
+    },
+    {
+      "path": "packages/pptx-engine/tests/group-scale-bound.test.ts",
+      "git_blob_sha1": "e08b49e3b73a0b61b1853f216f9e1881c04595db",
+      "bytes": 8416
+    },
+    {
+      "path": "packages/pptx-engine/tests/group.test.ts",
+      "git_blob_sha1": "31156fa591d078b4b9a15420d542e2111a6fdf60",
+      "bytes": 12949
+    },
+    {
+      "path": "packages/pptx-engine/tests/grpfill.test.ts",
+      "git_blob_sha1": "c33d3e27a5cde9289c1ec29a83a5620fa9794a39",
+      "bytes": 3697
+    },
+    {
+      "path": "packages/pptx-engine/tests/hidden-shape.test.ts",
+      "git_blob_sha1": "8048b1e09e13a5a51074703dae29ad19c7a50d9f",
+      "bytes": 2973
+    },
+    {
+      "path": "packages/pptx-engine/tests/hidden-slide.test.ts",
+      "git_blob_sha1": "3fb41969b60aa98439ce91bf05404e82519c55bb",
+      "bytes": 3189
+    },
+    {
+      "path": "packages/pptx-engine/tests/ink-fallback.test.ts",
+      "git_blob_sha1": "e999835263a68a88a6d6d8f1a162b9432fd004c7",
+      "bytes": 1551
+    },
+    {
+      "path": "packages/pptx-engine/tests/insert-extended.test.ts",
+      "git_blob_sha1": "b19e17da4ecb75455045e778fb141fbb71e65b87",
+      "bytes": 41968
+    },
+    {
+      "path": "packages/pptx-engine/tests/insert-grid-table.test.ts",
+      "git_blob_sha1": "f6d6a9b2a9555f4fde83dc32b74835b66967ff07",
+      "bytes": 6404
+    },
+    {
+      "path": "packages/pptx-engine/tests/insert.test.ts",
+      "git_blob_sha1": "2fcc32104bf8f60653a16cfe6a352dbf4719c80c",
+      "bytes": 15712
+    },
+    {
+      "path": "packages/pptx-engine/tests/layout.test.ts",
+      "git_blob_sha1": "dae9438fffaf257e3f71e5a5487cc7dfdabafcc4",
+      "bytes": 6507
+    },
+    {
+      "path": "packages/pptx-engine/tests/line-insert.test.ts",
+      "git_blob_sha1": "36cc9e35faf1ecb361936ac75db323e72af986b4",
+      "bytes": 5465
+    },
+    {
+      "path": "packages/pptx-engine/tests/master-edit.test.ts",
+      "git_blob_sha1": "21f97031f57838a49e072ba1b85592313d43b5ff",
+      "bytes": 5213
+    },
+    {
+      "path": "packages/pptx-engine/tests/media-preserve.test.ts",
+      "git_blob_sha1": "6a9c6d647b82b4c24677e4ba0e49ded78407dd10",
+      "bytes": 1596
+    },
+    {
+      "path": "packages/pptx-engine/tests/media-smartart-ole.test.ts",
+      "git_blob_sha1": "c568768be7f853ea6f896f9deb6539d2ebea4a7a",
+      "bytes": 14859
+    },
+    {
+      "path": "packages/pptx-engine/tests/merge-slide.test.ts",
+      "git_blob_sha1": "f21d82dde6381107aecc062137bd46f625a740ba",
+      "bytes": 8434
+    },
+    {
+      "path": "packages/pptx-engine/tests/mtx.test.ts",
+      "git_blob_sha1": "eea92376c08a574b65468b5a70f54728ad7d1708",
+      "bytes": 10313
+    },
+    {
+      "path": "packages/pptx-engine/tests/notes-comments.test.ts",
+      "git_blob_sha1": "d7b117616fc7429d379f7d98c48212cb3fa33dee",
+      "bytes": 5952
+    },
+    {
+      "path": "packages/pptx-engine/tests/ooxml-schema-path.test.ts",
+      "git_blob_sha1": "d41281dd8f6bd395396610423e5712b59f6e9dd3",
+      "bytes": 1736
+    },
+    {
+      "path": "packages/pptx-engine/tests/ooxml-schema.test.ts",
+      "git_blob_sha1": "20ff70a7035040179b7f2ebe3c4e04ebb1750df6",
+      "bytes": 4619
+    },
+    {
+      "path": "packages/pptx-engine/tests/paragraph-defrpr.test.ts",
+      "git_blob_sha1": "ed2e6af78905f626ac30f1fbfe8b8d90585286de",
+      "bytes": 7277
+    },
+    {
+      "path": "packages/pptx-engine/tests/paragraph-format.test.ts",
+      "git_blob_sha1": "49bfbca6da1acaae4220e4a682b610a2c3a4c1a5",
+      "bytes": 19010
+    },
+    {
+      "path": "packages/pptx-engine/tests/parr-tabs.test.ts",
+      "git_blob_sha1": "d7f1d23af41fa17f114f09bebe45e0b405e9f57e",
+      "bytes": 2345
+    },
+    {
+      "path": "packages/pptx-engine/tests/parse.test.ts",
+      "git_blob_sha1": "65d603cf78e4aa73a5c1d0e9f550cd38c19c690f",
+      "bytes": 51103
+    },
+    {
+      "path": "packages/pptx-engine/tests/patch.test.ts",
+      "git_blob_sha1": "9433f550a85dcf063a52da91f059797c8f1ec77c",
+      "bytes": 12625
+    },
+    {
+      "path": "packages/pptx-engine/tests/phase5-patch.test.ts",
+      "git_blob_sha1": "248269e90b342d18fdb5acec1caba9e87d68cf7c",
+      "bytes": 21608
+    },
+    {
+      "path": "packages/pptx-engine/tests/pic-blip-effects.test.ts",
+      "git_blob_sha1": "2d46a24f5e901bf5bd6aa8dd53349cac9cb7b68f",
+      "bytes": 7070
+    },
+    {
+      "path": "packages/pptx-engine/tests/picture-crop.test.ts",
+      "git_blob_sha1": "b0f187ae1007c7d3f02cab5ca541b3c0698cad31",
+      "bytes": 8413
+    },
+    {
+      "path": "packages/pptx-engine/tests/picture-opacity.test.ts",
+      "git_blob_sha1": "e82ee2b68432f1092009c3be7aa2568e8a6aca52",
+      "bytes": 2935
+    },
+    {
+      "path": "packages/pptx-engine/tests/picture-svg-blip.test.ts",
+      "git_blob_sha1": "fa3cb8388eff27b3e70ef978343da372638ff075",
+      "bytes": 2542
+    },
+    {
+      "path": "packages/pptx-engine/tests/placeholder-pic-geom.test.ts",
+      "git_blob_sha1": "701391b4ac29aa3d321fc6081b2d58c4c434093b",
+      "bytes": 2861
+    },
+    {
+      "path": "packages/pptx-engine/tests/placeholder-xfrm-ext.test.ts",
+      "git_blob_sha1": "5a5f2cc052c587864eb7e1218f93360c2aa9354a",
+      "bytes": 3104
+    },
+    {
+      "path": "packages/pptx-engine/tests/rebuild-fidelity.test.ts",
+      "git_blob_sha1": "74abc9fe3531960e455aa02fe6bb77497e67f30b",
+      "bytes": 8003
+    },
+    {
+      "path": "packages/pptx-engine/tests/rebuild-rpr-explicit-off.test.ts",
+      "git_blob_sha1": "eff768cef86301bd99f32abc96f3bf809d22b684",
+      "bytes": 5051
+    },
+    {
+      "path": "packages/pptx-engine/tests/redaction-edit.test.ts",
+      "git_blob_sha1": "b6a65eecbf0db902fbd4ec3d394d335c16cd0ac6",
+      "bytes": 4578
+    },
+    {
+      "path": "packages/pptx-engine/tests/redaction-roundtrip.test.ts",
+      "git_blob_sha1": "b0ce25bdbde8014a3df3bb88ee9af769dbb0d724",
+      "bytes": 8559
+    },
+    {
+      "path": "packages/pptx-engine/tests/redaction-xml-strict.test.ts",
+      "git_blob_sha1": "64c820b0b25d0030f80ea6526461615430d5f3cf",
+      "bytes": 3372
+    },
+    {
+      "path": "packages/pptx-engine/tests/redaction-xml.test.ts",
+      "git_blob_sha1": "fa935f09fa5a3eef2bf6789c778b14d0d5eaf1d8",
+      "bytes": 5938
+    },
+    {
+      "path": "packages/pptx-engine/tests/relationship-quotes.test.ts",
+      "git_blob_sha1": "66e37d051108021da965a84462baedc3f3e5f6ce",
+      "bytes": 9315
+    },
+    {
+      "path": "packages/pptx-engine/tests/rels-replacement-patterns.test.ts",
+      "git_blob_sha1": "6643fd9f17a831785fce26b3f887970cc9da51e5",
+      "bytes": 3380
+    },
+    {
+      "path": "packages/pptx-engine/tests/reparse-deck.test.ts",
+      "git_blob_sha1": "7bb2ffad733df6ab363fc49aef4f21d81743528f",
+      "bytes": 2426
+    },
+    {
+      "path": "packages/pptx-engine/tests/replace-slide-sequence.test.ts",
+      "git_blob_sha1": "67340b6519c8252aa9c5d684bc14e3b8283a2cf6",
+      "bytes": 3670
+    },
+    {
+      "path": "packages/pptx-engine/tests/resource-cleanup.test.ts",
+      "git_blob_sha1": "6c7cb8cbfd4dfccd511d61a56f798ca26f27d324",
+      "bytes": 14447
+    },
+    {
+      "path": "packages/pptx-engine/tests/run-format-fidelity.test.ts",
+      "git_blob_sha1": "890ed1ff0ba3dc17f5ef4c1987b038cd50c85d8d",
+      "bytes": 21063
+    },
+    {
+      "path": "packages/pptx-engine/tests/run-hyperlink.test.ts",
+      "git_blob_sha1": "c548963e3ed9436543814967b77f500a6d227ea7",
+      "bytes": 15131
+    },
+    {
+      "path": "packages/pptx-engine/tests/save-streaming.test.ts",
+      "git_blob_sha1": "0278566030e49d3242551d19166f5c515621a9c0",
+      "bytes": 6421
+    },
+    {
+      "path": "packages/pptx-engine/tests/scan-comment.test.ts",
+      "git_blob_sha1": "705d62b45a77f768748e08d8e17ad10f8acef942",
+      "bytes": 3099
+    },
+    {
+      "path": "packages/pptx-engine/tests/scene3d-bevel.test.ts",
+      "git_blob_sha1": "767c892580a4463274ef2b874b0a2ffe173634c2",
+      "bytes": 1781
+    },
+    {
+      "path": "packages/pptx-engine/tests/scene3d-parse.test.ts",
+      "git_blob_sha1": "298be0c767b6e854f9fd8b390bbb25bc4088cc54",
+      "bytes": 2449
+    },
+    {
+      "path": "packages/pptx-engine/tests/schema-safe-patches-wave2.test.ts",
+      "git_blob_sha1": "b8277d9e2f6829a83dc0b4120f816eccff4b52ad",
+      "bytes": 10120
+    },
+    {
+      "path": "packages/pptx-engine/tests/schema-safe-patches.test.ts",
+      "git_blob_sha1": "64a0b0a0b12b902dfd8e3c183305625be0edec1a",
+      "bytes": 9319
+    },
+    {
+      "path": "packages/pptx-engine/tests/sections.test.ts",
+      "git_blob_sha1": "e4cd98faf0b96306f09a48bc05fa325a441c0df6",
+      "bytes": 11601
+    },
+    {
+      "path": "packages/pptx-engine/tests/slide-chain-fallback.test.ts",
+      "git_blob_sha1": "5d3b52f0ef257398d7982729c4e5d54df3047ec9",
+      "bytes": 3064
+    },
+    {
+      "path": "packages/pptx-engine/tests/slide-id-range.test.ts",
+      "git_blob_sha1": "f9d16f837bada47185d796685046ce58141aa9e0",
+      "bytes": 1897
+    },
+    {
+      "path": "packages/pptx-engine/tests/slide-ids-guard.test.ts",
+      "git_blob_sha1": "d595b9dd299a4645b94fc3bd7840e55e21864616",
+      "bytes": 1235
+    },
+    {
+      "path": "packages/pptx-engine/tests/slide-layout-switch.test.ts",
+      "git_blob_sha1": "9f15665d91f58db9423e54ffbe9b96be903e4f2c",
+      "bytes": 2502
+    },
+    {
+      "path": "packages/pptx-engine/tests/slide-size-malformed.test.ts",
+      "git_blob_sha1": "8ca75dbed2f1727e11cf013058f4c0ba8dce932d",
+      "bytes": 1679
+    },
+    {
+      "path": "packages/pptx-engine/tests/slide-size.test.ts",
+      "git_blob_sha1": "cdf4c37024b16f130e75850e5b48985b5acf282a",
+      "bytes": 10993
+    },
+    {
+      "path": "packages/pptx-engine/tests/speaker-notes.test.ts",
+      "git_blob_sha1": "591cc4bab7c3ec137930af1ab1bc08f062ffaab1",
+      "bytes": 9457
+    },
+    {
+      "path": "packages/pptx-engine/tests/sptree-gap.test.ts",
+      "git_blob_sha1": "57e4fad4dd538b8c62910caa3d4475d81dc71054",
+      "bytes": 2557
+    },
+    {
+      "path": "packages/pptx-engine/tests/style-source.test.ts",
+      "git_blob_sha1": "6ce07bcb224086930712f462809912581f537ac2",
+      "bytes": 3302
+    },
+    {
+      "path": "packages/pptx-engine/tests/sym-font-run.test.ts",
+      "git_blob_sha1": "aff76301998b91c7f765973f05c153eee03c89cb",
+      "bytes": 1493
+    },
+    {
+      "path": "packages/pptx-engine/tests/szattr-bounds.test.ts",
+      "git_blob_sha1": "dfbb1e6eae1eeba5cd103545a5dddd8fa070d8a4",
+      "bytes": 711
+    },
+    {
+      "path": "packages/pptx-engine/tests/table-edit.test.ts",
+      "git_blob_sha1": "5bf301f62a77a955742aefce24c798381154ac47",
+      "bytes": 17952
+    },
+    {
+      "path": "packages/pptx-engine/tests/table-merge.test.ts",
+      "git_blob_sha1": "9f4db44bdfbddb0e33c47254c82ee6daf6942872",
+      "bytes": 3612
+    },
+    {
+      "path": "packages/pptx-engine/tests/table-row-anchor.test.ts",
+      "git_blob_sha1": "331686075b41271b07d7524880e8ea04b7552959",
+      "bytes": 9119
+    },
+    {
+      "path": "packages/pptx-engine/tests/table-style.test.ts",
+      "git_blob_sha1": "8e399f0d12a0ad249a09af47caf46114f2508dae",
+      "bytes": 11783
+    },
+    {
+      "path": "packages/pptx-engine/tests/text-body-props.test.ts",
+      "git_blob_sha1": "34acc0115e63911b517f042d9830f06172db3878",
+      "bytes": 3800
+    },
+    {
+      "path": "packages/pptx-engine/tests/textbox-autofit.test.ts",
+      "git_blob_sha1": "e77f1cf0fed061efc35740ef6af06f1a91f3dc01",
+      "bytes": 3454
+    },
+    {
+      "path": "packages/pptx-engine/tests/theme-ea-ref-run-script.test.ts",
+      "git_blob_sha1": "4391a549d26e23726be6e18686f6919f10f98c02",
+      "bytes": 3220
+    },
+    {
+      "path": "packages/pptx-engine/tests/theme-fmtscheme.test.ts",
+      "git_blob_sha1": "838ddf300648b77f54b1569183057358217b2b6f",
+      "bytes": 9405
+    },
+    {
+      "path": "packages/pptx-engine/tests/theme-override.test.ts",
+      "git_blob_sha1": "aceaf891f6575d26b059921565b6687e214915c8",
+      "bytes": 4002
+    },
+    {
+      "path": "packages/pptx-engine/tests/theme-script-fonts.test.ts",
+      "git_blob_sha1": "1eb700542e3f3f7d6f87d3158cf13123fa0dd7ee",
+      "bytes": 2431
+    },
+    {
+      "path": "packages/pptx-engine/tests/toplevel-shape-budget.test.ts",
+      "git_blob_sha1": "295c3b78970a5d07aaf34bd9ebf61f5bd732930b",
+      "bytes": 2475
+    },
+    {
+      "path": "packages/pptx-engine/tests/transform-patch.test.ts",
+      "git_blob_sha1": "6ea6458110edefaff027bbb742e5bec87ee6305b",
+      "bytes": 3418
+    },
+    {
+      "path": "packages/pptx-engine/tests/txbody-inject.test.ts",
+      "git_blob_sha1": "d86aff876032477362be4796525344ecbada8c43",
+      "bytes": 6868
+    },
+    {
+      "path": "packages/pptx-engine/tests/wordart-effects.test.ts",
+      "git_blob_sha1": "62a77ed27594c4aa4abeac5e66e5c77112d9f15c",
+      "bytes": 2788
+    },
+    {
+      "path": "packages/pptx-engine/tests/xml-utils.test.ts",
+      "git_blob_sha1": "f0309429389efee41a2ed48c7214269261177f31",
+      "bytes": 1145
+    },
+    {
+      "path": "packages/pptx-engine/tests/zip-limits.test.ts",
+      "git_blob_sha1": "355e32dc54ed191ecdce4d13cb766a013b10b75f",
+      "bytes": 3241
+    },
+    {
+      "path": "packages/pptx-engine/tsconfig.json",
+      "git_blob_sha1": "a8a190b18b3fb285f2dd613bba94b6ee28195b51",
+      "bytes": 136
+    },
+    {
+      "path": "packages/pptx-engine/vitest.config.ts",
+      "git_blob_sha1": "f964be2a40cc88b5b1e7e01ae90506e3339fcb01",
+      "bytes": 131
+    },
+    {
+      "path": "packages/pptx-render/package.json",
+      "git_blob_sha1": "6347d5b22679c1a6a7185938a47cc8ba86d4c718",
+      "bytes": 865
+    },
+    {
+      "path": "packages/pptx-render/src/auto-num.ts",
+      "git_blob_sha1": "1f4d190f8a96cbba356425f8287b2238f648c435",
+      "bytes": 3118
+    },
+    {
+      "path": "packages/pptx-render/src/bidi-js.d.ts",
+      "git_blob_sha1": "9952af780e26202a9a9e588a9b447e6872c3e006",
+      "bytes": 285
+    },
+    {
+      "path": "packages/pptx-render/src/build-chart.ts",
+      "git_blob_sha1": "6c5be522c6cf7adfcad3e91eb5e3bc382090334d",
+      "bytes": 139155
+    },
+    {
+      "path": "packages/pptx-render/src/build-slide.ts",
+      "git_blob_sha1": "9b8238049cf0a6319dea04a5b4425a4d455c026d",
+      "bytes": 34893
+    },
+    {
+      "path": "packages/pptx-render/src/cell-bevel.ts",
+      "git_blob_sha1": "ef65dc767089bfce2c1a74cf95380fbb433c0c88",
+      "bytes": 4200
+    },
+    {
+      "path": "packages/pptx-render/src/coords.ts",
+      "git_blob_sha1": "1d7a73acc50bf92faba7a44c9dca4ab1060f0106",
+      "bytes": 4970
+    },
+    {
+      "path": "packages/pptx-render/src/fill.ts",
+      "git_blob_sha1": "94f8801bded785f6d5ef59748842d4cd181df6fb",
+      "bytes": 7504
+    },
+    {
+      "path": "packages/pptx-render/src/image-dpi.ts",
+      "git_blob_sha1": "1dcaa1edcfe05fcdb0c7716abc6502635d45b49e",
+      "bytes": 8437
+    },
+    {
+      "path": "packages/pptx-render/src/index.ts",
+      "git_blob_sha1": "1b568ec1b79ec00e5e1383940f9859f270ca1eb6",
+      "bytes": 1058
+    },
+    {
+      "path": "packages/pptx-render/src/metrics.ts",
+      "git_blob_sha1": "eb0e10c5f2d54b9e40e90eeaa2c8fba3659f7f06",
+      "bytes": 11278
+    },
+    {
+      "path": "packages/pptx-render/src/pattern-fills.ts",
+      "git_blob_sha1": "88aaa4cf8b570c762f57fe6f6a7672c6fc7f8268",
+      "bytes": 3855
+    },
+    {
+      "path": "packages/pptx-render/src/preset-geometry.ts",
+      "git_blob_sha1": "368846466bbf6fcea8d84b8628098a8d9a7eee2a",
+      "bytes": 52737
+    },
+    {
+      "path": "packages/pptx-render/src/render-tree.ts",
+      "git_blob_sha1": "b79080c157516e587fd8d9ec0d3ce270eddf4cfc",
+      "bytes": 24674
+    },
+    {
+      "path": "packages/pptx-render/src/scene3d.ts",
+      "git_blob_sha1": "63a0730a95334a3274d7f2502a645896221c85c4",
+      "bytes": 45449
+    },
+    {
+      "path": "packages/pptx-render/src/text-layout.ts",
+      "git_blob_sha1": "ecb7d33eaf69dd26ed470f54c42fc9440ea09464",
+      "bytes": 75722
+    },
+    {
+      "path": "packages/pptx-render/tests/auto-num-bound.test.ts",
+      "git_blob_sha1": "a22c76a966566c7eec8cf12b3e6d34adebe441e8",
+      "bytes": 1329
+    },
+    {
+      "path": "packages/pptx-render/tests/build-chart-axes-legend.test.ts",
+      "git_blob_sha1": "b2b9c156af064b90249022eebbf63ab30df0e987",
+      "bytes": 11326
+    },
+    {
+      "path": "packages/pptx-render/tests/build-chart-log-ticks.test.ts",
+      "git_blob_sha1": "e0815e6237a3b2aa25f50956a384d4e198bedb22",
+      "bytes": 2171
+    },
+    {
+      "path": "packages/pptx-render/tests/build-chart-series-bounds.test.ts",
+      "git_blob_sha1": "ea05c6c7e54b5e705adc06a09085154edf90287b",
+      "bytes": 1932
+    },
+    {
+      "path": "packages/pptx-render/tests/build-chart.test.ts",
+      "git_blob_sha1": "4e604de019a023df0df0a08c19c1a04f9c2bfb04",
+      "bytes": 52874
+    },
+    {
+      "path": "packages/pptx-render/tests/build-slide.test.ts",
+      "git_blob_sha1": "71605b08c772d0a909ef55d2163fb9577fafcbea",
+      "bytes": 42733
+    },
+    {
+      "path": "packages/pptx-render/tests/cell-bevel.test.ts",
+      "git_blob_sha1": "7a2df738294fe3e803d5900e8827cdcda570da7d",
+      "bytes": 2305
+    },
+    {
+      "path": "packages/pptx-render/tests/connector-geometry.test.ts",
+      "git_blob_sha1": "c3c3612f4f95bc8b3189173b9207d2c7d385d915",
+      "bytes": 7434
+    },
+    {
+      "path": "packages/pptx-render/tests/coords.test.ts",
+      "git_blob_sha1": "b9b4368ed5351907d3d0ac7f22603c45fde4ec4c",
+      "bytes": 3408
+    },
+    {
+      "path": "packages/pptx-render/tests/dash-presets.test.ts",
+      "git_blob_sha1": "99be284d9b59b428a68dc65baf21ee8e6a478a5d",
+      "bytes": 816
+    },
+    {
+      "path": "packages/pptx-render/tests/fill.test.ts",
+      "git_blob_sha1": "0ab94fb7c0a096ce641329fc2b171f1fd474cc6b",
+      "bytes": 3671
+    },
+    {
+      "path": "packages/pptx-render/tests/image-aspect-cache.test.ts",
+      "git_blob_sha1": "0d93e16913893d1b0bfd29368261051a1ffac7c2",
+      "bytes": 4550
+    },
+    {
+      "path": "packages/pptx-render/tests/image-dpi-cache.test.ts",
+      "git_blob_sha1": "1140bb9cb87111b1cc7577e9495e7e1cbb0fe2b2",
+      "bytes": 3336
+    },
+    {
+      "path": "packages/pptx-render/tests/image-dpi.test.ts",
+      "git_blob_sha1": "c53d7b177b7dcde4906cac32645970cc237dd503",
+      "bytes": 4289
+    },
+    {
+      "path": "packages/pptx-render/tests/passthrough-preview.test.ts",
+      "git_blob_sha1": "0c33ea6c18961be95e5524943409913bda9e240a",
+      "bytes": 4934
+    },
+    {
+      "path": "packages/pptx-render/tests/pattern-fills.test.ts",
+      "git_blob_sha1": "a04a5facdd3ea693100947fd452180d2afcaff73",
+      "bytes": 1302
+    },
+    {
+      "path": "packages/pptx-render/tests/preset-geometry.test.ts",
+      "git_blob_sha1": "e688a92bc337c15373393907d1c63934d4decfef",
+      "bytes": 13264
+    },
+    {
+      "path": "packages/pptx-render/tests/redaction-render-tree.test.ts",
+      "git_blob_sha1": "285080a834e86d3ef8c3bb3e8ec0eed0ce98ff93",
+      "bytes": 4486
+    },
+    {
+      "path": "packages/pptx-render/tests/scene3d.test.ts",
+      "git_blob_sha1": "0ff8b4008e025e31e5a2f1bc56ff1cb40dab8b1f",
+      "bytes": 7755
+    },
+    {
+      "path": "packages/pptx-render/tests/shape-bevel.test.ts",
+      "git_blob_sha1": "ecd8fc85c1be43d8fb77104c54145c83af4270c4",
+      "bytes": 9757
+    },
+    {
+      "path": "packages/pptx-render/tests/stroke-hairline.test.ts",
+      "git_blob_sha1": "f85835e0207d03c5fc7ec61a4120b65686606e30",
+      "bytes": 494
+    },
+    {
+      "path": "packages/pptx-render/tests/stroke-unsupported-fill.test.ts",
+      "git_blob_sha1": "8257e76927e53cbbe5fcc71991770d2c519fad8c",
+      "bytes": 1007
+    },
+    {
+      "path": "packages/pptx-render/tests/table-rowspan-grow.test.ts",
+      "git_blob_sha1": "65cb204c69758b5d81329ba47ef97c74947f5fe8",
+      "bytes": 1922
+    },
+    {
+      "path": "packages/pptx-render/tests/text-layout-family-weight.test.ts",
+      "git_blob_sha1": "731e695e3a70b5d382f361bf8155f34c06ffc841",
+      "bytes": 1625
+    },
+    {
+      "path": "packages/pptx-render/tests/text-layout.test.ts",
+      "git_blob_sha1": "35f03efe6211154eb14f728aff2d1dba5445692a",
+      "bytes": 78675
+    },
+    {
+      "path": "packages/pptx-render/tests/viewport-guard.test.ts",
+      "git_blob_sha1": "5648f53b01b22b2dbb41bed4c3da9ca95779efa5",
+      "bytes": 1591
+    },
+    {
+      "path": "packages/pptx-render/tsconfig.json",
+      "git_blob_sha1": "2822782c13f37a4e786b566c43903542827f8ab3",
+      "bytes": 602
+    },
+    {
+      "path": "packages/pptx-render/vitest.config.ts",
+      "git_blob_sha1": "2aea82faf97b52762c1da35f83ef4db95ccf3334",
+      "bytes": 870
+    },
+    {
+      "path": "packages/zip-gate/package.json",
+      "git_blob_sha1": "02ba2de51e24650b618652dc826aee087a64e083",
+      "bytes": 587
+    },
+    {
+      "path": "packages/zip-gate/src/byte-stream.ts",
+      "git_blob_sha1": "1dbb2c3936f237f5233712cb19c6334f21fa574e",
+      "bytes": 1950
+    },
+    {
+      "path": "packages/zip-gate/src/index.ts",
+      "git_blob_sha1": "857e68cb3ce0e07d27a059fc00971292b12e0f77",
+      "bytes": 10391
+    },
+    {
+      "path": "packages/zip-gate/tests/zip-gate.test.ts",
+      "git_blob_sha1": "41b8b4374105a03861c115b3abad5460538820ab",
+      "bytes": 5629
+    },
+    {
+      "path": "packages/zip-gate/tsconfig.json",
+      "git_blob_sha1": "d4acc2b48025a89adff3fc4aa12086b48c8e60cb",
+      "bytes": 95
+    },
+    {
+      "path": "packages/zip-gate/vitest.config.ts",
+      "git_blob_sha1": "b31aa2a51f86a95aa5f989b9c40948b2ce9aac59",
+      "bytes": 156
+    },
+    {
+      "path": "tsconfig.base.json",
+      "git_blob_sha1": "fa90ac9303f35b65068f3323024d6b3b64e19002",
+      "bytes": 366
+    },
+    {
+      "path": "LICENSE-UNICODE.txt",
+      "git_blob_sha1": "72d44603a46c25412d038e633c6b05cc38c29726",
+      "bytes": 1995
+    }
+  ],
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "scope": "Only public core dependency closure; no ee or upstream application."
+}
