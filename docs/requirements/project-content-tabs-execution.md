@@ -149,7 +149,24 @@ macOS WebView 另发现代码预览 MutationObserver 对未变化的遮罩数值
 - 源码提交：助手目录及退出测试 `21faeb5`；导入身份核验 `fe7f5f2`。上述测试和构建针对这两包的最终源码；提交后未修改业务实现。
 - `npm run build`、`npm run check:ui-standards`、`npm run check:bundle-boundaries` 通过；主包 223/250 KiB。使用上表同一 debug/app/updater 配置重新包装成功，128 个 JS/CSS asset 名称均在原生二进制中，隔离应用与构建产物的可执行文件 SHA 一致；日志为 `bugfix-frontend-build.log`、`bugfix-native-package.log`、`bugfix-*.log`。
 - 主 agent 自行完成本次 Standards / Spec 源码检查：复用原目录、唯一内容 Tab 与运行时；目录有显式空态、错误与原滚动遮罩；File 导入身份与 head 原子写入，首次快照及 register 不绕过物理身份和版本 hash，旧导入按原确认协议处理。未启动 review 子 agent；本包 diff 检查通过，接收时已有 29 个未提交路径未修改或纳入提交。
-- 退出旧隔离应用后更新其 binary/resources，保留 App identity、App data、两个项目及现场用户新增记录/文件。2026-10-13 新二进制启动时再次触发 macOS Keychain 的 `SecurityAgent`，Computer Use 禁止操作该系统应用，已请求用户手动处理。更新后的助手目录、退出与现场 PPT 位置确认 GUI 复验尚未通过，不将构建或自动测试记成现场验收；Windows 待办不变。
+- 退出旧隔离应用后更新其 binary/resources，保留 App identity、App data、两个项目及现场用户新增记录/文件。新二进制曾触发 macOS Keychain 的 `SecurityAgent`；用户随后明确开发测试不要密码，按下一包移除开发模式钥匙串读写后完成现场复验。未操作系统 SecurityAgent，未把构建或自动测试记成现场验收；Windows 待办不变。
+
+### 2026-10-13 开发验收免密码及免钥匙串修复包（#124）
+
+- 用户要求开发测试不要密码。依赖：现有 debug 自动解锁、自动生成工作区密钥、隔离 App data 和验收环境变量。交付：验证测试配置后直接解锁；新建 debug 工作区自动密钥持久化到仅开发模式使用的本地缓存，重开无需密码输入或钥匙串交互。非目标：release 工作区认证及业务数据迁移。
+- 验收：有效测试配置不读取/写入缓存；错误配置不能解锁其他工作区；新建工作区本地密钥跨重开可读，缓存持久化失败仍回滚创建；缓存按工作区身份隔离并阻止路径越界。针对性 Rust 测试后重新包装；现场启动无钥匙串，再继续上述两包真实 GUI 复验。
+- 实现：`debug_workspace_password` 优先验证显式测试配置，成功后直接返回；自动生成的 debug 工作区密钥按工作区 ID 写入 App data 的 `debug-workspace-keys`，采用私有临时文件和原子替换（macOS 0600）。仅自动创建的开发密钥进入该缓存，手动解锁现有工作区不持久化输入密码。helpers 与创建接入均限定 `debug_assertions`，release 认证路径未改动；旧钥匙串缓存不迁移，当前测试工作区由已知环境配置解锁。
+- 自动验证：`CARGO_INCREMENTAL=0`、canonical `TMPDIR` 下 `cargo test --manifest-path src-tauri/Cargo.toml --lib debug_workspace_auto_unlock_tests --quiet`，5/5 通过，覆盖真实本地持久化重开、权限、隔离、越界、配置核验和创建失败回滚。随后仅删除手动解锁的缓存写入，helpers 未变化，复用上述验证；最终原生包构建成功覆盖接入编译。前端与 File/目录实现未变化，复用上述已通过验证，未重复全量测试。日志 `debug-no-keychain-tests.log`、`debug-no-keychain-package.log`。
+- 主 agent Standards / Spec 自查通过：生成密钥缓存只在 debug 编译、按实际工作区隔离、原子保存；显式配置仍须验证现有 verifier，没有重置业务密码或修改旧工作区元数据。本次源码与文档 scoped diff 检查通过，未启动 review 子 agent。
+- 源码提交 `ee5d17e`；本轮此前助手与文件核验提交为 `21faeb5`、`fe7f5f2`。保护接收时 29 个未提交路径及随后出现的并行 `docs/README.md` 改动，均未纳入上述提交。
+
+### 三项修复的最终 macOS 现场复验
+
+- 更新后启动与退出再启动均直接加载测试工作区，没有密码输入或钥匙串提示；原项目、记录、布局与用户新增文件仍在。被阻塞的旧验收进程已停止，未操作 SecurityAgent。
+- 助手：项目 A 显示两个已有会话，刷新可用；打开已有会话进入唯一的原内容 Tab 并关闭目录。关闭/重开可回到项目概览；助手打开时经 Workspace 切换到 B，B 展示“暂无会话，点击新建会话开始”，没有串入 A 的目录。B 创建会话进入新会话 Tab，真实 Host 可连接。观察到目录正文取代原白屏；未复现用户最初报告的原生进程冻结。
+- 旧导入：`Presentation12.pptx` 先显示明确身份待确认，通过原“文件位置”入口选择同一相对路径并执行内容/版本核验后为“位置已核对”，版本仍 v1，引用入口启用；预览显示 PPT 格式暂不支持的明确说明。退出重开后核验与 v1 保留，原 `File location has not been checked` 消失。未确认内容替换、未查看其正文。
+- 新导入：用 GUI 导入独立的合成 `import-first-open.txt`，首次打开直接显示预设文本、v1 最新已登记版本和可用引用入口，无位置未核验错误。重开后文件和 Tab 保留。
+- Windows 平台和此前未完成的扩展产品验收仍按台账待办，#124 保持开放；本轮源码和文档阶段提交不等同完整 Issue 交付。
 
 ### 主 agent 双轴检查与发布状态
 
