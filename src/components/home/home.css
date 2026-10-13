@@ -858,9 +858,10 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell>.workspace-topbar { background:var(--home-topbar); box-shadow:none; padding-left:0; }
 .home-window-shell .workspace-topbar__tablist { overflow:visible; align-items:flex-end; gap:2px; padding-inline:4px; }
 .home-window-shell .workspace-topbar__tab {
-  position:relative; height:30px; border:0; border-radius:10px 10px 0 0; padding-inline:6px; overflow:visible;
+  position:relative; height:30px; border:0; border-radius:10px 10px 0 0; padding-inline:6px 2px; overflow:visible;
   background:transparent; color:var(--color-text-secondary);
 }
+.home-window-shell .workspace-topbar__tab--workspace { padding-inline:0; }
 /* Inactive hover is an inset pill; it never joins the page surface. */
 .home-window-shell .workspace-topbar__tab:not(.workspace-topbar__tab--active) {
   isolation:isolate; height:26px; margin-bottom:4px;

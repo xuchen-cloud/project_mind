@@ -4,7 +4,7 @@
   --tab-min-width: 96px;
   position: relative; display: flex; align-items: center; flex: 0 0 auto;
   width: var(--tab-min-width); min-width: var(--tab-min-width); max-width: var(--tab-standard-width, var(--tab-max-width)); height: 30px;
-  padding: 0 6px; border: 0; border-radius: var(--radius-8); box-sizing: border-box;
+  padding: 0 2px 0 6px; border: 0; border-radius: var(--radius-8); box-sizing: border-box;
   background: transparent; color: var(--color-text-muted); font-size: 12px;
   transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
 }
@@ -19,7 +19,7 @@
 .project-content__tab:hover::before, .project-content__tab:focus-within::before,
 .project-content__tab[data-selected] + .project-content__tab::before,
 .project-content__tab:hover + .project-content__tab::before, .project-content__tab:focus-within + .project-content__tab::before { opacity: 0; }
-.compact-tab__body { position: relative; display: flex; align-items: center; width: max-content; max-width: 100%; min-width: 0; height: 100%; }
+.compact-tab__body { position: relative; display: flex; align-items: center; width: 100%; min-width: 0; height: 100%; }
 .compact-tab__trigger {
   display: flex; align-items: center; flex: 1 1 auto; gap: 4px; min-width: 0; height: 100%;
   padding: 0 22px 0 0; text-align: left; border-radius: var(--radius-6); cursor: inherit; touch-action: none;
@@ -42,7 +42,7 @@
 .compact-tab:hover .compact-tab__close, .compact-tab:focus-within .compact-tab__close,
 .compact-tab[data-selected] .compact-tab__close { opacity: .8; pointer-events: auto; }
 .compact-tab__close:hover { opacity: 1; color: var(--color-text); background: var(--color-bg-active); }
-.compact-tab__trigger:focus-visible, .compact-tab__close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.compact-tab:focus-visible, .compact-tab__trigger:focus-visible, .compact-tab__close:focus-visible { outline: none; box-shadow: none; }
 @media (prefers-reduced-motion: reduce) {
   .compact-tab, .compact-tab::before, .compact-tab__close { transition: none; }
 }

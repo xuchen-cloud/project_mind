@@ -26,6 +26,33 @@ interface TabDragZone {
   drop: (id: string, x: number) => void;
 }
 interface TabLanding { index: number; id?: string; edge?: "before" | "after" }
+/** Freeze the live tab's hover/selection, label mask and icon styles outside its strip. */
+function cloneDragTab(source: HTMLElement): HTMLElement {
+  const clone = source.cloneNode(true) as HTMLElement;
+  const originals = [source, ...source.querySelectorAll<HTMLElement | SVGElement>("*")];
+  const copies = [clone, ...clone.querySelectorAll<HTMLElement | SVGElement>("*")];
+  originals.forEach((original, index) => {
+    const copy = copies[index], style = getComputedStyle(original);
+    for (const property of Array.from(style)) copy.style.setProperty(property, style.getPropertyValue(property));
+    copy.style.transition = "none";
+    copy.style.animation = "none";
+    copy.style.outline = "none";
+    copy.style.boxShadow = "none";
+    copy.style.pointerEvents = "none";
+    for (const attribute of [...copy.attributes]) {
+      if (attribute.name === "id" || attribute.name === "role" || attribute.name.startsWith("aria-")
+        || ["data-tab-id", "data-drop", "data-dragging", "title"].includes(attribute.name)) copy.removeAttribute(attribute.name);
+    }
+    if (copy instanceof HTMLElement) copy.tabIndex = -1;
+  });
+  const bounds = source.getBoundingClientRect();
+  // The inherited standard-width cap and focus decoration must not alter the snapshot.
+  clone.style.width = clone.style.minWidth = clone.style.maxWidth = `${bounds.width}px`;
+  clone.style.height = clone.style.minHeight = clone.style.maxHeight = `${bounds.height}px`;
+  clone.style.transform = "none";
+  clone.inert = true;
+  return clone;
+}
 function tabTypeLabel(tab: ContentTab): string {
   if (tab.object.kind === "record") return "记录";
   if (tab.object.kind === "session") return "会话";
@@ -258,9 +285,12 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
       const state = pointerDrag.current;
       if (!state || state.pointerId !== event.pointerId) return;
       if (!state.moving && Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < 6) return;
-      if (!state.moving) { state.moving = true; setDragging(state.id); }
+      if (!state.moving) {
+        dragPreview.current?.replaceChildren(cloneDragTab(state.capture));
+        state.moving = true; setDragging(state.id);
+      }
       suppressClick.current = true;
-      if (dragPreview.current) dragPreview.current.style.transform = `translate(${event.clientX + 12}px, ${event.clientY + 12}px)`;
+      if (dragPreview.current) dragPreview.current.style.transform = `translate(${event.clientX}px, ${event.clientY}px)`;
       const target = targetAt(event);
       for (const zone of dragZones.current.values()) if (zone === target) zone.hover(event.clientX); else zone.leave();
     };
@@ -268,8 +298,10 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
       const state = pointerDrag.current;
       if (!state || (event && state.pointerId !== event.pointerId)) return;
       pointerDrag.current = null;
-      if (event?.type === "pointerup" && state.moving) targetAt(event)?.drop(state.id, event.clientX);
       if (state.capture.hasPointerCapture?.(state.pointerId)) state.capture.releasePointerCapture(state.pointerId);
+      dragPreview.current?.replaceChildren();
+      dragPreview.current?.style.removeProperty("transform");
+      if (event?.type === "pointerup" && state.moving) targetAt(event)?.drop(state.id, event.clientX);
       for (const zone of dragZones.current.values()) zone.leave();
       setDragging(null);
       if (event?.type !== "pointerup") suppressClick.current = false;
@@ -384,12 +416,10 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
     onClickCapture={event => {
       if (!suppressClick.current) return;
       suppressClick.current = false;
-      if ((event.target as HTMLElement).closest('[role="tab"]')) { event.preventDefault(); event.stopPropagation(); }
+      if ((event.target as HTMLElement).closest('.project-content__tab, [role="tab"]')) { event.preventDefault(); event.stopPropagation(); }
     }}
     style={{ "--content-ratio": `${displayedRatio * 100}%` } as CSSProperties}>
-    {createPortal(<div ref={dragPreview} className="project-content__drag-preview" aria-hidden="true" hidden={!dragging}>
-      {layout.tabs.find(tab => tab.id === dragging)?.object.title}
-    </div>, document.body)}
+    {createPortal(<div ref={dragPreview} className="project-content__drag-preview" aria-hidden="true" inert hidden={!dragging} />, document.body)}
     <div className="project-content__toolbar">
       <button type="button" onClick={onOverview} title="项目概览"><Home size={14} /><span>项目概览</span></button>
       <div>
