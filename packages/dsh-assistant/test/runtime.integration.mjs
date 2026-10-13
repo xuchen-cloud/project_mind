@@ -137,6 +137,54 @@ async function follow(runtime, sessionId) {
 const events = (stream) => stream.frames.flatMap((frame) => frame.type === 'snapshot' ? frame.records.map((record) => record.event) : frame.type === 'event' ? [frame.event] : []);
 const assistantText = (event) => event.data.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
 
+test('fixed source auto titles reach the catalog and header without changing stored user/model projections', { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-title-'));
+  const bodies = [], operations = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
+  const directory = await realpath(temp);
+  const sourceRef = { object: { workspaceId: 'title-fixture', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, title: 'sample.txt', locator: { kind: 'line', start: 1, end: 120 } };
+  const token = `mind-source/${Buffer.from(JSON.stringify(sourceRef)).toString('base64url')}/sample.txt`;
+  const projection = `@${token}\n<mind-file-source>${JSON.stringify({ id: 'fixed-v1', sourceRef, offset: 1, limit: 120, requestedLimit: 120, truncated: false, content: Array.from({ length: 120 }, (_, i) => `${i + 1}: immutable model bytes for this source`).join('\n') })}</mind-file-source>`;
+  const data = path.join(temp, 'data');
+  const shared = { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  const project = { id: 7, name: 'Title', directory };
+  const handleSource = payload => { operations.push(payload); return null; };
+  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  stream = await follow(runtime, sessionId);
+  const text = `${projection}\nacceptance ordinary prompt`;
+  await prompt(runtime, stream, sessionId, text);
+  const fallback = events(stream).find(event => event.type === 'session/title' && event.data.source.kind === 'fallback');
+  assert.equal(fallback?.data.title, 'sample.txt · v1 acceptance ordinary');
+  const titleBody = await waitFor(() => bodies.find(body => body.messages.some(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title'))), 'actual auxiliary title provider input');
+  const titleInput = titleBody.messages.find(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title')).content;
+  assert.ok(titleInput.includes('sample.txt · v1'));
+  assert.doesNotMatch(titleInput, /mind-source|mind-file-source|immutable model bytes/);
+  const generated = await stream.read(frame => frame.type === 'event' && frame.event.type === 'session/title' && frame.event.data.source.kind === 'provider', 'provider title');
+  const listed = (await runtime.rpc('session/list', {}, '_request')).items.find(item => item.sessionId === sessionId);
+  const listedTitle = listed.title ?? listed.projections.values.title;
+  assert.equal(listedTitle, generated.event.data.title);
+  assert.doesNotMatch(listedTitle, /mind-source|mind-file-source/);
+  await stream.close(); await runtime.stop();
+  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  stream = await follow(runtime, sessionId);
+  assert.equal(stream.snapshot.projections.values.title, listedTitle, 'header uses the same durable title projection');
+  const stored = events(stream).find(event => event.type === 'user/message');
+  assert.equal(stored.data.content[0].text, text);
+  assert.ok(bodies.some(body => body.messages.some(message => message.role === 'user' && (typeof message.content === 'string' ? message.content : message.content.filter(block => block.type === 'text').map(block => block.text).join('')).includes(projection))));
+  assert.ok(operations.some(payload => payload.operation === 'delivery' && payload.projection === projection && payload.sessionId === sessionId && payload.projectionHash === createHash('sha256').update(projection).digest('hex')));
+  await runtime.rpc('session/rename', { sessionId, title: '@ordinary/path title' });
+  const renamed = (await runtime.rpc('session/list', {}, '_request')).items.find(item => item.sessionId === sessionId);
+  assert.equal(renamed.title ?? renamed.projections.values.title, '@ordinary/path title');
+  await stream.close();
+  const ordinary = await runtime.rpc('session/create', {});
+  stream = await follow(runtime, ordinary.sessionId);
+  await prompt(runtime, stream, ordinary.sessionId, '@ordinary/path unchanged');
+  assert.equal(events(stream).find(event => event.type === 'session/title' && event.data.source.kind === 'fallback').data.title, '@ordinary/path unchanged');
+});
+
 test('source stdio delivers fixed composer and actual read projections to a local model with real message identities', { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-integration-'));
   const bodies = [];

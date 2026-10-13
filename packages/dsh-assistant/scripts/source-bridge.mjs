@@ -49,6 +49,41 @@ export function sourceProjections(text) {
 }
 const hash = text => createHash('sha256').update(text, 'utf8').digest('hex');
 
+/** Title-only text; the original Session log and loop request stay authoritative. */
+export function sourceTitleText(text) {
+  return text.replace(/(?:@mind-source\/[A-Za-z0-9_-]+\/[^\s]+\n)?<mind-file-source>[^\n]*<\/mind-file-source>/g, (projection, offset, original) => {
+    let sourceRef;
+    try {
+      sourceRef = sourceProjections(projection)[0].metadata.sourceRef;
+      const token = /^@mind-source\/([A-Za-z0-9_-]+)\//.exec(projection);
+      if (token && !isDeepStrictEqual(JSON.parse(Buffer.from(token[1], 'base64url').toString('utf8')), sourceRef)) return projection;
+    } catch { return projection; }
+    if (typeof sourceRef?.title !== 'string' || !Number.isInteger(sourceRef.fileVersion) || sourceRef.fileVersion <= 0) return projection;
+    const label = `${sourceRef.title.split(/[\\/]/).at(-1)} · v${sourceRef.fileVersion}`;
+    return `${offset > 0 && !/\s/.test(original[offset - 1]) ? ' ' : ''}${label}`;
+  });
+}
+
+export function installSourceTitles(ctx) {
+  // rc.2 fallback reads titleInputOf before its byte cap; register() is the
+  // provider input boundary. Install before the bundled title provider mounts.
+  return ctx.plugin({ inject: ['sessionTitle'], apply(scope) {
+    const titles = scope.sessionTitle;
+    const inputOf = titles.titleInputOf;
+    const register = titles.register;
+    titles.titleInputOf = function(session) {
+      const input = inputOf.call(this, session);
+      return input.first === null ? input : { ...input, first: { ...input.first, text: sourceTitleText(input.first.text) } };
+    };
+    titles.register = function(provider) {
+      return register.call(this, { ...provider, generate(request) {
+        return provider.generate({ ...request, messages: request.messages.map(message => ({ ...message, text: sourceTitleText(message.text) })) });
+      } });
+    };
+    scope.effect(() => () => { titles.titleInputOf = inputOf; titles.register = register; });
+  } });
+}
+
 export async function installSourceService(ctx, project, bridge) {
   const owned = async sessionId => {
     const catalog = await ctx.sessionController.list({});

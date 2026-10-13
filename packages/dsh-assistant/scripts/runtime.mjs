@@ -9,7 +9,7 @@ import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential, installSharedSelection } from './shared-model.mjs';
 import { readProject, bindProject } from './project-workspace.mjs';
-import { createSourceBridge, installSourceService } from './source-bridge.mjs';
+import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const embedded = process.argv.includes('--embedded');
@@ -75,7 +75,10 @@ try {
     host.provide('profileContext', profileContext);
     host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment);
     await host.plugin(PluginPackages, { resolution });
-    if (embedded) { installSharedCredential(host, sharedModel); installSharedSelection(host, sharedModel); }
+    if (embedded) {
+      installSharedCredential(host, sharedModel); installSharedSelection(host, sharedModel);
+      installSourceTitles(host);
+    }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });
   });
   if (embedded) {
