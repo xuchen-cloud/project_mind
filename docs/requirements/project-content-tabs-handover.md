@@ -8,6 +8,8 @@
 
 先读[完整需求](project-content-tabs.md)。本文负责执行顺序和交接，产品规则与 A01–A32 验收以完整需求为准；用户在实施会话中的新指令优先，并同步更新规格。本文不表示已有实现通过验收，也不授权重做其他正在进行的工作。
 
+涉及 DSH 交互借鉴、File 工具栏或内容 Tab 后续优化时，读取 [DSH Desktop 实际调研 Handover](dsh-desktop-design-research-handover.md)，其中区分现场实操、界面观察与待实施建议。
+
 ### 已确认、直接实施的规则
 
 - 保留外层项目 Tab；内层布局属于 Project，包含各栏自己的 Tab 列表、选中项和聚焦栏。
