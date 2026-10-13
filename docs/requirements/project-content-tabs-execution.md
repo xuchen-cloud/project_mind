@@ -40,6 +40,7 @@
 - 实现：`ContentTypeIcon` 共用三份 SVG，所有已有 Record／Session 身份图标统一接入；语音记录使用红色三条声音弧线，不再使用独立 Mic／Volume2。新开 Tab 从原生 Record 获取 `isVoice`，布局存储和去重保留标记；旧保存 Tab 通过已加载的 Project Record 身份补充呈现，不额外请求原生接口。AI 对话入口、会话列表、设置分类与 Tab 使用紫色气泡。
 - 验证：元数据与原生来源三个测试文件 50 项；侧栏／引用／会话／记录／布局九文件 90 项；设置两项；恢复工作区 11 项，均通过。恢复补丁后的布局 41 项再次通过，包含在上述九文件计数中，未累加。新恢复用例修正了 Vite 内联 SVG 的 URL 断言；TypeScript 修复可空布局引用后，最终 `npm run build`、UI standards 和 bundle boundaries 通过，主脚本 235 KiB／250 KiB。普通 Record 改回绿色只更新 SVG 与预览，复用逻辑测试；28px XML／16px 配色与透明背景、静态 PNG 目视确认完成。
 - 主 agent Standards／Spec 自查无剩余发现，未调用 review 子 agent；原有打开、保存、拖拽和文件系统图标策略保持。`check:portable-paths` 被仓库既有研究／验证文档的绝对路径阻挡；本包未新增此类路径（执行文档当前与 HEAD 均三项）。本包提交阶段成果，不发布或关闭父 Issue。
+- AI 对话配色微调：按用户反馈改为更深、更饱和的紫色 `#7C5CFA`，形状与普通／语音记录配色不变；同步主 SVG 和当前预览，仅静态配色改动，复用已通过的接入测试。
 - 预览：`docs/design/record-voice-chat-icons-20261013.html`／`.png` 为最终绿色普通记录、红色语音记录与紫色 AI 对话；早期麦克风及两条／三条弧线预览保留为设计过程。
 
 ### 2026-10-13 Record／AI 对话彩色图标设计包（#124）
