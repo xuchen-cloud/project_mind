@@ -530,6 +530,13 @@ impl Database {
                         "INSERT INTO source_file_version_hashes(document_version_id,content_hash) VALUES (?1,?2)",
                         params![version_id, journal.content_hash],
                     ).map_err(io_error)?;
+        // Retain the identity checked at placement in the same transaction as
+        // the File/head. First directory resolve can then freeze this head
+        // without trusting an arbitrary replacement at the imported path.
+        tx.execute(
+            "INSERT INTO project_directory_files(document_id,physical_identity,state,reason) VALUES (?1,?2,'unavailable','Initial snapshot pending')",
+            params![document_id, serde_json::to_string(&journal.identity).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid imported File identity"))?],
+        ).map_err(io_error)?;
         for tag in &journal.tag_ids {
             self.scoped_file_tag_record(Some(journal.project_id), *tag)
                 .map_err(|_| {
@@ -661,8 +668,7 @@ impl Database {
         if history == target || history.exists() {
             bail!("New File history path is already occupied");
         }
-        crate::source_search_index::SourceIndex::prepare(&self.conn)
-            .map_err(|error| anyhow!(error.message))?;
+        self.directory_schema()?;
         let base = self.workspace_root.join(IMPORT_JOURNALS);
         create_owned_directories(&self.workspace_root, &base)?;
         let request_id = token();
@@ -1287,8 +1293,11 @@ mod tests {
 
     #[test]
     fn file_import_process_crashes_recover_without_stub_or_duplicate() {
-        for kind in ["copy", "existing", "clipboard"] {
+        for kind in ["copy", "existing", "clipboard", "legacy"] {
             for stage in 0..=4 {
+                if kind == "legacy" && stage != 4 {
+                    continue;
+                }
                 let root = tempfile::tempdir().unwrap();
                 let (metadata, paths) =
                     crate::workspace::create_workspace(root.path(), "password").unwrap();
@@ -1317,11 +1326,17 @@ mod tests {
                         "--ignored",
                     ])
                     .env("MIND_FILE_IMPORT_CRASH_FIXTURE", root.path())
-                    .env("MIND_FILE_IMPORT_SOURCE_KIND", kind)
+                    .env("MIND_FILE_IMPORT_SOURCE_KIND", if kind == "legacy" { "copy" } else { kind })
                     .env("MIND_FILE_IMPORT_CRASH_STAGE", stage.to_string())
                     .output()
                     .unwrap();
                 assert_crashed(output.status);
+                if kind == "legacy" {
+                    // Reproduce a committed pre-identity import whose journal
+                    // cleanup was interrupted. Recovery must not invent trust.
+                    let old = Database::open(&paths.db_path, root.path(), None).unwrap();
+                    old.conn.execute_batch("DROP TABLE project_directory_files").unwrap();
+                }
                 let db = crate::workspace_initialization::open_workspace_database(
                     &paths.db_path,
                     root.path(),
@@ -1342,6 +1357,12 @@ mod tests {
                     .unwrap();
                 assert_eq!(count, i64::from(stage == 4), "{kind} stage {stage}");
                 assert_eq!(versions, count);
+                if kind != "legacy" {
+                    let identities: i64 = db.conn.query_row(
+                        "SELECT count(*) FROM project_directory_files", [], |row| row.get(0),
+                    ).unwrap();
+                    assert_eq!(identities, count, "identity and File commit together: {kind} stage {stage}");
+                }
                 assert_eq!(db.committed_change_watermark().unwrap(), before + count);
                 let target =
                     std::path::Path::new(&project.root_path).join(if kind == "clipboard" {
@@ -1390,6 +1411,24 @@ mod tests {
                 );
                 db.file_version_recover_pending().unwrap();
                 assert_eq!(db.committed_change_watermark().unwrap(), before + count);
+                if stage == 4 {
+                    let document_id: i64 = db.conn.query_row("SELECT id FROM documents", [], |row| row.get(0)).unwrap();
+                    if kind != "legacy" {
+                        let known: String = db.conn.query_row("SELECT physical_identity FROM project_directory_files WHERE document_id=?1", [document_id], |row| row.get(0)).unwrap();
+                        assert_eq!(known, serde_json::to_string(&super::path_identity(&target).unwrap()).unwrap());
+                    }
+                    let object = crate::agent::models::ObjectRef {
+                        workspace_id: metadata.workspace_id.clone(),
+                        scope: crate::agent::models::Scope::Project { project_id: project.id },
+                        kind: crate::agent::models::ObjectKind::File,
+                        id: document_id.to_string(),
+                    };
+                    let located = db.project_file_resolve(&object).unwrap();
+                    assert_eq!(located.state, if kind == "legacy" { "ambiguous" } else { "ready" });
+                    assert_eq!(located.version_number, 1);
+                    assert_eq!(located.object, object);
+                    assert_ne!(located.reason.as_deref(), Some("File location has not been checked"));
+                }
             }
         }
     }

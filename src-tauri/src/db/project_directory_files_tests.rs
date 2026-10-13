@@ -28,6 +28,155 @@ fn bytes(db: &Database, file: &DirectoryFile) -> Vec<u8> {
         )
         .unwrap()
 }
+
+fn import_for_location(db: &mut Database, project: i64, source: &Path) -> ObjectRef {
+    let imported = db
+        .document_import(crate::models::DocumentImportInput {
+            project_id: project,
+            source_path: source.to_string_lossy().into_owned(),
+            is_starred: false,
+            tag_ids: None,
+        })
+        .unwrap();
+    ObjectRef {
+        workspace_id: "wp1-workspace".into(),
+        scope: Scope::Project {
+            project_id: project,
+        },
+        kind: ObjectKind::File,
+        id: imported.id.to_string(),
+    }
+}
+
+#[test]
+fn imported_file_location_first_resolve_freezes_managed_copy_and_adopted_head() {
+    for adopted in [false, true] {
+        let (root, mut db, project, path) = fixture();
+        let source = if adopted {
+            path.join("Presentation12.pptx")
+        } else {
+            root.path().join("Presentation12.pptx")
+        };
+        fs::write(&source, b"presentation original bytes").unwrap();
+        let object = import_for_location(&mut db, project, &source);
+        drop(db);
+        let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        db.bind_native_workspace("wp1-workspace").unwrap();
+        let first = db.project_file_resolve(&object).unwrap();
+        assert_eq!(first.state, "ready", "{adopted}: {:?}", first.reason);
+        assert_eq!(first.object, object);
+        assert_eq!(first.version_number, 1);
+        assert_eq!(bytes(&db, &first), b"presentation original bytes");
+        fs::write(
+            path.join("Presentation12.pptx"),
+            b"edited after first opening",
+        )
+        .unwrap();
+        let second = db.project_file_resolve(&object).unwrap();
+        assert_eq!(second.state, "ready");
+        assert_eq!(second.version_number, 2);
+        assert_eq!(bytes(&db, &first), b"presentation original bytes");
+        assert_eq!(bytes(&db, &second), b"edited after first opening");
+    }
+}
+
+#[test]
+fn imported_file_location_legacy_identity_requires_explicit_confirmation() {
+    let (root, mut db, project, path) = fixture();
+    let source = root.path().join("Presentation12.pptx");
+    fs::write(&source, b"original bytes").unwrap();
+    let object = import_for_location(&mut db, project, &source);
+    db.directory_schema().unwrap();
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [object.id.parse::<i64>().unwrap()],
+        )
+        .unwrap();
+    let first = db.project_file_resolve(&object).unwrap();
+    assert_eq!(first.state, "ambiguous");
+    assert!(first.reason.as_deref().unwrap().contains("confirm"));
+    assert_ne!(
+        first.reason.as_deref(),
+        Some("File location has not been checked")
+    );
+    assert_eq!(
+        db.project_file_register("wp1-workspace", project, "Presentation12.pptx")
+            .unwrap()
+            .state,
+        "ambiguous"
+    );
+    let confirmed = db
+        .project_file_reconcile(
+            &object,
+            "Presentation12.pptx",
+            1,
+            first.content_hash.as_deref().unwrap(),
+            "location",
+        )
+        .unwrap();
+    assert_eq!(confirmed.state, "ready");
+    assert_eq!(confirmed.version_number, 1);
+    fs::write(path.join("Presentation12.pptx"), b"updated").unwrap();
+    assert_eq!(db.project_file_resolve(&object).unwrap().version_number, 2);
+    assert_eq!(bytes(&db, &confirmed), b"original bytes");
+}
+
+#[test]
+fn imported_file_location_does_not_adopt_replacement_even_with_same_hash() {
+    for contents in [
+        b"original bytes".as_slice(),
+        b"replacement bytes".as_slice(),
+    ] {
+        let (root, mut db, project, path) = fixture();
+        let source = root.path().join("Presentation12.pptx");
+        fs::write(&source, b"original bytes").unwrap();
+        let object = import_for_location(&mut db, project, &source);
+        fs::write(path.join("replacement"), contents).unwrap();
+        fs::rename(path.join("replacement"), path.join("Presentation12.pptx")).unwrap();
+        let resolved = db.project_file_resolve(&object).unwrap();
+        assert_eq!(resolved.state, "ambiguous");
+        assert_eq!(resolved.version_number, 1);
+        assert_ne!(
+            resolved.reason.as_deref(),
+            Some("File location has not been checked")
+        );
+        assert_eq!(
+            db.project_file_register("wp1-workspace", project, "Presentation12.pptx")
+                .unwrap()
+                .state,
+            "ambiguous"
+        );
+    }
+}
+
+#[test]
+fn imported_file_location_changed_before_first_snapshot_keeps_registered_head() {
+    let (root, mut db, project, path) = fixture();
+    let source = root.path().join("Presentation12.pptx");
+    fs::write(&source, b"original bytes").unwrap();
+    let object = import_for_location(&mut db, project, &source);
+    fs::write(path.join("Presentation12.pptx"), b"edited before opening").unwrap();
+    let resolved = db.project_file_resolve(&object).unwrap();
+    assert_eq!(resolved.state, "ambiguous");
+    assert!(resolved
+        .reason
+        .as_deref()
+        .unwrap()
+        .contains("confirm replacement"));
+    assert_eq!(resolved.version_number, 1);
+    assert_eq!(
+        resolved.content_hash.as_deref(),
+        Some(file_versions::checksum(&source).unwrap().as_str())
+    );
+    assert_eq!(
+        db.document_record(object.id.parse().unwrap())
+            .unwrap()
+            .version_count,
+        1
+    );
+}
+
 #[test]
 fn directory_file_register_is_idempotent_keeps_location_and_reads_binary_snapshot() {
     let (_root, mut db, project, path) = fixture();

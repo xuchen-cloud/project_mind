@@ -162,7 +162,7 @@ fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(path)
 }
 impl Database {
-    fn directory_schema(&self) -> Result<()> {
+    pub(super) fn directory_schema(&self) -> Result<()> {
         self.conn.execute_batch("CREATE TABLE IF NOT EXISTS project_directory_files (
             document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
             physical_identity TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'ready', reason TEXT);
@@ -300,7 +300,9 @@ impl Database {
         }
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
-            "UPDATE project_directory_files SET state=?1,reason=?2 WHERE document_id=?3",
+            // Legacy imports have no recorded physical identity. An empty
+            // identity remains untrusted until explicit reconciliation.
+            "INSERT INTO project_directory_files(document_id,physical_identity,state,reason) VALUES (?3,'',?1,?2) ON CONFLICT(document_id) DO UPDATE SET state=excluded.state,reason=excluded.reason",
             params![state, reason, id],
         )?;
         tx.execute(
@@ -395,21 +397,13 @@ impl Database {
         });
         if let Some(object) = object {
             drop(identity_lock);
-            let mapped: bool = self.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM project_directory_files WHERE document_id=?1)",
-                [object.id.parse::<i64>()?],
-                |r| r.get(0),
-            )?;
-            if mapped {
-                if let Err(error) = self.directory_restore_recover(&object) {
-                    return self.directory_state(&object, "ambiguous", &error.to_string());
-                }
-                if let Err(error) = self.directory_recover_move(&object) {
-                    return self.directory_state(&object, "ambiguous", &error.to_string());
-                }
-                return self.directory_refresh(&object);
+            if let Err(error) = self.directory_restore_recover(&object) {
+                return self.directory_state(&object, "ambiguous", &error.to_string());
             }
-            return self.directory_publish(workspace, project, &path, &object, false, None);
+            if let Err(error) = self.directory_recover_move(&object) {
+                return self.directory_state(&object, "ambiguous", &error.to_string());
+            }
+            return self.directory_refresh(&object);
         }
         // Reserve the existing business identity first. Failure to capture bytes
         // leaves a visible File with no registered version, never a fake v1.
@@ -526,6 +520,18 @@ impl Database {
         file_versions::sync_directory(&snapshots)?;
         business_path(&root, &relative)?;
         let previous_hash = self.directory_hash(document.id, document.current_version_number)?;
+        // An imported head still points at live bytes. Do not register a new
+        // version while silently treating changed bytes as its frozen history.
+        if !replacement
+            && document.storage_mode != "project_directory"
+            && previous_hash.as_ref() != Some(&hash)
+        {
+            return self.directory_state(
+                existing,
+                "ambiguous",
+                "Imported File changed before its first snapshot; confirm replacement",
+            );
+        }
         {
             if !replacement {
                 let known: Option<String> = self.conn.query_row("SELECT physical_identity FROM project_directory_files WHERE document_id=?1",[document.id],|r| r.get(0)).optional()?;
@@ -677,7 +683,11 @@ impl Database {
             return self.directory_state(
                 object,
                 "ambiguous",
-                "Physical identity changed; confirm replacement or relocation",
+                if known.as_deref().is_none_or(str::is_empty) {
+                    "Imported File has no recorded physical identity; confirm location or replacement"
+                } else {
+                    "Physical identity changed; confirm replacement or relocation"
+                },
             );
         }
         if fs::metadata(&path)?.len() > crate::file_text_patch::MAX_FILE_BYTES as u64 {
@@ -688,6 +698,16 @@ impl Database {
             );
         }
         let hash = file_versions::checksum(&path)?;
+        if document.storage_mode != "project_directory" {
+            return self.directory_publish(
+                &object.workspace_id,
+                document.project_id,
+                &path,
+                object,
+                false,
+                None,
+            );
+        }
         if self
             .directory_hash(document.id, document.current_version_number)?
             .as_ref()
