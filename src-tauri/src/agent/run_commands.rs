@@ -163,11 +163,12 @@ pub(crate) fn agent_run_start(
                 "Wait for Profile verification to finish",
             ));
         }
-        let settings = db.agent_settings_get(&session.scope)?;
+        let settings = db.agent_settings_get(&Scope::Workspace)?;
+        let context_settings = db.agent_settings_get(&session.scope)?;
         if !settings.enabled {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
-                "Enable the assistant for this scope first",
+                "Enable the Workspace assistant first",
             ));
         }
         request
@@ -196,12 +197,6 @@ pub(crate) fn agent_run_start(
                 .extend(["operation.undo", "operation.restore_created"].map(str::to_owned));
         }
         let resolved = db.agent_resolve_profile(session.profile_override_id)?;
-        if !db.agent_profile_verified(&resolved.fingerprint)? {
-            return Err(AgentError::new(
-                ErrorCode::ToolCallUnsupported,
-                "Verify tool calling for this Profile and model first",
-            ));
-        }
         if !super::process::PackagedAgentRuntime::available(&state.app_handle) {
             return Err(AgentError::new(
                 ErrorCode::RuntimeUnavailable,
@@ -213,7 +208,7 @@ pub(crate) fn agent_run_start(
                 run_id: format!("{:032x}", rand::random::<u128>()),
                 context_manifest: json!({"prompt": input.data.prompt, "scope": session.scope,
                     "profileFingerprint": resolved.fingerprint, "settingsRevision": settings.revision,
-                    "goalRecordId": settings.goal_record_id, "pinnedRefs": settings.pinned_refs,
+                    "goalRecordId": context_settings.goal_record_id, "pinnedRefs": context_settings.pinned_refs,
                     "mode": settings.execution_mode, "discussionTarget": discussion_target}),
             })?;
         if !prepared.created {

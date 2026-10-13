@@ -80,7 +80,7 @@ test('production SDK process: explicit read tools, raw arguments, committed proj
   try {
     client.send('initialize', initialization(root));
     assert.equal((await client.waitFor((frame) => frame.requestId === 'initialize')).data.runtimeAvailable, true);
-    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key', toolCallingVerified: true });
+    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key' });
     assert.ok((await client.waitFor((frame) => frame.requestId === 'session.open')).ok);
     client.send('run.start', { sessionId, runId, prompt: 'Read a scoped source and stage an answer.' });
     for (const method of ['source.read', 'knowledge.get']) {
@@ -114,7 +114,7 @@ test('production SDK process: explicit read tools, raw arguments, committed proj
     client = transport(moved);
     client.send('initialize', initialization(moved));
     await client.waitFor((frame) => frame.requestId === 'initialize');
-    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key', toolCallingVerified: true, resume: true });
+    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key', resume: true });
     const opened = await client.waitFor((frame) => frame.requestId === 'session.open');
     assert.ok(opened.ok);
     assert.equal(opened.data.checkpoint.checksum, completed.data.checkpoint.checksum);
@@ -145,9 +145,9 @@ test('production SDK process: explicit read tools, raw arguments, committed proj
     client = transport(moved);
     client.send('initialize', initialization(moved));
     await client.waitFor((frame) => frame.requestId === 'initialize');
-    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key', toolCallingVerified: true, resume: true });
+    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key', resume: true });
     assert.equal((await client.waitFor((frame) => frame.requestId === 'session.open')).error.code, 'RUNTIME_INCOMPATIBLE');
-    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key', toolCallingVerified: true }, 'try-new');
+    client.send('session.open', { sessionId, profile, apiKey: 'private-fixture-key' }, 'try-new');
     assert.equal((await client.waitFor((frame) => frame.requestId === 'try-new')).error.code, 'RUNTIME_INCOMPATIBLE');
     assert.equal(await readFile(history, 'utf8'), 'damaged history preserved');
     client.send('shutdown');

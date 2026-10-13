@@ -57,6 +57,13 @@ impl Database {
     pub(super) fn ensure_agent_schema(&mut self) -> anyhow::Result<()> {
         let savepoint = self.conn.savepoint()?;
         savepoint.execute_batch(include_str!("agent_schema.sql"))?;
+        // Preserve an existing opt-in when upgrading to Workspace-wide controls.
+        // Project goals and pins remain project context, never global settings.
+        savepoint.execute_batch("INSERT INTO agent_scope_settings(scope_key,enabled,summary_policy,overview_interval_hours,overview_local_time,overview_timezone,execution_mode,revision)
+            SELECT 'workspace',enabled,summary_policy,overview_interval_hours,overview_local_time,overview_timezone,execution_mode,1
+            FROM agent_scope_settings WHERE scope_key LIKE 'project:%' AND enabled=1
+              AND NOT EXISTS(SELECT 1 FROM agent_scope_settings WHERE scope_key='workspace')
+            ORDER BY revision DESC,scope_key LIMIT 1;")?;
         let version: i64 = savepoint.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if version < super::AGENT_FOUNDATION_SCHEMA_VERSION {
             savepoint.pragma_update(
@@ -190,6 +197,28 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
 
     use super::*;
     use crate::agent::settings::{AgentScopeSettings, SettingsRepository};
+
+    #[test]
+    fn legacy_project_opt_in_becomes_workspace_configuration_without_global_pins() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("workspace.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        db.conn.execute("INSERT INTO agent_scope_settings(scope_key,enabled,goal_record_id,pinned_refs_json,execution_mode,overview_timezone) VALUES ('project:2',1,17,'[]','review','Asia/Shanghai')", []).unwrap();
+        db.ensure_agent_schema().unwrap();
+        let workspace = db.agent_settings_get(&Scope::Workspace).unwrap();
+        assert!(workspace.enabled);
+        assert_eq!(workspace.execution_mode, crate::agent::models::ExecutionMode::Review);
+        assert_eq!(workspace.overview_timezone, "Asia/Shanghai");
+        assert_eq!(workspace.goal_record_id, None);
+        assert!(workspace.pinned_refs.is_empty());
+        assert_eq!(db.agent_settings_get(&Scope::Project { project_id: 2 }).unwrap().goal_record_id, Some(17));
+        db.conn.execute("UPDATE agent_scope_settings SET enabled=0,execution_mode='read_only' WHERE scope_key='workspace'", []).unwrap();
+        drop(db);
+        let reopened = Database::open(&path, root.path(), None).unwrap();
+        let saved = reopened.agent_settings_get(&Scope::Workspace).unwrap();
+        assert!(!saved.enabled);
+        assert_eq!(saved.execution_mode, crate::agent::models::ExecutionMode::ReadOnly);
+    }
 
     #[test]
     fn agent_settings_unconfigured_scopes_and_new_sql_rows_default_to_review() {

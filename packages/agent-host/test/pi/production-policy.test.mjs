@@ -15,8 +15,10 @@ const descriptor = { name: 'mind_source_read', method: 'source.read', descriptio
 
 test('production rejects unregistered discovery, duplicate tools and unbounded schemas', async () => {
   assert.deepEqual(validateToolDescriptors([descriptor]), [descriptor]);
-  const todoGet = { ...descriptor, name: 'mind_todo_get', method: 'todo.get' };
-  assert.deepEqual(validateToolDescriptors([todoGet]), [todoGet]);
+  for (const method of ['todo.get', 'project.list']) {
+    const tool = { ...descriptor, name: `mind_${method.replace('.', '_')}`, method };
+    assert.deepEqual(validateToolDescriptors([tool]), [tool]);
+  }
   for (const method of ['file.source.read', 'file.versions.list', 'file.versions.get', 'file.content.begin', 'file.content.chunk', 'file.content.complete', 'file.content.status']) {
     const tool = { ...descriptor, method, name: `mind_${method.replaceAll('.', '_')}` };
     assert.deepEqual(validateToolDescriptors([tool]), [tool]);
@@ -29,12 +31,12 @@ test('production rejects unregistered discovery, duplicate tools and unbounded s
   const frames = [];
   let opened = false;
   const protocol = createHostProtocol({ workspaceRoot: '/tmp/workspace', write: (value) => frames.push(value),
-    makeSession: async () => { opened = true; } });
+    makeSession: async () => { opened = true; return { activeTools: () => [descriptor.name], dispose: async () => {} }; } });
   await protocol.handle(frame('initialize', { workspaceRoot: '/tmp/workspace', systemPrompt: 'Trusted manifest', tools: [descriptor] }));
   await protocol.handle(frame('session.open', { sessionId: '1'.repeat(32), apiKey: 'pipe-only-key',
     profile: { providerFamily: 'openai_compatible', enabled: true, supportsText: true, baseUrl: 'https://fixture.example/v1', defaultModel: 'fixture' } }));
-  assert.equal(frames.at(-1).error.code, 'TOOL_CALL_UNSUPPORTED');
-  assert.equal(opened, false);
+  assert.equal(frames.at(-1).ok, true);
+  assert.equal(opened, true);
   assert.ok(!JSON.stringify(frames).includes('pipe-only-key'));
 });
 

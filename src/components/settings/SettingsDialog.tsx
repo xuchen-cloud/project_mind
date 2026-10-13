@@ -20,6 +20,9 @@ import { AiChatIcon, VoiceRecordIcon } from "../icons/ContentTypeIcon";
 const AiSettingsPanel = lazy(() =>
   import("./AiSettingsPanel").then((module) => ({ default: module.AiSettingsPanel })),
 );
+const AgentSettingsPanel = lazy(() =>
+  import("./AgentSettingsPanel").then((module) => ({ default: module.AgentSettingsPanel })),
+);
 const DshSettingsPanel = lazy(() =>
   import("./DshSettingsPanel").then((module) => ({ default: module.DshSettingsPanel })),
 );
@@ -77,6 +80,7 @@ const SETTINGS_SECTIONS: Array<{
     label: "AI 模型配置",
     icon: Settings2,
   },
+  { value: "agent", label: "助手", icon: AiChatIcon },
   { value: "dsh-assistant", label: "DSH 助手", icon: AiChatIcon },
   {
     value: "ai-rewrite",
@@ -108,6 +112,8 @@ export function SettingsDialog({
     switch (activeSection) {
       case "dsh-assistant":
         return <Suspense fallback={<SettingsPanelFallback />}><DshSettingsPanel open={open} /></Suspense>;
+      case "agent":
+        return <Suspense fallback={<SettingsPanelFallback />}><AgentSettingsPanel open={open} /></Suspense>;
       case "page-width":
         return <PageWidthSettingsPanel />;
       case "updates":
@@ -242,6 +248,7 @@ export function SettingsRouteBridge() {
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
   if (section === "dsh-assistant") return "dsh-assistant";
+  if (section === "agent") return "agent";
   if (section === "updates") {
     return "updates";
   }

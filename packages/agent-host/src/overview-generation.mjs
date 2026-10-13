@@ -18,7 +18,7 @@ export function createOverviewGeneration({ workspaceRoot, makeSession = createPi
     if (!idPattern.test(data.batchId ?? '') || typeof data.prompt !== 'string'
       || !data.prompt.trim() || Buffer.byteLength(data.prompt, 'utf8') > MAX_OVERVIEW_INPUT_BYTES) throw error('INVALID_ARGUMENT');
     if (typeof data.apiKey !== 'string' || !data.apiKey) throw error('SECRETS_LOCKED');
-    const mapped = mapCompatibleProfile(data.profile, { model: data.modelId, toolCallingVerified: data.toolCallingVerified });
+    const mapped = mapCompatibleProfile(data.profile, { model: data.modelId });
     const budget = overviewInputBudget(data.capacity);
     if (Buffer.byteLength(data.prompt, 'utf8') > budget.inputBytes) throw error('BUDGET_EXCEEDED');
     const job = { batchId: data.batchId, cancelled: false, session: null, settled: false,

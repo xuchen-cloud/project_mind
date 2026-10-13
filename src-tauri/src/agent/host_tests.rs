@@ -2,6 +2,22 @@ use super::super::conversation::MessageRole;
 use super::*;
 
 #[test]
+fn desktop_tool_manifest_is_accepted_by_the_packaged_host_adapter() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let tools: Vec<_> = read_tool_descriptions().into_iter()
+        .chain(super::super::record_write_tools::record_write_tool_descriptions())
+        .collect();
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let mut child = Command::new("node").current_dir(repository)
+        .args(["--input-type=module", "-e", "import {readFileSync} from 'node:fs'; import {validateToolDescriptors} from './packages/agent-host/src/tool-descriptors.mjs'; validateToolDescriptors(JSON.parse(readFileSync(0,'utf8')));"])
+        .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(&serde_json::to_vec(&tools).unwrap()).unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+}
+
+#[test]
 fn internal_context_check_does_not_extend_first_progress_deadline() {
     let started = Instant::now();
     let mut last_progress = started;

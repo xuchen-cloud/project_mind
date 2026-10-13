@@ -659,11 +659,10 @@ pub(crate) async fn execute(
         if selected.profile.model != profile.model
             || selected.profile.base_url != profile.base_url
             || selected.profile.api_key != profile.api_key
-            || !db.agent_profile_verified(&selected.fingerprint)?
         {
             return Err(AgentError::new(
-                ErrorCode::ToolCallUnsupported,
-                "Test tool calling for the selected Profile and model first",
+                ErrorCode::ProfileUnavailable,
+                "The model configuration changed before the run started",
             ));
         }
         let run = db.agent_run_get(&request, &runtime.agent_binding, &run_id)?;
@@ -822,7 +821,7 @@ pub(crate) async fn execute(
         let resume_started = std::time::Instant::now();
         let opened = exchange(&mut process, "session-open", "session.open", json!({"sessionId":session.id,"resume":resume,"hostOwnedHistoryPolicy":true,
             "profile":{"providerFamily":profile.provider_family,"enabled":true,"supportsText":profile.supports_text,"baseUrl":profile.base_url,"defaultModel":profile.model},
-            "modelId":profile.model,"apiKey":profile.api_key,"toolCallingVerified":true}), &mut cancel).await;
+            "modelId":profile.model,"apiKey":profile.api_key}), &mut cancel).await;
         profile.api_key.clear();
         let opened = opened.map_err(|error| { if resume && error.code == ErrorCode::RuntimeIncompatible { damaged_history = true; } if resume { record_restore(&app, &runtime, &request, resume_started, Some(error.code)); } error })?;
         if opened["sessionId"] != session.id || opened["activeTools"] != json!(active_tools) {

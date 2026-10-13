@@ -430,7 +430,7 @@ fn status_counts_inventory_source_without_registry_and_never_claims_body_complet
 }
 
 #[test]
-fn profile_resume_is_idle_without_paused_workers_and_requires_verified_secret() {
+fn profile_resume_is_idle_without_paused_workers_and_uses_configured_secret_without_probe() {
     let mut f = fixture();
     let now = Utc::now();
     f.db.agent_overview_maintenance_resume_waiting(&f.binding, now)
@@ -438,7 +438,7 @@ fn profile_resume_is_idle_without_paused_workers_and_requires_verified_secret() 
     f.db.conn
         .execute(
             "INSERT INTO agent_scope_settings(scope_key,enabled) VALUES (?1,1)",
-            [f.scope.key()],
+            [Scope::Workspace.key()],
         )
         .unwrap();
     let batch = prepare(&f);
@@ -483,18 +483,6 @@ fn profile_resume_is_idle_without_paused_workers_and_requires_verified_secret() 
         use_default=0,profile_id=excluded.profile_id,model=NULL",
             [profile_id],
         )
-        .unwrap();
-    f.db.agent_overview_maintenance_resume_waiting(&f.binding, now)
-        .unwrap();
-    assert_eq!(
-        f.db.agent_overview_maintenance_status(&f.binding, &f.scope)
-            .unwrap()
-            .error_code,
-        Some(ErrorCode::ProfileUnavailable),
-        "unverified profile stays paused"
-    );
-    let fingerprint = f.db.agent_resolve_profile(None).unwrap().fingerprint;
-    f.db.agent_profile_record_verification(&fingerprint)
         .unwrap();
     f.db.agent_overview_maintenance_resume_waiting(&f.binding, now)
         .unwrap();

@@ -164,7 +164,7 @@ fn fixture() -> Fixture {
     let scope = Scope::Project {
         project_id: project.id,
     };
-    let mut settings = db.agent_settings_get(&scope).unwrap();
+    let mut settings = db.agent_settings_get(&Scope::Workspace).unwrap();
     settings.enabled = true;
     db.agent_settings_update(
         "gui",

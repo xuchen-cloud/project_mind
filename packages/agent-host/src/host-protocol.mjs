@@ -137,7 +137,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
       if (method === 'overview.capacity') {
         if (probe || session || run || overview.busy()) { fail('RUN_BUSY', 'Host model call is busy'); return; }
         try {
-          const mapped = mapCompatibleProfile(data.profile, { model: data.modelId, toolCallingVerified: data.toolCallingVerified });
+          const mapped = mapCompatibleProfile(data.profile, { model: data.modelId });
           const capacity = await resolveModelCapacity(mapped.modelId, mapped);
           write(success(requestId, { ...capacity, ...overviewInputBudget(capacity) }));
         } catch (error) { fail(error.code ?? 'RUNTIME_FAILED', 'Cannot resolve Overview model capacity'); }
@@ -160,7 +160,7 @@ export function createHostProtocol({ write, workspaceRoot, persistCheckpoint, lo
         if (overview.busy()) { fail('RUN_BUSY', 'Host model call is busy'); return; }
         if (session || !idPattern.test(data.sessionId ?? '')) { fail('INVALID_ARGUMENT', 'Session already open or invalid session ID'); return; }
         try {
-          const mapped = mapCompatibleProfile(data.profile, { model: data.modelId, toolCallingVerified: data.toolCallingVerified });
+          const mapped = mapCompatibleProfile(data.profile, { model: data.modelId });
           if (typeof data.apiKey !== 'string' || !data.apiKey) { fail('SECRETS_LOCKED', 'Unlocked credential is required'); return; }
           const restored = data.resume === true;
           if (!probe && data.checkpoint !== undefined) throw Object.assign(new Error('Use resume for stored history'), { code: 'INVALID_ARGUMENT' });

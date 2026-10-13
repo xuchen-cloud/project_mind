@@ -25,7 +25,7 @@ test('real bundled SDK catalog and restricted Host capacity protocol agree', asy
   const frames = [];
   const host = createHostProtocol({ workspaceRoot: '/tmp/workspace', write: (value) => frames.push(value) });
   await host.handle(frame('initialize', { workspaceRoot: '/tmp/workspace', systemPrompt: 'Initialize.' }));
-  await host.handle(frame('overview.capacity', { profile, modelId: 'gpt-4o', toolCallingVerified: true }));
+  await host.handle(frame('overview.capacity', { profile, modelId: 'gpt-4o' }));
   const response = frames.find((value) => value.requestId === 'overview.capacity');
   assert.equal(response.ok, true);
   assert.equal(response.data.contextWindow, direct.contextWindow);

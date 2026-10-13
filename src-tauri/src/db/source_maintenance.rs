@@ -699,7 +699,7 @@ mod tests {
         assert!(db.source_maintenance_progress(&request, &request.binding, &Scope::Workspace, now).unwrap().unwrap().cancelled);
     }
     #[test]
-    fn independently_enabled_project_is_selected_without_workspace_enable() {
+    fn legacy_project_enable_does_not_bypass_workspace_controls() {
         let (_root, db, _request, now) = setup();
         let project_id = db.project_create(ProjectCreateInput { name: "Project".into(), summary: None, status: None }).unwrap().id;
         let project = Scope::Project { project_id };
@@ -707,8 +707,10 @@ mod tests {
         settings.enabled = true;
         db.agent_settings_update("gui", "enable-project", &SettingsUpdate { settings, expected_revision: 0 }).unwrap();
         let binding = WorkspaceBinding { workspace_id: "w".into(), generation: "g1".into() };
-        assert_eq!(db.source_maintenance_next(&binding, now).unwrap(), Some(project));
+        assert_eq!(db.source_maintenance_next(&binding, now).unwrap(), None);
         assert!(!db.agent_settings_get(&Scope::Workspace).unwrap().enabled);
+        enable(&db);
+        assert!(db.overview_schedule_scope(&binding, &project).unwrap());
     }
     #[test]
     fn switching_scopes_preserves_global_charge_and_inflight_reservation() {

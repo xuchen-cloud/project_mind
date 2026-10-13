@@ -1043,10 +1043,9 @@ impl Database {
         let profile_ready = if scopes.iter().any(|(_, code)| code != "RATE_LIMITED") {
             match self.agent_resolve_profile(None) {
                 Ok(mut resolved) => {
-                    let verification = self.agent_profile_verified(&resolved.fingerprint);
                     resolved.profile.api_key.clear();
                     drop(resolved); // Clear secrets before any job write or error return.
-                    verification?
+                    true
                 }
                 Err(error)
                     if matches!(

@@ -1,10 +1,9 @@
 // Profile metadata is supplied by Rust; its unlocked key travels separately over
-// the process pipe. supportsText is not evidence of tool calling capability.
-export function mapCompatibleProfile(profile, { model, toolCallingVerified = false } = {}) {
+// the process pipe. Provider errors are reported by the actual model request.
+export function mapCompatibleProfile(profile, { model } = {}) {
   const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
   if (profile?.providerFamily !== 'openai_compatible') fail('RUNTIME_INCOMPATIBLE', 'Provider family is not supported by the Pi adapter');
   if (!profile.enabled || !profile.supportsText) fail('PROFILE_UNAVAILABLE', 'Profile is disabled or cannot generate text');
-  if (!toolCallingVerified) fail('TOOL_CALL_UNSUPPORTED', 'Tool calling has not been verified for this Profile and model');
   const modelId = model ?? profile.defaultModel;
   if (typeof modelId !== 'string' || !modelId.trim()) fail('PROFILE_UNAVAILABLE', 'Profile has no model');
   let url;

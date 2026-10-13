@@ -108,21 +108,7 @@ impl AppOverviewModel {
             return Err(workspace_changed());
         }
         let db = crate::lock_mutex(&runtime.db);
-        let mut selected = db.agent_resolve_profile(None)?;
-        match db.agent_profile_verified(&selected.fingerprint) {
-            Ok(true) => {}
-            Ok(false) => {
-                selected.profile.api_key.clear();
-                return Err(AgentError::new(
-                    ErrorCode::ToolCallUnsupported,
-                    "Test tool calling for the selected Profile and model first",
-                ));
-            }
-            Err(error) => {
-                selected.profile.api_key.clear();
-                return Err(error);
-            }
-        }
+        let selected = db.agent_resolve_profile(None)?;
         Ok((
             runtime.paths.root_path.clone(),
             selected.profile,
@@ -154,8 +140,7 @@ impl OverviewModel for AppOverviewModel {
                 json!({"workspaceRoot":root,"tools":[],"systemPrompt":SYSTEM_PROMPT})).await?;
             if initialized["runtimeAvailable"] != true { return Err(incompatible()); }
             exchange(&mut process, "capacity", "overview.capacity", json!({
-                "profile":profile_metadata(&profile.0),"modelId":profile.0.model,
-                "toolCallingVerified":true
+                "profile":profile_metadata(&profile.0),"modelId":profile.0.model
             })).await
         }).await.unwrap_or_else(|_| Err(timed_out()));
         let cleanup = timeout(CLEANUP_TIMEOUT, async {
@@ -256,7 +241,6 @@ async fn generate_with_process(
             "modelId":profile.model,
             "capacity":{"contextWindow":budget.context_window,
                 "maxTokens":budget.max_tokens,"source":budget.source},
-            "toolCallingVerified":true,
             "apiKey":profile.api_key,
             "prompt":prompt,
         }),

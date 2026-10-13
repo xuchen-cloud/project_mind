@@ -110,17 +110,12 @@ struct ScheduleTime {
     local_time: String,
     timezone: String,
 }
-/// Project's own enabled schedule wins; otherwise an enabled Workspace owns
-/// maintenance timing without changing the Project assistant setting.
-fn effective_schedule(conn: &rusqlite::Connection, scope: &Scope) -> AgentResult<Option<ScheduleTime>> {
-    let read = |key: String| conn.query_row(
+/// Every scope uses the Workspace's assistant switch and maintenance timing.
+fn effective_schedule(conn: &rusqlite::Connection, _scope: &Scope) -> AgentResult<Option<ScheduleTime>> {
+    conn.query_row(
         "SELECT overview_interval_hours,overview_local_time,overview_timezone FROM agent_scope_settings WHERE scope_key=?1 AND enabled=1",
-        [key], |row| Ok(ScheduleTime { interval_hours: row.get(0)?, local_time: row.get(1)?, timezone: row.get(2)? }),
-    ).optional().map_err(io);
-    match read(scope.key())? {
-        Some(settings) => Ok(Some(settings)),
-        None => read(Scope::Workspace.key()),
-    }
+        [Scope::Workspace.key()], |row| Ok(ScheduleTime { interval_hours: row.get(0)?, local_time: row.get(1)?, timezone: row.get(2)? }),
+    ).optional().map_err(io)
 }
 fn slot_for_settings(settings: &ScheduleTime, now: DateTime<Utc>) -> AgentResult<i64> {
     let zone: chrono_tz::Tz = settings.timezone.parse().map_err(|_| invalid())?;
@@ -144,7 +139,7 @@ pub(super) fn retime_schedule(
     let scopes = match changed_scope {
         Scope::Project { .. } => vec![changed_scope.clone()],
         Scope::Workspace => {
-            let mut stmt = conn.prepare("SELECT p.id FROM projects p LEFT JOIN agent_scope_settings s ON s.scope_key='project:'||p.id WHERE p.is_archived=0 AND coalesce(s.enabled,0)=0").map_err(io)?;
+            let mut stmt = conn.prepare("SELECT id FROM projects WHERE is_archived=0").map_err(io)?;
             let rows = stmt.query_map([], |row| Ok(Scope::Project { project_id: row.get(0)? }))
                 .map_err(io)?;
             let mut scopes=rows.collect::<rusqlite::Result<Vec<_>>>().map_err(io)?;

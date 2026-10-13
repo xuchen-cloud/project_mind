@@ -11,6 +11,7 @@ export type SettingsSection =
   | "contacts"
   | "voice"
   | "ai-models"
+  | "agent"
   | "dsh-assistant"
   | "ai-rewrite"
   | "external-connections"

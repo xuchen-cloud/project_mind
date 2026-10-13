@@ -11,7 +11,7 @@ const batchId = 'b'.repeat(32);
 const profile = { providerFamily: 'openai_compatible', enabled: true, supportsText: true,
   baseUrl: 'http://127.0.0.1/v1', defaultModel: 'fixture' };
 const frame = (method, data = {}, requestId = method) => ({ protocolVersion: PROTOCOL_VERSION, method, data, requestId });
-const input = { batchId, profile, modelId: 'fixture', toolCallingVerified: true, apiKey: 'secret', prompt: 'Return an overview JSON object.',
+const input = { batchId, profile, modelId: 'fixture', apiKey: 'secret', prompt: 'Return an overview JSON object.',
   capacity: { contextWindow: 32768, maxTokens: 4096, source: 'fallback' } };
 function fixture(makeSession) {
   const frames = [];

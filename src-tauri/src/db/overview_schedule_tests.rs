@@ -28,6 +28,7 @@ fn fixture() -> Fixture {
         .id;
     let scope = Scope::Project { project_id: id };
     db.conn.execute("INSERT INTO agent_scope_settings(scope_key,enabled,overview_local_time,overview_timezone) VALUES (?1,1,'03:00','UTC')", [scope.key()]).unwrap();
+    db.conn.execute("INSERT INTO agent_scope_settings(scope_key,enabled) VALUES ('workspace',1)", []).unwrap();
     db.agent_overviews_prepare().unwrap();
     db.conn
         .execute(
@@ -36,6 +37,10 @@ fn fixture() -> Fixture {
         )
         .unwrap();
     db.conn.execute("INSERT INTO agent_overview_pending_state(scope_key,needs_rebuild) VALUES (?1,0) ON CONFLICT(scope_key) DO UPDATE SET needs_rebuild=0", [scope.key()]).unwrap();
+    // These cases exercise one Project's work. Keep the unrelated Workspace
+    // cycle in the future unless a test explicitly schedules the Workspace.
+    let binding = WorkspaceBinding { workspace_id: "schedule-ws".into(), generation: "one".into() };
+    save_schedule(&db.conn, &binding, &Scope::Workspace, &Schedule { due_at: at("2099-01-01T00:00:00Z").timestamp(), ..Default::default() }, at("2026-10-08T12:00:00Z")).unwrap();
     Fixture {
         root,
         db,
@@ -63,6 +68,7 @@ fn enable_workspace(f: &Fixture, interval: u8, time: &str, zone: &str, request: 
     settings.overview_local_time = time.into();
     settings.overview_timezone = zone.into();
     f.db.agent_settings_update("schedule-test", request, &SettingsUpdate { settings, expected_revision }).unwrap();
+    f.db.conn.execute("DELETE FROM agent_jobs WHERE dedupe_key=?1", [schedule_key(&f.binding, &Scope::Workspace)]).unwrap();
 }
 
 #[test]
@@ -81,13 +87,15 @@ fn workspace_schedule_starts_project_without_project_settings_and_uses_local_tim
 }
 
 #[test]
-fn enabled_project_keeps_its_own_schedule_when_workspace_is_enabled() {
+fn workspace_schedule_overrides_legacy_project_controls_and_disable_stops_all_scopes() {
     let f = fixture();
     enable_workspace(&f, 48, "03:00", "Asia/Shanghai", "workspace-enable");
     let now = at("2026-10-08T12:00:00Z");
     assert_eq!(f.db.overview_schedule_next(&f.binding, now).unwrap(), Some(f.scope.clone()));
     f.db.overview_schedule_finished(&f.binding, &f.scope, false, now).unwrap();
-    assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, Some(at("2026-10-09T03:00:00Z")));
+    assert_eq!(f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at, Some(at("2026-10-09T19:00:00Z")));
+    f.db.conn.execute("UPDATE agent_scope_settings SET enabled=0 WHERE scope_key='workspace'", []).unwrap();
+    assert_eq!(f.db.overview_schedule_next(&f.binding, now + Duration::days(3)).unwrap(), None);
 }
 
 #[test]
@@ -139,7 +147,7 @@ fn saving_schedule_retimes_future_due_and_survives_reopen() {
     f.db.overview_schedule_next(&f.binding, now).unwrap();
     f.db.overview_schedule_finished(&f.binding, &f.scope, false, now).unwrap();
     let old_due = f.db.overview_schedule_status(&f.binding, &f.scope, now).unwrap().next_run_at.unwrap();
-    let mut settings = f.db.agent_settings_get(&f.scope).unwrap();
+    let mut settings = f.db.agent_settings_get(&Scope::Workspace).unwrap();
     settings.overview_interval_hours = 48;
     settings.overview_timezone = "Asia/Shanghai".into();
     let expected_revision = settings.revision;
@@ -154,7 +162,7 @@ fn saving_schedule_retimes_future_due_and_survives_reopen() {
     drop(f.db);
     let mut reopened = Database::open(&root.join("schedule.sqlite"), &root, None).unwrap();
     reopened.bind_native_workspace("schedule-ws").unwrap();
-    assert_eq!(reopened.agent_settings_get(&f.scope).unwrap().overview_timezone, "Asia/Shanghai");
+    assert_eq!(reopened.agent_settings_get(&Scope::Workspace).unwrap().overview_timezone, "Asia/Shanghai");
     assert_eq!(reopened.overview_schedule_status(&f.binding, &f.scope, Utc::now()).unwrap().next_run_at, Some(due));
 }
 
@@ -166,7 +174,7 @@ fn zero_dirty_skips_model_and_missed_days_coalesce_to_one_due_cycle() {
         f.db.conn
             .execute(
                 "UPDATE agent_scope_settings SET overview_interval_hours=?1 WHERE scope_key=?2",
-                params![interval, f.scope.key()],
+                params![interval, Scope::Workspace.key()],
             )
             .unwrap();
         assert_eq!(
