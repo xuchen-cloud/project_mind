@@ -11,6 +11,7 @@ import { fileBytes, projectFileApi } from "../../services/projectFileApi";
 import { markdownImageReferences, localResourcePath } from "../../../packages/dsh-ui/preview/resources.mjs";
 import { prepareStaticHtml } from "../../../packages/dsh-ui/preview/static-html.mjs";
 import { DshFilePreview, type DshPreviewKind } from "../../../packages/dsh-ui/preview";
+import { FileOpenWithButton } from "./FileOpenWithButton";
 import "./project-file-content.css";
 
 export interface ProjectFileView { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceLocator?: NonNullable<AgentSourceRef["locator"]>; sourceMode?: boolean }
@@ -227,6 +228,7 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
       <button type="button" className="project-file-content__external-button" aria-label="在外部应用打开当前原件"
         title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : "在外部应用打开当前原件"}
         disabled={opening} onClick={() => void openExternal()}><ExternalLink size={14} aria-hidden="true" /><span>外部打开</span></button>
+      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} visible={visible} />
       {toolbarActions}
     </header>
     {needsRecovery ? identityRecovery : null}

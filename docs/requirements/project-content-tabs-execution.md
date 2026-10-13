@@ -30,6 +30,21 @@
 
 ## 验证与验收
 
+### 2026-10-13 文件与应用图标工作包（#124）
+
+- 依赖：现有 DSH `FileTypeIcon`／分类器、File 当前原件身份核验、Workspace generation、紧凑工具栏。接收时无 `tauri dev` 监听进程；保留 Agent／Overview／Voice 等并行未提交改动。
+- 交付：文件侧栏、项目目录与内容 Tab 使用 DSH 映射，未映射类型读取系统类型图标；新增其他应用打开菜单，应用图标只用系统图标，选择后打开当前原件。默认应用入口保留。
+- 非目标：修改文件身份、版本或引用语义，新增格式预览／编辑，读取历史快照作为当前原件，改变 Record／Session 图标。
+- 验收：已映射文件不请求系统图标；未映射类型按类型缓存，异步响应不串入其他类型；应用菜单图标来自系统，查询与打开失败明确，关闭／隐藏丢弃过期响应；应用选择核验系统关联及当前文件，历史查看仍打开当前原件；有界列表使用既有连续边缘遮罩。
+- 验证范围：共享图标、应用菜单与 API 边界测试；侧栏／目录／Tab／File 预览受影响回归；原生图标、处理应用及绑定边界测试；集中 TypeScript／构建、UI 和 bundle 检查；macOS 图标与真实菜单验收。Windows 无运行环境时保留明确待验收项。Standards／Spec 由主 agent 自查，不启动 review 子 agent。
+- 实现：直接复用 vendored DSH 分类器与 SVG，不改上游字节；Host 和 DSH 附件共用类型图标，未映射类型由原生系统查询，按扩展名共享缓存。系统图标加载中／失败／缺失使用有明确状态的中性占位；应用图标缺失保留空图标位，不替换为 DSH 文件图标。应用菜单复用 `PopoverPanel` 和 `HomeSidebarList`。
+- 原生边界：四个并发许可在 blocking 任务入队前获取；应用枚举在 DB 锁外，查询后及打开前重新核验 Workspace generation、File 实际归属、当前路径和物理身份。只接受系统注册应用 ID，不接受客户端执行命令或原始路径。macOS 使用 NSWorkspace，Windows 使用 Shell association handler／GDI；历史视图打开当前原件。
+- 前端验证：`npx vitest run` 的共享图标／native API 两文件最终 18 项、File 预览／API 两文件 47 项、侧栏／目录／Tab 三文件 37 项、DSH 附件／引用／集成三文件 22 项通过；真实 bootstrap／附件／图标／菜单四文件 27 项通过，其中较早的图标 9 项已由最终 15 项覆盖。结果有重叠，未相加为全量计数；未变化的通过结果复用。日志为 `/tmp/project-mind-file-icon*-tests.log`，仅供本地诊断。
+- 构建与检查：`npm run build`（含 TypeScript）、`check:ui-standards`、`check:bundle-boundaries`、DSH `test:integrity` 3 项及 `check:adapters` 通过，主包 229/250 KiB，39 source entries／1043 modules；静态图标独立复用 chunk。macOS `cargo test --manifest-path src-tauri/Cargo.toml --lib native_file_icons --quiet -- --show-output` 7 项和 `cargo check --lib --quiet` 通过，含真实系统 PNG 解码、应用枚举、并发及 generation／归属／替换／缺失边界。Windows 适配模块通过隔离支架 MSVC 交叉 `cargo check`，未验证完整 Windows 构建或运行。macOS debug `.app` 静默包装通过，最终前端入口资源已嵌入 binary。
+- macOS 实机：重用隔离验收应用、App data 和 Workspace；PPT Tab 显示橙色 DSH 图标，未映射 TXT Tab 显示系统文本文件图标。实际菜单列出 TextEdit、Word、Pages 等系统应用图标，默认标记正确、溢出下缘遮罩可见；选择 TextEdit 后打开测试 Workspace 中的 `import-first-open.txt` 原件，合成文本与文件 URL 正确，没有改写文件或发送模型请求。
+- 主 agent Standards／Spec 自查通过：确认图标来源、异步缓存与取消、当前原件语义、原生身份和注册应用边界、GDI／COM 释放、上游完整性及滚动规范。本包提交仅含图标和应用选择改动；同期 Tab 排版等并行改动保留。#124 继续作为阶段交付，Windows 实际图标／打开和父 Issue 剩余验收仍待完成。
+- 收尾补正：原生扩展名规则与 DSH 分类／缓存一致，含前导点文件名，避免 `.txt` 与 `note.txt` 共用缓存却查询不同类型；最终原生组仍 7/7 通过。补包装首次因磁盘不足失败，仅清理可重建 incremental 缓存和本包生成的静态 archive 后重试，最终 `.app` 包装通过。此前 macOS GUI 覆盖的菜单／打开实现未变，复用实机结果。
+
 ### 2026-10-13 DSH 调研后的界面优化包（#124）
 
 - 基线：`4b6a5aa`；依赖已实现的 File 身份／版本读取／外部打开、统一内容打开、DSH Session 绑定和布局存储。源码编辑前确认没有 `tauri dev` 文件监听进程。

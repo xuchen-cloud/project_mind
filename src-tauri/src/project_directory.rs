@@ -748,6 +748,123 @@ pub(crate) fn project_file_open_local(
     })
 }
 
+// The plan is obtained through the same identity/path guard as opening. OS
+// enumeration runs without the DB lock, then the async boundary is revalidated.
+fn native_application_error(message: String) -> FileServiceError {
+    FileServiceError {
+        code: "io_failed",
+        message,
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_file_path(db: &crate::db::Database, object: &ObjectRef) -> Result<PathBuf> {
+    let mut path = None;
+    db.project_file_open_local_with(object, |current| {
+        path = Some(current.to_path_buf());
+        Ok(())
+    })?;
+    Ok(path.expect("validated local File callback"))
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn revalidate_native_file<T>(
+    db: &crate::db::Database,
+    object: &ObjectRef,
+    planned_path: &Path,
+    action: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    let mut result = None;
+    db.project_file_open_local_with(object, |current| {
+        if current != planned_path {
+            return Err(FileServiceError {
+                code: "revision_conflict",
+                message: "Current File location changed during application lookup".into(),
+            }
+            .into());
+        }
+        result = Some(action(current)?);
+        Ok(())
+    })?;
+    Ok(result.expect("validated local File callback"))
+}
+
+#[tauri::command]
+pub(crate) async fn project_file_applications(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+) -> Result<Vec<crate::native_file_icons::NativeFileApplication>, FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    let permit = crate::native_file_icons::native_icon_permit()
+        .await
+        .map_err(native_application_error)?;
+    let _ = state;
+    let app = caller.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        let state = app.state::<AppState>();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            let path = file_db(state.clone(), &binding, |db| native_file_path(db, &object))?;
+            let applications = crate::native_file_icons::Applications::load(&path)
+                .map_err(native_application_error)?;
+            file_db(state, &binding, |db| {
+                revalidate_native_file(db, &object, &path, |_| Ok(applications.list()))
+            })
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        file_db(state, &binding, |db| {
+            db.project_file_open_local_with(&object, |_| Ok(()))?;
+            Ok(Vec::new())
+        })
+    })
+    .await
+    .map_err(|error| native_application_error(error.to_string()))?
+}
+
+#[tauri::command]
+pub(crate) async fn project_file_open_with(
+    caller: Webview,
+    state: State<'_, AppState>,
+    binding: WorkspaceBinding,
+    object: ObjectRef,
+    application_id: String,
+) -> Result<(), FileServiceError> {
+    file_caller(&caller, object_project(&object)?)?;
+    let permit = crate::native_file_icons::native_icon_permit()
+        .await
+        .map_err(native_application_error)?;
+    let _ = state;
+    let app = caller.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        let state = app.state::<AppState>();
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            let path = file_db(state.clone(), &binding, |db| native_file_path(db, &object))?;
+            let applications = crate::native_file_icons::Applications::load(&path)
+                .map_err(native_application_error)?;
+            crate::native_file_icons::select_application(&applications.list(), &application_id)?;
+            file_db(state, &binding, |db| {
+                revalidate_native_file(db, &object, &path, |current| {
+                    applications.open(&application_id, current)
+                })
+            })
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = (state, binding, object, application_id);
+            Err(native_application_error(
+                "Open with is unsupported on this platform".into(),
+            ))
+        }
+    })
+    .await
+    .map_err(|error| native_application_error(error.to_string()))?
+}
+
 #[cfg(test)]
 mod bound_tests {
     use super::*;
@@ -771,6 +888,128 @@ mod bound_tests {
     }
     impl CommittedChangePublisher for Store {
         fn publish_committed(&self, _changes: CommittedChanges) {}
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn native_fixture() -> (tempfile::TempDir, Store, DirectoryFile) {
+        let root = tempfile::tempdir().unwrap();
+        let mut db =
+            crate::db::Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        db.bind_native_workspace("workspace").unwrap();
+        let project = db
+            .project_create(ProjectCreateInput {
+                name: "Native application guard".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        fs::write(
+            Path::new(&project.root_path).join("current.txt"),
+            "current original",
+        )
+        .unwrap();
+        let file = db
+            .project_file_register("workspace", project.id, "current.txt")
+            .unwrap();
+        (
+            root,
+            Store {
+                db,
+                binding: WorkspaceBinding {
+                    workspace_id: "workspace".into(),
+                    generation: "open".into(),
+                },
+            },
+            file,
+        )
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn native_file_icons_guard_revalidates_generation_and_original_location_after_lookup() {
+        let (_root, mut store, file) = native_fixture();
+        let binding = store.binding.clone();
+        let path =
+            bound_file_command(&store, &binding, |db| native_file_path(db, &file.object)).unwrap();
+        let current = bound_file_command(&store, &binding, |db| {
+            revalidate_native_file(db, &file.object, &path, |actual| Ok(actual.to_path_buf()))
+        })
+        .unwrap();
+        assert_eq!(current, path);
+        store.binding.generation = "reopened".into();
+        assert_eq!(
+            bound_file_command(&store, &binding, |db| revalidate_native_file(
+                db,
+                &file.object,
+                &path,
+                |_| -> Result<()> { panic!("stale workspace must not launch") }
+            ))
+            .unwrap_err()
+            .code,
+            "workspace_changed"
+        );
+        store.binding = binding.clone();
+        store
+            .db
+            .project_file_rename(
+                &file.object,
+                "renamed.txt",
+                file.version_number,
+                file.content_hash.as_deref().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            bound_file_command(&store, &binding, |db| revalidate_native_file(
+                db,
+                &file.object,
+                &path,
+                |_| -> Result<()> { panic!("changed location must not launch") }
+            ))
+            .unwrap_err()
+            .code,
+            "revision_conflict"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn native_file_icons_guard_rejects_foreign_ownership_replacement_and_missing_original() {
+        let (_root, store, file) = native_fixture();
+        let binding = store.binding.clone();
+        let path =
+            bound_file_command(&store, &binding, |db| native_file_path(db, &file.object)).unwrap();
+        let mut foreign = file.object.clone();
+        foreign.workspace_id = "another-workspace".into();
+        assert!(bound_file_command(&store, &binding, |db| native_file_path(db, &foreign)).is_err());
+        foreign = file.object.clone();
+        foreign.scope = Scope::Project {
+            project_id: object_project(&file.object).unwrap() + 1,
+        };
+        assert!(bound_file_command(&store, &binding, |db| native_file_path(db, &foreign)).is_err());
+        let replacement = path.with_file_name("replacement.txt");
+        fs::write(&replacement, "current original").unwrap();
+        fs::rename(replacement, &path).unwrap();
+        assert!(
+            bound_file_command(&store, &binding, |db| revalidate_native_file(
+                db,
+                &file.object,
+                &path,
+                |_| -> Result<()> {
+                    panic!("matching bytes with foreign identity must not launch")
+                }
+            ))
+            .is_err()
+        );
+        fs::remove_file(&path).unwrap();
+        assert!(
+            bound_file_command(&store, &binding, |db| revalidate_native_file(
+                db,
+                &file.object,
+                &path,
+                |_| -> Result<()> { panic!("historical snapshot must not launch") }
+            ))
+            .is_err()
+        );
     }
     #[test]
     fn directory_file_bound_commands_reject_old_generation_after_same_workspace_reopens() {

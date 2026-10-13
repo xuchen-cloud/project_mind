@@ -29,7 +29,13 @@ test('all browser aliases select real source entries without capturing generated
     const matching = dshUiAliases.filter(alias => alias.find.test(id));
     assert.equal(matching.length, 1, id);
     await fs.access(matching[0].replacement);
-    assert.ok(matching[0].replacement.endsWith(pkg.entry), id);
+    if (pkg.name === '@deepseek-ai/dsh-client-ui-primitives') {
+      assert.equal(matching[0].replacement, new URL('./adapters/primitives.tsx', import.meta.url).pathname);
+      const wrapper = await fs.readFile(matching[0].replacement, 'utf8');
+      assert.match(wrapper, /export \* from "\.\.\/upstream\/client\/ui-primitives\/src\/index"/u);
+      assert.match(wrapper, /export function FileTypeIcon/u);
+      assert.match(wrapper, /<UpstreamFileTypeIcon \{\.\.\.props\}/u);
+    } else assert.ok(matching[0].replacement.endsWith(pkg.entry), id);
     assert.ok(!dshUiAliases.some(alias => alias.find.test(`${pkg.name}/remote`)), pkg.name);
   }
   for (const pkg of ['dsh-client-product-analytics', 'dsh-client-file-upload', 'dsh-client-ui-plugin-manager']) {

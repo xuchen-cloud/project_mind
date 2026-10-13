@@ -15,6 +15,10 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
+            // Shared static file artwork is reused by the host and lazy DSH UI.
+            if (/\/packages\/dsh-ui\/upstream\/client\/ui-primitives\/src\/(?:FileTypeIcon|CodeFileIcon|code-file-icon-artwork|code-file-types)/u.test(id)) {
+              return "file-icons";
+            }
             if (
               id.includes("/src/components/rich-editor/") &&
               !/(ImageAnnotationDialog|image-annotations|imageThumbnails)/u.test(id)

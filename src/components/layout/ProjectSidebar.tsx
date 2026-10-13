@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FilePlus2,
-  FileText,
   Files,
   FolderKanban,
   FolderOpen,
@@ -52,6 +51,7 @@ import {
 import { cn } from "../../ui/lib/cn";
 import { HomeEmptyState } from "../home/HomeEmptyState";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
+import { FileIcon } from "../document/FileIcon";
 import { DocumentContextTags } from "../document/DocumentContextTags";
 import {
   DocumentContextMenuAction,
@@ -1037,7 +1037,7 @@ export function ProjectSidebar({
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
                         <span className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                          {resolveDocumentIcon(document)}
+                          <FileIcon name={document.name} size={20} />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-1.5">
@@ -1238,132 +1238,6 @@ function TagPreview({ tags, fullWidth = false }: { tags: ProjectSidebarRecordIte
       ))}
     </span>
   );
-}
-
-function resolveDocumentIcon(document: ProjectSidebarDocumentItem) {
-  const mimeType = document.mimeType.trim().toLowerCase();
-  const extension = document.name.split(".").pop()?.trim().toLowerCase() ?? "";
-
-  const type = resolveDocumentIconType(mimeType, extension);
-
-  return (
-    <span
-      className={cn("pm-file-icon", type.iconClass, type.colorClass)}
-      title={type.title}
-      aria-hidden="true"
-    />
-  );
-}
-
-function resolveDocumentIconType(mimeType: string, extension: string): {
-  iconClass: string;
-  title: string;
-  colorClass: string;
-} {
-  if (
-    mimeType.startsWith("image/") ||
-    ["apng", "avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "webp"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--image",
-      title: "图片",
-      colorClass: "pm-file-icon--blue",
-    };
-  }
-
-  if (
-    mimeType.includes("spreadsheet") ||
-    mimeType.includes("excel") ||
-    ["csv", "numbers", "ods", "xls", "xlsm", "xlsx"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--excel",
-      title: "表格",
-      colorClass: "pm-file-icon--green",
-    };
-  }
-
-  if (
-    mimeType.includes("presentation") ||
-    mimeType.includes("powerpoint") ||
-    ["key", "odp", "pps", "ppsx", "ppt", "pptx"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--powerpoint",
-      title: "演示文稿",
-      colorClass: "pm-file-icon--orange",
-    };
-  }
-
-  if (
-    mimeType.includes("wordprocessingml") ||
-    mimeType.includes("msword") ||
-    ["doc", "docx", "odt", "pages", "rtf"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--word",
-      title: "Word 文档",
-      colorClass: "pm-file-icon--blue",
-    };
-  }
-
-  if (mimeType === "application/pdf" || extension === "pdf") {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "PDF",
-      colorClass: "pm-file-icon--red",
-    };
-  }
-
-  if (
-    mimeType.includes("message") ||
-    mimeType.includes("rfc822") ||
-    ["eml", "msg"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--outlook",
-      title: "邮件",
-      colorClass: "pm-file-icon--purple",
-    };
-  }
-
-  if (
-    mimeType.includes("zip") ||
-    mimeType.includes("compressed") ||
-    ["7z", "br", "bz2", "gz", "rar", "tar", "tgz", "zip"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "压缩包",
-      colorClass: "pm-file-icon--yellow",
-    };
-  }
-
-  if (
-    mimeType.includes("json") ||
-    mimeType.includes("xml") ||
-    ["css", "go", "html", "js", "json", "jsx", "md", "py", "rs", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "代码",
-      colorClass: "pm-file-icon--purple",
-    };
-  }
-
-  if (mimeType.startsWith("text/") || ["log", "txt"].includes(extension)) {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "文本",
-      colorClass: "pm-file-icon--grey",
-    };
-  }
-
-  return {
-    iconClass: "pm-file-icon--default",
-    title: "文件",
-    colorClass: "pm-file-icon--grey",
-  };
 }
 
 function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {

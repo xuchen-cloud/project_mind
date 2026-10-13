@@ -1,0 +1,12 @@
+.file-icon {
+  /* Exact static tokens consumed by FileTypeIcon, from DSH design-platform.css.
+     Scope the bridge here so glyphs also work outside .dsh-ui-host. */
+  --dsw-static-amber-500: rgb(245, 158, 11);
+  --dsw-static-deepseek-450: rgb(86, 134, 254);
+  --dsw-static-deepseek-500: rgb(65, 118, 230);
+  --dsw-static-green-500: rgb(34, 197, 94);
+  --dsw-static-neutral-00: rgb(255, 255, 255);
+  --dsw-static-neutral-400: rgb(162, 164, 166);
+  --dsw-static-neutral-bluish-300: rgb(207, 211, 214);
+  --dsw-static-red-600: rgb(236, 19, 19);
+}

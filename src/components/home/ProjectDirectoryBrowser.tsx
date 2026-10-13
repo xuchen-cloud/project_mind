@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, File, Folder, RefreshCw } from "lucide-react";
+import { ChevronRight, Folder, RefreshCw } from "lucide-react";
 import { getErrorMessage } from "../../lib/errors";
 import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 import { Button, IconButton } from "../../ui/components";
@@ -12,6 +12,7 @@ import type { WorkspaceStatusSnapshot } from "../../lib/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import "./project-directory.css";
+import { FileIcon } from "../document/FileIcon";
 
 function byteLabel(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -106,7 +107,7 @@ export function ProjectDirectoryBrowser({ projectId }: { projectId: number }) {
       {!loading && !error && entries.length === 0 && <p className="project-directory__message">此目录为空</p>}
       {entries.map(entry => <button key={entry.relativePath} type="button" className="project-directory__entry"
         onClick={() => entry.kind === "directory" ? setRelativePath(entry.relativePath) : openProjectFilePreview(projectId, entry.relativePath)}>
-        {entry.kind === "directory" ? <Folder size={16} aria-hidden="true" /> : <File size={16} aria-hidden="true" />}
+        {entry.kind === "directory" ? <Folder size={16} aria-hidden="true" /> : <FileIcon name={entry.name} size={18} />}
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
         {entry.kind === "file" ? <span className="project-directory__bytes">{byteLabel(entry.bytes)}</span> : <ChevronRight size={12} aria-hidden="true" />}
       </button>)}

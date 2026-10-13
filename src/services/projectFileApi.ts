@@ -1,5 +1,5 @@
 import type { AgentObjectRef, AgentWorkspaceBinding } from "../lib/agent-types";
-import type { FileBytesInput, FileBytesResult, ProjectDirectoryFile, ProjectDirectoryScanResult } from "../lib/file-types";
+import type { FileBytesInput, FileBytesResult, NativeFileApplication, ProjectDirectoryFile, ProjectDirectoryScanResult } from "../lib/file-types";
 import { desktopApi } from "./desktopApi";
 
 export class ProjectFileError extends Error {
@@ -22,6 +22,10 @@ export const projectFileApi = {
     command<ProjectDirectoryFile>("project_file_resolve", { binding, object }),
   openLocal: (binding: AgentWorkspaceBinding, object: AgentObjectRef): Promise<void> =>
     command<void>("project_file_open_local", { binding, object }),
+  applications: (binding: AgentWorkspaceBinding, object: AgentObjectRef) =>
+    command<NativeFileApplication[]>("project_file_applications", { binding, object }),
+  openWith: (binding: AgentWorkspaceBinding, object: AgentObjectRef, applicationId: string) =>
+    command<void>("project_file_open_with", { binding, object, applicationId }),
   resolveRelated: (binding: AgentWorkspaceBinding, object: AgentObjectRef, relativeReference: string) =>
     command<ProjectDirectoryFile>("project_file_resolve_related", { binding, object, relativeReference }),
   readBytes: (binding: AgentWorkspaceBinding, input: FileBytesInput) =>

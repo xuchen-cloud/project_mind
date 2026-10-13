@@ -1,5 +1,13 @@
 import type { AgentObjectRef } from "./agent-types";
 
+/** Registered system handler; artwork is supplied by the host OS. */
+export interface NativeFileApplication {
+  id: string;
+  name: string;
+  icon: string | null;
+  isDefault: boolean;
+}
+
 /** Exact retained bytes: never falls back to the latest version or live path. */
 export interface FileBytesInput {
   object: AgentObjectRef;

@@ -9,7 +9,7 @@ import { projectFileApi } from "../../services/projectFileApi";
 import { ProjectFileContent } from "./ProjectFileContent";
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
-vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), openLocal: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), openLocal: vi.fn(), applications: vi.fn(), openWith: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
 const binding = { workspaceId: "w", generation: "g" };
 const object = { workspaceId: "w", scope: { kind: "project" as const, projectId: 2 }, kind: "file" as const, id: "7" };
 const input = { workspaceRoot: "/workspace", projectId: 2, fileId: 7, visible: true, focused: true };
@@ -107,6 +107,16 @@ it('keeps Office unsupported and does not claim editing or invoke text parsing',
   view();
   await screen.findByText(/此格式暂不支持应用内预览或编辑/);
   expect(fileDocumentApi.sourceRead).not.toHaveBeenCalled();
+});
+it('opens a system application from a historical File view using only the current File identity', async () => {
+  vi.mocked(projectFileApi.applications).mockResolvedValue([{ id: "/Applications/Editor.app", name: "Editor", icon: "data:image/png;base64,iVBORw0KGgo=", isDefault: false }]);
+  view({ ...input, versionNumber: 1 } as typeof input);
+  await screen.findByText('version1');
+  fireEvent.click(screen.getByRole('button', { name: '选择其他应用打开当前原件' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Editor' }));
+  await waitFor(() => expect(projectFileApi.openWith).toHaveBeenCalledWith(binding, object, '/Applications/Editor.app'));
+  expect(screen.getByText('version1')).toBeVisible();
+  expect(projectFileApi.openLocal).not.toHaveBeenCalled();
 });
 it('retains reading position across hiding and restores it without taking focus', async () => {
   const rendered = view(); await screen.findByText('version2');

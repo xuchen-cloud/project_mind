@@ -20,4 +20,11 @@ describe("fixed File version bytes", () => {
     await expect(request).rejects.toBeInstanceOf(ProjectFileError);
     await expect(request).rejects.toMatchObject({ code: "snapshot_missing", message: "Historical snapshot is missing" });
   });
+  it("binds application lookup and selection to the current File without a version or client path", async () => {
+    vi.mocked(desktopApi.fileCommand).mockResolvedValueOnce([{ id: "native-handler", name: "Viewer", icon: null, isDefault: true }]);
+    expect(await projectFileApi.applications(binding, object)).toEqual([{ id: "native-handler", name: "Viewer", icon: null, isDefault: true }]);
+    expect(desktopApi.fileCommand).toHaveBeenLastCalledWith("project_file_applications", { binding, object });
+    await projectFileApi.openWith(binding, object, "native-handler");
+    expect(desktopApi.fileCommand).toHaveBeenLastCalledWith("project_file_open_with", { binding, object, applicationId: "native-handler" });
+  });
 });

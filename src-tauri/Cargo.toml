@@ -59,7 +59,7 @@ rmcp = { version = "=3.5.1", default-features = false, features = ["client", "tr
 rustix = { version = "=1.1.4", features = ["fs"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "=0.61.3", features = ["Win32_Media_Audio", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Performance"] }
+windows = { version = "=0.61.3", features = ["Win32_Media_Audio", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Performance", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Storage_FileSystem"] }
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
 winreg = "0.55.0"

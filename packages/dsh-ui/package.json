@@ -5,6 +5,11 @@
   "type": "module",
   "license": "MIT",
   "exports": {
+    "./file-icons": {
+      "types": "./file-icons/index.d.ts",
+      "default": "./file-icons/index.jsx"
+    },
+    "./file-icons/styles.css": "./file-icons/styles.css",
     "./adapters": {
       "types": "./adapters/index.d.ts",
       "default": "./adapters/index.jsx"

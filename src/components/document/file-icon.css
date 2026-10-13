@@ -1,0 +1,20 @@
+.file-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-icon > svg,
+.file-icon > img,
+.file-icon-placeholder,
+.file-icon-placeholder > svg {
+  display: block;
+  flex: none;
+  width: 100%;
+  height: 100%;
+}
+
+.file-icon > img {
+  object-fit: contain;
+}

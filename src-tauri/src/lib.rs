@@ -2,6 +2,7 @@ pub mod agent;
 mod ai_jobs;
 mod dsh_assistant;
 mod project_directory;
+mod native_file_icons;
 mod ai_provider;
 mod ai_network;
 mod db;
@@ -1752,6 +1753,9 @@ pub fn run() {
             project_directory::project_file_resolve_related,
             project_directory::project_file_read_bytes,
             project_directory::project_file_open_local,
+            native_file_icons::desktop_file_type_icon,
+            project_directory::project_file_applications,
+            project_directory::project_file_open_with,
             project_directory::project_file_move,
             project_directory::project_file_rename,
             project_directory::project_file_reconcile,

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowRight, Columns2, CircleX, File, FileCode2, FileImage, FileSpreadsheet, FileText, Home, Maximize2, MessageSquare, Merge, Minimize2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns2, CircleX, FileText, Home, Maximize2, MessageSquare, Merge, Minimize2, X } from "lucide-react";
+import { FileIcon } from "../document/FileIcon";
 import type { ContentPane, ContentScope, ContentTab, ProjectContentLayout } from "../../lib/project-content-layout";
 import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
 import { MOTION_DURATION_MS } from "../../ui/motion";
@@ -22,16 +23,16 @@ interface TabDragZone {
   drop: (id: string, x: number) => void;
 }
 interface TabLanding { index: number; id?: string; edge?: "before" | "after" }
-function tabAppearance(tab: ContentTab) {
-  if (tab.object.kind === "record") return { Icon: FileText, type: "记录" };
-  if (tab.object.kind === "session") return { Icon: MessageSquare, type: "会话" };
+function tabTypeLabel(tab: ContentTab): string {
+  if (tab.object.kind === "record") return "记录";
+  if (tab.object.kind === "session") return "会话";
   const extension = tab.object.title.includes(".") ? tab.object.title.split(".").pop()?.toLowerCase() : undefined;
-  if (extension === "md" || extension === "markdown") return { Icon: FileText, type: "Markdown 文件" };
-  if (extension === "pdf") return { Icon: FileText, type: "PDF 文件" };
-  if (["csv", "xls", "xlsx"].includes(extension ?? "")) return { Icon: FileSpreadsheet, type: "表格文件" };
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension ?? "")) return { Icon: FileImage, type: "图片文件" };
-  if (["js", "ts", "tsx", "jsx", "json", "py", "rs", "html", "css"].includes(extension ?? "")) return { Icon: FileCode2, type: "代码文件" };
-  return { Icon: File, type: extension ? `${extension.toUpperCase()} 文件` : "文件" };
+  if (extension === "md" || extension === "markdown") return "Markdown 文件";
+  if (extension === "pdf") return "PDF 文件";
+  if (["csv", "xls", "xlsx"].includes(extension ?? "")) return "表格文件";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension ?? "")) return "图片文件";
+  if (["js", "ts", "tsx", "jsx", "json", "py", "rs", "html", "css"].includes(extension ?? "")) return "代码文件";
+  return extension ? `${extension.toUpperCase()} 文件` : "文件";
 }
 function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, dragZones, shown }: {
   pane: ContentPane; layout: ProjectContentLayout; scope: ContentScope; shown: boolean;
@@ -175,7 +176,8 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
       <div ref={content} className="project-content__tabs" role="tablist" aria-label={`${pane.id === "left" ? "左" : "右"}栏内容`}>
         {pane.tabIds.map((id, index) => {
           const tab = layout.tabs.find(item => item.id === id)!;
-          const { Icon, type } = tabAppearance(tab);
+          const type = tabTypeLabel(tab);
+          const Icon = tab.object.kind === "record" ? FileText : MessageSquare;
           const running = tab.object.kind === "session" && sessionRuns?.[String(tab.object.id)] === true;
           return <div key={id} className="project-content__tab" data-tab-id={id} data-selected={pane.selectedTabId === id || undefined}
             data-running={running || undefined} data-dragging={dragging === id || undefined} data-drop={landing?.id === id ? landing.edge : undefined}
@@ -202,7 +204,8 @@ Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
                 const next = event.key === "ArrowRight" ? (index + 1) % pane.tabIds.length : event.key === "ArrowLeft" ? (index - 1 + pane.tabIds.length) % pane.tabIds.length : event.key === "Home" ? 0 : event.key === "End" ? pane.tabIds.length - 1 : null;
                 if (next !== null) { event.preventDefault(); const nextId = pane.tabIds[next]; onSelect(pane.id, nextId); document.getElementById(`content-tab-${nextId}`)?.focus(); }
               }}>
-              <Icon size={13} className="project-content__tab-icon" aria-hidden="true" />
+              {tab.object.kind === "file" ? <FileIcon name={tab.object.title} size={16} className="project-content__tab-icon" />
+                : <Icon size={13} className="project-content__tab-icon" aria-hidden="true" />}
               <span className="project-content__tab-title">{tab.object.title}</span>
               {tab.object.kind === "file" && tab.view.versionNumber !== undefined ? <small>v{tab.view.versionNumber}</small> : null}
               {running ? <span className="project-content__running" role="status" aria-label="正在执行" /> : null}
