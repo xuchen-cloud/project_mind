@@ -1,8 +1,29 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { collectMotionViolations } from "./ui-standards-motion-rules.mjs";
 
 describe("UI motion standards", () => {
+  it("limits the PPTX accordion exception to its narrow tokenized height transition with reduced motion", () => {
+    const file = "src/components/office/PptxEditor.tsx";
+    const source = readFileSync(file, "utf8");
+    const layoutViolations = (path, content) => collectMotionViolations(path, content)
+      .filter((violation) => violation.rule === "no-layout-transition");
+
+    expect(layoutViolations(file, source)).toEqual([]);
+    for (const [path, content] of [
+      ["src/components/office/OtherEditor.tsx", source],
+      [file, source.replaceAll(".pptx-editor__inspector", ".other-inspector")],
+      [file, source.replace("@container(max-width:800px)", "@container(max-width:1200px)")],
+      [file, source.replace("transition:max-height var(--duration-standard) var(--ease-out)", "transition:height var(--duration-standard) var(--ease-out)")],
+      [file, source.replace("transition:max-height var(--duration-standard) var(--ease-out)", "transition:max-height var(--duration-standard) var(--ease-out),padding var(--duration-standard) var(--ease-out)")],
+      [file, source.replace("transition:max-height var(--duration-standard) var(--ease-out);", "transition:max-height var(--duration-standard) var(--ease-out); transition-property:width;")],
+      [file, source.replace("@media(prefers-reduced-motion:reduce)", "@media(print)")],
+    ]) {
+      expect(layoutViolations(path, content)).not.toEqual([]);
+    }
+  });
+
   it.each([
     ["no-transition-all", '<button className="transition-all" />'],
     ["no-layout-transition", ".row { transition: max-height 160ms ease-in; }"],

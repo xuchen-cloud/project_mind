@@ -19,3 +19,9 @@ src-tauri/resources/dsh-assistant/
 src-tauri/resources/.dsh-runtime-*/
 src-tauri/binaries/
 src-tauri/resources/.source-extractor-*/
+
+# Generated Office utility distributions
+packages/agent-host/office-dist/
+src-tauri/resources/office-editor/
+src-tauri/resources/.office-editor-*/
+src-tauri/target-office/

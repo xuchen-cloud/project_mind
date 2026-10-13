@@ -1,0 +1,39 @@
+{
+  "name": "@project-mind/office-docx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:source": "node prepare-source.mjs",
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/extensions": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "css.escape": "1.5.1",
+    "fast-xml-parser": "5.3.4",
+    "jszip": "3.10.1",
+    "react": "19.2.0",
+    "utif2": "4.1.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./types.ts",
+      "import": "./dist/engine.mjs"
+    },
+    "./editor": {
+      "types": "./editor-types.ts",
+      "import": "./dist/editor.mjs"
+    },
+    "./types": "./types.ts"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "jsdom": "27.4.0",
+    "postcss": "8.5.8",
+    "react-dom": "19.2.0",
+    "typescript": "5.9.3"
+  }
+}

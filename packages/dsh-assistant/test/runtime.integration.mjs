@@ -137,6 +137,204 @@ async function follow(runtime, sessionId) {
 const events = (stream) => stream.frames.flatMap((frame) => frame.type === 'snapshot' ? frame.records.map((record) => record.event) : frame.type === 'event' ? [frame.event] : []);
 const assistantText = (event) => event.data.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
 
+// Office transport fixtures only: the real rc.2 provider/Agent/registry and
+// NativeSourceBridge run below, but no Rust File service or Office engine runs.
+// Native engine edits, CAS and format preservation are tested separately.
+function officeFixture(format) {
+  const sourceRef = { object: { workspaceId: 'office-transport', scope: { kind: 'project', projectId: 118 }, kind: 'file', id: '42' },
+    revision: 'sha256:' + 'a'.repeat(64), fileVersion: 3, recordVersion: null, blockId: null, locator: null, title: `中文.${format}`, excerpt: '' };
+  const views = {
+    docx: { format, nodes: [{ id: 'p0', type: 'paragraph', text: '原文' }], readOnly: false },
+    xlsx: { format, sheets: [{ id: 'sheet1', name: '工作表', hidden: false, veryHidden: false, rowCount: 1, columnCount: 2 }],
+      ranges: { sheet1: { area: 'A1:B1', cells: [{ row: 0, column: 0, value: 2 }, { row: 0, column: 1, value: 4, formula: 'A1*2' }] } }, definedNames: [] },
+    pptx: { format, size: { width: 1280, height: 720 }, textElements: [{ slideIndex: 0, cNvPrId: '2', paragraphIndex: 0, runIndex: 0, text: '原文' }],
+      pictureElements: [], limitations: [] },
+  };
+  const edits = {
+    docx: [{ type: 'text', nodeId: 'p0', text: '修改', expectedText: '原文' }],
+    xlsx: [{ sheetId: 'sheet1', row: 0, column: 1, kind: 'formula', formula: 'A1*3' }],
+    pptx: [{ kind: 'text', slideIndex: 0, cNvPrId: '2', paragraphIndex: 0, runIndex: 0, text: '修改' }],
+  };
+  const view = views[format];
+  const model = { ...view, assets: [{ dataUrl: 'PRIVATE_OFFICE_BINARY' }], document: { content: ['PRIVATE_OFFICE_RENDERER'] } };
+  if (format === 'xlsx') {
+    model.sheets = view.sheets.map(sheet => ({ ...sheet, renderer: 'PRIVATE_OFFICE_RENDERER' }));
+    model.ranges = { sheet1: { ...view.ranges.sheet1, cells: view.ranges.sheet1.cells.map(cell => ({ ...cell, style: 'PRIVATE_OFFICE_RENDERER' })) } };
+  }
+  const savedRef = { ...sourceRef, revision: 'sha256:' + 'b'.repeat(64), fileVersion: 4 };
+  return { sourceRef, edits: edits[format], view, inspected: { sourceRef, model },
+    saved: { sourceRef: savedRef, model, commit: { requestId: 'fixture-commit', versionNumber: 4 } } };
+}
+
+function providerToolReply(bodies, callId) {
+  const message = bodies.at(-1)?.messages.find(message => message.role === 'tool' && message.tool_call_id === callId);
+  assert.ok(message, `provider must receive the actual tool result for ${callId}`);
+  return typeof message.content === 'string' ? message.content : message.content.filter(block => block.type === 'text').map(block => block.text).join('');
+}
+
+test('Office rc.2 transport: real provider discovers tools and actual Session forwards fixed File edits', { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-office-transport-'));
+  const directory = await realpath(temp);
+  const bodies = [], operations = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream, fixture;
+  t.after(async () => {
+    try { await stream?.close(); } finally {
+      try { await runtime?.stop(); } finally { await provider.close(); await rm(temp, { recursive: true, force: true }); }
+    }
+  });
+  const data = path.join(temp, 'data');
+  const shared = { name: 'Office local fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  const project = { id: 118, name: 'Office transport', directory };
+  const handleSource = payload => {
+    operations.push(payload);
+    if (payload.operation === 'officeInspect') return fixture.inspected;
+    if (payload.operation === 'officeEdit') return fixture.saved;
+    throw new Error(`Unexpected native transport operation: ${payload.operation}`);
+  };
+  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/rename', { sessionId, title: 'Office transport fixture' });
+  stream = await follow(runtime, sessionId);
+  assert.equal(stream.snapshot.header.cwd, directory);
+  await prompt(runtime, stream, sessionId, 'Discover the available Office tools');
+  const discovered = bodies[0].tools.filter(tool => tool.function.name.startsWith('file_office_'));
+  assert.deepEqual(discovered.map(tool => tool.function.name).sort(), ['file_office_edit', 'file_office_inspect']);
+  const inspectSchema = discovered.find(tool => tool.function.name === 'file_office_inspect').function.parameters;
+  assert.equal(inspectSchema.properties.file_path.type, 'string');
+  assert.deepEqual(inspectSchema.required, ['file_path']);
+  const editSchema = discovered.find(tool => tool.function.name === 'file_office_edit').function.parameters;
+  assert.deepEqual([...editSchema.required].sort(), ['edits', 'source_ref']);
+  assert.equal(editSchema.properties.edits.type, 'array');
+  assert.ok(Object.hasOwn(editSchema.properties, 'source_ref'));
+  assert.deepEqual(operations, [], 'discovery alone must not request native File bytes');
+
+  for (const format of ['docx', 'xlsx', 'pptx']) await t.test(format, async () => {
+    fixture = officeFixture(format);
+    const inspectId = `office-inspect-${format}`;
+    provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: inspectId, type: 'function', function: {
+      name: 'file_office_inspect', arguments: JSON.stringify({ file_path: fixture.sourceRef.title }),
+    } }] });
+    await prompt(runtime, stream, sessionId, `Inspect the ${format} File`);
+    assert.deepEqual(operations.at(-1), { operation: 'officeInspect', sessionId, path: fixture.sourceRef.title });
+    const inspected = JSON.parse(providerToolReply(bodies, inspectId));
+    assert.deepEqual(inspected, { sourceRef: fixture.sourceRef, model: fixture.view });
+    assert.doesNotMatch(providerToolReply(bodies, inspectId), /PRIVATE_OFFICE_/);
+
+    // Use the sourceRef actually returned to the provider, not a live path or
+    // a second registry-only call. The queued SSE call drives the real Agent.
+    const editId = `office-edit-${format}`;
+    const args = { source_ref: inspected.sourceRef, edits: fixture.edits };
+    provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: editId, type: 'function', function: {
+      name: 'file_office_edit', arguments: JSON.stringify(args),
+    } }] });
+    await prompt(runtime, stream, sessionId, `Save the ${format} edit`);
+    assert.deepEqual(operations.at(-1), { operation: 'officeEdit', sessionId, requestId: editId, sourceRef: inspected.sourceRef, edits: fixture.edits });
+    const call = events(stream).find(event => event.type === 'tool/call' && event.data.callId === editId);
+    assert.equal(call?.data.name, 'file_office_edit');
+    assert.deepEqual(JSON.parse(call.data.arguments), args);
+    assert.equal(operations.at(-1).requestId, call.data.callId, 'native request identity must equal the real exec.callId');
+    const result = events(stream).find(event => event.type === 'tool/result' && event.data.message.source.callId === editId);
+    assert.equal(result?.data.message.isError, false);
+    const expected = { sourceRef: fixture.saved.sourceRef, model: fixture.view, commit: fixture.saved.commit };
+    assert.deepEqual(JSON.parse(result.data.message.content.map(block => block.text).join('')), expected);
+    assert.deepEqual(JSON.parse(providerToolReply(bodies, editId)), expected);
+    assert.doesNotMatch(providerToolReply(bodies, editId), /PRIVATE_OFFICE_/);
+  });
+  assert.equal(operations.length, 6, 'each provider call crosses native transport exactly once');
+  const beforeRestart = events(stream).filter(event => event.type === 'tool/call' || event.type === 'tool/result');
+  await stream.close(); stream = undefined;
+  await runtime.stop();
+  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  stream = await follow(runtime, sessionId);
+  assert.deepEqual(events(stream).filter(event => event.type === 'tool/call' || event.type === 'tool/result'), beforeRestart);
+  await prompt(runtime, stream, sessionId, 'Continue after restart without another edit');
+  assert.equal(operations.length, 6, 'history replay must not repeat native saves');
+  for (const format of ['docx', 'xlsx', 'pptx']) assert.ok(bodies.at(-1).messages.some(message => message.role === 'tool' && message.tool_call_id === `office-edit-${format}`));
+});
+
+test('Office rc.2 transport: registered pre/post tool policies still deny, replace and block', { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-office-policy-'));
+  const directory = await realpath(temp);
+  const bodies = [], operations = [];
+  const fixture = officeFixture('docx');
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => {
+    try { await stream?.close(); } finally {
+      try { await runtime?.stop(); } finally { await provider.close(); await rm(temp, { recursive: true, force: true }); }
+    }
+  });
+  const trace = path.join(temp, 'policy.jsonl');
+  const policy = path.join(temp, 'office-policy.mjs');
+  const patch = path.join(temp, 'office.patch.yml');
+  await writeFile(trace, '');
+  await writeFile(policy, `import { appendFileSync } from 'node:fs';
+export const name = 'office-transport-test-policy';
+export function apply(ctx) {
+  const record = (stage, exec, result) => appendFileSync(${JSON.stringify(trace)}, JSON.stringify({stage, name: exec.name, callId: exec.callId, sessionId: exec.agent?.session.id, ...(result ? {isError: result.isError} : {})}) + '\\n');
+  ctx.on('tools/pre-execute', (exec, next) => {
+    if (!exec.name.startsWith('file_office_')) return next();
+    record('pre', exec);
+    if (exec.callId.endsWith('-pre-deny')) return {kind: 'deny', reason: 'Office pre-policy denied'};
+    return next();
+  });
+  ctx.on('tools/post-execute', (exec, result, next) => {
+    if (!exec.name.startsWith('file_office_')) return next();
+    record('post', exec, result);
+    if (exec.callId.endsWith('-post-content')) return {kind: 'accept', content: [{type: 'text', text: 'Office policy replacement content'}]};
+    if (exec.callId.endsWith('-post-value')) return {kind: 'accept', value: {policy: 'Office replacement value'}};
+    if (exec.callId.endsWith('-post-block')) return {kind: 'block', feedback: [{type: 'text', text: 'Office post-policy blocked'}]};
+    return next();
+  });
+}
+`);
+  await writeFile(patch, '- insert:\n    - id: office-transport-test-policy\n      name: ' + JSON.stringify(policy) + '\n');
+  runtime = await launch(path.join(temp, 'data'), patch,
+    { name: 'Office local fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false },
+    { id: 118, name: 'Office policy transport', directory }, undefined, payload => {
+      operations.push(payload);
+      if (payload.requestId?.endsWith('-native-error')) throw new Error('Office native transport conflict');
+      if (payload.operation === 'officeInspect') return fixture.inspected;
+      if (payload.operation === 'officeEdit') return fixture.saved;
+      throw new Error(`Unexpected native transport operation: ${payload.operation}`);
+    });
+  const { sessionId } = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/rename', { sessionId, title: 'Office policy fixture' });
+  stream = await follow(runtime, sessionId);
+  for (const name of ['file_office_inspect', 'file_office_edit']) {
+    const cases = ['allow', 'pre-deny', 'post-content', 'post-value', 'post-block', ...(name === 'file_office_edit' ? ['native-error'] : [])];
+    for (const mode of cases) await t.test(`${name} ${mode}`, async () => {
+      const callId = `${name}-${mode}`;
+      const args = name === 'file_office_inspect' ? { file_path: fixture.sourceRef.title } : { source_ref: fixture.sourceRef, edits: fixture.edits };
+      const before = operations.length;
+      provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: callId, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+      await prompt(runtime, stream, sessionId, `Office policy case ${callId}`);
+      assert.equal(operations.length - before, mode === 'pre-deny' ? 0 : 1, 'pre denial must prevent native dispatch; post policy runs after dispatch');
+      if (mode !== 'pre-deny') assert.deepEqual(operations.at(-1), name === 'file_office_inspect'
+        ? { operation: 'officeInspect', sessionId, path: fixture.sourceRef.title }
+        : { operation: 'officeEdit', sessionId, requestId: callId, sourceRef: fixture.sourceRef, edits: fixture.edits });
+      const entries = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(entry => entry.callId === callId);
+      assert.deepEqual(entries.map(entry => entry.stage), ['pre', 'post']);
+      for (const entry of entries) { assert.equal(entry.name, name); assert.equal(entry.sessionId, sessionId); }
+      assert.equal(entries[1].isError, ['pre-deny', 'native-error'].includes(mode));
+      const result = events(stream).find(event => event.type === 'tool/result' && event.data.message.source.callId === callId);
+      assert.ok(result, runtime.diagnostics());
+      assert.equal(result.data.message.isError, ['pre-deny', 'post-block', 'native-error'].includes(mode));
+      const projected = providerToolReply(bodies, callId);
+      assert.equal(result.data.message.content.map(block => block.text).join(''), projected, 'provider receives the policy-finalized durable result');
+      if (mode === 'allow') assert.deepEqual(JSON.parse(projected), name === 'file_office_inspect'
+        ? { sourceRef: fixture.sourceRef, model: fixture.view }
+        : { sourceRef: fixture.saved.sourceRef, model: fixture.view, commit: fixture.saved.commit });
+      else if (mode === 'post-value') assert.deepEqual(JSON.parse(projected), { policy: 'Office replacement value' });
+      else assert.ok(projected.includes({ 'pre-deny': 'Office pre-policy denied', 'post-content': 'Office policy replacement content',
+        'post-block': 'Office post-policy blocked', 'native-error': 'Office native transport conflict' }[mode]), projected);
+      assert.doesNotMatch(projected, /PRIVATE_OFFICE_/);
+      if (['post-content', 'post-value', 'post-block'].includes(mode)) assert.doesNotMatch(projected, /sourceRef|fixture-commit|原文/);
+    });
+  }
+});
+
 test('fixed source auto titles reach the catalog and header without changing stored user/model projections', { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-title-'));
   const bodies = [], operations = [];

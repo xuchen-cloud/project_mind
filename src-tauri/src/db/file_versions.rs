@@ -1233,6 +1233,9 @@ impl Database {
                 "File update requires owned staged bytes",
             ));
         }
+        if self.project_file_is_directory(&update.object).map_err(agent_failure)? {
+            return self.project_file_staged_directory_bound(request,binding,update,stage_id,source,fence,precommit);
+        }
         self.file_version_commit(
             DocumentAddVersionInput {
                 document_id: update

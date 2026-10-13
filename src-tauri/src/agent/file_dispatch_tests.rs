@@ -93,7 +93,7 @@ fn fixture(mode: ExecutionMode) -> Fixture {
     fixture_scope(mode, false)
 }
 fn fixture_scope(mode: ExecutionMode, workspace_run: bool) -> Fixture {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir_in(std::fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap();
     let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
     let db = Database::open(&paths.db_path, root.path(), None).unwrap();
     let project = db

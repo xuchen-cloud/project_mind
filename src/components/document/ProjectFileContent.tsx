@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Code2, ExternalLink, Eye, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
-import type { AgentObjectRef, AgentSourceRef } from "../../lib/agent-types";
+import type { AgentObjectRef, AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-types";
 import type { FileVersionMetadata } from "../../lib/file-types";
 import { readCompleteFileSource } from "../../lib/file-source";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
@@ -13,6 +13,7 @@ import { prepareStaticHtml } from "../../../packages/dsh-ui/preview/static-html.
 import { DshFilePreview, type DshPreviewKind } from "../../../packages/dsh-ui/preview";
 import { FileOpenWithButton } from "./FileOpenWithButton";
 import "./project-file-content.css";
+const OfficeFileContent = lazy(() => import("../office/OfficeFileContent").then(module => ({default:module.OfficeFileContent})));
 
 export interface ProjectFileView { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceLocator?: NonNullable<AgentSourceRef["locator"]>; sourceMode?: boolean }
 export interface ProjectFileContentProps {
@@ -23,21 +24,23 @@ export interface ProjectFileContentProps {
   sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
   toolbarActions?: ReactNode;
   identityRecovery?: ReactNode;
+  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
   onSourceReady?: (source: AgentSourceRef | null) => void;
   visible: boolean; focused: boolean; onViewChange?: (partialView: ProjectFileView) => void;
 }
-type Kind = DshPreviewKind | "html" | "unsupported";
+type Kind = DshPreviewKind | "html" | "office" | "unsupported";
 export function projectFilePreviewKind(name: string, mime: string): Kind {
   if (/\.html?$/iu.test(name) || mime === "text/html") return "html";
   if (/\.md(?:own|arkdown)?$/iu.test(name)) return "markdown";
   if (/\.pdf$/iu.test(name) || mime === "application/pdf") return "pdf";
   if (/\.(png|jpe?g|gif|webp|bmp|ico|svg)$/iu.test(name)) return "image";
+  if (/\.(docx|xlsx|pptx)$/iu.test(name)) return "office";
   if (/\.(docx?|xlsx?|pptx?|zip|exe|bin|mp[34]|mov|wav|woff2?|ttf)$/iu.test(name)) return "unsupported";
   if (/\.(?:[cm]?[jt]sx?|py|rs|go|java|c|cc|cpp|h|hpp|cs|rb|php|sh|bash|zsh|css|scss|json|toml|ya?ml|sql|xml)$/iu.test(name)) return "code";
   if (/^(text\/|application\/(json|xml))/u.test(mime) || /\.(txt|log|csv)$/iu.test(name) || /^(readme|license)$/iu.test(name)) return "text";
   return "unsupported";
 }
-interface Loaded { resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; versions: FileVersionMetadata[]; signal: AbortSignal }
+interface Loaded { binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; versions: FileVersionMetadata[]; signal: AbortSignal }
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
   return a?.workspaceId === b.workspaceId && a.id === b.id && a.kind === b.kind && a.scope?.kind === "project" && b.scope.kind === "project" && a.scope.projectId === b.scope.projectId;
 }
@@ -49,8 +52,18 @@ function message(error: unknown): string {
 export function ProjectFileContent(props: ProjectFileContentProps) {
   return <FileContent key={`${props.workspaceRoot}:${props.projectId}:${props.fileId}`} {...props} />;
 }
-function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery }: ProjectFileContentProps) {
+function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery, registerCloseGuard }: ProjectFileContentProps) {
   const queryClient = useQueryClient();
+  const officeFlush = useRef<(() => Promise<void>) | null>(null);
+  const officeDirty = useRef(false);
+  const [officeToolbar,setOfficeToolbar] = useState<HTMLSpanElement | null>(null);
+  const registerOfficeFlush = useCallback((flush: () => Promise<void>) => {
+    officeFlush.current = flush;
+    return () => { if (officeFlush.current === flush) officeFlush.current = null; };
+  }, []);
+  const flushOffice = useCallback(async () => { if (officeFlush.current) await officeFlush.current(); }, []);
+  useEffect(() => registerCloseGuard?.(async () => { if (officeFlush.current) await officeFlush.current(); }), [registerCloseGuard]);
+
   const views = useRef(new Map<number, ProjectFileView>());
   const dependentIds = useRef(new Set<number>());
   const [selection, setSelection] = useState(versionNumber);
@@ -80,11 +93,11 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
     }
   }, [initialSourceMode]);
   useEffect(() => {
-    if (!visible && source) setLoaded(undefined);
+    if (!visible && source) setLoaded(previous => previous?.kind === "office" ? previous : undefined);
   }, [visible, source]);
   useEffect(() => queryClient.getQueryCache().subscribe(event => {
     const key = event.query.queryKey;
-    if (selection === undefined && event.type === "updated" && event.action.type === "invalidate" && key[0] === queryKeys.documentVersions(fileId)[0] && (key[1] === fileId || dependentIds.current.has(Number(key[1])))) setReload(value => value + 1);
+    if (!officeDirty.current && selection === undefined && event.type === "updated" && event.action.type === "invalidate" && key[0] === queryKeys.documentVersions(fileId)[0] && (key[1] === fileId || dependentIds.current.has(Number(key[1])))) setReload(value => value + 1);
   }), [queryClient, selection, fileId]);
   // A parent view update acknowledges local version choices without resetting other view state.
   useEffect(() => {
@@ -93,7 +106,8 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
   useEffect(() => {
     dependentIds.current.clear();
     sourceCallback.current?.(null);
-    const retainStaticHtml = (previous: Loaded | undefined) => previous?.kind === "html" && !sourceMode.current && (selection === undefined || previous.version === selection) ? previous : undefined;
+    const retainStaticHtml = (previous: Loaded | undefined) => (previous?.kind === "office" || (previous?.kind === "html" && !sourceMode.current)) && (selection === undefined || previous.version === selection) ? previous : undefined;
+    if (officeDirty.current && selection === undefined) { setReading(false); return; }
     if (!visible) { setLoaded(retainStaticHtml); setReading(false); return; }
     const lifetime = new AbortController();
     const signal = lifetime.signal;
@@ -106,7 +120,7 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
       signal.throwIfAborted();
       if (live && !sameObject(live.object, object)) throw new Error("当前文件所属项目不符。");
       if (live) setNeedsRecovery(live.state !== "ready");
-      if (live) setLoaded(previous => previous?.kind === "html" && live.state === "ready" && previous.version === live.versionNumber && previous.contentHash === live.contentHash ? previous : undefined);
+      if (live) setLoaded(previous => previous?.kind === "office" ? retainStaticHtml(previous) : previous?.kind === "html" && live.state === "ready" && previous.version === live.versionNumber && previous.contentHash === live.contentHash ? previous : undefined);
       const history = await fileDocumentApi.versionsList(binding, { object, limit: 50 });
       signal.throwIfAborted();
       if (!sameObject(history.object, object)) throw new Error("文件版本所属项目不符。");
@@ -126,8 +140,16 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
       if (!selected) throw new Error("此历史版本不存在或已不可用；不会替换为最新版本。");
       if (live && (live.versionNumber !== history.currentVersionNumber || live.contentHash !== selected.contentHash)) throw new Error("文件在对账后发生变化，请刷新。");
       if (!selected.contentHash) throw new Error("此版本尚未登记完整原件校验信息。");
-      setLoaded(previous => previous?.kind === "html" && previous.version === version && previous.contentHash === selected.contentHash ? previous : undefined);
+      setLoaded(previous => previous?.kind === "office" ? retainStaticHtml(previous) : previous?.kind === "html" && previous.version === version && previous.contentHash === selected.contentHash ? previous : undefined);
       const input = { object, versionNumber: version, expectedContentHash: selected.contentHash };
+      // The Office command reads and verifies the fixed original natively.
+      // Avoid the generic 10 MiB preview read and a second base64 round trip.
+      if (projectFilePreviewKind(selected.name, "") === "office") {
+        if (officeDirty.current && selection === undefined) return;
+        sourceCallback.current?.({object,revision:selected.contentHash,fileVersion:version,recordVersion:null,blockId:null,locator:null,title:selected.name,excerpt:""});
+        setLoaded({binding,object,name:live?.name ?? selected.name,renderName:selected.name,kind:"office",resources:{},warnings:[],version,contentHash:selected.contentHash,rendererId:++rendererSequence.current,versions,signal});
+        return;
+      }
       const result = await projectFileApi.readBytes(binding, input);
       signal.throwIfAborted();
       if (!sameObject(result.object, object) || result.versionNumber !== version || result.contentHash !== selected.contentHash) throw new Error("文件字节与请求的固定版本不一致。");
@@ -185,28 +207,45 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
         signal.throwIfAborted();
         if (verified.state !== "ready" || verified.versionNumber !== version || verified.contentHash !== selected.contentHash || verified.relativePath !== live.relativePath) throw new Error(verified.reason ?? "文件在关联资源读取期间发生变化，请刷新。");
       }
+      // Editing can begin while an unchanged retained Office tab is revalidated.
+      // Its fixed baseline must survive that asynchronous read until CAS save.
+      if (officeDirty.current && selection === undefined) return;
       sourceCallback.current?.({ object: result.object, revision: result.contentHash, fileVersion: result.versionNumber, recordVersion: null, blockId: null, locator: null, title: result.name, excerpt: "" });
       const rendererId = ++rendererSequence.current;
       setLoaded(previous => {
         const sameHtml = previous?.kind === "html" && kind === "html" && previous.version === version && previous.contentHash === result.contentHash && previous.bytes?.byteLength === displayBytes.byteLength && previous.bytes.every((byte, index) => byte === displayBytes[index]);
-        return { name: live?.name ?? result.name, renderName: result.name, kind, text, resources, warnings, bytes: kind === "image" || kind === "pdf" || kind === "html" ? (sameHtml ? previous.bytes : displayBytes) : undefined, version, contentHash: result.contentHash, rendererId: sameHtml ? previous.rendererId : rendererId, versions, signal };
+        return { binding, object: result.object, name: live?.name ?? result.name, renderName: result.name, kind, text, resources, warnings, bytes: kind === "image" || kind === "pdf" || kind === "html" ? (sameHtml ? previous.bytes : displayBytes) : undefined, version, contentHash: result.contentHash, rendererId: sameHtml ? previous.rendererId : rendererId, versions, signal };
       });
-    })().catch(failure => { if (!signal.aborted) { setLoaded(undefined); setError(message(failure)); sourceCallback.current?.(null); } }).finally(() => { if (!signal.aborted) setReading(false); });
+    })().catch(failure => { if (!signal.aborted) { if (!officeDirty.current) setLoaded(undefined); setError(message(failure)); sourceCallback.current?.(null); } }).finally(() => { if (!signal.aborted) setReading(false); });
     return () => { lifetime.abort(); dependentIds.current.clear(); sourceCallback.current?.(null); };
   }, [workspaceRoot, projectId, fileId, selection, reload, visible]);
-  const valid = loaded && (!loaded.signal.aborted || (loaded.kind === "html" && !source)) && (selection === undefined || loaded.version === selection) && (versionNumber === lastRequested.current || versionNumber === undefined || loaded.version === versionNumber) ? loaded : undefined;
+  const valid = loaded && (!loaded.signal.aborted || ((loaded.kind === "html" && !source) || loaded.kind === "office")) && (selection === undefined || loaded.version === selection) && (versionNumber === lastRequested.current || versionNumber === undefined || loaded.version === versionNumber) ? loaded : undefined;
   const showSource = source && (valid?.kind === "html" || valid?.kind === "markdown");
   function viewChanged(partial: ProjectFileView) {
     if (!valid) return;
     views.current.set(valid.version, { ...initialView, ...views.current.get(valid.version), ...partial });
     callbacks.current?.(partial);
   }
-  function choose(value: number | undefined) { sourceCallback.current?.(null); setSelection(value); callbacks.current?.({ versionNumber: value, sourceLocator: undefined, line: undefined, page: undefined }); }
+  async function choose(value: number | undefined) {
+    try { if (officeFlush.current) await officeFlush.current(); sourceCallback.current?.(null); setSelection(value); callbacks.current?.({ versionNumber: value, sourceLocator: undefined, line: undefined, page: undefined }); }
+    catch (failure) { setError(message(failure)); }
+  }
+  async function refresh() {
+    try { if (officeFlush.current) await officeFlush.current(); sourceCallback.current?.(null); setReload(value => value + 1); }
+    catch (failure) { setError(message(failure)); }
+  }
+  function officeSaved(version: number, contentHash: string) {
+    setLoaded(previous => previous ? {...previous, version, contentHash} : previous);
+    if (valid) sourceCallback.current?.({object: valid.object, revision: contentHash, fileVersion: version, recordVersion: null, blockId: null, locator: null, title: valid.name, excerpt: ""});
+    void fileDocumentApi.versionsList(valid!.binding, {object: valid!.object, limit:50}).then(result => setAvailableVersions(result.versions)).catch(failure => setError(message(failure)));
+  }
+
   async function openExternal() {
     if (!visible || externalRequest.current) return;
     const controller = new AbortController(); externalRequest.current = controller;
     setOpening(true); setError(undefined);
     try {
+      if (officeFlush.current) await officeFlush.current();
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       controller.signal.throwIfAborted();
       const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
@@ -218,17 +257,18 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
   return <section className="project-file-content" hidden={!visible} data-focused={focused || undefined} aria-label="项目文件预览">
     <header className="project-file-content__toolbar">
       <strong title={valid?.name}>{valid?.name ?? "文件"}</strong>
-      <select aria-label="文件查看版本" title="文件查看版本" value={selection ?? "latest"} onChange={event => choose(event.target.value === "latest" ? undefined : Number(event.target.value))}>
+      <select aria-label="文件查看版本" title="文件查看版本" value={selection ?? "latest"} onChange={event => void choose(event.target.value === "latest" ? undefined : Number(event.target.value))}>
         <option value="latest">{valid && selection === undefined ? `v${valid.version} · 最新` : "最新版本"}</option>
         {availableVersions.map(item => <option key={item.id} value={item.versionNumber}>v{item.versionNumber} · 固定</option>)}
         {selection !== undefined && !availableVersions.some(item => item.versionNumber === selection) ? <option value={selection}>v{selection} · 固定</option> : null}
       </select>
       {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" className="project-file-content__icon-button" aria-label={source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
-      <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => { sourceCallback.current?.(null); setReload(value => value + 1); }}><RefreshCw size={14} aria-hidden="true" /></button>
+      {valid?.kind === "office" ? <span ref={setOfficeToolbar} className="project-file-content__office-actions" /> : null}
+      <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" /></button>
       <button type="button" className="project-file-content__external-button" aria-label="在外部应用打开当前原件"
         title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : "在外部应用打开当前原件"}
         disabled={opening} onClick={() => void openExternal()}><ExternalLink size={14} aria-hidden="true" /><span>外部打开</span></button>
-      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} visible={visible} />
+      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} visible={visible} beforeOpen={flushOffice} />
       {toolbarActions}
     </header>
     {needsRecovery ? identityRecovery : null}
@@ -242,6 +282,7 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
     {valid?.warnings.map(warning => <p key={warning} role="status" className="project-file-content__notice">未加载资源：{warning}</p>)}
     <div className="project-file-content__body">
       {valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
+        : valid?.kind === "office" ? <Suspense fallback={<p role="status">正在加载 Office…</p>}><OfficeFileContent toolbar={officeToolbar} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerOfficeFlush} onDirtyChange={dirty => {officeDirty.current = dirty;}} onSaved={officeSaved} /></Suspense>
         : valid ? <DshFilePreview key={`${valid.version}:${valid.rendererId}:${valid.kind}:${showSource}`} kind={showSource ? "text" : valid.kind} name={valid.renderName} text={valid.text} bytes={showSource ? undefined : valid.bytes} resources={valid.resources} signal={valid.signal} line={line} page={page} initialView={initialView || views.current.has(valid.version) ? { ...initialView, ...views.current.get(valid.version) } : undefined} onViewChange={viewChanged} /> : null}
     </div>
   </section>;

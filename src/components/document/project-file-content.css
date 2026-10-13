@@ -21,3 +21,5 @@
   .project-file-content__toolbar button { transition:none; }
   .project-file-content__toolbar button:active:not(:disabled) { transform:none; }
 }
+
+.project-file-content__office-actions { display:inline-flex; flex:none; align-items:center; gap:8px; }

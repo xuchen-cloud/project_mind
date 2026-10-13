@@ -10,11 +10,11 @@ import { PopoverPanel } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import "./file-open-with.css";
 
-interface Props { workspaceRoot: string; projectId: number; fileId: number; visible: boolean }
+interface Props { workspaceRoot: string; projectId: number; fileId: number; visible: boolean; beforeOpen?: () => Promise<void> }
 interface Choices { binding: AgentWorkspaceBinding; object: AgentObjectRef; applications: NativeFileApplication[] }
 
 /** Application choice always targets the current original, independent of the viewed version. */
-export function FileOpenWithButton({ workspaceRoot, projectId, fileId, visible }: Props) {
+export function FileOpenWithButton({ workspaceRoot, projectId, fileId, visible, beforeOpen }: Props) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -77,6 +77,8 @@ export function FileOpenWithButton({ workspaceRoot, projectId, fileId, visible }
     setOpening(true); setError(undefined);
     const lifetime = request.current!;
     try {
+      if (beforeOpen) await beforeOpen();
+      lifetime.signal.throwIfAborted();
       await projectFileApi.openWith(choices.binding, choices.object, applicationId);
       lifetime.signal.throwIfAborted();
       close(true);

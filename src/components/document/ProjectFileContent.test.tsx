@@ -102,8 +102,8 @@ it('uses fixed HTML TextBody source with exact line location and no extra servic
   expect(fileDocumentApi.versionsList).toHaveBeenCalledOnce();
   expect(rendered.container.querySelector('iframe')).toBeNull();
 });
-it('keeps Office unsupported and does not claim editing or invoke text parsing', async () => {
-  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 2, contentHash: 'hash2', name: 'sample.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', byteLength: 2, base64: btoa('PK') });
+it('keeps legacy Office unsupported and does not invoke text parsing', async () => {
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 2, contentHash: 'hash2', name: 'sample.doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', byteLength: 2, base64: btoa('PK') });
   view();
   await screen.findByText(/此格式暂不支持应用内预览或编辑/);
   expect(fileDocumentApi.sourceRead).not.toHaveBeenCalled();
@@ -302,10 +302,10 @@ it('provides a verified source for unsupported bytes and never publishes a late 
   const wrap = (props: Parameters<typeof ProjectFileContent>[0]) => <QueryClientProvider client={client}><ProjectFileContent {...props} onSourceReady={ready} /></QueryClientProvider>;
   const rendered = render(wrap(input));
   await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledOnce());
-  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 1, contentHash: 'hash1', name: 'sample.docx', mime: 'application/octet-stream', byteLength: 3, base64: btoa('zip') });
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 1, contentHash: 'hash1', name: 'sample.doc', mime: 'application/octet-stream', byteLength: 3, base64: btoa('zip') });
   rendered.rerender(wrap({ ...input, versionNumber: 1 }));
   await screen.findByText(/此格式暂不支持/);
-  expect(ready).toHaveBeenLastCalledWith({ object, revision: 'hash1', fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'sample.docx', excerpt: '' });
+  expect(ready).toHaveBeenLastCalledWith({ object, revision: 'hash1', fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'sample.doc', excerpt: '' });
   await act(async () => finish({ object, versionNumber: 2, contentHash: 'hash2', name: 'old.txt', mime: 'text/plain', byteLength: 8, base64: btoa('version2') }));
   expect(ready.mock.calls.filter(([value]) => value?.fileVersion === 2)).toHaveLength(0);
 });
@@ -510,7 +510,7 @@ it('restores Markdown source mode from the shell without rereading bytes when th
 });
 
 it('exposes external open on unsupported and pinned File views as the current original', async () => {
-  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 1, contentHash: 'hash1', name: 'sample.docx', mime: 'application/octet-stream', byteLength: 2, base64: btoa('PK') });
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 1, contentHash: 'hash1', name: 'sample.doc', mime: 'application/octet-stream', byteLength: 2, base64: btoa('PK') });
   view({ ...input, versionNumber: 1 } as typeof input);
   const open = await screen.findByRole('button', { name: '在外部应用打开当前原件' });
   await screen.findByText(/此格式暂不支持应用内预览或编辑/);

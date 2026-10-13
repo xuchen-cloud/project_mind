@@ -24,6 +24,8 @@ export function desktopResourceCommands(target, archive, productionHost, product
     // Record replaces agent-host. Pi must always be composed after that replacement.
     ['scripts/stage-record-runtime.mjs', target.runtimeTarget],
     ['scripts/stage-source-runtime.mjs', target.runtimeTarget],
+    ['scripts/build-office-runtime.mjs', target.rustTarget],
+    ['scripts/stage-office-runtime.mjs', target.runtimeTarget],
     ['scripts/stage-pi-runtime.mjs', target.runtimeTarget, productionHost],
     ['scripts/stage-dsh-runtime.mjs', target.runtimeTarget, productionDsh],
   ];

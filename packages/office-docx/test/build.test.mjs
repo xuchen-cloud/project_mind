@@ -1,0 +1,32 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, mkdir, copyFile, writeFile } from 'node:fs/promises';
+import { builtinModules } from 'node:module';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+test('the worker engine relocates with no workspace imports or runtime sidecar assets', async () => {
+  const meta = JSON.parse(await readFile(new URL('../dist/engine.meta.json', import.meta.url)));
+  const imports = meta.outputs['dist/engine.mjs'].imports;
+  assert.ok(imports.every(i => builtinModules.includes(i.path.replace(/^node:/, ''))), JSON.stringify(imports));
+  const code = await readFile(new URL('../dist/engine.mjs', import.meta.url), 'utf8');
+  assert.ok(!code.includes('/Users/xuchen/'));
+  assert.ok(!code.includes('genoffice-docx-validation'));
+  const manifest = JSON.parse(await readFile(new URL('../dist/runtime-manifest.json', import.meta.url)));
+  assert.deepEqual(manifest.engineAssets, []);
+  const notices = await readFile(new URL('../dist/THIRD-PARTY-NOTICES.txt', import.meta.url), 'utf8');
+  assert.ok(notices.includes('Apache License'));
+  assert.ok(notices.includes('@tiptap/core@3.31.0'));
+  const root = new URL('output/relocated/', import.meta.url);
+  await mkdir(root, { recursive: true });
+  await copyFile(new URL('../dist/engine.mjs', import.meta.url), new URL('engine.mjs', root));
+  await copyFile(new URL('fixtures/simple.original.docx', import.meta.url), new URL('source.docx', root));
+  await writeFile(new URL('check.mjs', root), `import {readFile} from 'node:fs/promises'; import {inspect,edit} from './engine.mjs';
+const bytes=await readFile(new URL('./source.docx',import.meta.url));
+const model=await inspect(bytes); const edited=await edit(bytes,[{type:'text',nodeId:'docx:2',text:'独立工作进程中文编辑'}]);
+const reopened=await inspect(edited); if(!reopened.nodes.some(n=>n.text==='独立工作进程中文编辑'))throw Error('Relocated worker did not reopen');
+console.log(model.format);`);
+  const result = await promisify(execFile)(process.execPath, ['check.mjs'], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.stdout.trim(), 'docx');
+  assert.equal(result.stderr, '');
+});

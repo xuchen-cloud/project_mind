@@ -33,6 +33,8 @@ test('resource command composition prepares one Node and stages DSH after Record
     ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--config', 'vite.source-worker.config.ts'],
     ['scripts/stage-record-runtime.mjs', 'darwin-x64'],
     ['scripts/stage-source-runtime.mjs', 'darwin-x64'],
+    ['scripts/build-office-runtime.mjs', 'x86_64-apple-darwin'],
+    ['scripts/stage-office-runtime.mjs', 'darwin-x64'],
     ['scripts/stage-pi-runtime.mjs', 'darwin-x64', '/production/host'],
     ['scripts/stage-dsh-runtime.mjs', 'darwin-x64', '/production/dsh'],
   ]);
