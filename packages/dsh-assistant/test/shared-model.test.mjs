@@ -39,3 +39,28 @@ test('shared key is read-only memory while signed browser records keep their ori
   release();
   assert.equal(credentials.resolve, original.resolve);
 });
+
+const alternative = { ...provider, id: 'mind-profile-42', name: 'Alternative', modelId: 'alternative-model', apiKey: 'separate-pipe-key', supportsImage: false };
+test('multiple configured providers have separate memory credentials and secret-free patches', async () => {
+  const parsed = readSharedModel(JSON.stringify({ type: 'configure', provider, providers: [alternative] }));
+  const patches = sharedModelPatches(parsed);
+  const models = patches.find(patch => patch.id === 'llm-pi-ai').config.providers;
+  assert.deepEqual(Object.keys(models), ['mind-main', alternative.id]);
+  assert.notEqual(models['mind-main'].apiKeyEnv, models[alternative.id].apiKeyEnv);
+  for (const key of [provider.apiKey, alternative.apiKey]) assert.ok(!JSON.stringify(patches).includes(key));
+  const credentials = { async resolve(ref) { return { value: ref }; }, async describe() { return {}; }, async set() {}, async unset() {} };
+  installSharedCredential({ inject(_, apply) { apply({ credentials, effect(register) { register(); } }); } }, parsed);
+  for (const [id, key] of [['mind-main', provider.apiKey], [alternative.id, alternative.apiKey]]) {
+    const ref = models[id].apiKeyEnv;
+    assert.equal((await credentials.resolve(ref)).value, key);
+    assert.equal((await credentials.describe(ref)).writable, false);
+    await assert.rejects(credentials.set(ref, 'replacement'), /main application/);
+    await assert.rejects(credentials.unset(ref), /main application/);
+  }
+});
+
+test('alternative frames reject duplicate/reserved identities and invalid endpoints without secrets', () => {
+  for (const providers of [[{ ...alternative, id: 'mind-main' }], [alternative, alternative], [{ ...alternative, baseUrl: 'https://secret@example.test' }]]) {
+    assert.throws(() => readSharedModel(JSON.stringify({ type: 'configure', provider, providers })), error => !error.message.includes(alternative.apiKey));
+  }
+});

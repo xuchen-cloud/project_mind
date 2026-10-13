@@ -2,8 +2,6 @@ import type { AgentSourceRef } from '../../lib/agent-types';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { DshConversationHost, insertDshFileReference } from '@project-mind/dsh-ui/adapters';
-import type { DshSessionModel } from '@project-mind/dsh-ui/adapters';
-import { Settings2 } from 'lucide-react';
 import { consumeDshFileReference, useDshFileReferences } from '../../lib/dsh-host-events';
 import { getErrorMessage } from '../../lib/errors';
 import { notifyProjectFilesChanged, openProjectFilePreview } from '../../lib/project-file-navigation';
@@ -31,8 +29,7 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
   }), [queryClient]);
   const snapshot = useCallback(() => {
     const settings = queryClient.getQueryData<AiSettingsSnapshot>(queryKeys.aiSettings);
-    const binding = settings?.bindings.find(value => value.capability === 'default');
-    return JSON.stringify([binding, settings?.profiles.find(value => value.id === binding?.profileId),
+    return JSON.stringify([settings?.bindings, settings?.profiles,
       settings?.aiSecretsUnlocked, settings?.securityMode, settings?.network]);
   }, [queryClient]);
   const fingerprint = useSyncExternalStore(subscribe, snapshot);
@@ -42,7 +39,6 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
   const [readyIdentity, setReadyIdentity] = useState<string | null>(null);
   const [readyKey, setReadyKey] = useState<string | null>(null);
   const [hostReady, setHostReady] = useState(false);
-  const [sessionModel, setSessionModel] = useState<DshSessionModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [referenceRevision, setReferenceRevision] = useState(0);
   const [referenceError, setReferenceError] = useState<{ id: number; message: string } | null>(null);
@@ -60,7 +56,7 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
   useEffect(() => {
     if (!visible || ready) return;
     let cancelled = false;
-    setHostReady(false); setSessionModel(null); setError(null);
+    setHostReady(false); setError(null);
     void (async () => {
       if (!busy) await dshAssistantApi.start(JSON.stringify([workspaceRoot, projectId, fingerprint]), projectId);
       if (cancelled) return;
@@ -76,9 +72,7 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
       onReady: () => { if (valid()) setHostReady(true); },
       onError: (message: string) => { if (valid()) setError(message); },
       onSettings: () => { if (valid()) openSettings('dsh-assistant'); },
-      onModelChange: (model: DshSessionModel) => {
-        if (valid() && model.sessionId === sessionId) setSessionModel(model);
-      },
+      onModelSettings: () => { if (valid()) openSettings('ai-models'); },
       onFileOpen: (path: string, line?: number, sourceRef?: AgentSourceRef) => { if (valid()) openProjectFilePreview(projectId, path, line, sessionId, sourceRef); },
       onFilesChanged: () => {
         if (!valid()) return;
@@ -102,20 +96,17 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
   }, [visible, ready, hostReady, error, pending, projectId, sessionId, key, referenceRevision, referenceError]);
 
   if (!visible) return null;
-  const model = sessionModel?.sessionId === sessionId ? sessionModel : null;
   return <section className="project-session-content" data-project-session={sessionId} data-focused={focused}>
-    {error ? <div role="alert"><p>{error}</p><Button size="sm" onClick={() => { setReadyKey(null); setAttempt(value => value + 1); }}>重试</Button></div>
+    {error ? <div role="alert">
+      <p>{error}</p>
+      <Button size="sm" variant="ghost" onClick={() => openSettings('ai-models')}>模型设置</Button>
+      <Button size="sm" onClick={() => { setReadyKey(null); setAttempt(value => value + 1); }}>重试</Button>
+    </div>
       : !ready ? <p role="status">正在读取项目会话…</p> : null}
     {pending && referenceError?.id === pending.id ? <div role="alert">
       <p>引用 {pending.path} 失败：{referenceError.message}</p>
       <Button size="sm" onClick={() => setReferenceError(null)}>重试引用</Button>
     </div> : null}
     {ready ? <DshConversationHost projectId={projectId} sessionId={sessionId} focused={focused} {...callbacks} /> : null}
-    <footer className="project-session-content__model" aria-label="会话模型">
-      <span title={model?.model ?? undefined}>{model?.model
-        ? `${model.running ? '运行中 · ' : ''}${model.model}${model.reasoningEffort ? ` · ${model.reasoningEffort}` : ''}`
-        : model?.running ? '运行中 · 正在读取模型' : '配置模型'}</span>
-      <Button variant="ghost" size="sm" leadingIcon={<Settings2 size={13} />} aria-label="模型设置" onClick={() => openSettings('ai-models')}>模型设置</Button>
-    </footer>
   </section>;
 }

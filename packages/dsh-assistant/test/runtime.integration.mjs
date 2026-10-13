@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork, execFile } from 'node:child_process';
+import { createServer, request as httpRequest } from 'node:http';
 import { randomUUID, createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { mkdtemp, mkdir, realpath, writeFile, readFile, rm } from 'node:fs/promises';
@@ -15,7 +16,7 @@ import { startLocalProvider } from './fixtures/local-provider.mjs';
 // Run explicitly: node --test packages/dsh-assistant/test/runtime.integration.mjs
 // Real subprocess + rc.2 Web RPC/mux + provider SSE; no SDK, browser, or build.
 const root = fileURLToPath(new URL('..', import.meta.url));
-const redact = (text) => String(text).replace(/([?&]token=)[^\s"'<>]+/g, '$1[redacted]').replace(/local-integration-key/g, '[redacted]');
+const redact = (text) => String(text).replace(/([?&]token=)[^\s"'<>]+/g, '$1[redacted]').replace(/(?:local-integration-key|alternative-integration-key)/g, '[redacted]');
 async function waitFor(read, description, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -33,7 +34,7 @@ async function launch(data, patch, sharedProvider, project, profileDirectory, so
       ...(project ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
       ...(patch ? { PROJECT_MIND_DSH_PATCH: patch } : {}), LOCAL_TEST_KEY: 'local-integration-key' },
   });
-  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: sharedProvider, project }) + '\n');
+  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, project }) + '\n');
   let output = '';
   let ready;
   let ended;
@@ -136,6 +137,15 @@ async function follow(runtime, sessionId) {
 
 const events = (stream) => stream.frames.flatMap((frame) => frame.type === 'snapshot' ? frame.records.map((record) => record.event) : frame.type === 'event' ? [frame.event] : []);
 const assistantText = (event) => event.data.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+
+function assertRestoredHistory(stream, before) {
+  const restored = events(stream);
+  assert.deepEqual(restored.slice(0, before.length), before, 'restore preserves the exact durable history prefix');
+  for (const event of restored.slice(before.length)) {
+    assert.equal(event.type, 'session/end-seed', 'only the upstream shutdown boundary may be appended');
+  }
+}
+
 
 test('fixed source auto titles reach the catalog and header without changing stored user/model projections', { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-title-'));
@@ -462,16 +472,18 @@ test('embedded runtime uses the piped main AI model, hides separate Models setti
   assert.ok(!credentials.includes(shared.apiKey), 'unlocked main key must not be copied into DSH credentials');
   runtime = await launch(data, undefined, shared, project);
   stream = await follow(runtime, sessionId);
-  assert.deepEqual(events(stream), durable);
+  assertRestoredHistory(stream, durable);
   await prompt(runtime, stream, sessionId, 'Main model after restart');
   assert.equal(provider.requests[1].model, shared.modelId);
+  const beforeModelChange = events(stream);
   await stream.close(); stream = undefined;
   await runtime.stop();
   const changed = { ...shared, modelId: 'changed-main-model' };
   runtime = await launch(data, undefined, changed, project);
   stream = await follow(runtime, sessionId);
-  const selection = events(stream).findLast(event => event.type === 'model/selection');
-  assert.equal(selection.data.model, changed.modelId, 'restored session follows the main model binding');
+  assert.equal(stream.snapshot.projections.values.modelSelection.next.model, shared.modelId);
+  assertRestoredHistory(stream, beforeModelChange);
+  await runtime.rpc('session/selectModel', { sessionId, provider: 'mind-main', model: changed.modelId });
   await prompt(runtime, stream, sessionId, 'Continue old session with updated main model');
   assert.equal(provider.requests[2].model, changed.modelId);
 });
@@ -652,4 +664,94 @@ test('two Project runtimes stream concurrently, survive view disconnect and stop
   await streams[0].close(); streams[0] = undefined;
   await runtimes[0].stop();
   assert.ok((await runtimes[1].rpc('session/list', {}, '_request')).items.some(item => item.sessionId === ids[1]));
+});
+
+// Authenticate fixture requests without recording secret-bearing headers.
+async function authenticatedProvider(key) {
+  const fixture = await startLocalProvider();
+  let accepted = 0;
+  const server = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${key}`) {
+      res.writeHead(401); res.end('Wrong fixture credential'); return;
+    }
+    accepted++;
+    const upstream = httpRequest(new URL(req.url, fixture.url), { method: req.method, headers: req.headers }, response => {
+      res.writeHead(response.statusCode, response.headers); response.pipe(res);
+    });
+    upstream.on('error', () => { res.destroy(); });
+    req.pipe(upstream);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return { ...fixture, url: `http://127.0.0.1:${server.address().port}/v1`, accepted: () => accepted,
+    async close() {
+      server.closeAllConnections();
+      await new Promise(resolve => server.close(resolve));
+      await fixture.close();
+    },
+  };
+}
+
+test('embedded model catalog, running next request, Session isolation and durable follow', { timeout: 60000 }, async t => {
+  const temporary = await mkdtemp(path.join(tmpdir(), 'mind-dsh-models-'));
+  const main = await authenticatedProvider('local-integration-key');
+  const alternate = await authenticatedProvider('alternative-integration-key');
+  const gated = main.enqueueResponse({ chunks: ['first request remains main'], manual: true });
+  const provider = { name: 'Main', baseUrl: main.url, modelId: 'main-test-model', apiKey: 'local-integration-key', supportsImage: false };
+  const alternative = { id: 'mind-profile-42', name: 'Alternative', baseUrl: alternate.url, modelId: 'alternate-test-model', apiKey: 'alternative-integration-key', supportsImage: false };
+  const shared = { ...provider, providers: [alternative] };
+  const data = path.join(temporary, 'data');
+  const project = { id: 1, name: 'Models', directory: await realpath(temporary) };
+  let runtime, stream, thirdStream;
+  t.after(async () => { await stream?.close(); await thirdStream?.close(); await runtime?.stop(); await main.close(); await alternate.close(); await rm(temporary, { recursive: true, force: true }); });
+  runtime = await launch(data, undefined, shared, project);
+  const catalog = await runtime.rpc('session/modelCatalog');
+  assert.deepEqual(catalog.groups.map(group => group.id), ['mind-main', alternative.id]);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  const second = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/selectModel', { sessionId: second.sessionId, provider: 'mind-main', model: provider.modelId });
+  stream = await follow(runtime, sessionId);
+  await runtime.rpc('session/prompt', { sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: 'Synthetic running request' }] });
+  await waitFor(() => main.requests[0]?.outcome === 'streaming', 'main request in flight');
+  await runtime.rpc('session/selectModel', { sessionId, provider: alternative.id, model: alternative.modelId });
+  const selection = (await runtime.rpc('session/projections', { sessionId })).values.modelSelection;
+  assert.equal(selection.next.provider, alternative.id);
+  assert.equal(selection.lastUsed.provider, 'mind-main');
+  assert.equal(main.requests[0].model, provider.modelId);
+  assert.ok(main.accepted() > 0);
+  assert.equal(alternate.requests.length, 0);
+  const isolated = (await runtime.rpc('session/projections', { sessionId: second.sessionId })).values.modelSelection;
+  assert.equal(isolated.next.provider, 'mind-main');
+  gated.advance();
+  await stream.read(frame => frame.type === 'event' && frame.event.type === 'turn/end', 'first turn completes');
+  await prompt(runtime, stream, sessionId, 'Synthetic next request');
+  assert.ok(alternate.requests.some(request => request.model === alternative.modelId && request.outcome === 'completed'));
+  assert.ok(alternate.accepted() > 0);
+  const third = await runtime.rpc('session/create', {});
+  thirdStream = await follow(runtime, third.sessionId);
+  await prompt(runtime, thirdStream, third.sessionId, 'Synthetic independent new Session');
+  const thirdSelection = (await runtime.rpc('session/projections', { sessionId: third.sessionId })).values.modelSelection;
+  assert.equal(thirdSelection.lastUsed.provider, 'mind-main', 'a Session created after another selects an alternative must use the native default');
+  assert.equal(thirdSelection.lastUsed.model, provider.modelId);
+  assert.deepEqual((await runtime.rpc('session/modelCatalog')).default, { provider: 'mind-main', model: provider.modelId });
+  await thirdStream.close(); thirdStream = undefined;
+  await stream.close(); stream = undefined; await runtime.stop();
+  runtime = await launch(data, undefined, shared, project);
+  stream = await follow(runtime, sessionId);
+  assert.equal(stream.snapshot.projections.values.modelSelection.next.provider, alternative.id);
+  await prompt(runtime, stream, sessionId, 'Synthetic restored request');
+  const beforeRemoval = events(stream);
+  await stream.close(); stream = undefined; await runtime.stop();
+  const credentials = await readFile(path.join(data, '.credentials.yaml'), 'utf8');
+  for (const key of [provider.apiKey, alternative.apiKey]) assert.ok(!credentials.includes(key));
+  runtime = await launch(data, undefined, provider, project);
+  stream = await follow(runtime, sessionId);
+  assert.equal(stream.snapshot.projections.values.modelSelection.next.provider, alternative.id);
+  assert.equal(stream.snapshot.projections.values.modelSelection.next.model, alternative.modelId);
+  assertRestoredHistory(stream, beforeRemoval);
+  // An explicit valid selection recovers a stale conversation without replacing history.
+  await runtime.rpc('session/selectModel', { sessionId, provider: 'mind-main', model: provider.modelId });
+  const recovered = (await runtime.rpc('session/projections', { sessionId })).values.modelSelection;
+  assert.equal(recovered.next.provider, 'mind-main');
+  await prompt(runtime, stream, sessionId, 'Synthetic recovered request');
+  assert.equal(main.requests.at(-1).model, provider.modelId);
 });

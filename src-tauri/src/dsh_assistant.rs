@@ -140,6 +140,7 @@ fn canonical_project_directory(
 struct Configuration {
     identity: Identity,
     profile: crate::ai_provider::ResolvedAiProfile,
+    alternatives: Vec<(i64, crate::ai_provider::ResolvedAiProfile)>,
 }
 
 impl Identity {
@@ -172,28 +173,64 @@ impl Configuration {
                 }
                 _ => "请在 AI 设置中配置可用模型，并将其设为通用默认模型".to_string(),
             })?;
+        let alternatives = Self::configured_profiles(&mut db)?;
+        let main_fingerprint = configuration_fingerprint(&selected.fingerprint, &selected.profile)?;
         Ok(Self {
             identity: Identity {
                 workspace_id: runtime.agent_binding.workspace_id.clone(),
                 workspace_generation: runtime.agent_binding.generation.clone(),
                 root: runtime.paths.root_path.clone(),
-                fingerprint: configuration_fingerprint(&selected.fingerprint, &selected.profile)?,
+                fingerprint: configuration_catalog_fingerprint(&main_fingerprint, &alternatives)?,
                 project,
             },
             profile: selected.profile,
+            alternatives,
         })
     }
 
+    fn configured_profiles(db: &mut crate::db::Database) -> Result<Vec<(i64, crate::ai_provider::ResolvedAiProfile)>, String> {
+        let mut profiles = Vec::new();
+        for stored in db.ai_settings_get().map_err(|_| "无法读取助手模型配置")?.profiles {
+            if !stored.enabled || !stored.supports_text || stored.provider_family != "openai_compatible"
+                || !stored.has_stored_key || stored.default_model.trim().is_empty() {
+                continue;
+            }
+            let resolved = db.agent_resolve_profile(Some(stored.id))
+                .map_err(|_| "无法读取或解锁助手模型配置，请检查工作区 AI 设置")?;
+            profiles.push((stored.id, resolved.profile));
+        }
+        profiles.sort_by_key(|(id, _)| *id);
+        Ok(profiles)
+    }
+
     fn message(&self) -> serde_json::Value {
-        serde_json::json!({"type": "configure", "provider": {
-            "name": self.profile.profile_name, "baseUrl": self.profile.base_url,
-            "modelId": self.profile.model, "apiKey": self.profile.api_key,
-            "supportsImage": self.profile.supports_image,
-        }, "project": {
+        let providers: Vec<_> = self.alternatives.iter().map(|(id, profile)| {
+            let mut provider = configured_provider_message(profile);
+            provider["id"] = serde_json::json!(format!("mind-profile-{id}"));
+            provider
+        }).collect();
+        serde_json::json!({"type": "configure", "provider": configured_provider_message(&self.profile),
+            "providers": providers, "project": {
             "id": self.identity.project.id, "name": self.identity.project.name,
             "directory": self.identity.project.directory,
         }})
     }
+}
+
+fn configured_provider_message(profile: &crate::ai_provider::ResolvedAiProfile) -> serde_json::Value {
+    serde_json::json!({
+        "name": profile.profile_name, "baseUrl": profile.base_url,
+        "modelId": profile.model, "apiKey": profile.api_key,
+        "supportsImage": profile.supports_image,
+    })
+}
+
+fn configuration_catalog_fingerprint(main: &str, alternatives: &[(i64, crate::ai_provider::ResolvedAiProfile)]) -> Result<String, String> {
+    let fingerprints = alternatives.iter().map(|(id, profile)| {
+        configuration_fingerprint("", profile).map(|fingerprint| (*id, fingerprint))
+    }).collect::<Result<Vec<_>, _>>()?;
+    let bytes = serde_json::to_vec(&(main, fingerprints)).map_err(|_| "无法读取助手模型配置")?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
 // The existing profile receipt does not cover proxy or image capability changes.
@@ -207,6 +244,11 @@ fn configuration_fingerprint(
         &profile.network.mode,
         &profile.network.proxy_url,
         &profile.profile_name,
+        &profile.provider_family,
+        &profile.base_url,
+        &profile.model,
+        &profile.api_key,
+        profile.supports_text,
         profile.supports_image,
     ))
     .map_err(|_| "无法读取助手模型配置")?;
@@ -409,12 +451,11 @@ impl AssistantProcess {
             .expect("validated token")
             .1
             .into_owned()];
-        if let Some(key) = config
-            .pointer("/provider/apiKey")
-            .and_then(serde_json::Value::as_str)
-            .filter(|key| !key.is_empty())
-        {
-            sensitive.push(key.to_owned());
+        for provider in std::iter::once(&config["provider"])
+            .chain(config["providers"].as_array().into_iter().flatten()) {
+            if let Some(key) = provider.get("apiKey").and_then(serde_json::Value::as_str).filter(|key| !key.is_empty()) {
+                sensitive.push(key.to_owned());
+            }
         }
         Ok(Self {
             closed,
@@ -1555,8 +1596,7 @@ fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     }
     if matches!(
         endpoint,
-        "session/selectModel"
-            | "session/initializeDefaultModel"
+        "session/initializeDefaultModel"
             | "session/openWorkspacePath"
             | "settings/openSettingsDocument"
     ) {
@@ -1638,6 +1678,10 @@ impl RuntimeState {
                 }
             }
             return Ok(());
+        }
+        if endpoint == "session/selectModel" && payload.pointer("/args/request/sessionId")
+            .and_then(serde_json::Value::as_str).is_none_or(str::is_empty) {
+            return Err(TRANSPORT_ERROR.into());
         }
         let mut ids = Vec::new();
         payload_session_ids(payload, &mut ids)?;
@@ -2464,6 +2508,52 @@ input.on('close', () => process.exit(0));
     }
 
     #[test]
+    fn configured_models_map_profiles_and_invalidate_all_credentials() {
+        use crate::models::AiProviderProfileUpsertInput;
+        let temp = tempfile::tempdir().unwrap();
+        let mut db = crate::db::Database::open(&temp.path().join("models.sqlite"), temp.path(), Some("password".into())).unwrap();
+        let mut input = AiProviderProfileUpsertInput {
+            id: None, name: "Alternative".into(), provider_family: "openai_compatible".into(),
+            base_url: "https://alternative.invalid/v1".into(), api_key: Some("alternative-secret".into()),
+            default_model: "alternative-model".into(), supports_text: true, supports_image: false,
+            supports_file: false, enabled: true,
+        };
+        let stored = db.ai_profile_upsert(input.clone()).unwrap();
+        input.name = "Disabled".into(); input.enabled = false;
+        db.ai_profile_upsert(input.clone()).unwrap();
+        input.name = "Image only".into(); input.enabled = true; input.supports_text = false; input.supports_image = true;
+        db.ai_profile_upsert(input.clone()).unwrap();
+        let alternatives = Configuration::configured_profiles(&mut db).unwrap();
+        assert_eq!(alternatives.len(), 1);
+        assert_eq!(alternatives[0].0, stored.id);
+        let message = configured_provider_message(&alternatives[0].1);
+        assert_eq!(message["modelId"], "alternative-model");
+        assert_eq!(message["apiKey"], "alternative-secret");
+        let before = configuration_catalog_fingerprint("main", &alternatives).unwrap();
+        input.id = Some(stored.id); input.name = "Alternative".into(); input.supports_text = true;
+        input.api_key = Some("replacement-secret".into());
+        db.ai_profile_upsert(input).unwrap();
+        let after = configuration_catalog_fingerprint("main", &Configuration::configured_profiles(&mut db).unwrap()).unwrap();
+        assert_ne!(before, after);
+        assert!(!after.contains("secret"));
+        for field in ["name", "base_url", "model", "image", "proxy", "key"] {
+            let mut changed = alternatives.clone();
+            let profile = &mut changed[0].1;
+            match field {
+                "name" => profile.profile_name.push_str(" changed"),
+                "base_url" => profile.base_url.push_str("/changed"),
+                "model" => profile.model.push_str("-changed"),
+                "image" => profile.supports_image = !profile.supports_image,
+                "proxy" => profile.network.proxy_url = Some("http://user:secret@127.0.0.1:8888".into()),
+                "key" => profile.api_key.push_str("-changed"),
+                _ => unreachable!(),
+            }
+            assert_ne!(configuration_catalog_fingerprint("main", &changed).unwrap(), before, "{field}");
+        }
+        assert_ne!(configuration_catalog_fingerprint("main", &[]).unwrap(), before);
+    }
+
+    #[test]
     fn configuration_reuses_general_binding_and_tracks_network_and_workspace_identity() {
         use crate::models::{
             AiCapabilityBindingUpsertInput, AiProviderProfileUpsertInput, AiProxyMode,
@@ -2511,6 +2601,7 @@ input.on('close', () => process.exit(0));
                 },
             },
             profile: selected.profile,
+            alternatives: Configuration::configured_profiles(&mut db).unwrap(),
         };
         let message = config.message();
         assert_eq!(message["project"]["id"], 1);
@@ -2524,6 +2615,9 @@ input.on('close', () => process.exit(0));
         assert_eq!(message["provider"]["modelId"], "general-model");
         assert_eq!(message["provider"]["apiKey"], "fixture-api-key");
         assert_eq!(message["provider"]["supportsImage"], true);
+        assert_eq!(message["providers"][0]["id"], format!("mind-profile-{}", stored.id));
+        assert_eq!(message["providers"][0]["modelId"], "profile-model");
+        assert_eq!(message["providers"][0]["apiKey"], "fixture-api-key");
         assert_eq!(
             configuration_fingerprint(&selected.fingerprint, &config.profile).unwrap(),
             fingerprint
@@ -3420,6 +3514,14 @@ input.on('close', () => process.exit(0));
             )
             .await
             .unwrap();
+        inner.authorize_payload("session/selectModel", &serde_json::json!({"args":{"request":{"sessionId":"owned","provider":"mind-profile-42","model":"next"}}})).await.unwrap();
+        for request in [
+            serde_json::json!({"args":{"request":{"sessionId":"foreign","provider":"mind-main","model":"next"}}}),
+            serde_json::json!({"args":{"request":{"provider":"mind-main","model":"next"}}}),
+            serde_json::json!({"args":{"request":{"sessionId":"owned","apiKey":"secret"}}}),
+        ] {
+            assert!(inner.authorize_payload("session/selectModel", &request).await.is_err());
+        }
         let request = serde_json::json!({"args":{"request":{"sessionId":"owned"}}});
         assert!(inner
             .authorize_payload("mind/session/delete", &request)
@@ -3550,7 +3652,7 @@ input.on('line', line => {
     const config = JSON.parse(line);
     if (config.type !== 'configure' || config.provider.apiKey !== 'fixture-secret') process.exit(2);
     configured = true;
-    console.log('unrelated log');
+    console.log('unrelated log fixture-secret alternative-fixture-secret');
     console.log('MIND_DSH_READY ' + JSON.stringify({url:'http://127.0.0.1:23456/?token=fixture-token'}));
   } else if (line === 'shutdown') dispose();
 });
@@ -3574,10 +3676,13 @@ input.on('close', dispose);
             command.arg(&script).arg(&marker);
             let mut process = AssistantProcess::launch(
                 command,
-                &serde_json::json!({"type":"configure", "provider":{"apiKey":"fixture-secret"}}),
+                &serde_json::json!({"type":"configure", "provider":{"apiKey":"fixture-secret"}, "providers":[{"apiKey":"alternative-fixture-secret"}]}),
             )
             .await
             .unwrap();
+            for secret in ["fixture-secret", "alternative-fixture-secret", "fixture-token"] {
+                assert!(contains_secret(secret.as_bytes(), &process.sensitive));
+            }
             if eof {
                 drop(process.child.stdin.take());
                 let status = tokio::time::timeout(STOP_TIMEOUT, process.child.wait())

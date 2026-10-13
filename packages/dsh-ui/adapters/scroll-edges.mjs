@@ -21,7 +21,7 @@ export function installScrollEdges(host) {
   const schedule = () => { if (!disposed && frame === null) frame = requestAnimationFrame(measure); };
   const resize = new ResizeObserver(schedule);
   const scan = () => {
-    const current = new Set(host.querySelectorAll('[data-conversation-scroll], [data-trajectory-scroll], .dsh-ui-settings'));
+    const current = new Set(host.querySelectorAll('[data-conversation-scroll], [data-trajectory-scroll], .dsh-ui-settings, .mind-model-menu > [role="presentation"]:not(:last-child)'));
     for (const [node, content] of nodes) if (!current.has(node)) {
       node.removeEventListener('scroll', schedule); resize.unobserve(node);
       if (content) resize.unobserve(content);

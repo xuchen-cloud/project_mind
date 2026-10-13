@@ -76,6 +76,7 @@ function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {
         else if (type === 'busy') handlers.current.onBusyChange?.(data);
         else if (type === 'file' && (data.sessionId ? data.sessionId === sessionId : handlers.current.focused)) handlers.current.onFileOpen?.(data.path, data.line, data.sourceRef);
         else if (type === 'filesChanged') handlers.current.onFilesChanged?.();
+        else if (type === 'modelSettings' && data === sessionId) handlers.current.onModelSettings?.();
         else if (type === 'error') handlers.current.onError?.(data);
       });
       setClient(value);

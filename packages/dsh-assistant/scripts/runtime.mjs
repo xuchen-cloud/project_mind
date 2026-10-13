@@ -7,7 +7,7 @@ import { provideCmdline } from '@deepseek-ai/dsh-cmdline';
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment';
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
 import { assistantEnvironment } from './isolation.mjs';
-import { readSharedModel, sharedModelPatches, installSharedCredential, installSharedSelection } from './shared-model.mjs';
+import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readProject, bindProject } from './project-workspace.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
 
@@ -76,7 +76,7 @@ try {
     host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment);
     await host.plugin(PluginPackages, { resolution });
     if (embedded) {
-      installSharedCredential(host, sharedModel); installSharedSelection(host, sharedModel);
+      installSharedCredential(host, sharedModel);
       installSourceTitles(host);
     }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });

@@ -17,6 +17,7 @@ export interface DshConversationHostProps {
   onReady?: () => void;
   onError?: (message: string) => void;
   onSettings?: () => void;
+  onModelSettings?: () => void;
   onModelChange?: (model: DshSessionModel) => void;
 }
 export function DshConversationHost(props: DshConversationHostProps): ReactElement;

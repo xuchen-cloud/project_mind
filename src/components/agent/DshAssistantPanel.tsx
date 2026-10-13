@@ -57,8 +57,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   }), [queryClient]);
   const snapshot = useCallback(() => {
     const settings = queryClient.getQueryData<AiSettingsSnapshot>(queryKeys.aiSettings);
-    const binding = settings?.bindings.find(value => value.capability === "default");
-    return JSON.stringify([binding, settings?.profiles.find(value => value.id === binding?.profileId),
+    return JSON.stringify([settings?.bindings, settings?.profiles,
       settings?.aiSecretsUnlocked, settings?.securityMode, settings?.network]);
   }, [queryClient]);
   const fingerprint = useSyncExternalStore(subscribe, snapshot);
@@ -123,6 +122,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         if (valid() && workspaceRoot) useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, busy);
       },
       onSettings: () => { if (valid()) openSettings("dsh-assistant"); },
+      onModelSettings: () => { if (valid()) openSettings("ai-models"); },
       onFileOpen: (path: string, line?: number, sourceRef?: AgentSourceRef) => { if (valid()) openProjectFilePreview(projectId, path, line, selectedSession?.id, sourceRef); },
       onFilesChanged: () => {
         if (!valid()) return;
@@ -227,7 +227,6 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         </PopoverPanel> : null}
       </div>
       <Button size="sm" variant="ghost" aria-label="新建会话" leadingIcon={<Plus size={14} />} disabled={disabled || (!onOpenSession && runBusy)} onClick={() => void operate(null)} />
-      <Button size="sm" variant="ghost" onClick={() => openSettings("ai-models")}>模型设置</Button>
       <Button size="sm" variant="ghost" onClick={() => openSettings("dsh-assistant")}>助手设置</Button>
       <Button size="sm" variant="ghost" aria-label={expanded ? "收起助手" : "展开助手"} aria-expanded={expanded}
         leadingIcon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />} onClick={onToggleExpanded} />

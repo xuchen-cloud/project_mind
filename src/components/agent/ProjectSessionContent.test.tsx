@@ -64,16 +64,13 @@ it('delivers a reference queued before the new Session page mounts', async () =>
   view.unmount();
 });
 
-it('shows the actual Session model and opens shared model settings even when configuration is missing', async () => {
+it('opens shared model settings from the addressed composer and has no separate model footer', async () => {
   const view = render(<QueryClientProvider client={new QueryClient()}><ProjectSessionContent workspaceRoot="/workspace" projectId={1} sessionId="model-session" visible focused /></QueryClientProvider>);
-  const settings = screen.getByRole('button', { name: '模型设置' });
-  fireEvent.click(settings);
-  expect(useUiStore.getState().settingsSection).toBe('ai-models');
   await screen.findByTestId('model-session');
-  act(() => fixture.hosts.at(-1)!.onModelChange?.({ sessionId: 'model-session', model: 'actual-model', reasoningEffort: 'high', running: true }));
-  expect(screen.getByLabelText('会话模型')).toHaveTextContent('运行中 · actual-model · high');
-  act(() => fixture.hosts.at(-1)!.onModelChange?.({ sessionId: 'another-session', model: 'wrong-model', running: false }));
-  expect(screen.getByLabelText('会话模型')).not.toHaveTextContent('wrong-model');
+  expect(screen.queryByLabelText('会话模型')).toBeNull();
+  expect(screen.queryByRole('button', { name: '模型设置' })).toBeNull();
+  act(() => fixture.hosts.at(-1)!.onModelSettings?.());
+  expect(useUiStore.getState().settingsSection).toBe('ai-models');
   view.unmount();
 });
 
