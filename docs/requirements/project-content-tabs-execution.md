@@ -30,6 +30,13 @@
 
 ## 验证与验收
 
+### 2026-10-13 Record／AI 对话彩色图标设计包（#124）
+
+- 依赖：上一包 DSH 彩色 FileTypeIcon 的图形和静态配色；用户要求新增 Record 与 AI 对话设计。交付：两个可缩放 SVG、放大及 16／20／28／32px 预览；应用内接入另包。本包不涉及运行时、文件映射、版本、数据或 Tab 排版。
+- 设计：Record 使用 DSH 蓝色 `#4176E6`、既有折角纸页轮廓和原创白色记录线；AI 对话使用 DSH 图片／视频紫色 `#8B76F6`、原创圆角气泡和白色星芒。相同 28px 网格，透明背景；Record 的来源轮廓仍受仓库既有 DSH MIT 许可覆盖。
+- 验收与验证：两份 SVG XML／viewBox 和无脚本／外部图片检查通过；通过 bundled Sharp 从 SVG 渲染 PNG，确认 16px 非空且透明背景保留；主 agent 检查预览中线条、星芒及轮廓，小尺寸清晰，Standards／Spec 自查通过。纯静态设计资产未运行应用构建或单元全量，未启动窗口。
+- 文件：`src/assets/icons/record-color.svg`、`ai-chat-color.svg`；`docs/design/record-ai-chat-icons-20261013.html` 和 `.png`。当前临时图标选择页已将两个设计置顶，保留 59 个 DSH 彩色参考项，用户可刷新查看。
+
 ### 2026-10-13 文件与应用图标工作包（#124）
 
 - 依赖：现有 DSH `FileTypeIcon`／分类器、File 当前原件身份核验、Workspace generation、紧凑工具栏。接收时无 `tauri dev` 监听进程；保留 Agent／Overview／Voice 等并行未提交改动。
