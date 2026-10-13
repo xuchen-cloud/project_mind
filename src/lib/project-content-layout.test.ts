@@ -41,6 +41,27 @@ describe("project content layout selectors", () => {
     expect(sanitizeContentView({ fileViews: { 2: { zoom: -1 } } })).toBeNull();
   });
 
+  it.each([
+    ["record", true, { isVoice: true }],
+    ["record", false, { isVoice: false }],
+    ["record", undefined, {}],
+    ["record", "true", {}],
+    ["record", 1, {}],
+    ["record", null, {}],
+    ["file", true, {}],
+    ["session", true, {}],
+  ])("sanitizes voice presentation metadata for %s with %s", (kind, isVoice, metadata) => {
+    const key = contentLayoutKey({ workspaceId: "workspace", projectId: 1 });
+    const object = { kind, id: kind === "session" ? "session" : 1, title: "Content" };
+    const saved = { ...emptyContentLayout(),
+      tabs: [{ id: "tab", object: { ...object, isVoice, body: "discard" }, view: { scrollTop: 20 } }],
+      panes: [{ id: "left", tabIds: ["tab"], selectedTabId: "tab" }],
+    };
+    expect(sanitizeContentLayouts({ [key]: saved })[key]).toEqual({ ...saved,
+      tabs: [{ id: "tab", object: { ...object, ...metadata }, view: { scrollTop: 20 } }],
+    });
+  });
+
   it("keeps truthful source coordinates and rejects invalid ranges", () => {
     expect(sanitizeContentView({ sourceLocator: { kind: "page", page: 2, start: 0, end: 12, text: "discard" } }))
       .toEqual({ sourceLocator: { kind: "page", page: 2, start: 0, end: 12 } });

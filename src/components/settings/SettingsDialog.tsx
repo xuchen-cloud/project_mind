@@ -2,14 +2,12 @@ import {
   Contact,
   Cable,
   Pencil,
-  Mic,
-  MessageCircle,
   RefreshCw,
   Settings2,
   Sparkles,
   StretchHorizontal,
 } from "lucide-react";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import type { SettingsSection } from "../../state/ui-store";
@@ -17,6 +15,7 @@ import { useUiStore } from "../../state/ui-store";
 import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
+import { AiChatIcon, VoiceRecordIcon } from "../icons/ContentTypeIcon";
 
 const AiSettingsPanel = lazy(() =>
   import("./AiSettingsPanel").then((module) => ({ default: module.AiSettingsPanel })),
@@ -51,7 +50,7 @@ interface SettingsDialogProps {
 const SETTINGS_SECTIONS: Array<{
   value: SettingsSection;
   label: string;
-  icon: typeof Settings2;
+  icon: ComponentType<{ size?: number; className?: string }>;
 }> = [
   {
     value: "page-width",
@@ -71,14 +70,14 @@ const SETTINGS_SECTIONS: Array<{
   {
     value: "voice",
     label: "语音记录",
-    icon: Mic,
+    icon: VoiceRecordIcon,
   },
   {
     value: "ai-models",
     label: "AI 模型配置",
     icon: Settings2,
   },
-  { value: "dsh-assistant", label: "DSH 助手", icon: MessageCircle },
+  { value: "dsh-assistant", label: "DSH 助手", icon: AiChatIcon },
   {
     value: "ai-rewrite",
     label: "AI 技能",

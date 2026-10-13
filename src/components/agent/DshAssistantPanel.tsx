@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { useQueryClient } from "@tanstack/react-query";
 import { DshConversationHost, insertDshFileReference } from "@project-mind/dsh-ui/adapters";
 import { ChevronDown, RefreshCw, Maximize2, Minimize2, Plus, Trash2, X } from "lucide-react";
+import { AiChatIcon } from "../icons/ContentTypeIcon";
 import { consumeDshFileReference, useDshFileReferences } from "../../lib/dsh-host-events";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { getErrorMessage } from "../../lib/errors";
@@ -204,7 +205,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
       {!sessionsLoading && sessions.length === 0 ? <p>{onOpenSession ? "暂无会话，点击新建会话开始。" : "暂无会话"}</p> : null}
       {sessions.map(session => <div key={session.id} className="dsh-assistant__session-row">
         <Button size="sm" variant={selectedSession?.id === session.id ? "secondary" : "ghost"} disabled={sessionBusy || sessionsLoading || (!onOpenSession && runBusy)}
-          aria-pressed={selectedSession?.id === session.id} onClick={() => void operate(session)}>{session.title || "未命名会话"}{session.running ? "（运行中）" : ""}</Button>
+          leadingIcon={<AiChatIcon size={16} />} aria-pressed={selectedSession?.id === session.id} onClick={() => void operate(session)}>{session.title || "未命名会话"}{session.running ? "（运行中）" : ""}</Button>
         <Button size="sm" variant="ghost" aria-label={`删除会话 ${session.title || "未命名会话"}`} disabled={sessionBusy || sessionsLoading || runBusy || session.running}
           leadingIcon={<Trash2 size={14} />} onClick={() => setDeleting(session)} />
       </div>)}

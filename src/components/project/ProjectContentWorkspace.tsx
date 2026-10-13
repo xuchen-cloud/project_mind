@@ -113,6 +113,14 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
     return () => controller.abort();
   }, [active, scope, routeRecordId, routeKey, workspaceRoot, projectId]);
   const pageData = queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(projectId));
+  // Older saved tabs lack voice metadata; the loaded Project supplies their Record identity.
+  const presentedLayout = useMemo(() => layout && pageData ? {
+    ...layout,
+    tabs: layout.tabs.map(tab => {
+      const record = tab.object.kind === "record" ? pageData.records?.find(item => item.id === Number(tab.object.id)) : undefined;
+      return record ? { ...tab, object: { ...tab.object, isVoice: record.isVoice === true } } : tab;
+    }),
+  } : layout, [layout, pageData]);
   useEffect(() => {
     if (!scope || !layout || !pageData) return;
     const state = useProjectContentStore.getState();
@@ -126,12 +134,12 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   return <div className="h-full min-h-0 min-w-0">
     <div className="h-full min-h-0" hidden={contentShown} inert={contentShown}>{overview(active && !contentShown)}</div>
     {bindingQuery.error ? <p role="alert" className="p-4 text-sm">无法恢复项目内容：{String(bindingQuery.error)}<button type="button" onClick={() => void bindingQuery.refetch()}>重试</button></p> : null}
-    {scope && layout ? <div className="h-full min-h-0" hidden={!contentShown} inert={!contentShown}>
+    {scope && presentedLayout ? <div className="h-full min-h-0" hidden={!contentShown} inert={!contentShown}>
       {openingError ? <p role="alert" className="project-content__error">{openingError}</p> : null}
-      <ProjectContentLayoutView scope={scope} layout={layout} active={active && contentShown} onOverview={onOverview} registerLeaveGuard={registerLeaveGuard}
+      <ProjectContentLayoutView scope={scope} layout={presentedLayout} active={active && contentShown} onOverview={onOverview} registerLeaveGuard={registerLeaveGuard}
         onSelect={(paneId, tabId) => {
           useProjectContentStore.getState().select(scope, paneId, tabId);
-          const tab = layout.tabs.find(item => item.id === tabId)!;
+          const tab = presentedLayout.tabs.find(item => item.id === tabId)!;
           setShowOverview(false); navigate(projectContentTabRoute(projectId, tab));
         }}
         onClose={async (tabId, guard) => {

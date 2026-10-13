@@ -1,3 +1,4 @@
+import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "../home/SidebarTagItem";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { HomeSidebarSplit } from "../home/HomeSidebarSplit";
@@ -8,7 +9,6 @@ Archive,
 PanelLeft, ChevronLeft,
 ExternalLink,
 FolderKanban,
-NotebookText,
 Pencil,
 Plus,
 Trash2
@@ -314,7 +314,7 @@ export function WorkspaceOverviewSidebar({
               </HomeSidebarList>
 
         </>} lower={<><div className="home-side__heading">工作区标签</div><HomeSidebarList label="工作区标签列表">
-        <button type="button" className="home-side__item" onClick={() => onActiveRecordTagIdChange(null)}><NotebookText size={18} />全部记录</button>
+        <button type="button" className="home-side__item" onClick={() => onActiveRecordTagIdChange(null)}><RecordIcon size={18} />全部记录</button>
         {availableTags.map((tag) => <SidebarTagItem key={tag.id} tag={tag} projectId={null} selected={activeRecordTagId === tag.id} onSelect={onActiveRecordTagIdChange} />)}
       </HomeSidebarList></>} />
 

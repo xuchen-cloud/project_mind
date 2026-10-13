@@ -33,6 +33,32 @@ describe("authoritative project content open", () => {
     expect(beforeOpen).not.toHaveBeenCalled();
     expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(0);
   });
+
+  it.each([
+    [true, false],
+    [true, undefined],
+    [false, true],
+    [undefined, true],
+  ])("uses native voice metadata %s despite caller metadata %s", async (nativeVoice, callerVoice) => {
+    mocks.record.mockResolvedValue({
+      head: { target: { scope: { kind: "project", projectId: 7 }, recordId: 12 } },
+      record: { id: 12, title: "Actual record", isVoice: nativeVoice },
+    });
+    const result = await openProjectContent({ ...input, object: { ...input.object, isVoice: callerVoice } });
+    const expected = { ...input.object, title: "Actual record", ...(nativeVoice === true ? { isVoice: true } : {}) };
+    expect(result.object).toEqual(expected);
+    expect(getContentLayout(useProjectContentStore.getState(), scope).tabs[0].object).toEqual(expected);
+    expect(Object.hasOwn(result.object, "isVoice")).toBe(nativeVoice === true);
+  });
+
+  it("discards caller voice metadata for File and Session results", async () => {
+    mocks.file.mockResolvedValue({ object: { workspaceId: binding.workspaceId,
+      scope: { kind: "project", projectId: 7 }, kind: "file", id: "31" }, versions: [{ name: "Actual file" }] });
+    const file = await openProjectContent({ ...input, object: { kind: "file", id: 31, title: "File", isVoice: true } });
+    const session = await openProjectContent({ ...input, object: { kind: "session", id: "session-a", title: "Session", isVoice: true } });
+    expect(file.object).toEqual({ kind: "file", id: 31, title: "Actual file" });
+    expect(session.object).toEqual({ kind: "session", id: "session-a", title: "Actual session" });
+  });
   it("rejects a late response from an older Workspace generation", async () => {
     mocks.binding.mockResolvedValueOnce(binding).mockResolvedValueOnce({ ...binding, generation: "two" });
     await expect(openProjectContent(input)).rejects.toThrow("工作区已切换");

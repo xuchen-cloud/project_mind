@@ -1,10 +1,11 @@
+import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "./SidebarTagItem";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { HomeSidebarSplit } from "./HomeSidebarSplit";
 import { HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { PanelLeft, ChevronLeft, Compass, FileText, Mic, Plus } from "lucide-react";
+import { PanelLeft, ChevronLeft, Compass, Plus } from "lucide-react";
 import type { NoteRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -72,9 +73,9 @@ export function HomeProjectSidebar({
       <div className="home-side__brand"><img className="home-side__mascot" src={nori} alt="" /><div className="home-side__brand-copy"><img className="home-side__wordmark" src={noriWordmark} alt="NoriMind" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenWorkspace} /></div><button type="button" aria-label="收起项目侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
 
     <HomeSidebarSplit key={`${workspaceRoot}:${projectId}`} storageKey={`home-sidebar-split:project:${workspaceRoot}:${projectId}`} upper={<><div className="home-side__heading"><span>最近记录</span><button type="button" aria-label="新增记录" onClick={onCreateRecord}><Plus size={20} /></button></div>
-      <HomeSidebarList label="最近记录列表">{recent.length ? recent.map((record) => <button key={record.id} type="button" className="home-side__item" onClick={() => { rememberProjectRecord(workspaceRoot, projectId, record.id); onOpenRecord(record.id); }} title={record.title ?? "未命名记录"}>{record.isVoice ? <Mic size={18} /> : <FileText size={18} />}<span>{record.title?.trim() || "未命名记录"}</span></button>) : <p className="home-side__empty">最近打开的记录会显示在这里</p>}
+      <HomeSidebarList label="最近记录列表">{recent.length ? recent.map((record) => <button key={record.id} type="button" className="home-side__item" onClick={() => { rememberProjectRecord(workspaceRoot, projectId, record.id); onOpenRecord(record.id); }} title={record.title ?? "未命名记录"}><RecordIcon size={18} isVoice={record.isVoice} aria-label={record.isVoice ? "语音记录" : undefined} /><span>{record.title?.trim() || "未命名记录"}</span></button>) : <p className="home-side__empty">最近打开的记录会显示在这里</p>}
       </HomeSidebarList></>} lower={<><div className="home-side__heading"><span>项目标签</span></div><HomeSidebarList label="项目标签列表">
-      <button type="button" className="home-side__item" onClick={() => onTagChange(null)}><FileText size={18} /><span>全部记录</span></button>
+      <button type="button" className="home-side__item" onClick={() => onTagChange(null)}><RecordIcon size={18} /><span>全部记录</span></button>
       {(tagsQuery.data?.tags ?? []).map((tag) => <SidebarTagItem key={tag.id} tag={tag} projectId={projectId} selected={selectedTagId === tag.id} onSelect={onTagChange} />)}
     </HomeSidebarList></>} />
   </aside>;

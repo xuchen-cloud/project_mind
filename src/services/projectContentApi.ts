@@ -37,7 +37,7 @@ export async function openProjectContent(input: ProjectContentOpenInput): Promis
   if (!Number.isSafeInteger(input.projectId) || input.projectId <= 0) throw new Error("无效项目身份");
   const binding = await recordDocumentApi.bindingGet(input.workspaceRoot);
   if (input.expectedBinding) assertCurrent(input.expectedBinding, binding, input.signal);
-  let object = { ...input.object };
+  const object: ContentObject = { kind: input.object.kind, id: input.object.id, title: input.object.title };
   if (object.kind === "session") {
     if (typeof object.id !== "string" || !object.id) throw new Error("无效会话身份");
     await dshAssistantApi.start(`${binding.workspaceId}:${binding.generation}`, input.projectId);
@@ -53,6 +53,7 @@ export async function openProjectContent(input: ProjectContentOpenInput): Promis
       if (state.head.target.scope.kind !== "project" || state.head.target.scope.projectId !== input.projectId || state.head.target.recordId !== id)
         throw new Error("记录归属与请求项目不符");
       object.title = state.record.title?.trim() || "未命名记录";
+      if (state.record.isVoice === true) object.isVoice = true;
     } else {
       const ref: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: input.projectId }, kind: "file", id: String(id) };
       const page = await fileDocumentApi.versionsList(binding, { object: ref, limit: 1 });

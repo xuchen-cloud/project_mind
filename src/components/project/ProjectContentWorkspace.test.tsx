@@ -11,6 +11,8 @@ import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { fixtureEditorState } from "../../test/recordDocumentFixture";
 import { useProjectContentStore } from "../../state/project-content-store";
 import type { RecordTarget } from "../../lib/record-document-types";
+import { queryKeys } from "../../lib/queryKeys";
+import voiceRecordIcon from "../../assets/icons/voice-record-color.svg";
 
 const page = vi.hoisted(() => ({ mounts: vi.fn(), guard: vi.fn(async (_projectId: number, _recordId: number) => undefined) }));
 // Page internals are covered by WP3/4/5; exercise the real route, authority service and layout here.
@@ -31,8 +33,7 @@ vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindin
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn() } }));
 const binding = { workspaceId: "workspace-tabs", generation: "open-1" };
 const workspaceRoot = "/tmp/tabs";
-function fixture(route = "/projects/7/records/1") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function fixture(route = "/projects/7/records/1", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   function Root() {
     const [active, setActive] = useState(true);
     return <><button onClick={() => setActive(value => !value)}>切换项目活动状态</button>
@@ -54,6 +55,16 @@ beforeEach(() => {
   vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_binding, { object }) => ({ object, currentVersionNumber: 3, currentContentHash: "sha256:current", versions: [], nextCursor: null }));
 });
 afterEach(() => vi.restoreAllMocks());
+it("restores the voice icon for an older saved Record tab without reopening its editor", async () => {
+  const id = useProjectContentStore.getState().open({ workspaceId: binding.workspaceId, projectId: 7 }, { kind: "record", id: 1, title: "Record 1" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(queryKeys.projectPage(7), { records: [{ id: 1, title: "Record 1", isVoice: true }] });
+  fixture(`/projects/7?content=${id}`, client);
+  const tab = await screen.findByRole("tab", { name: "Record 1" });
+  expect(tab).toHaveAttribute("title", expect.stringContaining("语音记录"));
+  expect(tab.querySelector("img")).toHaveAttribute("src", voiceRecordIcon);
+  expect(recordDocumentApi.editorGet).not.toHaveBeenCalled();
+});
 it("opens a real Record route through authority, keeps one tab on back navigation and preserves its editor", async () => {
   const router = fixture();
   const input = await screen.findByLabelText("编辑1"); fireEvent.change(input, { target: { value: "Record 1 draft" } });

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowRight, Columns2, FileText, Home, Maximize2, MessageSquare, Merge, Minimize2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns2, Home, Maximize2, Merge, Minimize2, X } from "lucide-react";
+import { AiChatIcon, RecordIcon } from "../icons/ContentTypeIcon";
 import { TabStripScroll } from "../../ui/components/TabStripScroll";
 import "../../ui/tab-strip.css";
 import { measureTabLabels } from "../../ui/tab-strip";
@@ -54,7 +55,7 @@ function cloneDragTab(source: HTMLElement): HTMLElement {
   return clone;
 }
 function tabTypeLabel(tab: ContentTab): string {
-  if (tab.object.kind === "record") return "记录";
+  if (tab.object.kind === "record") return tab.object.isVoice ? "语音记录" : "记录";
   if (tab.object.kind === "session") return "会话";
   const extension = tab.object.title.includes(".") ? tab.object.title.split(".").pop()?.toLowerCase() : undefined;
   if (extension === "md" || extension === "markdown") return "Markdown 文件";
@@ -205,7 +206,6 @@ function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, d
         {pane.tabIds.map((id, index) => {
           const tab = layout.tabs.find(item => item.id === id)!;
           const type = tabTypeLabel(tab);
-          const Icon = tab.object.kind === "record" ? FileText : MessageSquare;
           const running = tab.object.kind === "session" && sessionRuns?.[String(tab.object.id)] === true;
           return <div key={id} className="project-content__tab compact-tab" data-tab-id={id} data-selected={pane.selectedTabId === id || undefined}
             data-running={running || undefined} data-dragging={dragging === id || undefined} data-drop={landing?.id === id ? landing.edge : undefined}
@@ -235,7 +235,8 @@ Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
                 if (next !== null) { event.preventDefault(); const nextId = pane.tabIds[next]; onSelect(pane.id, nextId); document.getElementById(`content-tab-${nextId}`)?.focus(); }
               }}>
               {tab.object.kind === "file" ? <FileIcon name={tab.object.title} size={16} className="project-content__tab-icon" />
-                : <Icon size={13} className="project-content__tab-icon" aria-hidden="true" />}
+                : tab.object.kind === "record" ? <RecordIcon size={16} isVoice={tab.object.isVoice} className="project-content__tab-icon" />
+                : <AiChatIcon size={16} className="project-content__tab-icon" />}
               {running ? <span className="project-content__running" role="status" aria-label="正在执行" /> : null}
               <span className="project-content__tab-title compact-tab__label">{tab.object.title}
                 {tab.object.kind === "file" && tab.view.versionNumber !== undefined ? <small>v{tab.view.versionNumber}</small> : null}

@@ -2,7 +2,7 @@ import { parseSourceNavigation } from "./source-navigation";
 import type { AgentSourceRef } from "./agent-types";
 
 export type ContentScope = { workspaceId: string; projectId: number };
-export type ContentObject = { kind: "record" | "file" | "session"; id: number | string; title: string };
+export type ContentObject = { kind: "record" | "file" | "session"; id: number | string; title: string; isVoice?: boolean };
 export type ContentView = { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceQuery?: string;
   sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
   sourceMode?: boolean;
@@ -119,7 +119,9 @@ function sanitizeLayout(value: unknown): ProjectContentLayout | null {
     if (objectIds.has(objectKey) || view === null) return null;
     tabIds.add(tab.id);
     objectIds.add(objectKey);
-    tabs.push({ id: tab.id, object: { kind, id, title }, view });
+    const object: ContentObject = { kind, id, title };
+    if (kind === "record" && typeof tab.object.isVoice === "boolean") object.isVoice = tab.object.isVoice;
+    tabs.push({ id: tab.id, object, view });
   }
   const members = new Set<string>();
   const panes: ContentPane[] = [];

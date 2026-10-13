@@ -1,3 +1,4 @@
+import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import {
@@ -17,8 +18,6 @@ import {
   Files,
   FolderKanban,
   FolderOpen,
-  NotebookText,
-  Mic,
   Pencil,
   Star,
   Trash2,
@@ -874,7 +873,7 @@ export function ProjectSidebar({
                     aria-label="新增记录"
                     onClick={() => onCreateRecord?.()}
                   >
-                    <NotebookText size={14} />
+                    <RecordIcon size={14} />
                   </IconButton>
                 ) : null}
                 {activeTab === "files" ? (
@@ -956,7 +955,7 @@ export function ProjectSidebar({
                       }}
                     >
                       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                        {record.isVoice ? <Mic size={15} aria-label="语音记录" className="text-accent" /> : <NotebookText size={15} />}
+                        <RecordIcon size={15} isVoice={record.isVoice} aria-label={record.isVoice ? "语音记录" : undefined} />
                       </span>
                       <span className="min-w-0 flex-1">
                         {isEditingRecord ? (

@@ -1,8 +1,9 @@
+import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../../ui/components/recommendation.css";
 import { useEffect, useState, type RefObject, type CSSProperties } from "react";
 import { AnchoredPicker } from "../../ui/components/AnchoredPicker";
 import { createPortal } from "react-dom";
-import { FileText, ListTodo, NotebookPen } from "lucide-react";
+import { FileText, ListTodo } from "lucide-react";
 
 import type {
   InternalReferenceContext,
@@ -165,7 +166,7 @@ function renderKindIcon(kind: InternalReferenceSearchResult["kind"]) {
   switch (kind) {
     case "note":
     case "workspace_record":
-      return <NotebookPen size={13} />;
+      return <RecordIcon size={13} />;
     case "todo":
       return <ListTodo size={13} />;
     case "document":

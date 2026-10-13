@@ -1,3 +1,4 @@
+import { VoiceRecordIcon } from "../icons/ContentTypeIcon";
 import { HomeRecordPreview } from "../home/HomeRecordPreview";
 import { cancelQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metadata";
 import {
@@ -10,7 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Plus, Volume2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
 import { useRecordClipboard } from "../../hooks/useRecordClipboard";
@@ -536,7 +537,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               onBlur={() => void handleTitleBlur().catch(reportSaveError)}
             />
           ) : (
-            <p className="project-history-record__title">{titleDisplay}{record.isVoice ? <Volume2 className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
+            <p className="project-history-record__title">{titleDisplay}{record.isVoice ? <VoiceRecordIcon className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
           )}
         </div>
         <div className="project-history-record__header-actions">

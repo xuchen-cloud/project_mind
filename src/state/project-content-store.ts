@@ -59,6 +59,8 @@ export const useProjectContentStore = create<ProjectContentState>()(persist((set
     open: (scope, object, options) => {
       const view = options?.view === undefined ? undefined : sanitizeContentView(options.view);
       if (view === null) throw new Error("Invalid project content view");
+      const presentation: ContentObject = { kind: object.kind, id: object.id, title: object.title };
+      if (object.kind === "record" && typeof object.isVoice === "boolean") presentation.isVoice = object.isVoice;
       let tabId = "";
       set(state => {
         const key = contentLayoutKey(scope);
@@ -69,8 +71,8 @@ export const useProjectContentStore = create<ProjectContentState>()(persist((set
           ? previous.panes.find(candidate => candidate.tabIds.includes(tabId))!
           : previous.panes.find(candidate => candidate.id === (options?.paneId ?? previous.focusedPaneId)) ?? previous.panes[0];
         const tabs = existing
-          ? previous.tabs.map(tab => tab.id === tabId ? { ...tab, object: { ...tab.object, title: object.title }, view: view ? { ...tab.view, ...view } : tab.view } : tab)
-          : [...previous.tabs, { id: tabId, object: { kind: object.kind, id: object.id, title: object.title }, view: { ...view } }];
+          ? previous.tabs.map(tab => tab.id === tabId ? { ...tab, object: { ...tab.object, ...presentation }, view: view ? { ...tab.view, ...view } : tab.view } : tab)
+          : [...previous.tabs, { id: tabId, object: presentation, view: { ...view } }];
         return { layouts: { ...state.layouts, [key]: {
           ...previous, tabs, focusedPaneId: pane.id,
           panes: previous.panes.map(candidate => candidate.id === pane.id

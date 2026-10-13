@@ -163,6 +163,38 @@ describe("project content state", () => {
     expect(layout().tabs).toEqual([]);
   });
 
+  it("adds voice metadata on duplicate open and preserves it across panes and persistence", async () => {
+    const record = { kind: "record", id: 8, title: "Record" } as const;
+    const id = store().open(scope, record, { view: { sourceQuery: "sourceTimeMs=1200", scrollTop: 200 } });
+    store().split(scope);
+    expect(store().open(scope, { ...record, title: "Voice Record", isVoice: true }, { paneId: "left" })).toBe(id);
+    expect(store().open(scope, { ...record, title: "Renamed" })).toBe(id);
+    const saved = layout();
+    expect(saved.tabs).toEqual([{ id, object: { ...record, title: "Renamed", isVoice: true },
+      view: { sourceQuery: "sourceTimeMs=1200", scrollTop: 200 } }]);
+    expect(saved.focusedPaneId).toBe("right");
+    const name = useProjectContentStore.persist.getOptions().name!;
+    const serialized = window.localStorage.getItem(name)!;
+    expect(JSON.parse(serialized).version).toBe(1);
+    useProjectContentStore.setState({ layouts: {} });
+    window.localStorage.setItem(name, serialized);
+    await useProjectContentStore.persist.rehydrate();
+    expect(layout()).toEqual(saved);
+    expect(store().open(scope, record)).toBe(id);
+    expect(layout().tabs[0].object.isVoice).toBe(true);
+  });
+
+  it("stores voice metadata on first open only for Record objects", () => {
+    const record = { kind: "record", id: 8, title: "Voice", isVoice: true } as const;
+    store().open(scope, record);
+    store().open(scope, { ...file, isVoice: true });
+    store().open(scope, { kind: "session", id: "session", title: "Chat", isVoice: true });
+    store().open(scope, { ...file, isVoice: false });
+    expect(layout().tabs.map(tab => tab.object)).toEqual([
+      record, file, { kind: "session", id: "session", title: "Chat" },
+    ]);
+  });
+
   it.each([
     ["third pane", (value: ProjectContentLayout) => ({ ...value, panes: [...value.panes, { id: "third", tabIds: [], selectedTabId: null }] })],
     ["duplicate object", (value: ProjectContentLayout) => ({ ...value, tabs: [...value.tabs, { ...value.tabs[0], id: "copy" }] })],
