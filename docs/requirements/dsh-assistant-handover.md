@@ -2,7 +2,7 @@
 
 > 历史交接，保留原始上下文。用户后续要求已改为融入主应用、替换 Pi 聊天、沿用统一模型与项目目录；当前范围和验证见 [实施工作包](dsh-assistant-execution.md)、[组件融入方案](dsh-ui-component-integration.md)及[迁移记录](dsh-assistant-migration.md)。本文原有独立 UI / Electron 脚本状态不代表当前实现。
 
-日期：2026-10-11。仓库：`/Users/xuchen/project_mind`。本文供主会话继续实施；侧边会话已停止实现工作，只交付这份交接。
+日期：2026-10-11。仓库：`$REPO_ROOT`。本文供主会话继续实施；侧边会话已停止实现工作，只交付这份交接。
 
 ## 1. 用户最终要求
 
@@ -96,9 +96,9 @@ archive SHA256: 4c53f4da089590db938d0ebfbdd2447e71063426e5f1910456ba4b0bc79b93e2
 - `.upstream/.project-mind-upstream.json`：源码 pin receipt。
 - `.upstream/.project-mind-install.json`：上游 lock checksum receipt，值 `4131cc03f4143369316181dd6b8095fd9e2dd32280cc340c3d27e06f4956335d`。
 - `packages/dsh-assistant/.downloads/<commit>.tar.gz`：已校验源码包。
-- `/tmp/mind-dsh-implementation/deepseek-harness-dsh-v0.2.0-rc.2/`：相应 SDK/运行时源码参考。
-- `/tmp/mind-dsh-implementation/dsh-desktop-main/`：此前只读参考。
-- `/tmp/mind-dsh-implementation/deepseek-harness-master/`：版本不同，只作背景；**不要把 master 类型当成固定 rc.2 API**。
+- `$TMPDIR/mind-dsh-implementation/deepseek-harness-dsh-v0.2.0-rc.2/`：相应 SDK/运行时源码参考。
+- `$TMPDIR/mind-dsh-implementation/dsh-desktop-main/`：此前只读参考。
+- `$TMPDIR/mind-dsh-implementation/deepseek-harness-master/`：版本不同，只作背景；**不要把 master 类型当成固定 rc.2 API**。
 
 上游当前 `.upstream/node_modules` **没有** `@deepseek-ai/dsh-sdk-client`，只包含 SDK server/protocol/app。真正使用 SDK client 还需安装并固定同版本。
 

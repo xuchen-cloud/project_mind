@@ -1,8 +1,8 @@
 # 项目内容 Tab、双栏与统一文件管理需求
 
-更新：2026-10-11。状态：需求草案，待实施；本文不代表功能已交付。
+更新：2026-10-13。状态：#124 实施中，本轮 macOS 复验、代码与待补平台验收见[执行记录](project-content-tabs-execution.md)；本文不代表完整功能已交付。
 
-本轮交付物为本地需求文档。关联 Issue 待正式排期时建立或关联，不据此发布、关闭既有 Issue。
+父 Issue：#124。所交付格式与平台验收分别记录，全部完成前保持 Issue 开放。
 
 关联需求：[DSH 组件融入主应用](dsh-ui-component-integration.md)、[项目文件预览与编辑 / #118](project-file-integration.md)。领域术语沿用 [CONTEXT.md](../../CONTEXT.md) 中的 Workspace、Project、Record、File、File Version、Internal Reference。
 
@@ -265,7 +265,7 @@ Excel、Word、PPT 的 DSH 预览与转换可分包接入，仍需真实样例�
 - Tab 切换、移动和关闭视图不自动停止已提交任务。运行状态在项目会话列表及适用 Tab 中可发现。
 - 关闭正在运行的会话页后，用户仍能从项目会话入口找到运行中任务并打开、停止。
 - 隐藏页可按需卸载展示，但执行和持久历史由运行时管理；不能依靠 React 页面保活保证任务存续。
-- 首版跨 Project 切换限制依 1.2 执行。布局状态可恢复不表示所有 Project 都有后台运行时。
+- 首版支持跨 Project 后台并行。切换项目不停止原任务，各 Project 的运行时、输入、输出和停止目标独立；仅有 File / Record 内容的项目无需启动运行时。
 - 打开仅有 File / Record 的项目内容时，不为布局恢复启动 AI runtime。
 
 ### C03 文件入口

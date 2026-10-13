@@ -40,7 +40,7 @@
 | Node 最终验证 | `node --test test/runtime.integration.mjs` / `node --test test/*.test.mjs`，23:10 | 5 / 25 通过；含两项目、共享模型、archive 重启、历史空会话归属恢复 |
 | 前端 | 项目会话、设置、App 与 debug 针对性测试；文件入口、传输 | 60 + 延迟回调 2、文件 9、传输 3 通过 |
 | 全 debug 前端边界 | `TAURI_ENV_DEBUG` 配置判定与 App / 设置 / 密码 UI 针对性测试 | 最终 36 通过；覆盖开发、debug 生产资源与 release |
-| 最终前端构建 | `npm run build`；`TAURI_ENV_DEBUG=true npx vite build --outDir /tmp/mind-dsh-debug-final-dist`，23:13 | 两种模式均通过 |
+| 最终前端构建 | `npm run build`；`TAURI_ENV_DEBUG=true npx vite build --outDir $TMPDIR/mind-dsh-debug-final-dist`，23:13 | 两种模式均通过 |
 | 原组件 | 实际服务 bootstrap、React 19 Profiler、vendor、integrity、inventory、commands | 分别 6、6、5、3、2、1 通过 |
 | 打包 | `npm run test:desktop-runtime`；最新 production restage，23:08 | 14 通过；资源清单验证通过 |
 | GUI 消息 | 真实发送、流式、Chat / Trajectory、正确 cwd、15 秒任务停止后续发、400 失败后恢复 | 通过 |
