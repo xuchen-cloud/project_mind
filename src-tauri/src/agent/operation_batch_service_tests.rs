@@ -75,8 +75,9 @@ struct Fixture {
 }
 fn fixture() -> Fixture {
     let root = tempfile::tempdir().unwrap();
-    let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
-    let db = Database::open(&paths.db_path, root.path(), None).unwrap();
+    let root_path = root.path().canonicalize().unwrap();
+    let (metadata, paths) = crate::workspace::create_workspace(&root_path, "password").unwrap();
+    let db = Database::open(&paths.db_path, &root_path, None).unwrap();
     let project_id = db
         .project_create(crate::models::ProjectCreateInput {
             name: "Batch service".into(),

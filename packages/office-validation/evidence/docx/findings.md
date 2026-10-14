@@ -1,8 +1,11 @@
-> 历史证据来源：2026-10-13 的 `/tmp/project-mind-univer-validation-20261013/docx`。此文中的临时文件名是历史引用；归档复跑命令与当前文件清单以 ../../README.md 为准。
+> 历史证据来源：2026-10-13 的 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx`。此文中的临时文件名是历史引用；归档复跑命令与当前文件清单以 ../../README.md 为准。
 
 # DOCX 直接 Univer SDK 实际验证
 
-日期：2026-10-13。关联 #118 / F03。工作包见 `work-package.md`。仅在本目录创建生成器、脚本、样本、候选和证据；没有修改主项目源码/root package/共享依赖，没有打开应用窗口、运行全量测试、派子 agent 或自行运行 LibreOffice。
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
+日期：2026-10-13。关联 #118 / F03。工作包见 `work-package.md`。仅在本目录创建生成器、脚本、样本、候选和证据；没有修改主项目源码$HOME package/共享依赖，没有打开应用窗口、运行全量测试、派子 agent 或自行运行 LibreOffice。
 
 ## 结论
 
@@ -86,10 +89,10 @@ Traditional 同一进程样本转换：module import 480.7 ms；单次导入 8.5
 共享依赖只由主 agent 安装，本目录脚本不会安装或修改依赖。原件已存在时不要重新生成；fixture.py 的 generate 会拒绝覆盖。
 
 ```sh
-node /tmp/project-mind-univer-validation-20261013/docx/validate.mjs --traditional
-node /tmp/project-mind-univer-validation-20261013/docx/validate.mjs
-node /tmp/project-mind-univer-validation-20261013/docx/validate.mjs --modern
-"${OFFICE_VALIDATION_PYTHON:-python3}" /tmp/project-mind-univer-validation-20261013/docx/fixture.py compare /tmp/project-mind-univer-validation-20261013/docx/complex.original.docx /tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.docx edited /tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.checks.json
+node $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/validate.mjs --traditional
+node $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/validate.mjs
+node $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/validate.mjs --modern
+"${OFFICE_VALIDATION_PYTHON:-python3}" $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/fixture.py compare $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/complex.original.docx $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.docx edited $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.checks.json
 ```
 
 新目录的样本生成命令：将 fixture.py 复制到新的空 fixture 目录后，用 bundled Python 执行 `fixture.py generate`。无需修改 package；Node 脚本保持在本共享根的子目录以解析已装包。

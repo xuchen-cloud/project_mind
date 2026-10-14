@@ -8,10 +8,6 @@ export function showDshBusyFeedback() {
   useFeedbackStore.getState().setStatus({ tone: "warning", label: "助手正在执行", message: DSH_BUSY_MESSAGE });
   useFeedbackStore.getState().pushToast({ tone: "info", title: "助手正在执行", detail: DSH_BUSY_MESSAGE });
 }
-// Project runtimes are independent; changing the visible Project cannot stop a run.
-export function blocksDshProjectNavigation(_runningProjectId: number | null, _pathname: string) {
-  return false;
-}
 interface FileReference { id: number; workspaceRoot: string; projectId: number; sessionId?: string; path: string; sourceRef?: AgentSourceRef }
 let sequence = 0;
 export const useDshFileReferences = create<{

@@ -69,4 +69,4 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 
 ## Project File preview / #124 WP4
 
-新增独立 [preview](preview/README.md) 导出，真实复用固定 DSH documentpreview 格式正文、缩放和 PDF 生命周期；输入由主应用 File / File Version 读取，不依赖 Session/模型。PDF Worker 与 cmap/font/wasm 纳入正式构建，许可与 SHA-256 在 preview 清单。HTML 使用原 DSH BasicHtmlFrame / sanitizer / CSP 做空 sandbox 静态预览，源码直接用同一 fixed text 的 DSH TextBody 行定位；原 FileHtmlPreview 留其他调用，#115 交互执行仍未验收。current Markdown 图片及静态 HTML 图片/stylesheet 经 bound native resolveRelated + 固定 readBytes 加载；历史未保留的关联资源明确限制。Office 编辑不在本包。验证与具体限制见 [WP4 交接](preview/HANDOVER.md)。
+新增独立 [preview](preview/README.md) 导出，真实复用固定 DSH documentpreview 格式正文、缩放和 PDF 生命周期；输入由主应用 File / File Version 读取，不依赖 Session/模型。PDF Worker 与 cmap/font/wasm 纳入正式构建，许可与 SHA-256 在 preview 清单。HTML 使用原 DSH BasicHtmlFrame / sanitizer / CSP 做空 sandbox 静态预览，源码直接用同一 fixed text 的 DSH TextBody 行定位；无调用的原 FileHtmlPreview 已移除；当前入口是 ProjectFileContent，#115 交互执行仍未验收。current Markdown 图片及静态 HTML 图片/stylesheet 经 bound native resolveRelated + 固定 readBytes 加载；历史未保留的关联资源明确限制。Office 编辑不在本包。验证与具体限制见 [WP4 交接](preview/HANDOVER.md)。

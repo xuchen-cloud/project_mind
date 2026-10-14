@@ -1,6 +1,9 @@
 # XLSX 薄宿主交接（实际运行接口）
 
-主 agent 可以继续 GUI 验证，不必重做引擎实验。引擎实验目录为 `/tmp/project-mind-genoffice-xlsx-validation-20261013`，归档复跑会在调用者指定的空 scratch 中重建以下文件。
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
+主 agent 可以继续 GUI 验证，不必重做引擎实验。引擎实验目录为 `$VALIDATION_TMP_ROOT/project-mind-genoffice-xlsx-validation-20261013`，归档复跑会在调用者指定的空 scratch 中重建以下文件。
 
 ## 当前可用产物
 
@@ -56,8 +59,8 @@ Node 端保持 workbook 会话、读原件、生成计划与调用 Rust；React 
 主 backend 保存和 sidecar 再读后，执行：
 
 ```sh
-"$GENOFFICE_XLSX_PYTHON" /tmp/project-mind-genoffice-xlsx-validation-20261013/verify-candidate.py \
-  --kind simple /tmp/project-mind-genoffice-xlsx-validation-20261013/browser/simple.browser-edited.xlsx
+"$GENOFFICE_XLSX_PYTHON" $VALIDATION_TMP_ROOT/project-mind-genoffice-xlsx-validation-20261013/verify-candidate.py \
+  --kind simple $VALIDATION_TMP_ROOT/project-mind-genoffice-xlsx-validation-20261013/browser/simple.browser-edited.xlsx
 ```
 
 `GENOFFICE_XLSX_PYTHON` 须具备 openpyxl/lxml/Pillow；本次使用 bundled Python。复杂样本改为 `--kind complex`。返回 0 表示全部独立断言通过，返回 1 保留失败 JSON，默认输出相邻 `.verification.json`；不会修改 XLSX。也可 `from verify import verify_candidate`，传入 kind 和候选 Path。候选目标仍固定为 A3/B3/B5 与对应依赖缓存，未改期望。

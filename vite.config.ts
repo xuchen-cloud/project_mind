@@ -89,6 +89,12 @@ export default defineConfig({
       "packages/agent-host/**",
       "packages/dsh-assistant/**",
       "packages/dsh-ui/upstream/**",
+      // These files use node:test and file:// APIs, not Vitest/jsdom.
+      "scripts/desktop-runtime.test.mjs",
+      "scripts/stage-dsh-runtime.test.mjs",
+      "scripts/prepare-cli.test.mjs",
+      "packages/dsh-ui/vendor-integrity.test.mjs",
+      "packages/dsh-ui/preview/assets-integrity.test.mjs",
     ],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

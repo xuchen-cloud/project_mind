@@ -26,9 +26,12 @@ export function validateToolDescriptors(tools, { probe = false } = {}) {
     if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)
       || Object.keys(definitions).some((name) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name))) invalid();
     function schema(value, depth = 0) {
-      // The canonical editor has 21 node variants; its bounded Record schema
-      // contains 389 schema nodes. Definitions are inspected once, not expanded.
-      if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 8 || ++nodes > 512) invalid();
+      // Canonical Record containers share local recursive definitions.
+      // Inspect definitions once instead of expanding every reference.
+      if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
+      if (depth > 8 || ++nodes > 512) {
+        throw Object.assign(new Error(`Scoped tool schema exceeds its budget (${nodes} nodes, depth ${depth})`), { code: 'INVALID_ARGUMENT' });
+      }
       if (value.$ref !== undefined) {
         const match = typeof value.$ref === 'string' && /^#\/\$defs\/([A-Za-z][A-Za-z0-9_]{0,63})$/.exec(value.$ref);
         if (!match || !Object.hasOwn(definitions, match[1]) || Object.keys(value).length !== 1) invalid();

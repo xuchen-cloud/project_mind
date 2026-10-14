@@ -1,5 +1,8 @@
 # #118 PDF 最小验证
 
+路径约定：`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 本目录是独立候选试验，不是应用功能。没有启动 GUI、安装依赖、改 root package 或调用 Office 外部重开。
 
 ## 已执行范围
@@ -19,8 +22,8 @@
 在仓库根目录运行。原件已保留，不要重新生成；生成器会拒绝覆盖。只有在清空的新隔离副本里才运行 `fixture.py generate`。
 
 ```sh
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node packages/pdf-validation/validate.mjs
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 packages/pdf-validation/fixture.py compare packages/pdf-validation/complex.original.pdf packages/pdf-validation/complex.pdfjs-form.pdf packages/pdf-validation/complex.pdfjs-form.checks.json
+$RUNTIME_DEPENDENCIES/node/bin/node packages/pdf-validation/validate.mjs
+$RUNTIME_DEPENDENCIES/python/bin/python3 packages/pdf-validation/fixture.py compare packages/pdf-validation/complex.original.pdf packages/pdf-validation/complex.pdfjs-form.pdf packages/pdf-validation/complex.pdfjs-form.checks.json
 ```
 
 `validate.mjs` 只读现有依赖；可通过 `PDF_VALIDATION_PYTHON`、`PDF_VALIDATION_BUNDLED_MODULES` 指定 bundled 位置。它没有依赖安装逻辑。重新执行会另存/替换本目录候选与结果，保留 originals。日志记录实际 Node 版本：系统 `node` 当前为 v26.8.1，不能把它写成此次 bundled 执行版本。

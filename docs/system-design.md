@@ -2,9 +2,9 @@
 
 状态：当前正式基线
 
-更新时间：2026-09-28
+更新时间：2026-10-14
 
-代码基线：`develop` / `880aafb`
+代码依据：当前工作分支；接入与验收边界见[未完成事项](remaining-work.md)。
 
 ## 1. 架构摘要
 
@@ -19,6 +19,9 @@ flowchart LR
   RT --> FS[Workspace filesystem]
   RT --> AI[AI providers and jobs]
   RT --> VOICE[Voice session runtime]
+  CMD --> DSH[Per Project DSH Node runtime]
+  RT --> PI[Pi maintenance and native tools]
+  RT --> WORKER[Record and Source utility workers]
 ```
 
 核心边界：
@@ -42,7 +45,7 @@ flowchart LR
     .project-mind/embedded-note-assets/
 ```
 
-- 当前数据库 schema 为 v25：v22 引入 Voice Record，v23 引入会议纪要，v24 增加录音可靠性，v25 增加恢复状态。
+- 当前数据库 schema 为 v37：v22～25 为 Voice Record；后续迁移加入原生 AI、canonical Record、成果/文件版本、会话检索与来源证明，v36～37 为 Workspace Overview 和长期记忆存储。
 - Workspace 自有文件使用 `workspace:<relative-path>` 或作用域相对路径持久化。
 - 外部导入源可显式记录 `absolute:` 原路径；受管副本必须保持可迁移。
 - `Local Session` 可以记录本机最近 Workspace 根目录，但不能写入 Workspace 数据。
@@ -60,6 +63,7 @@ flowchart LR
 - `/workspace/records/:noteId`
 - `/projects/:projectId`
 - `/projects/:projectId/records/:noteId`
+- `/projects/:projectId?content=<tabId>`：File 与 Session 内容页签
 - `/settings/:section`
 
 [`src/App.tsx`](../src/App.tsx) 负责 Workspace Gate、顶栏、resident pages、全局浮层、设置和 Workspace 生命周期。
@@ -70,6 +74,9 @@ flowchart LR
 - [`WorkspaceRecordFocusPage`](../src/components/workspace/WorkspaceRecordFocusPage.tsx)
 - [`ProjectOverviewPage`](../src/components/project/ProjectOverviewPage.tsx)
 - [`ProjectNoteFocusPage`](../src/components/project/ProjectNoteFocusPage.tsx)
+- [`ProjectContentWorkspace`](../src/components/project/ProjectContentWorkspace.tsx)：Project 内容页签、双栏与真实页面实例
+- [`ProjectFileContent`](../src/components/document/ProjectFileContent.tsx)：固定 File 版本与格式预览
+- [`ProjectSessionContent`](../src/components/agent/ProjectSessionContent.tsx)：DSH 会话
 
 Workspace 与 Project 首页共享 `src/components/home/` 中的封面、标题、QuickNote、Record、侧栏和滚动基础组件。Todo 统一使用 `src/components/todo/`，避免 Workspace、Project 和 Record 页面复制实现。
 
@@ -85,19 +92,22 @@ Query key 统一定义在 [`src/lib/queryKeys.ts`](../src/lib/queryKeys.ts)。
 
 ## 4. 页面驻留与缓存
 
-Project 页面使用 Active / Warm / Cold 模型：
+Project Overview 使用 Active / Warm / Cold 模型：
 
 - Active：当前可见并完整运行。
-- Warm：保留页面和编辑现场，设置 `inert`、`aria-hidden` 并暂停页面查询。
-- Cold：卸载页面实例，只保留 Query 数据、最近路由和持久 UI 偏好。
+- Warm：保留 Overview，设置 `inert`、`aria-hidden` 并暂停页面查询。
+- Cold：卸载 Overview 实例，保留 Query 数据、最近路由和持久 UI 偏好；已打开的内容页签另行驻留。
 
-Workspace Overview 是 Pinned 页面，不参与 Project LRU。Project Record Focus 与 Workspace Record Focus 共用最多两个编辑器实例的 Focus LRU。具体上限与缓存规则见[缓存策略](cache-strategy.md)。
+Workspace 首页是 Pinned 页面，不参与 Project Overview LRU；Workspace Record Focus 仍使用最多两个实例的 Focus LRU。Project 的已打开内容 shell 和已访问的 Record 编辑器随其页签保留，独立于最多五个 Project Overview 的驻留上限。切换只暂停不可见页面的查询与交互；关闭内容页签或 Project 才释放对应实例。具体规则见[缓存策略](cache-strategy.md)。
 
 ## 5. Service Layer
 
 - [`desktopApi.ts`](../src/services/desktopApi.ts)：Tauri invoke、系统窗口、文件与目录选择、Reveal。
 - [`projectMindApi.ts`](../src/services/projectMindApi.ts)：Workspace、Project、Record、Todo、File、Tag、Contact、AI 等业务命令。
 - [`voiceApi.ts`](../src/services/voiceApi.ts)：录音会话、转写、纪要、回放和语音设置。
+- [`projectContentApi.ts`](../src/services/projectContentApi.ts)：在原生归属与 Workspace generation 核验后打开内容
+- [`fileDocumentApi.ts`](../src/services/fileDocumentApi.ts)、[`projectDirectoryApi.ts`](../src/services/projectDirectoryApi.ts)：File 身份、版本、目录纳管和位置操作
+- [`dshAssistantApi.ts`](../src/services/dshAssistantApi.ts)：项目 Node runtime、会话及传输边界
 
 前端组件不得自行拼接 command 名或持久化路径。
 
@@ -138,6 +148,12 @@ Voice Record 的剩余实机证据与源码 TODO 核对见[未完成事项](rema
 ## 9. AI 与导出
 
 AI Provider Profile 按默认角色或 Skill override 解析。Editor Skill Job 与 Record Metadata Job 保持独立语义，具体决策见 ADR。
+
+Project DSH 组件在同一 React 19 根树中，通过 Tauri 代理 HTTP RPC、WebSocket mux 和附件链路。原生端按 Workspace/Project 管理独立 Node runtime，在私有 stdin 注入统一模型配置和解锁密钥；前端不获取模型密钥或 runtime 认证令牌。DSH File 引用与读取复用原生固定版本和来源证据服务。
+
+`packages/agent-host` 的 Pi Host 仍承载原生业务 run、后台 Overview/知识/记忆及旧会话读取；Record/Source utility 与模型会话分开运行。DSH 的完整原生业务工具桥和旧 Pi 历史转换尚未接通，Workspace 聊天与知识/记忆 GUI 当前未挂载。存储服务存在不表示这些产品入口已交付。
+
+File 的受管 ID、不可变版本、磁盘身份和待恢复 intent 由原生服务维护，布局只保存对象身份和查看状态。Record 保存使用 canonical 文档、稳定块 ID、版本 CAS、编辑器 flush 与原生回执；普通编辑、CLI/MCP 和原生助手共享这些约束。
 
 Record Export 从同一个 Committed Content 文档模型生成 Markdown/ZIP、DOCX 或 PDF，避免各格式分别解释正文。
 

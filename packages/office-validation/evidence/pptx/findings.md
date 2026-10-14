@@ -1,6 +1,9 @@
-> 历史证据来源：2026-10-13 的 `/tmp/project-mind-univer-validation-20261013/pptx`。此文中的临时文件名是历史引用；归档复跑命令与当前文件清单以 ../../README.md 为准。
+> 历史证据来源：2026-10-13 的 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx`。此文中的临时文件名是历史引用；归档复跑命令与当前文件清单以 ../../README.md 为准。
 
 # #118 / F03 PPTX：Univer 1.0.4 直接 SDK 实际验证
+
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
 
 ## 结论
 
@@ -85,14 +88,14 @@
 
 ## 可复跑命令
 
-目录为 `/tmp/project-mind-univer-validation-20261013/pptx`。只读取共享 node_modules，不安装、不更改 root package。
+目录为 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx`。只读取共享 node_modules，不安装、不更改 root package。
 
 ```sh
-node /tmp/project-mind-univer-validation-20261013/pptx/validate_sdk.mjs
-"${OFFICE_VALIDATION_PYTHON:-python3}" /tmp/project-mind-univer-validation-20261013/pptx/verify_pptx.py simple /tmp/project-mind-univer-validation-20261013/pptx/simple.edited.pptx edited
-"${OFFICE_VALIDATION_PYTHON:-python3}" /tmp/project-mind-univer-validation-20261013/pptx/verify_pptx.py complex /tmp/project-mind-univer-validation-20261013/pptx/complex.edited.pptx edited
-"${OFFICE_VALIDATION_PYTHON:-python3}" /tmp/project-mind-univer-validation-20261013/pptx/verify_semantics.py
-"${OFFICE_VALIDATION_PYTHON:-python3}" /tmp/project-mind-univer-validation-20261013/pptx/collect_results.py
+node $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/validate_sdk.mjs
+"${OFFICE_VALIDATION_PYTHON:-python3}" $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/verify_pptx.py simple $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/simple.edited.pptx edited
+"${OFFICE_VALIDATION_PYTHON:-python3}" $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/verify_pptx.py complex $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/complex.edited.pptx edited
+"${OFFICE_VALIDATION_PYTHON:-python3}" $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/verify_semantics.py
+"${OFFICE_VALIDATION_PYTHON:-python3}" $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/pptx/collect_results.py
 ```
 
 无改链独立校验：把格式参数替换为 `product-unchanged` 或 `aggregate-unchanged`，并将文件路径对应改为 `simple.product-unchanged.pptx` 等；现有六组结果均已保存可复用。严格校验脚本因保留的失败断言会返回 exit 1；不能把有结果 JSON 或非空 ZIP 当作成功。生成器 `generate_samples.py` 只在无原件的空格式目录首次使用，已有原件时拒绝覆盖。

@@ -80,8 +80,9 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        let (metadata, paths) = create_workspace(root.path(), "password").unwrap();
-        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        let root_path = root.path().canonicalize().unwrap();
+        let (metadata, paths) = create_workspace(&root_path, "password").unwrap();
+        let mut db = Database::open(&paths.db_path, &root_path, None).unwrap();
         db.bind_native_workspace(&metadata.workspace_id).unwrap();
         let project = db.project_create(ProjectCreateInput { name: "Granted".into(), summary: None, status: None }).unwrap();
         let binding = WorkspaceBinding { workspace_id: metadata.workspace_id, generation: "open-1".into() };

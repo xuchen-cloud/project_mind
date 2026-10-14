@@ -31,5 +31,3 @@ export const voiceApi = {
   minutesGet: (input: VoiceRecordLookup) => desktopApi.command<VoiceMinutesSnapshot | null>("voice_minutes_get", { input }),
   minutesGenerate: (input: VoiceMinutesGenerateInput) => desktopApi.command<VoiceMinutesSnapshot | null>("voice_minutes_generate", { input }),
 };
-
-// TODO(VR-13): add playback range when the backend command exists.

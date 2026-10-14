@@ -1,6 +1,6 @@
 # 主应用 DSH 助手工作包
 
-日期：2026-10-11。关联规格：#121、[交接](dsh-assistant-handover.md)及[组件融入方案](dsh-ui-component-integration.md)。无独立 DSH Issue；本包不发布、不关闭历史 Issue。
+日期：2026-10-11。关联规格：#121 及[组件融入方案](dsh-ui-component-integration.md)。旧独立助手交接已被主应用接入取代并移除；本文保留当时实施证据。无独立 DSH Issue；本包不发布、不关闭历史 Issue。
 
 ## 依赖与交付行为
 

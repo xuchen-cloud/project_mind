@@ -1,5 +1,8 @@
 # PDF 集成候选调查与最小运行验证（2026-10-13）
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录；`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录；`$SYSTEM_FONT_DIR` 为本机系统字体目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 关联 [#118](https://github.com/xuchen-cloud/project_mind/issues/118)，按本轮用户要求扩展 F03 候选选型到 PDF。当前 Issue/需求正文仍主要列 HTML、Markdown、Word、Excel、PPT；本报告记录新增 PDF 调查，不修改需求或宣称格式功能交付。执行范围是官方源码网络核验、现有代码只读调查和独立表单往返试验；未启动应用、未做 review、未改主源码或 root package、未运行全量构建或 Office 检查。
 
 ## 1. 推荐：分清三层能力，保留 GenOffice 原文修改候选
@@ -103,8 +106,8 @@ PDF.js 实际运行发出 `_getAppearance: OffscreenCanvas is not supported, ann
 可跑命令（仓库根目录；原件已存在，生成器拒绝覆盖）：
 
 ```sh
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node packages/pdf-validation/validate.mjs
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 packages/pdf-validation/fixture.py compare packages/pdf-validation/complex.original.pdf packages/pdf-validation/complex.pdfjs-form.pdf packages/pdf-validation/complex.pdfjs-form.checks.json
+$RUNTIME_DEPENDENCIES/node/bin/node packages/pdf-validation/validate.mjs
+$RUNTIME_DEPENDENCIES/python/bin/python3 packages/pdf-validation/fixture.py compare packages/pdf-validation/complex.original.pdf packages/pdf-validation/complex.pdfjs-form.pdf packages/pdf-validation/complex.pdfjs-form.checks.json
 ```
 
 ## 6. GenOffice 原文编辑：已执行方法与剩余验证
@@ -145,7 +148,7 @@ GenOffice 最小原文 runtime 已实际完成，详见第 8 节。当前推荐�
 
 ## 8. 追加执行：GenOffice 局部原文 runtime 已跑通，整体 limited
 
-本节更新前文初始候选状态。用户已授权原文执行；**当前推荐明确为现有 PDF.js 预览 + GenOffice core 局部原文编辑**，批注/表单不能替代中文正文修改。证据归档：[genoffice-pdf-validation](../../packages/genoffice-pdf-validation/README.md)。只在新目录和 `/tmp/project-mind-genoffice-pdf-validation-20261013`写入，未改主源码/root package，未启动应用、Electron 或 native build，未做 review/新子 agent。
+本节更新前文初始候选状态。用户已授权原文执行；**当前推荐明确为现有 PDF.js 预览 + GenOffice core 局部原文编辑**，批注/表单不能替代中文正文修改。证据归档：[genoffice-pdf-validation](../../packages/genoffice-pdf-validation/README.md)。只在新目录和 `$VALIDATION_TMP_ROOT/project-mind-genoffice-pdf-validation-20261013`写入，未改主源码$HOME package，未启动应用、Electron 或 native build，未做 review/新子 agent。
 
 ### 8.1 真实宿主与字体
 
@@ -153,7 +156,7 @@ GenOffice 最小原文 runtime 已实际完成，详见第 8 节。当前推荐�
 
 WASM SHA：PDFium `5e4cd023c3dad4a895b3571ca573d3fc51bac6de48360d95283134385b954eaa`；HarfBuzz subset `3a5d246b0e4c0017084775e9f2c7fce96e45d09b1a354fd9e2e440c88fb9890d`。未归档 WASM/node_modules/上游大 bundle。
 
-中文原件是 ReportLab 生成的 **实际 TrueType 嵌入子集**，`/AAAAAA+ArialUnicodeMS`、`/FontFile2`，不是之前 CID nonembed 样例。字体实际来自 `/System/Library/Fonts/Supplemental/Arial Unicode.ttf`，23,278,008 bytes，SHA `876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec`，OS/2 fsType=8；未改变字体 bytes 或 restriction flags。替换含原目标/原子集没有的“星辰”，上游默认字体查找真实取到该文件；输出新 Type0/FontFile2 为 21,596 bytes，SHA `79bd8f7a34c85050be2e56d54df86d2a9d6d08aedf1efc51782c0352f0fa9d43`，原未改文字所用旧子集仍保留。字体不随证据分发。[字体锁](../../packages/genoffice-pdf-validation/font.lock.json)、[输出字体/运行记录](../../packages/genoffice-pdf-validation/results.json)。
+中文原件是 ReportLab 生成的 **实际 TrueType 嵌入子集**，`/AAAAAA+ArialUnicodeMS`、`/FontFile2`，不是之前 CID nonembed 样例。字体实际来自 `$SYSTEM_FONT_DIR/Arial Unicode.ttf`，23,278,008 bytes，SHA `876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec`，OS/2 fsType=8；未改变字体 bytes 或 restriction flags。替换含原目标/原子集没有的“星辰”，上游默认字体查找真实取到该文件；输出新 Type0/FontFile2 为 21,596 bytes，SHA `79bd8f7a34c85050be2e56d54df86d2a9d6d08aedf1efc51782c0352f0fa9d43`，原未改文字所用旧子集仍保留。字体不随证据分发。[字体锁](../../packages/genoffice-pdf-validation/font.lock.json)、[输出字体/运行记录](../../packages/genoffice-pdf-validation/results.json)。
 
 获取源码时 Python raw HTTP 有 7 个文件 IncompleteRead，锁中逐一保留具体错误；执行使用同固定 SHA 的只读 git object 对照，无源补丁。完整 save-pdf.ts 后续由 Node fetch 成功获取。下载问题已解锁，没有以许可调查阻断或绕过运行时错误。
 

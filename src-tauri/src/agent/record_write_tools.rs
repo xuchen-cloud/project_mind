@@ -84,11 +84,17 @@ fn node_definitions() -> Value {
         .expect("checked-in editor schema");
     let mark_variants:Vec<_>=schema["marks"].as_array().unwrap().iter().map(|mark|object(json!({"type":{"type":"string","maxLength":32,"const":mark["name"]},"attrs":attrs(mark)}),&["type"])).collect();
     let nodes:Vec<_>=schema["nodes"].as_array().unwrap().iter().filter(|node|node["name"]!="doc").map(|node|{
-        let mut properties=json!({"type":{"type":"string","maxLength":32,"const":node["name"]},"attrs":attrs(node),"content":array(json!({"$ref":"#/$defs/BlockInput"}),100),"marks":array(json!({"$ref":"#/$defs/MarkInput"}),if node["attrs"].get("blockId").is_some(){0}else{7})});
+        let marks = if node["attrs"].get("blockId").is_some() { "BlockMarks" } else { "InlineMarks" };
+        let mut properties=json!({"type":{"type":"string","maxLength":32,"const":node["name"]},"attrs":attrs(node),"content":{"$ref":"#/$defs/BlockContent"},"marks":{"$ref":format!("#/$defs/{marks}")}});
         let required=if node["name"]=="text"{properties["text"]=text(65536);vec!["type","text"]}else{vec!["type"]};
         object(properties,&required)
     }).collect();
-    json!({"BlockInput":{"oneOf":nodes},"MarkInput":{"oneOf":mark_variants}})
+    // Share repeated containers so the complete native manifest remains within
+    // the Host's schema budget without weakening its validation limits.
+    json!({"BlockInput":{"oneOf":nodes},"MarkInput":{"oneOf":mark_variants},
+        "BlockContent":array(json!({"$ref":"#/$defs/BlockInput"}),100),
+        "BlockMarks":array(json!({"$ref":"#/$defs/MarkInput"}),0),
+        "InlineMarks":array(json!({"$ref":"#/$defs/MarkInput"}),7)})
 }
 fn patch() -> Value {
     let blocks = array(json!({"$ref":"#/$defs/BlockInput"}), 100);
@@ -390,14 +396,18 @@ mod tests {
                     .collect::<Vec<_>>()
             );
             assert_eq!(
-                variant["properties"]["content"]["items"]["$ref"],
-                "#/$defs/BlockInput"
+                variant["properties"]["content"]["$ref"],
+                "#/$defs/BlockContent"
             );
             assert_eq!(
                 variant["properties"]["attrs"]["additionalProperties"],
                 false
             );
         }
+        assert_eq!(stage["$defs"]["BlockContent"]["items"]["$ref"], "#/$defs/BlockInput");
+        assert_eq!(stage["$defs"]["BlockContent"]["maxItems"], 100);
+        assert_eq!(stage["$defs"]["BlockMarks"]["maxItems"], 0);
+        assert_eq!(stage["$defs"]["InlineMarks"]["maxItems"], 7);
         assert!(serde_json::to_vec(&descriptions).unwrap().len() <= 65536);
     }
 }

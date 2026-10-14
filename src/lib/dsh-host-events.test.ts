@@ -1,15 +1,10 @@
 import type { AgentSourceRef } from "./agent-types";
 import { beforeEach, describe, expect, it } from "vitest";
-import { blocksDshProjectNavigation, requestDshFileReference, setDshWorkspaceRoot, useDshFileReferences } from "./dsh-host-events";
+import { requestDshFileReference, setDshWorkspaceRoot, useDshFileReferences } from "./dsh-host-events";
 import { useAgentPanelStore } from "../state/agent-panel-store";
 import { useFeedbackStore } from "../state/feedback-store";
 beforeEach(() => { useAgentPanelStore.getState().clearWorkspace(); setDshWorkspaceRoot(null); useFeedbackStore.setState({ toasts: [] }); });
 describe("DSH host integration boundaries", () => {
-  it("allows Project navigation while background sessions execute", () => {
-    for (const path of ["/projects/2", "/projects/10", "/workspace", "/settings"]) expect(blocksDshProjectNavigation(1, path)).toBe(false);
-    for (const path of ["/projects/1", "/projects/1/records/7"]) expect(blocksDshProjectNavigation(1, path)).toBe(false);
-    expect(blocksDshProjectNavigation(null, "/projects/2")).toBe(false);
-  });
   it("opens and queues references with workspace/project ownership, clears on workspace change", () => {
     setDshWorkspaceRoot("/workspace"); requestDshFileReference(7, "src/main.ts");
     expect(useAgentPanelStore.getState().binding).toEqual({ workspaceRoot: "/workspace", scope: { kind: "project", projectId: 7 } });

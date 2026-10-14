@@ -1,5 +1,8 @@
 # Web SDK 保存候选：独立原格式验证
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录；`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 只读取现有原件和 chromium/webkit 六个原格式候选，使用 openpyxl / python-docx / python-pptx 及 ZIP/XML；未读取 unit.json，未运行 SDK、LibreOffice 或 GUI。只在 browser/ 写入脚本及这两份结果。
 
 ## 结果
@@ -97,7 +100,7 @@
 本脚本可证明输出文件中受测编辑和对象存在/保留的范围。浏览器实际点击或键盘操作证据由原探针负责，本脚本不推断未覆盖格式、视觉像素或复杂模板。PPTX 已知母版损失不列为新的 Web save 失败。若某对象消失或字段实际变更，结果保留 failed；失败是否源于 Web save 或已有 Node 转换需结合既有无编辑基线。
 
 ```bash
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 /tmp/project-mind-univer-validation-20261013/browser/check-output.py
+$RUNTIME_DEPENDENCIES/python/bin/python3 $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/browser/check-output.py
 ```
 
 Python 3.12.14；库版本 {"openpyxl": "3.1.5", "python-docx": "1.2.0", "python-pptx": "1.0.2", "lxml": "6.1.1"}；本次 168.194 ms。SHA-256、逐项断言及 ZIP 差异均在 verification.json。

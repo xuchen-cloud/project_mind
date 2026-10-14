@@ -1,5 +1,8 @@
 # 项目与内容 Tab 视觉收敛（#124）
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 ## 工作包
 
 - 依赖：现有项目 / 内容 Tab、拖动和键盘交互、真实溢出测量；按用户截图统一样式。源码修改前确认无 Tauri 自动重启监听。
@@ -17,8 +20,8 @@
 - 非目标：不改项目弧形、三宽度规则、滚动条或布局业务存储；Markdown 编辑继续暂停。
 - 验收：短 / 长名称和关闭按钮无重叠、状态切换宽度不变；拖动残影左上角与鼠标坐标重合，不改变 Tab 外观；排序 / 跨栏、边缘滚动、Escape / 取消和结束清理正常。
 - 验证：内容布局受影响用例，复用未变的滚动条用例；共享宽度与项目栏回归，集中构建 / UI standards / bundle 检查及界面验收；主 agent 自查 Standards / Spec。
-- 结果：内容布局 41 个唯一用例通过（首次通过的 33 项复用，几何 7 项及完整表面拖动后的点击抑制 1 项按最终规格重跑通过）；共享宽度 / 项目栏 17 项通过。TypeScript / Vite、UI standards、bundle boundaries 及桌面打包通过，主包 234 / 250 KiB。日志 `/tmp/project-mind-tab-drag-*.log`、`/tmp/project-mind-tab-tight-close-tests.log`。
-- 界面：真实组件夹具中短 / 中 / 长名称的 X 命中区均距右边缘 2px，宽度仍分别遵循下限 / 自身宽度 / 标准上限；悬浮光标为 default。指针 `(620, 240)` 时实际残影左上角亦为 `(620, 240)`，尺寸 148 × 30px、透明度 .65、原图标 / 8px 圆角 / 长名遮罩保留，outline / box-shadow 均为 none；跨栏及 Escape 清理通过。截图 `/tmp/project-mind-tab-drag-pointer-aligned.png`。已更新并重启现有隔离桌面应用，Project B 内容恢复，实际点击 Tab 不再出现蓝框，短名 X 贴右边缘。浏览器残影几何证据不冒充原生中途抓图。
+- 结果：内容布局 41 个唯一用例通过（首次通过的 33 项复用，几何 7 项及完整表面拖动后的点击抑制 1 项按最终规格重跑通过）；共享宽度 / 项目栏 17 项通过。TypeScript / Vite、UI standards、bundle boundaries 及桌面打包通过，主包 234 / 250 KiB。日志 `$VALIDATION_TMP_ROOT/project-mind-tab-drag-*.log`、`$VALIDATION_TMP_ROOT/project-mind-tab-tight-close-tests.log`。
+- 界面：真实组件夹具中短 / 中 / 长名称的 X 命中区均距右边缘 2px，宽度仍分别遵循下限 / 自身宽度 / 标准上限；悬浮光标为 default。指针 `(620, 240)` 时实际残影左上角亦为 `(620, 240)`，尺寸 148 × 30px、透明度 .65、原图标 / 8px 圆角 / 长名遮罩保留，outline / box-shadow 均为 none；跨栏及 Escape 清理通过。截图 `$VALIDATION_TMP_ROOT/project-mind-tab-drag-pointer-aligned.png`。已更新并重启现有隔离桌面应用，Project B 内容恢复，实际点击 Tab 不再出现蓝框，短名 X 贴右边缘。浏览器残影几何证据不冒充原生中途抓图。
 - Standards / Spec 主 agent 自查通过；保留并行图标线程改动，不纳入本增量提交。父 #124 继续保持开放。
 
 ### 增量：项目 Tab 未选中项之间的分隔线（#124）
@@ -34,6 +37,6 @@
 - 实现：共用三宽度测量、标题遮罩和 X 控件样式，共用绝对定位滚动条；每个 Tab 以名称实际宽度在 96px 下限和当前标准宽度之间截取，标准宽度由可用空间 / 数量计算，并封顶到 148px。项目原弧形肩部、底部连接与移动 indicator 保留，内容使用浅灰圆角和普通邻项短线。
 - 密度：外侧 padding 4px、Tab 间距 2px、内部 padding 6px、图标间距 4px；短名称距关闭命中区 2px。长标题在隐藏关闭时借用其 22px 区域，显示关闭时扩大渐隐，不改宽度；完整 Tab 留白仍支持点击 / 拖动。
 - 自动验证：WorkspaceTopBar 16、内容布局 24、共享滚动条 8、三宽度测量 1，共 49 个唯一用例通过。覆盖下限 / 自身宽度 / 当前标准宽度 / 上限、resize、后台更名清除旧遮罩、真实 viewport 滚动与连续边界遮罩、关闭不激活、全宽命中、拖动 / 跨栏。SVG 宽度读取导致的真实失败已修复为 getBoundingClientRect，并重跑受影响范围；未改动的滚动条组 8 项通过结果复用。
-- 构建与检查：TypeScript / Vite 构建、UI standards、bundle boundaries 通过，日志 `/tmp/project-mind-tab-refinement-*.log`。只改前端展示和交互，复用未受影响的原生身份 / 版本测试。
+- 构建与检查：TypeScript / Vite 构建、UI standards、bundle boundaries 通过，日志 `$VALIDATION_TMP_ROOT/project-mind-tab-refinement-*.log`。只改前端展示和交互，复用未受影响的原生身份 / 版本测试。
 - 实际渲染：隔离的本地浏览器挂载真实 WorkspaceTopBar / ProjectContentLayoutView，合成数据，无业务文件写入或模型请求。宽窗口内容栏短名 96px、中间名称 123px、长名称约 146.7px（当时标准宽度）；窄窗口标准宽度降到 96px、达到下限后横向溢出。普通 / hover / 激活、紧凑 X、长标题渐隐、项目弧形、3px 浮动条、离开后隐藏均实查，正 / 反向滚动遮罩连续变化，滚动条显示不改垂直占位。此证据为浏览器真实组件渲染，不冒充新版桌面包或 Windows 验收。
 - 主 agent Standards / Spec 自查完成，无剩余发现；未使用 review 子 agent。父 #124 已有未完产品 / 平台验收保持开放，本包阶段提交不进入完整 Issue 发布。

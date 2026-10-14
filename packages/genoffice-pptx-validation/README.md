@@ -1,5 +1,8 @@
 # GenOffice PPTX 技术验证
 
+路径约定：`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录；`$REPO_ROOT` 为当前 checkout。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 关联 #118 / F03。固定上游 SHA：`d32d1711f1bf985430757b8c6b3fbddd3831d946`。
 这是独立技术 harness，不是产品交付或 review。只归档本新目录；没有修改根项目依赖或应用源码。
 
@@ -29,8 +32,8 @@
 在本目录运行，Node 26（本次 v26.8.1）或 bundled Node 24；Python 使用 bundled runtime（本次 3.12.14，python-pptx 1.0.2 / lxml 6.1.1 / openpyxl / Pillow）。无需根项目安装，不运行应用或 Electron。
 
 ```bash
-cd /Users/xuchen/project_mind/packages/genoffice-pptx-validation
-export PYTHON=/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3
+cd $REPO_ROOT/packages/genoffice-pptx-validation
+export PYTHON=$RUNTIME_DEPENDENCIES/python/bin/python3
 "$PYTHON" fetch-core.py
 npm ci --ignore-scripts --no-audit --no-fund
 npm run probe

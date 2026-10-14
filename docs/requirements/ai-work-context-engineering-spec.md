@@ -311,15 +311,16 @@ src-tauri/src/agent/
   context.rs references.rs knowledge.rs memory.rs
   overview.rs maintenance.rs session_history.rs
   runtime.rs host.rs outputs.rs bridge/
-src/services/agentApi.ts src/services/agentMemoryApi.ts
+src/services/agentApi.ts src/services/dshAssistantApi.ts
 src/lib/agent-types.ts
 src/components/agent/
-  AgentPanel.tsx AgentWorkspacePanel.tsx useAgentConversation.ts
-  AgentSourceCard.tsx AgentOutputCard.tsx
-  AgentKnowledgePanel.tsx AgentMemoryPanel.tsx AgentScheduleSettings.tsx
+  AgentWorkspacePanel.tsx DshAssistantPanel.tsx ProjectSessionContent.tsx
+  AgentScheduleSettings.tsx
 packages/agent-host/        # 独立 package.json/lock；SDK 与 utility worker，后端资源
 src-tauri/src/bin/mind.rs   # CLI + MCP adapter
 ```
+
+2026-10-14 接入边界：Project 聊天由 DSH 组件与独立项目运行时承载；旧 Pi 聊天、来源/成果卡片和记忆管理界面已退出生产调用并移除。原生工具、后台维护和 CLI/MCP 保留，Workspace 聊天入口及 DSH 与完整知识/记忆/原生成果的接线仍按交付规格补齐。此模块清单不表示本节全部契约已交付。
 
 - `AgentDomainService` 接收已验证 `RequestContext { workspaceId, workspaceGeneration, scopeGrant, caller, requestId }`。命令不绑定浏览器窗口；数据库/路径从绑定 WorkspaceRuntime 获得，绝不根据调用瞬间的活动页猜测。
 - 前端 Tauri、CLI bridge、Pi tool dispatcher 都调用同一服务。不要把所有现有 db.rs 方法重构后才开工，只为本期读/建/索引和变更事件抽 seam。

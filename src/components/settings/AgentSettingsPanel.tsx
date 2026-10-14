@@ -45,7 +45,7 @@ export function AgentSettingsPanel({ open }: { open: boolean }) {
   }
   const loadError = status.error || settingsQuery.error || ai.error;
   return <div className="space-y-5">
-    <SectionHeader title="助手" description="配置作用于当前工作区的所有项目和会话。" />
+    <SectionHeader title="助手" description="配置工作区知识维护与命令行助手；项目聊天的访问权限在会话内设置。" />
     {status.isPending || settingsQuery.isLoading ? <p role="status" className="text-body text-text-muted">正在读取助手设置…</p> : null}
     {!status.isPending && !binding && !status.error ? <p role="status">请先打开工作区。</p> : null}
     {loadError || error ? <div role="alert" className="space-y-2 text-body text-danger">

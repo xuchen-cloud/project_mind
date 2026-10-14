@@ -1,5 +1,8 @@
 # 项目内容 Tab 实施记录
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 更新：2026-10-13。父 Issue：#124。规格：[完整需求](project-content-tabs.md)、[handover](project-content-tabs-handover.md)。
 
 ## 接收基线
@@ -64,7 +67,7 @@
 - 验证范围：共享图标、应用菜单与 API 边界测试；侧栏／目录／Tab／File 预览受影响回归；原生图标、处理应用及绑定边界测试；集中 TypeScript／构建、UI 和 bundle 检查；macOS 图标与真实菜单验收。Windows 无运行环境时保留明确待验收项。Standards／Spec 由主 agent 自查，不启动 review 子 agent。
 - 实现：直接复用 vendored DSH 分类器与 SVG，不改上游字节；Host 和 DSH 附件共用类型图标，未映射类型由原生系统查询，按扩展名共享缓存。系统图标加载中／失败／缺失使用有明确状态的中性占位；应用图标缺失保留空图标位，不替换为 DSH 文件图标。应用菜单复用 `PopoverPanel` 和 `HomeSidebarList`。
 - 原生边界：四个并发许可在 blocking 任务入队前获取；应用枚举在 DB 锁外，查询后及打开前重新核验 Workspace generation、File 实际归属、当前路径和物理身份。只接受系统注册应用 ID，不接受客户端执行命令或原始路径。macOS 使用 NSWorkspace，Windows 使用 Shell association handler／GDI；历史视图打开当前原件。
-- 前端验证：`npx vitest run` 的共享图标／native API 两文件最终 18 项、File 预览／API 两文件 47 项、侧栏／目录／Tab 三文件 37 项、DSH 附件／引用／集成三文件 22 项通过；真实 bootstrap／附件／图标／菜单四文件 27 项通过，其中较早的图标 9 项已由最终 15 项覆盖。结果有重叠，未相加为全量计数；未变化的通过结果复用。日志为 `/tmp/project-mind-file-icon*-tests.log`，仅供本地诊断。
+- 前端验证：`npx vitest run` 的共享图标／native API 两文件最终 18 项、File 预览／API 两文件 47 项、侧栏／目录／Tab 三文件 37 项、DSH 附件／引用／集成三文件 22 项通过；真实 bootstrap／附件／图标／菜单四文件 27 项通过，其中较早的图标 9 项已由最终 15 项覆盖。结果有重叠，未相加为全量计数；未变化的通过结果复用。日志为 `$VALIDATION_TMP_ROOT/project-mind-file-icon*-tests.log`，仅供本地诊断。
 - 构建与检查：`npm run build`（含 TypeScript）、`check:ui-standards`、`check:bundle-boundaries`、DSH `test:integrity` 3 项及 `check:adapters` 通过，主包 229/250 KiB，39 source entries／1043 modules；静态图标独立复用 chunk。macOS `cargo test --manifest-path src-tauri/Cargo.toml --lib native_file_icons --quiet -- --show-output` 7 项和 `cargo check --lib --quiet` 通过，含真实系统 PNG 解码、应用枚举、并发及 generation／归属／替换／缺失边界。Windows 适配模块通过隔离支架 MSVC 交叉 `cargo check`，未验证完整 Windows 构建或运行。macOS debug `.app` 静默包装通过，最终前端入口资源已嵌入 binary。
 - macOS 实机：重用隔离验收应用、App data 和 Workspace；PPT Tab 显示橙色 DSH 图标，未映射 TXT Tab 显示系统文本文件图标。实际菜单列出 TextEdit、Word、Pages 等系统应用图标，默认标记正确、溢出下缘遮罩可见；选择 TextEdit 后打开测试 Workspace 中的 `import-first-open.txt` 原件，合成文本与文件 URL 正确，没有改写文件或发送模型请求。
 - 主 agent Standards／Spec 自查通过：确认图标来源、异步缓存与取消、当前原件语义、原生身份和注册应用边界、GDI／COM 释放、上游完整性及滚动规范。本包提交仅含图标和应用选择改动；同期 Tab 排版等并行改动保留。#124 继续作为阶段交付，Windows 实际图标／打开和父 Issue 剩余验收仍待完成。
@@ -79,9 +82,9 @@
 - 验证范围：受影响 File／引用／Workspace、布局／Store／事件、DSH adapter／模型观察和 Session 页面测试；集中前端构建及 UI／bundle 检查；macOS 集中 GUI 验收。复用仍有效的原生身份、版本、跨项目运行证据；Windows 条件与 #124 未完验收继续保留。主 agent 完成 Standards / Spec 自查，不启动 review 子 agent。
 - 已实施：引用在权威归属与工作区代次核验之后、布局变化之前入队，避免文件页隐藏取消投递。Tab 使用 pointer 拖动及 body portal，支持空栏落点、边缘滚动、Escape 取消及键盘移栏；阅读位置更新只测量溢出，不把手动滚动拉回选中项。放大与排序使用 220ms FLIP，支持 reduced-motion；按钮沿用共享动效 token 和 loading spinner。
 - 模型及运行状态来自真实 Session projection / catalog。宿主按客户端 entry 丢弃过期事件，工作区或客户端关闭清理 Session map；卸载展示停止模型回调，运行 catalog 继续订阅。第二栏恢复时自动聚焦遵循宿主 focused 状态；WebKit root reconciliation 暂时关闭非聚焦编辑器的 editability，随后由已有 layout effect 恢复，保留草稿、选择和历史。两处 vendored 修改均登记在 `packages/dsh-ui/provenance.json`。
-- 自动验证与复用：File worker 的 4 文件 93 项、布局／Store／事件／真实 Host 的 4 文件 45 项通过；整合后的受影响引用／Session／Workspace／统一打开 4 文件 47 项通过（`/tmp/project-mind-dsh-reference-handoff-green.log`），含初次投递、布局同步隐藏与归属拒绝；布局 22 项通过（`/tmp/project-mind-dsh-layout-final.log`）；模型观察器 2 项通过。最终真实双 Host/bootstrap 9 项通过（`/tmp/project-mind-dsh-focus-green.log`），验证实际模型回调身份、独立 running、卸载订阅及恢复焦点。93/45 与后续用例存在重叠，未相加为全量计数；源码未变的相关结果复用。
+- 自动验证与复用：File worker 的 4 文件 93 项、布局／Store／事件／真实 Host 的 4 文件 45 项通过；整合后的受影响引用／Session／Workspace／统一打开 4 文件 47 项通过（`$VALIDATION_TMP_ROOT/project-mind-dsh-reference-handoff-green.log`），含初次投递、布局同步隐藏与归属拒绝；布局 22 项通过（`$VALIDATION_TMP_ROOT/project-mind-dsh-layout-final.log`）；模型观察器 2 项通过。最终真实双 Host/bootstrap 9 项通过（`$VALIDATION_TMP_ROOT/project-mind-dsh-focus-green.log`），验证实际模型回调身份、独立 running、卸载订阅及恢复焦点。93/45 与后续用例存在重叠，未相加为全量计数；源码未变的相关结果复用。
 - 新问题按证据补测：引用同步隐藏用例先失败后修复；双 Host 恢复焦点用例先失败后修复，macOS 复验又确认 WebKit DOM selection 会聚焦，补 root reconciliation 的宿主约束后再包装。每次新源码只重跑受影响测试与失效构建，未重跑前端或原生全量。
-- 最终 `npm run build`、`check:ui-standards`、`check:bundle-boundaries`、DSH `check:adapters` 和 vendor integrity 3 项通过；主包 230/250 KiB，39 source entries / 991 modules 无浏览器缺失导入。本地 debug `.app` 静默包装通过，使用原已验证的 runtime staging；本包没有修改 native command / DTO / 原生业务服务。日志在 `/tmp/project-mind-dsh-*.log`，不将可清理的临时日志当作永久附件。
+- 最终 `npm run build`、`check:ui-standards`、`check:bundle-boundaries`、DSH `check:adapters` 和 vendor integrity 3 项通过；主包 230/250 KiB，39 source entries / 991 modules 无浏览器缺失导入。本地 debug `.app` 静默包装通过，使用原已验证的 runtime staging；本包没有修改 native command / DTO / 原生业务服务。日志在 `$VALIDATION_TMP_ROOT/project-mind-dsh-*.log`，不将可清理的临时日志当作永久附件。
 - macOS 实机：保留隔离 App identity / App data / Workspace 及用户现场新增测试文件。单行工具栏在 26% 窄栏可用，正常阅读不显示位置；文本原件在 TextEdit 打开且未改写。实际 pointer 排序、跨栏、键盘移栏、窄栏滚轮横向滚动及两侧遮罩分别确认。小引用按钮新建同 Project 会话，草稿含正确文件；发送前无消息，使用数值 loopback 合成 Provider 显示固定 v1 消息、该 Session 的运行标记和 `main-ui-model`，结束后标记清除。未调用外部模型或读取用户业务 Workspace。
 - 最后实机复验通过：左右会话同时可见，聚焦右栏后放大／恢复，再次放大仍显示右栏会话；左栏 DOM selection 不抢焦点，两边选中项与 26% 比例保持。复验后恢复 50% 分栏并展示文件／会话并排。隔离应用可执行文件 SHA 与最终包装产物一致，未将中间失败的投递或焦点操作记成通过。
 - 主 agent Standards / Spec 自查：核查真实归属／generation、版本 hash、异步取消和 UI 切换交接、原件与历史语义、Session 与模型身份、布局状态及拖动清理、滚动／动画 token 与来源许可。相关发现均在本包修复；完整 #124 的 Windows 等待办继续开放，本包为阶段交付，不自动关闭 Issue 或发布未验收的整个分支。
@@ -167,7 +170,7 @@ macOS WebView 另发现代码预览 MutationObserver 对未变化的遮罩数值
 
 ### DSH Desktop 设计观察与后续优化
 
-调研方法、证据范围与候选实施包已整理为独立 [DSH Desktop 调研 Handover](dsh-desktop-design-research-handover.md)。后续实施或补充调研先读该交接；以下保留本轮观察摘要。
+以下保留本轮观察摘要。后续确认的阅读工具栏、Tab 辨识与模型入口以[内容栏优化规格](tab-strip-refinement-20261013.md)和后续执行记录为准；被实施结果替代的独立调研交接已移除，临时放大阅读栏与平台限制汇总在[未完成事项](../remaining-work.md)。
 
 用户要求查看已打开的 DSH Desktop。通过 Computer Use 观察真实窗口和无障碍树，与本包实际双栏页比较；未编辑用户文件、发送模型请求或记录其文档内容。实际展开“打开方式”，确认 Markdown、代码、纯文本三种选项；同一 Markdown File 切到代码显示，再恢复原 Markdown 阅读模式。外部编辑器、分栏和快捷键的完整操作尚未确认，不据此评价其功能正确性。
 

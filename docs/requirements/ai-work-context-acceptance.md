@@ -2,6 +2,8 @@
 
 更新：2026-10-10。本页保留 **A01～A76** 的逐项证据与剩余条件；新增记忆场景 **ML01～ML22** 在[生命周期细则](workspace-memory-lifecycle.md#10-验收场景)。当前目标以[主规格](ai-work-context-spec.md)为准，覆盖按[交付总览 V1～V5](ai-work-context-delivery.md#current-delivery)归并。本页不是第二份排期，也不替代 GitHub Issue 状态。
 
+2026-10-14 接入更新：旧 Pi 聊天/成果界面测试链接固定到移除前提交，只用于历史证据。当前 Project 聊天是 DSH，旧 GUI 通过项不能替代 DSH 的来源、成果、记忆与真实 Provider 验收。当前界面测试见 [DSH 面板](../../src/components/agent/DshAssistantPanel.test.tsx)、[内容会话](../../src/components/agent/ProjectSessionContent.test.tsx)与[应用路由](../../src/App.test.tsx)。
+
 ## 当前判定方式
 
 - 「部分」表示已有相关代码、确定性测试或执行记录，不能视为整个场景已通过；「待执行」表示没有足够执行证据；「后续」表示当前范围外。
@@ -140,7 +142,7 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-contex
 [source-read-tests]: ../../src-tauri/src/source_service.rs
 [file-version-tests]: ../../src-tauri/src/file_version_service.rs
 [review-tests]: ../../src-tauri/src/agent/operation_batch_service_tests.rs
-[agent-panel-tests]: ../../src/components/agent/AgentPanel.test.tsx
+[agent-panel-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/src/components/agent/AgentPanel.test.tsx
 [record-output-tests]: ../../src-tauri/src/agent/record_outputs_tests.rs
 [bridge-file-tests]: ../../src-tauri/src/agent/bridge/file_write_tests.rs
 [bridge-todo-tests]: ../../src-tauri/src/agent/bridge/todo_write_tests.rs
@@ -180,5 +182,5 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-contex
 [source-index-tests]: ../../src-tauri/src/source_search_index.rs
 [read-bridge-commit]: https://github.com/xuchen-cloud/project_mind/commit/40bb1bb
 [overview-isolation-tests]: ../../src-tauri/src/overview_session_tests.rs
-[pi-message-tests]: ../../src/components/agent/AgentPiMessages.test.tsx
-[output-card-tests]: ../../src/components/agent/AgentOutputCard.test.tsx
+[pi-message-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/src/components/agent/AgentPiMessages.test.tsx
+[output-card-tests]: https://github.com/xuchen-cloud/project_mind/blob/e136933bce4f938397aa374b69851cd480808272/src/components/agent/AgentOutputCard.test.tsx

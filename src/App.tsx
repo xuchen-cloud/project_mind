@@ -4,7 +4,7 @@ import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpen
 import { prepareProjectContentClose, prepareWorkspaceContentClose } from "./lib/project-content-lifecycle";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
-import { blocksDshProjectNavigation, DSH_BUSY_MESSAGE, setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events";
+import { setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events";
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
@@ -200,6 +200,8 @@ export function WorkspaceLayout({
   const currentWindowLabel = getCurrentWindowLabel();
   const currentProjectWindowId = parseProjectWindowProjectId(currentWindowLabel);
   const activeProjectId = parseRouteId(params.projectId);
+  const activeProjectIdRef = useRef(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
@@ -223,13 +225,9 @@ export function WorkspaceLayout({
       : requestWorkspaceRecordFocusSave({ recordId: route.recordId });
     return canLeaveRecordFocus(saveResult);
   }, [activeRecordFocusRoute]);
-  const navigationBlockedByRun = useRef(false);
   const routeSaveBlocker = useBlocker(
     useCallback<BlockerFunction>(
       ({ currentLocation, nextLocation }) => {
-        const running = useAgentPanelStore.getState().runningBinding;
-        navigationBlockedByRun.current = blocksDshProjectNavigation(running?.scope.kind === "project" ? running.scope.projectId : null, nextLocation.pathname);
-        if (navigationBlockedByRun.current) return true;
         const route = parseRecordFocusRoute(currentLocation.pathname);
         if (
           !route ||
@@ -299,11 +297,10 @@ export function WorkspaceLayout({
       return;
     }
     setStatus({
-      tone: navigationBlockedByRun.current ? "warning" : "error",
-      label: navigationBlockedByRun.current ? "助手正在执行" : "Save failed",
-      message: navigationBlockedByRun.current ? DSH_BUSY_MESSAGE : "无法捕获当前 Project Record，导航已取消",
+      tone: "error",
+      label: "Save failed",
+      message: "无法捕获当前 Project Record，导航已取消",
     });
-    if (navigationBlockedByRun.current) showDshBusyFeedback();
     routeSaveBlocker.reset();
   }, [routeSaveBlocker, setStatus]);
 
@@ -880,7 +877,7 @@ export function WorkspaceLayout({
       }
       closeProjectTab(projectId);
 
-      if (activeProjectId === projectId) {
+      if (activeProjectIdRef.current === projectId) {
         navigate(workspacePath());
       }
     },
@@ -905,11 +902,11 @@ export function WorkspaceLayout({
         return;
       }
       closeProjectTab(projectId);
-      if (activeProjectId === projectId) {
+      if (activeProjectIdRef.current === projectId) {
         navigate(workspacePath());
       }
     },
-    [activeProjectId, closeProjectTab, navigate, currentWorkspace?.rootPath, pushToast],
+    [closeProjectTab, navigate, currentWorkspace?.rootPath, pushToast],
   );
 
   const updateProjectRecordFilters = useCallback(

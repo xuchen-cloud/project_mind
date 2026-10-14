@@ -1,12 +1,15 @@
 # GenOffice PPTX 外部重开结果
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录；`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 关联 #118 / F03。执行 agent 验证；不是 review，不检查浏览器水印。
 
 ## 结果与边界
 
 {"cases": 8, "reopened": 8, "actual_headless_conversions": 6, "reused_original_conversions": 2, "source_unchanged": true, "all_page_counts_equal": true}
 
-只在 `/private/tmp/project-mind-genoffice-pptx-validation-20261013/external` 创建文件；没有修改源 PPTX 或重跑 SDK，没有 GUI、没有新增 PNG。每个候选使用 SHA256 一致的 scratch 输入副本、独立 LibreOffice profile/PDF 输出目录，subprocess timeout=60s。两个原件的输入 SHA256 与先前 Univer 原件记录相同，并且复用 PDF 的 checksum 也核对一致，已复制到本目录并记录 `reuse` 完整来源。候选新 hash 全部实际转换。
+只在 `$VALIDATION_TMP_ROOT/project-mind-genoffice-pptx-validation-20261013/external` 创建文件；没有修改源 PPTX 或重跑 SDK，没有 GUI、没有新增 PNG。每个候选使用 SHA256 一致的 scratch 输入副本、独立 LibreOffice profile/PDF 输出目录，subprocess timeout=60s。两个原件的输入 SHA256 与先前 Univer 原件记录相同，并且复用 PDF 的 checksum 也核对一致，已复制到本目录并记录 `reuse` 完整来源。候选新 hash 全部实际转换。
 
 **reopened 表示原格式可被独立 LibreOffice 打开并产生 pypdf 可读 PDF，不能直接称保真通过。** Poppler 可抽取中文不证明中文视觉正确；与原件图像像素相同不证明位置相同。当前 headless 中文方框/不可见限制沿用同 hash 原件证据，如实保留；本轮按指示没有更多 PNG。
 
@@ -40,7 +43,7 @@
 使用同 bundled LibreOfficeDev 26.8.0.0.alpha0（前次原件记录附 version），Poppler 26.05.0，pypdf 6.10.0，Python 3.12.14。脚本不引用或安装 node_modules；仅用 Python/pypdf 和系统进程。原件/候选不可覆盖；已有同 source hash 的 successful 结果可复用。
 
 ```sh
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 /tmp/project-mind-genoffice-pptx-validation-20261013/external/reopen.py
+$RUNTIME_DEPENDENCIES/python/bin/python3 $VALIDATION_TMP_ROOT/project-mind-genoffice-pptx-validation-20261013/external/reopen.py
 ```
 
 归档脚本也接受 `--scratch <GenOffice样本目录> --univer-evidence <已有原件结果JSON>`；全部输出仍限于该 scratch/external/。

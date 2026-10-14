@@ -71,7 +71,7 @@ WP1 已落实这三个接口，无当前调用所缺 DTO。历史关联资源快
 
 ## 本次补齐（2026-10-11）
 
-- HTML source=true 改用 DSH TextBody + 已校验 fixed text/line；旧 FileHtmlPreview 保留其他调用，不修改旧组件。移除本包旧 HTML 专用 CSS 隐藏规则。
+- HTML source=true 改用 DSH TextBody + 已校验 fixed text/line。当时未修改旧 FileHtmlPreview；2026-10-14 生产引用检查确认它已无调用，随旧预览界面移除。移除本包旧 HTML 专用 CSS 隐藏规则。
 - actual-version initialView 可在 sourceReady 后到达；主壳式 callback/render、各版本视图与隐藏卸载样例通过。一次恢复后用户滚动不会被后续保存 props 拉回。
 - PDF 恢复 zoom（含 0 fit-width）、page 与 saved scroll；首/目标页面异步尺寸落定后再次定位，卸载重建后保持。
 - SourceRef 成功/清空/迟到隔离旧验证继续有效；新增 bytes hash 不符始终 null 验证。

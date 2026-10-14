@@ -1,6 +1,6 @@
 # ProjectMind 文档索引
 
-更新时间：2026-10-08
+更新时间：2026-10-14
 
 本目录只保留三类文档：当前基线、仍有效的决策、历史归档。正在推进但尚未完成的事项统一记录在[未完成事项](remaining-work.md)，不再分散维护多个执行计划。
 
@@ -23,6 +23,14 @@
 ## 当前待办
 
 - [未完成事项](remaining-work.md)：唯一的仓库内待办总表；GitHub Issues 是正式跟踪器。
+- [2026-10-14 main 差异检视](technical/main-branch-review-20261014.md)：本轮清理、确定发现、实际覆盖与验证复用；子 agent 未返回结论，不计作通过。
+
+## Project 内容与助手
+
+- [内容 Tab 规格](requirements/project-content-tabs.md)与[实施记录](requirements/project-content-tabs-execution.md)：Record / File / Session、双栏、文件身份与固定版本来源、多项目后台运行；平台验收限制保留在记录中。
+- [内容栏优化](requirements/tab-strip-refinement-20261013.md)：阅读工具栏、Tab 辨识与会话模型入口；临时放大阅读栏仍见未完成事项。
+- [DSH 组件接入](requirements/dsh-ui-component-integration.md)与[迁移记录](requirements/dsh-assistant-migration.md)：主应用 Project 聊天的现行入口。
+- [原生助手框架](../src-tauri/src/agent/README.md)：Pi、后台维护与 CLI/MCP；这些能力不能直接视为已接入 DSH 聊天。
 
 ## 文件能力选型参考
 

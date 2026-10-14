@@ -88,10 +88,9 @@ export interface VoiceMinutesSnapshot {
 }
 export interface VoiceMinutesGenerateInput { target: VoiceRecordLookup; requestId: string }
 
-// TODO(VR-03): add persisted coverage ranges, derivative statuses,
-// lexicon and minutes revisions once the database contracts are implemented.
-// TODO(VR-12): events carry workspace/session/epoch/sequence; detect sequence gaps
-// and reload authoritative snapshot. Never transport raw PCM through React state.
+// The UI polls authoritative snapshots and discards stale request results.
+// Raw PCM stays in the native capture runtime. Lexicon and other deferred
+// derivatives follow docs/requirements/voice-record-decisions.md.
 
 export interface VoiceRecoveryGap {
   id: number;

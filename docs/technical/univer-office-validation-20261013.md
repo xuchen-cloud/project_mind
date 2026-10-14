@@ -1,5 +1,8 @@
 # Office 候选实际验证：Univer / GenOffice（2026-10-13）
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 ## 工作包
 
 - 关联：#118 / F03 Office 候选验证；前置调研见 [候选报告](office-integration-candidate-research-20261013.md)。
@@ -32,7 +35,7 @@
 - Web / Exchange 固定 1.0.4；原生 binding 按发布包真实依赖为 1.0.2。React 19.2.0；Vite 8.0.3。
 - 试验在隔离目录进行，没有改变根 package.json/package-lock 或主应用源码。安装使用 `--ignore-scripts`，darwin-arm64 原生 optional 包实际加载成功。
 - [复跑说明](../../packages/office-validation/README.md)、[锁定依赖](../../packages/office-validation/package-lock.json)、[浏览器探针](../../packages/office-validation/browser/main.js)、[候选导出接口](../../packages/office-validation/vite.config.mjs)。
-- 原始执行目录：`/tmp/project-mind-univer-validation-20261013`。归档只保留脚本、受控原件和精选证据，依赖与大快照不纳入仓库。
+- 原始执行目录：`$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013`。归档只保留脚本、受控原件和精选证据，依赖与大快照不纳入仓库。
 
 本机完整开发依赖约 466 MiB（补图片插件前一次测量）；它包含三个格式、开发工具和多种能力，**不是桌面发布增量**。主项目固定 Node 当前为 24.21.0；本轮未对该精确版本或 Windows 原生包、签名和发布布局验收。
 

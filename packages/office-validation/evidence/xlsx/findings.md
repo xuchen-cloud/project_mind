@@ -1,6 +1,9 @@
-> 历史证据来源：2026-10-13 的 `/tmp/project-mind-univer-validation-20261013/xlsx`。此文中的临时文件名是历史引用；归档复跑命令与当前文件清单以 ../../README.md 为准。
+> 历史证据来源：2026-10-13 的 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/xlsx`。此文中的临时文件名是历史引用；归档复跑命令与当前文件清单以 ../../README.md 为准。
 
 # #118 / F03：Univer SDK 1.0.4 XLSX 实际执行结果
+
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
 
 ## 结论
 
@@ -89,7 +92,7 @@
 
 ## 可运行命令
 
-在 `/tmp/project-mind-univer-validation-20261013/xlsx` 中，依赖由主 agent 准备后执行以下各条命令。当前已有原件，generate.py 会校验并复用，不覆盖。
+在 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/xlsx` 中，依赖由主 agent 准备后执行以下各条命令。当前已有原件，generate.py 会校验并复用，不覆盖。
 
 ```bash
 "${OFFICE_VALIDATION_PYTHON:-python3}" generate.py
@@ -132,4 +135,4 @@ node default-calculation-probe.mjs
 
 最小可继续验证：两张中文 sheet、基本值、SUM/乘法/跨表依赖，明确强制计算；保留完整产品模型元信息。复杂 fixture 中已知 CF/DV/一个柱形图/PNG/隐藏 sheet 的受测语义可保留，但只称这个实例通过，不能泛化到全部 Excel 文件。
 
-解锁完整 UI 保存结论：主 agent 对 imported-unit.json 实测 Web SDK 编辑与 save，导出 save 返回模型，复用这些独立断言；统一执行外部工具重开并记录原生显示结果。然后再验证主 File ID/CAS/版本/历史保存接缝。本执行包没有修改主项目源码/root package、没有窗口、全量测试或子 agent，不作为 review 或 Issue 发布。
+解锁完整 UI 保存结论：主 agent 对 imported-unit.json 实测 Web SDK 编辑与 save，导出 save 返回模型，复用这些独立断言；统一执行外部工具重开并记录原生显示结果。然后再验证主 File ID/CAS/版本/历史保存接缝。本执行包没有修改主项目源码$HOME package、没有窗口、全量测试或子 agent，不作为 review 或 Issue 发布。

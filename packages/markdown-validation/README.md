@@ -1,5 +1,8 @@
 # Markdown 独立验证
 
+路径约定：`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 报告：[Markdown 候选调研](../../docs/technical/markdown-integration-candidate-research-20261013.md)。本包仅验证既有解析/SSR预览、固定 SHA 的 GenOffice 纯函数，以及字节修改后真实文件保存；不是主程序编辑器接入。
 
 ## 已执行
@@ -22,7 +25,7 @@ npm run build
 npm run probe
 ```
 
-本次 Python 实际路径为 `/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3`。Python 仅需标准库及 `curl`。下载限定为 source-lock 中的固定提交文件，不要求 Git clone。源文件缓存于忽略目录 `upstream/`，重复运行校验已有文件，不无限等待 Git。
+本次 Python 实际路径为 `$RUNTIME_DEPENDENCIES/python/bin/python3`。Python 仅需标准库及 `curl`。下载限定为 source-lock 中的固定提交文件，不要求 Git clone。源文件缓存于忽略目录 `upstream/`，重复运行校验已有文件，不无限等待 Git。
 
 `build-probe.mjs` bundle 实际 parser、MarkdownText、图片预处理和 GenOffice source helper；仅将 CSS/font 导入置空，SSR 没有布局/字体/视觉验收。运行产生 `build/entry.mjs`，再由 probe 真实调用。`evidence/preview.html` 为无头 React SSR 结果。
 

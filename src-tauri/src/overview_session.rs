@@ -142,53 +142,6 @@ pub(crate) fn predecessors<S: BoundSourceStore>(
     })
 }
 
-pub(crate) fn segment(
-    record: &SourceReadRecord,
-    cursor: Option<&str>,
-    page_text: &str,
-    node_id: &str,
-    revision: u64,
-    summary: &crate::overview_generation::SourceSummaryContent,
-    parsed: &ParsedSessionDelta,
-    conversation: &ConversationEvidence,
-) -> AgentResult<SessionSummarySegment> {
-    use sha2::{Digest, Sha256};
-    let start = crate::agent::model_history::history_cursor_offset(cursor, record)? as usize;
-    let end = start + page_text.chars().count();
-    let split = start != 0 || end != record.total_chars as usize;
-    Ok(SessionSummarySegment {
-        id: node_id.into(),
-        session_id: record.session_id.clone(),
-        branch_id: record.runtime_entry_id.clone(),
-        revision,
-        start_entry_id: record.runtime_entry_id.clone(),
-        end_entry_id: record.runtime_entry_id.clone(),
-        start_char: split.then_some(start),
-        end_char: split.then_some(end),
-        summary: summary.summary.clone(),
-        topics: summary.keywords.clone(),
-        statements: parsed.statements.clone(),
-        artifact_refs: conversation
-            .operations
-            .iter()
-            .filter(|operation| {
-                parsed.statements.iter().any(|statement| {
-                    statement.operation_receipt_id.as_deref()
-                        == Some(operation.operation_id.as_str())
-                })
-            })
-            .map(|operation| operation.object.clone())
-            .collect(),
-        supersedes: parsed.supersedes.clone(),
-        input_hash: format!(
-            "sha256:{:x}",
-            Sha256::digest(
-                format!("{}:{}:{start}:{end}", record.message_id, record.text_hash).as_bytes()
-            )
-        ),
-    })
-}
-
 pub(crate) fn segment_batch(
     messages: &[(SourceReadRecord,ConversationEvidence)],
     pages: &[crate::source_service::SourceReadPage],

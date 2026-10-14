@@ -426,8 +426,7 @@ test('independent Node DSH: upstream UI, streaming, stop/recovery and durable hi
   const list = await runtime.rpc('session/list', {}, '_request');
   assert.ok(list.items.some((item) => item.sessionId === sessionId), 'saved session listed after restart');
   stream = await follow(runtime, sessionId);
-  const restored = events(stream);
-  assert.deepEqual(restored, beforeRestart, 'restart must restore the exact durable event prefix');
+  assertRestoredHistory(stream, beforeRestart);
   await prompt(runtime, stream, sessionId, 'Integration after restart');
   assert.equal(provider.requests.length, 7);
   assert.deepEqual(provider.requests[6].roles.slice(0, firstRoles.length), firstRoles);

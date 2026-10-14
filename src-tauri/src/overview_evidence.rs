@@ -84,16 +84,6 @@ pub(crate) struct CapturedPublishedItem {
     files: Vec<(SourceRef,FileReferenceProof)>,
 }
 impl CapturedPublishedItem {
-    pub(crate) fn capture(db:&Database,request:&RequestContext,binding:&WorkspaceBinding,
-        project_id:i64,item_id:&str)->AgentResult<Self> {
-        let (reference,sources,text)=db.agent_published_item_capture(project_id,item_id)?;
-        crate::agent::source_trace::published_source_visible(db,request,binding,&reference)?;
-        let scope=crate::agent::models::Scope::Project{project_id};
-        let snapshot=db.agent_overview_version(&scope,reference.revision)?.ok_or_else(changed)?;
-        let corrections=db.agent_overview_corrections(&scope)?;
-        let corrections=db.agent_published_item_corrections(&snapshot,item_id,&corrections.items)?;
-        Ok(Self {binding:binding.clone(),caller:request.caller.key(),reference,text,corrections,sources,files:vec![]})
-    }
     pub(crate) fn recapture(db:&Database,request:&RequestContext,binding:&WorkspaceBinding,
         reference:&PublishedOverviewRef)->AgentResult<Self> {
         let sources=crate::agent::source_trace::published_source_visible(db,request,binding,reference)?;

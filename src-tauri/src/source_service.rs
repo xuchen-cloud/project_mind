@@ -323,14 +323,6 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     pub(crate) fn new(store: &'a S) -> Self {
         Self { store }
     }
-    pub(crate) fn registry_entry(
-        &self,
-        request: &RequestContext,
-        object: &ObjectRef,
-    ) -> AgentResult<Option<crate::db::source_registry::SourceRegistryEntry>> {
-        self.store
-            .with_current(|binding, db| db.source_registry_entry(request, binding, object))
-    }
     pub(crate) fn backfill_index_queue(
         &self,
         request: &RequestContext,

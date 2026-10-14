@@ -66,6 +66,8 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   workspaceRoot: string; projectId: number; active: boolean; overview: (visible: boolean) => ReactNode;
 }) {
   const location = useLocation();
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const coordinator = useRecordSaveCoordinator();
@@ -150,6 +152,7 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
           const current = await recordDocumentApi.bindingGet(workspaceRoot);
           if (!binding || current.workspaceId !== binding.workspaceId || current.generation !== binding.generation) throw new Error("工作区已切换，关闭已取消");
           useProjectContentStore.getState().close(scope, tabId);
+          if (!activeRef.current) return;
           const next = getContentLayout(useProjectContentStore.getState(), scope);
           const selectedId = next.panes.find(item => item.id === next.focusedPaneId)?.selectedTabId;
           const selected = next.tabs.find(item => item.id === selectedId);

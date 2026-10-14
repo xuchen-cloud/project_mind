@@ -1,6 +1,9 @@
 # GenOffice PDF 原文修改真实 runtime
 
-固定 SHA `d32d1711f1bf985430757b8c6b3fbddd3831d946`。隔离 scratch `/tmp/project-mind-genoffice-pdf-validation-20261013`；没有 Electron、GUI、native build 或主项目依赖修改。
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录；`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
+固定 SHA `d32d1711f1bf985430757b8c6b3fbddd3831d946`。隔离 scratch `$VALIDATION_TMP_ROOT/project-mind-genoffice-pdf-validation-20261013`；没有 Electron、GUI、native build 或主项目依赖修改。
 
 ## 实际结果
 
@@ -24,12 +27,12 @@
 从仓库根执行，第一次在空 scratch 获取官方固定源码；已有依赖/原件/结果可复用，不必重复库或渲染：
 
 ```sh
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 packages/genoffice-pdf-validation/bootstrap.py
-npm ci --prefix /tmp/project-mind-genoffice-pdf-validation-20261013 --ignore-scripts --no-audit --no-fund
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node packages/genoffice-pdf-validation/build.mjs
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node packages/genoffice-pdf-validation/validate.mjs
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 packages/genoffice-pdf-validation/external.py
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node packages/genoffice-pdf-validation/final-verify.mjs
+$RUNTIME_DEPENDENCIES/python/bin/python3 packages/genoffice-pdf-validation/bootstrap.py
+npm ci --prefix $VALIDATION_TMP_ROOT/project-mind-genoffice-pdf-validation-20261013 --ignore-scripts --no-audit --no-fund
+$RUNTIME_DEPENDENCIES/node/bin/node packages/genoffice-pdf-validation/build.mjs
+$RUNTIME_DEPENDENCIES/node/bin/node packages/genoffice-pdf-validation/validate.mjs
+$RUNTIME_DEPENDENCIES/python/bin/python3 packages/genoffice-pdf-validation/external.py
+$RUNTIME_DEPENDENCIES/node/bin/node packages/genoffice-pdf-validation/final-verify.mjs
 ```
 
 bootstrap 会自动将随附 dependency.lock.json 复制为 scratch/package-lock.json，上述空 scratch 的 npm ci 顺序具备锁文件；本次只检查代码路径，不重装依赖。首次实际执行为 `npm install --ignore-scripts --no-audit --no-fund`，版本完全固定。fixture.py generate 仅用于空的新副本，拒绝覆盖 originals；需相同本机字体路径。字体不随证据分发。

@@ -408,10 +408,6 @@ struct Cursor {
 }
 
 impl Database {
-    pub(crate) fn agent_output_scope(&self, id: &str) -> AgentResult<Scope> {
-        let output = read_output(&self.conn, id)?;
-        Ok(read_run(&self.conn, &output.staged.run_id)?.scope)
-    }
     pub(crate) fn agent_output_run_scope(&self, run_id: &str) -> AgentResult<Scope> {
         Ok(read_run(&self.conn, run_id)?.scope)
     }

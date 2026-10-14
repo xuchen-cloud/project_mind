@@ -1,5 +1,8 @@
 # Office 候选验证 harness（#118 / F03）
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 这是 2026-10-13 Univer SDK 1.0.4 试验的可复跑归档，独立于主项目依赖与 File 服务。**本包不计作 Word/Excel/PPT 格式交付，也不表示 #118 完成。** Vite 只把受控模型导出到本包 `browser/output/`，不写主 File，不提交版本、CAS 或数据库。
 
 **PPT 必须无水印。当前 Slides Pro 截图有明显水印，方案判定不接受。** 基础文字/页序/图片编辑通过不能覆盖该硬要求；复杂 PPTX 的备注丢失、图表模式改写及母版字段损失也保持 failed/limited。GenOffice 验证属于另一个工作范围。
@@ -11,7 +14,7 @@
 - `evidence/<格式>/`：历史 findings 与精选 JSON。XLSX 严格结果和 PPTX 大份语义结果仅摘录，保留全部断言名称/结果和原状态；摘录字段在 JSON 的 `archival_selection` 说明。
 - `evidence/browser/`：主 agent 提供的 Chromium/WebKit 浏览器 events（历史阶段证据，不代表修正后最终验收）。浏览器 checkpoint 与外部重开脚本由其他 agent 单独归档。
 
-来源是 `/tmp/project-mind-univer-validation-20261013`。历史 evidence 中的临时路径只用于追溯，**不是归档运行依赖**；部分被引用的完整快照/输出没有归档，会由脚本重建。保留的 originals 是当次受控原件，metadata 的 checksum 与其字节对应。没有归档 node_modules、导入模型、aggregate、大份重复库存或候选 Office 输出。
+来源是 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013`。历史 evidence 中的临时路径只用于追溯，**不是归档运行依赖**；部分被引用的完整快照/输出没有归档，会由脚本重建。保留的 originals 是当次受控原件，metadata 的 checksum 与其字节对应。没有归档 node_modules、导入模型、aggregate、大份重复库存或候选 Office 输出。
 
 **Word 候选宿主必须使用 Docs Core + Docs Drawing preset，配合 traditional 导入。当前 browser/main.js 已包含 UniverDocsDrawingPreset，不宣称 only-core 足够。** 历史失败不抹除：DocsCore 未注册 drawing 的宿主配置曾在 save 时丢失图片，主 agent 已修正配置并负责针对性复验；XLSX 键盘修改 A3 的字体变化以及各格式元数据写入 Univer.ai 均已记录。最新宿主结果以主 agent 的浏览器证据为准，不能以转换探针成功替代 Web 保存验证。
 

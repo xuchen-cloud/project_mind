@@ -4,7 +4,7 @@
 
 ## 当前接入路径
 
-GUI 通过 Tauri 命令进入当前 Workspace 的共享服务。会话侧栏、Pi Host、run、来源读取、Overview/知识、Record/Todo/File 成果与收据服务已有各自的真实调用路径；每项能力仍按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
+GUI 的原生功能通过 Tauri 命令进入当前 Workspace 的共享服务。Pi Host、run、来源读取、Overview/知识、Record/Todo/File 成果与收据服务保留后端和 CLI/MCP 调用路径；Project 聊天已由 `dsh_assistant.rs` 与独立 DSH runtime 承载，尚未接通这里的全部业务工具。当前 Workspace 聊天与知识/记忆 GUI 没有挂载，旧面板已清理；每项能力按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
 
 本机外部调用路径为：
 

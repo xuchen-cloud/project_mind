@@ -1,5 +1,8 @@
 # Office 外部无窗口重开验证
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录；`$RUNTIME_DEPENDENCIES` 为提供记录所用 Node/Python/外部工具的运行时依赖目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 关联 #118 / F03。仅创建 scratch/external/ 内的脚本、输入副本、独立 profile、独立 PDF 输出和证据；没有重跑 SDK。使用 bundled soffice --headless，逐文件 subprocess timeout=60s。LibreOffice 打开 SHA256 一致的 scratch 输入副本，来源文件只读并检查转换前后 hash。
 
 ## 结果边界
@@ -42,10 +45,10 @@ DOCX 选显式 traditional 的 product unit 输出；XLSX 使用现有 forced �
 ## 可跑命令
 
 ```sh
-/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 /tmp/project-mind-univer-validation-20261013/scratch/external/reopen.py
+$RUNTIME_DEPENDENCIES/python/bin/python3 $VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/scratch/external/reopen.py
 ```
 
-工具版本：{"python": "3.12.14", "pypdf": "6.10.0", "soffice": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice", "soffice_version": {"returncode": 0, "elapsed_ms": 292.557583999951, "stdout": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5\n\n", "stderr": "", "timeout": false}}。
+工具版本：{"python": "3.12.14", "pypdf": "6.10.0", "soffice": "$RUNTIME_DEPENDENCIES/bin/override/soffice", "soffice_version": {"returncode": 0, "elapsed_ms": 292.557583999951, "stdout": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5\n\n", "stderr": "", "timeout": false}}。
 
 ## 更新的 DOCX 浏览器候选
 
@@ -62,4 +65,4 @@ DOCX 选显式 traditional 的 product unit 输出；XLSX 使用现有 forced �
 
 ## 路径说明
 
-实际目录为 `/tmp/project-mind-univer-validation-20261013/scratch/external/`（macOS 解析为 `/private/tmp/project-mind-univer-validation-20261013/scratch/external/`），不是共享根下直接的 `external/`。本轮最初 24 件转换已经产出，新两件也已产出；没有 soffice 路径或进程阻塞。
+实际目录为 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/scratch/external/`（macOS 解析为 `$VALIDATION_TMP_ROOT/project-mind-univer-validation-20261013/scratch/external/`），不是共享根下直接的 `external/`。本轮最初 24 件转换已经产出，新两件也已产出；没有 soffice 路径或进程阻塞。

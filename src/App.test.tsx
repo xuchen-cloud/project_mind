@@ -27,12 +27,16 @@ import { dshAssistantApi } from "./services/dshAssistantApi";
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { getContentLayout } from "./lib/project-content-layout";
 import { useProjectContentStore } from "./state/project-content-store";
-// The directory/exit test exercises the real panel; the separately bundled
-// conversation adapter is verified by its own suite and native GUI acceptance.
+// Keep native reads, canonical editors, content tabs and the assistant panel real.
+// Separately bundled DSH renderers have their own suites; loading their global
+// stylesheet here makes jsdom role/visibility queries depend on test order.
 vi.mock("@project-mind/dsh-ui/adapters", () => ({
   DshConversationHost: () => <div data-testid="dsh-conversation-host" />,
   DshSettingsHost: () => <div data-testid="dsh-settings-host" />,
   insertDshFileReference: vi.fn(),
+}));
+vi.mock("../packages/dsh-ui/preview", () => ({
+  DshFilePreview: ({ text }: { text?: string }) => <div>{text}</div>,
 }));
 vi.mock("./services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("./services/projectFileApi", async importOriginal => ({
@@ -294,6 +298,7 @@ describe("WorkspaceLayout", () => {
   });
   beforeEach(() => {
     closeFilePreview();
+    useAgentPanelStore.getState().clearWorkspace();
     useProjectContentStore.setState({ layouts: {} });
     useProjectFileNavigation.setState({ request: null, revisions: {} });
     vi.resetAllMocks();
@@ -1780,21 +1785,23 @@ describe("WorkspaceLayout", () => {
     await waitFor(() => expect(launcher).toBeEnabled());
     await userEvent.click(launcher);
     expect(useAgentPanelStore.getState().open).toBe(true);
-    await screen.findByRole("heading", { name: "DSH 助手" });
+    const assistant = await screen.findByRole("heading", { name: "DSH 助手" });
+    const panel = within(assistant.closest(".agent-workspace-panel")! as HTMLElement);
     const main = document.querySelector(".workspace-content-main")!;
-    await waitFor(() => expect(screen.getByRole("button", { name: "新建会话" })).toBeEnabled());
+    await waitFor(() => expect(panel.getByRole("button", { name: "新建会话" })).toBeEnabled());
     expect(main).toHaveAttribute("inert");
-    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    await userEvent.click(panel.getByRole("button", { name: "关闭助手" }));
     expect(main).not.toHaveAttribute("inert");
-    expect(screen.getByRole("button", { name: "助手" })).toBeEnabled();
-    await userEvent.click(screen.getByRole("button", { name: "助手" }));
+    expect(launcher).toBeEnabled();
+    await userEvent.click(launcher);
     await act(() => router.navigate("/projects/2?view=overview"));
     await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
     await waitFor(() => expect(sessions).toHaveBeenCalledWith(2));
-    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    await userEvent.click(panel.getByRole("button", { name: "关闭助手" }));
     expect(main).not.toHaveAttribute("inert");
     expect(document.querySelector('[data-project-resident-id="2"]')).toHaveAttribute("data-project-resident-active", "true");
-    expect(screen.getByRole("button", { name: "助手" })).toBeEnabled();
+    const activeLauncher = within(document.querySelector('[data-project-resident-id="2"] .agent-launcher')! as HTMLElement);
+    expect(activeLauncher.getByRole("button", { name: "助手" })).toBeEnabled();
   });
 
   it("keeps five Project overviews resident while preserving all opened content shells", async () => {
@@ -1828,7 +1835,10 @@ describe("WorkspaceLayout", () => {
     });
     expect(document.querySelector('[data-project-resident-id="1"]')).toBe(projectA);
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "关闭 Project 3" }));
+    // Keyboard focus reveals the close button without relying on jsdom hover CSS.
+    const closeProject = screen.getByRole("button", { name: "关闭 Project 3" });
+    act(() => closeProject.focus());
+    await userEvent.setup().keyboard("{Enter}");
     await waitFor(() => expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull());
 
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
@@ -1838,6 +1848,7 @@ describe("WorkspaceLayout", () => {
   it("retains opened Project content shells and Record editors across six project switches without refetching", async () => {
     const { router } = await renderResidentProjectFixture(true);
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    act(() => useAgentPanelStore.getState().setRunBusy("/tmp/workspace", 7, true));
     for (const projectId of [8, 9, 10, 11, 12]) {
       const recordId = projectId * 10;
       await act(() => router.navigate(`/projects/${projectId}/records/${recordId}`));
@@ -1851,9 +1862,10 @@ describe("WorkspaceLayout", () => {
     expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeInTheDocument();
     await act(() => router.navigate("/projects/7/records/70"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeVisible());
-    expect(screen.getByRole("tab", { name: "Record 7" })).toHaveAttribute("aria-selected", "true");
+    expect(within(document.querySelector('[data-project-resident-id="7"] .project-content__pane-tabs')! as HTMLElement).getByRole("tab", { name: "Record 7" })).toHaveAttribute("aria-selected", "true");
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "project", projectId: 7 });
   }, 15_000);
   it.each(["project", "workspace"] as const)("retains a hidden Record and its Project when the %s close guard fails, without blocking another Project", async target => {
     const { router, coordinator, projectA } = await renderResidentProjectFixture(true);
@@ -1879,6 +1891,28 @@ describe("WorkspaceLayout", () => {
     await waitFor(() => expect(screen.queryByRole("tab", { name: "Project 8" })).not.toBeInTheDocument());
     expect(screen.getByRole("tab", { name: "Project 7" })).toBeInTheDocument();
     expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+  }, 15_000);
+
+  it.each(["project", "content"] as const)("keeps a newly selected Project when its earlier %s tab finishes closing", async target => {
+    const { router, coordinator } = await renderResidentProjectFixture(true);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    let finish!: () => void;
+    const closing = new Promise<void>(resolve => { finish = resolve; });
+    const flush = coordinator.flush.bind(coordinator);
+    const pending = vi.spyOn(coordinator, "flush").mockImplementation(async key => {
+      if (key === projectRecordSaveKey(7, 70)) await closing;
+      return flush(key);
+    });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: target === "project" ? "关闭 Project 7" : "关闭Record 7" }));
+      await waitFor(() => expect(pending).toHaveBeenCalledWith(projectRecordSaveKey(7, 70)));
+      await act(() => router.navigate("/projects/8"));
+      await act(async () => { finish(); await closing; });
+      await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeNull());
+      if (target === "project") expect(document.querySelector('[data-project-resident-id="7"]')).toBeNull();
+      expect(router.state.location.pathname).toBe("/projects/8");
+      expect(document.querySelector('[data-project-resident-id="8"]')).toHaveAttribute("data-project-resident-active", "true");
+    } finally { finish(); }
   }, 15_000);
 
   it.each([

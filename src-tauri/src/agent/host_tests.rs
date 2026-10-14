@@ -10,7 +10,7 @@ fn desktop_tool_manifest_is_accepted_by_the_packaged_host_adapter() {
         .collect();
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let mut child = Command::new("node").current_dir(repository)
-        .args(["--input-type=module", "-e", "import {readFileSync} from 'node:fs'; import {validateToolDescriptors} from './packages/agent-host/src/tool-descriptors.mjs'; validateToolDescriptors(JSON.parse(readFileSync(0,'utf8')));"])
+        .args(["--input-type=module", "-e", "import {readFileSync} from 'node:fs'; import {validateToolDescriptors} from './packages/agent-host/src/tool-descriptors.mjs'; const tools = JSON.parse(readFileSync(0,'utf8')); for (const tool of tools) { try { validateToolDescriptors([tool]); } catch (error) { error.message += ` (${tool.method})`; throw error; } } validateToolDescriptors(tools);"])
         .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
     child.stdin.take().unwrap().write_all(&serde_json::to_vec(&tools).unwrap()).unwrap();
     let result = child.wait_with_output().unwrap();

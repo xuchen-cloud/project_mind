@@ -1,5 +1,8 @@
 # GenOffice XLSX 可复跑归档
 
+路径约定：`$VALIDATION_TMP_ROOT` 为原验证产物的临时根目录。复跑前按环境设置；历史临时产物不随仓库提供。
+
+
 #118 / F03 的执行验证，固定上游 `d32d1711f1bf985430757b8c6b3fbddd3831d946`。结果与限制见 [FINDINGS](FINDINGS.md)，主 React/浏览器接口见 [HANDOFF](HANDOFF.md)。本包不计为 Issue 完成。
 
 ## 复跑
@@ -10,7 +13,7 @@
 
 ```sh
 export GENOFFICE_XLSX_PYTHON="/path/to/python-with-openpyxl"
-"$GENOFFICE_XLSX_PYTHON" reproduce.py /tmp/project-mind-genoffice-xlsx-rerun
+"$GENOFFICE_XLSX_PYTHON" reproduce.py $VALIDATION_TMP_ROOT/project-mind-genoffice-xlsx-rerun
 ```
 
 脚本复制归档输入/代码到新 scratch，获取并校验固定源码，npm ci，独立 Rust target 编译，生成 Node bundle，执行真实 gateway 和独立校验。每一步写 log 与 execution.json；真实失败直接停止，不提供替代引擎。default/原 IronCalc 的预期真实失败作为结果保留，命令执行成功不表示所有分支 passed。

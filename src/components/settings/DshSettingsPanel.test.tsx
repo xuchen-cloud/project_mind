@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DshSettingsPanel } from "./DshSettingsPanel";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
+import { DSH_BUSY_MESSAGE } from "../../lib/dsh-host-events";
 const mocks = vi.hoisted(() => ({ command: vi.fn(), hosts: [] as { projectId: number; mode: string; onError?: (msg: string) => void }[] }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { command: mocks.command } }));
 vi.mock("@project-mind/dsh-ui/adapters", () => ({ DshSettingsHost: (props: typeof mocks.hosts[number]) => { mocks.hosts.push(props); return <div data-testid="settings-host">{props.projectId}:{props.mode}</div>; } }));
@@ -38,6 +39,6 @@ describe("React DSH settings", () => {
   });
   it("does not replace a running project's runtime", () => {
     useAgentPanelStore.getState().openPanel("/workspace", { kind: "project", projectId: 1 }); useAgentPanelStore.getState().setRunBusy("/workspace", 1, true); setup();
-    expect(screen.getByRole("status")).toHaveTextContent("助手正在执行"); expect(mocks.command).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent(DSH_BUSY_MESSAGE); expect(mocks.command).not.toHaveBeenCalled();
   });
 });

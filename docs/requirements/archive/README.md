@@ -24,4 +24,4 @@
 
 #110/#111 外部 Harness/任务菜单与 #112 闭应用 Host 暂缓，不计当前范围。#115/#118 文件预览编辑以及 #119 AI Proxy 是独立需求，本次不改。原有评论、指派、原生依赖和 sub-issue 关系不因归档自动删改。
 
-早期[方向讨论稿](../../technical/ai-capability-direction.md)已标为历史参考；[Overview 技术记录](../../technical/ai-overview-implementation.md)、[长期记忆基线](../../technical/long-term-memory-implementation.md)、[会话记忆技术记录](../../conversation-memory.md)和[旧实现指南](../../ai-enhancement-guide.html)均明确历史定位，当前要求统一回到 #121/V1～V5。
+早期[方向讨论稿](../../technical/ai-capability-direction.md)已标为历史参考；[Overview 技术记录](../../technical/ai-overview-implementation.md)、[长期记忆基线](../../technical/long-term-memory-implementation.md)和[会话记忆技术记录](../../conversation-memory.md)均明确历史定位。旧 Pi GUI 实现指南已随无调用界面移除，当前要求统一回到 #121/V1～V5；当前接入边界见[系统设计](../../system-design.md)。

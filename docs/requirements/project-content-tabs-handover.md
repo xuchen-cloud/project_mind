@@ -8,7 +8,7 @@
 
 先读[完整需求](project-content-tabs.md)。本文负责执行顺序和交接，产品规则与 A01–A32 验收以完整需求为准；用户在实施会话中的新指令优先，并同步更新规格。本文不表示已有实现通过验收，也不授权重做其他正在进行的工作。
 
-涉及 DSH 交互借鉴、File 工具栏或内容 Tab 后续优化时，读取 [DSH Desktop 实际调研 Handover](dsh-desktop-design-research-handover.md)，其中区分现场实操、界面观察与待实施建议。
+涉及 File 工具栏或内容 Tab 优化时，读取[内容栏优化规格](tab-strip-refinement-20261013.md)与[执行记录](project-content-tabs-execution.md)。已被实施结果替代的 DSH 调研交接已移除；临时放大阅读栏与平台验证见[未完成事项](../remaining-work.md)。
 
 ### 已确认、直接实施的规则
 

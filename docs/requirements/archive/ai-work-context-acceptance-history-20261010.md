@@ -140,7 +140,7 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](../ai-work-con
 [source-read-tests]: ../../../src-tauri/src/source_service.rs
 [file-version-tests]: ../../../src-tauri/src/file_version_service.rs
 [review-tests]: ../../../src-tauri/src/agent/operation_batch_service_tests.rs
-[agent-panel-tests]: ../../../src/components/agent/AgentPanel.test.tsx
+[agent-panel-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/src/components/agent/AgentPanel.test.tsx
 [record-output-tests]: ../../../src-tauri/src/agent/record_outputs_tests.rs
 [bridge-file-tests]: ../../../src-tauri/src/agent/bridge/file_write_tests.rs
 [bridge-todo-tests]: ../../../src-tauri/src/agent/bridge/todo_write_tests.rs
@@ -180,5 +180,5 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](../ai-work-con
 [source-index-tests]: ../../../src-tauri/src/source_search_index.rs
 [read-bridge-commit]: https://github.com/xuchen-cloud/project_mind/commit/40bb1bb
 [overview-isolation-tests]: ../../../src-tauri/src/overview_session_tests.rs
-[pi-message-tests]: ../../../src/components/agent/AgentPiMessages.test.tsx
-[output-card-tests]: ../../../src/components/agent/AgentOutputCard.test.tsx
+[pi-message-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/src/components/agent/AgentPiMessages.test.tsx
+[output-card-tests]: https://github.com/xuchen-cloud/project_mind/blob/e136933bce4f938397aa374b69851cd480808272/src/components/agent/AgentOutputCard.test.tsx
