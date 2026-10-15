@@ -23,7 +23,7 @@
 2. 创建以本次目标分支为 base 的 PR。
 3. 在 PR 正文中写入 `Closes #<issue-number>`。
 4. 立即合并 PR，不等待额外的 CI 或外部 reviewer。
-5. 确认 PR 状态为 merged，且对应 Issue 已自动关闭。
+5. 确认 PR 状态为 merged，且对应 Issue 已关闭；未自动关闭时，手动关闭并记录 PR 链接。
 
 ## Do not add redundant gates
 
