@@ -1204,6 +1204,22 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-record-dock .home-record-location svg { width:calc(16px / var(--heading-scale,1)); height:calc(16px / var(--heading-scale,1)); }
 .home-record-dock .home-quick-note__page-heading h1 { max-width:100%; }
 
+/* Project records open directly on a white document surface. */
+.home-page.home-note-page--no-cover { --home-canvas:var(--home-surface); }
+.home-note-page--no-cover .project-overview-focus,
+.home-note-page--no-cover .project-overview-focus__scroll { background:var(--home-canvas); }
+.home-note-page--no-cover .project-overview-focus__scroll { scroll-padding-top:96px; }
+.home-record-header { margin-top:48px; }
+.home-record-header .home-record-heading { font-size:28px; line-height:36px; }
+.home-record-header .home-record-heading input { line-height:36px; font-weight:600; }
+.home-record-header .home-record-location { margin-bottom:8px; }
+.home-note-page--no-cover .home-note-content > .grid > .home-record-header { margin-bottom:12px; }
+.home-note-page--no-cover .home-note-content > .grid > .entity-tag-list {
+  padding-bottom:12px;
+  border-bottom:1px solid var(--home-line);
+  margin-bottom:20px;
+}
+
 
 .home-cover__icon-edit {
   border:0; padding:0; color:inherit; cursor:pointer; box-shadow:none;
