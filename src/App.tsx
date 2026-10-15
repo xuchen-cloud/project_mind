@@ -1539,7 +1539,7 @@ export function WorkspaceLayout({
       </>
     ) : null;
   return (
-    <HomeWorkspaceActionsContext.Provider value={{ switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width") }}>
+    <HomeWorkspaceActionsContext.Provider value={{ workspaceName: currentWorkspace.displayName || "Workspace", switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width") }}>
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
       flushBarrier={flushRecordSaves}

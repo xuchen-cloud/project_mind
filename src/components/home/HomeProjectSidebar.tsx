@@ -3,7 +3,7 @@ import { SidebarTagItem } from "./SidebarTagItem";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { HomeProjectFiles } from "./HomeProjectFiles";
 import { ProjectSidebarSessions } from "./ProjectSidebarSessions";
-import { HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
+import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Compass, Plus, Pencil, Trash2 } from "lucide-react";
@@ -94,6 +94,7 @@ export function HomeProjectSidebar({
       <ProjectSidebarSessions workspaceRoot={workspaceRoot} projectId={projectId} query={query} enabled={!projectSidebarCollapsed} />
       <section className="project-navigation__section project-navigation__files" aria-label="项目文件导航"><HomeProjectFiles project={project} documents={documents} filter={{ query, tagId: selectedTagId }} /></section>
     </div>
+    <HomeSidebarFooter />
     {menu ? <ActionContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
       { label: "重命名", icon: Pencil, disabled: !onRenameRecord, onSelect: () => setEditing({ id: menu.id, title: records.find(record => record.id === menu.id)?.title ?? "" }) },
       { label: "删除记录", icon: Trash2, tone: "danger", disabled: !onDeleteRecord, onSelect: () => { void onDeleteRecord?.(menu.id).catch(error => pushToast({ tone: "error", title: "删除记录失败", detail: String(error) })); } },

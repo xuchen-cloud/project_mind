@@ -5,7 +5,6 @@ import {
   ArrowLeftRight,
   X,
   FolderKanban,
-  Folder,
   ExternalLink,
   LoaderCircle,
   PanelLeft,
@@ -309,12 +308,8 @@ export function WorkspaceTopBar({
         {showWorkspace ? <button type="button" className="workspace-topbar__workspace-home"
           aria-label={`${homePanels.workspaceName} 工作区首页`} title={`${homePanels.workspaceName} · 工作区首页`}
           aria-current={workspaceActive ? "page" : undefined} onClick={onOpenWorkspace}>
-          <Folder size={14} aria-hidden="true" /><span>{homePanels.workspaceName}</span>
+          <FolderKanban size={14} aria-hidden="true" />{homePanels.leftOpen ? <span>{homePanels.workspaceName}</span> : null}
         </button> : null}
-        {!homePanels.leftOpen ? <>
-          <IconButton type="button" aria-label="切换 Workspace" title="切换工作区" onClick={onSwitchWorkspace}><ArrowLeftRight size={14} /></IconButton>
-          <IconButton type="button" aria-label="设置" onClick={onOpenSettings}><Settings size={13} /></IconButton>
-        </> : null}
       </div> : null}
       <div data-tauri-drag-region className="workspace-topbar__tab-frame tab-strip-frame" style={{ "--tab-fade-left": tabEdges.left, "--tab-fade-right": tabEdges.right } as CSSProperties}>
         <div ref={tabViewportRef} id="project-tabs-scroll" className="workspace-topbar__tab-scroll tab-strip-viewport" onScroll={() => measureTabs()}>

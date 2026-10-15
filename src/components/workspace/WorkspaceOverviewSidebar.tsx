@@ -2,7 +2,7 @@ import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "../home/SidebarTagItem";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { HomeSidebarSplit } from "../home/HomeSidebarSplit";
-import { HomeWorkspaceIdentity } from "../home/HomeWorkspaceIdentity";
+import { HomeSidebarFooter, HomeWorkspaceIdentity } from "../home/HomeWorkspaceIdentity";
 import { ProjectHomeIcon } from "../home/HomeCover";
 import {
 Archive,
@@ -318,6 +318,7 @@ export function WorkspaceOverviewSidebar({
         {availableTags.map((tag) => <SidebarTagItem key={tag.id} tag={tag} projectId={null} selected={activeRecordTagId === tag.id} onSelect={onActiveRecordTagIdChange} />)}
       </HomeSidebarList></>} />
 
+      <HomeSidebarFooter />
       {projectContextMenu ? (
         <ActionContextMenu
           x={projectContextMenu.x}

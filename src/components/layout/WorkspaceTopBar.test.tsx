@@ -35,6 +35,12 @@ describe("WorkspaceTopBar", () => {
     expect(left).toHaveAttribute("aria-expanded", String(leftOpen));
     expect(right).toHaveAttribute("aria-expanded", String(rightOpen));
     expect(left.closest("header")).toBe(screen.getByRole("tablist").closest("header"));
+    const home = screen.getByRole("button", { name: "Workspace 工作区首页" });
+    expect(home).toHaveTextContent(leftOpen ? "Workspace" : "");
+    expect(home.querySelector("span") !== null).toBe(leftOpen);
+    expect(home.querySelector("svg")).toHaveClass("lucide-folder-kanban");
+    expect(screen.queryByRole("button", { name: "切换 Workspace" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设置", exact: true })).not.toBeInTheDocument();
 
     await user.click(left);
     expect(toggleLeft).toHaveBeenCalledTimes(1);
@@ -42,6 +48,7 @@ describe("WorkspaceTopBar", () => {
     expect(screen.getByRole("button", { name: "切换左侧栏" })).toBe(left);
     expect(left).toHaveFocus();
     expect(left).toHaveAttribute("aria-expanded", String(!leftOpen));
+    expect(home.querySelector("span") !== null).toBe(!leftOpen);
 
     await user.click(right);
     expect(toggleRight).toHaveBeenCalledTimes(1);
