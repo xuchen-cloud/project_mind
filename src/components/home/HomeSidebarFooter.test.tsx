@@ -70,7 +70,7 @@ it("shows the current workspace and invokes each footer action independently", (
   expect(switchButton.querySelector("svg")).toHaveAttribute("width", "16");
   expect(settingsButton).toHaveClass("home-side__workspace-action");
   expect(settingsButton).toHaveAttribute("title", "设置");
-  expect(settingsButton.querySelector("svg")).toHaveAttribute("width", "18");
+  expect(settingsButton.querySelector("svg")).toHaveAttribute("width", "16");
   fireEvent.click(switchButton);
   expect(actions.switchWorkspace).toHaveBeenCalledOnce();
   expect(actions.openSettings).not.toHaveBeenCalled();
