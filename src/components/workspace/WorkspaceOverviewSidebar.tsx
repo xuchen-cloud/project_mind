@@ -32,6 +32,8 @@ SearchField,
 type ContextMenuAction
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
+import "../home/project-navigation.css";
+import "./workspace-navigation.css";
 
 export interface WorkspaceOverviewSidebarRecordItem {
   id: number;
@@ -109,8 +111,6 @@ export function WorkspaceOverviewSidebar({
     projectSidebarWidthPx,
     toggleProjectSidebarCollapsed,
     setProjectSidebarWidthPx,
-    workspaceSidebarTab: activeTab,
-    setWorkspaceSidebarTab: setActiveTab,
     workspaceProjectQuery: projectQuery,
     setWorkspaceProjectQuery: setProjectQuery,
   } = useUiStore();
@@ -132,6 +132,15 @@ export function WorkspaceOverviewSidebar({
       ),
     [normalizedProjectQuery, projects],
   );
+
+  const filteredRecords = useMemo(() => {
+    const query = recordQuery.trim().toLowerCase();
+    return records.filter((record) =>
+      (activeRecordTagId === null || record.tags.some((tag) => tag.id === activeRecordTagId)) &&
+      (!query || [record.title ?? "", record.contentMarkdown, ...record.tags.map((tag) => tag.label)]
+        .some((text) => text.toLowerCase().includes(query))),
+    ).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [records, recordQuery, activeRecordTagId]);
 
   const projectContextProject = projectContextMenu
     ? projects.find((project) => project.id === projectContextMenu.projectId) ?? null
@@ -217,9 +226,7 @@ export function WorkspaceOverviewSidebar({
 
   return (
     <aside
-      className={cn(
-        "home-side",
-      )}
+      className="home-side workspace-navigation"
       style={{ width: `${projectSidebarWidthPx}px` }}
       aria-label="工作区导航侧边栏"
     >
@@ -312,10 +319,34 @@ export function WorkspaceOverviewSidebar({
                 )}
               </HomeSidebarList>
 
-        </>} lower={<><div className="home-side__heading">工作区标签</div><HomeSidebarList label="工作区标签列表">
-        <button type="button" className="home-side__item" onClick={() => onActiveRecordTagIdChange(null)}><RecordIcon size={18} />全部记录</button>
-        {availableTags.map((tag) => <SidebarTagItem key={tag.id} tag={tag} projectId={null} selected={activeRecordTagId === tag.id} onSelect={onActiveRecordTagIdChange} />)}
-      </HomeSidebarList></>} />
+        </>} lower={<>
+          <div className="home-side__heading">
+            <span>记录</span>
+            <button type="button" className="home-side__workspace-action" aria-label="新增工作区记录" title="新增记录" onClick={onCreateRecord}><Plus size={13} /></button>
+          </div>
+          <div className="project-navigation__search">
+            <SearchField aria-label="搜索工作区记录" placeholder="搜索记录" value={recordQuery} onChange={(event) => onRecordQueryChange(event.target.value)} />
+          </div>
+          <section className="project-navigation__tags" aria-label="工作区标签">
+            <HomeSidebarList label="工作区标签列表">
+              <div className="project-navigation__tag-cloud">
+                <button type="button" className="entity-tag-chip entity-tag-chip--interactive" aria-pressed={activeRecordTagId === null} onClick={() => onActiveRecordTagIdChange(null)}>全部</button>
+                {availableTags.map((tag) => <SidebarTagItem key={tag.id} appearance="chip" tag={tag} projectId={null} selected={activeRecordTagId === tag.id} onSelect={onActiveRecordTagIdChange} />)}
+              </div>
+            </HomeSidebarList>
+          </section>
+          <HomeSidebarList label="工作区记录列表" searchKey={`${recordQuery}:${activeRecordTagId}`}>
+            {filteredRecords.map((record) => (
+              <button key={record.id} type="button" className={cn("home-side__item", record.id === activeRecordId && "is-active")}
+                aria-current={record.id === activeRecordId ? "page" : undefined}
+                title={record.title?.trim() || "未命名记录"} onClick={() => onOpenRecord(record.id)}>
+                <RecordIcon size={16} isVoice={record.isVoice} />
+                <span>{record.title?.trim() || "未命名记录"}</span>
+              </button>
+            ))}
+            {!filteredRecords.length ? <p className="home-side__empty">{recordQuery.trim() || activeRecordTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
+          </HomeSidebarList>
+        </>} />
 
       <HomeSidebarFooter onOpenArchivedProjects={() => setArchiveDialogOpen(true)} />
       {projectContextMenu ? (
