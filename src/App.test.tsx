@@ -124,6 +124,7 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceOpen: vi.fn(),
     workspaceCreate: vi.fn(),
     workspaceClose: vi.fn(),
+    projectSetArchive: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
       name,
@@ -715,6 +716,36 @@ describe("WorkspaceLayout", () => {
     finishSave();
     await expect(closeResult).resolves.toBe(true);
     expect(desktopApi.flushOtherWorkspaceWindows).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["open", "restore"])("uses the project sidebar footer to search and %s an archived project", async (action) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const projects = [
+      { id: 1, name: "Active Project", kind: "normal" as const, status: "active", rootPath: "/tmp/active", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 },
+      { id: 2, name: "Archived Beta", kind: "normal" as const, status: "paused", rootPath: "/tmp/beta", quickNote: "", isArchived: true, createdAt: "", updatedAt: "", openTodoCount: 2 },
+    ];
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "Test Workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", createdAt: "" }, recentWorkspaces: [], aiSecretsUnlocked: true });
+    client.setQueryData(queryKeys.projects.all, projects);
+    client.setQueryData(queryKeys.aiSettings, null);
+    for (const project of projects) {
+      client.setQueryData(queryKeys.projectPage(project.id), { project, records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+      client.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+    }
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    vi.mocked(projectMindApi.projectSetArchive).mockResolvedValue({ ...projects[1], isArchived: false });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout cacheProjectOverviewPages />, children: [{ path: "projects/:projectId", element: <div>project route</div> }] }], { initialEntries: ["/projects/1"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const archiveButton = await screen.findByRole("button", { name: "归档项目" });
+    expect(archiveButton.closest(".home-side__footer")).not.toBeNull();
+    fireEvent.click(archiveButton);
+    const dialog = await screen.findByRole("dialog", { name: "归档项目" });
+    fireEvent.change(within(dialog).getByRole("searchbox", { name: "搜索归档项目" }), { target: { value: "  BETA  " } });
+    expect(within(dialog).getByText("Archived Beta")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Active Project")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: action === "open" ? "打开" : "恢复" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/2"));
+    if (action === "restore") expect(projectMindApi.projectSetArchive).toHaveBeenCalledWith({ projectId: 2, isArchived: false }, expect.anything());
+    else expect(projectMindApi.projectSetArchive).not.toHaveBeenCalled();
   });
 
   it("opens settings as a dialog even when there are no projects", async () => {

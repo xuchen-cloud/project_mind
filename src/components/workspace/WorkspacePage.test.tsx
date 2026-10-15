@@ -831,9 +831,11 @@ describe("WorkspacePage", () => {
 
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: /归档项目/i }));
+    const archiveButton = await screen.findByRole("button", { name: /归档项目/i });
+    expect(archiveButton.closest(".home-side__footer")).not.toBeNull();
+    await user.click(archiveButton);
 
-    const dialog = screen.getByRole("dialog", { name: "归档项目" });
+    const dialog = await screen.findByRole("dialog", { name: "归档项目" });
     expect(within(dialog).getByText("Beta Archive")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "打开" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "恢复" })).toBeInTheDocument();
@@ -875,7 +877,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
-    await user.click(within(screen.getByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "打开" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "打开" }));
 
     expect(desktopApiMocks.focusProjectWindow).toHaveBeenCalledWith(2);
   });
@@ -916,7 +918,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
-    await user.click(within(screen.getByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "恢复" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "恢复" }));
 
     expect(projectMutationMocks.archiveMutate).toHaveBeenCalledWith({
       projectId: 2,
@@ -948,7 +950,7 @@ describe("WorkspacePage", () => {
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
 
-    expect(within(screen.getByRole("dialog", { name: "归档项目" })).getByText("暂无归档项目")).toBeInTheDocument();
+    expect(within(await screen.findByRole("dialog", { name: "归档项目" })).getByText("暂无归档项目")).toBeInTheDocument();
   });
 
   it("filters record body from the sidebar search and tag pills", async () => {

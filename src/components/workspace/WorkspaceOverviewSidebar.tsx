@@ -3,6 +3,7 @@ import { SidebarTagItem } from "../home/SidebarTagItem";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { HomeSidebarSplit } from "../home/HomeSidebarSplit";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "../home/HomeWorkspaceIdentity";
+import { ArchivedProjectsDialog } from "./ArchivedProjectsDialog";
 import { ProjectHomeIcon } from "../home/HomeCover";
 import {
 Archive,
@@ -28,7 +29,6 @@ Button,
 Dialog,
 ResizeHandle,
 SearchField,
-StatusBadge,
 type ContextMenuAction
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
@@ -236,7 +236,7 @@ export function WorkspaceOverviewSidebar({
       <div data-tauri-drag-region className="home-side__top"><button type="button" aria-label="切换左侧栏" aria-expanded={true} onClick={toggleProjectSidebarCollapsed}><PanelLeft size={16} /></button><button type="button" className="home-side__workspace-tab" onClick={onOpenOverview}>我的工作区</button></div>
       <div className="home-side__brand"><img className="home-side__mascot" src={noriBust} alt="" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenOverview} /><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
 
-      <HomeSidebarSplit key={workspaceRootPath} storageKey={`home-sidebar-split:workspace:${workspaceRootPath}`} upper={<><div className="home-side__heading"><span>项目</span><div className="home-side__heading-actions"><button type="button" className="home-side__workspace-action" aria-label="归档项目" title="归档项目" onClick={() => setArchiveDialogOpen(true)}><Archive size={13} /></button><button type="button" className="home-side__workspace-action" aria-label="新建项目" title="新建项目" disabled={createProjectPending} onClick={onCreateProject}><Plus size={13} /></button></div></div>
+      <HomeSidebarSplit key={workspaceRootPath} storageKey={`home-sidebar-split:workspace:${workspaceRootPath}`} upper={<><div className="home-side__heading"><span>项目</span><div className="home-side__heading-actions"><button type="button" className="home-side__workspace-action" aria-label="新建项目" title="新建项目" disabled={createProjectPending} onClick={onCreateProject}><Plus size={13} /></button></div></div>
               <SearchField className="home-side__search" aria-label="搜索项目" placeholder="搜索项目" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />
               <HomeSidebarList label="项目列表" searchKey={projectQuery}>
                 {filteredProjects.length > 0 ? (
@@ -317,7 +317,7 @@ export function WorkspaceOverviewSidebar({
         {availableTags.map((tag) => <SidebarTagItem key={tag.id} tag={tag} projectId={null} selected={activeRecordTagId === tag.id} onSelect={onActiveRecordTagIdChange} />)}
       </HomeSidebarList></>} />
 
-      <HomeSidebarFooter />
+      <HomeSidebarFooter onOpenArchivedProjects={() => setArchiveDialogOpen(true)} />
       {projectContextMenu ? (
         <ActionContextMenu
           x={projectContextMenu.x}
@@ -375,64 +375,13 @@ export function WorkspaceOverviewSidebar({
         </div>
       </Dialog>
 
-      <Dialog
+      <ArchivedProjectsDialog
         open={archiveDialogOpen}
-        title="归档项目"
-        description="归档不会删除项目内容。你可以临时打开查看，或恢复到当前 Workspace 的项目列表。"
-        widthClassName="max-w-2xl"
-        bodyClassName="space-y-3"
+        projects={archivedProjects}
         onClose={() => setArchiveDialogOpen(false)}
-      >
-        {archivedProjects.length > 0 ? (
-          archivedProjects.map((project) => (
-            <section
-              key={project.id}
-              className="rounded-[var(--radius-10)] border border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_70%,var(--color-bg))] px-4 py-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-body font-medium text-text">{project.name}</h3>
-                    <StatusBadge tone="neutral">archived</StatusBadge>
-                  </div>
-                  <p className="mt-1 truncate text-ui text-text-soft">{project.rootPath}</p>
-                  <p className="mt-2 text-ui text-text-soft">
-                    {project.openTodoCount} 个待办待跟进
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      setArchiveDialogOpen(false);
-                      onOpenArchivedProject(project.id);
-                    }}
-                  >
-                    打开
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onRestoreArchivedProject(project.id)}
-                  >
-                    恢复
-                  </Button>
-                </div>
-              </div>
-            </section>
-          ))
-        ) : (
-          <div className="rounded-[var(--radius-10)] border border-dashed border-border px-4 py-8 text-center">
-            <p className="text-body font-medium text-text">暂无归档项目</p>
-            <p className="mt-2 text-ui text-text-soft">
-              需要收起暂时不推进的项目时，可在项目列表右键归档，之后会统一出现在这里。
-            </p>
-          </div>
-        )}
-      </Dialog>
+        onOpenProject={onOpenArchivedProject}
+        onRestoreProject={onRestoreArchivedProject}
+      />
     </aside>
   );
 }

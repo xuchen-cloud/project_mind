@@ -1,11 +1,12 @@
 import { createContext, useContext } from "react";
-import { ChevronsUpDown, Settings } from "lucide-react";
+import { Archive, ChevronsUpDown, Settings } from "lucide-react";
 import wordmark from "../../assets/home/norimind-wordmark.svg";
 
 export const HomeWorkspaceActionsContext = createContext<{
   workspaceName: string;
   switchWorkspace: () => void;
   openSettings: () => void;
+  openArchivedProjects: () => void;
 } | null>(null);
 
 export function HomeWorkspaceIdentity({ projectName, onOpenProject, onOpenWorkspace }: { projectName?: string; onOpenProject?: () => void; onOpenWorkspace: () => void }) {
@@ -22,11 +23,13 @@ export function HomeWorkspaceIdentity({ projectName, onOpenProject, onOpenWorksp
   </div>;
 }
 
-export function HomeSidebarFooter() {
+export function HomeSidebarFooter({ onOpenArchivedProjects }: { onOpenArchivedProjects?: () => void } = {}) {
   const actions = useContext(HomeWorkspaceActionsContext);
-  if (!actions) return null;
+  const openArchivedProjects = onOpenArchivedProjects ?? actions?.openArchivedProjects;
+  if (!actions && !openArchivedProjects) return null;
   return <div className="home-side__footer" role="group" aria-label="工作区操作">
-    <button type="button" className="home-side__footer-workspace" aria-label="切换 Workspace" title="切换工作区" onClick={actions.switchWorkspace}><ChevronsUpDown size={16} /><span>{actions.workspaceName}</span></button>
-    <button type="button" className="home-side__workspace-action" aria-label="设置" title="设置" onClick={actions.openSettings}><Settings size={18} /></button>
+    {actions ? <button type="button" className="home-side__footer-workspace" aria-label="切换 Workspace" title="切换工作区" onClick={actions.switchWorkspace}><ChevronsUpDown size={16} /><span>{actions.workspaceName}</span></button> : null}
+    <button type="button" className="home-side__workspace-action" aria-label="归档项目" title="归档项目" onClick={openArchivedProjects}><Archive size={18} /></button>
+    {actions ? <button type="button" className="home-side__workspace-action" aria-label="设置" title="设置" onClick={actions.openSettings}><Settings size={18} /></button> : null}
   </div>;
 }

@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 
 function withActions(element: ReactElement) {
-  const actions = { workspaceName: "研究工作区", switchWorkspace: vi.fn(), openSettings: vi.fn() };
+  const actions = { workspaceName: "研究工作区", switchWorkspace: vi.fn(), openSettings: vi.fn(), openArchivedProjects: vi.fn() };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(<QueryClientProvider client={client}>
     <HomeWorkspaceActionsContext.Provider value={actions}>{element}</HomeWorkspaceActionsContext.Provider>
@@ -74,6 +74,10 @@ it("shows the current workspace and invokes each footer action independently", (
   fireEvent.click(switchButton);
   expect(actions.switchWorkspace).toHaveBeenCalledOnce();
   expect(actions.openSettings).not.toHaveBeenCalled();
+  const archiveButton = within(footer).getByRole("button", { name: "归档项目" });
+  fireEvent.click(archiveButton);
+  expect(actions.openArchivedProjects).toHaveBeenCalledOnce();
+  expect(actions.openSettings).not.toHaveBeenCalled();
   fireEvent.click(settingsButton);
   expect(actions.openSettings).toHaveBeenCalledOnce();
   expect(actions.switchWorkspace).toHaveBeenCalledOnce();
@@ -113,6 +117,8 @@ it.each(sidebars)("places the $name footer immediately after its content as a di
   const footer = within(sidebar).getByRole("group", { name: "工作区操作" });
   expect(footer.parentElement).toBe(sidebar);
   expect(footer.previousElementSibling).toBe(sidebar.querySelector(content));
+  expect(within(footer).getByRole("button", { name: "归档项目" })).toBeInTheDocument();
+  expect(within(sidebar).getAllByRole("button", { name: "归档项目" })).toHaveLength(1);
   const brand = sidebar.querySelector<HTMLElement>(".home-side__brand")!;
   expect(brand.querySelector(".home-side__identity-title")).toHaveTextContent(sidebar.classList.contains("project-navigation") ? "Alpha" : "研究工作区");
   expect(within(brand).getByRole("img", { name: "NoriMind" })).toBeInTheDocument();

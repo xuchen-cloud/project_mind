@@ -9,6 +9,7 @@ import { useAgentPanelStore } from "./state/agent-panel-store";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
 import { useWorkspaceBusinessChanges } from "./hooks/useWorkspaceBusinessChanges";
 import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
+import { ArchivedProjectsDialog } from "./components/workspace/ArchivedProjectsDialog";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
 import { flushQuickNotes } from "./lib/quick-note-transfer";
 import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
@@ -508,11 +509,12 @@ export function WorkspaceLayout({
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
   const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
   const workspaceVisible = hasWorkspace;
 
-  const { createProjectMutation, refreshProjectScope } = useProjectMutations(
+  const { createProjectMutation, archiveMutation, refreshProjectScope } = useProjectMutations(
     (path, options) => navigate(path, options),
     activeProjectId,
   );
@@ -1539,7 +1541,7 @@ export function WorkspaceLayout({
       </>
     ) : null;
   return (
-    <HomeWorkspaceActionsContext.Provider value={{ workspaceName: currentWorkspace.displayName || "Workspace", switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width") }}>
+    <HomeWorkspaceActionsContext.Provider value={{ workspaceName: currentWorkspace.displayName || "Workspace", switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width"), openArchivedProjects: () => setArchiveDialogOpen(true) }}>
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
       flushBarrier={flushRecordSaves}
@@ -1662,6 +1664,15 @@ export function WorkspaceLayout({
         onPasswordChange={setUnlockPassword}
         onClose={() => closeUnlockDialog(false)}
         onSubmit={() => void handleUnlockSubmit()}
+      />
+
+      <ArchivedProjectsDialog
+        key={currentWorkspace.rootPath}
+        open={archiveDialogOpen}
+        projects={(projectsQuery.data ?? []).filter(project => project.isArchived)}
+        onClose={() => setArchiveDialogOpen(false)}
+        onOpenProject={projectId => { void openProjectInTab(projectId); }}
+        onRestoreProject={projectId => archiveMutation.mutate({ projectId, isArchived: false })}
       />
 
       <SettingsDialog
