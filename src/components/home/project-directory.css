@@ -5,6 +5,8 @@
 .project-directory__entry>svg { flex:none; }
 .project-directory__chevron { transition:transform var(--duration-fast) var(--ease-out); }
 .project-directory__entry[aria-expanded=true]>.project-directory__chevron { transform:rotate(90deg); }
+.project-directory__children { position:relative; }
+.project-directory__children::before { content:""; position:absolute; top:0; bottom:0; left:var(--directory-guide-left); border-left:1px solid var(--color-border); pointer-events:none; }
 .project-directory__name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .project-directory__message { padding:8px 4px; font-size:var(--type-caption-size); color:var(--color-text-secondary); overflow-wrap:anywhere; }
 .project-directory__message button { display:block; margin-top:4px; text-decoration:underline; }

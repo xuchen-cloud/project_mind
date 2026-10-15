@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { queryKeys } from "../../lib/queryKeys";
@@ -36,7 +36,9 @@ function DirectoryBranch({ projectId, rootPath, relativePath, depth, revision }:
         {entry.kind === "directory" ? <ChevronRight size={18} className="project-directory__chevron" aria-hidden="true" /> : <FileIcon name={entry.name} size={18} />}
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
       </button>
-      {entry.kind === "directory" && expanded.has(entry.relativePath) ? <DirectoryBranch rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} /> : null}
+      {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 9}px` } as CSSProperties}>
+        <DirectoryBranch rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} />
+      </div> : null}
     </div>)}
   </>;
 }

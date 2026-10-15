@@ -61,6 +61,29 @@ it("shows a real directory read error and retries that folder", async () => {
   expect(await screen.findByRole("button", { name: "generated" })).toBeVisible();
 });
 
+it("scopes hierarchy guides to expanded branches and removes them on collapse", async () => {
+  const nestedFolder = { ...folder, name: "nested", relativePath: "generated/nested" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, path) =>
+    path === "" ? [folder] : path === "generated" ? [nestedFolder] : [file]);
+  const view = panel(); tree();
+  const root = await screen.findByRole("button", { name: "generated" });
+  expect(view.container.querySelector(".project-directory__children")).toBeNull();
+  fireEvent.click(root);
+  const nested = await screen.findByRole("button", { name: "nested" });
+  const rootChildren = nested.closest(".project-directory__children")!;
+  expect(rootChildren).toBeVisible();
+  fireEvent.click(nested);
+  const leaf = await screen.findByRole("button", { name: /result.txt/ });
+  const nestedChildren = leaf.closest(".project-directory__children")!;
+  expect(nestedChildren).not.toBe(rootChildren);
+  expect(rootChildren).toContainElement(nestedChildren);
+  fireEvent.click(nested);
+  expect(nestedChildren).not.toBeInTheDocument();
+  expect(rootChildren).toBeVisible();
+  fireEvent.click(root);
+  expect(view.container.querySelector(".project-directory__children")).toBeNull();
+});
+
 it("ignores stale directory replies after switching project or presentation", async () => {
   const stale = deferred<ProjectDirectoryEntry[]>();
   vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(stale.promise);

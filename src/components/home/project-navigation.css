@@ -25,7 +25,7 @@
 
 /* File hover follows the same surface as Record and Session navigation. */
 .project-navigation__files .project-sidebar__file-list { gap:0; }
-.project-navigation__files .project-sidebar__file-row { align-items:center; min-height:30px; gap:0 6px; padding:3px 8px; border:0; border-radius:7px; box-shadow:none; font-size:var(--type-caption-size); line-height:var(--type-caption-line); color:var(--color-text-secondary); }
+.project-navigation__files .project-sidebar__file-row { align-items:center; min-height:30px; gap:0 6px; padding:3px 4px; border:0; border-radius:7px; box-shadow:none; font-size:var(--type-caption-size); line-height:var(--type-caption-line); color:var(--color-text-secondary); }
 .project-navigation__files .project-sidebar__file-icon { width:18px; height:18px; background:transparent; color:inherit; }
 .project-navigation__files .project-sidebar__file-name { font-size:inherit; line-height:inherit; font-weight:var(--weight-regular); color:inherit; }
 .project-navigation__files .project-sidebar__file-row:not([data-health="missing"]) { background:transparent; }
