@@ -1,0 +1,23 @@
+/* One fixed navigation surface; each content module owns its scroll viewport. */
+.project-navigation { overflow:hidden; padding:0 8px 8px; }
+.project-navigation .home-side__brand { flex:none; padding-inline:8px; }
+.project-navigation__search { flex:none; padding:4px 4px 8px; }
+.project-navigation__search .search-field { width:100%; }
+.project-navigation__tags { display:flex; flex-direction:column; flex:0 1 auto; min-height:28px; max-height:112px; padding:0 4px 8px; }
+.project-navigation__tag-cloud { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+.project-navigation__tag-cloud .entity-tag-chip { flex:0 1 auto; min-width:0; }
+.project-navigation__tag-cloud .entity-tag-chip > span { overflow:hidden; text-overflow:ellipsis; }
+.project-navigation__tag-cloud [aria-pressed=true] { --entity-tag-background:var(--color-accent-ring); color:var(--color-accent); }
+.project-navigation__modules { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,.8fr) minmax(0,1.4fr); flex:1; min-height:0; gap:8px; }
+.project-navigation__section { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; border-top:1px solid var(--home-line); }
+.project-navigation .home-side__heading { flex:none; min-height:32px; padding:4px 8px; font-size:var(--type-label-size); line-height:var(--type-label-line); }
+.project-navigation .home-side__heading button { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:4px; }
+.project-navigation .home-side__heading button:hover { background:var(--home-nav-hover); }
+.project-navigation .home-side__list { scrollbar-gutter:stable; }
+.project-navigation .home-side__list > div { padding-right:0; }
+.project-navigation__section .home-side__item { min-height:30px; padding:5px 8px; }
+.project-navigation__files > .home-rail__files { min-height:0; }
+.project-navigation__files .home-rail__files > h2 { flex:none; padding:6px 8px; min-height:32px; }
+.project-navigation__files .project-directory-tabs { padding:0 4px 4px; }
+.project-navigation__files [data-files-only] > div.flex { padding:4px; }
+.home-rail--project-todos .home-rail__todo { flex:1; min-height:0; }

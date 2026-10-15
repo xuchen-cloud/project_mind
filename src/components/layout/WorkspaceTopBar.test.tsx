@@ -5,6 +5,61 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkspaceTopBar, shouldDetachProjectTabRelease } from "./WorkspaceTopBar";
 
 describe("WorkspaceTopBar", () => {
+  it.each([
+    { leftOpen: false, rightOpen: false },
+    { leftOpen: true, rightOpen: false },
+    { leftOpen: false, rightOpen: true },
+    { leftOpen: true, rightOpen: true },
+  ])("keeps both panel controls reachable with left=$leftOpen and right=$rightOpen", async ({ leftOpen, rightOpen }) => {
+    const user = userEvent.setup();
+    const toggleLeft = vi.fn();
+    const toggleRight = vi.fn();
+    const props = {
+      homePanels: { leftWidth: 280, rightWidth: 340, workspaceName: "Workspace", leftOpen, rightOpen, toggleLeft, toggleRight },
+      projects: [],
+      activeProjectId: null,
+      workspaceActive: true,
+      searchInput: "",
+      onSearchInput: vi.fn(),
+      searchResults: [],
+      searching: false,
+      onOpenProject: vi.fn(),
+      onOpenWorkspace: vi.fn(),
+      onSwitchWorkspace: vi.fn(),
+      onOpenSettings: vi.fn(),
+      onSearchSelect: vi.fn(),
+    };
+    const { rerender } = render(<WorkspaceTopBar {...props} />);
+    const left = screen.getByRole("button", { name: "切换左侧栏" });
+    const right = screen.getByRole("button", { name: "切换右侧栏" });
+    expect(left).toHaveAttribute("aria-expanded", String(leftOpen));
+    expect(right).toHaveAttribute("aria-expanded", String(rightOpen));
+    expect(left.closest("header")).toBe(screen.getByRole("tablist").closest("header"));
+
+    await user.click(left);
+    expect(toggleLeft).toHaveBeenCalledTimes(1);
+    rerender(<WorkspaceTopBar {...props} homePanels={{ ...props.homePanels, leftOpen: !leftOpen }} />);
+    expect(screen.getByRole("button", { name: "切换左侧栏" })).toBe(left);
+    expect(left).toHaveFocus();
+    expect(left).toHaveAttribute("aria-expanded", String(!leftOpen));
+
+    await user.click(right);
+    expect(toggleRight).toHaveBeenCalledTimes(1);
+    rerender(<WorkspaceTopBar {...props} homePanels={{ ...props.homePanels, leftOpen: !leftOpen, rightOpen: !rightOpen }} />);
+    expect(screen.getByRole("button", { name: "切换右侧栏" })).toBe(right);
+    expect(right).toHaveFocus();
+    expect(right).toHaveAttribute("aria-expanded", String(!rightOpen));
+
+    await user.click(screen.getByRole("button", { name: "打开全局搜索" }));
+    const search = screen.getByRole("combobox", { name: "全局搜索" });
+    expect(search).toHaveFocus();
+    await user.type(search, "a");
+    expect(props.onSearchInput).toHaveBeenCalledWith("a");
+    rerender(<WorkspaceTopBar {...props} homePanels={{ ...props.homePanels, leftOpen: !leftOpen, rightOpen: !rightOpen, leftWidth: 320, rightWidth: 400 }} />);
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+  });
+
   it("scrolls width-bounded project tabs with continuous edge masks and keeps close separate from activation", () => {
     const callbacks: Array<() => void> = [];
     vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { callbacks.push(callback); } observe() {} disconnect() {} });

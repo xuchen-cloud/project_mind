@@ -7,12 +7,14 @@ import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { PopoverPanel } from "../../ui/components";
+import "../tags/entity-tags.css";
 
-export function SidebarTagItem({ tag, projectId, selected, onSelect }: {
+export function SidebarTagItem({ tag, projectId, selected, onSelect, appearance = "row" }: {
   tag: DocumentTagRecord;
   projectId: number | null;
   selected: boolean;
   onSelect: (id: number | null) => void;
+  appearance?: "row" | "chip";
 }) {
   const client = useQueryClient();
   const { pushToast } = useFeedbackStore();
@@ -68,7 +70,7 @@ export function SidebarTagItem({ tag, projectId, selected, onSelect }: {
   }
 
   return <>
-    {editing ? <div className="home-side__item home-side__tag-edit">
+    {editing ? <div className={appearance === "chip" ? "entity-tag-chip entity-tag-chip--input" : "home-side__item home-side__tag-edit"}>
       <span className="home-side__hash">#</span>
       <input aria-label="标签名称" autoFocus value={label} disabled={busy}
         onFocus={event => event.currentTarget.select()}
@@ -79,14 +81,15 @@ export function SidebarTagItem({ tag, projectId, selected, onSelect }: {
           if (event.key === "Enter") { event.preventDefault(); void commit(); }
           if (event.key === "Escape") { event.preventDefault(); setEditing(false); }
         }} />
-    </div> : <button ref={rowRef} type="button" className={`home-side__item ${selected ? "is-active" : ""}`}
+    </div> : <button ref={rowRef} type="button" className={appearance === "chip" ? "entity-tag-chip entity-tag-chip--interactive" : `home-side__item ${selected ? "is-active" : ""}`}
+      aria-pressed={appearance === "chip" ? selected : undefined}
       disabled={busy} title={tag.label} onClick={() => onSelect(tag.id)}
       onContextMenu={event => {
         event.preventDefault();
         if (busy) return;
         setMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 148)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 88)) });
       }}>
-      <span className="home-side__hash">#</span><span>{tag.label}</span>
+      {appearance === "chip" ? <span>#{tag.label}</span> : <><span className="home-side__hash">#</span><span>{tag.label}</span></>}
     </button>}
     {menu ? createPortal(<PopoverPanel ref={menuRef} className="home-tag-menu context-menu__panel" role="menu" aria-label="标签操作"
       style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 120 }}>

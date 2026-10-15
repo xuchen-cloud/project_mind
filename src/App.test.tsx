@@ -65,6 +65,7 @@ vi.mock("./services/desktopApi", () => ({
     command: vi.fn(async (name: string) => {
       if (name === "voice_availability_get") return { implemented: false, reason: "test" };
       if (name === "voice_settings_get") return { speechProfile: null, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4 };
+      if (name === "dsh_assistant_sessions") return [];
       return null;
     }),
     listSystemFontFamilies: vi.fn(async () => ["PingFang SC", "Segoe UI"]),
@@ -1433,7 +1434,7 @@ describe("WorkspaceLayout", () => {
       detail.respond(true);
     };
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
-    const sidebar = await screen.findByLabelText("笔记导航侧边栏");
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
     fireEvent.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");

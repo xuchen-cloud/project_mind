@@ -6,15 +6,13 @@ import { useFilePreviewStore } from "./state/file-preview-store";
 import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
 import { setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events";
 import { useAgentPanelStore } from "./state/agent-panel-store";
-import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
 import { useWorkspaceBusinessChanges } from "./hooks/useWorkspaceBusinessChanges";
 import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
-import { HomeNoteSidebar } from "./components/home/HomeNoteSidebar";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
 import { flushQuickNotes } from "./lib/quick-note-transfer";
 import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
 import { Outlet, useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -83,7 +81,7 @@ import { ProjectFilePreviewLayer } from "./components/home/ProjectFilePreviewLay
 import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
-import { HomeProjectSidebar, rememberProjectRecord } from "./components/home/HomeProjectSidebar";
+import { rememberProjectRecord } from "./components/home/project-record-history";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
@@ -97,6 +95,8 @@ import {
   RecordFocusResidencyProvider,
   RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
+
+const HomeProjectSidebar = lazy(() => import("./components/home/HomeProjectSidebar").then(module => ({ default: module.HomeProjectSidebar })));
 
 function toProjectSidebarRecords(
   records: NoteRecord[],
@@ -1554,22 +1554,18 @@ export function WorkspaceLayout({
       {projectWindow ? null : workspaceTopBar}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {showProjectSidebarShell && projectOverviewActive ? (
-          <HomeProjectSidebar projectId={activeProject.id} projectName={activeProject.name} workspaceRoot={currentWorkspace.rootPath}
+        {showProjectSidebarShell && (projectOverviewActive || activeRecordFocusRoute?.kind === "project") ? (
+          <Suspense fallback={<aside className="home-side" style={{ width: projectSidebarWidthPx }} aria-label="项目导航侧边栏" />}><HomeProjectSidebar key={`${currentWorkspace.rootPath}:${activeProject.id}`}
+            projectId={activeProject.id} projectName={activeProject.name} workspaceRoot={currentWorkspace.rootPath}
+            project={activeProject} documents={projectSidebarDocuments}
             records={projectSidebarOverviewQuery.data?.records ?? []} selectedTagId={projectRecordTagId}
+            activeRecordId={activeRecordId}
             onTagChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenWorkspace={() => navigate(workspacePath())}
             onOpenRecord={(recordId) => navigate(preserveRecordFilters(recordPath(activeProject.id, recordId), location.search))}
-            onCreateRecord={() => void createProjectSidebarRecord()} />
-        ) : showProjectSidebarShell && activeRecordFocusRoute?.kind === "project" ? (
-          <HomeNoteSidebar workspaceRoot={currentWorkspace.rootPath} projectId={activeProject.id}
-            onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
-            onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }}
-            records={projectSidebarRecords} filePanel={<HomeProjectFiles project={activeProject} documents={projectSidebarDocuments} />} activeRecordId={activeRecordId ?? 0}
-            onOpenWorkspace={() => navigate(workspacePath())}
-            onOpenRecord={(id) => { rememberProjectRecord(currentWorkspace.rootPath, activeProject.id, id); navigate(preserveRecordFilters(recordPath(activeProject.id, id), location.search)); }}
             onCreateRecord={() => void createProjectSidebarRecord()}
-          />
+            onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
+            onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }} /></Suspense>
         ) : showProjectSidebarShell ? (
           <ProjectSidebar
             project={{

@@ -302,8 +302,14 @@ export function WorkspaceTopBar({
     const searchMotionRef = useRef<HTMLDivElement>(null);
   useSearchResultsMotion(searchMotionRef, `${searchInput}:${searching}:${searchResults.map(result => `${result.kind}:${result.id}`).join(",")}`);
   return (
-    <header data-tauri-drag-region style={homePanels ? { "--home-left-width": `${homePanels.leftWidth}px`, "--home-right-width": `${homePanels.rightWidth ?? 340}px` } as CSSProperties : undefined} data-home-left-open={homePanels?.leftOpen || undefined} data-home-right-open={homePanels?.rightOpen || undefined} className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
-      {homePanels && !homePanels.leftOpen ? <IconButton type="button" aria-label="切换左侧栏" aria-expanded={homePanels.leftOpen} onClick={homePanels.toggleLeft}><PanelLeft size={16} /></IconButton> : null}
+    <header data-tauri-drag-region style={homePanels?.leftOpen ? { "--home-navigation-width": `${homePanels.leftWidth}px` } as CSSProperties : undefined} data-home-left-open={homePanels?.leftOpen || undefined} data-home-right-open={homePanels?.rightOpen || undefined} className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
+      {homePanels ? <div data-tauri-drag-region className="workspace-topbar__navigation">
+        <IconButton type="button" aria-label="切换左侧栏" aria-expanded={homePanels.leftOpen} onClick={homePanels.toggleLeft}><PanelLeft size={16} /></IconButton>
+        {!homePanels.leftOpen ? <>
+          <IconButton type="button" aria-label="切换 Workspace" title="切换工作区" onClick={onSwitchWorkspace}><ArrowLeftRight size={14} /></IconButton>
+          <IconButton type="button" aria-label="设置" onClick={onOpenSettings}><Settings size={13} /></IconButton>
+        </> : null}
+      </div> : null}
       <div data-tauri-drag-region className="workspace-topbar__tab-frame tab-strip-frame" style={{ "--tab-fade-left": tabEdges.left, "--tab-fade-right": tabEdges.right } as CSSProperties}>
         <div ref={tabViewportRef} id="project-tabs-scroll" className="workspace-topbar__tab-scroll tab-strip-viewport" onScroll={() => measureTabs()}>
         <div
@@ -570,7 +576,7 @@ export function WorkspaceTopBar({
           ) : null}
         </div>
 
-        {!homePanels?.leftOpen ? <>
+        {!homePanels ? <>
         <IconButton
           type="button"
           size="md"

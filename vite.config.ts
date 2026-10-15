@@ -15,6 +15,10 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
+            // Keep the shared Todo rail stable when sidebar imports change.
+            if (id.includes("/src/todo/") || id.includes("/src/components/todo/")) {
+              return "todo";
+            }
             // Shared static file artwork is reused by the host and lazy DSH UI.
             if (/\/packages\/dsh-ui\/upstream\/client\/ui-primitives\/src\/(?:FileTypeIcon|CodeFileIcon|code-file-icon-artwork|code-file-types)/u.test(id)) {
               return "file-icons";
