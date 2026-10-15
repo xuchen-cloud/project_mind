@@ -38,7 +38,7 @@ export function DshSettingsPanel({ open }: { open: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const running = useAgentPanelStore(state => state.runningBinding);
   const key = JSON.stringify(["settings", binding?.workspaceRoot, projectId, fingerprint, attempt]);
-  const ready = open && projectId !== null && loadedKey === key && !running;
+  const ready = open && loadedKey === key && !running;
   const identity = JSON.stringify([open, key]);
   const current = useRef(identity);
   current.current = identity;
@@ -47,7 +47,7 @@ export function DshSettingsPanel({ open }: { open: boolean }) {
   const hostError = useCallback((message: string) => { if (open && alive.current && current.current === identity) setError(message); }, [open, identity]);
 
   useEffect(() => {
-    if (!open || projectId === null || running) return;
+    if (!open || running) return;
     let cancelled = false;
     setLoadedKey(null); setError(null);
     void dshAssistantApi.start(key, projectId).then(() => { if (!cancelled) setLoadedKey(key); }, reason => {
@@ -56,7 +56,6 @@ export function DshSettingsPanel({ open }: { open: boolean }) {
     return () => { cancelled = true; };
   }, [open, projectId, key, running]);
 
-  if (projectId === null) return <p>请先进入项目，再打开 DSH 助手设置</p>;
   return <section className="dsh-settings" aria-label="DSH 助手设置">
     <div className="dsh-settings__tabs" role="group" aria-label="DSH 设置页面">
       <Button size="sm" variant={mode === "plugins" ? "secondary" : "ghost"} aria-pressed={mode === "plugins"} onClick={() => setMode("plugins")}>插件</Button>

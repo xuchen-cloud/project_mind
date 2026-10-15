@@ -16,9 +16,9 @@ GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品
 
 ## AI 工作上下文：当前规格与待交付差距
 
-AI 部分更新：2026-10-14。父需求 [#97](https://github.com/xuchen-cloud/project_mind/issues/97) 是导航，[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121) 是当前产品需求；详细要求、实现与验收分别见[主规格](requirements/ai-work-context-spec.md)、[工程契约](requirements/ai-work-context-engineering-spec.md)、[记忆细则](requirements/workspace-memory-lifecycle.md)和[验收台账](requirements/ai-work-context-acceptance.md)。
+AI 部分更新：2026-10-15。父需求 [#97](https://github.com/xuchen-cloud/project_mind/issues/97) 是导航，[统一规格 #121](https://github.com/xuchen-cloud/project_mind/issues/121) 是当前产品需求；详细要求、实现与验收分别见[主规格](requirements/ai-work-context-spec.md)、[工程契约](requirements/ai-work-context-engineering-spec.md)、[记忆细则](requirements/workspace-memory-lifecycle.md)和[验收台账](requirements/ai-work-context-acceptance.md)。
 
-- 当前产品规格围绕 Context 与 Memory；Memory 包含 Overview 和长期记忆，行为按交互记忆与回顾整理区分。Project 聊天已由 DSH 承载，原生 Pi 工具、后台维护及 CLI/MCP 保留；旧 Pi 聊天/知识/记忆管理界面已退出生产入口。Workspace 聊天、DSH 与完整知识/记忆/原生成果工具、Workspace 统一可编辑 Skill 和 Harness 结构化设置仍待接线。
+- 当前产品规格围绕 Context 与 Memory；Memory 包含 Overview 和长期记忆，行为按交互记忆与回顾整理区分。Project 与 Workspace 聊天均已由 DSH 承载，工作区入口无需进入项目，分别持有会话和运行时，见 [#161 工作包](requirements/workspace-dsh-chat.md)。原生 Pi 工具、后台维护及 CLI/MCP 保留；旧 Pi 聊天/知识/记忆管理界面已退出生产入口。DSH 与完整知识/记忆/原生成果工具、Workspace 统一可编辑 Skill 和 Harness 结构化设置仍待接线；用户明确本次先交付工作区聊天，记忆暂缓。
 - 本轮主要差距为 Workspace 唯一长期记忆、项目背景栏目及沿用、请求绑定即时操作、明确决定的 Overview 增量、完整精简快照、下一次请求生效、联合整理与并发恢复。Project/Workspace 会话、分层 Overview、六类旧记忆、原生成果和 CLI/MCP 已有本地基础，真实 Provider 与目标桌面验收仍待完成。
 - 当前覆盖只在[交付总览 V1～V5](requirements/ai-work-context-delivery.md#current-delivery)维护；它们尚不是批准的实施工单/排期。旧 M/R/WP/S/LM 与子工单原文已[归档](requirements/archive/README.md)，编号和开放状态保留、旧执行标签移除；后续拆票另走 `/to-tickets`。
 - 外部 Harness、任务菜单和闭应用 Host #110～112 暂缓；既有 Mind CLI/MCP 继续维护。文件预览/编辑 #118/#115 与 [AI 网络代理 #119](requirements/ai-network-proxy.md)分别按独立需求及自己的证据验收。

@@ -24,6 +24,7 @@ async function bodyBytes(body) {
 /** EventTarget implements only the socket operations used by upstream's mux. */
 export class TauriSocket extends EventTarget {
   readyState = WebSocket.CONNECTING;
+  /** @param {number | null} projectId */
   constructor(projectId, call = invoke, makeChannel = callback => new Channel(callback)) {
     super();
     this.projectId = projectId;
@@ -92,6 +93,7 @@ export class TauriSocket extends EventTarget {
   }
 }
 
+/** @param {number | null} projectId */
 export function createTauriTransport(projectId, call = invoke) {
   let disposed = false;
   const requests = new Map();

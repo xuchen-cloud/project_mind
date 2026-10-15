@@ -22,7 +22,7 @@ import "./dsh-assistant.css";
 type Session = { id: string; title: string; running?: boolean };
 
 export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, onToggleExpanded, onClose, onOpenSession }: {
-  open: boolean; expanded: boolean; workspaceRoot?: string; projectId: number;
+  open: boolean; expanded: boolean; workspaceRoot?: string; projectId: number | null;
   onToggleExpanded: () => void; onClose: () => void;
   onOpenSession?: (sessionId: string, title: string) => void;
 }) {
@@ -75,11 +75,12 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   }, [workspaceRoot, projectId]);
 
   useEffect(() => {
-    if (!open || (!onOpenSession && runBusy) || syncedKey === syncKey) return;
+    if (!open || (!onOpenSession && runBusy && syncedKey !== null) || syncedKey === syncKey) return;
     let cancelled = false;
     setSyncedKey(null); setHostReady(false); setError(null); setSessionBusy(false);
     void (async () => {
-      await dshAssistantApi.start(syncKey, projectId);
+      if (runBusy) settingsRecheck.current = true;
+      else await dshAssistantApi.start(syncKey, projectId);
       if (cancelled) return;
       const saved = await dshAssistantApi.sessions(projectId);
       if (cancelled) return;
@@ -123,9 +124,9 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
       },
       onSettings: () => { if (valid()) openSettings("dsh-assistant"); },
       onModelSettings: () => { if (valid()) openSettings("ai-models"); },
-      onFileOpen: (path: string, line?: number, sourceRef?: AgentSourceRef) => { if (valid()) openProjectFilePreview(projectId, path, line, selectedSession?.id, sourceRef); },
+      onFileOpen: (path: string, line?: number, sourceRef?: AgentSourceRef) => { if (valid() && projectId !== null) openProjectFilePreview(projectId, path, line, selectedSession?.id, sourceRef); },
       onFilesChanged: () => {
-        if (!valid()) return;
+        if (!valid() || projectId === null) return;
         notifyProjectFilesChanged(projectId);
         void queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
       },
@@ -144,7 +145,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         if (workspaceRoot) useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, value.some(session => session.running));
       }
     }, reason => {
-      if (!cancelled) { setError(getErrorMessage(reason, "读取项目会话失败")); setSessionsOpen(false); setSessionsLoading(false); }
+      if (!cancelled) { setError(getErrorMessage(reason, "读取会话失败")); setSessionsOpen(false); setSessionsLoading(false); }
     });
     if (onOpenSession) return () => { cancelled = true; };
     const outside = (event: PointerEvent) => { if (!sessionMenu.current?.contains(event.target as Node)) setSessionsOpen(false); };
@@ -154,7 +155,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   }, [open, ready, hostReady, error, sessionsOpen, identity, projectId]);
 
   useEffect(() => {
-    if (onOpenSession || !open || !ready || !hostReady || !selectedSession?.id || sessionBusy || error || !pendingReference || inserting.current !== null) return;
+    if (projectId === null || onOpenSession || !open || !ready || !hostReady || !selectedSession?.id || sessionBusy || error || !pendingReference || inserting.current !== null) return;
     const reference = pendingReference;
     inserting.current = reference.id;
     // Claim once before async I/O; StrictMode or another render cannot insert twice.
@@ -191,7 +192,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         setSessionsOpen(false);
       }
     } catch (reason) {
-      if (alive.current && current.current === identity) { setError(getErrorMessage(reason, remove ? "删除项目会话失败" : "切换项目会话失败")); setSessionsOpen(false); }
+      if (alive.current && current.current === identity) { setError(getErrorMessage(reason, remove ? "删除会话失败" : "切换会话失败")); setSessionsOpen(false); }
     } finally {
       operation.current = false;
       if (alive.current && current.current === identity) setSessionBusy(false);
@@ -199,9 +200,10 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   };
   const disabled = !open || !ready || !hostReady || !!error || sessionBusy;
 
+  const sessionLabel = projectId === null ? "工作区会话" : "项目会话";
   const sessionList = <>
     {sessionsLoading ? <p role="status">正在读取会话…</p> : null}
-    <HomeSidebarList label="项目会话">
+    <HomeSidebarList label={sessionLabel}>
       {!sessionsLoading && sessions.length === 0 ? <p>{onOpenSession ? "暂无会话，点击新建会话开始。" : "暂无会话"}</p> : null}
       {sessions.map(session => <div key={session.id} className="dsh-assistant__session-row">
         <Button size="sm" variant={selectedSession?.id === session.id ? "secondary" : "ghost"} disabled={sessionBusy || sessionsLoading || (!onOpenSession && runBusy)}
@@ -210,7 +212,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
           leadingIcon={<Trash2 size={14} />} onClick={() => setDeleting(session)} />
       </div>)}
     </HomeSidebarList>
-    {deleting ? <div role="group" aria-label="确认删除会话"><p>删除“{deleting.title || "未命名会话"}”？会话将从项目列表中移除，历史文件保留。</p>
+    {deleting ? <div role="group" aria-label="确认删除会话"><p>删除“{deleting.title || "未命名会话"}”？会话将从当前范围列表中移除，历史文件保留。</p>
       <Button size="sm" disabled={sessionBusy || runBusy} onClick={() => void operate(deleting, true)}>确认删除</Button>
       <Button size="sm" variant="ghost" disabled={sessionBusy} onClick={() => setDeleting(null)}>取消</Button></div> : null}
   </>;
@@ -218,11 +220,11 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   return <section className="dsh-assistant" hidden={!open} aria-label="DSH 助手面板">
     <header className="dsh-assistant__header"><h2>DSH 助手</h2><div className="dsh-assistant__actions">
       <div ref={sessionMenu} className="dsh-assistant__session-menu">
-        <Button size="sm" variant="ghost" aria-label="项目会话" aria-haspopup={onOpenSession ? undefined : "dialog"} aria-expanded={onOpenSession ? undefined : sessionsOpen}
+        <Button size="sm" variant="ghost" aria-label={sessionLabel} aria-haspopup={onOpenSession ? undefined : "dialog"} aria-expanded={onOpenSession ? undefined : sessionsOpen}
           disabled={disabled || sessionsLoading} leadingIcon={onOpenSession ? <RefreshCw size={14} /> : <ChevronDown size={14} />}
           title={onOpenSession ? "刷新项目会话" : undefined}
           onClick={() => setSessionsOpen(value => onOpenSession ? true : !value)}>{onOpenSession ? "刷新会话" : selectedSession?.title || "会话"}</Button>
-        {sessionsOpen && !onOpenSession ? <PopoverPanel motion="trigger" className="dsh-assistant__sessions" role="dialog" aria-label="项目会话列表">
+        {sessionsOpen && !onOpenSession ? <PopoverPanel motion="trigger" className="dsh-assistant__sessions" role="dialog" aria-label={`${sessionLabel}列表`}>
           {sessionList}
         </PopoverPanel> : null}
       </div>
@@ -240,7 +242,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
       {ready && !error && onOpenSession ? <div className="dsh-assistant__directory">
         <h3>项目会话</h3>{sessionList}
       </div> : null}
-      {ready && selectedSession && !onOpenSession ? <DshConversationHost key={syncedKey!} projectId={projectId} sessionId={selectedSession.id} {...callbacks} /> : null}
+      {ready && selectedSession && !onOpenSession ? <DshConversationHost key={syncedKey!} projectId={projectId} sessionId={selectedSession.id} focused={open} {...callbacks} /> : null}
     </div>
   </section>;
 }

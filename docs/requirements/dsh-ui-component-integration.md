@@ -16,6 +16,8 @@
 
 ### 2.1 项目与会话
 
+2026-10-15 扩展：Workspace 页面也可直接使用 DSH 聊天，工作目录绑定 Workspace 根目录，会话在助手面板显示并与各 Project 隔离；项目会话仍走内容 Tab。当前契约与验证见 [Workspace 聊天工作包](workspace-dsh-chat.md)。本包暂缓记忆能力。
+
 | 主应用概念 | DSH 对应关系 |
 |---|---|
 | 项目 | DSH workspace |

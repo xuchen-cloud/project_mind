@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentWorkspacePanel } from "./AgentWorkspacePanel";
+import { AgentLauncher } from "./AgentLauncher";
 import { DshAssistantPanel } from "./DshAssistantPanel";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { useUiStore } from "../../state/ui-store";
@@ -23,7 +24,7 @@ vi.mock("@project-mind/dsh-ui/adapters", () => ({
     return <div data-testid="host" data-project={props.projectId} data-session={props.sessionId}><input aria-label="DSH draft" /></div>;
   },
 }));
-const props = { open: true, expanded: true, workspaceRoot: "/workspace", projectId: 1, onClose: vi.fn(), onToggleExpanded: vi.fn() };
+const props: React.ComponentProps<typeof DshAssistantPanel> = { open: true, expanded: true, workspaceRoot: "/workspace", projectId: 1, onClose: vi.fn(), onToggleExpanded: vi.fn() };
 const starts = () => mocks.command.mock.calls.filter(([command]) => command === "dsh_assistant_start");
 function setup(initial: typeof props & { onOpenSession?: (id: string, title: string) => void } = props, strict = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -240,4 +241,129 @@ describe("real workspace session launcher", () => {
     expect(await screen.findByRole("region", { name: "项目会话" })).toBeVisible();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+});
+
+
+it("embeds Workspace history, creates and deletes sessions with explicit null ownership and no project file navigation", async () => {
+  setup({ ...props, projectId: null });
+  await screen.findByTestId("host");
+  expect(mocks.hosts.at(-1)?.projectId).toBeNull();
+  expect(mocks.command).toHaveBeenCalledWith("dsh_assistant_select_session", { projectId: null, sessionId: "saved" });
+  act(() => { mocks.hosts.at(-1)!.onFileOpen?.("a.md"); mocks.hosts.at(-1)!.onFilesChanged?.(); });
+  expect(mocks.file).not.toHaveBeenCalled(); expect(mocks.changed).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建会话" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "actual-created"));
+  expect(mocks.command).toHaveBeenCalledWith("dsh_assistant_select_session", { projectId: null, sessionId: null });
+  fireEvent.click(screen.getByRole("button", { name: "工作区会话" }));
+  fireEvent.click(await screen.findByRole("button", { name: "删除会话 历史会话" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(mocks.command).toHaveBeenCalledWith("dsh_assistant_delete_session", { projectId: null, sessionId: "saved" }));
+  expect(mocks.openContent).not.toHaveBeenCalled();
+});
+
+it("returns to an executing Workspace after visiting a Project without stopping or mixing histories", async () => {
+  mocks.command.mockImplementation(async (command, args) => command === "dsh_assistant_sessions"
+    ? [{ id: args.projectId === null ? "workspace-chat" : "project-chat", title: args.projectId === null ? "工作区历史" : "项目历史", running: args.projectId === null }]
+    : command === "dsh_assistant_select_session" ? args.sessionId : undefined);
+  useAgentPanelStore.getState().openPanel("/workspace", { kind: "workspace" });
+  const client = new QueryClient();
+  const shell = (id: number | null) => <QueryClientProvider client={client}><AgentWorkspacePanel workspaceRoot="/workspace" currentProjectId={id} /></QueryClientProvider>;
+  const view = render(shell(null));
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "workspace-chat"));
+  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+  view.rerender(shell(1));
+  await screen.findByRole("button", { name: "项目历史" });
+  expect(screen.getByTestId("host")).not.toBeVisible();
+  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+  act(() => client.setQueryData(queryKeys.aiSettings, { bindings: [], profiles: [], aiSecretsUnlocked: true }));
+  view.rerender(shell(null));
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "workspace-chat"));
+  expect(screen.queryByRole("button", { name: "项目历史" })).toBeNull();
+  expect(starts().filter(([, args]) => args.projectId === null)).toHaveLength(1);
+  expect(mocks.command.mock.calls.some(([name]) => /stop|disconnect/.test(name))).toBe(false);
+  act(() => mocks.hosts.at(-1)!.onBusyChange?.(false));
+  await waitFor(() => expect(starts().filter(([, args]) => args.projectId === null)).toHaveLength(2));
+});
+
+it.each([null, 1])("closes and reopens the current route across scopes from %s while retaining both background runs", async initialProjectId => {
+  mocks.command.mockImplementation(async (command, args) => command === "dsh_assistant_sessions"
+    ? [{ id: args.projectId === null ? "workspace-chat" : "project-chat", title: "历史", running: true }]
+    : command === "dsh_assistant_select_session" ? args.sessionId : undefined);
+  const client = new QueryClient();
+  const scope = (id: number | null) => id === null ? { kind: "workspace" as const } : { kind: "project" as const, projectId: id };
+  const shell = (id: number | null) => <QueryClientProvider client={client}>
+    <AgentLauncher workspaceRoot="/workspace" scope={scope(id)} />
+    <AgentWorkspacePanel workspaceRoot="/workspace" currentProjectId={id} />
+  </QueryClientProvider>;
+  const view = render(shell(initialProjectId));
+  fireEvent.click(screen.getByRole("button", { name: "助手" }));
+  await waitFor(() => expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual(scope(initialProjectId)));
+  fireEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+  const next = initialProjectId === null ? 1 : null;
+  view.rerender(shell(next));
+  expect(screen.queryByRole("region", { name: "DSH 助手面板" })).toBeNull();
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual(scope(initialProjectId));
+  fireEvent.click(screen.getByRole("button", { name: "助手" }));
+  await waitFor(() => expect(Object.keys(useAgentPanelStore.getState().runsByProject)).toHaveLength(2));
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual(scope(next));
+  if (next === null) expect(screen.getByTestId("host")).toHaveAttribute("data-session", "workspace-chat");
+  else expect(screen.getByTestId("host")).not.toBeVisible();
+  view.rerender(shell(initialProjectId));
+  await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual(scope(initialProjectId)));
+  expect(Object.keys(useAgentPanelStore.getState().runsByProject)).toHaveLength(2);
+  expect(mocks.command.mock.calls.some(([name]) => /stop|disconnect/.test(name))).toBe(false);
+});
+
+it("retains the selected older Workspace session, draft and reading node across Project navigation and releases them on Workspace change", async () => {
+  mocks.command.mockImplementation(async (command, args) => command === "dsh_assistant_sessions"
+    ? args.projectId === null ? [{ id: "latest", title: "最新会话" }, { id: "older", title: "较早会话" }] : [{ id: "project", title: "项目会话历史" }]
+    : command === "dsh_assistant_select_session" ? args.sessionId : undefined);
+  const client = new QueryClient();
+  const shell = (root: string, id: number | null) => <QueryClientProvider client={client}>
+    <AgentLauncher workspaceRoot={root} scope={id === null ? { kind: "workspace" } : { kind: "project", projectId: id }} />
+    <AgentWorkspacePanel workspaceRoot={root} currentProjectId={id} />
+  </QueryClientProvider>;
+  const view = render(shell("/workspace", 1));
+  fireEvent.click(screen.getByRole("button", { name: "助手" }));
+  await screen.findByRole("button", { name: "项目会话历史" });
+  expect(mocks.mounts).toBe(0); // A Project visit does not pre-mount Workspace Chat.
+  view.rerender(shell("/workspace", null));
+  await screen.findByTestId("host");
+  await waitFor(() => expect(screen.getByRole("button", { name: "工作区会话" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "工作区会话" }));
+  fireEvent.click(await screen.findByRole("button", { name: "较早会话" }));
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "older"));
+  const host = screen.getByTestId("host");
+  const draft = screen.getByLabelText("DSH draft");
+  fireEvent.change(draft, { target: { value: "继续较早的讨论" } });
+  host.scrollTop = 125;
+  const selections = mocks.command.mock.calls.filter(([name, args]) => name === "dsh_assistant_select_session" && args.projectId === null).length;
+  view.rerender(shell("/workspace", 2));
+  await screen.findByRole("button", { name: "项目会话历史" });
+  expect(host.isConnected).toBe(true);
+  expect(host).not.toBeVisible();
+  expect(mocks.hosts.at(-1)?.focused).toBe(false);
+  view.rerender(shell("/workspace", null));
+  await waitFor(() => expect(host).toBeVisible());
+  expect(screen.getByTestId("host")).toBe(host);
+  expect(mocks.hosts.at(-1)?.focused).toBe(true);
+  expect(host).toHaveAttribute("data-session", "older");
+  expect(screen.getByLabelText("DSH draft")).toBe(draft);
+  expect(draft).toHaveValue("继续较早的讨论");
+  expect(host.scrollTop).toBe(125);
+  expect(mocks.command.mock.calls.filter(([name, args]) => name === "dsh_assistant_select_session" && args.projectId === null)).toHaveLength(selections);
+  fireEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+  view.rerender(shell("/workspace", 3));
+  fireEvent.click(screen.getByRole("button", { name: "助手" }));
+  await screen.findByRole("button", { name: "项目会话历史" });
+  view.rerender(shell("/workspace", null));
+  await waitFor(() => expect(host).toBeVisible());
+  expect(screen.getByLabelText("DSH draft")).toBe(draft);
+  view.rerender(shell("/other-workspace", null));
+  expect(host.isConnected).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "助手" }));
+  await waitFor(() => expect(screen.getByTestId("host")).not.toBe(host));
+  expect(screen.getByTestId("host")).toHaveAttribute("data-session", "latest");
+  expect(screen.getByLabelText("DSH draft")).toHaveValue("");
 });

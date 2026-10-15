@@ -27,14 +27,14 @@ async function waitFor(read, description, timeoutMs = 15000) {
   throw new Error(`Timed out: ${description}`);
 }
 
-async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler) {
+async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace) {
   const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), '--port', '0', '--no-open'], {
     cwd: root, execArgv: [], silent: true,
     env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data,
-      ...(project ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
+      ...((project || workspace) ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
       ...(patch ? { PROJECT_MIND_DSH_PATCH: patch } : {}), LOCAL_TEST_KEY: 'local-integration-key' },
   });
-  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, project }) + '\n');
+  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, ...(workspace ? { workspace } : { project }) }) + '\n');
   let output = '';
   let ready;
   let ended;
@@ -973,4 +973,142 @@ test('embedded model catalog, running next request, Session isolation and durabl
   assert.equal(recovered.next.provider, 'mind-main');
   await prompt(runtime, stream, sessionId, 'Synthetic recovered request');
   assert.equal(main.requests.at(-1).model, provider.modelId);
+});
+
+
+test('Workspace runtime: real chat, stop, restore and isolation from Project history', { timeout: 90000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-workspace-runtime-'));
+  const directory = await realpath(temp);
+  const workspace = { id: randomUUID(), name: 'Workspace fixture', directory };
+  const project = { id: 161, name: 'Project fixture', directory: path.join(directory, 'Project') };
+  await mkdir(project.directory);
+  const bodies = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  const shared = { name: 'Local shared model', baseUrl: provider.url, modelId: 'local-test-model', apiKey: 'local-integration-key', supportsImage: false };
+  const data = path.join(temp, 'history', workspace.id);
+  const profile = path.join(temp, 'profiles', 'assistant');
+  let runtime, projectRuntime, stream, projectStream;
+  t.after(async () => {
+    await Promise.all([stream?.close(), projectStream?.close()]);
+    await Promise.all([runtime?.stop(), projectRuntime?.stop()]);
+    await provider.close(); await rm(temp, { recursive: true, force: true });
+  });
+  const startWorkspace = () => launch(path.join(data, 'workspace'), undefined, shared, undefined, profile, undefined, workspace);
+  runtime = await startWorkspace();
+  const sourceResponse = await fetch(`${runtime.origin}/api/mind/source/resolve`, {
+    method: 'POST', headers: { ...runtime.headers, 'content-type': 'application/json' }, body: '{}',
+  });
+  assert.equal(sourceResponse.status, 404, 'Workspace never installs the Project source route');
+  await sourceResponse.arrayBuffer();
+  const mapped = (await runtime.rpc('workspace/initializeDefault')).workspace;
+  assert.equal(mapped.path, directory);
+  assert.equal(mapped.title, workspace.name);
+  await assert.rejects(runtime.rpc('workspace/create', { path: project.directory }));
+  await assert.rejects(runtime.rpc('workspace/rename', { workspaceId: mapped.workspaceId, title: 'No' }));
+  await assert.rejects(runtime.rpc('workspace/delete', { workspaceId: mapped.workspaceId }));
+  await assert.rejects(runtime.rpc('session/create', { cwd: project.directory }));
+  await assert.rejects(runtime.rpc('session/create', { workspaceId: 'foreign-workspace' }));
+  const { sessionId } = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/rename', { sessionId, title: 'Workspace history' });
+  stream = await follow(runtime, sessionId);
+  assert.equal(stream.snapshot.header.cwd, directory);
+  await prompt(runtime, stream, sessionId, 'Workspace first turn');
+  assert.ok(events(stream).some(event => event.type === 'assistant/message' && assistantText(event) === 'Local test provider reply.'));
+  assert.equal(provider.requests[0].model, shared.modelId);
+  const modelCatalog = await runtime.rpc('session/modelCatalog');
+  assert.deepEqual(modelCatalog.groups.map(group => group.id), ['mind-main']);
+  assert.deepEqual((await runtime.rpc('session/selectModel', { sessionId, provider: 'mind-main', model: shared.modelId })).selected, { provider: 'mind-main', model: shared.modelId });
+  const toolNames = bodies[0].tools.map(tool => tool.function.name);
+  assert.ok(toolNames.length > 0, 'ordinary DSH tools remain available');
+  assert.ok(!toolNames.some(name => name.startsWith('file_office_')), 'Workspace never installs Project Office tools');
+  await writeFile(path.join(directory, 'workspace-note.txt'), 'Workspace ordinary file bytes');
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'workspace-read-call', type: 'function', function: {
+    name: 'read', arguments: JSON.stringify({ file_path: 'workspace-note.txt', offset: 1, limit: 1 }),
+  } }] });
+  await prompt(runtime, stream, sessionId, 'Read the ordinary Workspace file');
+  assert.match(providerToolReply(bodies, 'workspace-read-call'), /Workspace ordinary file bytes/);
+  const readResult = events(stream).find(event => event.type === 'tool/result' && event.data.message.source.callId === 'workspace-read-call');
+  assert.equal(readResult?.data.message.isError, false, 'ordinary read executes without the Project source bridge');
+  const uploadResponse = await fetch(`${runtime.origin}/api/session/uploadFileBinary?sessionId=${encodeURIComponent(sessionId)}&name=workspace-attachment.txt`, {
+    method: 'POST', headers: { ...runtime.headers, 'content-type': 'application/octet-stream' }, body: 'Workspace attachment bytes',
+  });
+  assert.equal(uploadResponse.status, 200);
+  const uploaded = await uploadResponse.json();
+  assert.equal(uploaded.ok, true, redact(JSON.stringify(uploaded.error)));
+  const attachmentFrom = stream.frames.length;
+  await runtime.rpc('session/prompt', { sessionId, requestId: randomUUID(), mode: 'queue', content: [
+    { type: 'text', text: 'Workspace attachment prompt' }, { type: 'file', receiptId: uploaded.value.receiptId },
+  ] });
+  const attachmentEnd = await stream.read(frame => stream.frames.indexOf(frame) >= attachmentFrom && frame.type === 'event' && frame.event.type === 'turn/end', 'Workspace attachment turn completes');
+  assert.equal(attachmentEnd.event.data.reason.kind, 'completed');
+  assert.ok(events(stream).some(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'file')), 'ordinary attachment persists in the Workspace message');
+  const stopRequestIndex = provider.requests.length;
+  provider.enqueueResponse({ manual: true, chunks: ['Workspace partial', 'Do not emit'] }).advance();
+  const turn = prompt(runtime, stream, sessionId, 'Workspace stop', 'aborted');
+  await stream.read(frame => frame.type === 'assistant-stream' && frame.frame.type === 'chunk' && frame.frame.chunk.type === 'text-delta' && frame.frame.chunk.text === 'Workspace partial', 'Workspace partial response');
+  await runtime.rpc('session/cancel', { sessionId }); await turn;
+  await waitFor(() => provider.requests[stopRequestIndex].outcome === 'aborted', 'Workspace cancel reaches provider');
+  await prompt(runtime, stream, sessionId, 'Workspace after stop');
+
+  projectRuntime = await launch(path.join(data, String(project.id)), undefined, shared, project, profile);
+  assert.deepEqual((await projectRuntime.rpc('session/list', {}, '_request')).items, []);
+  const projectSession = await projectRuntime.rpc('session/create', {});
+  await projectRuntime.rpc('session/rename', { sessionId: projectSession.sessionId, title: 'Project history' });
+  projectStream = await follow(projectRuntime, projectSession.sessionId);
+  assert.equal(projectStream.snapshot.header.cwd, project.directory);
+  await assert.rejects(projectRuntime.rpc('session/cancel', { sessionId }));
+  await assert.rejects(follow(projectRuntime, sessionId));
+  await assert.rejects(runtime.rpc('session/prompt', { sessionId: projectSession.sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: 'Foreign' }] }));
+  await assert.rejects(follow(runtime, projectSession.sessionId));
+  await prompt(projectRuntime, projectStream, projectSession.sessionId, 'Project stays usable');
+  assert.ok(bodies.at(-1).tools.some(tool => tool.function.name === 'file_office_inspect'), 'Project still installs its own Office tools');
+  const before = events(stream);
+  await stream.close(); stream = undefined;
+  await runtime.stop();
+  runtime = await startWorkspace();
+  const list = (await runtime.rpc('session/list', {}, '_request')).items;
+  assert.deepEqual(list.map(item => item.sessionId), [sessionId]);
+  assert.equal(list[0].cwd, directory);
+  stream = await follow(runtime, sessionId);
+  assertRestoredHistory(stream, before);
+  await prompt(runtime, stream, sessionId, 'Workspace after restart');
+  assert.ok(!JSON.stringify(bodies.at(-1).messages).includes('Project stays usable'));
+  assert.deepEqual((await projectRuntime.rpc('session/list', {}, '_request')).items.map(item => item.sessionId), [projectSession.sessionId]);
+  await runtime.rpc('mind/session/delete', { sessionId });
+  assert.deepEqual((await runtime.rpc('session/list', {}, '_request')).items, []);
+  await assert.rejects(runtime.rpc('session/create', { sessionId }));
+  await assert.rejects(follow(runtime, sessionId));
+  await stream.close(); stream = undefined;
+  await runtime.stop(); runtime = await startWorkspace();
+  assert.deepEqual((await runtime.rpc('session/list', {}, '_request')).items, []);
+});
+
+
+test('embedded runtime rejects malformed or ambiguous context configuration before READY', { timeout: 30000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-invalid-context-'));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const workspace = { id: randomUUID(), name: 'Workspace', directory: temp };
+  const project = { id: 161, name: 'Project', directory: temp };
+  const provider = { name: 'Local fixture', modelId: 'local-test-model', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'local-integration-key', supportsImage: false };
+  for (const context of [{ project, workspace }, { workspace, project: null },
+    { workspace: { ...workspace, id: 0 } }, { workspace: { ...workspace, directory: 'relative' } },
+    { project: { ...project, id: 0 } }]) {
+    const child = fork(path.join(root, 'scripts/runtime.mjs'), ['--embedded', '--no-open'], {
+      cwd: root, execArgv: [], silent: true, env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: temp },
+    });
+    const kill = () => child.kill('SIGKILL');
+    t.after(kill);
+    let output = '', ready = false;
+    child.stdout.on('data', chunk => { output += chunk; });
+    child.stderr.on('data', chunk => { output += chunk; });
+    child.on('message', message => { if (message?.type === 'ready') ready = true; });
+    const exit = new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => resolve({ code, signal })); });
+    child.stdin.end(JSON.stringify({ type: 'configure', provider, ...context }) + '\n');
+    const result = await exit;
+    assert.equal(result.signal, null);
+    assert.equal(result.code, 1, redact(output));
+    assert.equal(ready, false);
+    assert.match(output, /Invalid main .*configuration/);
+    assert.doesNotMatch(output, /MIND_DSH_READY/);
+  }
 });

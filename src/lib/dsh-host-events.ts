@@ -3,7 +3,7 @@ import type { AgentSourceRef } from './agent-types';
 import { useAgentPanelStore } from "../state/agent-panel-store";
 import { useFeedbackStore } from "../state/feedback-store";
 
-export const DSH_BUSY_MESSAGE = "助手仍在后台执行。关闭或切换工作区将停止所有项目任务。";
+export const DSH_BUSY_MESSAGE = "助手仍在后台执行。关闭或切换工作区将停止工作区和所有项目任务。";
 export function showDshBusyFeedback() {
   useFeedbackStore.getState().setStatus({ tone: "warning", label: "助手正在执行", message: DSH_BUSY_MESSAGE });
   useFeedbackStore.getState().pushToast({ tone: "info", title: "助手正在执行", detail: DSH_BUSY_MESSAGE });
@@ -42,7 +42,7 @@ export function consumeDshFileReference(id: number) {
 window.addEventListener('mind:dsh-project-busy', event => {
   const workspaceRoot = useDshFileReferences.getState().workspaceRoot;
   if (!workspaceRoot) return;
-  const { projectId, busy } = (event as CustomEvent<{ projectId: number; busy: boolean }>).detail;
+  const { projectId, busy } = (event as CustomEvent<{ projectId: number | null; busy: boolean }>).detail;
   useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, busy);
 });
 
@@ -50,6 +50,6 @@ window.addEventListener('mind:dsh-project-busy', event => {
 window.addEventListener('mind:dsh-session-runs', event => {
   const workspaceRoot = useDshFileReferences.getState().workspaceRoot;
   if (!workspaceRoot) return;
-  const { projectId, runningBySession } = (event as CustomEvent<{ projectId: number; runningBySession: Record<string, boolean> }>).detail;
+  const { projectId, runningBySession } = (event as CustomEvent<{ projectId: number | null; runningBySession: Record<string, boolean> }>).detail;
   useAgentPanelStore.getState().setSessionRuns(workspaceRoot, projectId, runningBySession);
 });
