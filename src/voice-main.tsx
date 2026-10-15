@@ -5,9 +5,15 @@ import "./styles/app.css";
 import "./styles/voice-caption.css";
 
 import React from "react";
-import ReactDOM from "react-dom/client";
 import { VoiceCaptionWindow } from "./components/voice/VoiceCaptionWindow";
+import { renderReactRoot } from "./lib/react-root";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+renderReactRoot(
+  document.getElementById("root")!,
   <React.StrictMode><VoiceCaptionWindow /></React.StrictMode>,
+  import.meta.hot?.data,
 );
+
+if (import.meta.hot) {
+  import.meta.hot.accept();
+}

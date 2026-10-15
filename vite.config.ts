@@ -7,7 +7,11 @@ import { dshUiAliases } from './packages/dsh-ui/vite-aliases.mjs';
 export default defineConfig({
   define: { "import.meta.env.PROJECT_MIND_DEBUG_BUILD": process.env.TAURI_ENV_DEBUG === "true" },
   resolve: { alias: dshUiAliases, dedupe: ['react', 'react-dom'] },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    // Entrypoints own their HMR lifecycle; they are not component refresh boundaries.
+    react({ exclude: [/node_modules/, /\/src\/(?:voice-)?main\.tsx$/] }),
+    tailwindcss(),
+  ],
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
