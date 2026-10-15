@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Code2, ExternalLink, Eye, RefreshCw } from "lucide-react";
+import { Code2, Eye, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import type { AgentObjectRef, AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-types";
@@ -265,10 +265,9 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
       {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" className="project-file-content__icon-button" aria-label={source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
       {valid?.kind === "office" ? <span ref={setOfficeToolbar} className="project-file-content__office-actions" /> : null}
       <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" /></button>
-      <button type="button" className="project-file-content__external-button" aria-label="在外部应用打开当前原件"
-        title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : "在外部应用打开当前原件"}
-        disabled={opening} onClick={() => void openExternal()}><ExternalLink size={14} aria-hidden="true" /><span>外部打开</span></button>
-      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} visible={visible} beforeOpen={flushOffice} />
+      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} visible={visible} beforeOpen={flushOffice}
+        onOpen={() => void openExternal()} opening={opening}
+        title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : undefined} />
       {toolbarActions}
     </header>
     {needsRecovery ? identityRecovery : null}

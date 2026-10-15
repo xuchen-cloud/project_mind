@@ -8,7 +8,7 @@ import {recordDocumentApi} from '../../services/recordDocumentApi';
 import {officeFileApi} from '../../services/officeFileApi';
 vi.mock('../../services/fileDocumentApi',()=>({fileDocumentApi:{versionsList:vi.fn()}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:vi.fn()}}));
-vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
+vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn(),applications:vi.fn(),openWith:vi.fn(),openLocal:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
 vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:vi.fn(),save:vi.fn()}}));
 vi.mock('../office/DocxEditor',()=>({DocxEditor:(props:{model:{nodes:{text:string}[]};edits:{text:string}[];readOnly:boolean;onChange:(edits:unknown[])=>void})=><div>
   <p>{props.edits[0]?.text??props.model.nodes[0].text}</p><button disabled={props.readOnly} onClick={()=>props.onChange([{type:'text',nodeId:'p0',text:'保留草稿'}])}>编辑文档</button>
@@ -19,6 +19,7 @@ let current:number;
 function resolved(){return{object,relativePath:'sample.docx',name:'sample.docx',versionNumber:current,contentHash:`hash${current}`,state:'ready' as const,reason:null};}
 beforeEach(()=>{
   vi.resetAllMocks();current=2;
+  vi.mocked(projectFileApi.applications).mockResolvedValue([]);
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
   vi.mocked(projectFileApi.resolve).mockImplementation(async()=>resolved());
   vi.mocked(fileDocumentApi.versionsList).mockImplementation(async()=>({object,currentVersionNumber:current,currentContentHash:`hash${current}`,versions:[{id:String(current),versionNumber:current,name:'sample.docx',createdAt:'2026-10-13',contentHash:`hash${current}`,isCurrent:true}],nextCursor:null}));
@@ -49,4 +50,22 @@ it('a draft created during asynchronous tab revalidation survives the incoming c
  await waitFor(()=>expect(screen.queryByText('正在读取固定版本…')).not.toBeInTheDocument());
  expect(screen.getByText('保留草稿')).toBeVisible();expect(officeFileApi.inspect).toHaveBeenCalledOnce();
  await act(()=>view.close());expect(officeFileApi.save).toHaveBeenCalledOnce();view.unmount();
+});
+it.each(['default','selected'])('flushes Office edits before %s external open',async mode=>{
+ vi.mocked(projectFileApi.applications).mockResolvedValue([{id:'viewer',name:'Viewer',icon:null,isDefault:true}]);
+ const view=mount();await screen.findByText('原文');
+ fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
+ let finish!:()=>void;
+ vi.mocked(officeFileApi.save).mockImplementationOnce(()=>new Promise(resolve=>{finish=()=>{current=3;resolve({model:{format:'docx',nodes:[{id:'p0',text:'保留草稿'}]},commit:{receipt:{documentId:7,versionNumber:3,contentHash:'hash3',noChange:false},versionPath:null}} as never);};}));
+ if(mode==='default')fireEvent.click(screen.getByRole('button',{name:'在外部应用打开当前原件'}));
+ else{
+  fireEvent.click(screen.getByRole('button',{name:'选择其他应用打开当前原件'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Viewer（默认）'}));
+ }
+ await waitFor(()=>expect(officeFileApi.save).toHaveBeenCalledOnce());
+ expect(projectFileApi.openLocal).not.toHaveBeenCalled();expect(projectFileApi.openWith).not.toHaveBeenCalled();
+ await act(async()=>finish());
+ if(mode==='default')await waitFor(()=>expect(projectFileApi.openLocal).toHaveBeenCalledWith(binding,object));
+ else await waitFor(()=>expect(projectFileApi.openWith).toHaveBeenCalledWith(binding,object,'viewer'));
+ view.unmount();
 });
