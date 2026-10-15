@@ -3,6 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { AgentApiError } from "../../services/agentApi";
+import { desktopApi } from "../../services/desktopApi";
+import { RecordSaveCoordinator, RecordSaveFailure } from "../../lib/record-save-coordinator";
+import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { ProjectContentWorkspace } from "./ProjectContentWorkspace";
 import { prepareProjectContentClose, prepareWorkspaceContentClose } from "../../lib/project-content-lifecycle";
 import { openProjectContent } from "../../services/projectContentApi";
@@ -31,16 +35,22 @@ vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: (props: {
   <section aria-label="文件页"><header aria-label="文件工具栏">{props.toolbarActions}</header><p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p></section> }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(), editorGet: vi.fn() } }));
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn() } }));
+vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("../../services/agentApi")>(),
+  agentApi: { statusGet: async () => ({ binding }) },
+}));
+vi.mock("../../services/desktopApi", () => ({ desktopApi: { confirm: vi.fn() } }));
 const binding = { workspaceId: "workspace-tabs", generation: "open-1" };
 const workspaceRoot = "/tmp/tabs";
-function fixture(route = "/projects/7/records/1", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function fixture(route = "/projects/7/records/1", client = new QueryClient({ defaultOptions: { queries: { retry: false } } }), coordinator?: RecordSaveCoordinator) {
   function Root() {
     const [active, setActive] = useState(true);
     return <><button onClick={() => setActive(value => !value)}>切换项目活动状态</button>
       <ProjectContentWorkspace workspaceRoot={workspaceRoot} projectId={7} active={active} overview={() => <p>项目概览入口</p>} /></>;
   }
   const router = createMemoryRouter([{ path: "*", element: <Root /> }], { initialEntries: [route] });
-  render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}>{coordinator
+    ? <RecordSaveCoordinatorProvider coordinator={coordinator}><RouterProvider router={router} /></RecordSaveCoordinatorProvider>
+    : <RouterProvider router={router} />}</QueryClientProvider>);
   return router;
 }
 beforeEach(() => {
@@ -132,6 +142,28 @@ it("keeps the Record route, tab and draft when close fails, then closes after a 
   expect(screen.getByRole("tab", { name: "Record 1" })).toBeVisible();
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "关闭Record 1" })));
   expect(screen.queryByRole("tab")).toBeNull(); expect(router.state.location.pathname).toBe("/projects/7");
+});
+it("closes a deleted Record tab only after confirmation and clears its orphan save queue", async () => {
+  const coordinator = new RecordSaveCoordinator({ workspaceKey: workspaceRoot, adapter: { persist: async () => {
+    throw new RecordSaveFailure("Record is missing", { code: "NOT_FOUND", retryable: false });
+  } } });
+  const router = fixture(undefined, undefined, coordinator);
+  await screen.findByLabelText("编辑1");
+  coordinator.submit({ scope: "project", workspaceKey: workspaceRoot, projectId: 7, recordId: 1,
+    title: "Record 1", tagIds: [], defaultCodeLanguage: null, committedContent: { html: "<p>draft</p>", text: "draft", markdown: "draft" },
+    canonicalBody: { binding, requestId: "deleted", baseRevision: 1, editSessionId: null, origin: "manual", document: { type: "doc" } },
+  });
+  await coordinator.flush().catch(() => undefined);
+  vi.mocked(recordDocumentApi.editorGet).mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false }));
+  vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  fireEvent.click(screen.getByRole("button", { name: "关闭Record 1" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("已取消关闭");
+  expect(router.state.location.pathname).toBe("/projects/7/records/1");
+  expect(coordinator.getLatestSnapshot("project:7:1")).not.toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "关闭Record 1" })));
+  expect(screen.queryByRole("tab")).toBeNull();
+  expect(router.state.location.pathname).toBe("/projects/7");
+  await expect(coordinator.flush()).resolves.toBeUndefined();
 });
 it("cancels close after a Workspace generation changes during the guard", async () => {
   const router = fixture(); await screen.findByLabelText("编辑1");

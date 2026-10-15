@@ -264,6 +264,10 @@ export class RecordSaveCoordinator {
     });
   }
 
+  getPendingRecordKeys() {
+    return [...this.tasksByRecord.keys()];
+  }
+
   getLatestSnapshot(recordKey: string) {
     const tasks = this.tasksByRecord.get(recordKey) ?? [];
     return [...tasks].reverse().find((task) => task.state !== "saved")?.snapshot ?? null;
@@ -273,7 +277,7 @@ export class RecordSaveCoordinator {
     return statusForTasks(this.tasksByRecord.get(recordKey) ?? []);
   }
 
-  /** Only an explicit conflict-resolution action may abandon queued drafts. */
+  /** Only an explicit user decision may abandon queued drafts. */
   discard(recordKey: string) {
     if (this.tasksByRecord.get(recordKey)?.some((task) => task.state === "running")) {
       throw new RecordSaveFailure("这条记录仍在保存，请稍后处理冲突", { retryable: true, code: "EDITOR_BUSY" });

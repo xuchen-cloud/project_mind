@@ -24,6 +24,9 @@ import {
 WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
 type WorkspaceRecordFocusSaveRequestDetail,
 } from "../../lib/record-focus-save";
+import { registerWorkspaceRecordCloseGuard } from "../../lib/project-content-lifecycle";
+import { useDeletedRecordClose } from "../../hooks/useDeletedRecordClose";
+import { isUnavailableRecordError } from "../../lib/deleted-record-close";
 import { workspaceRecordSaveKey } from "../../lib/record-save-coordinator";
 import {
 createRecordSaveCoordinator,
@@ -191,6 +194,23 @@ export function WorkspaceRecordFocusPage({
       return true;
     },
   });
+  const canonicalRef = useRef(canonical);
+  canonicalRef.current = canonical;
+  const pendingSnapshot = recordId === null ? null : saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId));
+  const getDraftSignature = useCallback(() => JSON.stringify({
+    title: titleValueRef.current,
+    tags: tagIdsValueRef.current,
+    language: codeLanguageValueRef.current,
+    document: editorControllerRef.current?.getCommittedDocumentJson(),
+  }), []);
+  const { isDiscarded, prepareClose } = useDeletedRecordClose({
+    coordinator: saveCoordinator,
+    recordKey: workspaceRecordSaveKey(recordId ?? 0),
+    target: { scope: { kind: "workspace" }, recordId: recordId ?? 0 },
+    binding: canonical.binding ?? pendingSnapshot?.canonicalBody?.binding ?? null,
+    workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "",
+    getDraftSignature,
+  });
   const recordClipboard = useRecordClipboard(canonical.binding, canonical.state?.head.target ?? null);
   const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
   const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
@@ -250,7 +270,7 @@ export function WorkspaceRecordFocusPage({
 
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
-      if (resolvingConflictRef.current || !editingReady || recordId === null) return false;
+      if (isDiscarded() || resolvingConflictRef.current || !editingReady || recordId === null) return false;
       const document = editorControllerRef.current?.getCommittedDocumentJson();
       if (!document) return false;
       const canonicalBody = canonical.capture(document, origin);
@@ -275,7 +295,7 @@ export function WorkspaceRecordFocusPage({
       });
       setPersistState("saving");
       return true;
-    }, [content, currentWorkspace?.rootPath, editingReady, canonical.capture, recordId, saveCoordinator],
+    }, [content, currentWorkspace?.rootPath, editingReady, canonical.capture, recordId, saveCoordinator, isDiscarded],
   );
 
   useEffect(() => {
@@ -293,11 +313,57 @@ export function WorkspaceRecordFocusPage({
     const handleRequest = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceRecordFocusSaveRequestDetail>).detail;
       if (!detail || detail.recordId !== recordId) return;
-      detail.respond(draftReady ? submitCurrentRecord() : "not_needed");
+      if (canonicalRef.current.error && !canonicalRef.current.binding && hydratedRecordKey === null && (recordId === null
+        || !saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId)))) {
+        detail.respond("not_needed");
+        return;
+      }
+      detail.respond(draftReady && !isDiscarded() ? submitCurrentRecord() : "not_needed");
     };
     window.addEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
     return () => window.removeEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
-  }, [draftReady, recordId, submitCurrentRecord, visible]);
+  }, [draftReady, recordId, submitCurrentRecord, visible, isDiscarded, saveCoordinator, hydratedRecordKey]);
+
+  useEffect(() => {
+    if (recordId === null) return;
+    return registerWorkspaceRecordCloseGuard({
+      workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "",
+      recordId,
+      prepare: () => prepareClose(async () => {
+        if (!draftReady) return;
+        const recordKey = workspaceRecordSaveKey(recordId);
+        const current = canonicalRef.current;
+        if (current.error && !current.binding && hydratedRecordKey === null
+          && !saveCoordinator.getLatestSnapshot(recordKey)) return;
+        const checkCloseState = () => {
+          const failure = saveCoordinator.getRecordStatus(recordKey).lastError;
+          if (isUnavailableRecordError(failure)) throw failure;
+          const latest = canonicalRef.current;
+          if (latest.error) throw latest.error;
+          if (latest.syncError) throw latest.syncError;
+          if (latest.incomingConflict || resolvingConflictRef.current) {
+            throw new Error("请先处理记录冲突，再关闭记录");
+          }
+        };
+        checkCloseState();
+        const editor = editorControllerRef.current;
+        if (!editingReady || !editor || editor.isBusy()) {
+          throw new Error("编辑器正在处理，请稍后再关闭");
+        }
+        if (editor.getPendingAiReviewCount() > 0) {
+          throw new Error("请先处理待确认的 AI 修改，再关闭记录");
+        }
+        const before = getDraftSignature();
+        if (!submitCurrentRecord()) throw new Error("未能保存当前记录，草稿已保留");
+        await saveCoordinator.flush(recordKey);
+        checkCloseState();
+        if (editor.isBusy() || editor.getPendingAiReviewCount() > 0 || getDraftSignature() !== before) {
+          throw new Error("记录仍在编辑，草稿已保留，请稍后再关闭");
+        }
+      }),
+    });
+  }, [recordId, saveCoordinator, currentWorkspace?.rootPath, prepareClose, draftReady,
+    canonical.error, canonical.syncError, hydratedRecordKey, editingReady, getDraftSignature, submitCurrentRecord]);
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {

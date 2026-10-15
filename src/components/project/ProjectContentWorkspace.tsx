@@ -80,7 +80,16 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   const routeRecordId = route?.kind === "project" && route.projectId === projectId ? route.recordId : null;
   const routeKey = `${location.pathname}${location.search}`;
   const openedRoute = useRef<string | null>(null);
-  const registerLeaveGuard = useCallback((prepare: () => Promise<void>) => registerProjectContentCloseGuard({ workspaceRoot, projectId, prepare }), [workspaceRoot, projectId]);
+  const registerLeaveGuard = useCallback((prepare: () => Promise<void>) => registerProjectContentCloseGuard({ workspaceRoot, projectId,
+    prepare: async () => {
+      await prepare();
+      if (!scope || !coordinator) return;
+      const { flushRecordSavesForClose } = await import("../../lib/deleted-record-close");
+      for (const tab of getContentLayout(useProjectContentStore.getState(), scope).tabs) {
+        if (tab.object.kind === "record") await flushRecordSavesForClose(coordinator, projectRecordSaveKey(projectId, Number(tab.object.id)));
+      }
+    },
+  }), [workspaceRoot, projectId, coordinator, scope]);
   const onOverview = useCallback(() => {
     if (scope) useProjectContentStore.getState().selectHome(scope);
     navigate(`${projectPath(projectId)}?view=overview`);
@@ -146,10 +155,14 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
           const tab = getContentLayout(useProjectContentStore.getState(), scope).tabs.find(item => item.id === tabId);
           if (!tab) return;
           if (guard) await guard();
-          else if (tab.object.kind === "record") await coordinator?.flush(projectRecordSaveKey(projectId, Number(tab.object.id)));
+          if (tab.object.kind === "record" && coordinator) {
+            const { flushRecordSavesForClose } = await import("../../lib/deleted-record-close");
+            await flushRecordSavesForClose(coordinator, projectRecordSaveKey(projectId, Number(tab.object.id)));
+          }
           const current = await recordDocumentApi.bindingGet(workspaceRoot);
           if (!binding || current.workspaceId !== binding.workspaceId || current.generation !== binding.generation) throw new Error("工作区已切换，关闭已取消");
           useProjectContentStore.getState().close(scope, tabId);
+          setOpeningError(null);
           if (!activeRef.current) return;
           const next = getContentLayout(useProjectContentStore.getState(), scope);
           const selectedId = next.panes.find(item => item.id === next.focusedPaneId)?.selectedTabId;

@@ -1,4 +1,6 @@
 type ProjectCloseGuard = { workspaceRoot: string; projectId: number; prepare: () => Promise<void> };
+type WorkspaceRecordCloseGuard = { workspaceRoot: string; recordId: number; prepare: () => Promise<void> };
+const workspaceRecords = new Map<string, WorkspaceRecordCloseGuard>();
 const projects = new Map<string, ProjectCloseGuard>();
 const key = (workspaceRoot: string, projectId: number) => JSON.stringify([workspaceRoot, projectId]);
 
@@ -11,6 +13,12 @@ export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
 export async function prepareProjectContentClose(workspaceRoot: string, projectId: number) {
   await projects.get(key(workspaceRoot, projectId))?.prepare();
 }
+export function registerWorkspaceRecordCloseGuard(guard: WorkspaceRecordCloseGuard) {
+  const id = key(guard.workspaceRoot, guard.recordId);
+  workspaceRecords.set(id, guard);
+  return () => { if (workspaceRecords.get(id) === guard) workspaceRecords.delete(id); };
+}
 export async function prepareWorkspaceContentClose(workspaceRoot: string) {
-  for (const guard of projects.values()) if (guard.workspaceRoot === workspaceRoot) await guard.prepare();
+  const guards = [...projects.values(), ...workspaceRecords.values()];
+  for (const guard of guards) if (guard.workspaceRoot === workspaceRoot) await guard.prepare();
 }

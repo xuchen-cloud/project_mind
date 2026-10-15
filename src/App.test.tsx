@@ -14,7 +14,8 @@ import {
   WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
-import { RecordSaveCoordinator, projectRecordSaveKey } from "./lib/record-save-coordinator";
+import { AgentApiError } from "./services/agentApi";
+import { RecordSaveCoordinator, RecordSaveFailure, projectRecordSaveKey } from "./lib/record-save-coordinator";
 import { queryKeys } from "./lib/queryKeys";
 import { fixtureEditorState } from "./test/recordDocumentFixture";
 import type { RecordTarget } from "./lib/record-document-types";
@@ -46,7 +47,7 @@ vi.mock("./services/projectFileApi", async importOriginal => ({
 }));
 vi.mock("./services/projectDirectoryApi", () => ({ projectDirectoryApi: { resolveReference: vi.fn(), list: vi.fn(async () => ({ entries: [] })), tree: vi.fn(async () => ({ entries: [] })) } }));
 const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn(), bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
-vi.mock("./services/agentApi", () => ({ agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
+vi.mock("./services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("./services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: { ...recordMocks, editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
 
 function configureCanonicalRecords(queryClient: QueryClient) {
@@ -62,6 +63,7 @@ function configureCanonicalRecords(queryClient: QueryClient) {
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
+    confirm: vi.fn(),
     listenEvent: vi.fn(async () => () => undefined),
     command: vi.fn(async (name: string) => {
       if (name === "voice_availability_get") return { implemented: false, reason: "test" };
@@ -693,6 +695,37 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
     expect(await screen.findByText("切换 Workspace 失败")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+  });
+
+  it.each([["window", false], ["window", true], ["switch", false], ["switch", true]] as const)("handles deleted orphan Record drafts on %s with confirmation=%s", async (action, accepted) => {
+    let requestClose!: () => Promise<boolean>;
+    vi.mocked(desktopApi.listenForCloseRequest).mockImplementation(async (handler) => {
+      requestClose = handler; return () => undefined;
+    });
+    vi.mocked(desktopApi.confirm).mockResolvedValue(accepted);
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: {
+      persist: async () => { throw new RecordSaveFailure("Record is missing", { code: "NOT_FOUND", retryable: false }); },
+    } });
+    coordinator.submit({ scope: "workspace", workspaceKey: "/tmp/workspace", recordId: 7, title: "已删除的记录",
+      tagIds: [], defaultCodeLanguage: null, committedContent: { html: "<p>draft</p>", text: "draft", markdown: "draft" },
+      canonicalBody: { binding: { workspaceId: "fixture-workspace", generation: "open-1" }, requestId: "deleted-draft",
+        baseRevision: 1, document: { type: "doc", content: [{ type: "paragraph" }] }, editSessionId: null, origin: "manual" },
+    });
+    const router = createMemoryRouter([{ path: "*", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }], { initialEntries: ["/"] });
+    render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+    await waitFor(() => expect(requestClose).toBeDefined());
+    if (action === "window") {
+      await act(async () => { expect(await requestClose()).toBe(accepted); });
+    } else {
+      vi.mocked(projectMindApi.workspaceClose).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" });
+      await act(async () => fireEvent.click(await screen.findByRole("button", { name: "切换 Workspace" })));
+      await waitFor(() => expect(desktopApi.confirm).toHaveBeenCalled());
+      if (accepted) await waitFor(() => expect(projectMindApi.workspaceClose).toHaveBeenCalledOnce());
+      else expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
+    }
+    expect(desktopApi.confirm).toHaveBeenCalledWith(expect.stringContaining("关闭会丢失"), "原始记录已删除");
+    expect(coordinator.getLatestSnapshot("workspace:7") === null).toBe(accepted);
   });
 
   it("waits for pending Record saves before allowing a normal window close", async () => {
@@ -1777,7 +1810,7 @@ describe("WorkspaceLayout", () => {
     expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
   }, 15_000);
 
-  async function renderResidentProjectFixture(startWithRecord = false) {
+  async function renderResidentProjectFixture(startWithRecord = false, saveFailure?: () => unknown) {
     const timestamp = "2026-08-23T00:00:00.000Z";
     const projects = Array.from({ length: 12 }, (_, index) => {
       const id = index + 1;
@@ -1843,6 +1876,8 @@ describe("WorkspaceLayout", () => {
       workspaceKey: "/tmp/workspace",
       adapter: {
         persist: vi.fn(async (snapshot) => {
+          const failure = saveFailure?.();
+          if (failure) throw failure;
           return { updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 };
         }),
       },
@@ -1886,6 +1921,28 @@ describe("WorkspaceLayout", () => {
 
     return { router, coordinator, projectA };
   }
+
+  it("confirms and closes a deleted Record through the real content tab and navigation blocker", async () => {
+    let deleted = false;
+    const { router, coordinator } = await renderResidentProjectFixture(true, () => deleted
+      ? new RecordSaveFailure("Record is missing", { code: "NOT_FOUND", retryable: false }) : null);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    const originalGet = recordMocks.editorGet.getMockImplementation()!;
+    recordMocks.editorGet.mockImplementation(async (...args) => {
+      if (args[1].recordId === 70) throw new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false });
+      return originalGet(...args);
+    });
+    deleted = true;
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "关闭Record 7" }));
+    await screen.findByText("已取消关闭，当前记录内容已保留");
+    expect(router.state.location.pathname).toBe("/projects/7/records/70");
+    expect(coordinator.getLatestSnapshot("project:7:70")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "关闭Record 7" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "关闭Record 7" })).toBeNull());
+    expect(router.state.location.pathname).toBe("/projects/7");
+    await expect(coordinator.flush()).resolves.toBeUndefined();
+  });
 
   it("opens the left pane Home when clicking the project name in the sidebar", async () => {
     const { router } = await renderResidentProjectFixture(true);
