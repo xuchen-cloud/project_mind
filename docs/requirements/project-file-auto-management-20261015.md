@@ -2,6 +2,8 @@
 
 关联：[#142](https://github.com/xuchen-cloud/project_mind/issues/142)，承接 [#124](https://github.com/xuchen-cloud/project_mind/issues/124)。本包承接 2026-10-15 用户修正；不代表 #124 的其他平台验收完成。
 
+后续规则修正：[#159](https://github.com/xuchen-cloud/project_mind/issues/159) 将排除范围扩展为所有隐藏文件与隐藏目录，包括点号条目、macOS/Windows 隐藏属性和隐藏目录后代；详见[隐藏文件规则](project-file-system-metadata-20261015.md)。下文保留 #142 当时的交付与验证记录。
+
 ## 范围
 
 - 依赖现有 Project File 登记、分页目录扫描、文件身份与版本服务、工作区 business change 同步。

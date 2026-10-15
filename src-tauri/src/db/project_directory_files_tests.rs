@@ -1653,3 +1653,350 @@ fn directory_scan_cursor_uses_utf8_order_for_non_bmp_filenames() {
         .unwrap();
     assert_eq!(second.files[0].relative_path, names[1]);
 }
+
+fn ds_store_scan_excludes_metadata(only_new: bool) {
+    hidden_scan_excludes_files_and_directories(only_new, false);
+}
+
+fn hidden_scan_excludes_files_and_directories(only_new: bool, native: bool) {
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("sub")).unwrap();
+    for relative in [
+        ".DS_Store",
+        "sub/.DS_Store",
+        ".env",
+        "sub/.env",
+        "note.txt",
+        "sub/note.txt",
+    ] {
+        fs::write(path.join(relative), relative.as_bytes()).unwrap();
+    }
+    for directory in [".git/nested", "sub/.cache/nested"] {
+        fs::create_dir_all(path.join(directory)).unwrap();
+        fs::write(
+            path.join(directory).join("ordinary.txt"),
+            b"hidden descendant",
+        )
+        .unwrap();
+    }
+    #[cfg(any(target_os = "macos", windows))]
+    if native {
+        fs::write(path.join("native-file.txt"), b"native hidden file").unwrap();
+        fs::create_dir_all(path.join("native-folder/nested")).unwrap();
+        fs::write(
+            path.join("native-folder/nested/ordinary.txt"),
+            b"native hidden descendant",
+        )
+        .unwrap();
+        hidden_set_native_attribute(&path.join("native-file.txt"));
+        hidden_set_native_attribute(&path.join("native-folder"));
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    assert!(!native);
+    let mut cursor = None;
+    let mut found = Vec::new();
+    let mut complete = false;
+    // A small page exercises exclusions across cursor boundaries too.
+    for _ in 0..20 {
+        let page = if only_new {
+            db.project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 1)
+        } else {
+            db.project_file_scan("wp1-workspace", project, cursor.as_deref(), 1, false)
+        }
+        .unwrap();
+        assert!(page.failures.is_empty(), "{:?}", page.failures);
+        found.extend(page.files.into_iter().map(|file| file.relative_path));
+        cursor = page.next_cursor;
+        if page.complete {
+            complete = true;
+            break;
+        }
+        assert!(cursor.is_some());
+    }
+    assert!(complete, "scan must finish despite excluded metadata");
+    found.sort();
+    assert_eq!(found, ["note.txt", "sub/note.txt"]);
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE project_id=?1",
+            [project],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        count, 2,
+        "hidden files and descendants must not be registered"
+    );
+    for relative in [".DS_Store", "sub/.DS_Store", ".env", "sub/.env"] {
+        assert_eq!(fs::read(path.join(relative)).unwrap(), relative.as_bytes());
+    }
+}
+
+#[test]
+fn ds_store_automatic_scan_excludes_root_and_nested_metadata_keeps_ordinary_files() {
+    ds_store_scan_excludes_metadata(true);
+}
+
+#[test]
+fn ds_store_explicit_scan_excludes_root_and_nested_metadata_keeps_ordinary_files() {
+    ds_store_scan_excludes_metadata(false);
+}
+
+fn ds_store_register_rejected(relative: &str) {
+    hidden_register_and_import_rejected(relative, None);
+}
+
+fn hidden_register_and_import_rejected(relative: &str, native: Option<&str>) {
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("sub")).unwrap();
+    fs::create_dir_all(path.join(relative).parent().unwrap()).unwrap();
+    fs::write(path.join(relative), b"Finder metadata").unwrap();
+    #[cfg(any(target_os = "macos", windows))]
+    if let Some(mark) = native {
+        hidden_set_native_attribute(&path.join(mark));
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    assert!(native.is_none());
+    let result = db.project_file_register("wp1-workspace", project, relative);
+    // Use a separate project so an existing registration cannot make import
+    // fail for a duplicate instead of rejecting the metadata at its boundary.
+    let (_import_root, mut import_db, import_project, import_path) = fixture();
+    fs::create_dir(import_path.join("sub")).unwrap();
+    fs::create_dir_all(import_path.join(relative).parent().unwrap()).unwrap();
+    fs::write(import_path.join(relative), b"Finder metadata").unwrap();
+    #[cfg(any(target_os = "macos", windows))]
+    if let Some(mark) = native {
+        hidden_set_native_attribute(&import_path.join(mark));
+    }
+    let imported = import_db.document_import(crate::models::DocumentImportInput {
+        project_id: import_project,
+        source_path: import_path.join(relative).to_string_lossy().into_owned(),
+        is_starred: false,
+        tag_ids: None,
+    });
+    assert_eq!(fs::read(path.join(relative)).unwrap(), b"Finder metadata");
+    assert_eq!(
+        fs::read(import_path.join(relative)).unwrap(),
+        b"Finder metadata"
+    );
+    assert_eq!(
+        (result.is_err(), imported.is_err()),
+        (true, true),
+        "register and explicit import must both reject metadata: {relative}"
+    );
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE project_id=?1",
+            [project],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    let imported_count: i64 = import_db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE project_id=?1",
+            [import_project],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(imported_count, 0);
+    assert_eq!(fs::read(path.join(relative)).unwrap(), b"Finder metadata");
+}
+
+#[test]
+fn ds_store_register_rejects_root_metadata() {
+    ds_store_register_rejected(".DS_Store");
+}
+
+#[test]
+fn ds_store_register_rejects_nested_metadata() {
+    ds_store_register_rejected("sub/.DS_Store");
+}
+
+#[test]
+fn ds_store_filter_keeps_ordinary_files_registerable() {
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("sub")).unwrap();
+    for relative in ["note.txt", "sub/note.txt"] {
+        fs::write(path.join(relative), b"business material").unwrap();
+        let file = db
+            .project_file_register("wp1-workspace", project, relative)
+            .unwrap();
+        assert_eq!(file.state, "ready");
+        assert_eq!(file.relative_path, relative);
+        assert_eq!(bytes(&db, &file), b"business material");
+    }
+}
+
+fn ds_store_legacy_record_hidden_without_deletion(relative: &str) {
+    hidden_legacy_record_hidden_without_deletion(relative, None);
+}
+
+fn hidden_legacy_record_hidden_without_deletion(relative: &str, native: Option<&str>) {
+    let (_root, mut db, project, path) = fixture();
+    fs::create_dir(path.join("sub")).unwrap();
+    fs::write(path.join("legacy.bin"), b"retained metadata").unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "legacy.bin")
+        .unwrap();
+    let id: i64 = file.object.id.parse().unwrap();
+    fs::create_dir_all(path.join(relative).parent().unwrap()).unwrap();
+    fs::rename(path.join("legacy.bin"), path.join(relative)).unwrap();
+    #[cfg(any(target_os = "macos", windows))]
+    if let Some(mark) = native {
+        hidden_set_native_attribute(&path.join(mark));
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    assert!(native.is_none());
+    // Simulate a record made by an older release, without relying on register
+    // continuing to accept metadata after the production fix.
+    let encoded = db.encode_path_ref(&path.join(relative));
+    db.conn.execute(
+        "UPDATE documents SET name=?1,base_name=?1,managed_path=?2,original_path=?2 WHERE id=?3",
+        params![Path::new(relative).file_name().unwrap().to_str().unwrap(), encoded, id],
+    ).unwrap();
+    for normal in ["note.txt"] {
+        fs::write(path.join(normal), b"keep visible").unwrap();
+        db.project_file_register("wp1-workspace", project, normal)
+            .unwrap();
+    }
+    let record_state = |db: &Database| {
+        db.conn.query_row(
+        "SELECT name,base_name,managed_path,original_path,current_version_number,version_count FROM documents WHERE id=?1",
+        [id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?)),
+    ).unwrap()
+    };
+    let before = record_state(&db);
+    let versions_before = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    assert_eq!(versions_before.len(), 1);
+    assert_eq!(versions_before[0].version_number, 1);
+    let page = db
+        .project_page_get(crate::models::ProjectIdInput {
+            project_id: project,
+        })
+        .unwrap();
+    let after = record_state(&db);
+    assert_eq!(
+        after, before,
+        "hiding must retain the database record and version counters"
+    );
+    let versions_after = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&versions_after).unwrap(),
+        serde_json::to_value(&versions_before).unwrap()
+    );
+    assert_eq!(fs::read(path.join(relative)).unwrap(), b"retained metadata");
+    assert_eq!(
+        fs::read(&versions_after[0].managed_path).unwrap(),
+        b"retained metadata"
+    );
+    let mut names: Vec<_> = page
+        .project_documents
+        .iter()
+        .map(|document| document.name.as_str())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        ["note.txt"],
+        "legacy metadata must be hidden from Project Files"
+    );
+}
+
+#[test]
+fn ds_store_project_page_hides_legacy_root_record_and_retains_file_and_version() {
+    ds_store_legacy_record_hidden_without_deletion(".DS_Store");
+}
+
+#[test]
+fn ds_store_project_page_hides_legacy_nested_record_and_retains_file_and_version() {
+    ds_store_legacy_record_hidden_without_deletion("sub/.DS_Store");
+}
+
+#[test]
+fn hidden_register_and_import_reject_dot_files_and_hidden_directory_descendants() {
+    for relative in [
+        ".env",
+        "sub/.env",
+        ".git/config",
+        ".git/nested/ordinary.txt",
+        "sub/.cache/ordinary.txt",
+    ] {
+        hidden_register_and_import_rejected(relative, None);
+    }
+}
+
+#[test]
+fn hidden_project_page_hides_legacy_env_and_preserves_record_and_version() {
+    for relative in [".env", "sub/.env"] {
+        hidden_legacy_record_hidden_without_deletion(relative, None);
+    }
+}
+
+#[test]
+fn hidden_project_page_hides_legacy_hidden_directory_descendant_and_preserves_record_and_version() {
+    hidden_legacy_record_hidden_without_deletion(".git/nested/ordinary.txt", None);
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn hidden_set_native_attribute(path: &Path) {
+    #[cfg(target_os = "macos")]
+    let output = std::process::Command::new("chflags")
+        .arg("hidden")
+        .arg(path)
+        .output()
+        .unwrap();
+    #[cfg(windows)]
+    let output = std::process::Command::new("attrib")
+        .arg("+h")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "could not mark {} hidden: {:?}",
+        path.display(),
+        output
+    );
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn hidden_native_automatic_scan_excludes_files_and_directory_descendants() {
+    hidden_scan_excludes_files_and_directories(true, true);
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn hidden_native_explicit_scan_excludes_files_and_directory_descendants() {
+    hidden_scan_excludes_files_and_directories(false, true);
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn hidden_native_register_and_import_reject_file_and_directory_descendant() {
+    hidden_register_and_import_rejected("native-file.txt", Some("native-file.txt"));
+    hidden_register_and_import_rejected("native-folder/nested/ordinary.txt", Some("native-folder"));
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn hidden_native_project_page_hides_legacy_file_and_retains_record_and_version() {
+    hidden_legacy_record_hidden_without_deletion("native-file.txt", Some("native-file.txt"));
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn hidden_native_project_page_hides_legacy_directory_descendant_and_retains_record_and_version() {
+    hidden_legacy_record_hidden_without_deletion(
+        "native-folder/nested/ordinary.txt",
+        Some("native-folder"),
+    );
+}
