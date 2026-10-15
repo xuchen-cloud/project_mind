@@ -29,7 +29,7 @@ export function HomeSidebarFooter({ onOpenArchivedProjects }: { onOpenArchivedPr
   if (!actions && !openArchivedProjects) return null;
   return <div className="home-side__footer" role="group" aria-label="工作区操作">
     {actions ? <button type="button" className="home-side__footer-workspace" aria-label="切换 Workspace" title="切换工作区" onClick={actions.switchWorkspace}><ChevronsUpDown size={16} /><span>{actions.workspaceName}</span></button> : null}
-    <button type="button" className="home-side__workspace-action" aria-label="归档项目" title="归档项目" onClick={openArchivedProjects}><Archive size={18} /></button>
-    {actions ? <button type="button" className="home-side__workspace-action" aria-label="设置" title="设置" onClick={actions.openSettings}><Settings size={18} /></button> : null}
+    <button type="button" className="home-side__workspace-action" aria-label="归档项目" title="归档项目" onClick={openArchivedProjects}><Archive size={16} /></button>
+    {actions ? <button type="button" className="home-side__workspace-action" aria-label="设置" title="设置" onClick={actions.openSettings}><Settings size={16} /></button> : null}
   </div>;
 }
