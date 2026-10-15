@@ -135,23 +135,63 @@ fn byte_limit(name: &str) -> usize {
         10 * 1024 * 1024
     }
 }
-pub(crate) fn internal_component(name: &str) -> bool {
-    name == ".project-mind"
-        || name
-            .strip_prefix('.')
-            .and_then(|n| n.strip_suffix(".pm-versions"))
-            .is_some_and(|id| id.parse::<i64>().is_ok_and(|id| id > 0))
+pub(crate) fn excluded_component(name: &str) -> bool {
+    name.starts_with('.')
+}
+
+pub(crate) fn hidden_metadata(metadata: &fs::Metadata) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::macos::fs::MetadataExt;
+        const UF_HIDDEN: u32 = 0x00008000;
+        metadata.st_flags() & UF_HIDDEN != 0
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
+        metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
+/// Evaluate only components inside the Project, including hidden ancestors.
+/// Missing Files remain visible through the existing missing-health handling.
+pub(crate) fn hidden_project_path(root: &Path, path: &Path) -> Result<bool> {
+    let relative = path.strip_prefix(root)?;
+    if relative.components().any(|part| {
+        part.as_os_str()
+            .to_str()
+            .is_some_and(excluded_component)
+    }) {
+        return Ok(true);
+    }
+    let mut current = root.to_path_buf();
+    for part in relative.components() {
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if hidden_metadata(&metadata) => return Ok(true),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
 }
 fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     if relative.is_empty()
         || relative.contains(['\\', ':', '\0'])
         || relative
             .split('/')
-            .any(|part| part.is_empty() || (matches!(part, "." | "..") || internal_component(part)))
+            .any(|part| part.is_empty() || (matches!(part, "." | "..") || excluded_component(part)))
     {
         return Err(failure(
             "invalid_path",
-            "Expected a business File path inside the Project; internal data is excluded",
+            "Expected a visible business File path inside the Project; hidden entries are excluded",
         ));
     }
     if fs::symlink_metadata(root)?.file_type().is_symlink() {
@@ -159,6 +199,9 @@ fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     }
     let path = root.join(relative);
     file_versions::relative(root, &path)?;
+    if hidden_project_path(root, &path)? {
+        return Err(failure("invalid_path", "Hidden entries are excluded from project Files"));
+    }
     Ok(path)
 }
 impl Database {
@@ -1409,10 +1452,15 @@ impl Database {
                     continue;
                 }
             };
-            if internal_component(&name) {
+            if excluded_component(&name) {
                 result.excluded.push(ScanExcluded {
                     relative_path: relative,
-                    reason: "internal".into(),
+                    reason: if name == ".project-mind" || name.ends_with(".pm-versions") {
+                        "internal"
+                    } else {
+                        "hidden"
+                    }
+                    .into(),
                 });
                 continue;
             }
@@ -1422,6 +1470,23 @@ impl Database {
                     reason: "symlink".into(),
                 });
                 continue;
+            }
+            match entry.metadata() {
+                Ok(metadata) if hidden_metadata(&metadata) => {
+                    result.excluded.push(ScanExcluded {
+                        relative_path: relative,
+                        reason: "hidden".into(),
+                    });
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    result.failures.push(ScanFailure {
+                        relative_path: relative,
+                        reason: error.to_string(),
+                    });
+                    continue;
+                }
             }
             if kind.is_dir() {
                 if let Err(error) = business_path(&root, &relative) {

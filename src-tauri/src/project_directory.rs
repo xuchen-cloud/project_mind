@@ -65,9 +65,9 @@ fn resolve(root: &Path, relative: &str) -> Result<ResolvedPath> {
     }
     if relative
         .split('/')
-        .any(crate::db::project_directory_files::internal_component)
+        .any(crate::db::project_directory_files::excluded_component)
     {
-        bail!("应用内部数据不属于项目业务文件");
+        bail!("隐藏文件和隐藏目录不属于项目业务文件");
     }
     if fs::symlink_metadata(root)
         .with_context(|| format!("无法访问项目目录：{}", root.display()))?
@@ -83,6 +83,9 @@ fn resolve(root: &Path, relative: &str) -> Result<ResolvedPath> {
         bail!("项目根路径不是目录：{}", root.display());
     }
     let requested = root.join(relative);
+    if crate::db::project_directory_files::hidden_project_path(&root, &requested)? {
+        bail!("隐藏文件和隐藏目录不属于项目业务文件");
+    }
     crate::db::file_versions::relative(&root, &requested).or_else(|error| {
         if relative.is_empty() {
             Ok(String::new())
@@ -130,7 +133,10 @@ fn list(root: &Path, relative: &str) -> Result<Vec<DirectoryEntry>> {
             .file_name()
             .into_string()
             .map_err(|_| anyhow::anyhow!("项目目录包含无法显示的非 UTF-8 文件名"))?;
-        if crate::db::project_directory_files::internal_component(&name) {
+        if crate::db::project_directory_files::excluded_component(&name) {
+            continue;
+        }
+        if crate::db::project_directory_files::hidden_metadata(&entry.metadata()?) {
             continue;
         }
         let relative_path = if relative.is_empty() {
@@ -386,6 +392,150 @@ pub(crate) fn project_directory_open(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    fn ds_store_directory_fixture() -> tempfile::TempDir {
+        let root = tempdir().unwrap();
+        fs::create_dir(root.path().join("sub")).unwrap();
+        for relative in [
+            ".DS_Store",
+            "sub/.DS_Store",
+            ".env",
+            "sub/.env",
+            "note.txt",
+            "sub/note.txt",
+        ] {
+            fs::write(root.path().join(relative), b"file contents").unwrap();
+        }
+        for directory in [".git/nested", "sub/.cache/nested"] {
+            fs::create_dir_all(root.path().join(directory)).unwrap();
+            fs::write(
+                root.path().join(directory).join("ordinary.txt"),
+                b"hidden descendant",
+            )
+            .unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn ds_store_directory_list_hides_root_and_nested_metadata_keeps_ordinary_files() {
+        let root = ds_store_directory_fixture();
+        let mut root_names: Vec<_> = list(root.path(), "")
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        root_names.sort();
+        let mut sub_names: Vec<_> = list(root.path(), "sub")
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        sub_names.sort();
+        assert_eq!(
+            (root_names, sub_names),
+            (
+                vec!["note.txt".to_owned(), "sub".to_owned()],
+                vec!["note.txt".to_owned()],
+            )
+        );
+    }
+
+    #[test]
+    fn ds_store_directory_preview_rejects_metadata_keeps_ordinary_files() {
+        let root = ds_store_directory_fixture();
+        for relative in ["note.txt", "sub/note.txt"] {
+            assert!(
+                matches!(preview(root.path(), relative).unwrap(), DirectoryPreview::Text { text, .. } if text == "file contents")
+            );
+        }
+        let rejected: Vec<_> = [".DS_Store", "sub/.DS_Store", ".env", "sub/.env"]
+            .map(|relative| preview(root.path(), relative).is_err())
+            .into();
+        assert_eq!(rejected, [true; 4]);
+    }
+
+    #[test]
+    fn ds_store_directory_resolve_rejects_metadata_keeps_ordinary_files() {
+        let root = ds_store_directory_fixture();
+        for relative in ["note.txt", "sub/note.txt"] {
+            assert_eq!(
+                resolve(root.path(), relative).unwrap().canonical,
+                root.path().join(relative).canonicalize().unwrap()
+            );
+        }
+        let rejected = [".DS_Store", "sub/.DS_Store", ".env", "sub/.env"]
+            .map(|relative| resolve(root.path(), relative).is_err());
+        assert_eq!(rejected, [true; 4]);
+    }
+
+    #[test]
+    fn hidden_directory_ancestors_block_listing_preview_and_resolve() {
+        let root = ds_store_directory_fixture();
+        for relative in [".git", ".git/nested", "sub/.cache", "sub/.cache/nested"] {
+            assert!(list(root.path(), relative).is_err(), "{relative}");
+            assert!(resolve(root.path(), relative).is_err(), "{relative}");
+        }
+        for relative in [".git/nested/ordinary.txt", "sub/.cache/nested/ordinary.txt"] {
+            assert!(preview(root.path(), relative).is_err(), "{relative}");
+            assert!(resolve(root.path(), relative).is_err(), "{relative}");
+            assert_eq!(
+                fs::read(root.path().join(relative)).unwrap(),
+                b"hidden descendant"
+            );
+        }
+        assert!(preview(root.path(), "note.txt").is_ok());
+        assert!(preview(root.path(), "sub/note.txt").is_ok());
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn hidden_native_attributes_hide_files_and_directory_descendants_from_business_access() {
+        let root = ds_store_directory_fixture();
+        fs::write(root.path().join("native-file.txt"), b"native hidden file").unwrap();
+        fs::create_dir_all(root.path().join("native-folder/nested")).unwrap();
+        fs::write(
+            root.path().join("native-folder/nested/ordinary.txt"),
+            b"native hidden descendant",
+        )
+        .unwrap();
+        for relative in ["native-file.txt", "native-folder"] {
+            #[cfg(target_os = "macos")]
+            let output = std::process::Command::new("chflags")
+                .arg("hidden")
+                .arg(root.path().join(relative))
+                .output()
+                .unwrap();
+            #[cfg(windows)]
+            let output = std::process::Command::new("attrib")
+                .arg("+h")
+                .arg(root.path().join(relative))
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "could not mark {relative} hidden: {:?}",
+                output
+            );
+        }
+        let mut names: Vec<_> = list(root.path(), "")
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["note.txt", "sub"]);
+        for relative in ["native-folder", "native-folder/nested"] {
+            assert!(list(root.path(), relative).is_err(), "{relative}");
+        }
+        for relative in ["native-file.txt", "native-folder/nested/ordinary.txt"] {
+            assert!(preview(root.path(), relative).is_err(), "{relative}");
+            assert!(resolve(root.path(), relative).is_err(), "{relative}");
+            assert!(root.path().join(relative).is_file());
+        }
+        assert!(preview(root.path(), "note.txt").is_ok());
+        assert!(resolve(root.path(), "sub/note.txt").is_ok());
+    }
 
     #[test]
     fn directory_business_access_excludes_internal_data_and_all_symlinks() {

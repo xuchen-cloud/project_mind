@@ -6105,7 +6105,18 @@ impl Database {
                 |row| row.get::<_, i64>(0),
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.document_record(id)).collect()
+        let root = PathBuf::from(self.project_record(project_id)?.root_path);
+        let mut documents = Vec::new();
+        for id in ids {
+            let document = self.document_record(id)?;
+            if !project_directory_files::hidden_project_path(
+                &root,
+                Path::new(&document.managed_path),
+            )? {
+                documents.push(document);
+            }
+        }
+        Ok(documents)
     }
 
     fn rewrite_path_ref_prefix_if_within(
