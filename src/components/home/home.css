@@ -805,7 +805,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-side__footer-workspace { display:flex; align-items:center; gap:8px; flex:1; min-width:0; height:28px; padding:4px 6px; border-radius:6px; color:var(--color-text-secondary); font-size:12px; line-height:20px; text-align:left; }
 .home-side__footer-workspace svg { flex:none; }
 .home-side__footer-workspace span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.home-side__footer .home-side__workspace-action { width:28px; height:28px; border-radius:6px; }
+.home-side__footer .home-side__workspace-action { width:28px; height:28px; border-radius:6px; color:var(--color-text-tertiary); }
 .home-side__footer-workspace:hover, .home-side__footer-workspace:focus-visible { color:var(--color-text-primary); background:var(--home-nav-hover); }
 .project-navigation > .home-side__footer { margin-inline:-8px; margin-bottom:-8px; }
 .home-window-shell .workspace-topbar__tab-frame { margin-left:0; }
