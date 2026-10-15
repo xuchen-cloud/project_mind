@@ -1007,7 +1007,7 @@ export function ProjectSidebar({
             ) : (
               <div
                 className={cn(
-                  "grid gap-1.5 rounded-[var(--radius-8)] transition-colors",
+                  "project-sidebar__file-list grid gap-1.5 rounded-[var(--radius-8)] transition-colors",
                   dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]",
                 )}
               >
@@ -1048,8 +1048,8 @@ export function ProjectSidebar({
                         }}
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
-                        <span className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                          <FileIcon name={document.name} size={20} />
+                        <span className="project-sidebar__file-icon flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
+                          <FileIcon name={document.name} size={filesOnly ? 18 : 20} />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-1.5">
@@ -1073,7 +1073,7 @@ export function ProjectSidebar({
                             ) : (
                               <>
                                 <p
-                                  className="min-w-0 flex-1 truncate font-sans text-[12px] font-medium leading-4.5 text-text"
+                                  className="project-sidebar__file-name min-w-0 flex-1 truncate font-sans text-[12px] font-medium leading-4.5 text-text"
                                   title={document.baseName}
                                   onDoubleClick={(event) => {
                                     stopPropagation(event);
