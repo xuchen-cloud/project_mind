@@ -108,7 +108,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled }: ProjectSid
       {opening ? <p role="status" className="home-side__empty">正在打开会话…</p> : null}
       {!loading && visible.map(session => <button key={session.id} type="button" className="home-side__item" title={session.title || "新会话"}
         disabled={opening} onClick={() => { void open(session); }}>
-        <AiChatIcon size={18} /><span>{session.title || "新会话"}</span>
+        <AiChatIcon size={12} /><span>{session.title || "新会话"}</span>
         {sessionRuns?.[session.id] ? <span aria-label="运行中">运行中</span> : null}
       </button>)}
       {enabled && !loading && !error && !visible.length ? <p className="home-side__empty">{needle ? "没有匹配的会话" : "暂无会话"}</p> : null}

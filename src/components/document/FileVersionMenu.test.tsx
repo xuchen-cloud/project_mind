@@ -17,15 +17,23 @@ describe("FileVersionMenu", () => {
     open();
     const menu = screen.getByRole("menu", { name: "文件版本列表" });
     expect(menu.querySelector("svg")).toBeNull();
-    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
     expect(view.container).not.toContainElement(menu);
     expect(menu).toHaveFocus();
     expect(screen.getByRole("menuitemradio", { name: "v3（当前）" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("menuitemradio", { name: "v2" })).toHaveAttribute("aria-checked", "false");
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "v2" }));
+    expect(screen.getByRole("menuitemradio", { name: "v3", exact: true })).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "v3", exact: true }));
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    expect(onSelect).toHaveBeenCalledWith(2);
+    expect(onSelect).toHaveBeenCalledWith(3);
     expect(trigger).toHaveFocus();
+    view.rerender(<FileVersionMenu {...defaults} includeLatest latestVersion={3} selectedVersion={3} onSelect={onSelect} />);
+    open();
+    expect(screen.getByRole("menuitemradio", { name: "v3", exact: true })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("menuitemradio", { name: "v3（当前）" })).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "v3（当前）" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(onSelect).toHaveBeenLastCalledWith(undefined);
   });
 });
 
