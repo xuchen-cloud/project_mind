@@ -91,17 +91,19 @@ vi.mock("../../services/desktopApi", () => ({
 }));
 
 import { WorkspacePage } from "./WorkspacePage";
+import { WorkspaceTodoRail } from "../layout/WorkspaceTodoRail";
 
 function LocationDisplay() {
   const location = useLocation();
   return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
 }
 
-function renderPage(initialEntries: string[] = ["/"]) {
+function renderPage(initialEntries: string[] = ["/"], withTodoRail = false) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={initialEntries}>
         <WorkspacePage />
+        {withTodoRail ? <WorkspaceTodoRail projectId={null} /> : null}
         <LocationDisplay />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -281,6 +283,7 @@ describe("WorkspacePage", () => {
     expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
 
     expect(await screen.findByText("Workspace history record")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "待办", exact: true })).not.toBeInTheDocument();
   });
 
   it("shows the overview page content", async () => {
@@ -314,7 +317,7 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage();
+    renderPage(["/"], true);
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "待办", exact: true })).toBeInTheDocument();
@@ -339,7 +342,7 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage();
+    renderPage(["/"], true);
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "待办", exact: true })).toBeInTheDocument();
@@ -358,7 +361,7 @@ describe("WorkspacePage", () => {
         createdAt: "2026-04-06T08:00:00.000Z", updatedAt: "2026-04-06T08:00:00.000Z",
       }],
     });
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByRole("heading", { name: "待办", exact: true });
     expect(await screen.findByText("工作区独立待办")).toBeInTheDocument();
@@ -368,7 +371,7 @@ describe("WorkspacePage", () => {
   it("creates a tagged Workspace Todo when the Workspace has no Projects", async () => {
     const user = userEvent.setup();
 
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByRole("heading", { name: "待办", exact: true });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
@@ -432,7 +435,7 @@ describe("WorkspacePage", () => {
             ],
     }));
 
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByRole("heading", { name: "待办", exact: true });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
@@ -517,7 +520,7 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByText("整理跨项目复盘");
     expect(screen.getByRole("heading", { name: "工作区", exact: true })).toBeInTheDocument();

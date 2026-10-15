@@ -2,9 +2,7 @@ import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
-import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
 import { AgentLauncher } from "../agent/AgentLauncher";
-import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
@@ -13,7 +11,6 @@ import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import { useWorkspaceQuickNoteMutations } from "../../hooks/useWorkspaceQuickNoteMutations";
 import { useWorkspaceRecordMutations } from "../../hooks/useWorkspaceRecordMutations";
 import {
-parseFocusTodoId,
 parseRouteId,
 preserveRecordFilters,
 projectPath,
@@ -35,7 +32,6 @@ import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { TodoModuleRail } from "../../todo";
 import { PageLoadingSkeleton } from "../../ui/components";
 import "../home/home.css";
 import { HomeCover, HomeIdentityIcon } from "../home/HomeCover";
@@ -95,7 +91,6 @@ export function WorkspacePage({
     projectSidebarCollapsed,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
-  const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
   const activeProjectId =
     activeProjectIdOverride !== undefined
@@ -104,7 +99,6 @@ export function WorkspacePage({
 
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
-  const focusedTodoId = parseFocusTodoId(focusId);
   const composeRecord = searchParams.get("compose") === "record";
 
   const projectsQuery = useQuery({
@@ -630,16 +624,6 @@ export function WorkspacePage({
         </div>
       </div>
 
-      <HomeWorkspaceRail>
-      <TodoModuleRail
-        scope={{ kind: "workspace" }}
-        enabled={visible}
-        focusTodoId={focusedTodoId}
-        availableTags={availableTags}
-        onOpenInternalReference={openInternalReference}
-        onOpenContactMention={openContactMention}
-      />
-      </HomeWorkspaceRail>
     </div>
   );
 }

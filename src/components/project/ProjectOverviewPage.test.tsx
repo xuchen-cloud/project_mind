@@ -23,7 +23,6 @@ const noteImageAssetMocks = vi.hoisted(() => ({
     eagerManagedImages?: boolean;
   }>,
 }));
-const todoModuleRailProps = vi.hoisted(() => [] as Array<Record<string, any>>);
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
@@ -227,17 +226,6 @@ vi.mock("../tags/EntityTagEditor", () => ({
   ),
 }));
 
-vi.mock("../../todo", () => ({
-  TodoModuleRail: (props: Record<string, any>) => {
-    todoModuleRailProps.push(props);
-    return (
-      <button type="button" onClick={() => props.onViewModeChange?.("workspace")}>
-        Mock Todo View
-      </button>
-    );
-  },
-}));
-
 vi.mock("../../hooks/useDocumentImportFlow", () => ({
   useDocumentImportFlow: () => ({
     projectTags: [],
@@ -254,7 +242,6 @@ vi.mock("../../hooks/useDocumentImportFlow", () => ({
 describe("ProjectOverviewPage", () => {
   beforeEach(() => {
     useUiStore.setState(createUiStoreState());
-    todoModuleRailProps.length = 0;
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     noteImageAssetMocks.richEditorProps.length = 0;
     noteImageAssetMocks.richTextViewerProps.length = 0;
@@ -332,6 +319,7 @@ describe("ProjectOverviewPage", () => {
     );
 
     expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "待办", exact: true })).not.toBeInTheDocument();
 
     expect(await screen.findByText("目标记录")).toBeInTheDocument();
   });
@@ -351,92 +339,6 @@ describe("ProjectOverviewPage", () => {
     expect(await screen.findByRole("textbox", { name: "项目名称" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "项目状态" })).not.toBeInTheDocument();
     expect(screen.queryByText("active")).not.toBeInTheDocument();
-  });
-
-  it("defaults to Current Project View and persists a switch to Workspace View", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/projects/1"]}>
-          <Routes>
-            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-
-    await screen.findByRole("textbox", { name: "项目名称" });
-    expect(todoModuleRailProps.at(-1)?.scope).toEqual({
-      kind: "current-project",
-      projectId: 1,
-    });
-
-    await userEvent.click(screen.getByRole("button", { name: "Mock Todo View" }));
-    expect(useUiStore.getState().projectTodoViewMode).toBe("workspace");
-    expect(todoModuleRailProps.at(-1)?.scope).toEqual({ kind: "workspace" });
-  });
-
-  it("pauses the Todo module while the resident Project page is hidden", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const page = (visible: boolean) => (
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/projects/1"]}>
-          <Routes>
-            <Route
-              path="/projects/:projectId"
-              element={<ProjectOverviewPage visible={visible} />}
-            />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>
-    );
-    const view = render(page(true));
-    await screen.findByRole("textbox", { name: "项目名称" });
-
-    view.rerender(page(false));
-
-    expect(todoModuleRailProps.at(-1)?.enabled).toBe(false);
-  });
-
-  it("disables Current Project Todo creation after the Project enters Archive", async () => {
-    const archivedProject = {
-      id: 1,
-      name: "Archived Project",
-      rootPath: "/tmp/archived-project",
-      isArchived: true,
-      kind: "normal" as const,
-      quickNote: "",
-      quickNoteMarkdown: "",
-      quickNoteHtml: "",
-      status: "active",
-      openTodoCount: 0,
-      createdAt: "2026-08-06T00:00:00.000Z",
-      updatedAt: "2026-08-06T00:00:00.000Z",
-    };
-    vi.mocked(projectMindApi.projectsList).mockResolvedValueOnce([archivedProject]);
-    vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(
-      {
-        project: archivedProject,
-        records: [],
-        unfinishedTodos: [],
-        finishedTodos: [],
-        projectDocuments: [],
-      } satisfies ProjectPageData,
-    );
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/projects/1"]}>
-          <Routes>
-            <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-
-    await screen.findByRole("textbox", { name: "项目名称" });
-    expect(todoModuleRailProps.at(-1)?.canCreateTodo).toBe(false);
   });
 
   it("switches to history and focuses the matching record from focus query", async () => {

@@ -1,7 +1,4 @@
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
-import { TodoModuleRail } from "../../todo";
-import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
-import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
 import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent } from "react";
@@ -123,8 +120,7 @@ export function ProjectNoteFocusPage({
   );
   const focusScrollRef = useRef<HTMLDivElement | null>(null);
   const { pushToast } = useFeedbackStore();
-  const { openSettings, projectTodoViewMode, setProjectTodoViewMode } = useUiStore();
-  const openContactMention = useContactMentionNavigation();
+  const { openSettings } = useUiStore();
   const navigateInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();
 
@@ -797,18 +793,6 @@ export function ProjectNoteFocusPage({
         </div>
       </div>
       </div>
-      {!embedded ? <HomeWorkspaceRail>
-        <TodoModuleRail
-          scope={projectTodoViewMode === "workspace" ? { kind: "workspace" } : { kind: "current-project", projectId }}
-          enabled={visible}
-          canCreateTodo={projectTodoViewMode === "workspace" || !project?.isArchived}
-          availableTags={projectTodoViewMode === "workspace" ? [] : availableTags}
-          showViewModeSwitch
-          onViewModeChange={setProjectTodoViewMode}
-          onOpenInternalReference={openInternalReference}
-          onOpenContactMention={openContactMention}
-        />
-      </HomeWorkspaceRail> : null}
     </div>
   );
 }

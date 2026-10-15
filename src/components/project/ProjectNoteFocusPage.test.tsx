@@ -913,12 +913,11 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(screen.getByRole("textbox", { name: "新增标签" })).not.toHaveFocus();
   });
 
-  it("keeps the focus page height constrained so its content area can scroll", async () => {
-    render(<ProjectNoteFocusPage />);
+  it.each([false, true])("keeps the focus page height constrained without a local Todo rail (embedded=%s)", async (embedded) => {
+    render(<ProjectNoteFocusPage embedded={embedded} />);
 
     const scroll = await screen.findByTestId("project-record-focus-scroll");
-    expect(screen.getByRole("complementary", { name: "笔记待办" })).toHaveAttribute("data-scope", "current-project");
-    expect(screen.getByRole("complementary", { name: "笔记待办" })).toHaveAttribute("data-enabled", "true");
+    expect(screen.queryByRole("complementary", { name: "笔记待办" })).not.toBeInTheDocument();
     expect(scroll).toHaveClass("project-overview-focus__scroll");
     expect(scroll.parentElement).toHaveClass(
       "project-overview-focus",
