@@ -130,6 +130,71 @@ describe("ProjectSidebar", () => {
     vi.useRealTimers();
   });
 
+  it("places voice creation before text creation and invokes each independently", () => {
+    const onCreateVoiceRecord = vi.fn();
+    const onCreateRecord = vi.fn();
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      onOpenProject={vi.fn()} onCreateRecord={onCreateRecord} onCreateVoiceRecord={onCreateVoiceRecord} />);
+    const voice = screen.getByRole("button", { name: "新增语音记录" });
+    const text = screen.getByRole("button", { name: "新增记录" });
+    expect(voice).toHaveAttribute("title", "新增语音记录");
+    expect(voice.nextElementSibling).toBe(text);
+    expect(voice).toBeEnabled();
+    fireEvent.click(voice);
+    expect(onCreateVoiceRecord).toHaveBeenCalledOnce();
+    expect(onCreateRecord).not.toHaveBeenCalled();
+    fireEvent.click(text);
+    expect(onCreateRecord).toHaveBeenCalledOnce();
+    expect(onCreateVoiceRecord).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("tab", { name: "文件" }));
+    expect(screen.queryByRole("button", { name: "新增语音记录" })).not.toBeInTheDocument();
+  });
+
+  it("disables only voice creation while pending", () => {
+    const onCreateVoiceRecord = vi.fn();
+    const onCreateRecord = vi.fn();
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      onOpenProject={vi.fn()} onCreateRecord={onCreateRecord} onCreateVoiceRecord={onCreateVoiceRecord} creatingVoiceRecord />);
+    const voice = screen.getByRole("button", { name: "新增语音记录" });
+    expect(voice).toBeDisabled();
+    fireEvent.click(voice);
+    expect(onCreateVoiceRecord).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "新增记录" }));
+    expect(onCreateRecord).toHaveBeenCalledOnce();
+  });
+
+  it("hides voice creation when no callback is supplied", () => {
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project" }} onOpenProject={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "新增语音记录" })).not.toBeInTheDocument();
+  });
+
+  it("selects only the focused file and hides visible tags while preserving filtering and management", async () => {
+    const documents = [
+      buildDocument({ id: 41, name: "交付.pdf", baseName: "交付.pdf", tags: [{ id: 7, label: "交付", colorKey: "blue" }] }),
+      buildDocument({ id: 42, name: "预算.pdf", baseName: "预算.pdf" }),
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const component = (activeFileId: number | null, tagId: number | null = null) => <QueryClientProvider client={client}>
+      <ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId }} activeFileId={activeFileId}
+        project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={documents} onOpenProject={vi.fn()} />
+    </QueryClientProvider>;
+    const view = render(component(41));
+    const list = screen.getByRole("region", { name: "项目文件列表" });
+    const delivery = within(list).getByRole("button", { name: /^交付.pdf/ });
+    const budget = within(list).getByRole("button", { name: /^预算.pdf/ });
+    expect(delivery).toHaveClass("is-active");
+    expect(budget).not.toHaveClass("is-active");
+    expect(within(list).queryByText("交付", { exact: true })).toBeNull();
+    view.rerender(component(42));
+    expect(delivery).not.toHaveClass("is-active");
+    expect(budget).toHaveClass("is-active");
+    view.rerender(component(null, 7));
+    expect(within(list).queryByRole("button", { name: /^预算.pdf/ })).toBeNull();
+    expect(within(list).getByRole("button", { name: /^交付.pdf/ })).not.toHaveClass("is-active");
+    fireEvent.contextMenu(delivery);
+    expect(await screen.findByPlaceholderText("新增标签")).toBeInTheDocument();
+  });
+
   it("chooses a sidebar file version without also opening the latest file", async () => {
     const document = buildDocument({ id: 29, name: "brief.pdf", baseName: "brief.pdf", currentVersionNumber: 2, versionCount: 2 });
     const versions = [2, 1].map(versionNumber => ({ id: versionNumber, documentId: 29, versionNumber, name: "brief.pdf", sourcePath: "/source", managedPath: "/managed", createdAt: "2026-10-15T10:00:00Z" }));

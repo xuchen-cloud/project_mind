@@ -33,3 +33,18 @@
 .project-navigation__files .project-sidebar__file-row:focus-visible { outline:2px solid var(--color-accent); outline-offset:-2px; }
 .project-navigation__files .project-directory__entry { border-radius:7px; }
 .project-navigation__files .project-directory__entry:hover { background:var(--home-nav-hover); }
+
+/* Focused content keeps the same accent surface across navigation presentations. */
+.project-navigation .home-side__item.is-active,
+.project-navigation .home-side__item.is-active:hover,
+.project-sidebar__file-row.is-active,
+.project-navigation__files .project-sidebar__file-row.is-active:is(:hover,:focus-within,[data-context-open="true"]),
+.project-navigation__files .project-sidebar__file-row.is-active,
+.project-directory__entry.is-active,
+.project-navigation__files .project-directory__entry.is-active:hover,
+.project-navigation__files .project-directory__entry.is-active {
+  background:var(--color-accent-ring);
+  color:var(--color-accent);
+}
+.project-sidebar__file-row.is-active .project-sidebar__file-name,
+.project-sidebar__file-row.is-active .project-sidebar__file-icon { color:inherit; }

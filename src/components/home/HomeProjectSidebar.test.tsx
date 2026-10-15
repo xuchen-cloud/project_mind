@@ -1,18 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { HomeProjectSidebar } from "./HomeProjectSidebar";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { usePrefetchFileApplications } from "../../hooks/useFileApplications";
+import type { ComponentProps } from "react";
+import { useProjectContentStore } from "../../state/project-content-store";
 import type { NoteRecord } from "../../lib/types";
 
+vi.mock("../../hooks/useFileApplications", () => ({ usePrefetchFileApplications: vi.fn() }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: async () => ({ workspaceId: "native-workspace", generation: "1" }) } }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { resolve: async () => ({ relativePath: "generated/result.txt" }) } }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: {
   projectTagSettingsGet: async () => ({ tags: [{ id: 7, label: "交付", colorKey: "blue" }] }),
 } }));
-vi.mock("./ProjectSidebarSessions", () => ({ ProjectSidebarSessions: ({ query }: { query: string }) => <section aria-label="项目会话"><span>会话</span><div role="region" aria-label="项目会话列表">{!query || "交付讨论".includes(query) ? "交付讨论" : "没有匹配的会话"}</div></section> }));
-vi.mock("./HomeProjectFiles", () => ({ HomeProjectFiles: ({ filter }: { filter: { query: string; tagId: number | null } }) => <section aria-label="项目文件"><span>文件</span><div role="region" aria-label="项目文件列表">{filter.query}:{filter.tagId}</div></section> }));
+vi.mock("./ProjectSidebarSessions", () => ({ ProjectSidebarSessions: ({ query, activeSessionId }: { query: string; activeSessionId?: string | null }) => <section aria-label="项目会话" data-active-session={activeSessionId}><span>会话</span><div role="region" aria-label="项目会话列表">{!query || "交付讨论".includes(query) ? "交付讨论" : "没有匹配的会话"}</div></section> }));
+vi.mock("./HomeProjectFiles", () => ({ HomeProjectFiles: ({ filter, activeFileId }: { filter: { query: string; tagId: number | null }; activeFileId?: number | null }) => <section aria-label="项目文件" data-active-file={activeFileId}><span>文件</span><div role="region" aria-label="项目文件列表">{filter.query}:{filter.tagId}</div></section> }));
 
-beforeEach(() => { localStorage.clear(); useUiStore.setState(createUiStoreState()); });
-function setup() {
+beforeEach(() => { localStorage.clear(); useUiStore.setState(createUiStoreState()); useProjectContentStore.setState({ layouts: {} }); });
+function setup(voiceProps: Partial<ComponentProps<typeof HomeProjectSidebar>> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onTagChange = vi.fn();
   const onOpenRecord = vi.fn();
@@ -22,8 +28,9 @@ function setup() {
     project: { id: 1, name: "Alpha", rootPath: "/project" }, documents: [],
     records: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, title: `记录 ${index + 1}`, contentMarkdown: index === 11 ? "交付依据" : "正文", tags: index === 11 ? [{ id: 7, label: "交付", colorKey: "blue" }] : [], createdAt: "2026-10-15", updatedAt: "2026-10-15" })) as NoteRecord[],
     selectedTagId: null, onTagChange, onOpenRecord, onOpenProject, onOpenWorkspace, onCreateRecord: vi.fn() };
-  render(<QueryClientProvider client={client}><HomeProjectSidebar {...props} /></QueryClientProvider>);
-  return { onTagChange, onOpenRecord, onOpenProject, onOpenWorkspace };
+  const component = (overrides: Partial<ComponentProps<typeof HomeProjectSidebar>> = {}) => <QueryClientProvider client={client}><HomeProjectSidebar {...props} {...voiceProps} {...overrides} /></QueryClientProvider>;
+  const view = render(component());
+  return { onTagChange, onOpenRecord, onOpenProject, onOpenWorkspace, onCreateRecord: props.onCreateRecord, view, component };
 }
 it("opens the project from its title and the workspace from its subtitle independently", async () => {
   const { onOpenProject, onOpenWorkspace, onOpenRecord } = setup();
@@ -63,4 +70,68 @@ it("filters record bodies and forwards the same query and tag to the other modul
   expect(onTagChange).toHaveBeenCalledWith(7);
   fireEvent.change(screen.getByRole("textbox", { name: "搜索项目内容" }), { target: { value: "无匹配" } });
   expect(records).toHaveTextContent("没有匹配的记录");
+});
+
+it("places voice creation before text creation and invokes each independently", () => {
+  const onCreateVoiceRecord = vi.fn();
+  const { onCreateRecord } = setup({ onCreateVoiceRecord });
+  const voice = screen.getByRole("button", { name: "新增语音记录" });
+  const text = screen.getByRole("button", { name: "新增记录" });
+  expect(voice).toHaveAttribute("title", "新增语音记录");
+  expect(voice.parentElement).toHaveClass("home-side__heading-actions");
+  expect(voice.nextElementSibling).toBe(text);
+  expect(voice).toBeEnabled();
+  fireEvent.click(voice);
+  expect(onCreateVoiceRecord).toHaveBeenCalledOnce();
+  expect(onCreateRecord).not.toHaveBeenCalled();
+  fireEvent.click(text);
+  expect(onCreateRecord).toHaveBeenCalledOnce();
+  expect(onCreateVoiceRecord).toHaveBeenCalledOnce();
+});
+it("disables only voice creation while pending", () => {
+  const onCreateVoiceRecord = vi.fn();
+  const { onCreateRecord } = setup({ onCreateVoiceRecord, creatingVoiceRecord: true });
+  const voice = screen.getByRole("button", { name: "新增语音记录" });
+  expect(voice).toBeDisabled();
+  fireEvent.click(voice);
+  expect(onCreateVoiceRecord).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "新增记录" }));
+  expect(onCreateRecord).toHaveBeenCalledOnce();
+});
+it("hides voice creation when no callback is supplied", () => {
+  setup();
+  expect(screen.queryByRole("button", { name: "新增语音记录" })).not.toBeInTheDocument();
+});
+
+it("follows focused content across records, sessions and files and isolates project selection", async () => {
+  const scope = { workspaceId: "native-workspace", projectId: 1 };
+  const store = useProjectContentStore.getState();
+  store.open(scope, { kind: "record", id: 12, title: "Record" });
+  const { view, component } = setup();
+  const record = await screen.findByRole("button", { name: "记录 12" });
+  await vi.waitFor(() => expect(record).toHaveClass("is-active"));
+  act(() => { store.open(scope, { kind: "session", id: "alpha", title: "Session" }); });
+  expect(record).not.toHaveClass("is-active");
+  expect(screen.getByRole("region", { name: "项目会话" })).toHaveAttribute("data-active-session", "alpha");
+  act(() => { store.open(scope, { kind: "file", id: 42, title: "File" }); });
+  expect(screen.getByRole("region", { name: "项目会话" })).not.toHaveAttribute("data-active-session");
+  expect(screen.getByRole("region", { name: "项目文件" })).toHaveAttribute("data-active-file", "42");
+  expect(record).not.toHaveClass("is-active");
+  view.rerender(component({ projectId: 2, project: { id: 2, name: "Beta", rootPath: "/other" } }));
+  expect(screen.getByRole("region", { name: "项目文件" })).not.toHaveAttribute("data-active-file");
+  view.rerender(component());
+  expect(screen.getByRole("region", { name: "项目文件" })).toHaveAttribute("data-active-file", "42");
+  act(() => store.selectHome(scope));
+  expect(screen.getByRole("region", { name: "项目文件" })).not.toHaveAttribute("data-active-file");
+  expect(record).not.toHaveClass("is-active");
+});
+
+it("prefetches file applications for the sidebar project documents", () => {
+  const documents: NonNullable<ComponentProps<typeof HomeProjectSidebar>["documents"]> = [{
+    id: 42, projectId: 1, name: "report.pdf", baseName: "report.pdf", mimeType: "application/pdf",
+    managedPath: "/project/report.pdf", originalPath: "", historyDirPath: "", isStarred: false,
+    currentVersionNumber: 1, versionCount: 1, health: "normal", tags: [],
+  }];
+  setup({ documents });
+  expect(usePrefetchFileApplications).toHaveBeenCalledWith("/workspace", 1, documents);
 });

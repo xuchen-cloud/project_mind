@@ -19,6 +19,7 @@ import {
   Files,
   FolderKanban,
   FolderOpen,
+  Mic,
   Pencil,
   Plus,
   Star,
@@ -108,6 +109,7 @@ interface ProjectSidebarProps {
   records?: ProjectSidebarRecordItem[];
   documents?: ProjectSidebarDocumentItem[];
   activeRecordId?: number | null;
+  activeFileId?: number | null;
   recordQuery?: string;
   onRecordQueryChange?: (value: string) => void;
   activeRecordTagId?: number | null;
@@ -117,6 +119,8 @@ interface ProjectSidebarProps {
   onOpenRecord?: (recordId: number) => void;
   onFocusRecord?: (recordId: number) => void;
   onCreateRecord?: () => void;
+  onCreateVoiceRecord?: () => void;
+  creatingVoiceRecord?: boolean;
   onRenameRecord?: (record: ProjectSidebarRecordItem, title: string) => Promise<unknown> | unknown;
   onDeleteRecord?: (record: ProjectSidebarRecordItem) => Promise<unknown> | unknown;
   onOpenDocument?: (document: ProjectSidebarDocumentItem) => void;
@@ -152,6 +156,7 @@ export function ProjectSidebar({
   records: explicitRecords,
   documents = [],
   activeRecordId,
+  activeFileId,
   recordQuery: recordQueryProp,
   onRecordQueryChange,
   activeRecordTagId: activeRecordTagIdProp,
@@ -161,6 +166,8 @@ export function ProjectSidebar({
   onOpenRecord,
   onFocusRecord,
   onCreateRecord,
+  onCreateVoiceRecord,
+  creatingVoiceRecord = false,
   onRenameRecord,
   onDeleteRecord,
   onOpenDocument,
@@ -876,6 +883,19 @@ export function ProjectSidebar({
                   }
                   className="flex-1"
                 /> : null}
+                {activeTab === "records" && onCreateVoiceRecord ? (
+                  <IconButton
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label="新增语音记录"
+                    title="新增语音记录"
+                    disabled={creatingVoiceRecord}
+                    onClick={onCreateVoiceRecord}
+                  >
+                    <Mic size={14} />
+                  </IconButton>
+                ) : null}
                 {activeTab === "records" ? (
                   <IconButton
                     type="button"
@@ -1029,6 +1049,7 @@ export function ProjectSidebar({
                         role="button"
                         className={cn(
                           "project-sidebar__file-row group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          document.id === activeFileId && "is-active",
                           isEditing ? "" : "context-menu-no-select",
                           document.health === "missing"
                             ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
@@ -1036,6 +1057,7 @@ export function ProjectSidebar({
                               ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
                               : "border-transparent hover:border-border hover:bg-bg",
                         )}
+                        aria-current={document.id === activeFileId ? "true" : undefined}
                         data-health={document.health}
                         data-context-open={isContextOpen || undefined}
                         tabIndex={0}
@@ -1104,7 +1126,6 @@ export function ProjectSidebar({
                             ) : null}
                           </span>
                         </span>
-                        <TagPreview tags={tags} fullWidth />
                       </div>
                     );
                   })
@@ -1239,10 +1260,10 @@ export function ProjectSidebar({
   );
 }
 
-function TagPreview({ tags, fullWidth = false }: { tags: ProjectSidebarRecordItem["tags"]; fullWidth?: boolean }) {
+function TagPreview({ tags }: { tags: ProjectSidebarRecordItem["tags"] }) {
   if (tags.length === 0) return null;
   return (
-    <span className={cn("mt-1.5 flex flex-wrap gap-1", fullWidth && "basis-full")}>
+    <span className="mt-1.5 flex flex-wrap gap-1">
       {tags.slice(0, 3).map((tag) => (
         <span key={tag.id} className="entity-tag-chip entity-tag-chip--compact">
           <span aria-hidden="true">#</span><span>{tag.label}</span>

@@ -243,3 +243,20 @@ it("ignores repeated clicks while a selection is pending", async () => {
   await act(async () => pending.resolve("alpha"));
   expect(api.open).toHaveBeenCalledTimes(1);
 });
+
+it("uses only focused session props for selection, never an opening click", async () => {
+  const view = render(component({ activeSessionId: "alpha" }));
+  const alpha = await screen.findByRole("button", { name: "Alpha 方案" });
+  const beta = screen.getByRole("button", { name: "Beta 复盘" });
+  expect(alpha).toHaveClass("is-active");
+  expect(beta).not.toHaveClass("is-active");
+  fireEvent.click(beta);
+  await waitFor(() => expect(api.open).toHaveBeenCalled());
+  expect(alpha).toHaveClass("is-active");
+  expect(beta).not.toHaveClass("is-active");
+  view.rerender(component({ activeSessionId: "beta" }));
+  expect(alpha).not.toHaveClass("is-active");
+  expect(beta).toHaveClass("is-active");
+  view.rerender(component({ activeSessionId: null }));
+  expect(beta).not.toHaveClass("is-active");
+});
