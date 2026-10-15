@@ -973,6 +973,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
   content:""; position:absolute; left:0; right:8px; height:min(24px, 35%); z-index:1;
   pointer-events:none; opacity:0;
 }
+.home-side .home-side__list-frame::before, .home-side .home-side__list-frame::after { height:min(16px, 35%); }
 .home-side__list-frame::before { top:0; background:linear-gradient(to bottom, var(--home-sidebar), color-mix(in srgb, var(--home-sidebar) 80%, transparent) 35%, transparent); }
 .home-side__list-frame::after { bottom:0; background:linear-gradient(to top, var(--home-sidebar), color-mix(in srgb, var(--home-sidebar) 80%, transparent) 35%, transparent); }
 .home-side__list-frame::before { opacity:var(--scroll-fade-top-opacity, 0); }
