@@ -789,7 +789,12 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
   --color-accent-ring:color-mix(in srgb,var(--color-brand-blue) 18%,transparent);
 }
 .home-window-shell>.workspace-topbar { position:relative; display:grid; grid-template-columns:var(--home-navigation-width,auto) minmax(0,1fr) auto auto; column-gap:0; flex-shrink:0; min-width:0; border-bottom:0; backdrop-filter:none; }
-.workspace-topbar__navigation { display:flex; align-items:center; gap:4px; min-width:0; padding-inline:12px; }
+.workspace-topbar__navigation { position:relative; display:flex; align-items:center; gap:4px; min-width:0; padding-inline:12px; }
+.workspace-topbar__navigation::after { content:""; position:absolute; right:0; top:8px; bottom:8px; width:1px; background:var(--color-border); pointer-events:none; }
+.workspace-topbar__workspace-home { display:flex; align-items:center; gap:6px; flex:1; min-width:0; max-width:180px; height:28px; padding:4px 6px; border-radius:4px; color:var(--color-text-secondary); font-size:13px; line-height:20px; text-align:left; }
+.workspace-topbar__workspace-home svg { flex:none; }
+.workspace-topbar__workspace-home span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-topbar__workspace-home:hover, .workspace-topbar__workspace-home[aria-current=page] { background:var(--home-nav-hover); color:var(--color-text-primary); }
 .home-window-shell .workspace-topbar__tab-frame { margin-left:0; }
 .home-window-shell .home-side__top { display:none; }
 .home-quick-note:not(.home-quick-note--expanded)::before {
