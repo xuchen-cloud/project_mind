@@ -10,7 +10,6 @@ useState,
 type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
-import { HomeRailDivider } from "../home/HomeRailDivider";
 
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
@@ -65,7 +64,6 @@ import { HomeEmptyState } from "../home/HomeEmptyState";
 import { HomeCover, ProjectHomeIcon } from "../home/HomeCover";
 import { HomeQuickNote } from "../home/HomeQuickNote";
 import { HomeRecordFilters } from "../home/HomeRecordFilters";
-import { HomeProjectFiles } from "../home/HomeProjectFiles";
 import { RecordListItem } from "../record/RecordListItem";
 import {
 getRenderableRichTextHtml,
@@ -789,7 +787,7 @@ export function ProjectOverviewPage({
         </div>
       </div>
 
-      <div style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }} className={`home-rail home-rail--project${todoRailCollapsed ? " is-collapsed" : ""}`}>
+      <div style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }} className={`home-rail home-rail--project home-rail--project-todos${todoRailCollapsed ? " is-collapsed" : ""}`}>
         <div className="home-rail__todo">
       <TodoModuleRail
         scope={
@@ -807,8 +805,6 @@ export function ProjectOverviewPage({
         onOpenContactMention={openContactMention}
       />
         </div>
-        {!todoRailCollapsed ? <HomeRailDivider key={activeProject.rootPath} identity={activeProject.rootPath} /> : null}
-        {visible && !todoRailCollapsed ? <HomeProjectFiles project={activeProject} documents={(projectPage.projectDocuments ?? []).map((file) => ({ ...file, tags: file.tags ?? [] }))} /> : null}
       </div>
     </div>
   );

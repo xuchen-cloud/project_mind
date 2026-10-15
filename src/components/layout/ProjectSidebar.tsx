@@ -1,6 +1,6 @@
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
-import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
+import { HomeSidebarList } from "../home/HomeSidebarList";
 import {
   useCallback,
   useEffect,
@@ -93,6 +93,7 @@ export interface ProjectSidebarDocumentItem {
 
 interface ProjectSidebarProps {
   filesOnly?: boolean;
+  fileFilter?: { query: string; tagId: number | null };
   project: {
     id: number;
     name: string;
@@ -140,6 +141,7 @@ const PROJECT_SIDEBAR_TABS = [
 
 export function ProjectSidebar({
   filesOnly = false,
+  fileFilter,
   project,
   records: explicitRecords,
   documents = [],
@@ -197,8 +199,8 @@ export function ProjectSidebar({
   const openPreview = useDocumentPreview();
   const [localRecordQuery, setLocalRecordQuery] = useState("");
   const [localActiveRecordTagId, setLocalActiveRecordTagId] = useState<number | null>(null);
-  const fileQuery = projectFileFilters[project.id]?.query ?? "";
-  const documentTagId = projectFileFilters[project.id]?.tagId ?? null;
+  const fileQuery = fileFilter?.query ?? projectFileFilters[project.id]?.query ?? "";
+  const documentTagId = fileFilter ? fileFilter.tagId : projectFileFilters[project.id]?.tagId ?? null;
   const setFileQuery = (query: string) => setProjectFileQuery(project.id, query);
   const setDocumentTagId = (tagId: number | null) => setProjectDocumentTagId(project.id, tagId);
   const [dragActive, setDragActive] = useState(false);
@@ -312,8 +314,6 @@ export function ProjectSidebar({
   }
 
   const normalizedFileQuery = fileQuery.trim().toLowerCase();
-  const searchMotionRef = useRef<HTMLDivElement>(null);
-  useSearchResultsMotion(searchMotionRef, `${activeTab}:${recordQuery}:${fileQuery}`);
   const filteredDocuments = sortedDocuments.filter((document) => {
     const matchesQuery =
       !normalizedFileQuery ||
@@ -854,7 +854,7 @@ export function ProjectSidebar({
                 onValueChange={setActiveTab}
               /> : null}
               <div className="flex items-center gap-2">
-                <SearchField
+                {!fileFilter ? <SearchField
                   aria-label={activeTab === "records" ? "搜索记录" : "搜索文件"}
                   placeholder={activeTab === "records" ? "搜索记录或标签" : "搜索文件或标签"}
                   value={activeTab === "records" ? recordQuery : fileQuery}
@@ -864,7 +864,7 @@ export function ProjectSidebar({
                       : setFileQuery(event.target.value)
                   }
                   className="flex-1"
-                />
+                /> : null}
                 {activeTab === "records" ? (
                   <IconButton
                     type="button"
@@ -888,7 +888,7 @@ export function ProjectSidebar({
                   </IconButton>
                 ) : null}
               </div>
-              {(activeTab === "records" ? recordTagOptions : documentTagOptions).length > 0 ? (
+              {!fileFilter && (activeTab === "records" ? recordTagOptions : documentTagOptions).length > 0 ? (
                 <SidebarFilters
                   ariaLabel={
                     activeTab === "records"
@@ -909,7 +909,7 @@ export function ProjectSidebar({
               ) : null}
             </div>
 
-            <div ref={searchMotionRef} className="min-h-0 flex-1 overflow-y-auto">
+            <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
@@ -1106,7 +1106,7 @@ export function ProjectSidebar({
                 )}
               </div>
             )}
-            </div>
+            </HomeSidebarList>
         </div>
       </div>
 

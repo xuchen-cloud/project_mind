@@ -13,11 +13,10 @@ export function useHomeHeadingMotion(sectionRef: RefObject<HTMLElement | null>, 
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     const update = () => {
       const shell = section.closest(".home-window-shell");
-      const toolbarHeight = shell ? parseFloat(getComputedStyle(shell).getPropertyValue("--home-toolbar-height")) || 0 : 0;
       const gap = shell ? parseFloat(getComputedStyle(shell).getPropertyValue("--home-sticky-gap")) || 8 : 8;
       const source = coverTitle.getBoundingClientRect();
       if (source.width === 0 && section.clientWidth === 0) return;
-      const targetY = scroller.getBoundingClientRect().top + toolbarHeight + gap + topInset;
+      const targetY = scroller.getBoundingClientRect().top + gap + topInset;
       const collapseDistance = 32;
       const progress = Math.max(0, Math.min(1, (targetY + collapseDistance - source.top) / collapseDistance));
       const active = progress > 0;

@@ -782,16 +782,16 @@
 body:has(.workspace-topbar button[aria-label="切换左侧栏"]) .home-side__brand>button,
 body:has(.workspace-topbar button[aria-label="切换左侧栏"]) .sidebar-dock,
 body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-collapsed { display:none; }
-/* Side panels span the window; the toolbar overlays their top control strip. */
+/* The window toolbar sits above the content row and both side panels. */
 .home-window-shell {
   position:relative;
   --color-accent:var(--color-brand-blue);
   --color-accent-ring:color-mix(in srgb,var(--color-brand-blue) 18%,transparent);
 }
-.home-window-shell>.workspace-topbar { position:absolute; inset:0 0 auto; background:transparent; border-bottom:0; backdrop-filter:none; }
-.home-window-shell .home-side, .home-window-shell .home-rail { padding-top:40px; }
-.home-window-shell .home-page .project-overview-focus__scroll { padding-top:48px; }
-.home-window-shell .home-quick-note:not(.home-quick-note--expanded) { top:40px; }
+.home-window-shell>.workspace-topbar { position:relative; display:grid; grid-template-columns:var(--home-navigation-width,auto) minmax(0,1fr) auto auto; column-gap:0; flex-shrink:0; min-width:0; border-bottom:0; backdrop-filter:none; }
+.workspace-topbar__navigation { display:flex; align-items:center; gap:4px; min-width:0; padding-inline:12px; }
+.home-window-shell .workspace-topbar__tab-frame { margin-left:0; }
+.home-window-shell .home-side__top { display:none; }
 .home-quick-note:not(.home-quick-note--expanded)::before {
   content:""; position:absolute; inset:-8px 0 -12px -16px;
   background:var(--home-sidebar); z-index:-1; pointer-events:none;
@@ -811,8 +811,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-page .project-history-record__header-main { flex-basis:0; }
 .home-page .project-history-record__surface { align-content:start; grid-auto-rows:min-content; }
 /* Workspace stays first as a compact, non-closable tab. */
-.home-window-shell>.workspace-topbar[data-home-left-open] { left:var(--home-left-width); }
-.home-window-shell>.workspace-topbar { background:var(--home-nav-hover); padding-left:8px; gap:8px; }
+.home-window-shell>.workspace-topbar { background:var(--home-nav-hover); padding-left:8px; gap:0; }
 .home-window-shell .workspace-topbar__tablist { height:40px; gap:0; align-items:stretch; }
 .home-window-shell .workspace-topbar__tab { height:40px; border:0; border-right:1px solid var(--color-border); border-radius:0; background:transparent; color:var(--color-text-secondary); }
 .home-window-shell .workspace-topbar__tab--active { background:var(--home-sidebar); color:var(--color-text-primary); border-radius:8px 8px 0 0; }
@@ -829,10 +828,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-page .home-record-filters { margin-top:16px; margin-bottom:8px; }
 .home-page .project-overview-focus__page--history { padding:0; margin:0 auto 24px; }
 .home-page .project-history-record__surface { padding-top:12px; padding-bottom:12px; }
-@media(max-width:799px) {
-  .home-window-shell>.workspace-topbar[data-home-left-open] { left:min(var(--home-left-width),280px); }
-}
-
 .home-window-shell .home-side__brand>button { display:none; }
 
 /* One explicit pixel height avoids mixing rem-based toolbar and px-based tabs. */
@@ -845,11 +840,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .workspace-topbar__tab { height:var(--home-toolbar-height); }
 .home-window-shell .workspace-topbar>button,
 .home-window-shell .workspace-topbar__actions { align-self:center; }
-.home-window-shell .home-side, .home-window-shell .home-rail { padding-top:var(--home-toolbar-height); }
-.home-window-shell .home-side__top { height:var(--home-toolbar-height); }
-.home-window-shell .home-page .project-overview-focus__scroll { padding-top:calc(var(--home-toolbar-height) + 8px); }
-.home-window-shell .home-quick-note:not(.home-quick-note--expanded) { top:var(--home-toolbar-height); }
-.home-window-shell .home-side__brand { padding-top:2px; }
+
 .home-side__search, .home-record-filters>.search-field {
   background:var(--search-surface); border-radius:var(--search-radius); border:0;
 }
@@ -901,17 +892,15 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .workspace-topbar__tab-label { font-size:13px; line-height:20px; }
 .home-window-shell .workspace-topbar__tab--active .workspace-topbar__tab-label { font-weight:600; }
 .home-window-shell .workspace-topbar__tab-close { width:20px; height:22px; color:var(--color-text-tertiary); }
-/* Sticky offsets are relative to this scroll container's padded content edge. */
-.home-window-shell .home-quick-note:not(.home-quick-note--expanded) { top:-8px; }
 /* Keep sticky geometry independent of scroll-container padding and rubber banding. */
 .home-window-shell { --home-sticky-gap:12px; }
 .home-window-shell .home-page .project-overview-focus__scroll {
   padding-top:0;
   overscroll-behavior-y:none;
 }
-.home-window-shell .home-cover { margin-top:calc(var(--home-toolbar-height) + 8px); }
+.home-window-shell .home-cover { margin-top:8px; }
 .home-window-shell .home-quick-note:not(.home-quick-note--expanded) {
-  top:calc(var(--home-toolbar-height) + var(--home-sticky-gap));
+  top:var(--home-sticky-gap);
 }
 .home-window-shell .home-quick-note:not(.home-quick-note--expanded)::before {
   top:calc(-1 * var(--home-sticky-gap)); bottom:calc(-1 * var(--home-sticky-gap));
@@ -932,9 +921,11 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-rail__files p.border-dashed { border:0; background:transparent; padding:12px 4px; font-size:12px; color:var(--color-text-tertiary); }
 
 .native-titlebar-overlay .home-window-shell { --home-toolbar-height:36px; }
-.native-titlebar-overlay .home-window-shell>.workspace-topbar { padding-left:88px; }
-.native-titlebar-overlay .home-window-shell>.workspace-topbar[data-home-left-open] { padding-left:0; }
-.native-titlebar-overlay .home-side__top { padding-left:88px; }
+.native-titlebar-overlay .home-window-shell>.workspace-topbar { padding-left:0; }
+.native-titlebar-overlay .workspace-topbar__navigation { padding-left:88px; }
+@media (max-width:799px) {
+  .home-window-shell>.workspace-topbar[data-home-left-open] { grid-template-columns:min(var(--home-navigation-width),280px) minmax(0,1fr) auto auto; }
+}
 
 /* Empty hover controls must not reserve a second grid row. */
 .project-history-record__voice-icon {
@@ -1027,7 +1018,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-cover__icon { width:32px; height:32px; justify-items:start; }
 .home-cover__title { text-shadow:0 1px 10px var(--home-canvas); }
 .home-window-shell .home-quick-note[data-page-heading]:not(.home-quick-note--expanded) {
-  top:calc(var(--home-toolbar-height) + var(--home-sticky-gap) + 30px);
+  top:calc(var(--home-sticky-gap) + 30px);
 }
 .home-quick-note__page-heading {
   position:absolute; left:0; right:0; bottom:100%; height:30px;
@@ -1073,6 +1064,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-note-sidebar__single { display:flex; min-height:0; flex:1; padding-right:4px; }
 .home-note-sidebar__single > .home-side__section { flex:1; }
 .home-note-page .project-overview-focus__chrome { position:absolute; top:var(--home-toolbar-height,40px); right:20px; z-index:7; height:36px; background:transparent; border:0; }
+.home-window-shell .home-note-page .project-overview-focus__chrome { top:0; }
 .home-note-page .project-overview-focus__chrome-inner { width:auto; padding:0; gap:8px; }
 .home-note-page .project-overview-focus__meta p { display:none; }
 .home-note-content { padding:0 0 24px; }
@@ -1088,7 +1080,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 
 /* Record reading layout: a quiet banner, aligned identity, and an unboxed document. */
 .home-note-page { --home-reading-width:760px; }
-.home-window-shell .home-note-page .home-cover { margin-top:calc(var(--home-toolbar-height) + 8px); }
+.home-window-shell .home-note-page .home-cover { margin-top:8px; }
 .home-note-page .home-cover { --home-cover-edge:0px; height:194px; margin-bottom:0; }
 .home-note-page .home-cover__scenery {
   inset:0 0 auto; height:140px; border-radius:8px;
@@ -1120,7 +1112,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-note-page .rich-editor--page .ProseMirror :is(h3,h4) { font-size:18px; }
 .home-note-page .rich-editor--page .ProseMirror li { margin-block:6px; }
 .home-note-page .rich-editor--page .ProseMirror > :first-child { margin-top:0; }
-.home-window-shell .home-note-page .home-record-dock { top:calc(var(--home-toolbar-height) + var(--home-sticky-gap) + 30px); }
+.home-window-shell .home-note-page .home-record-dock { top:calc(var(--home-sticky-gap) + 30px); }
 
 /* Extend upward beyond the scroll viewport; its clipping edge defines the top.
    The bottom stays attached to the moving title, never the dock slot below it. */
@@ -1133,26 +1125,11 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .home-note-page .home-record-dock:not(.home-quick-note--expanded)::before { display:none; }
 .home-record-heading button[aria-label="导出为"] { color:var(--color-text-tertiary); }
 
-/* The right rail owns a top strip for global search and its collapse button. */
-.home-window-shell > .workspace-topbar[data-home-right-open] { right:var(--home-right-width); }
-.home-window-shell > .workspace-topbar[data-home-right-open] > button[aria-label="切换右侧栏"] {
-  position:absolute; right:calc(8px - var(--home-right-width)); top:calc((var(--home-toolbar-height) - 28px) / 2);
-  width:28px; height:28px;
-}
-.home-window-shell > .workspace-topbar[data-home-right-open] .workspace-topbar__search {
-  display:block; position:absolute; left:auto; right:calc(44px - var(--home-right-width));
-  top:calc((var(--home-toolbar-height) - var(--search-height)) / 2);
-  width:calc(var(--home-right-width) - 56px); z-index:30;
-}
-.home-window-shell > .workspace-topbar[data-home-right-open] .workspace-topbar__search .search-field { width:100%; }
-.home-window-shell > .workspace-topbar[data-home-right-open] .workspace-topbar__search-toggle { display:none; }
-.home-window-shell > .workspace-topbar[data-home-right-open] #workspace-search-results { right:0; left:auto; }
-
 /* Match the inset section rules used in the left sidebar. */
 .home-window-shell .home-rail:not(.is-collapsed)::before {
   content:"";
   position:absolute;
-  top:var(--home-toolbar-height);
+  top:0;
   left:22px;
   right:22px;
   height:1px;

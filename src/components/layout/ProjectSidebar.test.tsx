@@ -60,6 +60,23 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("ProjectSidebar", () => {
+  it("uses the shared query and tag without a second search input and keeps file actions", async () => {
+    const documents = [
+      buildDocument({ id: 1, name: "交付.pdf", baseName: "交付.pdf", tags: [{ id: 7, label: "交付", colorKey: "blue" }] }),
+      buildDocument({ id: 2, name: "预算.pdf", baseName: "预算.pdf" }),
+    ];
+    const view = renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "交付", tagId: 7 }}
+      project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={documents} onOpenProject={vi.fn()} />);
+    expect(screen.queryByRole("textbox", { name: "搜索文件" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入文件" })).toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "项目文件列表" });
+    expect(list).toHaveTextContent("交付.pdf");
+    expect(list).not.toHaveTextContent("预算.pdf");
+    view.unmount();
+    renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId: null }}
+      project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={documents} onOpenProject={vi.fn()} />);
+    expect(screen.getByRole("region", { name: "项目文件列表" })).toHaveTextContent("预算.pdf");
+  });
   beforeEach(() => {
     closeFilePreview();
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
