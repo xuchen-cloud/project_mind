@@ -295,3 +295,8 @@ macOS WebView 另发现代码预览 MutationObserver 对未变化的遮罩数值
 - `npx tsc --noEmit`、最终 `npx vite build`、`node scripts/check-ui-standards.mjs`、`git diff --check` 通过。构建保留既有 chunk／动态静态导入警告，无本包编译错误。
 - 使用真实 React 页面和模拟业务 API 的浏览器预览检查单栏／双栏、首页与记录并排及图标位置；读取实际 computed style 确认顶部移动选中底面与内容 Tab 栏均为 `rgb(255, 255, 255)`，弧形沿用原侧栏底色。这些属于浏览器布局证据，不计原生数据保存或新增平台验收。
 - 主 agent 完成 Standards／Spec 自查：布局只保存展示状态、首页保持唯一、业务对象去重与关闭守卫沿用原机制、窄窗口保留布局、滚动遮罩仍绑定滚动视口并响应尺寸变化；按用户最新纠正仅左栏有 Home。未启动 review 子 agent。
+
+### 标签衔接修正
+
+- 用户补充局部截图指出标签右下角仍有浅灰残角。保持弧形轮廓与切换动画，将移动底面两侧弧形的填色改为与主体、内容 Tab 栏相同的白色。
+- 浏览器 computed style 确认主体、左右弧形实色端与内容 Tab 栏均为白色，局部原生截图目视通过；`git diff --check` 与 UI standards 通过。仅 CSS 填色与规格说明变更，复用上一提交的行为测试与类型验证。

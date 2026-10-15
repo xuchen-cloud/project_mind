@@ -1255,8 +1255,8 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .workspace-topbar__indicator::after {
   content:""; position:absolute; bottom:0; width:10px; height:10px;
 }
-.home-window-shell .workspace-topbar__indicator::before { left:-10px; background:radial-gradient(circle at 0 0, transparent 9.5px, var(--home-sidebar) 10px); }
-.home-window-shell .workspace-topbar__indicator::after { right:-10px; background:radial-gradient(circle at 100% 0, transparent 9.5px, var(--home-sidebar) 10px); }
+.home-window-shell .workspace-topbar__indicator::before { left:-10px; background:radial-gradient(circle at 0 0, transparent 9.5px, var(--color-bg) 10px); }
+.home-window-shell .workspace-topbar__indicator::after { right:-10px; background:radial-gradient(circle at 100% 0, transparent 9.5px, var(--color-bg) 10px); }
 .home-window-shell .workspace-topbar__tab--active,
 .home-window-shell .workspace-topbar__tab--active:hover { background:transparent; }
 .home-window-shell .workspace-topbar__tab--active::before,
