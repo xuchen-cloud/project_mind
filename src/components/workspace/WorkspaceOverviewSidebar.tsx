@@ -16,7 +16,6 @@ Trash2
 import { useMemo,useState } from "react";
 
 import noriBust from "../../assets/home/nori-bust.png";
-import noriWordmark from "../../assets/home/norimind-wordmark.svg";
 import type { ProjectListItem,TagColorKey } from "../../lib/types";
 import {
 PROJECT_SIDEBAR_WIDTH_MAX_PX,
@@ -235,7 +234,7 @@ export function WorkspaceOverviewSidebar({
       />
 
       <div data-tauri-drag-region className="home-side__top"><button type="button" aria-label="切换左侧栏" aria-expanded={true} onClick={toggleProjectSidebarCollapsed}><PanelLeft size={16} /></button><button type="button" className="home-side__workspace-tab" onClick={onOpenOverview}>我的工作区</button></div>
-      <div className="home-side__brand"><img className="home-side__mascot" src={noriBust} alt="" /><div className="home-side__brand-copy"><img className="home-side__wordmark" src={noriWordmark} alt="NoriMind" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenOverview} /></div><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
+      <div className="home-side__brand"><img className="home-side__mascot" src={noriBust} alt="" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenOverview} /><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
 
       <HomeSidebarSplit key={workspaceRootPath} storageKey={`home-sidebar-split:workspace:${workspaceRootPath}`} upper={<><div className="home-side__heading"><span>项目</span><div className="home-side__heading-actions"><button type="button" className="home-side__workspace-action" aria-label="归档项目" title="归档项目" onClick={() => setArchiveDialogOpen(true)}><Archive size={13} /></button><button type="button" className="home-side__workspace-action" aria-label="新建项目" title="新建项目" disabled={createProjectPending} onClick={onCreateProject}><Plus size={13} /></button></div></div>
               <SearchField className="home-side__search" aria-label="搜索项目" placeholder="搜索项目" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />

@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import { ChevronsUpDown, Settings } from "lucide-react";
+import wordmark from "../../assets/home/norimind-wordmark.svg";
 
 export const HomeWorkspaceActionsContext = createContext<{
   workspaceName: string;
@@ -7,9 +8,17 @@ export const HomeWorkspaceActionsContext = createContext<{
   openSettings: () => void;
 } | null>(null);
 
-export function HomeWorkspaceIdentity({ onOpenWorkspace }: { onOpenWorkspace: () => void }) {
-  return <div className="home-side__workspace-row">
-    <button type="button" className="home-side__workspace" onClick={onOpenWorkspace}>我的工作区</button>
+export function HomeWorkspaceIdentity({ projectName, onOpenWorkspace }: { projectName?: string; onOpenWorkspace: () => void }) {
+  const actions = useContext(HomeWorkspaceActionsContext);
+  const workspaceName = actions?.workspaceName ?? "我的工作区";
+  return <div className="home-side__brand-copy">
+    {projectName !== undefined ? <>
+      <span className="home-side__identity-title" title={projectName}>{projectName}</span>
+      <button type="button" className="home-side__identity-subtitle" aria-label={`NoriMind · ${workspaceName}`} title={`NoriMind · ${workspaceName}`} onClick={onOpenWorkspace}><img className="home-side__identity-wordmark" src={wordmark} alt="NoriMind" /><span aria-hidden="true">·</span><span className="home-side__identity-workspace">{workspaceName}</span></button>
+    </> : <>
+      <button type="button" className="home-side__identity-title" title={workspaceName} onClick={onOpenWorkspace}>{workspaceName}</button>
+      <span className="home-side__identity-subtitle"><img className="home-side__identity-wordmark" src={wordmark} alt="NoriMind" /></span>
+    </>}
   </div>;
 }
 

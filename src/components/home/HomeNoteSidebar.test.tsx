@@ -10,7 +10,8 @@ const records = [
 beforeEach(() => { localStorage.clear(); useUiStore.setState({ projectSidebarCollapsed: false }); });
 it("workspace notes show only searchable recent records", () => {
   render(<HomeNoteSidebar workspaceRoot="/test" records={records} activeRecordId={1} onOpenWorkspace={vi.fn()} onOpenRecord={vi.fn()} onCreateRecord={vi.fn()} />);
-  expect(screen.getByAltText("NoriMind")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "我的工作区" }).find(button => button.classList.contains("home-side__identity-title"))).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "NoriMind" }).parentElement).toHaveClass("home-side__identity-subtitle");
   expect(screen.queryByText("最近文件")).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole("textbox", { name: "搜索最近记录" }), { target: { value: "总结" } });
   expect(screen.getByRole("button", { name: "复盘" })).toBeInTheDocument();
