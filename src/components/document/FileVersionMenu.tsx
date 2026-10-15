@@ -61,7 +61,7 @@ export function FileVersionMenu({ label, triggerLabel, versions, selectedVersion
     const place = () => {
       const rect = trigger.current!.getBoundingClientRect();
       const height = window.innerHeight;
-      const width = Math.min(176, Math.max(0, window.innerWidth - 24));
+      const width = Math.min(128, Math.max(0, window.innerWidth - 24));
       const below = Math.max(0, height - rect.bottom - 18);
       const aboveSpace = Math.max(0, rect.top - 18);
       const desired = panel.current!.scrollHeight;
@@ -116,17 +116,17 @@ export function FileVersionMenu({ label, triggerLabel, versions, selectedVersion
     const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : index < 0 ? (event.key === "ArrowDown" ? 0 : items.length - 1) : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
     items[next].focus();
   }
-  const row = (name: string, version: number | undefined, createdAt?: string, current?: boolean) => <button type="button" className="file-version-menu__row" role="menuitemradio" aria-label={name} aria-checked={selectedVersion === version || (version === undefined && latestVersion !== undefined && selectedVersion === latestVersion)} disabled={pending || loading} onClick={() => void choose(version)}>
+  const row = (name: string, version: number | undefined, createdAt?: string, current?: boolean) => <button type="button" className="file-version-menu__row" role="menuitemradio" aria-label={name} aria-checked={selectedVersion === version} disabled={pending || loading} onClick={() => void choose(version)}>
     <span className="file-version-menu__text"><span>{name}{current ? <small>（当前）</small> : null}</span>{createdAt ? <time dateTime={createdAt}>{formatDateTime(createdAt)}</time> : null}</span>
   </button>;
   return <>
     <span data-document-interactive="true" className={`file-version-control file-version-control--${variant}`}>
-      <button ref={trigger} data-document-interactive="true" type="button" className="file-version-control__trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open && visible} aria-controls={open && visible ? id : undefined} disabled={!visible} onClick={event => { event.stopPropagation(); changeOpen(!open); }}>{triggerLabel}<ChevronDown size={12} aria-hidden="true" /></button>
+      <button ref={trigger} data-document-interactive="true" type="button" className="file-version-control__trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open && visible} aria-controls={open && visible ? id : undefined} disabled={!visible} onClick={event => { event.stopPropagation(); changeOpen(!open); }}>{triggerLabel}<ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" /></button>
     </span>
     {open && visible ? createPortal(<PopoverPanel ref={panel} id={id} role="menu" aria-label={`${label}列表`} tabIndex={-1} className="file-version-menu" style={{ top: position.top, left: position.left, maxHeight: position.maxHeight }} motion="trigger" motionOrigin={position.above ? "bottom right" : "top right"} onKeyDown={navigate} onClick={event => event.stopPropagation()}>
       <HomeSidebarList label={`${label}选项`}>
         {includeLatest ? row(latestVersion ? `v${latestVersion}（当前）` : "当前版本", undefined) : null}
-        {versions.filter(version => !includeLatest || version.versionNumber !== latestVersion).map(version => <span className="file-version-menu__entry" key={version.id}>{row(`v${version.versionNumber}`, version.versionNumber, version.createdAt, !includeLatest && version.isCurrent)}</span>)}
+        {versions.map(version => <span className="file-version-menu__entry" key={version.id}>{row(`v${version.versionNumber}`, version.versionNumber, version.createdAt, !includeLatest && version.isCurrent)}</span>)}
         {loading ? <p role="status">正在读取版本…</p> : null}
         {!loading && !error && !versions.length && !includeLatest ? <p role="status">暂无版本</p> : null}
         {error || selectionError ? <p role="alert">{error || selectionError}</p> : null}

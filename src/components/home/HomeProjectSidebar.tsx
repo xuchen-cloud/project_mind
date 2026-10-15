@@ -87,7 +87,7 @@ export function HomeProjectSidebar({
             onBlur={() => { void onRenameRecord?.(editing.id, editing.title).catch(error => pushToast({ tone: "error", title: "重命名记录失败", detail: String(error) })); setEditing(null); }} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditing(null); }} /> :
             <button key={record.id} type="button" className={`home-side__item ${record.id === activeRecordId ? "is-active" : ""}`} title={record.title?.trim() || "未命名记录"}
               onContextMenu={event => { if (!onRenameRecord && !onDeleteRecord) return; event.preventDefault(); setMenu({ id: record.id, x: event.clientX, y: event.clientY }); }}
-              onClick={() => { rememberProjectRecord(workspaceRoot, projectId, record.id); onOpenRecord(record.id); }}><RecordIcon size={16} isVoice={record.isVoice} /><span>{record.title?.trim() || "未命名记录"}</span></button>)}
+              onClick={() => { rememberProjectRecord(workspaceRoot, projectId, record.id); onOpenRecord(record.id); }}><RecordIcon size={12} isVoice={record.isVoice} /><span>{record.title?.trim() || "未命名记录"}</span></button>)}
           {!visibleRecords.length ? <p className="home-side__empty">{query.trim() || selectedTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
         </HomeSidebarList>
       </section>

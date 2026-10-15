@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Folder } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { queryKeys } from "../../lib/queryKeys";
 import { getErrorMessage } from "../../lib/errors";
 import { openProjectFilePreview, useProjectFileNavigation } from "../../lib/project-file-navigation";
@@ -13,6 +13,7 @@ function DirectoryBranch({ projectId, rootPath, relativePath, depth, revision }:
   projectId: number; rootPath: string; relativePath: string; depth: number; revision: number;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const indentation = { paddingInlineStart: 4 + depth * 12 };
   const directory = useQuery({
     queryKey: queryKeys.projectDirectory(rootPath, projectId, relativePath, revision),
     queryFn: () => projectDirectoryApi.list(projectId, relativePath),
@@ -22,20 +23,22 @@ function DirectoryBranch({ projectId, rootPath, relativePath, depth, revision }:
     gcTime: 0,
   });
   return <>
-    {directory.isPending ? <p className="project-directory__message" role="status">正在读取目录…</p> : null}
-    {directory.isError ? <div className="project-directory__message" role="alert">{getErrorMessage(directory.error, "无法读取项目目录")}<button type="button" onClick={() => void directory.refetch()}>重试读取目录</button></div> : null}
-    {directory.data?.length === 0 ? <p className="project-directory__message" style={{ paddingInlineStart: 12 + depth * 16 }}>此目录为空</p> : null}
+    {directory.isPending ? <p className="project-directory__message" style={indentation} role="status">正在读取目录…</p> : null}
+    {directory.isError ? <div className="project-directory__message" style={indentation} role="alert">{getErrorMessage(directory.error, "无法读取项目目录")}<button type="button" onClick={() => void directory.refetch()}>重试读取目录</button></div> : null}
+    {directory.data?.length === 0 ? <p className="project-directory__message" style={indentation}>此目录为空</p> : null}
     {directory.data?.map(entry => <div key={entry.relativePath}>
-      <button type="button" className="project-directory__entry" style={{ paddingInlineStart: 8 + depth * 16 }}
+      <button type="button" className="project-directory__entry" style={indentation}
         aria-expanded={entry.kind === "directory" ? expanded.has(entry.relativePath) : undefined}
         onClick={() => {
           if (entry.kind === "file") { openProjectFilePreview(projectId, entry.relativePath); return; }
           setExpanded(previous => { const next = new Set(previous); if (next.has(entry.relativePath)) next.delete(entry.relativePath); else next.add(entry.relativePath); return next; });
         }}>
-        {entry.kind === "directory" ? <><ChevronRight size={12} className="project-directory__chevron" aria-hidden="true" /><Folder size={16} aria-hidden="true" /></> : <><span className="project-directory__spacer" /><FileIcon name={entry.name} size={18} /></>}
+        {entry.kind === "directory" ? <ChevronRight size={12} strokeWidth={1.5} className="project-directory__chevron" aria-hidden="true" /> : <FileIcon name={entry.name} size={12} />}
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
       </button>
-      {entry.kind === "directory" && expanded.has(entry.relativePath) ? <DirectoryBranch rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} /> : null}
+      {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
+        <DirectoryBranch rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} />
+      </div> : null}
     </div>)}
   </>;
 }

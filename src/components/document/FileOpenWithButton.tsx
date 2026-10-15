@@ -65,7 +65,7 @@ export function FileOpenWithButton({ workspaceRoot, projectId, fileId, visible, 
     if (position) { close(true); return; }
     const rect = control.current!.getBoundingClientRect();
     const space = Math.max(12, window.innerHeight - 180);
-    setPosition({ top: Math.min(rect.bottom + 6, space), right: Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - 188)) });
+    setPosition({ top: Math.min(rect.bottom + 6, space), right: Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - 140)) });
     setError(undefined);
     request.current = new AbortController();
   }
@@ -110,7 +110,7 @@ export function FileOpenWithButton({ workspaceRoot, projectId, fileId, visible, 
         </span>
       </button>
       <button ref={trigger} type="button" className="file-open-with-control__toggle" aria-label="选择其他应用打开当前原件" title="其他应用打开当前原件"
-        aria-haspopup="dialog" aria-expanded={position !== null} aria-controls={position ? id : undefined} disabled={disabled} onClick={show}><ChevronDown size={12} aria-hidden="true" /></button>
+        aria-haspopup="dialog" aria-expanded={position !== null} aria-controls={position ? id : undefined} disabled={disabled} onClick={show}><ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" /></button>
     </span>
     {position && visible ? createPortal(<PopoverPanel ref={panel} id={id} role="dialog" aria-label="其他应用打开" tabIndex={-1} className="file-open-with" style={{ ...position, maxHeight: `calc(100dvh - ${position.top + 12}px)` }} motion="trigger" motionOrigin="top right">
       <HomeSidebarList label="可用应用列表">
