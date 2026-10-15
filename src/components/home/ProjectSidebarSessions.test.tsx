@@ -33,7 +33,7 @@ beforeEach(() => {
 
 it("loads real API sessions without selecting/creating, and filters titles locally", async () => {
   const view = render(component());
-  expect(screen.getByRole("status")).toHaveTextContent("正在读取项目会话");
+  expect(screen.getByRole("status")).toHaveAccessibleName("正在读取项目会话");
   await screen.findByRole("button", { name: "Alpha 方案" });
   expect(api.start).toHaveBeenCalledWith(JSON.stringify(["/workspace", 7]), 7);
   expect(api.sessions).toHaveBeenCalledWith(7);
@@ -50,25 +50,22 @@ it("loads real API sessions without selecting/creating, and filters titles local
   expect(api.start).toHaveBeenCalledTimes(1);
 });
 
-it("keeps refresh before creation at the right edge of the heading", async () => {
+it("shows only a spinner while loading and keeps only creation in the heading", async () => {
+  const pending = deferred<typeof saved>();
+  api.sessions.mockReturnValueOnce(pending.promise);
   render(component());
-  const refresh = screen.getByRole("button", { name: "刷新会话" });
+  const status = screen.getByRole("status");
+  expect(status).toHaveAccessibleName("正在读取项目会话");
+  expect(status).toHaveTextContent("");
+  expect(status.querySelector("svg")).toHaveClass("spin");
+  expect(screen.queryByText(/正在读取|正在打开/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "刷新会话" })).toBeNull();
   const create = screen.getByRole("button", { name: "新增会话" });
-  expect(refresh).toBeVisible();
-  expect(create).toBeVisible();
-  expect(refresh).toBeDisabled();
   expect(create).toBeDisabled();
-  expect(refresh.closest(".home-side__heading")).toBe(create.closest(".home-side__heading"));
-  expect(refresh.nextElementSibling).toBe(create);
-  expect(create.nextElementSibling).toBeNull();
-  expect(create.querySelector("svg")).toHaveAttribute("width", "16");
-  expect(refresh.querySelector("svg")).toHaveAttribute("width", "16");
-  await screen.findByRole("button", { name: "Alpha 方案" });
-  expect(refresh).toBeEnabled();
+  expect(create.parentElement?.children).toHaveLength(1);
+  await act(async () => pending.resolve(saved));
+  expect(screen.queryByRole("status")).toBeNull();
   expect(create).toBeEnabled();
-  fireEvent.click(refresh);
-  await waitFor(() => expect(api.sessions).toHaveBeenCalledTimes(2));
-  expect(api.selectSession).not.toHaveBeenCalled();
 });
 
 it("selects existing sessions and opens project content with a cancellation signal", async () => {
@@ -103,8 +100,6 @@ it.each(["start", "sessions"] as const)("shows %s errors and retries only on req
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   await screen.findByRole("button", { name: "Alpha 方案" });
   expect(screen.queryByRole("alert")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "刷新会话" }));
-  await waitFor(() => expect(api.sessions).toHaveBeenCalledTimes(method === "start" ? 2 : 3));
   expect(api.selectSession).not.toHaveBeenCalled();
 });
 
@@ -226,7 +221,7 @@ it("keeps edge fades confined to the list and remeasures after filtering", async
   expect(list).not.toHaveAttribute("data-overflow-top");
   fireEvent.scroll(list, { target: { scrollTop: 32 } });
   expect(list.parentElement!.style.getPropertyValue("--scroll-fade-top-opacity")).toBe("0.5");
-  expect(list.contains(screen.getByRole("button", { name: "刷新会话" }))).toBe(false);
+  expect(list.contains(screen.getByRole("button", { name: "新增会话" }))).toBe(false);
   Object.defineProperty(list, "scrollHeight", { configurable: true, value: 100 });
   view.rerender(component({ query: "alpha" }));
   expect(list).not.toHaveAttribute("data-overflow-top");
@@ -259,4 +254,50 @@ it("uses only focused session props for selection, never an opening click", asyn
   expect(beta).toHaveClass("is-active");
   view.rerender(component({ activeSessionId: null }));
   expect(beta).not.toHaveClass("is-active");
+});
+
+it("automatically syncs this project's catalog and on focus without blanking the list", async () => {
+  const pending = deferred<typeof saved>();
+  const view = render(component());
+  await screen.findByRole("button", { name: "Alpha 方案" });
+  api.sessions.mockReturnValueOnce(pending.promise);
+  act(() => window.dispatchEvent(new CustomEvent("mind:dsh-sessions-changed", { detail: { projectId: 8 } })));
+  expect(api.sessions).toHaveBeenCalledTimes(1);
+  act(() => window.dispatchEvent(new CustomEvent("mind:dsh-sessions-changed", { detail: { projectId: 7 } })));
+  await waitFor(() => expect(api.sessions).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("button", { name: "Alpha 方案" })).toBeVisible();
+  expect(screen.getByRole("status")).toHaveAccessibleName("正在读取项目会话");
+  expect(screen.queryByText(/正在读取|正在打开/)).toBeNull();
+  await act(async () => pending.resolve([{ id: "beta", title: "更新的标题", running: false }]));
+  expect(screen.queryByRole("button", { name: "Alpha 方案" })).toBeNull();
+  expect(screen.getByRole("button", { name: "更新的标题" })).toBeVisible();
+  expect(screen.queryByRole("status")).toBeNull();
+  api.sessions.mockResolvedValue([]);
+  act(() => window.dispatchEvent(new Event("focus")));
+  await screen.findByText("暂无会话");
+  view.rerender(component({ enabled: false }));
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new CustomEvent("mind:dsh-sessions-changed", { detail: { projectId: 7 } }));
+  });
+  expect(api.sessions).toHaveBeenCalledTimes(3);
+  view.unmount();
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(api.sessions).toHaveBeenCalledTimes(3);
+});
+
+it("shows a single text-free spinner until content opening finishes", async () => {
+  const pending = deferred<void>();
+  api.open.mockReturnValueOnce(pending.promise);
+  render(component());
+  fireEvent.click(await screen.findByRole("button", { name: "Alpha 方案" }));
+  await waitFor(() => expect(api.open).toHaveBeenCalledTimes(1));
+  const status = screen.getByRole("status");
+  expect(status).toHaveAccessibleName("正在打开会话");
+  expect(status.textContent).toBe("");
+  expect(status.querySelector("svg")).toHaveClass("spin");
+  expect(screen.queryByText(/正在读取|正在打开/)).toBeNull();
+  expect(screen.getByRole("button", { name: "新增会话" })).toBeDisabled();
+  await act(async () => pending.resolve());
+  expect(screen.queryByRole("status")).toBeNull();
 });

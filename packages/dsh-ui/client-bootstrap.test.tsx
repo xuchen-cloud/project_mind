@@ -469,6 +469,47 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
   }
 });
 
+it('invalidates the Session catalog for title, create, delete and order changes without status churn or subscribe replay', async () => {
+  fixture.catalog = true; fixture.dual = true;
+  const client = await createDshClient(7);
+  const changes = vi.fn();
+  try {
+    await waitFor(() => expect(client.ctx.sessions.list.getSnapshot().ids).toHaveLength(2));
+    client.subscribe(type => { if (type === 'sessionsChanged') changes(); });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(changes).not.toHaveBeenCalled();
+    const emit = async (event: string, args: unknown[]) => {
+      fixture.emitEvent!({ type: 'emit', event, args });
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+    await emit('api-session/status', ['fixture-session', true]);
+    expect(changes).not.toHaveBeenCalled();
+    const summary = { sessionId: 'fixture-session', updatedAt: 1, running: true, blank: false, agentAvailable: true, cwd: '/fixture/project' };
+    await emit('api-session/added', [{ ...summary, projections: { kind: 'sequenced', asOfSeq: 1, values: { title: 'Automatic title' } } }]);
+    await waitFor(() => expect(changes).toHaveBeenCalledTimes(1));
+    // Replayed metadata does not invalidate a second time.
+    await emit('api-session/added', [{ ...summary, projections: { kind: 'sequenced', asOfSeq: 1, values: { title: 'Automatic title' } } }]);
+    expect(changes).toHaveBeenCalledTimes(1);
+    await emit('api-session/added', [{ ...summary, sessionId: 'new-session', running: false, updatedAt: 2 }]);
+    await waitFor(() => expect(changes).toHaveBeenCalledTimes(2));
+    await emit('api-session/removed', ['new-session']);
+    await waitFor(() => expect(changes).toHaveBeenCalledTimes(3));
+    await emit('api-session/activity', ['second-session', 3]);
+    await waitFor(() => expect(changes).toHaveBeenCalledTimes(4));
+    // Several catalog writes in a turn publish one invalidation.
+    client.ctx.sessions.handleSessionAdded({ ...summary, sessionId: 'batch-a', updatedAt: 4 });
+    client.ctx.sessions.handleSessionAdded({ ...summary, sessionId: 'batch-b', updatedAt: 5 });
+    await waitFor(() => expect(changes).toHaveBeenCalledTimes(5));
+    const late = vi.fn();
+    client.subscribe(type => { if (type === 'sessionsChanged') late(); });
+    expect(late).not.toHaveBeenCalled();
+    client.ctx.sessions.handleSessionRemoved('batch-a');
+    await client.dispose();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(changes).toHaveBeenCalledTimes(5);
+  } finally { await client.dispose(); fixture.catalog = false; fixture.dual = false; }
+});
+
 it('publishes exact Session running facts from the original catalog and clears on disposal', async () => {
   fixture.catalog = true; fixture.dual = true;
   const client = await createDshClient(7); const listener = vi.fn();
