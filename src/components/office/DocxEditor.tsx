@@ -23,7 +23,10 @@ export function DocxEditor(props: DocxEditorProps) {
   const controller = useRef<EditorController | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [edges, setEdges] = useState({ top: 0, bottom: 0 });
+  const [edges, setEdges] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
+  const [zoomMode, setZoomMode] = useState<number | "fit">("fit");
+  const [zoom, setZoom] = useState(1);
+  const [paperHeight, setPaperHeight] = useState(props.model.page.height);
   const readOnly = !!props.readOnly || props.model.readOnly;
 
   function options(): EditorOptions {
@@ -35,12 +38,23 @@ export function DocxEditor(props: DocxEditorProps) {
   function measure() {
     const node = viewport.current;
     if (!node) return;
-    const max = Math.max(0, node.scrollHeight - node.clientHeight);
-    const position = Math.max(0, Math.min(max, node.scrollTop));
-    const distance = Math.min(64, max / 2);
-    const top = distance ? Math.min(1, position / distance) : 0;
-    const bottom = distance ? Math.min(1, (max - position) / distance) : 0;
-    setEdges(old => old.top === top && old.bottom === bottom ? old : { top, bottom });
+    // Transform keeps document layout intact; reserve its displayed height for scrolling.
+    if (host.current) setPaperHeight(host.current.offsetHeight);
+    if (zoomMode === "fit") {
+      const style = getComputedStyle(node);
+      const available = node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      if (available > 0) setZoom(Math.max(0.5, Math.min(2, available / props.model.page.width)));
+    } else setZoom(zoomMode);
+    function axis(total: number, visible: number, offset: number) {
+      const max = Math.max(0, total - visible);
+      const position = Math.max(0, Math.min(max, offset));
+      const distance = Math.min(64, max / 2);
+      return distance ? [Math.min(1, position / distance), Math.min(1, (max - position) / distance)] : [0, 0];
+    }
+    const [top, bottom] = axis(node.scrollHeight, node.clientHeight, node.scrollTop);
+    const [left, right] = axis(node.scrollWidth, node.clientWidth, node.scrollLeft);
+    setEdges(old => old.top === top && old.bottom === bottom && old.left === left && old.right === right
+      ? old : { top, bottom, left, right });
   }
 
   useEffect(() => {
@@ -50,7 +64,6 @@ export function DocxEditor(props: DocxEditorProps) {
       if (!active || !host.current) return;
       controller.current = runtime.mountEditor(host.current, options());
       setReady(true);
-      measure();
     }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { active = false; controller.current?.destroy(); controller.current = null; };
   }, []);
@@ -68,11 +81,13 @@ export function DocxEditor(props: DocxEditorProps) {
     if (viewport.current) observer.observe(viewport.current);
     if (host.current) observer.observe(host.current);
     return () => observer.disconnect();
-  }, []);
-  useLayoutEffect(measure, [props.model, props.edits, ready]);
+  }, [zoomMode, props.model.page.width]);
+  useLayoutEffect(measure, [props.model, props.edits, ready, zoom, paperHeight]);
 
   const { page } = props.model;
   const paperStyle = {
+    "--office-doc-zoom": zoom,
+    "--office-doc-scaled-height": `${paperHeight * zoom}px`,
     "--office-doc-page-width": `${page.width}px`, "--office-doc-page-height": `${page.height}px`,
     "--office-doc-padding-top": `${page.margins.top}px`, "--office-doc-padding-right": `${page.margins.right}px`,
     "--office-doc-padding-bottom": `${page.margins.bottom}px`, "--office-doc-padding-left": `${page.margins.left}px`,
@@ -86,16 +101,26 @@ export function DocxEditor(props: DocxEditorProps) {
       <ToolbarButton type="button" title="重做" aria-label="重做" disabled={readOnly || !ready} onClick={() => controller.current?.redo()}><Redo2 size={15} /></ToolbarButton>
       <span className="office-docx__separator" aria-hidden="true" />
       <span className="office-docx__scope" title="可编辑已有段落和表格文字，复杂内容保持原样">{readOnly ? "只读" : "内容编辑"}</span>
-      <span className="office-docx__hint">正文与表格</span>
+      <div className="office-docx__zoom">
+        <select aria-label="Word 缩放" value={zoomMode} onChange={event => setZoomMode(event.target.value === "fit" ? "fit" : Number(event.target.value))}>
+          <option value="fit">适合宽度</option>
+          {[50, 75, 100, 125, 150, 175, 200].map(value => <option key={value} value={value / 100}>{value}%</option>)}
+        </select>
+        <output aria-label="Word 缩放百分比">{Math.round(zoom * 100)}%</output>
+      </div>
     </div>
     {error && <p className="office-docx__error" role="alert">{error}</p>}
     {!ready && !error && <p role="status">正在加载文档…</p>}
-    <div className="office-docx__frame" data-overflow-top={edges.top > 0 || undefined} data-overflow-bottom={edges.bottom > 0 || undefined}>
+    <div className="office-docx__frame" data-overflow-top={edges.top > 0 || undefined} data-overflow-bottom={edges.bottom > 0 || undefined} data-overflow-left={edges.left > 0 || undefined} data-overflow-right={edges.right > 0 || undefined}>
       <div ref={viewport} className="office-docx__viewport" onScroll={measure}>
-        <div ref={host} className="office-docx__paper" style={paperStyle} />
+        <div className="office-docx__stage" style={paperStyle}>
+          <div ref={host} className="office-docx__paper" />
+        </div>
       </div>
       <div className="office-docx__edge office-docx__edge--top" aria-hidden="true" style={{ opacity: edges.top }} />
       <div className="office-docx__edge office-docx__edge--bottom" aria-hidden="true" style={{ opacity: edges.bottom }} />
+      <div className="office-docx__edge office-docx__edge--left" aria-hidden="true" style={{ opacity: edges.left }} />
+      <div className="office-docx__edge office-docx__edge--right" aria-hidden="true" style={{ opacity: edges.right }} />
     </div>
   </section>;
 }

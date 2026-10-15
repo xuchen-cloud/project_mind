@@ -1,0 +1,26 @@
+[
+  {
+    "browser": "chromium",
+    "inlineChinese": true,
+    "savedTwice": true,
+    "undoRedo": true,
+    "readOnly": true,
+    "collapse": true,
+    "scrollPageTracking": true,
+    "zoom": true,
+    "fixedAspect": true,
+    "errors": []
+  },
+  {
+    "browser": "webkit",
+    "inlineChinese": true,
+    "savedTwice": true,
+    "undoRedo": true,
+    "readOnly": true,
+    "collapse": true,
+    "scrollPageTracking": true,
+    "zoom": true,
+    "fixedAspect": true,
+    "errors": []
+  }
+]
