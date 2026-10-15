@@ -76,27 +76,27 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   const scope = useMemo(() => binding ? { workspaceId: binding.workspaceId, projectId } : null, [binding?.workspaceId, projectId]);
   const layout = useProjectContentStore(state => scope ? getContentLayout(state, scope) : null);
   const [openingError, setOpeningError] = useState<string | null>(null);
-  const [showOverview, setShowOverview] = useState(false);
   const route = active ? parseRecordFocusRoute(location.pathname) : null;
   const routeRecordId = route?.kind === "project" && route.projectId === projectId ? route.recordId : null;
   const routeKey = `${location.pathname}${location.search}`;
   const openedRoute = useRef<string | null>(null);
   const registerLeaveGuard = useCallback((prepare: () => Promise<void>) => registerProjectContentCloseGuard({ workspaceRoot, projectId, prepare }), [workspaceRoot, projectId]);
   const onOverview = useCallback(() => {
-    setShowOverview(true);
+    if (scope) useProjectContentStore.getState().selectHome(scope);
     navigate(`${projectPath(projectId)}?view=overview`);
-  }, [navigate, projectId]);
+  }, [navigate, projectId, scope]);
   useEffect(() => {
     if (!active || !scope || !layout) return;
     const params = new URLSearchParams(location.search);
-    setShowOverview(params.get("view") === "overview");
+    if (params.get("view") === "overview") useProjectContentStore.getState().selectHome(scope);
     const contentId = params.get("content");
     if (contentId) {
       const current = getContentLayout(useProjectContentStore.getState(), scope);
       const pane = current.panes.find(item => item.tabIds.includes(contentId));
       if (pane) useProjectContentStore.getState().select(scope, pane.id, contentId);
     }
-    if (routeRecordId === null || openedRoute.current === routeKey) return;
+    if (routeRecordId === null) { openedRoute.current = null; return; }
+    if (openedRoute.current === routeKey) return;
     const controller = new AbortController();
     const source = new URLSearchParams();
     for (const [key, value] of params) if (key.startsWith("source")) source.set(key, value);
@@ -132,17 +132,15 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
       if (title && title !== tab.object.title) state.updateTitle(scope, tab.id, title);
     }
   }, [pageData, scope, layout]);
-  const contentShown = !showOverview && !!layout?.tabs.length;
   return <div className="h-full min-h-0 min-w-0">
-    <div className="h-full min-h-0" hidden={contentShown} inert={contentShown}>{overview(active && !contentShown)}</div>
     {bindingQuery.error ? <p role="alert" className="p-4 text-sm">无法恢复项目内容：{String(bindingQuery.error)}<button type="button" onClick={() => void bindingQuery.refetch()}>重试</button></p> : null}
-    {scope && presentedLayout ? <div className="h-full min-h-0" hidden={!contentShown} inert={!contentShown}>
+    {scope && presentedLayout ? <div className="h-full min-h-0">
       {openingError ? <p role="alert" className="project-content__error">{openingError}</p> : null}
-      <ProjectContentLayoutView scope={scope} layout={presentedLayout} active={active && contentShown} onOverview={onOverview} registerLeaveGuard={registerLeaveGuard}
+      <ProjectContentLayoutView scope={scope} layout={presentedLayout} active={active} renderOverview={overview} onOverview={onOverview} registerLeaveGuard={registerLeaveGuard}
         onSelect={(paneId, tabId) => {
           useProjectContentStore.getState().select(scope, paneId, tabId);
           const tab = presentedLayout.tabs.find(item => item.id === tabId)!;
-          setShowOverview(false); navigate(projectContentTabRoute(projectId, tab));
+          navigate(projectContentTabRoute(projectId, tab));
         }}
         onClose={async (tabId, guard) => {
           const tab = getContentLayout(useProjectContentStore.getState(), scope).tabs.find(item => item.id === tabId);

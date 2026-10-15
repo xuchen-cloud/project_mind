@@ -1249,7 +1249,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .workspace-topbar__tablist { position:relative; isolation:isolate; }
 .home-window-shell .workspace-topbar__indicator {
   display:block; position:absolute; bottom:0; height:30px; border-radius:10px 10px 0 0;
-  background:var(--home-sidebar); pointer-events:none; transform-origin:left center; z-index:-1;
+  background:var(--color-bg); pointer-events:none; transform-origin:left center; z-index:-1;
 }
 .home-window-shell .workspace-topbar__indicator::before,
 .home-window-shell .workspace-topbar__indicator::after {

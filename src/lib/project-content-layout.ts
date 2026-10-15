@@ -8,6 +8,7 @@ export type ContentView = { versionNumber?: number; line?: number; page?: number
   sourceMode?: boolean;
   fileViews?: Record<string, { scrollTop?: number; zoom?: number }> };
 export type ContentTab = { id: string; object: ContentObject; view: ContentView };
+// A null selection means the permanent homepage on the left, and an empty pane on the right.
 export type ContentPane = { id: "left" | "right"; tabIds: string[]; selectedTabId: string | null };
 export type ProjectContentLayout = { tabs: ContentTab[]; panes: ContentPane[]; focusedPaneId: "left" | "right"; ratio: number };
 
@@ -133,7 +134,9 @@ function sanitizeLayout(value: unknown): ProjectContentLayout | null {
       members.add(id);
       ids.push(id);
     }
-    if (ids.length === 0 ? pane.selectedTabId !== null : typeof pane.selectedTabId !== "string" || !ids.includes(pane.selectedTabId)) return null;
+    if (pane.selectedTabId === null) {
+      if (index === 1 && ids.length > 0) return null;
+    } else if (typeof pane.selectedTabId !== "string" || !ids.includes(pane.selectedTabId)) return null;
     panes.push({ id: index === 0 ? "left" : "right", tabIds: ids, selectedTabId: pane.selectedTabId as string | null });
   }
   if (members.size !== tabs.length || (value.focusedPaneId !== "left" && value.focusedPaneId !== "right")

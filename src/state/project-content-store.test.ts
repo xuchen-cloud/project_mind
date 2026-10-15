@@ -13,6 +13,80 @@ describe("project content state", () => {
     useProjectContentStore.persist.clearStorage();
   });
 
+  it("selects Home in a new project without creating a tab", () => {
+    store().selectHome(scope);
+    expect(layout().tabs).toEqual([]);
+    expect(layout().panes).toEqual([{ id: "left", tabIds: [], selectedTabId: null }]);
+    expect(layout().focusedPaneId).toBe("left");
+  });
+
+  it.each([false, true])("selects and restores left Home while preserving tabs (split: %s)", async split => {
+    const a = store().open(scope, file, { view: { page: 2 } });
+    const b = store().open(scope, { kind: "record", id: 8, title: "Note" });
+    if (split) store().split(scope);
+    const previous = layout();
+    store().selectHome(scope);
+    expect(layout()).toEqual({ ...previous, focusedPaneId: "left",
+      panes: previous.panes.map(pane => pane.id === "left" ? { ...pane, selectedTabId: null } : pane),
+    });
+    const saved = layout();
+    const name = useProjectContentStore.persist.getOptions().name!;
+    const serialized = window.localStorage.getItem(name)!;
+    useProjectContentStore.setState({ layouts: {} });
+    window.localStorage.setItem(name, serialized);
+    await useProjectContentStore.persist.rehydrate();
+    expect(layout()).toEqual(saved);
+    expect(typeof store().selectHome).toBe("function");
+    store().select(scope, "left", a);
+    expect(layout().panes[0].selectedTabId).toBe(a);
+    store().selectHome(scope);
+    expect(store().open(scope, file)).toBe(a);
+    expect(layout().panes[0].selectedTabId).toBe(a);
+    expect(layout().tabs.map(tab => tab.id)).toEqual([a, b]);
+  });
+
+  it("splits Home without moving its ordinary tabs to the right", () => {
+    const a = store().open(scope, file);
+    store().selectHome(scope);
+    store().split(scope);
+    expect(layout().panes).toEqual([
+      { id: "left", tabIds: [a], selectedTabId: null },
+      { id: "right", tabIds: [], selectedTabId: null },
+    ]);
+    expect(layout().focusedPaneId).toBe("right");
+    store().merge(scope);
+    expect(layout().panes).toEqual([{ id: "left", tabIds: [a], selectedTabId: null }]);
+  });
+
+  it("preserves focused left Home when merging populated panes", () => {
+    const a = store().open(scope, file);
+    const b = store().open(scope, { kind: "record", id: 8, title: "Note" });
+    store().split(scope);
+    store().selectHome(scope);
+    store().merge(scope);
+    expect(layout().panes).toEqual([{ id: "left", tabIds: [a, b], selectedTabId: null }]);
+    expect(layout().focusedPaneId).toBe("left");
+  });
+
+  it.each(["left", "right"] as const)("preserves left Home when the last right tab closes with %s focused", focused => {
+    const a = store().open(scope, file);
+    const b = store().open(scope, { kind: "record", id: 8, title: "Note" });
+    store().split(scope);
+    store().selectHome(scope);
+    store().focus(scope, focused);
+    store().close(scope, b);
+    expect(layout().panes).toEqual([{ id: "left", tabIds: [a], selectedTabId: null }]);
+    expect(layout().focusedPaneId).toBe("left");
+  });
+
+  it("keeps Home selected when closing an unselected left tab", () => {
+    const a = store().open(scope, file);
+    const b = store().open(scope, { kind: "record", id: 8, title: "Note" });
+    store().selectHome(scope);
+    store().close(scope, b);
+    expect(layout().panes).toEqual([{ id: "left", tabIds: [a], selectedTabId: null }]);
+  });
+
   it("opens in a single pane and isolates objects by workspace, project and kind", () => {
     const a = store().open(scope, file, { paneId: "right" });
     const record = store().open(scope, { ...file, kind: "record" });
@@ -102,7 +176,7 @@ describe("project content state", () => {
     expect(layout().focusedPaneId).toBe("left");
   });
 
-  it("closes next to the selected tab and merges when the last tab in either pane closes", () => {
+  it("closes next to the selected tab, keeps left Home in a split, and merges when the last right tab closes", () => {
     const a = store().open(scope, file);
     const b = store().open(scope, { kind: "record", id: 8, title: "Note" });
     const c = store().open(scope, { kind: "session", id: "s", title: "Chat" });
@@ -111,7 +185,10 @@ describe("project content state", () => {
     expect(layout().panes[0].selectedTabId).toBe(c);
     store().split(scope);
     store().close(scope, a);
-    expect(layout().panes).toEqual([{ id: "left", tabIds: [c], selectedTabId: c }]);
+    expect(layout().panes).toEqual([
+      { id: "left", tabIds: [], selectedTabId: null },
+      { id: "right", tabIds: [c], selectedTabId: c },
+    ]);
     store().close(scope, c);
     expect(layout().tabs).toEqual([]);
     expect(layout().panes).toEqual([{ id: "left", tabIds: [], selectedTabId: null }]);
@@ -202,7 +279,10 @@ describe("project content state", () => {
     ["dangling membership", (value: ProjectContentLayout) => ({ ...value, panes: [{ ...value.panes[0], tabIds: [value.tabs[0].id, "gone"] }] })],
     ["missing membership", (value: ProjectContentLayout) => ({ ...value, panes: [{ ...value.panes[0], tabIds: [], selectedTabId: null }] })],
     ["invalid selection", (value: ProjectContentLayout) => ({ ...value, panes: [{ ...value.panes[0], selectedTabId: "gone" }] })],
-    ["missing selection", (value: ProjectContentLayout) => ({ ...value, panes: [{ ...value.panes[0], selectedTabId: null }] })],
+    ["missing right selection", (value: ProjectContentLayout) => ({ ...value, panes: [
+      { id: "left", tabIds: [], selectedTabId: null },
+      { ...value.panes[0], id: "right", selectedTabId: null },
+    ] })],
     ["invalid focus", (value: ProjectContentLayout) => ({ ...value, focusedPaneId: "right" })],
     ["invalid ratio", (value: ProjectContentLayout) => ({ ...value, ratio: 0 })],
     ["invalid view", (value: ProjectContentLayout) => ({ ...value, tabs: [{ ...value.tabs[0], view: { page: -1 } }] })],

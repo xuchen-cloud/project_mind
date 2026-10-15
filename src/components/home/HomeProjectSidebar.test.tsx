@@ -16,13 +16,30 @@ function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onTagChange = vi.fn();
   const onOpenRecord = vi.fn();
+  const onOpenProject = vi.fn();
+  const onOpenWorkspace = vi.fn();
   const props = { projectId: 1, projectName: "Alpha", workspaceRoot: "/workspace",
     project: { id: 1, name: "Alpha", rootPath: "/project" }, documents: [],
     records: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, title: `记录 ${index + 1}`, contentMarkdown: index === 11 ? "交付依据" : "正文", tags: index === 11 ? [{ id: 7, label: "交付", colorKey: "blue" }] : [], createdAt: "2026-10-15", updatedAt: "2026-10-15" })) as NoteRecord[],
-    selectedTagId: null, onTagChange, onOpenRecord, onOpenWorkspace: vi.fn(), onCreateRecord: vi.fn() };
+    selectedTagId: null, onTagChange, onOpenRecord, onOpenProject, onOpenWorkspace, onCreateRecord: vi.fn() };
   render(<QueryClientProvider client={client}><HomeProjectSidebar {...props} /></QueryClientProvider>);
-  return { onTagChange, onOpenRecord };
+  return { onTagChange, onOpenRecord, onOpenProject, onOpenWorkspace };
 }
+it("opens the project from its title and the workspace from its subtitle independently", async () => {
+  const { onOpenProject, onOpenWorkspace, onOpenRecord } = setup();
+  await screen.findByRole("button", { name: "#交付" });
+  const title = screen.getByRole("button", { name: "Alpha" });
+  expect(title).toHaveClass("home-side__identity-title");
+  expect(title).toHaveAttribute("type", "button");
+  expect(title).toHaveAttribute("title", "Alpha");
+  fireEvent.click(title);
+  expect(onOpenProject).toHaveBeenCalledOnce();
+  expect(onOpenWorkspace).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "NoriMind · 我的工作区" }));
+  expect(onOpenWorkspace).toHaveBeenCalledOnce();
+  expect(onOpenProject).toHaveBeenCalledOnce();
+  expect(onOpenRecord).not.toHaveBeenCalled();
+});
 it("shows all records and orders fixed navigation above independent content lists", async () => {
   const { onOpenRecord } = setup();
   await screen.findByRole("button", { name: "#交付" });

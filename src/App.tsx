@@ -1562,6 +1562,7 @@ export function WorkspaceLayout({
             activeRecordId={activeRecordId}
             onTagChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenWorkspace={() => navigate(workspacePath())}
+            onOpenProject={() => navigate(preserveRecordFilters(`${projectPath(activeProject.id)}?view=overview`, location.search))}
             onOpenRecord={(recordId) => navigate(preserveRecordFilters(recordPath(activeProject.id, recordId), location.search))}
             onCreateRecord={() => void createProjectSidebarRecord()}
             onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}

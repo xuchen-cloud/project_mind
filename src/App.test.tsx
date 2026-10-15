@@ -1776,6 +1776,21 @@ describe("WorkspaceLayout", () => {
     return { router, coordinator, projectA };
   }
 
+  it("opens the left pane Home when clicking the project name in the sidebar", async () => {
+    const { router } = await renderResidentProjectFixture(true);
+    const editor = await screen.findByPlaceholderText("记录标题");
+    const sidebar = screen.getByRole("complementary", { name: "项目导航侧边栏" });
+    await userEvent.click(within(sidebar).getByRole("button", { name: "Project 7", exact: true }));
+    expect(router.state.location.pathname).toBe("/projects/7");
+    expect(router.state.location.search).toContain("view=overview");
+    const home = await screen.findByRole("region", { name: "项目首页" });
+    expect(home).toBeVisible();
+    expect(home.closest(".project-content__grid")).not.toBeNull();
+    expect(editor).not.toBeVisible();
+    await userEvent.click(screen.getByRole("tab", { name: "Record 7" }));
+    await waitFor(() => expect(editor).toBeVisible());
+  });
+
   it("restores interactive Project content after closing the assistant and after switching Projects", async () => {
     const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
     const sessions = vi.spyOn(dshAssistantApi, "sessions").mockResolvedValue([]);

@@ -95,7 +95,7 @@ const sidebars = [
   { name: "project", content: ".project-navigation__modules", element: <HomeProjectSidebar
     projectId={1} projectName="Alpha" workspaceRoot="/workspace" project={{ id: 1, name: "Alpha", rootPath: "/project" }}
     documents={[]} records={[]} selectedTagId={null} onTagChange={vi.fn()}
-    onOpenWorkspace={vi.fn()} onOpenRecord={vi.fn()} onCreateRecord={vi.fn()} /> },
+    onOpenProject={vi.fn()} onOpenWorkspace={vi.fn()} onOpenRecord={vi.fn()} onCreateRecord={vi.fn()} /> },
   { name: "workspace note", content: ".home-side__scroll", element: <HomeNoteSidebar {...noteProps} /> },
   { name: "project note", content: ".home-side__split", element: <HomeNoteSidebar {...noteProps} projectId={1} filePanel={<div>文件</div>} /> },
   { name: "workspace overview", content: ".home-side__split", element: <WorkspaceOverviewSidebar
