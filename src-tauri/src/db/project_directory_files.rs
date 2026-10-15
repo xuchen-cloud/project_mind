@@ -1156,7 +1156,36 @@ impl Database {
             tx.execute("INSERT INTO project_directory_metadata_intents(document_id,payload) VALUES (?1,?2)",params![id,serde_json::to_string(&metadata)?])?;
         }
         tx.commit()?;
-        file_versions::move_exclusive(&original, &target)?;
+        if let Err(error) = file_versions::move_exclusive(&original, &target) {
+            // A denied Windows delete-share (or directory permission) can
+            // reject the move after its intent was persisted. Cancel only
+            // when both paths prove the move never took place. Otherwise the
+            // move or its durability flush may have succeeded: keep recovery.
+            if fs::symlink_metadata(&target)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+                && file_versions::path_identity(&original)
+                    .and_then(|identity| Ok(serde_json::to_string(&identity)?))
+                    .ok()
+                    .as_deref()
+                    == Some(known.as_str())
+                && file_versions::checksum(&original).ok().as_deref() == Some(hash)
+            {
+                let tx = rusqlite::Transaction::new_unchecked(
+                    &self.conn,
+                    rusqlite::TransactionBehavior::Immediate,
+                )?;
+                tx.execute(
+                    "DELETE FROM project_directory_metadata_intents WHERE document_id=?1",
+                    [id],
+                )?;
+                tx.execute(
+                    "DELETE FROM project_directory_moves WHERE document_id=?1",
+                    [id],
+                )?;
+                tx.commit()?;
+            }
+            return Err(error);
+        }
         file_versions::sync_directory(original.parent().unwrap())?;
         file_versions::sync_directory(target.parent().unwrap())?;
         self.directory_finish_move(object, &original, &target, &known, version, hash)?;
