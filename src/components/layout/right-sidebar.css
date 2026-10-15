@@ -50,7 +50,6 @@
 .workspace-right-sidebar .home-rail__todo { flex:1; min-height:0; }
 .workspace-right-sidebar .todo-rail { width:100% !important; height:100%; min-width:0; }
 .workspace-right-sidebar__resize { left:0; translate:0; }
-.workspace-right-sidebar[data-mode] .home-rail button[aria-label="收起代办侧边栏"] { display:inline-flex; }
 @starting-style {
   .workspace-right-sidebar[data-open="true"] > .workspace-right-sidebar__surface { transform:translateX(16px); opacity:0; }
 }
