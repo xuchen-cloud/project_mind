@@ -281,7 +281,8 @@ describe("WorkspacePage", () => {
 
     expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
 
-    expect(await screen.findByText("Workspace history record")).toBeInTheDocument();
+    expect(within(await screen.findByTestId("workspace-page-body-record")).getByText("Workspace history record")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "工作区记录列表" })).getByRole("button", { name: "Workspace history record" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "待办", exact: true })).not.toBeInTheDocument();
   });
 
@@ -1003,18 +1004,38 @@ describe("WorkspacePage", () => {
 
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     const recordPage = screen.getByTestId("workspace-page-body-record");
+    const sidebarRecords = within(sidebar).getByRole("region", { name: "工作区记录列表" });
+    const search = within(sidebar).getByRole("textbox", { name: "搜索工作区记录" });
+    expect(within(sidebarRecords).getByRole("button", { name: "招聘同步" })).toBeInTheDocument();
+    expect(within(recordPage).getByText("招聘同步")).toBeInTheDocument();
 
     await user.click(within(sidebar).getByRole("button", { name: /#\s*预算/ }));
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("搜索记录"), "命中");
+    expect(within(sidebarRecords).getByRole("button", { name: "预算复盘" })).toBeInTheDocument();
+    expect(within(sidebarRecords).queryByRole("button", { name: "招聘同步" })).not.toBeInTheDocument();
+
+    await user.type(search, "另一个");
+    expect(within(sidebarRecords).queryAllByRole("button")).toHaveLength(0);
+    expect(within(recordPage).queryByText("预算复盘")).not.toBeInTheDocument();
+    expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "命中");
+    expect(screen.getByLabelText("搜索记录")).toHaveValue("命中");
+    expect(within(sidebarRecords).getByRole("button", { name: "预算复盘" })).toBeInTheDocument();
+    expect(within(sidebarRecords).queryByRole("button", { name: "招聘同步" })).not.toBeInTheDocument();
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "清除筛选" }));
     expect(screen.getByLabelText("搜索记录")).toHaveValue("");
+    expect(search).toHaveValue("");
+    expect(within(sidebar).getByRole("button", { name: "全部", pressed: true })).toBeInTheDocument();
+    expect(within(sidebarRecords).getByRole("button", { name: "预算复盘" })).toBeInTheDocument();
+    expect(within(sidebarRecords).getByRole("button", { name: "招聘同步" })).toBeInTheDocument();
     expect(within(recordPage).getByText("招聘同步")).toBeInTheDocument();
 
   });
@@ -1049,11 +1070,11 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    const page = renderPage(["/?view=record&recordQuery=预算"]);
+    renderPage(["/?view=record&recordQuery=预算"]);
 
-    const sidebar = await screen.findByLabelText("工作区导航侧边栏");
+    const recordPage = await screen.findByTestId("workspace-page-body-record");
 
-    await user.click(screen.getByRole("button", { name: /预算复盘/ }));
+    await user.click(within(recordPage).getByRole("button", { name: /预算复盘/ }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7?recordQuery=%E9%A2%84%E7%AE%97");
 
