@@ -33,10 +33,10 @@ function DirectoryBranch({ projectId, rootPath, relativePath, depth, revision }:
           if (entry.kind === "file") { openProjectFilePreview(projectId, entry.relativePath); return; }
           setExpanded(previous => { const next = new Set(previous); if (next.has(entry.relativePath)) next.delete(entry.relativePath); else next.add(entry.relativePath); return next; });
         }}>
-        {entry.kind === "directory" ? <ChevronRight size={18} className="project-directory__chevron" aria-hidden="true" /> : <FileIcon name={entry.name} size={18} />}
+        {entry.kind === "directory" ? <ChevronRight size={12} strokeWidth={1.5} className="project-directory__chevron" aria-hidden="true" /> : <FileIcon name={entry.name} size={12} />}
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
       </button>
-      {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 9}px` } as CSSProperties}>
+      {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
         <DirectoryBranch rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} />
       </div> : null}
     </div>)}

@@ -1049,7 +1049,7 @@ export function ProjectSidebar({
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
                         <span className="project-sidebar__file-icon flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                          <FileIcon name={document.name} size={filesOnly ? 18 : 20} />
+                          <FileIcon name={document.name} size={filesOnly ? 12 : 20} />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-1.5">

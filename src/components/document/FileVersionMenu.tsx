@@ -121,7 +121,7 @@ export function FileVersionMenu({ label, triggerLabel, versions, selectedVersion
   </button>;
   return <>
     <span data-document-interactive="true" className={`file-version-control file-version-control--${variant}`}>
-      <button ref={trigger} data-document-interactive="true" type="button" className="file-version-control__trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open && visible} aria-controls={open && visible ? id : undefined} disabled={!visible} onClick={event => { event.stopPropagation(); changeOpen(!open); }}>{triggerLabel}<ChevronDown size={12} aria-hidden="true" /></button>
+      <button ref={trigger} data-document-interactive="true" type="button" className="file-version-control__trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open && visible} aria-controls={open && visible ? id : undefined} disabled={!visible} onClick={event => { event.stopPropagation(); changeOpen(!open); }}>{triggerLabel}<ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" /></button>
     </span>
     {open && visible ? createPortal(<PopoverPanel ref={panel} id={id} role="menu" aria-label={`${label}列表`} tabIndex={-1} className="file-version-menu" style={{ top: position.top, left: position.left, maxHeight: position.maxHeight }} motion="trigger" motionOrigin={position.above ? "bottom right" : "top right"} onKeyDown={navigate} onClick={event => event.stopPropagation()}>
       <HomeSidebarList label={`${label}选项`}>

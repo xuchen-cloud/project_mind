@@ -3,7 +3,7 @@
 .project-directory__entry:hover { background:var(--color-bg-hover); }
 .project-directory__entry:focus-visible, .project-directory__message button:focus-visible { outline:2px solid var(--color-text-secondary); outline-offset:-2px; }
 .project-directory__entry>svg { flex:none; }
-.project-directory__chevron { transition:transform var(--duration-fast) var(--ease-out); }
+.project-directory__chevron { color:inherit; transition:transform var(--duration-fast) var(--ease-out); }
 .project-directory__entry[aria-expanded=true]>.project-directory__chevron { transform:rotate(90deg); }
 .project-directory__children { position:relative; }
 .project-directory__children::before { content:""; position:absolute; top:0; bottom:0; left:var(--directory-guide-left); border-left:1px solid var(--color-border); pointer-events:none; }
