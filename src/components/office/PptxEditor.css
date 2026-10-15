@@ -13,7 +13,7 @@
 .pptx-editor .home-side__list-frame { position:relative; display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
 .pptx-editor .home-side__list { flex:1; min-height:0; min-width:0; overflow:auto; padding-right:8px; }
 .pptx-editor .home-side__list > div { display:flex; flex-direction:column; gap:16px; }
-.pptx-editor .home-side__list-frame::before,.pptx-editor .home-side__list-frame::after { content:''; position:absolute; left:0; right:8px; height:min(40px,35%); pointer-events:none; z-index:1; }
+.pptx-editor .home-side__list-frame::before,.pptx-editor .home-side__list-frame::after { content:''; position:absolute; left:0; right:8px; height:min(24px,35%); pointer-events:none; z-index:1; }
 .pptx-editor .home-side__list-frame::before { top:0; background:linear-gradient(to bottom,var(--color-bg-subtle),transparent); opacity:var(--scroll-fade-top-opacity,0); }
 .pptx-editor .home-side__list-frame::after { bottom:0; background:linear-gradient(to top,var(--color-bg-subtle),transparent); opacity:var(--scroll-fade-bottom-opacity,0); }
 .pptx-editor__thumb { display:flex; align-items:flex-start; gap:8px; width:100%; border:0; padding:0; background:transparent; color:var(--color-text-tertiary); cursor:pointer; text-align:left; font:inherit; }
@@ -29,10 +29,10 @@
 .pptx-editor__canvas [data-source-id] { cursor:pointer; }
 .pptx-editor__canvas textarea { box-sizing:border-box; }
 .pptx-editor__edge { position:absolute; pointer-events:none; z-index:1; }
-.pptx-editor__edge--top,.pptx-editor__edge--bottom { left:0; right:var(--scrollbar-size); height:min(40px,35%); }
+.pptx-editor__edge--top,.pptx-editor__edge--bottom { left:0; right:var(--scrollbar-size); height:min(24px,35%); }
 .pptx-editor__edge--top { top:0; background:linear-gradient(to bottom,var(--color-canvas),transparent); opacity:var(--pptx-fade-top); }
 .pptx-editor__edge--bottom { bottom:var(--scrollbar-size); background:linear-gradient(to top,var(--color-canvas),transparent); opacity:var(--pptx-fade-bottom); }
-.pptx-editor__edge--left,.pptx-editor__edge--right { top:0; bottom:var(--scrollbar-size); width:min(40px,35%); }
+.pptx-editor__edge--left,.pptx-editor__edge--right { top:0; bottom:var(--scrollbar-size); width:min(16px,35%); }
 .pptx-editor__edge--left { left:0; background:linear-gradient(to right,var(--color-canvas),transparent); opacity:var(--pptx-fade-left); }
 .pptx-editor__edge--right { right:var(--scrollbar-size); background:linear-gradient(to left,var(--color-canvas),transparent); opacity:var(--pptx-fade-right); }
 .pptx-editor__image-tools { flex-wrap:wrap; gap:6px; padding-block:4px; color:var(--color-text-secondary); }

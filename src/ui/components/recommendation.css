@@ -17,7 +17,7 @@
 .internal-reference-picker .recommendation-list { max-height:none; overflow:visible; }
 .internal-reference-picker .home-side__list-frame::before,
 .internal-reference-picker .home-side__list-frame::after {
-  content:""; position:absolute; left:0; right:8px; height:min(40px, 35%); z-index:1; pointer-events:none;
+  content:""; position:absolute; left:0; right:8px; height:min(24px, 35%); z-index:1; pointer-events:none;
 }
 .internal-reference-picker .home-side__list-frame::before {
   top:0; opacity:var(--scroll-fade-top-opacity, 0); background:linear-gradient(to bottom, var(--color-bg), transparent);

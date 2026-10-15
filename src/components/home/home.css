@@ -970,9 +970,10 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 
 .home-side__list-frame { position:relative; display:flex; flex-direction:column; flex:1; min-height:0; }
 .home-side__list-frame::before, .home-side__list-frame::after {
-  content:""; position:absolute; left:0; right:8px; height:min(40px, 35%); z-index:1;
+  content:""; position:absolute; left:0; right:8px; height:min(24px, 35%); z-index:1;
   pointer-events:none; opacity:0;
 }
+.home-side .home-side__list-frame::before, .home-side .home-side__list-frame::after { height:min(16px, 35%); }
 .home-side__list-frame::before { top:0; background:linear-gradient(to bottom, var(--home-sidebar), color-mix(in srgb, var(--home-sidebar) 80%, transparent) 35%, transparent); }
 .home-side__list-frame::after { bottom:0; background:linear-gradient(to top, var(--home-sidebar), color-mix(in srgb, var(--home-sidebar) 80%, transparent) 35%, transparent); }
 .home-side__list-frame::before { opacity:var(--scroll-fade-top-opacity, 0); }
@@ -1169,7 +1170,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-quick-note .rich-editor__frame {
   --quick-note-edge-mask:linear-gradient(to bottom,
     color-mix(in srgb,var(--home-surface) calc((1 - var(--quick-note-fade-top,0)) * 100%),transparent) 0,
-    var(--home-surface) min(32px,20%), var(--home-surface) max(calc(100% - 32px),80%),
+    var(--home-surface) min(24px,20%), var(--home-surface) max(calc(100% - 24px),80%),
     color-mix(in srgb,var(--home-surface) calc((1 - var(--quick-note-fade-bottom,0)) * 100%),transparent) 100%);
   mask-image:var(--quick-note-edge-mask);
   -webkit-mask-image:var(--quick-note-edge-mask);

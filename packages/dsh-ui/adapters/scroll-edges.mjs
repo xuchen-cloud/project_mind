@@ -14,7 +14,7 @@ export function installScrollEdges(host) {
       const bottom = distance > 0 ? Math.min(1, (max - position) / distance) : 0;
       node.style.setProperty('--dsh-edge-top', String(1 - top));
       node.style.setProperty('--dsh-edge-bottom', String(1 - bottom));
-      node.style.setProperty('--dsh-edge-height', `${Math.min(40, node.clientHeight * .35)}px`);
+      node.style.setProperty('--dsh-edge-height', `${Math.min(24, node.clientHeight * .35)}px`);
       node.toggleAttribute('data-mind-scroll-edges', max > 0);
     }
   };
