@@ -87,6 +87,28 @@ it("renders two visible Records with one focus and keeps their state when moved"
   expect(screen.getByLabelText("编辑2")).toBe(input); expect(input).toHaveValue("跨栏草稿");
   expect(page.mounts.mock.calls.filter(([, id]) => id === 2)).toHaveLength(1);
 });
+it("opens Home inside the left pane, preserves the right editor, and returns through history and the same Record route", async () => {
+  const router = fixture();
+  const left = await screen.findByLabelText("编辑1");
+  fireEvent.change(left, { target: { value: "左栏草稿" } });
+  await act(() => router.navigate("/projects/7/records/2"));
+  const right = await screen.findByLabelText("编辑2");
+  fireEvent.change(right, { target: { value: "右栏草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "分栏" }));
+  fireEvent.click(screen.getByRole("button", { name: "项目首页" }));
+  expect(router.state.location.search).toBe("?view=overview");
+  expect(screen.getByRole("region", { name: "项目首页" })).toBeVisible();
+  expect(screen.getByText("项目概览入口").closest(".project-content__grid")).not.toBeNull();
+  expect(left).not.toBeVisible(); expect(right).toBeVisible();
+  await act(() => router.navigate(-1));
+  await waitFor(() => expect(screen.getByRole("tab", { name: "Record 2" })).toHaveAttribute("aria-selected", "true"));
+  await act(() => router.navigate("/projects/7?view=overview"));
+  await act(() => router.navigate("/projects/7/records/1"));
+  await waitFor(() => expect(left).toBeVisible());
+  expect(left).toHaveValue("左栏草稿"); expect(right).toHaveValue("右栏草稿");
+  expect(page.mounts.mock.calls.filter(([, id]) => id === 1)).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "项目首页" })).toHaveLength(1);
+});
 it("reuses the same pinned File view across ordinary entry points and an explicit history request", async () => {
   fixture("/projects/7"); await screen.findByText("项目概览入口");
   const object = { kind: "file" as const, id: 51, title: "context.txt" };

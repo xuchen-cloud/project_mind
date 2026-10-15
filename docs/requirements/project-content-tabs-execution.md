@@ -276,3 +276,27 @@ macOS WebView 另发现代码预览 MutationObserver 对未变化的遮罩数值
 | A30 | 原生越界、symlink、跨 Project/Workspace、过期 generation 拒绝通过 | 真实 macOS 边界测试；Windows 路径边界待验收 |
 | A31 | 真实溢出测量、滚动/ResizeObserver、遮罩不拦截输入通过 | 多 Tab 横向溢出与六格式滚动可操作已观察；所有反向/边缘 GUI 组合待补 |
 | A32 | 损坏身份类型/重复/坏视图局部恢复、缺失对象可关闭/固定历史不回退通过 | 实际重启恢复有效布局；损坏/缺失对象 GUI 待补 |
+
+## 2026-10-15：首页进入分栏与导航精简
+
+### 工作包
+
+- 关联 #124，基线 `c8d25a6`；依赖现有内容布局、居民页缓存与 QuickNote/Record 保存机制。
+- 交付：删除项目概览操作行和放大模式；左栏固定唯一 Home，首页成为左栏内容页；侧栏项目名称打开首页；单栏末端提供分栏图标，右栏末端提供合并图标；外层项目标签的移动选中底面与内容 Tab 栏统一为白色，两侧弧形保持原样。
+- 首页不复制业务对象或编辑器，切换时保留打开 Tab、草稿和右栏选中页；左栏空选择表示首页，右栏空选择仍为空栏。首页半屏宽度下复用待办侧栏的窄屏浮层方式。
+- 非目标：文件格式、会话运行时、Record 保存协议、业务数据和 Workspace 首页改版。
+- 验收范围：A01–A09、A31–A32 中的布局、状态恢复、导航、键盘与关闭行为。#124 其余格式／平台验收保持开放，本包不视为父 Issue 完成交付。
+- 编辑前确认现有原生进程使用 `tauri dev --no-watch`，来自主工作副本；本工作树修改不会自动重启原生窗口。
+
+### 验证与检查
+
+- model/store 两文件 51 项；sidebar 三文件 17 项；LayoutView 原范围 41 项及新增 Home 键盘用例 1 项；Workspace 原范围 11 项及新增首页／历史导航用例 1 项；App 原范围 36 项及新增侧栏首页用例 1 项，共 159 项通过证据。
+- 命令：`npx vitest run` 加对应 model/store、HomeProjectSidebar/HomeSidebarFooter/HomeNoteSidebar、ProjectContentLayoutView、ProjectContentWorkspace、App 测试路径，`--maxWorkers=1`。完整 App 首跑 35 项通过、六项目切换用例超时；单独复跑该失败项 6.32 秒通过，未调整超时阈值；新增侧栏与历史用例分别针对性通过。未重复运行仍有效的无关测试。
+- `npx tsc --noEmit`、最终 `npx vite build`、`node scripts/check-ui-standards.mjs`、`git diff --check` 通过。构建保留既有 chunk／动态静态导入警告，无本包编译错误。
+- 使用真实 React 页面和模拟业务 API 的浏览器预览检查单栏／双栏、首页与记录并排及图标位置；读取实际 computed style 确认顶部移动选中底面与内容 Tab 栏均为 `rgb(255, 255, 255)`，弧形沿用原侧栏底色。这些属于浏览器布局证据，不计原生数据保存或新增平台验收。
+- 主 agent 完成 Standards／Spec 自查：布局只保存展示状态、首页保持唯一、业务对象去重与关闭守卫沿用原机制、窄窗口保留布局、滚动遮罩仍绑定滚动视口并响应尺寸变化；按用户最新纠正仅左栏有 Home。未启动 review 子 agent。
+
+### 标签衔接修正
+
+- 用户补充局部截图指出标签右下角仍有浅灰残角。保持弧形轮廓与切换动画，将移动底面两侧弧形的填色改为与主体、内容 Tab 栏相同的白色。
+- 浏览器 computed style 确认主体、左右弧形实色端与内容 Tab 栏均为白色，局部原生截图目视通过；`git diff --check` 与 UI standards 通过。仅 CSS 填色与规格说明变更，复用上一提交的行为测试与类型验证。

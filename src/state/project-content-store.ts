@@ -10,6 +10,7 @@ export interface ProjectContentState {
   layouts: Record<string, ProjectContentLayout>;
   open: (scope: ContentScope, object: ContentObject, options?: { paneId?: PaneId; view?: ContentView }) => string;
   select: (scope: ContentScope, paneId: PaneId, tabId: string) => void;
+  selectHome: (scope: ContentScope) => void;
   focus: (scope: ContentScope, paneId: PaneId) => void;
   split: (scope: ContentScope) => void;
   move: (scope: ContentScope, tabId: string, paneId: PaneId, index?: number) => void;
@@ -31,7 +32,8 @@ function removeFromPane(pane: ContentPane, tabId: string) {
 function mergePanes(layout: ProjectContentLayout) {
   const focused = layout.panes.find(pane => pane.id === layout.focusedPaneId)!;
   const tabIds = layout.panes.flatMap(pane => pane.tabIds);
-  const selectedTabId = focused.selectedTabId ?? layout.panes.find(pane => pane.selectedTabId !== null)?.selectedTabId ?? null;
+  const selectedTabId = focused.id === "left" ? focused.selectedTabId
+    : focused.selectedTabId ?? layout.panes[0].selectedTabId;
   layout.panes = [{ id: "left", tabIds, selectedTabId }];
   layout.focusedPaneId = "left";
 }
@@ -88,6 +90,10 @@ export const useProjectContentStore = create<ProjectContentState>()(persist((set
       pane.selectedTabId = tabId;
       layout.focusedPaneId = paneId;
     }),
+    selectHome: scope => edit(scope, layout => {
+      layout.panes[0].selectedTabId = null;
+      layout.focusedPaneId = "left";
+    }),
     focus: (scope, paneId) => edit(scope, layout => {
       if (layout.panes.some(pane => pane.id === paneId)) layout.focusedPaneId = paneId;
     }),
@@ -120,7 +126,7 @@ export const useProjectContentStore = create<ProjectContentState>()(persist((set
       if (!pane) return;
       removeFromPane(pane, tabId);
       layout.tabs = layout.tabs.filter(tab => tab.id !== tabId);
-      if (layout.panes.length === 2 && pane.tabIds.length === 0) mergePanes(layout);
+      if (layout.panes.length === 2 && pane.id === "right" && pane.tabIds.length === 0) mergePanes(layout);
     }),
     setRatio: (scope, ratio) => edit(scope, layout => {
       // The shell constrains physical minimum widths; the model stores a valid proportion.

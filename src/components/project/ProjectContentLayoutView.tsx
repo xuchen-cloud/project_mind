@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ArrowRight, Columns2, Home, Maximize2, Merge, Minimize2, X } from "lucide-react";
+import { ArrowLeftRight, Columns2, Home, Merge, X } from "lucide-react";
 import { AiChatIcon, RecordIcon } from "../icons/ContentTypeIcon";
 import { TabStripScroll } from "../../ui/components/TabStripScroll";
 import "../../ui/tab-strip.css";
@@ -65,11 +65,12 @@ function tabTypeLabel(tab: ContentTab): string {
   if (["js", "ts", "tsx", "jsx", "json", "py", "rs", "html", "css"].includes(extension ?? "")) return "代码文件";
   return extension ? `${extension.toUpperCase()} 文件` : "文件";
 }
-function TabBar({ pane, layout, onSelect, onClose, scope, dragging, startDrag, dragZones, shown }: {
+function TabBar({ pane, layout, onSelect, onOverview, onClose, scope, dragging, startDrag, dragZones, shown }: {
   pane: ContentPane; layout: ProjectContentLayout; scope: ContentScope; shown: boolean;
   dragging: string | null; startDrag: (event: React.PointerEvent<HTMLElement>, id: string) => void;
   dragZones: Map<PaneId, TabDragZone>;
   onSelect: (paneId: PaneId, tabId: string) => void;
+  onOverview: () => void;
   onClose: (tabId: string) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -231,6 +232,9 @@ Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
                   return;
                 }
                 if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                if (pane.id === "left" && ((index === 0 && event.key === "ArrowLeft") || event.key === "Home")) {
+                  event.preventDefault(); onOverview(); document.getElementById(`content-home-${scope.projectId}`)?.focus(); return;
+                }
                 const next = event.key === "ArrowRight" ? (index + 1) % pane.tabIds.length : event.key === "ArrowLeft" ? (index - 1 + pane.tabIds.length) % pane.tabIds.length : event.key === "Home" ? 0 : event.key === "End" ? pane.tabIds.length - 1 : null;
                 if (next !== null) { event.preventDefault(); const nextId = pane.tabIds[next]; onSelect(pane.id, nextId); document.getElementById(`content-tab-${nextId}`)?.focus(); }
               }}>
@@ -253,9 +257,10 @@ Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
 }
 
 /** Pages stay siblings with stable keys when their grid column changes. */
-export function ProjectContentLayoutView({ scope, layout, active, renderPage, onSelect, onOverview, onClose, registerLeaveGuard }: {
+export function ProjectContentLayoutView({ scope, layout, active, renderPage, renderOverview, onSelect, onOverview, onClose, registerLeaveGuard }: {
   scope: ContentScope; layout: ProjectContentLayout; active: boolean;
   renderPage: (props: ContentPageProps) => ReactNode;
+  renderOverview?: (visible: boolean) => ReactNode;
   onSelect: (paneId: PaneId, tabId: string) => void;
   onOverview: () => void;
   onClose: (tabId: string, guard?: () => Promise<void>) => Promise<void>;
@@ -263,7 +268,6 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
 }) {
   const root = useRef<HTMLElement>(null);
   const [contentWidth, setContentWidth] = useState(0);
-  const [maximized, setMaximized] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
   const dragZones = useRef(new Map<PaneId, TabDragZone>());
   const dragPreview = useRef<HTMLDivElement>(null);
@@ -337,19 +341,12 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
     for (const tab of currentTabs.current) if (tab.object.kind === "record" || tab.object.kind === "file") await guards.current.get(tab.id)?.();
   }), [registerLeaveGuard]);
   const split = layout.panes.length === 2;
-  const singlePane = narrow || (split && maximized);
-  useEffect(() => { if (!split) setMaximized(false); }, [split]);
-  useEffect(() => { setMaximized(false); setDragging(null); }, [scope.workspaceId, scope.projectId]);
+  const singlePane = narrow;
+  useEffect(() => { setDragging(null); }, [scope.workspaceId, scope.projectId]);
   const minRatio = Math.max(0.2, Math.min(320 / (contentWidth || 720), 0.45));
   const displayedRatio = Math.max(minRatio, Math.min(1 - minRatio, layout.ratio));
   const previousRects = useRef(new Map<string, DOMRect>());
   const previousStructure = useRef("");
-  function toggleMaximized(value: boolean) {
-    root.current?.querySelectorAll<HTMLElement>(".project-content__page:not([hidden]), .project-content__pane-tabs").forEach(node => {
-      previousRects.current.set(node.id, node.getBoundingClientRect());
-    });
-    setMaximized(value);
-  }
   const structure = layout.panes.map(pane => `${pane.id}:${pane.tabIds.join(",")}`).join("|");
   useLayoutEffect(() => {
     const pages = root.current?.querySelectorAll<HTMLElement>(".project-content__page:not([hidden]), .project-content__pane-tabs");
@@ -407,13 +404,8 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
     const finish = () => { node.removeEventListener("pointermove", move); node.removeEventListener("pointerup", finish); node.removeEventListener("pointercancel", finish); };
     node.addEventListener("pointermove", move); node.addEventListener("pointerup", finish); node.addEventListener("pointercancel", finish);
   }
-  return <section ref={root} className="project-content" aria-label="项目内容" data-split={split || undefined} data-narrow={narrow || undefined} data-maximized={split && maximized || undefined} data-dragging={dragging || undefined}
-    onKeyDown={event => {
-      if (active && maximized && event.key === "Escape" && !event.defaultPrevented
-        && !(event.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"],[role="menu"],.context-menu__panel')) {
-        event.preventDefault(); toggleMaximized(false);
-      }
-    }}
+  const overviewVisible = active && layout.panes[0].selectedTabId === null && (!singlePane || !split || layout.focusedPaneId === "left");
+  return <section ref={root} className="project-content" aria-label="项目内容" data-split={split || undefined} data-narrow={narrow || undefined} data-dragging={dragging || undefined}
     onClickCapture={event => {
       if (!suppressClick.current) return;
       suppressClick.current = false;
@@ -421,34 +413,45 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
     }}
     style={{ "--content-ratio": `${displayedRatio * 100}%` } as CSSProperties}>
     {createPortal(<div ref={dragPreview} className="project-content__drag-preview" aria-hidden="true" inert hidden={!dragging} />, document.body)}
-    <div className="project-content__toolbar">
-      <button type="button" onClick={onOverview} title="项目概览"><Home size={14} /><span>项目概览</span></button>
-      <div>
-        {split && singlePane ? <button type="button" onClick={() => useProjectContentStore.getState().focus(scope, layout.focusedPaneId === "left" ? "right" : "left")}><ArrowLeft size={13} /><span>切换另一栏</span><ArrowRight size={13} /></button> : null}
-        {split && (!narrow || maximized) ? <button type="button" aria-label={maximized ? "恢复双栏" : "放大当前栏"} aria-pressed={maximized}
-          title={maximized ? "恢复双栏（Escape）" : "放大当前栏"} onClick={() => toggleMaximized(!maximized)}>
-          {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}<span>{maximized ? "恢复双栏" : "放大当前栏"}</span>
-        </button> : null}
-        <button type="button" onClick={() => split ? useProjectContentStore.getState().merge(scope) : useProjectContentStore.getState().split(scope)}
-          title={split ? "合并分栏" : "分栏：将当前 Tab 移到右栏"}>{split ? <Merge size={14} /> : <Columns2 size={14} />}<span>{split ? "合并分栏" : "分栏"}</span></button>
-      </div>
-    </div>
     {error ? <div className="project-content__error" role="alert">{error}<button type="button" onClick={() => setError(null)} aria-label="关闭错误提示"><X size={13} /></button></div> : null}
     <div className="project-content__grid" onKeyDown={event => {
       if (!active || event.defaultPrevented || (event.target as HTMLElement).closest('[role="dialog"],[role="menu"],.context-menu__panel')) return;
       const pane = layout.panes.find(item => item.id === layout.focusedPaneId)!;
       if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "w" && pane.selectedTabId) { event.preventDefault(); void close(pane.selectedTabId); }
       if (event.ctrlKey && !event.metaKey && (event.key === "PageUp" || event.key === "PageDown") && pane.tabIds.length) {
-        event.preventDefault(); const index = pane.tabIds.indexOf(pane.selectedTabId!); const step = event.key === "PageDown" ? 1 : -1;
-        onSelect(pane.id, pane.tabIds[(index + step + pane.tabIds.length) % pane.tabIds.length]);
+        const ids = pane.id === "left" ? [null, ...pane.tabIds] : pane.tabIds;
+        event.preventDefault(); const index = ids.indexOf(pane.selectedTabId); const step = event.key === "PageDown" ? 1 : -1;
+        const next = ids[(index + step + ids.length) % ids.length];
+        if (next === null) onOverview(); else onSelect(pane.id, next);
       }
     }}>
       {layout.panes.map((pane, index) => {
         const shown = !singlePane || !split || pane.id === layout.focusedPaneId;
         return <div key={pane.id} id={`content-pane-${pane.id}`} className="project-content__pane-tabs" data-focused={pane.id === layout.focusedPaneId || undefined} style={{ gridColumn: singlePane ? 1 : index + 1, gridRow: 1, display: shown ? undefined : "none" }}>
-          <TabBar pane={pane} layout={layout} scope={scope} onSelect={onSelect} onClose={id => void close(id)} dragging={dragging} startDrag={startDrag} dragZones={dragZones.current} shown={shown} />
+          {pane.id === "left" ? <button type="button" id={`content-home-${scope.projectId}`} className="project-content__icon-button project-content__home" aria-label="项目首页" title="项目首页"
+            aria-pressed={pane.selectedTabId === null} aria-controls={`content-home-page-${scope.projectId}`} onClick={onOverview}
+            onKeyDown={event => {
+              if ((event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "End") && pane.tabIds.length) {
+                const id = pane.tabIds[event.key === "ArrowRight" ? 0 : pane.tabIds.length - 1];
+                event.preventDefault(); onSelect(pane.id, id); document.getElementById(`content-tab-${id}`)?.focus();
+              }
+            }}><Home size={16} strokeWidth={1.6} /></button> : null}
+          <TabBar pane={pane} layout={layout} scope={scope} onSelect={onSelect} onOverview={onOverview} onClose={id => void close(id)} dragging={dragging} startDrag={startDrag} dragZones={dragZones.current} shown={shown} />
+          <div className="project-content__tab-actions">
+            {split && singlePane ? <button type="button" className="project-content__icon-button" aria-label="切换另一栏" title="切换另一栏"
+              onClick={() => useProjectContentStore.getState().focus(scope, pane.id === "left" ? "right" : "left")}><ArrowLeftRight size={15} /></button> : null}
+            {!split ? <button type="button" className="project-content__icon-button" aria-label="分栏" title="分栏：将当前 Tab 移到右栏"
+              onClick={() => useProjectContentStore.getState().split(scope)}><Columns2 size={16} strokeWidth={1.6} /></button> : null}
+            {split && pane.id === "right" ? <button type="button" className="project-content__icon-button" aria-label="合并分栏" title="合并分栏"
+              onClick={() => useProjectContentStore.getState().merge(scope)}><Merge size={16} strokeWidth={1.6} /></button> : null}
+          </div>
         </div>;
       })}
+      <div id={`content-home-page-${scope.projectId}`} role="region" aria-label="项目首页" className="project-content__page project-content__overview"
+        hidden={!overviewVisible} inert={!overviewVisible} style={{ gridColumn: 1, gridRow: 2 }}
+        onPointerDownCapture={() => useProjectContentStore.getState().focus(scope, "left")} onFocusCapture={() => useProjectContentStore.getState().focus(scope, "left")}>
+        {renderOverview?.(overviewVisible)}
+      </div>
       {layout.tabs.map(tab => {
         const index = layout.panes.findIndex(pane => pane.tabIds.includes(tab.id));
         const pane = layout.panes[index];
@@ -460,7 +463,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
           {renderPage({ tab, visible, focused, registerCloseGuard: registrar(tab.id) })}
         </div>;
       })}
-      {layout.panes.filter(pane => pane.selectedTabId === null).map(pane => <div key={`empty-${pane.id}`} className="project-content__empty" style={{ gridColumn: singlePane ? 1 : layout.panes.indexOf(pane) + 1, gridRow: 2 }} hidden={singlePane && split && pane.id !== layout.focusedPaneId}
+      {layout.panes.filter(pane => pane.id === "right" && pane.selectedTabId === null).map(pane => <div key={`empty-${pane.id}`} className="project-content__empty" style={{ gridColumn: singlePane ? 1 : layout.panes.indexOf(pane) + 1, gridRow: 2 }} hidden={!active || (singlePane && split && pane.id !== layout.focusedPaneId)}
         onPointerDown={() => useProjectContentStore.getState().focus(scope, pane.id)}><p>在这栏打开项目内容</p><span>从记录、文件或会话列表选择内容，或将 Tab 移到此栏。</span></div>)}
       {split && !singlePane ? <div className="project-content__divider" role="separator" aria-label="调整内容分栏比例" aria-orientation="vertical" aria-valuemin={Math.round(minRatio * 100)} aria-valuemax={Math.round((1 - minRatio) * 100)} aria-valuenow={Math.round(displayedRatio * 100)} tabIndex={0} onPointerDown={resize}
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); useProjectContentStore.getState().setRatio(scope, Math.max(minRatio, Math.min(1 - minRatio, displayedRatio + (event.key === "ArrowRight" ? 0.025 : -0.025)))); } }} /> : null}

@@ -23,6 +23,28 @@ describe("project content layout selectors", () => {
       .not.toBe(contentLayoutKey({ workspaceId: 'work:1,"x":2', projectId: 1 }));
   });
 
+  it.each([false, true])("retains left Home with ordinary tabs (split: %s)", split => {
+    const key = contentLayoutKey({ workspaceId: "workspace", projectId: 1 });
+    const saved = { ...emptyContentLayout(),
+      tabs: [{ id: "tab", object: { kind: "file", id: 1, title: "File" }, view: {} }],
+      panes: [{ id: "left", tabIds: ["tab"], selectedTabId: null },
+        ...(split ? [{ id: "right", tabIds: [], selectedTabId: null }] : [])],
+    };
+    expect(sanitizeContentLayouts({ [key]: saved })).toEqual({ [key]: saved });
+  });
+
+  it.each([null, "missing", undefined])("rejects a populated right pane with selection %s", selectedTabId => {
+    const key = contentLayoutKey({ workspaceId: "workspace", projectId: 1 });
+    const saved = { ...emptyContentLayout(),
+      tabs: [{ id: "tab", object: { kind: "file", id: 1, title: "File" }, view: {} }],
+      panes: [{ id: "left", tabIds: [], selectedTabId: null },
+        { id: "right", tabIds: ["tab"], selectedTabId }],
+    };
+    expect(sanitizeContentLayouts({ [key]: saved })).toEqual({});
+    saved.panes[1].selectedTabId = "tab";
+    expect(sanitizeContentLayouts({ [key]: saved })).toEqual({ [key]: saved });
+  });
+
   it("discards mixed identity types only in the damaged project", () => {
     const valid = emptyContentLayout();
     const damaged = { ...emptyContentLayout(), tabs: [

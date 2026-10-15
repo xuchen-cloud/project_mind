@@ -24,7 +24,7 @@ function Editor({ tab, visible, focused, registerCloseGuard }: ContentPageProps)
 }
 function Harness({ active = true, contentScope = scope }: { active?: boolean; contentScope?: typeof scope }) {
   const layout = useProjectContentStore(state => getContentLayout(state, contentScope));
-  return <ProjectContentLayoutView scope={contentScope} layout={layout} active={active} onOverview={vi.fn()}
+  return <ProjectContentLayoutView scope={contentScope} layout={layout} active={active} onOverview={() => useProjectContentStore.getState().selectHome(contentScope)} renderOverview={() => <input aria-label="首页草稿" defaultValue="" />}
     onSelect={(pane, id) => useProjectContentStore.getState().select(contentScope, pane, id)}
     onClose={async (id, beforeClose) => { await beforeClose?.(); useProjectContentStore.getState().close(contentScope, id); }}
     renderPage={props => <Editor {...props} />} />;
@@ -205,20 +205,51 @@ it("drops before and after a tab and across panes rather than always inserting b
   expect(getContentLayout(useProjectContentStore.getState(), scope).panes[1].tabIds).toEqual([a, b]);
   expect(mounts).toHaveBeenCalledTimes(3);
 });
-it("temporarily maximizes a pane, preserves layout authority and drafts, and defers Escape to editors and dialogs", () => {
-  open(1, "甲"); open(2, "乙"); useProjectContentStore.getState().split(scope);
-  useProjectContentStore.getState().setRatio(scope, 0.6); render(<Harness />);
-  const original = getContentLayout(useProjectContentStore.getState(), scope);
+it("pins one icon-only Home on the left and keeps the other pane and all drafts when opening it", () => {
+  open(1, "甲"); open(2, "乙"); render(<Harness />);
+  const home = screen.getByRole("button", { name: "项目首页" });
+  const left = document.getElementById("content-pane-left")!;
+  expect(left.firstElementChild).toBe(home);
+  expect(home).toHaveTextContent("");
+  const splitButton = screen.getByRole("button", { name: "分栏" });
+  expect(left.lastElementChild).toContainElement(splitButton);
+  expect(splitButton).toHaveTextContent("");
   const input = screen.getByLabelText("草稿甲"); fireEvent.change(input, { target: { value: "保留" } });
-  fireEvent.click(screen.getByRole("button", { name: "放大当前栏" }));
+  fireEvent.click(splitButton);
+  expect(screen.getAllByRole("button", { name: "项目首页" })).toHaveLength(1);
+  const right = document.getElementById("content-pane-right")!;
+  expect(right).not.toContainElement(home);
+  const merge = screen.getByRole("button", { name: "合并分栏" });
+  expect(right.lastElementChild).toContainElement(merge);
+  expect(merge).toHaveTextContent("");
+  expect(screen.queryByRole("button", { name: "放大当前栏" })).toBeNull();
+  expect(document.querySelector(".project-content__toolbar")).toBeNull();
+  fireEvent.click(home);
+  const overview = screen.getByRole("region", { name: "项目首页" });
+  expect(overview.parentElement).toHaveClass("project-content__grid");
+  expect(overview).toBeVisible(); expect(home).toHaveAttribute("aria-pressed", "true");
   expect(input).not.toBeVisible(); expect(screen.getByLabelText("草稿乙")).toBeVisible();
-  expect(getContentLayout(useProjectContentStore.getState(), scope)).toBe(original);
-  fireEvent.keyDown(screen.getByLabelText("草稿乙"), { key: "Escape" });
-  fireEvent.keyDown(within(screen.getByTestId("page-2")).getByText("弹窗操作"), { key: "Escape" });
-  expect(screen.getByRole("button", { name: "恢复双栏" })).toBeVisible();
-  fireEvent.keyDown(screen.getByRole("tab", { name: "乙" }), { key: "Escape" });
-  expect(input).toBeVisible(); expect(input).toHaveValue("保留"); expect(mounts).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("separator")).toHaveAttribute("aria-valuenow", "60");
+  const quickNote = screen.getByLabelText("首页草稿"); fireEvent.change(quickNote, { target: { value: "首页未完成" } });
+  fireEvent.click(screen.getByRole("tab", { name: "甲" }));
+  expect(input).toBeVisible(); expect(input).toHaveValue("保留");
+  fireEvent.click(home);
+  expect(screen.getByLabelText("首页草稿")).toBe(quickNote); expect(quickNote).toHaveValue("首页未完成");
+  fireEvent.click(merge);
+  expect(overview).toBeVisible(); expect(screen.getAllByRole("tab")).toHaveLength(2);
+  expect(mounts).toHaveBeenCalledTimes(2);
+});
+it("includes the permanent Home in left-pane keyboard navigation", () => {
+  open(1, "甲"); open(2, "乙"); render(<Harness />);
+  const home = screen.getByRole("button", { name: "项目首页" });
+  fireEvent.click(home);
+  fireEvent.keyDown(home, { key: "ArrowRight" });
+  expect(screen.getByRole("tab", { name: "甲" })).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(screen.getByRole("tab", { name: "甲" }), { key: "ArrowLeft" });
+  expect(home).toHaveFocus(); expect(home).toHaveAttribute("aria-pressed", "true");
+  fireEvent.keyDown(home, { key: "PageUp", ctrlKey: true });
+  expect(screen.getByRole("tab", { name: "乙" })).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(screen.getByRole("tab", { name: "乙" }), { key: "PageDown", ctrlKey: true });
+  expect(screen.getByRole("region", { name: "项目首页" })).toBeVisible();
 });
 it("marks only the exact running Session and exposes file format and object types", () => {
   useAgentPanelStore.getState().bindWorkspace("/workspace");
@@ -271,24 +302,24 @@ it("auto scrolls during a held drag near the strip edge and stops at the boundar
   tick(); expect(viewport.scrollLeft).toBeLessThan(400);
   pointer("pointerCancel", window, { clientX: 2, clientY: 15 }); expect(frames.size).toBe(0);
 });
-it.each([false, true])("uses a 220ms transform-only FLIP for maximize/restore and honors reduced motion=%s", reduced => {
+it.each([false, true])("uses a 220ms transform-only FLIP for split/merge and honors reduced motion=%s", reduced => {
   vi.stubGlobal("matchMedia", () => ({ matches: reduced }));
   const animate = vi.fn(() => ({ cancel: vi.fn() }));
   const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
   Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
     if (!this.classList.contains("project-content__page")) return new DOMRect();
-    const expanded = this.closest(".project-content")?.hasAttribute("data-maximized");
+    const expanded = !this.closest(".project-content")?.hasAttribute("data-split");
     const right = this.dataset.contentObject === "record:2";
     return new DOMRect(expanded ? 0 : right ? 600 : 0, 42, expanded ? 1000 : right ? 400 : 600, 500);
   });
   try {
-    open(1, "甲"); open(2, "乙"); useProjectContentStore.getState().split(scope); render(<Harness />);
-    fireEvent.click(screen.getByRole("button", { name: "放大当前栏" }));
-    fireEvent.click(screen.getByRole("button", { name: "恢复双栏" }));
+    open(1, "甲"); open(2, "乙"); render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "分栏" }));
+    fireEvent.click(screen.getByRole("button", { name: "合并分栏" }));
     if (reduced) expect(animate).not.toHaveBeenCalled();
     else {
-      expect(animate).toHaveBeenCalledTimes(2);
+      expect(animate).toHaveBeenCalled();
       for (const [frames, options] of animate.mock.calls as unknown as [Keyframe[], KeyframeAnimationOptions][]) {
         expect(options.duration).toBe(220);
         expect(Object.keys(frames[0])).toEqual(["transform", "transformOrigin"]);
@@ -326,14 +357,20 @@ it("drops before a target, permits an empty destination pane, and cancels Escape
   pointer("pointerUp", window, { clientX: 600, clientY: 15 });
   expect(getContentLayout(useProjectContentStore.getState(), scope).panes[1].tabIds).toEqual([a]);
 });
-it("restores from toolbar Escape and keeps narrow mode's automatic single pane distinct", () => {
+it("keeps the Home in the left strip when narrow mode switches panes", () => {
   open(1, "甲"); open(2, "乙"); useProjectContentStore.getState().split(scope); render(<Harness />);
-  fireEvent.click(screen.getByRole("button", { name: "放大当前栏" }));
-  fireEvent.keyDown(screen.getByRole("button", { name: "恢复双栏" }), { key: "Escape" });
-  expect(screen.getByLabelText("草稿甲")).toBeVisible();
   width = 600; resize();
-  expect(screen.queryByRole("button", { name: "放大当前栏" })).toBeNull();
-  expect(screen.getByRole("button", { name: "切换另一栏" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "项目首页" })).toBeNull();
+  expect(screen.getByRole("button", { name: "合并分栏" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "切换另一栏" }));
+  const home = screen.getByRole("button", { name: "项目首页" });
+  expect(home).toBeVisible();
+  expect(screen.queryByRole("button", { name: "合并分栏" })).toBeNull();
+  fireEvent.click(home);
+  expect(screen.getByRole("region", { name: "项目首页" })).toBeVisible();
+  width = 1000; resize();
+  expect(screen.getByLabelText("草稿乙")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "项目首页" })).toHaveLength(1);
 });
 
 it("keeps a manually scrolled strip while the selected page saves view metadata, and reveals again on selection", () => {
