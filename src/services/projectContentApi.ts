@@ -1,9 +1,9 @@
 import type { AgentObjectRef, AgentWorkspaceBinding } from "../lib/agent-types";
-import type { ContentObject, ContentPane, ContentScope, ContentView } from "../lib/project-content-layout";
+import { getContentLayout, type ContentObject, type ContentPane, type ContentScope, type ContentView } from "../lib/project-content-layout";
 import { useProjectContentStore } from "../state/project-content-store";
 import { recordDocumentApi } from "./recordDocumentApi";
 import { fileDocumentApi } from "./fileDocumentApi";
-import { dshAssistantApi } from "./dshAssistantApi";
+import { dshAssistantApi, type DshSessionAction } from "./dshAssistantApi";
 
 export const PROJECT_CONTENT_OPEN_EVENT = "project-mind:content-open";
 export interface ProjectContentOpenResult {
@@ -69,5 +69,30 @@ export async function openProjectContent(input: ProjectContentOpenInput): Promis
   const tabId = useProjectContentStore.getState().open(scope, object, { paneId: input.paneId, view: input.view });
   const result = { workspaceRoot: input.workspaceRoot, scope, tabId, object, view: input.view };
   if (input.reveal !== false) window.dispatchEvent(new CustomEvent(PROJECT_CONTENT_OPEN_EVENT, { detail: result }));
+  return result;
+}
+
+export type ProjectSessionAction = DshSessionAction | { kind: "delete" };
+
+/** Keep open content consistent with a successful native session operation. */
+export async function manageProjectSession(input: {
+  workspaceRoot: string; projectId: number; sessionId: string; action: ProjectSessionAction; signal?: AbortSignal;
+}): Promise<string | null> {
+  const binding = await recordDocumentApi.bindingGet(input.workspaceRoot);
+  if (input.signal?.aborted) throw new DOMException("操作已取消", "AbortError");
+  let result: string | null = null;
+  if (input.action.kind === "delete") await dshAssistantApi.deleteSession(input.sessionId, input.projectId);
+  else result = await dshAssistantApi.manageSession(input.sessionId, input.action, input.projectId);
+  const renamed = input.action.kind === "rename"
+    ? (await dshAssistantApi.sessions(input.projectId)).find(session => session.id === input.sessionId) : undefined;
+  assertCurrent(binding, await recordDocumentApi.bindingGet(input.workspaceRoot), input.signal);
+  const scope = { workspaceId: binding.workspaceId, projectId: input.projectId };
+  const store = useProjectContentStore.getState();
+  const tab = getContentLayout(store, scope).tabs
+    .find(item => item.object.kind === "session" && item.object.id === input.sessionId);
+  if (tab) {
+    if (input.action.kind === "archive" || input.action.kind === "delete") store.close(scope, tab.id);
+    else if (renamed) store.updateTitle(scope, tab.id, renamed.title);
+  }
   return result;
 }

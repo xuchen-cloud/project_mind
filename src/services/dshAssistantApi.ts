@@ -1,5 +1,7 @@
 import { desktopApi } from "./desktopApi";
 
+export type DshSessionAction = { kind: "rename"; title: string } | { kind: "pin" | "unpin" | "fork" | "archive" };
+
 const starts = new Map<number | null, { key: string; promise: Promise<void> }>();
 const runtimeTails = new Map<number | null, Promise<unknown>>();
 
@@ -24,11 +26,14 @@ export const dshAssistantApi = {
     void next.then(clear, clear);
     return next;
   },
-  sessions(projectId: number | null): Promise<{ id: string; title: string; running: boolean }[]> {
+  sessions(projectId: number | null): Promise<{ id: string; title: string; running: boolean; pinned: boolean }[]> {
     return runtimeCommand("dsh_assistant_sessions", { projectId });
   },
   selectSession(sessionId: string | null, projectId: number | null): Promise<string> {
     return runtimeCommand("dsh_assistant_select_session", { projectId, sessionId });
+  },
+  manageSession(sessionId: string, action: DshSessionAction, projectId: number | null): Promise<string | null> {
+    return runtimeCommand("dsh_assistant_manage_session", { projectId, sessionId, action });
   },
   deleteSession(sessionId: string, projectId: number | null): Promise<void> {
     return runtimeCommand("dsh_assistant_delete_session", { projectId, sessionId });

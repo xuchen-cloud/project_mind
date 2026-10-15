@@ -1754,6 +1754,7 @@ pub fn run() {
             dsh_assistant::dsh_assistant_send,
             dsh_assistant::dsh_assistant_disconnect,
             dsh_assistant::dsh_assistant_create_session,
+            dsh_assistant::dsh_assistant_manage_session,
             dsh_assistant::dsh_assistant_delete_session,
             project_directory::project_directory_list,
             project_directory::project_directory_preview,

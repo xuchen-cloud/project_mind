@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { LoaderCircle, Plus } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Archive, GitFork, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
 import { getErrorMessage } from "../../lib/errors";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
-import { openProjectContent } from "../../services/projectContentApi";
+import { manageProjectSession, openProjectContent, type ProjectSessionAction } from "../../services/projectContentApi";
 import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
 import { AiChatIcon } from "../icons/ContentTypeIcon";
 import { HomeSidebarList } from "./HomeSidebarList";
+import { ActionContextMenu, Button, Dialog } from "../../ui/components";
 
 export interface ProjectSidebarSessionsProps {
   workspaceRoot: string;
@@ -26,6 +28,10 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(enabled);
   const [opening, setOpening] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("正在打开会话");
+  const [menu, setMenu] = useState<{ session: Session; x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState<{ session: Session; title: string } | null>(null);
+  const [deleting, setDeleting] = useState<Session | null>(null);
   const [error, setError] = useState<{ message: string; retry: () => void } | null>(null);
   const read = useRef<AbortController | null>(null);
   const action = useRef<AbortController | null>(null);
@@ -73,6 +79,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     const controller = new AbortController();
     action.current = controller;
     setOpening(true);
+    setBusyLabel("正在打开会话");
     setError(null);
     let target = session;
     try {
@@ -86,6 +93,40 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     } catch (reason) {
       // If creation succeeded but opening failed, retry the created session, never create a duplicate.
       if (!controller.signal.aborted) setError({ message: getErrorMessage(reason, "打开项目会话失败"), retry: () => { void open(target); } });
+    } finally {
+      if (!controller.signal.aborted) {
+        action.current = null;
+        setOpening(false);
+      }
+    }
+  }
+
+  async function manage(session: Session, change: ProjectSessionAction) {
+    if (!active.current || action.current) return;
+    const controller = new AbortController();
+    action.current = controller;
+    setOpening(true);
+    setBusyLabel("正在处理会话");
+    setMenu(null);
+    setEditing(null);
+    setDeleting(null);
+    setError(null);
+    let forked: Pick<Session, "id" | "title"> | null = null;
+    try {
+      await start();
+      if (controller.signal.aborted) return;
+      const id = await manageProjectSession({ workspaceRoot, projectId, sessionId: session.id, action: change, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (change.kind === "fork" && id) {
+        forked = { id, title: session.title };
+        await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", ...forked }, signal: controller.signal });
+      }
+      if (!controller.signal.aborted) void load();
+    } catch (reason) {
+      if (!controller.signal.aborted) {
+        const created = forked;
+        setError({ message: getErrorMessage(reason, "会话操作失败"), retry: () => { if (created) void open(created); else void manage(session, change); } });
+      }
     } finally {
       if (!controller.signal.aborted) {
         action.current = null;
@@ -117,13 +158,28 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     </div></div>
     <HomeSidebarList label="项目会话列表" searchKey={query}>
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}
-      {loading || opening ? <p role="status" aria-label={opening ? "正在打开会话" : "正在读取项目会话"} className="home-side__empty"><LoaderCircle size={14} className="spin" aria-hidden="true" /></p> : null}
-      {visible.map(session => <button key={session.id} type="button" className={`home-side__item ${session.id === activeSessionId ? "is-active" : ""}`} aria-current={session.id === activeSessionId ? "true" : undefined} title={session.title || "新会话"}
-        disabled={opening} onClick={() => { void open(session); }}>
+      {loading || opening ? <p role="status" aria-label={opening ? busyLabel : "正在读取项目会话"} className="home-side__empty"><LoaderCircle size={14} className="spin" aria-hidden="true" /></p> : null}
+      {visible.map(session => editing?.session.id === session.id ? <input key={session.id} autoFocus aria-label="重命名会话" className="home-side__rename"
+        value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })}
+        onBlur={() => { const title = editing.title.trim(); if (title && title !== session.title) void manage(session, { kind: "rename", title }); else setEditing(null); }}
+        onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setEditing(null); } else if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /> : <button key={session.id} type="button" className={`home-side__item ${session.id === activeSessionId ? "is-active" : ""}`} aria-current={session.id === activeSessionId ? "true" : undefined} title={session.title || "新会话"}
+        disabled={opening} onClick={() => { void open(session); }}
+        onContextMenu={event => { event.preventDefault(); if (!opening) setMenu({ session, x: event.clientX, y: event.clientY }); }}>
         <AiChatIcon size={12} /><span>{session.title || "新会话"}</span>
+        {session.pinned ? <Pin size={12} aria-label="已置顶" /> : null}
         {sessionRuns?.[session.id] ? <span aria-label="运行中">运行中</span> : null}
       </button>)}
       {enabled && !loading && !error && !visible.length ? <p className="home-side__empty">{needle ? "没有匹配的会话" : "暂无会话"}</p> : null}
     </HomeSidebarList>
+    {menu ? createPortal(<ActionContextMenu x={menu.x} y={menu.y} ariaLabel="会话操作" onClose={() => setMenu(null)} actions={[
+      { label: "重命名", icon: Pencil, onSelect: () => setEditing({ session: menu.session, title: menu.session.title }) },
+      { label: menu.session.pinned ? "取消置顶" : "置顶", icon: menu.session.pinned ? PinOff : Pin, onSelect: () => void manage(menu.session, { kind: menu.session.pinned ? "unpin" : "pin" }) },
+      { label: "分叉会话", icon: GitFork, onSelect: () => void manage(menu.session, { kind: "fork" }) },
+      { label: "归档", icon: Archive, disabled: !!sessionRuns?.[menu.session.id], onSelect: () => void manage(menu.session, { kind: "archive" }) },
+      { label: "删除", icon: Trash2, tone: "danger", disabled: !!sessionRuns?.[menu.session.id], onSelect: () => setDeleting(menu.session) },
+    ]} />, document.body) : null}
+    <Dialog open={!!deleting} title="删除会话" onClose={() => setDeleting(null)} footer={<>
+      <Button onClick={() => setDeleting(null)}>取消</Button><Button variant="danger" onClick={() => { if (deleting) void manage(deleting, { kind: "delete" }); }}>删除</Button>
+    </>}>{deleting ? <p>删除“{deleting.title || "新会话"}”？会话将从当前项目移除，历史文件保留。</p> : null}</Dialog>
   </section>;
 }

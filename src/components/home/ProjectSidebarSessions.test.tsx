@@ -3,9 +3,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { ProjectSidebarSessions, type ProjectSidebarSessionsProps } from "./ProjectSidebarSessions";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
 
-const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), open: vi.fn() }));
+const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), open: vi.fn(), manage: vi.fn() }));
 vi.mock("../../services/dshAssistantApi", () => ({ dshAssistantApi: api }));
-vi.mock("../../services/projectContentApi", () => ({ openProjectContent: api.open }));
+vi.mock("../../services/projectContentApi", () => ({ openProjectContent: api.open, manageProjectSession: api.manage }));
 
 const saved = [
   { id: "alpha", title: "Alpha 方案", running: false },
@@ -27,6 +27,7 @@ beforeEach(() => {
   api.sessions.mockResolvedValue(saved);
   api.selectSession.mockImplementation(async (id: string | null) => id ?? "new-id");
   api.open.mockResolvedValue(undefined);
+  api.manage.mockResolvedValue(null);
   useAgentPanelStore.getState().clearWorkspace();
   useAgentPanelStore.getState().bindWorkspace(defaults.workspaceRoot);
 });
@@ -300,4 +301,76 @@ it("shows a single text-free spinner until content opening finishes", async () =
   expect(screen.getByRole("button", { name: "新增会话" })).toBeDisabled();
   await act(async () => pending.resolve());
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+
+it("offers the standard session context menu and commits an inline rename", async () => {
+  render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Alpha 方案" }), { clientX: 40, clientY: 70 });
+  const menu = screen.getByRole("menu", { name: "会话操作" });
+  expect(menu.closest(".context-menu__panel")).not.toBeNull();
+  expect(within(menu).getAllByRole("menuitem").map(item => item.textContent)).toEqual(["重命名", "置顶", "分叉会话", "归档", "删除"]);
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "重命名" }));
+  const field = screen.getByRole("textbox", { name: "重命名会话" });
+  fireEvent.change(field, { target: { value: "新标题" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() => expect(api.manage).toHaveBeenCalledWith({ workspaceRoot: "/workspace", projectId: 7, sessionId: "alpha", action: { kind: "rename", title: "新标题" }, signal: expect.any(AbortSignal) }));
+});
+
+it.each([
+  [false, "置顶", "pin"], [true, "取消置顶", "unpin"], [false, "归档", "archive"],
+] as const)("performs %s/%s and automatically reloads", async (pinned, label, kind) => {
+  api.sessions.mockResolvedValue([{ id: "alpha", title: "Alpha", running: false, pinned }]);
+  render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: /Alpha/ }), { clientX: 40, clientY: 70 });
+  fireEvent.click(screen.getByRole("menuitem", { name: label }));
+  await waitFor(() => expect(api.manage).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "alpha", action: { kind } })));
+  await waitFor(() => expect(api.sessions).toHaveBeenCalledTimes(2));
+});
+
+it("confirms deletion before removing the session", async () => {
+  render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Alpha 方案" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+  const dialog = screen.getByRole("dialog", { name: "删除会话" });
+  expect(api.manage).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
+  await waitFor(() => expect(api.manage).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "alpha", action: { kind: "delete" } })));
+});
+
+it("retries opening a fork without creating another fork", async () => {
+  api.manage.mockResolvedValueOnce("child");
+  api.open.mockRejectedValueOnce(new Error("打开失败"));
+  render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Alpha 方案" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "分叉会话" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("打开失败");
+  expect(api.open).toHaveBeenCalledWith(expect.objectContaining({ object: { kind: "session", id: "child", title: "Alpha 方案" } }));
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  await waitFor(() => expect(api.open).toHaveBeenCalledTimes(2));
+  expect(api.manage).toHaveBeenCalledTimes(1);
+  expect(api.selectSession).toHaveBeenCalledWith("child", 7);
+});
+
+it("discards a pending fork after switching projects", async () => {
+  const pending = deferred<string>();
+  api.manage.mockReturnValueOnce(pending.promise);
+  const view = render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Alpha 方案" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "分叉会话" }));
+  await waitFor(() => expect(api.manage).toHaveBeenCalled());
+  view.rerender(component({ projectId: 8 }));
+  await act(async () => pending.resolve("child"));
+  expect(api.open).not.toHaveBeenCalled();
+});
+
+it("cancels inline rename with Escape without saving", async () => {
+  render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Alpha 方案" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
+  const field = screen.getByRole("textbox", { name: "重命名会话" });
+  fireEvent.change(field, { target: { value: "unsaved" } });
+  fireEvent.keyDown(field, { key: "Escape" });
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(api.manage).not.toHaveBeenCalled();
 });

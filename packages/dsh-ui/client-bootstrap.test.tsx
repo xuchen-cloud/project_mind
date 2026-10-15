@@ -6,6 +6,7 @@ import * as chat from './upstream/client/ui-chat/src/client/index';
 import * as trajectory from './upstream/client/ui-trajectory/src/client/index';
 import * as commands from './upstream/client/ui-commands/src/client/index';
 import * as permissions from './upstream/client/ui-permission-presets/src/client/index';
+import type { ClientWorkspaceModel } from './upstream/api/workspace-controller/src/client/model';
 
 const fixture = vi.hoisted(() => {
   // Capture timing calls. vitest.profiler.config.mjs enables the module-level
@@ -507,6 +508,64 @@ it('invalidates the Session catalog for title, create, delete and order changes 
     await client.dispose();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(changes).toHaveBeenCalledTimes(5);
+  } finally { await client.dispose(); fixture.catalog = false; fixture.dual = false; }
+});
+
+it('invalidates the Session catalog for Workspace pins and archives without replay or runtime churn', async () => {
+  fixture.catalog = true; fixture.dual = true;
+  const client = await createDshClient(7);
+  const listener = vi.fn();
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+  try {
+    await waitFor(() => expect(client.ctx.sessions.list.getSnapshot().ids).toHaveLength(2));
+    // The service exposes the real model as its list; use its exported follow
+    // sink boundary so the original graph and model notifications stay active.
+    const model = client.ctx.workspaces.list as ClientWorkspaceModel;
+    const sessions = client.ctx.sessions.list.getSnapshot();
+    client.subscribe(listener);
+    listener.mockClear();
+    const baseline = { items: [], pinnedSessionIds: [], archivedSessionIds: [] };
+    model.replaceBaseline(baseline);
+    await settle();
+    expect(listener).not.toHaveBeenCalled();
+
+    model.replacePinned(['fixture-session', 'second-session']);
+    await settle();
+    expect(listener.mock.calls).toEqual([['sessionsChanged', undefined]]);
+    listener.mockClear();
+    model.replacePinned(['second-session', 'fixture-session']);
+    await settle();
+    expect(listener.mock.calls).toEqual([['sessionsChanged', undefined]]);
+    listener.mockClear();
+    model.replacePinned(['second-session']);
+    model.replaceArchived(['fixture-session']);
+    await settle();
+    expect(listener.mock.calls).toEqual([['sessionsChanged', undefined]]);
+    listener.mockClear();
+
+    const pinned = { ...baseline, pinnedSessionIds: ['second-session'], archivedSessionIds: ['fixture-session'] };
+    model.replaceBaseline(pinned);
+    model.handleCarrierFailure();
+    await settle();
+    model.replaceBaseline(pinned);
+    await settle();
+    expect(listener).not.toHaveBeenCalled();
+
+    model.replaceBaseline(baseline);
+    await settle();
+    expect(listener.mock.calls).toEqual([['sessionsChanged', undefined]]);
+    expect(client.ctx.sessions.list.getSnapshot()).toBe(sessions);
+    listener.mockClear();
+
+    model.replacePinned(['fixture-session']);
+    // Let the real model publish, then dispose before the adapter's queued work.
+    await Promise.resolve();
+    const disposing = client.dispose();
+    listener.mockClear();
+    await disposing;
+    model.replaceArchived(['second-session']);
+    await settle();
+    expect(listener).not.toHaveBeenCalled();
   } finally { await client.dispose(); fixture.catalog = false; fixture.dual = false; }
 });
 

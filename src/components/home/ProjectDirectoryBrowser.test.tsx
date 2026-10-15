@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ProjectFileMenuControls } from "../layout/ProjectSidebar";
 import type { ReactNode } from "react";
 import { useProjectFileNavigation } from "../../lib/project-file-navigation";
 import { ProjectDirectoryBrowser } from "./ProjectDirectoryBrowser";
@@ -8,7 +9,7 @@ import { HomeProjectFiles } from "./HomeProjectFiles";
 import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { list: vi.fn() } }));
-vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: ({ fileHeaderActions, fileContent, fileFilter }: { fileHeaderActions?: ReactNode; fileContent?: ReactNode; fileFilter?: { query: string; tagId: number | null } }) => <div><div>{fileHeaderActions}</div>{fileContent ?? <div>平铺文件：{fileFilter?.query}:{fileFilter?.tagId}</div>}</div> }));
+vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: ({ fileHeaderActions, fileContent, fileFilter }: { fileHeaderActions?: ReactNode; fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode); fileFilter?: { query: string; tagId: number | null } }) => <div><div>{fileHeaderActions}</div>{(typeof fileContent === "function" ? fileContent({ openContextMenu: vi.fn(), renderRenameInput: () => null }) : fileContent) ?? <div>平铺文件：{fileFilter?.query}:{fileFilter?.tagId}</div>}</div> }));
 const folder: ProjectDirectoryEntry = { name: "generated", relativePath: "generated", kind: "directory", bytes: 0 };
 const file: ProjectDirectoryEntry = { name: "result.txt", relativePath: "generated/result.txt", kind: "file", bytes: 20 };
 const project = { id: 7, name: "Project", rootPath: "/project" };

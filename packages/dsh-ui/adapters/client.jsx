@@ -171,28 +171,39 @@ export async function createDshClient(projectId) {
     const currentBusy = () => Object.values(ctx.sessions.list.getSnapshot().byId).some(item => item.running);
     const currentCatalog = () => {
       const { ids, byId } = ctx.sessions.list.getSnapshot();
+      const { pinnedSessionIds, archivedSessionIds } = ctx.workspaces.list.getSnapshot();
       // Only Host-list members belong to the native sidebar catalog. Retained
       // subagent fallbacks and runtime/ownership state must not trigger reloads.
-      return JSON.stringify(ids.map(id => [id, byId[id].title, byId[id].displayTitle, byId[id].updatedAt]));
+      return JSON.stringify([ids.map(id => [id, byId[id].title, byId[id].displayTitle, byId[id].updatedAt]),
+        pinnedSessionIds, archivedSessionIds]);
     };
     let catalog = currentCatalog();
-    let busyPending = false;
-    const unsubscribeList = ctx.sessions.list.subscribe(() => {
-      if (disposed || busyPending) return;
-      busyPending = true;
+    let listPending = false;
+    let runtimePending = false;
+    const scheduleListChange = () => {
+      if (disposed || listPending) return;
+      listPending = true;
       queueMicrotask(() => {
-        busyPending = false;
+        listPending = false;
         if (!disposed) {
           const nextCatalog = currentCatalog();
           if (nextCatalog !== catalog) {
             catalog = nextCatalog;
             notify('sessionsChanged');
           }
-          notify('busy', currentBusy());
-          notify('sessionRuns', currentSessionRuns());
+          if (runtimePending) {
+            runtimePending = false;
+            notify('busy', currentBusy());
+            notify('sessionRuns', currentSessionRuns());
+          }
         }
       });
+    };
+    const unsubscribeList = ctx.sessions.list.subscribe(() => {
+      runtimePending = true;
+      scheduleListChange();
     });
+    const unsubscribeWorkspaces = ctx.workspaces.list.subscribe(scheduleListChange);
     const unsubscribeStatus = ctx.remote.$on('api-session/status', (_id, running) => {
       if (!running) notify('filesChanged');
     });
@@ -255,6 +266,7 @@ export async function createDshClient(projectId) {
         disposed = true;
         lifetime.abort();
         unsubscribeList();
+        unsubscribeWorkspaces();
         unsubscribeStatus();
         notify('sessionRuns', {});
         listeners.clear();

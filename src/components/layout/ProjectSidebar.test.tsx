@@ -195,6 +195,27 @@ describe("ProjectSidebar", () => {
     expect(await screen.findByPlaceholderText("新增标签")).toBeInTheDocument();
   });
 
+  it("portals the file menu outside transformed ancestors and clamps its measured dimensions", async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("aria-label") === "文件操作"
+        ? { width: 240, height: 210, left: 0, top: 0, right: 240, bottom: 210, x: 0, y: 0, toJSON() {} }
+        : originalRect.call(this);
+    });
+    try {
+      const view = renderWithProviders(<div style={{ transform: "translateX(120px)" }}><ProjectSidebar filesOnly resident
+        project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={[buildDocument({ id: 41 })]} onOpenProject={vi.fn()} /></div>);
+      fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }), { clientX: window.innerWidth - 10, clientY: window.innerHeight - 10 });
+      const menu = await screen.findByRole("menu", { name: "文件操作" });
+      expect(menu.parentElement).toBe(document.body);
+      expect(view.container).not.toContainElement(menu);
+      expect(menu).toHaveStyle({ left: `${window.innerWidth - 252}px`, top: `${window.innerHeight - 222}px` });
+      expect(await within(menu).findByPlaceholderText("新增标签")).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(menu).not.toBeInTheDocument();
+    } finally { rect.mockRestore(); }
+  });
+
   it("chooses a sidebar file version without also opening the latest file", async () => {
     const document = buildDocument({ id: 29, name: "brief.pdf", baseName: "brief.pdf", currentVersionNumber: 2, versionCount: 2 });
     const versions = [2, 1].map(versionNumber => ({ id: versionNumber, documentId: 29, versionNumber, name: "brief.pdf", sourcePath: "/source", managedPath: "/managed", createdAt: "2026-10-15T10:00:00Z" }));

@@ -11,7 +11,7 @@ export function HomeProjectFiles({ filter, activeRelativePath, ...props }: Pick<
   return <div className="home-rail__files"><ProjectSidebar {...props}
     fileFilter={tree ? { query: "", tagId: null } : filter}
     fileHeaderActions={<button type="button" aria-label={label} title={label} onClick={() => setTree(value => !value)}>{tree ? <List size={16} /> : <ListTree size={16} />}</button>}
-    fileContent={tree ? <ProjectDirectoryBrowser activeRelativePath={activeRelativePath} key={props.project.rootPath} rootPath={props.project.rootPath} projectId={props.project.id} /> : undefined}
+    fileContent={tree ? controls => <ProjectDirectoryBrowser fileMenu={controls} documents={props.documents} activeRelativePath={activeRelativePath} key={props.project.rootPath} rootPath={props.project.rootPath} projectId={props.project.id} /> : undefined}
     filesOnly resident onOpenProject={() => undefined} />
   </div>;
 }

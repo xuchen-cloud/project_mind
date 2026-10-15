@@ -1,0 +1,2 @@
+.file-context-menu__panel { --home-sidebar:var(--color-bg); }
+.file-context-menu__panel .home-side__list > div { display:block; padding-right:0; }
