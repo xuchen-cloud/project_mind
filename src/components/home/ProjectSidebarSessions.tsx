@@ -12,6 +12,7 @@ export interface ProjectSidebarSessionsProps {
   projectId: number;
   query: string;
   enabled: boolean;
+  activeSessionId?: string | null;
 }
 
 type Session = Awaited<ReturnType<typeof dshAssistantApi.sessions>>[number];
@@ -21,7 +22,7 @@ export function ProjectSidebarSessions(props: ProjectSidebarSessionsProps) {
   return <ScopedSessions key={JSON.stringify([props.workspaceRoot, props.projectId, props.enabled])} {...props} />;
 }
 
-function ScopedSessions({ workspaceRoot, projectId, query, enabled }: ProjectSidebarSessionsProps) {
+function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessionId }: ProjectSidebarSessionsProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(enabled);
   const [opening, setOpening] = useState(false);
@@ -106,7 +107,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled }: ProjectSid
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}
       {loading ? <p role="status" className="home-side__empty">正在读取项目会话…</p> : null}
       {opening ? <p role="status" className="home-side__empty">正在打开会话…</p> : null}
-      {!loading && visible.map(session => <button key={session.id} type="button" className="home-side__item" title={session.title || "新会话"}
+      {!loading && visible.map(session => <button key={session.id} type="button" className={`home-side__item ${session.id === activeSessionId ? "is-active" : ""}`} aria-current={session.id === activeSessionId ? "true" : undefined} title={session.title || "新会话"}
         disabled={opening} onClick={() => { void open(session); }}>
         <AiChatIcon size={12} /><span>{session.title || "新会话"}</span>
         {sessionRuns?.[session.id] ? <span aria-label="运行中">运行中</span> : null}

@@ -63,6 +63,7 @@ import {
 } from "./lib/richTextStyle";
 import { projectMindApi } from "./services/projectMindApi";
 import { desktopApi } from "./services/desktopApi";
+import { voiceApi } from "./services/voiceApi";
 import { useFeedbackStore } from "./state/feedback-store";
 import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
@@ -510,6 +511,8 @@ export function WorkspaceLayout({
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
   const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
+  const voiceRecordCreatingRef = useRef(false);
+  const [creatingVoiceRecord, setCreatingVoiceRecord] = useState(false);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
@@ -958,6 +961,30 @@ export function WorkspaceLayout({
     },
     [activeProjectId, currentWorkspace?.rootPath, queryClient, refreshProjectScope],
   );
+
+  const createProjectSidebarVoiceRecord = useCallback(async () => {
+    if (activeProjectId === null || voiceRecordCreatingRef.current) return;
+    voiceRecordCreatingRef.current = true;
+    setCreatingVoiceRecord(true);
+    try {
+      const snapshot = await voiceApi.start({ target: { scope: "project", projectId: activeProjectId }, requestId: crypto.randomUUID() });
+      await refreshProjectScope(queryClient, activeProjectId);
+      await queryClient.invalidateQueries({ queryKey: ["voice-playback"] });
+      if (snapshot.projectNoteId !== null) {
+        navigate(preserveRecordFilters(recordPath(activeProjectId, snapshot.projectNoteId), location.search));
+      }
+      try {
+        await desktopApi.openVoiceCaptionWindow();
+      } catch (error) {
+        pushToast({ tone: "error", title: "无法打开录音浮窗", detail: String(error) });
+      }
+    } catch (error) {
+      pushToast({ tone: "error", title: "新增语音记录失败", detail: String(error) });
+    } finally {
+      voiceRecordCreatingRef.current = false;
+      setCreatingVoiceRecord(false);
+    }
+  }, [activeProjectId, location.search, navigate, pushToast, queryClient, refreshProjectScope]);
 
   const createProjectSidebarRecord = useCallback(async () => {
     if (activeProjectId === null) {
@@ -1562,12 +1589,13 @@ export function WorkspaceLayout({
             projectId={activeProject.id} projectName={activeProject.name} workspaceRoot={currentWorkspace.rootPath}
             project={activeProject} documents={projectSidebarDocuments}
             records={projectSidebarOverviewQuery.data?.records ?? []} selectedTagId={projectRecordTagId}
-            activeRecordId={activeRecordId}
             onTagChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenWorkspace={() => navigate(workspacePath())}
             onOpenProject={() => navigate(preserveRecordFilters(`${projectPath(activeProject.id)}?view=overview`, location.search))}
             onOpenRecord={(recordId) => navigate(preserveRecordFilters(recordPath(activeProject.id, recordId), location.search))}
             onCreateRecord={() => void createProjectSidebarRecord()}
+            onCreateVoiceRecord={() => void createProjectSidebarVoiceRecord()}
+            creatingVoiceRecord={creatingVoiceRecord}
             onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
             onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }} /></Suspense>
         ) : showProjectSidebarShell ? (
@@ -1595,6 +1623,8 @@ export function WorkspaceLayout({
             onCreateRecord={() => {
               void createProjectSidebarRecord();
             }}
+            onCreateVoiceRecord={() => void createProjectSidebarVoiceRecord()}
+            creatingVoiceRecord={creatingVoiceRecord}
             onOpenRecord={(recordId) => {
               void (async () => {
                 const isProjectRecordFocusPage =

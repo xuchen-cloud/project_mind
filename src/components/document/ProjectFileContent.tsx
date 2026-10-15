@@ -19,6 +19,7 @@ const OfficeFileContent = lazy(() => import("../office/OfficeFileContent").then(
 export interface ProjectFileView { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceLocator?: NonNullable<AgentSourceRef["locator"]>; sourceMode?: boolean }
 export interface ProjectFileContentProps {
   workspaceRoot: string; projectId: number; fileId: number; versionNumber?: number; line?: number; page?: number;
+  fileName?: string;
   /** View for the selected File version; zoom 0 means fit width. */
   initialView?: { scrollTop?: number; zoom?: number };
   initialSourceMode?: boolean;
@@ -53,7 +54,7 @@ function message(error: unknown): string {
 export function ProjectFileContent(props: ProjectFileContentProps) {
   return <FileContent key={`${props.workspaceRoot}:${props.projectId}:${props.fileId}`} {...props} />;
 }
-function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery, registerCloseGuard }: ProjectFileContentProps) {
+function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery, registerCloseGuard }: ProjectFileContentProps) {
   const queryClient = useQueryClient();
   const officeFlush = useRef<(() => Promise<void>) | null>(null);
   const officeDirty = useRef(false);
@@ -265,7 +266,7 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
       {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" className="project-file-content__icon-button" aria-label={source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
       {valid?.kind === "office" ? <span ref={setOfficeToolbar} className="project-file-content__office-actions" /> : null}
       <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" /></button>
-      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} visible={visible} beforeOpen={flushOffice}
+      <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} fileName={fileName} visible={visible} beforeOpen={flushOffice}
         onOpen={() => void openExternal()} opening={opening}
         title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : undefined} />
       {toolbarActions}

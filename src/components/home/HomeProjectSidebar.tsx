@@ -1,3 +1,5 @@
+import { usePrefetchFileApplications } from "../../hooks/useFileApplications";
+import { useFocusedProjectContent } from "./useFocusedProjectContent";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "./SidebarTagItem";
 import { HomeSidebarList } from "./HomeSidebarList";
@@ -6,7 +8,7 @@ import { ProjectSidebarSessions } from "./ProjectSidebarSessions";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Compass, Plus, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, Compass, Mic, Plus, Pencil, Trash2 } from "lucide-react";
 import type { NoteRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -19,7 +21,7 @@ import "./project-navigation.css";
 
 export function HomeProjectSidebar({
   projectId, projectName, workspaceRoot, project, documents, records, selectedTagId,
-  onTagChange, onOpenProject, onOpenWorkspace, onOpenRecord, onCreateRecord, activeRecordId, onRenameRecord, onDeleteRecord,
+  onTagChange, onOpenProject, onOpenWorkspace, onOpenRecord, onCreateRecord, onCreateVoiceRecord, creatingVoiceRecord = false, onRenameRecord, onDeleteRecord,
 }: {
   projectId: number;
   projectName: string;
@@ -28,15 +30,18 @@ export function HomeProjectSidebar({
   documents: ComponentProps<typeof HomeProjectFiles>["documents"];
   records: NoteRecord[];
   selectedTagId: number | null;
-  activeRecordId?: number | null;
   onTagChange: (tagId: number | null) => void;
   onOpenProject: () => void;
   onOpenWorkspace: () => void;
   onOpenRecord: (recordId: number) => void;
   onCreateRecord: () => void;
+  onCreateVoiceRecord?: () => void;
+  creatingVoiceRecord?: boolean;
   onRenameRecord?: (id: number, title: string) => Promise<unknown>;
   onDeleteRecord?: (id: number) => Promise<unknown>;
 }) {
+  usePrefetchFileApplications(workspaceRoot, projectId, documents ?? []);
+  const { activeRecordId, activeSessionId, activeFileId, activeRelativePath } = useFocusedProjectContent(workspaceRoot, projectId);
   const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
   const pushToast = useFeedbackStore(state => state.pushToast);
   const [query, setQuery] = useState("");
@@ -81,7 +86,10 @@ export function HomeProjectSidebar({
     </section>
     <div className="project-navigation__modules">
       <section className="project-navigation__section" aria-label="项目记录">
-        <div className="home-side__heading"><span>记录</span><button type="button" aria-label="新增记录" onClick={onCreateRecord}><Plus size={16} /></button></div>
+        <div className="home-side__heading"><span>记录</span><div className="home-side__heading-actions">
+          {onCreateVoiceRecord ? <button type="button" aria-label="新增语音记录" title="新增语音记录" disabled={creatingVoiceRecord} onClick={onCreateVoiceRecord}><Mic size={16} /></button> : null}
+          <button type="button" aria-label="新增记录" onClick={onCreateRecord}><Plus size={16} /></button>
+        </div></div>
         <HomeSidebarList label="项目记录列表" searchKey={`${query}:${selectedTagId}`}>
           {visibleRecords.map(record => editing?.id === record.id ? <input key={record.id} className="home-side__rename" aria-label="重命名记录" autoFocus value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })}
             onBlur={() => { void onRenameRecord?.(editing.id, editing.title).catch(error => pushToast({ tone: "error", title: "重命名记录失败", detail: String(error) })); setEditing(null); }} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditing(null); }} /> :
@@ -91,8 +99,8 @@ export function HomeProjectSidebar({
           {!visibleRecords.length ? <p className="home-side__empty">{query.trim() || selectedTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
         </HomeSidebarList>
       </section>
-      <ProjectSidebarSessions workspaceRoot={workspaceRoot} projectId={projectId} query={query} enabled={!projectSidebarCollapsed} />
-      <section className="project-navigation__section project-navigation__files" aria-label="项目文件导航"><HomeProjectFiles project={project} documents={documents} filter={{ query, tagId: selectedTagId }} /></section>
+      <ProjectSidebarSessions activeSessionId={activeSessionId} workspaceRoot={workspaceRoot} projectId={projectId} query={query} enabled={!projectSidebarCollapsed} />
+      <section className="project-navigation__section project-navigation__files" aria-label="项目文件导航"><HomeProjectFiles activeFileId={activeFileId} activeRelativePath={activeRelativePath} project={project} documents={documents} filter={{ query, tagId: selectedTagId }} /></section>
     </div>
     <HomeSidebarFooter />
     {menu ? <ActionContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[

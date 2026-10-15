@@ -24,6 +24,7 @@ import { projectFileApi } from "./services/projectFileApi";
 import { openProjectFilePreview, useProjectFileNavigation } from "./lib/project-file-navigation";
 import { projectDirectoryApi } from "./services/projectDirectoryApi";
 import { dshAssistantApi } from "./services/dshAssistantApi";
+import { voiceApi } from "./services/voiceApi";
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { getContentLayout } from "./lib/project-content-layout";
 import { useProjectContentStore } from "./state/project-content-store";
@@ -74,6 +75,7 @@ vi.mock("./services/desktopApi", () => ({
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
     prepareVoiceLeave: vi.fn(async () => true),
+    openVoiceCaptionWindow: vi.fn(async () => undefined),
     listenForCloseRequest: vi.fn(async () => () => undefined),
     listenForWorkspaceLifecycleFlush: vi.fn(async () => () => undefined),
     flushOtherWorkspaceWindows: vi.fn(async () => undefined),
@@ -391,19 +393,19 @@ describe("WorkspaceLayout", () => {
       const preview = screen.getByRole("region", { name: "项目文件预览" });
       expect(preview).toHaveTextContent("retained version 2");
     }, { timeout: 5000 });
-    expect(screen.getByLabelText("文件查看版本")).toHaveValue("2");
+    expect(screen.getByRole("button", { name: "文件查看版本" })).toHaveTextContent("v2");
     expect(recordPage).not.toBeVisible(); expect(recordPage).toBeInTheDocument();
     expect(document.querySelector('[data-project-resident-id="7"]')).toBe(projectShell);
     const fileTab = screen.getByRole("tab", { name: /context.txt/ }); const pageId = fileTab.getAttribute("aria-controls");
     expect(router.state.location.pathname).toBe("/projects/7"); expect(router.state.location.search).toContain("content=");
     act(() => openFilePreview({ ...request, versionNumber: undefined }));
     await waitFor(() => expect(useFilePreviewStore.getState().request).toBeNull());
-    expect(screen.getByLabelText("文件查看版本")).toHaveValue("2");
+    expect(screen.getByRole("button", { name: "文件查看版本" })).toHaveTextContent("v2");
     act(() => openProjectFilePreview(7, "/tmp/project-7/notes/context.txt", 4));
     await waitFor(() => expect(useProjectFileNavigation.getState().request).toBeNull());
     expect(screen.getByRole("tab", { name: /context.txt/ })).toHaveAttribute("aria-controls", pageId!);
     expect(projectFileApi.register).toHaveBeenCalledWith({ workspaceId: "fixture-workspace", generation: "open-1" }, 7, "notes/context.txt");
-    expect(screen.getByLabelText("文件查看版本")).toHaveValue("2");
+    expect(screen.getByRole("button", { name: "文件查看版本" })).toHaveTextContent("v2");
     expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: 7 }).tabs).toHaveLength(2);
     await act(() => router.navigate("/projects/8"));
     expect(projectShell).not.toBeVisible();
@@ -1174,6 +1176,52 @@ describe("WorkspaceLayout", () => {
 
     expect(await screen.findByText("project route body")).toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Projects" })).not.toBeInTheDocument();
+  });
+
+  it.each(["success", "start failure", "window failure"])("creates a project voice record from the sidebar (%s)", async (outcome) => {
+    const project = { id: 1, name: "Alpha", kind: "normal" as const, status: "active", rootPath: "/tmp/project-1", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 };
+    const page = { project, records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([project]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue(page);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(queryKeys.projects.all, [project]);
+    client.setQueryData(queryKeys.projectPage(1), page);
+    client.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    let completeStart!: () => void;
+    const start = vi.spyOn(voiceApi, "start").mockImplementation(() => new Promise((resolve, reject) => {
+      completeStart = () => outcome === "start failure" ? reject(new Error("麦克风权限未授予")) : resolve({ sessionId: "voice-1", revision: 1, phase: "recording", activeMs: 0, pauseReason: null, interimText: null, projectNoteId: 99, workspaceNoteId: null });
+    }));
+    vi.mocked(desktopApi.openVoiceCaptionWindow).mockImplementation(async () => {
+      if (outcome === "window failure") throw new Error("浮窗创建失败");
+    });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [
+      { path: "projects/:projectId", element: <div>project body</div> },
+      { path: "projects/:projectId/records/:noteId", element: <div>voice record body</div> },
+    ] }], { initialEntries: ["/projects/1"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    const mic = within(sidebar).getByRole("button", { name: "新增语音记录" });
+    fireEvent.click(mic);
+    expect(mic).toBeDisabled();
+    fireEvent.click(mic);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith({ target: { scope: "project", projectId: 1 }, requestId: expect.any(String) });
+    await act(async () => completeStart());
+    if (outcome === "start failure") {
+      expect(await screen.findByText("新增语音记录失败")).toBeInTheDocument();
+      expect(screen.getByText("Error: 麦克风权限未授予")).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/projects/1");
+      expect(desktopApi.openVoiceCaptionWindow).not.toHaveBeenCalled();
+      expect(mic).toBeEnabled();
+    } else {
+      await waitFor(() => expect(router.state.location.pathname).toBe("/projects/1/records/99"));
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.projectPage(1) });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["voice-playback"] });
+      expect(desktopApi.openVoiceCaptionWindow).toHaveBeenCalledTimes(1);
+      if (outcome === "window failure") expect(await screen.findByText("无法打开录音浮窗")).toBeInTheDocument();
+    }
+    expect(recordMocks.create).not.toHaveBeenCalled();
   });
 
   it("creates a project record from the sidebar and opens its focus page", async () => {

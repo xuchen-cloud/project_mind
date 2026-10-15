@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useProjectFileNavigation } from "../../lib/project-file-navigation";
+import { ProjectDirectoryBrowser } from "./ProjectDirectoryBrowser";
 import { HomeProjectFiles } from "./HomeProjectFiles";
 import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 
@@ -105,4 +106,26 @@ it("refreshes expanded directories after external files are copied in", async ()
   await act(async () => { await view.client.invalidateQueries(); });
   expect(await screen.findByRole("button", { name: /copied.md/ })).toBeVisible();
   expect(within(screen.getByRole("region", { name: "项目目录内容" })).getByRole("button", { name: "generated" })).toBeVisible();
+});
+
+it("expands only ancestors of the focused path and follows focus without optimistic selection", async () => {
+  const sibling = { ...file, name: "other.txt", relativePath: "generated/other.txt" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, relative) => relative === "generated" ? [file, sibling] : [folder]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const component = (path: string | null) => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project" activeRelativePath={path} /></QueryClientProvider>;
+  const view = render(component(file.relativePath));
+  const selected = await screen.findByRole("button", { name: "result.txt" });
+  const other = screen.getByRole("button", { name: "other.txt" });
+  expect(selected).toHaveClass("is-active");
+  expect(screen.getByRole("button", { name: "generated" })).toHaveAttribute("aria-expanded", "true");
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText("交付", { exact: true })).toBeNull();
+  fireEvent.click(other);
+  expect(selected).toHaveClass("is-active");
+  expect(other).not.toHaveClass("is-active");
+  view.rerender(component(sibling.relativePath));
+  expect(selected).not.toHaveClass("is-active");
+  expect(other).toHaveClass("is-active");
+  view.rerender(component(null));
+  expect(other).not.toHaveClass("is-active");
 });
