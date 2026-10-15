@@ -67,9 +67,10 @@ fn imported_file_location_first_resolve_freezes_managed_copy_and_adopted_head() 
         assert_eq!(first.object, object);
         assert_eq!(first.version_number, 1);
         assert_eq!(bytes(&db, &first), b"presentation original bytes");
-        fs::write(
+        fs::write(path.join("replacement.pptx"), b"edited after first opening").unwrap();
+        fs::rename(
+            path.join("replacement.pptx"),
             path.join("Presentation12.pptx"),
-            b"edited after first opening",
         )
         .unwrap();
         let second = db.project_file_resolve(&object).unwrap();
@@ -200,7 +201,7 @@ fn directory_file_register_is_idempotent_keeps_location_and_reads_binary_snapsho
 }
 
 #[test]
-fn directory_file_external_edits_keep_old_bytes_and_replacement_requires_confirmation() {
+fn directory_file_external_edits_and_atomic_replacement_keep_old_snapshots() {
     let (_root, mut db, project, path) = fixture();
     fs::write(path.join("note.txt"), b"first").unwrap();
     let first = db
@@ -212,33 +213,88 @@ fn directory_file_external_edits_keep_old_bytes_and_replacement_requires_confirm
     assert_eq!(second.version_number, 2);
     assert_eq!(bytes(&db, &first), b"first");
     assert_eq!(bytes(&db, &second), b"second");
+    let before = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: first.object.id.parse().unwrap(),
+        })
+        .unwrap();
     fs::write(path.join("replacement"), b"third").unwrap();
     fs::rename(path.join("replacement"), path.join("note.txt")).unwrap();
-    let ambiguous = db.project_file_resolve(&first.object).unwrap();
-    assert_eq!(ambiguous.state, "ambiguous");
-    assert_eq!(ambiguous.version_number, 2);
+    let accepted = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(accepted.state, "ready", "{:?}", accepted.reason);
+    assert_eq!(accepted.object, first.object);
+    assert_eq!(accepted.version_number, 3);
+    assert_eq!(bytes(&db, &first), b"first");
     assert_eq!(bytes(&db, &second), b"second");
+    assert_eq!(bytes(&db, &accepted), b"third");
+    let after = db
+        .document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: first.object.id.parse().unwrap(),
+        })
+        .unwrap();
+    for old in before {
+        let retained = after.iter().find(|version| version.id == old.id).unwrap();
+        assert_eq!(retained.managed_path, old.managed_path);
+    }
     let rejected = db
         .project_file_reconcile(
             &first.object,
             "note.txt",
-            2,
-            second.content_hash.as_ref().unwrap(),
-            "location",
-        )
-        .unwrap_err();
-    assert_eq!(FileServiceError::from_error(rejected).code, "hash_mismatch");
-    let confirmed = db
-        .project_file_reconcile(
-            &first.object,
-            "note.txt",
-            2,
-            second.content_hash.as_ref().unwrap(),
+            second.version_number,
+            second.content_hash.as_deref().unwrap(),
             "replacement",
         )
+        .unwrap_err();
+    assert_eq!(
+        FileServiceError::from_error(rejected).code,
+        "revision_conflict"
+    );
+    assert_eq!(fs::read(path.join("note.txt")).unwrap(), b"third");
+}
+
+#[test]
+fn directory_file_atomic_replacement_rejects_stale_save_baseline() {
+    let (_root, db, project, path) = fixture();
+    fs::write(path.join("live.txt"), b"old").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "live.txt")
         .unwrap();
-    assert_eq!(confirmed.version_number, 3);
-    assert_eq!(bytes(&db, &confirmed), b"third");
+    fs::write(path.join("replacement"), b"external").unwrap();
+    fs::rename(path.join("replacement"), path.join("live.txt")).unwrap();
+    let current = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(current.version_number, 2);
+    let staged = path.join("draft.txt");
+    fs::write(&staged, b"unsaved draft").unwrap();
+    let mut request = restore_request(project);
+    request.request_id = "stale-save".into();
+    request.scope_grant.operations.push("file.update".into());
+    let update = file_versions::FileVersionUpdate {
+        object: first.object.clone(),
+        expected_version_number: first.version_number,
+        expected_content_hash: first.content_hash.clone().unwrap(),
+        new_content_hash: file_versions::checksum(&staged).unwrap(),
+    };
+    let watermark = db.committed_change_watermark().unwrap();
+    let error = db
+        .project_file_staged_directory_bound(
+            &request,
+            &request.binding,
+            &update,
+            "stale-stage",
+            &staged,
+            &crate::workspace_commit_fence::WorkspaceCommitFence::new(),
+            &|| Ok(()),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        crate::agent::errors::ErrorCode::RevisionConflict
+    );
+    assert_eq!(fs::read(path.join("live.txt")).unwrap(), b"external");
+    assert_eq!(fs::read(staged).unwrap(), b"unsaved draft");
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    assert_eq!(bytes(&db, &first), b"old");
+    assert_eq!(bytes(&db, &current), b"external");
 }
 
 #[test]
@@ -789,18 +845,38 @@ fn directory_file_same_bytes_replacement_keeps_registered_snapshot_path() {
         .unwrap();
     fs::write(path.join("atomic.bin"), b"same").unwrap();
     fs::rename(path.join("atomic.bin"), path.join("live.bin")).unwrap();
+    let snapshot_dir = db
+        .document_record(first.object.id.parse().unwrap())
+        .unwrap()
+        .history_dir_path;
+    let snapshots = fs::read_dir(&snapshot_dir).unwrap().count();
+    let accepted = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(accepted.state, "ready");
+    assert_eq!(accepted.version_number, first.version_number);
+    assert_eq!(accepted.content_hash, first.content_hash);
+    let watermark = db.committed_change_watermark().unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            db.project_file_resolve(&first.object).unwrap().state,
+            "ready"
+        );
+        assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+        assert_eq!(fs::read_dir(&snapshot_dir).unwrap().count(), snapshots);
+    }
+    let physical: String = db
+        .conn
+        .query_row(
+            "SELECT physical_identity FROM project_directory_files WHERE document_id=?1",
+            [first.object.id.parse::<i64>().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(
-        db.project_file_resolve(&first.object).unwrap().state,
-        "ambiguous"
+        physical,
+        serde_json::to_string(&file_versions::path_identity(&path.join("live.bin")).unwrap())
+            .unwrap()
     );
-    db.project_file_reconcile(
-        &first.object,
-        "live.bin",
-        1,
-        first.content_hash.as_ref().unwrap(),
-        "replacement",
-    )
-    .unwrap();
+    assert_eq!(bytes(&db, &first), b"same");
     let after = db
         .document_list_versions(crate::models::DocumentListVersionsInput {
             document_id: first.object.id.parse().unwrap(),
@@ -826,11 +902,18 @@ fn directory_file_open_local_uses_only_ready_live_file_and_ignores_preview_budge
     .unwrap();
     fs::write(path.join("replacement"), b"foreign").unwrap();
     fs::rename(path.join("replacement"), path.join("large.unknown")).unwrap();
-    assert!(db
-        .project_file_open_local_with(&file.object, |_| panic!(
-            "ambiguous live bytes must not open"
-        ))
-        .is_err());
+    db.project_file_open_local_with(&file.object, |actual| {
+        assert_eq!(actual, path.join("large.unknown"));
+        assert_eq!(fs::read(actual).unwrap(), b"foreign");
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        db.project_file_resolve(&file.object)
+            .unwrap()
+            .version_number,
+        2
+    );
     fs::remove_file(path.join("large.unknown")).unwrap();
     assert!(db
         .project_file_open_local_with(&file.object, |_| panic!(
@@ -1338,7 +1421,9 @@ fn directory_file_restore_process_crashes_never_overwrite_foreign_live_files() {
         if live.exists() {
             fs::rename(&live, root.path().join("Files/displaced.bin")).unwrap();
         }
-        // Matching bytes still do not authorize a foreign physical identity.
+        // An uncommitted recovery must not adopt a foreign physical identity.
+        // After SQL committed, cleanup can finish before normal same-path
+        // reconciliation accepts an external replacement without writing it.
         let foreign_bytes = if stage == 2 {
             RESTORE_CURRENT_BYTES
         } else {
@@ -1346,9 +1431,11 @@ fn directory_file_restore_process_crashes_never_overwrite_foreign_live_files() {
         };
         fs::write(&live, foreign_bytes).unwrap();
         let identity = file_versions::path_identity(&live).unwrap();
+        let expected_state = if stage == 4 { "ready" } else { "ambiguous" };
         assert_eq!(
             db.project_file_resolve(&first.object).unwrap().state,
-            "ambiguous"
+            expected_state,
+            "restore stage {stage}"
         );
         assert_eq!(fs::read(&live).unwrap(), foreign_bytes);
         assert_eq!(file_versions::path_identity(&live).unwrap(), identity);
@@ -1375,7 +1462,7 @@ fn directory_file_restore_process_crashes_never_overwrite_foreign_live_files() {
         let db = directory_restore_crash_open(root.path());
         assert_eq!(
             db.project_file_resolve(&first.object).unwrap().state,
-            "ambiguous"
+            expected_state
         );
         assert_eq!(db.committed_change_watermark().unwrap(), watermark);
         assert_eq!(fs::read(&live).unwrap(), foreign_bytes);
@@ -1999,6 +2086,79 @@ fn hidden_native_project_page_hides_legacy_directory_descendant_and_retains_reco
         "native-folder/nested/ordinary.txt",
         Some("native-folder"),
     );
+}
+
+#[test]
+fn directory_file_atomic_replacement_cannot_claim_another_files_physical_identity() {
+    for cross_project in [false, true] {
+        for owner_missing in [false, true] {
+            for same_bytes in [false, true] {
+                let (_root, mut db, project, path) = fixture();
+                let (owner_project, owner_root) = if cross_project {
+                    let other = db
+                        .project_create(ProjectCreateInput {
+                            name: "Other".into(),
+                            summary: None,
+                            status: None,
+                        })
+                        .unwrap();
+                    (other.id, PathBuf::from(other.root_path))
+                } else {
+                    (project, path.clone())
+                };
+                let live = path.join("target.bin");
+                let owner_path = owner_root.join("owner.bin");
+                fs::write(&live, b"target").unwrap();
+                fs::write(
+                    &owner_path,
+                    if same_bytes {
+                        b"target".as_slice()
+                    } else {
+                        b"owner".as_slice()
+                    },
+                )
+                .unwrap();
+                let target = db
+                    .project_file_register("wp1-workspace", project, "target.bin")
+                    .unwrap();
+                let owner = db
+                    .project_file_register("wp1-workspace", owner_project, "owner.bin")
+                    .unwrap();
+                let versions = db
+                    .document_list_versions(crate::models::DocumentListVersionsInput {
+                        document_id: target.object.id.parse().unwrap(),
+                    })
+                    .unwrap();
+                if owner_missing {
+                    fs::rename(&owner_path, &live).unwrap();
+                    assert_eq!(
+                        db.project_file_resolve(&owner.object).unwrap().state,
+                        "missing"
+                    );
+                } else {
+                    let staged = path.join("replacement.bin");
+                    fs::hard_link(&owner_path, &staged).unwrap();
+                    fs::rename(&staged, &live).unwrap();
+                }
+                let error = db.project_file_resolve(&target.object).unwrap_err();
+                assert_eq!(FileServiceError::from_error(error).code, "ownership_mismatch",
+                    "cross_project={cross_project}, owner_missing={owner_missing}, same_bytes={same_bytes}");
+                let after = db
+                    .document_list_versions(crate::models::DocumentListVersionsInput {
+                        document_id: target.object.id.parse().unwrap(),
+                    })
+                    .unwrap();
+                assert_eq!(after.len(), versions.len());
+                assert_eq!(after[0].managed_path, versions[0].managed_path);
+                assert_eq!(bytes(&db, &target), b"target");
+                assert!(db
+                    .project_file_open_local_with(&target.object, |_| panic!(
+                        "foreign File must not open"
+                    ))
+                    .is_err());
+            }
+        }
+    }
 }
 
 fn temporary_scan_excludes_editor_files(only_new: bool) {
