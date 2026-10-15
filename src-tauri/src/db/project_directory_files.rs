@@ -534,6 +534,7 @@ impl Database {
             &restore::DirectoryReplaceInput,
         )>,
     ) -> Result<DirectoryFile> {
+        let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let root = self.directory_owner(workspace, project)?;
         let relative = file_versions::relative(&root, path)?.replace('\\', "/");
         business_path(&root, &relative)?;
@@ -578,16 +579,26 @@ impl Database {
                 "Imported File changed before its first snapshot; confirm replacement",
             );
         }
-        {
-            if !replacement {
-                let known: Option<String> = self.conn.query_row("SELECT physical_identity FROM project_directory_files WHERE document_id=?1",[document.id],|r| r.get(0)).optional()?;
-                if known.is_some_and(|known| known != serde_json::to_string(&physical).unwrap()) {
-                    return self.directory_state(
-                        existing,
-                        "ambiguous",
-                        "Physical identity changed; confirm replacement or relocation",
-                    );
-                }
+        if !replacement {
+            let known: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT physical_identity FROM project_directory_files WHERE document_id=?1",
+                    [document.id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            // Only directory Files have an immutable head already. Imported
+            // heads still reference live bytes until their first freeze.
+            if known.as_deref().is_none_or(str::is_empty)
+                || (document.storage_mode != "project_directory"
+                    && known.as_deref() != Some(&serde_json::to_string(&physical)?))
+            {
+                return self.directory_state(
+                    existing,
+                    "ambiguous",
+                    "Physical identity changed; confirm replacement or relocation",
+                );
             }
         }
         let new_version = if previous_hash.as_ref() == Some(&hash) {
@@ -694,6 +705,8 @@ impl Database {
         self.directory_projection(&object)
     }
     fn directory_refresh(&self, object: &ObjectRef) -> Result<DirectoryFile> {
+        let (_, id) = file_id(object)?;
+        let _file_lock = self.file_version_lock(id)?;
         let (document, root) = self.directory_target(object)?;
         let path = PathBuf::from(&document.managed_path);
         let relative = path
@@ -724,7 +737,9 @@ impl Database {
                 |r| r.get(0),
             )
             .optional()?;
-        if known.as_deref() != Some(&identity) {
+        if known.as_deref().is_none_or(str::is_empty)
+            || (document.storage_mode != "project_directory" && known.as_deref() != Some(&identity))
+        {
             return self.directory_state(
                 object,
                 "ambiguous",
@@ -744,12 +759,13 @@ impl Database {
         }
         let hash = file_versions::checksum(&path)?;
         if document.storage_mode != "project_directory" {
-            return self.directory_publish(
+            return self.directory_publish_locked(
                 &object.workspace_id,
                 document.project_id,
                 &path,
                 object,
                 false,
+                None,
                 None,
             );
         }
@@ -763,24 +779,50 @@ impl Database {
                 [document.id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
-            if old.0 != "ready" || old.1.is_some() || document.health != "normal" {
-                let tx = self.conn.unchecked_transaction()?;
-                tx.execute("UPDATE project_directory_files SET state='ready',reason=NULL WHERE document_id=?1",[document.id])?;
-                tx.execute(
-                    "UPDATE documents SET health='normal' WHERE id=?1",
-                    [document.id],
-                )?;
-                self.directory_change(&tx, object, "file.directory.state", "ready")?;
-                tx.commit()?;
+            if known.as_deref() == Some(&identity)
+                && old.0 == "ready"
+                && old.1.is_none()
+                && document.health == "normal"
+            {
+                if serde_json::to_string(&file_versions::path_identity(&path)?)? != identity {
+                    return Err(failure(
+                        "source_changed",
+                        "File changed during registration",
+                    ));
+                }
+                return self.directory_projection(object);
             }
+            let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
+            let tx = rusqlite::Transaction::new_unchecked(
+                &self.conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            self.directory_unclaimed(&path, object)?;
+            tx.execute("UPDATE project_directory_files SET physical_identity=?2,state='ready',reason=NULL WHERE document_id=?1",params![document.id,identity])?;
+            tx.execute(
+                "UPDATE documents SET health='normal' WHERE id=?1",
+                [document.id],
+            )?;
+            self.directory_change(&tx, object, "file.directory.state", "ready")?;
+            if serde_json::to_string(&file_versions::path_identity(&path)?)? != identity
+                || file_versions::checksum(&path)? != hash
+            {
+                return Err(failure(
+                    "source_changed",
+                    "File changed during registration",
+                ));
+            }
+            business_path(&root, &relative)?;
+            tx.commit()?;
             return self.directory_projection(object);
         }
-        self.directory_publish(
+        self.directory_publish_locked(
             &object.workspace_id,
             document.project_id,
             &path,
             object,
             false,
+            None,
             None,
         )
     }
@@ -874,6 +916,19 @@ impl Database {
                 return Err(failure(
                     "ownership_mismatch",
                     "Selected target belongs to another File",
+                ));
+            }
+        }
+        if let Some(identity) = target_identity {
+            let identity = serde_json::to_string(&identity)?;
+            let registered: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM project_directory_files WHERE document_id!=?1 AND physical_identity=?2)",
+                params![id, identity], |row| row.get(0),
+            )?;
+            if registered {
+                return Err(failure(
+                    "ownership_mismatch",
+                    "Selected physical target is registered to another File",
                 ));
             }
         }

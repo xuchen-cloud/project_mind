@@ -6,6 +6,7 @@ import {projectFileApi} from '../../services/projectFileApi';
 import {fileDocumentApi} from '../../services/fileDocumentApi';
 import {recordDocumentApi} from '../../services/recordDocumentApi';
 import {officeFileApi} from '../../services/officeFileApi';
+import {queryKeys} from '../../lib/queryKeys';
 vi.mock('../../services/fileDocumentApi',()=>({fileDocumentApi:{versionsList:vi.fn()}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:vi.fn()}}));
 vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn(),applications:vi.fn(),openWith:vi.fn(),openLocal:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
@@ -30,8 +31,35 @@ beforeEach(()=>{
 function mount(){
  const client=new QueryClient();let close:()=>Promise<void>=async()=>{};
  const wrap=(visible=true)=><QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible={visible} focused registerCloseGuard={guard=>{close=guard;return()=>{};}}/></QueryClientProvider>;
- const view=render(wrap());return{...view,wrap,close:()=>close()};
+ const view=render(wrap());return{...view,client,wrap,close:()=>close()};
 }
+it('revalidates a clean Office tab against an externally registered version',async()=>{
+ const view=mount();await screen.findByText('原文');
+ current=3;
+ vi.mocked(officeFileApi.inspect).mockResolvedValueOnce({model:{format:'docx',nodes:[{id:'p0',text:'外部保存的内容'}]}} as never);
+ fireEvent.click(screen.getByRole('button',{name:'刷新',exact:true}));
+ await screen.findByText('外部保存的内容');
+ expect(screen.getByRole('button',{name:'文件查看版本'})).toHaveTextContent('v3');
+ expect(officeFileApi.inspect).toHaveBeenLastCalledWith(binding,{object,versionNumber:3,expectedContentHash:'hash3'});
+ expect(officeFileApi.save).not.toHaveBeenCalled();view.unmount();
+});
+it('keeps an unsaved Office draft and its baseline when an external version arrives',async()=>{
+ const view=mount();await screen.findByText('原文');
+ fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
+ current=3;
+ // The native change notification invalidates this cache entry after resolve.
+ view.client.setQueryData(queryKeys.documentVersions(7),[]);
+ await act(async()=>{await view.client.invalidateQueries({queryKey:queryKeys.documentVersions(7)});});
+ expect(screen.getByText('保留草稿')).toBeVisible();
+ expect(officeFileApi.inspect).toHaveBeenCalledOnce();
+ vi.mocked(officeFileApi.save).mockRejectedValue(new Error('文件已在外部修改，请处理保存冲突'));
+ fireEvent.click(screen.getByRole('button',{name:'刷新',exact:true}));
+ await waitFor(()=>expect(screen.getAllByRole('alert').some(alert=>alert.textContent?.includes('文件已在外部修改'))).toBe(true));
+ expect(officeFileApi.save).toHaveBeenCalledWith(binding,expect.objectContaining({object,versionNumber:2,expectedContentHash:'hash2',edits:[{type:'text',nodeId:'p0',text:'保留草稿'}]}),expect.any(String));
+ expect(screen.getByText('保留草稿')).toBeVisible();
+ expect(screen.getByRole('button',{name:'文件查看版本'})).toHaveTextContent('v2');
+ expect(officeFileApi.inspect).toHaveBeenCalledOnce();view.unmount();
+});
 it('closing a hidden edited Office tab commits its fixed baseline; reopening reads the new File version',async()=>{
  const view=mount();await screen.findByText('原文');fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
  expect(projectFileApi.readBytes).not.toHaveBeenCalled();

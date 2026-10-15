@@ -1123,7 +1123,7 @@ mod bound_tests {
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     #[test]
-    fn native_file_icons_guard_rejects_foreign_ownership_replacement_and_missing_original() {
+    fn native_file_icons_guard_accepts_same_path_replacement_but_rejects_foreign_ownership_and_missing_original() {
         let (_root, store, file) = native_fixture();
         let binding = store.binding.clone();
         let path =
@@ -1137,19 +1137,24 @@ mod bound_tests {
         };
         assert!(bound_file_command(&store, &binding, |db| native_file_path(db, &foreign)).is_err());
         let replacement = path.with_file_name("replacement.txt");
-        fs::write(&replacement, "current original").unwrap();
-        fs::rename(replacement, &path).unwrap();
-        assert!(
+        for (content, version) in [("current original", 1), ("externally saved", 2)] {
+            fs::write(&replacement, content).unwrap();
+            fs::rename(&replacement, &path).unwrap();
             bound_file_command(&store, &binding, |db| revalidate_native_file(
                 db,
                 &file.object,
                 &path,
-                |_| -> Result<()> {
-                    panic!("matching bytes with foreign identity must not launch")
+                |actual| -> Result<()> {
+                    assert_eq!(actual, path);
+                    assert_eq!(fs::read_to_string(actual).unwrap(), content);
+                    Ok(())
                 }
             ))
-            .is_err()
-        );
+            .unwrap();
+            let current = store.db.project_file_resolve(&file.object).unwrap();
+            assert_eq!(current.state, "ready");
+            assert_eq!(current.version_number, version);
+        }
         fs::remove_file(&path).unwrap();
         assert!(
             bound_file_command(&store, &binding, |db| revalidate_native_file(
