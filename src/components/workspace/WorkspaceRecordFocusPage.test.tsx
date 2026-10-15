@@ -13,8 +13,12 @@ import type {
   WorkspaceRecord,
 } from "../../lib/types";
 import { requestWorkspaceRecordFocusSave } from "../../lib/record-focus-save";
+import * as contentLifecycle from "../../lib/project-content-lifecycle";
+import { prepareWorkspaceContentClose } from "../../lib/project-content-lifecycle";
+import { desktopApi } from "../../services/desktopApi";
+import { AgentApiError } from "../../services/agentApi";
 import { queryKeys } from "../../lib/queryKeys";
-import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
+import { RecordSaveFailure, RecordSaveCoordinator, type CommittedRecordSnapshot, type RecordSaveResult } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
@@ -23,6 +27,7 @@ import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test
 import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
 const recordMocks = vi.hoisted(() => ({
   queryClient: null as QueryClient | null,
+  confirm: vi.fn(), pendingReviewCount: 0, busy: false,
   saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), metadataGet: vi.fn(), metadataApply: vi.fn(),
   sourceReveal: vi.fn((_blockId: string) => true),
 }));
@@ -88,6 +93,7 @@ vi.mock("../../features/record-export/RecordExportAction", () => ({
 
 vi.mock("../../services/desktopApi", () => ({
   desktopApi: {
+    confirm: recordMocks.confirm,
     listenEvent: vi.fn(async () => () => undefined),
     focusProjectWindow: vi.fn(async () => false),
     openProjectWindow: vi.fn(async () => undefined),
@@ -142,6 +148,11 @@ vi.mock("../home/HomeNoteSidebar", () => ({
   ),
 }));
 
+vi.mock("../record/RecordConflictActions", () => ({
+  RecordConflictActions: ({ onReload }: { onReload: () => void }) =>
+    <button onClick={onReload}>测试重载冲突</button>,
+}));
+
 vi.mock("../rich-editor/noteImageAssets", () => ({
   buildWorkspaceNoteImageAssetHandlers: () => undefined,
   buildProjectNoteImageAssetHandlers: () => undefined,
@@ -158,12 +169,17 @@ vi.mock("../rich-editor", () => ({
     controllerRef,
     sourceBlockNavigation,
     onSourceBlockResult,
+    onDefaultCodeLanguageChange,
   }: {
     html?: string;
+    onDefaultCodeLanguageChange?: (value: string | null) => void;
     sourceBlockNavigation?: { blockId: string; key: string } | null;
     onSourceBlockResult?: (located: boolean) => void;
     controllerRef?: {
       current: {
+        acknowledgeCommittedContent: () => void;
+        isBusy: () => boolean;
+        getPendingAiReviewCount: () => number;
         getValue: () => { html: string; text: string; markdown: string };
         getCommittedValue: () => { html: string; text: string; markdown: string };
         getCommittedDocumentJson: () => ReturnType<typeof fixtureDocument>;
@@ -183,6 +199,9 @@ vi.mock("../rich-editor", () => ({
       if (!controllerRef) return;
 
       controllerRef.current = {
+        acknowledgeCommittedContent: vi.fn(),
+        isBusy: () => recordMocks.busy,
+        getPendingAiReviewCount: () => recordMocks.pendingReviewCount,
         getValue: () => buildMockRichValue(recordExportMocks.editorValue),
         getCommittedValue: () => buildMockRichValue(recordExportMocks.committedValue),
         getCommittedDocumentJson: () => fixtureDocument(recordExportMocks.committedValue),
@@ -195,7 +214,8 @@ vi.mock("../rich-editor", () => ({
       };
     }, [controllerRef]);
 
-    return <textarea aria-label="正文编辑器" value={value} readOnly />;
+    return <><textarea aria-label="正文编辑器" value={value} readOnly />
+      <button onClick={() => onDefaultCodeLanguageChange?.("rust")}>测试切换代码语言</button></>;
   },
 }));
 
@@ -294,7 +314,11 @@ function toPlainText(html: string) {
 
 describe("WorkspaceRecordFocusPage record switching", () => {
   beforeEach(() => {
+    vi.mocked(desktopApi.listenEvent).mockClear();
     recordMocks.queryClient = null;
+    recordMocks.confirm.mockReset().mockResolvedValue(true);
+    recordMocks.pendingReviewCount = 0;
+    recordMocks.busy = false;
     recordMocks.bodySave.mockReset();
     recordMocks.sourceReveal.mockReset().mockReturnValue(true);
     recordMocks.editorGet.mockReset();
@@ -357,6 +381,234 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       ] };
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  async function renderDeletedRecord() {
+    const persist = vi.fn(async () => { throw new RecordSaveFailure("record deleted", { code: "NOT_FOUND", retryable: false }); });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "record deleted", retryable: false }));
+    return { view, coordinator, persist };
+  }
+
+  it("confirms a deleted record, clears its queue, and does not resubmit on navigation or unmount", async () => {
+    const { view, coordinator, persist } = await renderDeletedRecord();
+    const submit = vi.spyOn(coordinator, "submit");
+    await act(async () => { await prepareWorkspaceContentClose("/tmp/workspace"); });
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(1);
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+    submit.mockClear();
+    expect(requestWorkspaceRecordFocusSave({ recordId: 7 })).toBe("not_needed");
+    view.unmount();
+    expect(submit).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledTimes(1);
+    await prepareWorkspaceContentClose("/tmp/workspace");
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the draft when deleted-record close is cancelled", async () => {
+    const { coordinator } = await renderDeletedRecord();
+    recordMocks.confirm.mockResolvedValue(false);
+    await act(async () => { await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toThrow(); });
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(1);
+    expect(coordinator.getLatestSnapshot("workspace:7")).not.toBeNull();
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("A");
+  });
+
+  it.each(["title", "document", "language"])("requires another confirmation after a new %s edit", async (field) => {
+    const { coordinator } = await renderDeletedRecord();
+    await act(async () => { await prepareWorkspaceContentClose("/tmp/workspace"); });
+    if (field === "title") fireEvent.change(screen.getByPlaceholderText("记录标题"), { target: { value: "new title" } });
+    else if (field === "document") recordExportMocks.committedValue = "new body";
+    else fireEvent.click(screen.getByText("测试切换代码语言"));
+    recordMocks.confirm.mockResolvedValue(false);
+    await act(async () => { await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toThrow(); });
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(2);
+    expect(coordinator.getLatestSnapshot("workspace:7")).not.toBeNull();
+  });
+
+  it("rejects discard if the draft changes while confirmation is open", async () => {
+    const { coordinator } = await renderDeletedRecord();
+    recordMocks.confirm.mockImplementation(async () => {
+      fireEvent.change(screen.getByPlaceholderText("记录标题"), { target: { value: "edited during confirm" } });
+      return true;
+    });
+    await act(async () => { await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toThrow(); });
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(1);
+    expect(coordinator.getLatestSnapshot("workspace:7")).not.toBeNull();
+  });
+
+  it("prioritizes a typed missing save failure over a generic synchronization error", async () => {
+    const { coordinator } = await renderDeletedRecord();
+    act(() => { expect(requestWorkspaceRecordFocusSave({ recordId: 7 })).toBe("submitted"); });
+    await expect(coordinator.flush("workspace:7")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    recordMocks.editorGet.mockRejectedValueOnce(new Error("sync connection failed"));
+    const listener = vi.mocked(desktopApi.listenEvent).mock.calls.find(([event]) => event === "record:head-changed")?.[1];
+    expect(listener).toBeDefined();
+    await act(async () => {
+      listener?.({ binding: { workspaceId: "fixture-workspace", generation: "open-1" },
+        target: { scope: { kind: "workspace" }, recordId: 7 }, requestId: "external", headRevision: 20, metadataRevision: null });
+    });
+    expect(await screen.findByText("同步记录失败，当前草稿已保留。请检查工作区连接。")).toBeInTheDocument();
+    await act(async () => { await prepareWorkspaceContentClose("/tmp/workspace"); });
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(1);
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+  });
+
+  it.each(["busy", "pending AI"])("blocks close before submitting while the editor has %s", async (state) => {
+    const { coordinator, persist } = await renderDeletedRecord();
+    if (state === "busy") recordMocks.busy = true;
+    else recordMocks.pendingReviewCount = 1;
+    await act(async () => { await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toThrow(); });
+    expect(persist).not.toHaveBeenCalled();
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+  });
+
+  it("flushes only the current record and keeps another record's failed draft", async () => {
+    const persist = vi.fn(async (snapshot: Readonly<CommittedRecordSnapshot>) => {
+      if (snapshot.recordId === 8) throw new Error("other record failed");
+      return { updatedAt: "now", headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    coordinator.submit({ scope: "workspace", workspaceKey: "/tmp/workspace", recordId: 8, title: "other",
+      tagIds: [], defaultCodeLanguage: null, committedContent: buildMockRichValue("other") });
+    await expect(coordinator.flush("workspace:8")).rejects.toThrow("other record failed");
+    const other = coordinator.getLatestSnapshot("workspace:8");
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const flush = vi.spyOn(coordinator, "flush");
+    await act(async () => { await prepareWorkspaceContentClose("/tmp/workspace"); });
+    expect(flush).toHaveBeenCalledExactlyOnceWith("workspace:7");
+    expect(coordinator.getLatestSnapshot("workspace:8")).toBe(other);
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+  });
+
+  it("preserves a real save error without offering to discard", async () => {
+    const failure = new Error("disk unavailable");
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist: async () => { throw failure; } } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    await act(async () => { await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toBe(failure); });
+    expect(coordinator.getLatestSnapshot("workspace:7")).not.toBeNull();
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects close if the document changes during persistence", async () => {
+    let finishSave!: () => void;
+    const persist = vi.fn((snapshot: Readonly<CommittedRecordSnapshot>) => new Promise<RecordSaveResult>((resolve) => {
+      finishSave = () => resolve({ updatedAt: "now", headRevision: snapshot.canonicalBody!.baseRevision + 1 });
+    }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    await act(async () => {
+      const close = prepareWorkspaceContentClose("/tmp/workspace");
+      const rejected = expect(close).rejects.toThrow("记录仍在编辑");
+      await vi.waitFor(() => expect(persist).toHaveBeenCalledTimes(1));
+      recordExportMocks.committedValue = "edited during save";
+      finishSave();
+      await rejected;
+    });
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+  });
+
+  async function notifyWorkspaceRecordChanged() {
+    const listener = vi.mocked(desktopApi.listenEvent).mock.calls.find(([event]) => event === "record:head-changed")?.[1];
+    expect(listener).toBeDefined();
+    await act(async () => {
+      listener?.({ binding: { workspaceId: "fixture-workspace", generation: "open-1" },
+        target: { scope: { kind: "workspace" }, recordId: 7 }, requestId: "external", headRevision: 20, metadataRevision: null });
+    });
+  }
+
+  it("navigation save fails while a loaded draft is still waiting for canonical initialization", async () => {
+    recordMocks.editorGet.mockImplementation(() => new Promise(() => {}));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist: vi.fn() } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await screen.findByLabelText("正文编辑器");
+    await waitFor(() => expect(recordMocks.editorGet).toHaveBeenCalled());
+    expect(requestWorkspaceRecordFocusSave({ recordId: 7 })).toBe("failed");
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+  });
+
+  it("allows close after initial canonical load failure without an editable draft or pending snapshot", async () => {
+    recordMocks.editorGet.mockRejectedValue(new Error("initial load failed"));
+    const persist = vi.fn();
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await screen.findByText(/initial load failed/);
+    expect(requestWorkspaceRecordFocusSave({ recordId: 7 })).toBe("not_needed");
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+    await expect(prepareWorkspaceContentClose("/tmp/workspace")).resolves.toBeUndefined();
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("uses the pending snapshot binding when initial canonical load fails for a deleted record", async () => {
+    const failure = new RecordSaveFailure("record deleted", { code: "NOT_FOUND", retryable: false });
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "initial deleted", retryable: false }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist: async () => { throw failure; } } });
+    coordinator.submit({ scope: "workspace", workspaceKey: "/tmp/workspace", recordId: 7, title: "pending draft",
+      tagIds: [], defaultCodeLanguage: null, committedContent: buildMockRichValue("pending"),
+      canonicalBody: { binding: { workspaceId: "fixture-workspace", generation: "open-1" }, requestId: "pending",
+        baseRevision: 1, document: fixtureDocument("pending"), editSessionId: "session", origin: "manual" } });
+    await expect(coordinator.flush("workspace:7")).rejects.toBe(failure);
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await screen.findByText(/initial deleted/);
+    expect(requestWorkspaceRecordFocusSave({ recordId: 7 })).toBe("failed");
+    expect(coordinator.getLatestSnapshot("workspace:7")).not.toBeNull();
+    await act(async () => { await prepareWorkspaceContentClose("/tmp/workspace"); });
+    expect(recordMocks.confirm).toHaveBeenCalledTimes(1);
+    expect(coordinator.getLatestSnapshot("workspace:7")).toBeNull();
+  });
+
+  it("blocks normal close with an incoming conflict before submitting", async () => {
+    const persist = vi.fn(async () => ({ updatedAt: "now", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.change(screen.getByPlaceholderText("记录标题"), { target: { value: "local draft" } });
+    await notifyWorkspaceRecordChanged();
+    await screen.findByText("测试重载冲突");
+    await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toThrow();
+    expect(persist).not.toHaveBeenCalled();
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+  });
+
+  it.each(["incoming conflict", "sync error", "resolving conflict"])("checks latest %s after persistence", async (state) => {
+    const register = vi.spyOn(contentLifecycle, "registerWorkspaceRecordCloseGuard");
+    const persist = vi.fn(async (snapshot: Readonly<CommittedRecordSnapshot>) =>
+      ({ updatedAt: "now", headRevision: snapshot.canonicalBody!.baseRevision + 1 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.change(screen.getByPlaceholderText("记录标题"), { target: { value: "local title" } });
+    let finishIo!: () => void;
+    const io = new Promise<void>((resolve) => { finishIo = resolve; });
+    const originalFlush = coordinator.flush.bind(coordinator);
+    const flush = vi.spyOn(coordinator, "flush").mockImplementation(async (key) => {
+      await originalFlush(key);
+      await io;
+    });
+    const prepare = register.mock.lastCall![0].prepare;
+    let close!: Promise<void>;
+    await act(async () => { close = prepare(); });
+    const rejected = expect(close).rejects.toThrow();
+    await vi.waitFor(() => expect(coordinator.getRecordStatus("workspace:7").phase).toBe("idle"));
+    if (state === "sync error") recordMocks.editorGet.mockRejectedValueOnce(new Error("sync failed during save"));
+    else recordMocks.editorGet.mockResolvedValueOnce(fixtureEditorState({ scope: { kind: "workspace" }, recordId: 7 }, noteA, 20));
+    await notifyWorkspaceRecordChanged();
+    if (state === "resolving conflict") {
+      recordMocks.editorGet.mockImplementation(() => new Promise(() => {}));
+      fireEvent.click(await screen.findByText("测试重载冲突"));
+      await waitFor(() => expect(screen.queryByText("测试重载冲突")).not.toBeInTheDocument());
+    }
+    await act(async () => { finishIo(); await rejected; });
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+    flush.mockRestore();
+    register.mockRestore();
   });
 
   it("source navigation shows a missing block status without writing the record", async () => {
@@ -445,6 +697,8 @@ describe("WorkspaceRecordFocusPage record switching", () => {
           .toBe(state === "failed" ? "error" : "success"));
       }
 
+      await expect(prepareWorkspaceContentClose("/tmp/workspace")).resolves.toBeUndefined();
+      expect(recordMocks.confirm).not.toHaveBeenCalled();
       let result;
       act(() => { result = requestWorkspaceRecordFocusSave({ recordId: 7 }); });
 

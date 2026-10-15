@@ -56,6 +56,8 @@ import { recordPath } from "../../lib/formatters";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
+import { useDeletedRecordClose } from "../../hooks/useDeletedRecordClose";
+import { isMissingRecordError } from "../../lib/deleted-record-close";
 import { useRecordClipboard } from "../../hooks/useRecordClipboard";
 
 import type { RichEditorSession } from "../rich-editor/RichEditor";
@@ -339,8 +341,18 @@ export function ProjectNoteFocusPage({
     }
   }), [saveCoordinator, projectId, recordId]);
 
+  const draftSignature = () => JSON.stringify({ title: titleValueRef.current, tags: tagIdsValueRef.current,
+    language: codeLanguageValueRef.current,
+    document: editorControllerRef.current?.getCommittedDocumentJson() ?? editorSessionRef.current?.state.doc.toJSON() });
+  const deletedRecordClose = useDeletedRecordClose({ coordinator: saveCoordinator,
+    recordKey: projectRecordSaveKey(projectId!, recordId!),
+    target: { scope: { kind: "project", projectId: projectId! }, recordId: recordId! },
+    binding: canonical.binding ?? saveCoordinator.getLatestSnapshot(projectRecordSaveKey(projectId!, recordId!))?.canonicalBody?.binding ?? null, workspaceRoot: saveCoordinator.workspaceKey ?? "", getDraftSignature: draftSignature,
+  });
+
   const submitCurrentRecord = useCallback(
     (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
+      if (deletedRecordClose.isDiscarded()) return false;
       if (resolvingConflictRef.current || !editingReady || projectId === null || recordId === null) return false;
       const document = editorControllerRef.current?.getCommittedDocumentJson() ?? editorSessionRef.current?.state.doc.toJSON();
       if (!document) return false;
@@ -433,23 +445,29 @@ export function ProjectNoteFocusPage({
         return;
       }
 
-      detail.respond(draftReady ? submitCurrentRecord() : "not_needed");
+      const noEditableDraft = !!canonical.error && !canonical.binding && hydratedRecordKey === null && !saveCoordinator.getLatestSnapshot(projectRecordSaveKey(projectId!, recordId!));
+      detail.respond(deletedRecordClose.isDiscarded() || !draftReady || noEditableDraft ? "not_needed" : submitCurrentRecord());
     };
 
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     return () => {
       window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
     };
-  }, [draftReady, recordId, projectId, submitCurrentRecord]);
+  }, [draftReady, recordId, projectId, submitCurrentRecord, canonical.binding, canonical.error, hydratedRecordKey, saveCoordinator]);
 
   const closeStateRef = useRef({ conflict: false, syncError: false });
   closeStateRef.current = { conflict: !!canonical.incomingConflict, syncError: !!canonical.syncError };
   const closeGuardRef = useRef<() => Promise<void>>(async () => undefined);
   closeGuardRef.current = async () => {
-    if (!draftReady) {
+    if (!draftReady || (canonical.error && !canonical.binding && hydratedRecordKey === null
+      && !saveCoordinator.getLatestSnapshot(projectRecordSaveKey(projectId!, recordId!)))) {
       return;
     }
-    if (canonical.incomingConflict || canonical.syncError || resolvingConflictRef.current) {
+    const failure = saveCoordinator.getRecordStatus(projectRecordSaveKey(projectId!, recordId!)).lastError;
+    if (isMissingRecordError(failure)) throw failure;
+    if (canonical.error) throw canonical.error;
+    if (canonical.syncError) throw canonical.syncError;
+    if (canonical.incomingConflict || resolvingConflictRef.current) {
       throw new Error("记录存在冲突或同步失败，请处理后关闭");
     }
     const editor = editorControllerRef.current;
@@ -480,7 +498,7 @@ export function ProjectNoteFocusPage({
     const identity = `${projectId}:${recordId}`;
     return registerCloseGuard?.(async () => {
       if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
-      await closeGuardRef.current();
+      await deletedRecordClose.prepareClose(() => closeGuardRef.current());
       if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
     });
   }, [registerCloseGuard, projectId, recordId]);

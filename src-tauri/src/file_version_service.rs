@@ -113,12 +113,23 @@ pub(crate) struct FileHashSnapshot {
 fn file_io(_: impl std::fmt::Display) -> AgentError {
     AgentError::new(ErrorCode::IoFailed, "Cannot prepare or commit File Version")
 }
+fn original_file_io(error: std::io::Error) -> AgentError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        AgentError::new(ErrorCode::SourceNotReady, "Original File is missing")
+            .with_details(serde_json::json!({"reason":"original_missing"}))
+    } else {
+        file_io(error)
+    }
+}
 impl FileHashSnapshot {
     pub(crate) fn content_hash(&self) -> &str {
         &self.hash
     }
     fn verify(&self) -> AgentResult<()> {
-        let metadata = fs::symlink_metadata(&self.path).map_err(file_io)?;
+        self.verify_with(file_io)
+    }
+    fn verify_with(&self, metadata_error: fn(std::io::Error) -> AgentError) -> AgentResult<()> {
+        let metadata = fs::symlink_metadata(&self.path).map_err(metadata_error)?;
         if metadata.file_type().is_symlink()
             || !metadata.is_file()
             || FileStamp::from_metadata(&metadata) != self.stamp
@@ -136,7 +147,20 @@ impl FileHashSnapshot {
 pub(crate) struct FilesystemFileReader;
 impl FileBytesReader for FilesystemFileReader {
     fn capture(&self, path: &Path) -> AgentResult<FileHashSnapshot> {
-        let stamp = FileStamp::from_metadata(&fs::symlink_metadata(path).map_err(file_io)?);
+        Self::capture_with(path, file_io)
+    }
+}
+impl FilesystemFileReader {
+    /// Only the live original preflight may identify original-file absence.
+    /// Retained snapshots and version infrastructure keep generic I/O errors.
+    pub(crate) fn capture_original(&self, path: &Path) -> AgentResult<FileHashSnapshot> {
+        Self::capture_with(path, original_file_io)
+    }
+    fn capture_with(
+        path: &Path,
+        metadata_error: fn(std::io::Error) -> AgentError,
+    ) -> AgentResult<FileHashSnapshot> {
+        let stamp = FileStamp::from_metadata(&fs::symlink_metadata(path).map_err(metadata_error)?);
         let identity = crate::db::file_versions::path_identity(path).map_err(file_io)?;
         let hash = crate::db::file_versions::checksum(path).map_err(file_io)?;
         let result = FileHashSnapshot {
@@ -145,7 +169,7 @@ impl FileBytesReader for FilesystemFileReader {
             stamp,
             identity,
         };
-        result.verify()?;
+        result.verify_with(metadata_error)?;
         Ok(result)
     }
 }
