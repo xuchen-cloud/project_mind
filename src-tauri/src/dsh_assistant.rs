@@ -87,14 +87,14 @@ struct Identity {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct ProjectContext {
+pub(crate) struct ProjectContext {
     id: i64,
     name: String,
-    directory: PathBuf,
+    pub(crate) directory: PathBuf,
 }
 
 impl ProjectContext {
-    fn resolve(
+    pub(crate) fn resolve(
         db: &mut crate::db::Database,
         workspace_root: &Path,
         project_id: i64,
@@ -883,7 +883,10 @@ async fn stop_child(child: &mut Child) -> Result<(), String> {
         .map_err(|_| "无法停止助手进程".to_string())
 }
 
-fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Command, String> {
+pub(crate) fn assistant_script_command(
+    app: &tauri::AppHandle,
+    entry: &str,
+) -> Result<Command, String> {
     let node_name = if cfg!(windows) { "node.exe" } else { "node" };
     #[cfg(debug_assertions)]
     let (root, node) = {
@@ -907,12 +910,19 @@ fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Com
             resources.join("agent-host").join(node_name),
         )
     };
-    let script = root.join("scripts/runtime.mjs");
+    let script = root.join("scripts").join(entry);
     if !script.is_file() || !node.is_file() {
         return Err("助手资源不完整，请重新安装应用".into());
     }
     let mut command = Command::new(node);
-    command.current_dir(root).arg(script).args([
+    command.current_dir(root).arg(script);
+    let _ = app; // Development uses the source root, never bundle path guessing.
+    Ok(command)
+}
+
+fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Command, String> {
+    let mut command = assistant_script_command(app, "runtime.mjs")?;
+    command.args([
         "--embedded",
         "--host",
         "127.0.0.1",
@@ -939,11 +949,10 @@ fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Com
         &config.profile.network,
     )
     .map_err(|_| "无法应用 AI 网络设置，请检查代理配置")?;
-    let _ = app; // Development uses the source root, never bundle path guessing.
     Ok(command)
 }
 
-fn assistant_data_root() -> Result<PathBuf, String> {
+pub(crate) fn assistant_data_root() -> Result<PathBuf, String> {
     let root = if let Some(path) =
         std::env::var_os("PROJECT_MIND_DSH_USER_DATA").filter(|path| !path.is_empty())
     {
@@ -981,7 +990,7 @@ fn workspace_data_directory(root: &Path, workspace_id: &str) -> Result<PathBuf, 
     Ok(root.join("projects").join(workspace_id))
 }
 
-fn project_data_directory(
+pub(crate) fn project_data_directory(
     root: &Path,
     workspace_id: &str,
     project_id: i64,
@@ -997,7 +1006,7 @@ fn workspace_profile_directory(root: &Path, workspace_id: &str) -> Result<PathBu
 }
 
 #[cfg(debug_assertions)]
-fn development_node(name: &str) -> Result<PathBuf, String> {
+pub(crate) fn development_node(name: &str) -> Result<PathBuf, String> {
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())

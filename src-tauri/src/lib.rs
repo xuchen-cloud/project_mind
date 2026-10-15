@@ -1,6 +1,7 @@
 pub mod agent;
 mod ai_jobs;
 mod dsh_assistant;
+mod skills;
 mod project_directory;
 mod native_file_icons;
 mod ai_provider;
@@ -1741,6 +1742,7 @@ pub fn run() {
             internal_reference_search,
             internal_reference_resolve,
             workspace_search,
+            skills::skills_list,
             dsh_assistant::dsh_assistant_start,
             dsh_assistant::dsh_assistant_sessions,
             dsh_assistant::dsh_assistant_runtime_status,

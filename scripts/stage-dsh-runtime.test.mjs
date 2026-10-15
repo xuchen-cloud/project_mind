@@ -12,6 +12,12 @@ import { dshNoticeAssets, prepareDshProduction, stageDshRuntime, verifyDshDistri
 const exec = promisify(execFile);
 const put = async (file, value) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); };
 const json = (file, value) => put(file, JSON.stringify(value));
+const bundledSkills = {
+  'project-mind-cli/SKILL.md': '---\nname: project-mind-cli\ndescription: Use mind CLI.\n---\n',
+  'project-mind-cli/references/usage.md': 'CLI reference',
+  'future-builtin/SKILL.md': 'Another builtin skill',
+  'future-builtin/assets/template.bin': Buffer.from([0, 255, 10]),
+};
 const browser = 'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html';
 
 async function fixture(t) {
@@ -37,6 +43,7 @@ async function fixture(t) {
   await json(path.join(source, 'upstream.json'), { commit: 'pinned-upstream' });
   await put(path.join(source, 'config/desktop.patch.yml'), '[]\n');
   await put(path.join(source, 'scripts/isolation.mjs'), 'export const isolated = true;');
+  await put(path.join(source, 'scripts/skills.mjs'), 'export const bundledSkillEnvironment = {};');
   await put(path.join(source, 'scripts/shared-model.mjs'), 'export const mainModel = true;');
   await put(path.join(source, 'scripts/runtime.mjs'), `import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +61,8 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
     await put(path.join(source, 'scripts', cache, 'secret'), 'source-only');
   }
   await put(path.join(source, 'node_modules/dev-only/index.js'), 'never ship source dependencies');
+  for (const [name, contents] of Object.entries(bundledSkills)) await put(path.join(source, 'skills', name), contents);
+  await put(path.join(repository, 'user-home/.agents/skills/private/SKILL.md'), 'user-local skill');
   await cp(source, production, { recursive: true });
   await rm(path.join(production, 'node_modules'), { recursive: true });
   for (const [name, os, cpu] of [
@@ -85,8 +94,11 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
     assert.deepEqual(args.slice(1), ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--os=darwin', '--cpu=x64']);
     assert.equal(cwd, fresh);
     assert.equal(await readFile(path.join(cwd, 'vendor/dsh-desktop-client-ui/index.js'), 'utf8'), "export const brand = 'DSH';");
+    for (const [name, contents] of Object.entries(bundledSkills)) {
+      assert.deepEqual(await readFile(path.join(cwd, 'skills', name)), Buffer.from(contents));
+    }
     await assert.rejects(lstat(path.join(cwd, 'node_modules')), { code: 'ENOENT' });
-    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['isolation.mjs', 'runtime.mjs', 'shared-model.mjs']);
+    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['isolation.mjs', 'runtime.mjs', 'shared-model.mjs', 'skills.mjs']);
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fresh-helper');
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'), 'other-target');
   });
@@ -119,6 +131,44 @@ test('DSH staging preserves imports/browser and independent home, selects target
   await rm(path.join(f.destination, 'unlisted.txt'));
   await put(path.join(f.destination, browser), 'tampered');
   await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+});
+
+test('all bundled skills and resources ship with verified inventory; required skill is mandatory', async t => {
+  const f = await fixture(t);
+  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  assert.deepEqual(manifest.files.filter(entry => entry.file.startsWith('skills/')).map(entry => entry.file).sort(),
+    Object.keys(bundledSkills).map(name => `skills/${name}`).sort());
+  for (const [name, contents] of Object.entries(bundledSkills)) {
+    const entry = manifest.files.find(entry => entry.file === `skills/${name}`);
+    assert.equal(entry.checksum, checksum(contents));
+    assert.deepEqual(await readFile(path.join(f.destination, 'skills', name)), Buffer.from(contents));
+  }
+  assert.deepEqual((await readdir(path.join(f.destination, 'skills'))).sort(), ['future-builtin', 'project-mind-cli']);
+  const resource = path.join(f.destination, 'skills/future-builtin/assets/template.bin');
+  await put(resource, 'tampered');
+  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await writeFile(resource, bundledSkills['future-builtin/assets/template.bin']);
+  const reference = path.join(f.destination, 'skills/project-mind-cli/references/usage.md');
+  await rm(reference);
+  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await writeFile(reference, bundledSkills['project-mind-cli/references/usage.md']);
+  await put(path.join(f.destination, 'skills/unlisted/SKILL.md'), 'unlisted skill');
+  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await rm(path.join(f.destination, 'skills/unlisted'), { recursive: true });
+  await rm(path.join(f.production, 'skills/project-mind-cli/SKILL.md'));
+  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
+  await verifyDshDistribution(f.destination, 'darwin-x64');
+  await rm(path.join(f.production, 'scripts/skills.mjs'));
+  await put(path.join(f.production, 'skills/project-mind-cli/SKILL.md'), bundledSkills['project-mind-cli/SKILL.md']);
+  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
+  await verifyDshDistribution(f.destination, 'darwin-x64');
+  // Even a self-consistent inventory cannot omit the required builtin entrypoint.
+  await rm(path.join(f.destination, 'skills/project-mind-cli/SKILL.md'));
+  await json(path.join(f.destination, 'dsh-distribution.json'), {
+    ...manifest, files: manifest.files.filter(entry => entry.file !== 'skills/project-mind-cli/SKILL.md'),
+  });
+  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), { code: 'ENOENT' });
 });
 
 test('staging rejects wrong shared target, mismatched locks, missing browser, wrong required CPU, and leaves prior release intact', async t => {
