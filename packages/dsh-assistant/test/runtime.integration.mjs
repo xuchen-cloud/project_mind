@@ -30,7 +30,7 @@ async function waitFor(read, description, timeoutMs = 15000) {
 async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace) {
   const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), '--port', '0', '--no-open'], {
     cwd: root, execArgv: [], silent: true,
-    env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(data, 'skill-management'),
+    env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(path.dirname(data), 'skill-management'),
       ...((project || workspace) ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
       ...(patch ? { PROJECT_MIND_DSH_PATCH: patch } : {}), LOCAL_TEST_KEY: 'local-integration-key' },
   });
@@ -638,8 +638,9 @@ test('embedded assistant advertises, disables and re-enables the bundled CLI Ski
   const project = { id: 149, name: 'Skills fixture', directory: path.join(temporary, 'project') };
   await mkdir(project.directory);
   let runtime;
+  let workspaceRuntime;
   t.after(async () => {
-    try { await runtime?.stop(); }
+    try { await Promise.all([runtime?.stop(), workspaceRuntime?.stop()]); }
     finally { await provider.close(); await rm(temporary, { recursive: true, force: true }); }
   });
   const data = path.join(temporary, 'data');
@@ -650,7 +651,7 @@ test('embedded assistant advertises, disables and re-enables the bundled CLI Ski
   const manage = async (action, entryPath) => {
     const { stdout } = await promisify(execFile)(process.execPath, [path.join(root, 'scripts/skills.mjs'), '--cwd', project.directory,
       ...(action ? ['--action', action, '--entry', entryPath] : [])], {
-      env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(data, 'skill-management') },
+      env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(temporary, 'skill-management') },
     });
     return JSON.parse(stdout);
   };
@@ -661,11 +662,18 @@ test('embedded assistant advertises, disables and re-enables the bundled CLI Ski
   assert.ok(cli, 'the actual assistant Session must discover its bundled CLI Skill');
   assert.equal(cli.modelInvocable, true);
   assert.equal(cli.path, path.join(root, 'skills/project-mind-cli/SKILL.md'));
+  const workspace = { id: randomUUID(), name: 'Skills workspace', directory: path.join(temporary, 'workspace') };
+  await mkdir(workspace.directory);
+  workspaceRuntime = await launch(path.join(temporary, 'workspace-data'), undefined, shared, undefined, undefined, undefined, workspace);
+  const workspaceSession = await workspaceRuntime.rpc('session/create', {});
+  const workspaceHasBuiltin = async () => (await workspaceRuntime.rpc('skills/list', { sessionId: workspaceSession.sessionId })).skills.some(skill => skill.name === 'project-mind-cli');
+  assert.ok(await workspaceHasBuiltin());
   const settings = await manage();
   const entry = settings.skills.find(skill => skill.name === 'project-mind-cli');
   const disabled = await manage('disable', entry.entryPath);
   assert.equal(disabled.skills.find(skill => skill.name === 'project-mind-cli').disabled, true);
   await waitFor(async () => !(await runtime.rpc('skills/list', { sessionId })).skills.some(skill => skill.name === 'project-mind-cli'), 'running Session removes disabled builtin');
+  await waitFor(async () => !await workspaceHasBuiltin(), 'Workspace Session shares disabled builtin state');
   await runtime.stop();
   runtime = await launch(data, undefined, shared, project);
   const restarted = await runtime.rpc('session/create', {});
@@ -673,6 +681,7 @@ test('embedded assistant advertises, disables and re-enables the bundled CLI Ski
   const disabledEntry = disabled.skills.find(skill => skill.name === 'project-mind-cli');
   await manage('enable', disabledEntry.entryPath);
   await waitFor(async () => (await runtime.rpc('skills/list', { sessionId: restarted.sessionId })).skills.some(skill => skill.name === 'project-mind-cli'), 'running Session sees re-enabled builtin');
+  await waitFor(workspaceHasBuiltin, 'Workspace Session shares re-enabled builtin state');
   assert.equal(provider.requests.length, 0);
 });
 

@@ -1072,7 +1072,7 @@ fn workspace_profile_directory(root: &Path, workspace_id: &str) -> Result<PathBu
     Ok(workspace_data_directory(root, workspace_id)?.join("profiles/assistant"))
 }
 
-fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
+pub(crate) fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
     match project_id {
         Some(id) => project_data_directory(root, workspace_id, id),
         None => Ok(workspace_data_directory(root, workspace_id)?.join("workspace")),

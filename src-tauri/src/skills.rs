@@ -8,7 +8,7 @@ use tokio::process::Command;
 use crate::{
     agent::models::WorkspaceBinding,
     dsh_assistant::{
-        assistant_data_root, assistant_script_command, project_data_directory, ProjectContext,
+        assistant_data_root, assistant_script_command, runtime_data_directory, ProjectContext,
     },
 };
 
@@ -88,14 +88,15 @@ impl CatalogContext {
         } else {
             None
         };
-        let cwd = project
-            .as_ref()
-            .map(|project| project.directory.clone())
-            .or_else(|| workspace.as_ref().map(|workspace| workspace.root.clone()))
-            .unwrap_or_else(|| data_root.join("workspace"));
-        let user_data = match (workspace.as_ref(), project_id) {
-            (Some(workspace), Some(id)) => {
-                project_data_directory(&data_root, &workspace.binding.workspace_id, id)?
+        let cwd = match (project.as_ref(), workspace.as_ref()) {
+            (Some(project), _) => project.directory.clone(),
+            (None, Some(workspace)) => workspace.root.canonicalize()
+                .map_err(|_| "工作区目录不可用，请重新打开工作区")?,
+            _ => data_root.join("workspace"),
+        };
+        let user_data = match workspace.as_ref() {
+            Some(workspace) => {
+                runtime_data_directory(&data_root, &workspace.binding.workspace_id, project_id)?
             }
             _ => data_root,
         };
