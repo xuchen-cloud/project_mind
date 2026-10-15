@@ -7,7 +7,7 @@
 .project-content__icon-button:hover, .project-content__home[aria-pressed="true"] { color: var(--color-text); background: var(--color-bg-subtle); }
 .project-content__icon-button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .project-content__tab-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
-.project-content__tab-frame::before, .project-content__tab-frame::after { content: ""; position: absolute; top: 0; bottom: 8px; width: min(40px, 35%); z-index: 2; pointer-events: none; }
+.project-content__tab-frame::before, .project-content__tab-frame::after { content: ""; position: absolute; top: 0; bottom: 8px; width: min(16px, 35%); z-index: 2; pointer-events: none; }
 .project-content__tab-frame::before { left: 0; opacity: var(--tab-fade-left); background: linear-gradient(to right, var(--color-bg), transparent); }
 .project-content__tab-frame::after { right: 0; opacity: var(--tab-fade-right); background: linear-gradient(to left, var(--color-bg), transparent); }
 .project-content__tab-frame[data-drop-empty] { box-shadow: inset 0 -2px var(--color-accent); }

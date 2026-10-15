@@ -51,7 +51,7 @@
 .workspace-topbar { column-gap: 6px; padding-right: 6px; }
 .workspace-topbar__actions { gap: 4px; }
 .workspace-topbar__tab-frame::before, .workspace-topbar__tab-frame::after {
-  content: ""; position: absolute; top: 0; bottom: 8px; width: min(40px, 35%); z-index: 2; pointer-events: none;
+  content: ""; position: absolute; top: 0; bottom: 8px; width: min(16px, 35%); z-index: 2; pointer-events: none;
 }
 .workspace-topbar__tab-frame::before { left: 0; opacity: var(--tab-fade-left); background: linear-gradient(to right, var(--tab-strip-bg), transparent); }
 .workspace-topbar__tab-frame::after { right: 0; opacity: var(--tab-fade-right); background: linear-gradient(to left, var(--tab-strip-bg), transparent); }

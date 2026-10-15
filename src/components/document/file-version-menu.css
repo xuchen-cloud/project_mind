@@ -14,7 +14,7 @@
 .file-version-menu .home-side__list-frame { position:relative; display:flex; flex-direction:column; flex:0 1 auto; min-height:0; max-height:240px; }
 .file-version-menu .home-side__list { flex:1 1 auto; min-height:0; max-height:240px; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
 .file-version-menu .home-side__list > div { display:flex; flex-direction:column; gap:0; padding:0; }
-.file-version-menu .home-side__list-frame::before,.file-version-menu .home-side__list-frame::after { content:''; position:absolute; left:0; right:0; height:min(40px,35%); pointer-events:none; z-index:1; }
+.file-version-menu .home-side__list-frame::before,.file-version-menu .home-side__list-frame::after { content:''; position:absolute; left:0; right:0; height:min(24px,35%); pointer-events:none; z-index:1; }
 .file-version-menu .home-side__list-frame::before { top:0; opacity:var(--scroll-fade-top-opacity,0); background:linear-gradient(to bottom,var(--color-bg-subtle),color-mix(in srgb,var(--color-bg-subtle) 80%,transparent) 35%,transparent); }
 .file-version-menu .home-side__list-frame::after { bottom:0; opacity:var(--scroll-fade-bottom-opacity,0); background:linear-gradient(to top,var(--color-bg-subtle),color-mix(in srgb,var(--color-bg-subtle) 80%,transparent) 35%,transparent); }
 .file-version-menu button { font:inherit; color:inherit; background:transparent; border:0; border-radius:10px; cursor:pointer; transition:background-color var(--duration-fast) var(--ease-out); }

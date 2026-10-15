@@ -26,10 +26,10 @@
 .office-docx :is(.doc-move-handle,.box-resize-handle,.img-resize-handle,.doc-table-handle,.column-resize-handle) { display:none; }
 .office-docx .office-docx-content table { max-width:none; }
 .office-docx .office-docx-content .selectedCell:after { background:color-mix(in srgb, var(--color-accent) 12%, transparent); }
-.office-docx__edge { position:absolute; left:0; right:var(--scrollbar-size); height:min(40px,35%); pointer-events:none; z-index:1; }
+.office-docx__edge { position:absolute; left:0; right:var(--scrollbar-size); height:min(24px,35%); pointer-events:none; z-index:1; }
 .office-docx__edge--top { top:0; background:linear-gradient(to bottom,var(--color-canvas),transparent); }
 .office-docx__edge--bottom { bottom:0; background:linear-gradient(to top,var(--color-canvas),transparent); }
-.office-docx__edge--left, .office-docx__edge--right { top:0; bottom:var(--scrollbar-size); height:auto; width:min(40px,35%); }
+.office-docx__edge--left, .office-docx__edge--right { top:0; bottom:var(--scrollbar-size); height:auto; width:min(16px,35%); }
 .office-docx__edge--left { left:0; right:auto; background:linear-gradient(to right,var(--color-canvas),transparent); }
 .office-docx__edge--right { left:auto; right:var(--scrollbar-size); background:linear-gradient(to left,var(--color-canvas),transparent); }
 @container (max-width:600px) {
