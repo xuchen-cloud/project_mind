@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { LoaderCircle, Plus } from "lucide-react";
 import { getErrorMessage } from "../../lib/errors";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
 import { openProjectContent } from "../../services/projectContentApi";
@@ -94,20 +94,31 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     }
   }
 
-  useEffect(() => { void load(); }, [workspaceRoot, projectId, enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    const refresh = () => { void load(); };
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<{ projectId: number | null }>).detail.projectId === projectId) refresh();
+    };
+    window.addEventListener("mind:dsh-sessions-changed", changed);
+    window.addEventListener("focus", refresh);
+    refresh();
+    return () => {
+      window.removeEventListener("mind:dsh-sessions-changed", changed);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [workspaceRoot, projectId, enabled]);
 
   const needle = query.trim().toLocaleLowerCase();
   const visible = sessions.filter(session => session.title.toLocaleLowerCase().includes(needle));
   return <section className="project-navigation__section" aria-label="项目会话">
     <div className="home-side__heading"><span>会话</span><div className="home-side__heading-actions">
-      <button type="button" aria-label="刷新会话" title="刷新会话" disabled={!enabled || loading || opening} onClick={() => { void load(); }}><RefreshCw size={16} /></button>
       <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || loading || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
     </div></div>
     <HomeSidebarList label="项目会话列表" searchKey={query}>
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}
-      {loading ? <p role="status" className="home-side__empty">正在读取项目会话…</p> : null}
-      {opening ? <p role="status" className="home-side__empty">正在打开会话…</p> : null}
-      {!loading && visible.map(session => <button key={session.id} type="button" className={`home-side__item ${session.id === activeSessionId ? "is-active" : ""}`} aria-current={session.id === activeSessionId ? "true" : undefined} title={session.title || "新会话"}
+      {loading || opening ? <p role="status" aria-label={opening ? "正在打开会话" : "正在读取项目会话"} className="home-side__empty"><LoaderCircle size={14} className="spin" aria-hidden="true" /></p> : null}
+      {visible.map(session => <button key={session.id} type="button" className={`home-side__item ${session.id === activeSessionId ? "is-active" : ""}`} aria-current={session.id === activeSessionId ? "true" : undefined} title={session.title || "新会话"}
         disabled={opening} onClick={() => { void open(session); }}>
         <AiChatIcon size={12} /><span>{session.title || "新会话"}</span>
         {sessionRuns?.[session.id] ? <span aria-label="运行中">运行中</span> : null}

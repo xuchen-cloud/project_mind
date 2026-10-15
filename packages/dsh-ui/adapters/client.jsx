@@ -169,6 +169,13 @@ export async function createDshClient(projectId) {
     }
     const currentSessionRuns = () => Object.fromEntries(Object.entries(ctx.sessions.list.getSnapshot().byId).map(([id, item]) => [id, item.running]));
     const currentBusy = () => Object.values(ctx.sessions.list.getSnapshot().byId).some(item => item.running);
+    const currentCatalog = () => {
+      const { ids, byId } = ctx.sessions.list.getSnapshot();
+      // Only Host-list members belong to the native sidebar catalog. Retained
+      // subagent fallbacks and runtime/ownership state must not trigger reloads.
+      return JSON.stringify(ids.map(id => [id, byId[id].title, byId[id].displayTitle, byId[id].updatedAt]));
+    };
+    let catalog = currentCatalog();
     let busyPending = false;
     const unsubscribeList = ctx.sessions.list.subscribe(() => {
       if (disposed || busyPending) return;
@@ -176,6 +183,11 @@ export async function createDshClient(projectId) {
       queueMicrotask(() => {
         busyPending = false;
         if (!disposed) {
+          const nextCatalog = currentCatalog();
+          if (nextCatalog !== catalog) {
+            catalog = nextCatalog;
+            notify('sessionsChanged');
+          }
           notify('busy', currentBusy());
           notify('sessionRuns', currentSessionRuns());
         }

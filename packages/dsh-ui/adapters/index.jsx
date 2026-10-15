@@ -19,6 +19,8 @@ function acquire(projectId) {
         window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy: data } }));
       else if (type === 'sessionRuns')
         window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: data } }));
+      else if (type === 'sessionsChanged')
+        window.dispatchEvent(new CustomEvent('mind:dsh-sessions-changed', { detail: { projectId } }));
     }), () => {});
   }
   entry.users++;

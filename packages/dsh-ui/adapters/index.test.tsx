@@ -62,3 +62,51 @@ it('mounts Workspace settings with explicit null ownership', async () => {
   await waitFor(() => expect(screen.getByText('Workspace settings')).toBeVisible());
   expect(fixture.create).toHaveBeenCalledWith(null);
 });
+
+it('bridges catalog invalidation with scope only across UI closure and rejects stale client generations', async () => {
+  const generations: { projectId: number | null; listeners: Set<(type: string, data?: unknown) => void> }[] = [];
+  fixture.create.mockImplementation(async (projectId: number | null) => {
+    const generation = { projectId, listeners: new Set<(type: string, data?: unknown) => void>() };
+    generations.push(generation);
+    return {
+      ctx: { slots: { renderSlot: () => <div>Catalog scope {String(projectId)}</div> } },
+      subscribe(listener: (type: string, data?: unknown) => void) {
+        generation.listeners.add(listener);
+        return () => generation.listeners.delete(listener);
+      },
+      dispose: vi.fn(),
+    };
+  });
+  const changed = vi.fn();
+  window.addEventListener('mind:dsh-sessions-changed', changed);
+  const emit = (generation: typeof generations[number]) => {
+    for (const listener of generation.listeners) listener('sessionsChanged', { sessions: ['must-not-leak'] });
+  };
+  try {
+    const view = render(<>
+      <DshSettingsHost projectId={null} mode="settings" />
+      <DshSettingsHost projectId={7} mode="settings" />
+      <DshSettingsHost projectId={8} mode="settings" />
+    </>);
+    await screen.findByText('Catalog scope 8');
+    expect(changed).not.toHaveBeenCalled();
+    view.unmount();
+    for (const generation of generations) emit(generation);
+    expect(changed.mock.calls.map(([event]) => event.detail)).toEqual([
+      { projectId: null }, { projectId: 7 }, { projectId: 8 },
+    ]);
+    const stale = generations[1];
+    await disposeDshClients();
+    changed.mockClear();
+    emit(stale);
+    expect(changed).not.toHaveBeenCalled();
+    const reopened = render(<DshSettingsHost projectId={7} mode="settings" />);
+    await screen.findByText('Catalog scope 7');
+    emit(stale);
+    expect(changed).not.toHaveBeenCalled();
+    emit(generations[3]);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(changed.mock.calls[0][0].detail).toEqual({ projectId: 7 });
+    reopened.unmount();
+  } finally { window.removeEventListener('mind:dsh-sessions-changed', changed); }
+});
