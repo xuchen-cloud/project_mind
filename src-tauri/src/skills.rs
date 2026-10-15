@@ -1,4 +1,4 @@
-//! Read the DSH Skills catalog without starting an assistant or resolving a model.
+//! Read and manage DSH Skills without starting an assistant or resolving a model.
 use std::{path::PathBuf, process::Stdio, time::Duration};
 
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use tokio::process::Command;
 use crate::{
     agent::models::WorkspaceBinding,
     dsh_assistant::{
-        assistant_data_root, assistant_script_command, project_data_directory, ProjectContext,
+        assistant_data_root, assistant_script_command, runtime_data_directory, ProjectContext,
     },
 };
 
@@ -21,7 +21,7 @@ pub(crate) struct SkillCatalog {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Skill {
     name: String,
     description: String,
@@ -29,6 +29,30 @@ struct Skill {
     #[serde(deserialize_with = "Option::<String>::deserialize")]
     path: Option<String>,
     source: String,
+    disabled: bool,
+    #[serde(deserialize_with = "Option::<String>::deserialize")]
+    entry_path: Option<String>,
+    #[serde(deserialize_with = "Option::<String>::deserialize")]
+    directory: Option<String>,
+    can_delete: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SkillAction {
+    Enable,
+    Disable,
+    Delete,
+}
+
+impl SkillAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Enable => "enable",
+            Self::Disable => "disable",
+            Self::Delete => "delete",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,14 +88,15 @@ impl CatalogContext {
         } else {
             None
         };
-        let cwd = project
-            .as_ref()
-            .map(|project| project.directory.clone())
-            .or_else(|| workspace.as_ref().map(|workspace| workspace.root.clone()))
-            .unwrap_or_else(|| data_root.join("workspace"));
-        let user_data = match (workspace.as_ref(), project_id) {
-            (Some(workspace), Some(id)) => {
-                project_data_directory(&data_root, &workspace.binding.workspace_id, id)?
+        let cwd = match (project.as_ref(), workspace.as_ref()) {
+            (Some(project), _) => project.directory.clone(),
+            (None, Some(workspace)) => workspace.root.canonicalize()
+                .map_err(|_| "工作区目录不可用，请重新打开工作区")?,
+            _ => data_root.join("workspace"),
+        };
+        let user_data = match workspace.as_ref() {
+            Some(workspace) => {
+                runtime_data_directory(&data_root, &workspace.binding.workspace_id, project_id)?
             }
             _ => data_root,
         };
@@ -116,21 +141,55 @@ async fn read_catalog(mut command: Command) -> Result<SkillCatalog, String> {
         .map_err(|error| format!("Skills 目录返回无效 JSON: {error}"))
 }
 
+fn configure_catalog_command(
+    command: &mut Command,
+    context: &CatalogContext,
+    management: Option<(&str, SkillAction)>,
+) {
+    command
+        .arg("--cwd")
+        .arg(&context.cwd)
+        .env("PROJECT_MIND_DSH_USER_DATA", &context.user_data);
+    if let Some((entry, action)) = management {
+        command
+            .arg("--action")
+            .arg(action.as_str())
+            .arg("--entry")
+            .arg(entry);
+    }
+}
+
+async fn run_catalog(
+    app: &tauri::AppHandle,
+    project_id: Option<i64>,
+    management: Option<(&str, SkillAction)>,
+) -> Result<SkillCatalog, String> {
+    let context = CatalogContext::resolve(app, project_id)?;
+    let mut command = assistant_script_command(app, "skills.mjs")?;
+    configure_catalog_command(&mut command, &context, management);
+    context.verify(&CatalogContext::resolve(app, project_id)?)?;
+    let result = read_catalog(command).await;
+    // Resolve against the current native DB again, including canonical directory ownership.
+    context.verify(&CatalogContext::resolve(app, project_id)?)?;
+    result
+}
+
 #[tauri::command]
 pub(crate) async fn skills_list(
     app: tauri::AppHandle,
     project_id: Option<i64>,
 ) -> Result<SkillCatalog, String> {
-    let context = CatalogContext::resolve(&app, project_id)?;
-    let mut command = assistant_script_command(&app, "skills.mjs")?;
-    command
-        .arg("--cwd")
-        .arg(&context.cwd)
-        .env("PROJECT_MIND_DSH_USER_DATA", &context.user_data);
-    let result = read_catalog(command).await;
-    // Resolve against the current native DB again, including canonical directory ownership.
-    context.verify(&CatalogContext::resolve(&app, project_id)?)?;
-    result
+    run_catalog(&app, project_id, None).await
+}
+
+#[tauri::command]
+pub(crate) async fn skills_manage(
+    app: tauri::AppHandle,
+    project_id: Option<i64>,
+    entry_path: String,
+    action: SkillAction,
+) -> Result<SkillCatalog, String> {
+    run_catalog(&app, project_id, Some((&entry_path, action))).await
 }
 
 #[cfg(test)]
@@ -139,11 +198,22 @@ mod tests {
 
     #[test]
     fn catalog_requires_exact_wire_shape_and_nullable_path() {
-        let valid = r#"{"skills":[{"name":"example","description":"method","path":null,"source":"builtin"}],"directories":["/skills"],"complete":true}"#;
+        let valid = r#"{"skills":[{"name":"example","description":"method","path":null,"source":"builtin","disabled":false,"entryPath":null,"directory":null,"canDelete":false}],"directories":["/skills"],"complete":true}"#;
         let catalog: SkillCatalog = serde_json::from_str(valid).unwrap();
         assert!(catalog.skills[0].path.is_none());
+        let serialized = serde_json::to_value(&catalog).unwrap();
+        assert_eq!(
+            serialized,
+            serde_json::from_str::<serde_json::Value>(valid).unwrap()
+        );
         for invalid in [
             valid.replace("\"path\":null,", ""),
+            valid.replace("\"disabled\":false,", ""),
+            valid.replace("\"entryPath\":null,", ""),
+            valid.replace("\"directory\":null,", ""),
+            valid.replace(",\"canDelete\":false", ""),
+            valid.replace("\"disabled\":false", "\"disabled\":null"),
+            valid.replace("\"canDelete\":false", "\"canDelete\":1"),
             valid.replace("\"complete\":true", "\"complete\":1"),
             valid.replace(
                 "\"source\":\"builtin\"",
@@ -157,6 +227,59 @@ mod tests {
                 "{invalid}"
             );
         }
+    }
+
+    #[test]
+    fn management_actions_and_command_arguments_follow_wire_contract() {
+        let context = CatalogContext {
+            workspace: None,
+            cwd: "/workspace/project".into(),
+            user_data: "/data/projects/one/1".into(),
+        };
+        for action in ["enable", "disable", "delete"] {
+            let parsed: SkillAction = serde_json::from_value(serde_json::json!(action)).unwrap();
+            let mut command = Command::new("node");
+            configure_catalog_command(
+                &mut command,
+                &context,
+                Some(("/skills/a b/SKILL.md", parsed)),
+            );
+            let args: Vec<_> = command
+                .as_std()
+                .get_args()
+                .map(|arg| arg.to_str().unwrap())
+                .collect();
+            assert_eq!(
+                args,
+                [
+                    "--cwd",
+                    "/workspace/project",
+                    "--action",
+                    action,
+                    "--entry",
+                    "/skills/a b/SKILL.md"
+                ]
+            );
+            assert!(command
+                .as_std()
+                .get_envs()
+                .any(|(key, value)| key == "PROJECT_MIND_DSH_USER_DATA"
+                    && value == Some(context.user_data.as_os_str())));
+        }
+        for invalid in [
+            serde_json::json!("remove"),
+            serde_json::json!("Enable"),
+            serde_json::json!(null),
+            serde_json::json!(1),
+        ] {
+            assert!(serde_json::from_value::<SkillAction>(invalid).is_err());
+        }
+        let mut command = Command::new("node");
+        configure_catalog_command(&mut command, &context, None);
+        assert_eq!(
+            command.as_std().get_args().collect::<Vec<_>>(),
+            ["--cwd", "/workspace/project"]
+        );
     }
 
     #[test]

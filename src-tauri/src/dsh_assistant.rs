@@ -979,7 +979,10 @@ pub(crate) fn assistant_script_command(
         return Err("助手资源不完整，请重新安装应用".into());
     }
     let mut command = Command::new(node);
-    command.current_dir(root).arg(script);
+    command.current_dir(root).arg(script).env(
+        "PROJECT_MIND_DSH_SKILLS_DATA",
+        assistant_data_root()?.join("skills"),
+    );
     let _ = app; // Development uses the source root, never bundle path guessing.
     Ok(command)
 }
@@ -1069,7 +1072,7 @@ fn workspace_profile_directory(root: &Path, workspace_id: &str) -> Result<PathBu
     Ok(workspace_data_directory(root, workspace_id)?.join("profiles/assistant"))
 }
 
-fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
+pub(crate) fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
     match project_id {
         Some(id) => project_data_directory(root, workspace_id, id),
         None => Ok(workspace_data_directory(root, workspace_id)?.join("workspace")),

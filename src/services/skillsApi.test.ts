@@ -18,4 +18,12 @@ describe("skillsApi", () => {
     vi.mocked(desktopApi.command).mockRejectedValue(new Error("unavailable"));
     await expect(skillsApi.list(null)).rejects.toThrow("unavailable");
   });
+  it("sends management actions with the selected context and propagates failures", async () => {
+    const catalog = { skills: [], directories: [], complete: true };
+    vi.mocked(desktopApi.command).mockResolvedValue(catalog);
+    expect(await skillsApi.manage(7, "/skills/example", "disable")).toBe(catalog);
+    expect(desktopApi.command).toHaveBeenLastCalledWith("skills_manage", { projectId: 7, entryPath: "/skills/example", action: "disable" });
+    vi.mocked(desktopApi.command).mockRejectedValue(new Error("cannot move"));
+    await expect(skillsApi.manage(null, "/skills/.disabled/example", "enable")).rejects.toThrow("cannot move");
+  });
 });
