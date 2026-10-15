@@ -20,6 +20,7 @@ export type PageWidthMode = "adaptive" | "narrow" | "wide" | "full";
 export type WorkspaceSidebarTab = "projects" | "records";
 export type ProjectSidebarTab = "records" | "files";
 export type TodoRailTab = "unfinished" | "finished";
+export type TodoRailMode = "floating" | "pinned";
 export type TodoRailSortMode = "time" | "priority";
 export type ProjectTodoViewMode = "workspace" | "current-project";
 
@@ -67,6 +68,7 @@ interface UiStoreState {
   projectFileFilters: Record<number, ProjectFileFilterState>;
   projectSidebarCollapsed: boolean;
   todoRailCollapsed: boolean;
+  todoRailMode: TodoRailMode;
   todoRailTab: TodoRailTab;
   todoRailSortMode: TodoRailSortMode;
   projectTodoViewMode: ProjectTodoViewMode;
@@ -93,6 +95,7 @@ interface UiStore extends UiStoreState {
   setProjectDocumentTagId: (projectId: number, tagId: number | null) => void;
   setProjectSidebarCollapsed: (collapsed: boolean) => void;
   setTodoRailCollapsed: (collapsed: boolean) => void;
+  setTodoRailMode: (mode: TodoRailMode) => void;
   setTodoRailTab: (tab: TodoRailTab) => void;
   setTodoRailSortMode: (mode: TodoRailSortMode) => void;
   setProjectTodoViewMode: (mode: ProjectTodoViewMode) => void;
@@ -127,6 +130,7 @@ export function createUiStoreState(): UiStoreState {
     projectFileFilters: {},
     projectSidebarCollapsed: false,
     todoRailCollapsed: false,
+    todoRailMode: "floating",
     todoRailTab: "unfinished",
     todoRailSortMode: "time",
     projectTodoViewMode: "current-project",
@@ -172,6 +176,7 @@ export const uiStorePersistStorage = createJSONStorage<{
   projectSidebarWidthPx: number;
   projectSidebarCollapsed?: boolean;
   todoRailCollapsed?: boolean;
+  todoRailMode?: TodoRailMode;
   projectTodoViewMode?: ProjectTodoViewMode;
 }>(createUiStorePersistStorage);
 
@@ -213,6 +218,7 @@ export const createUiStore = () =>
           })),
         setProjectSidebarCollapsed: (projectSidebarCollapsed) => set({ projectSidebarCollapsed }),
         setTodoRailCollapsed: (todoRailCollapsed) => set({ todoRailCollapsed }),
+        setTodoRailMode: (todoRailMode) => set({ todoRailMode }),
         setTodoRailTab: (todoRailTab) => set({ todoRailTab }),
         setTodoRailSortMode: (todoRailSortMode) => set({ todoRailSortMode }),
         setProjectTodoViewMode: (projectTodoViewMode) => set({ projectTodoViewMode }),
@@ -275,7 +281,7 @@ export const createUiStore = () =>
       }),
       {
         name: UI_STORE_STORAGE_KEY,
-        version: 1,
+        version: 2,
         storage: uiStorePersistStorage,
         migrate: (persistedState) => {
           const state = persistedState as
@@ -287,6 +293,7 @@ export const createUiStore = () =>
                 projectSidebarWidthPx?: number;
                 projectSidebarCollapsed?: boolean;
                 todoRailCollapsed?: boolean;
+                todoRailMode?: TodoRailMode;
                 projectTodoViewMode?: ProjectTodoViewMode;
               }
             | undefined;
@@ -308,6 +315,7 @@ export const createUiStore = () =>
               state?.projectSidebarWidthPx ?? PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
             projectSidebarCollapsed: state?.projectSidebarCollapsed ?? false,
             todoRailCollapsed: state?.todoRailCollapsed ?? false,
+            todoRailMode: state?.todoRailMode ?? "floating",
             projectTodoViewMode: state?.projectTodoViewMode ?? "current-project",
           };
         },
@@ -318,6 +326,7 @@ export const createUiStore = () =>
           projectSidebarWidthPx: state.projectSidebarWidthPx,
           projectSidebarCollapsed: state.projectSidebarCollapsed,
           todoRailCollapsed: state.todoRailCollapsed,
+          todoRailMode: state.todoRailMode,
           projectTodoViewMode: state.projectTodoViewMode,
         }),
       },

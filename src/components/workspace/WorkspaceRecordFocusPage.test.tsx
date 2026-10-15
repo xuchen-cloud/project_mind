@@ -98,10 +98,6 @@ vi.mock("../../hooks/useContactMentionOptions", () => ({
   useContactMentionOptions: () => ({}),
 }));
 
-vi.mock("../../hooks/useContactMentionNavigation", () => ({
-  useContactMentionNavigation: () => vi.fn(),
-}));
-
 vi.mock("../../hooks/useInternalReferenceNavigation", () => ({
   useInternalReferenceNavigation: () => vi.fn(),
 }));
@@ -129,7 +125,6 @@ vi.mock("../../state/ui-store", async (importOriginal) => ({
     openProjectIds: [],
     closeProjectTab: vi.fn(),
     projectSidebarCollapsed: false,
-    todoRailCollapsed: true,
   }),
 }));
 
@@ -573,6 +568,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(screen.queryByRole("status", { name: /正在加载/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文 A");
     expect(view.container.querySelector(".page-cold-entry")).not.toHaveAttribute("data-cold-entry");
+    expect(screen.queryByTestId("todo-module-rail")).not.toBeInTheDocument();
   });
 
   it("offers AI title and Tag filling in a Workspace Record", async () => {
@@ -685,11 +681,13 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     await waitFor(() => expect(screen.getByDisplayValue("B")).toBeEnabled());
     const editorB = screen.getByDisplayValue("正文 B");
     expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
+    expect(editorA.closest("[data-record-focus-resident-key]")).toHaveAttribute("data-record-focus-active", "false");
+    expect(editorB.closest("[data-record-focus-resident-key]")).toHaveAttribute("data-record-focus-active", "true");
     expect(
       editorA.closest("[data-record-focus-resident-key]")?.querySelector(
         '[data-testid="todo-module-rail"]',
       ),
-    ).toHaveAttribute("data-enabled", "false");
+    ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "打开 Workspace 记录 A" }));
     expect(await screen.findByDisplayValue("正文 A")).toBe(editorA);

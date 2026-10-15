@@ -600,7 +600,7 @@ export function WorkspaceTopBar({
         </> : null}
       </div>
 
-      {homePanels ? <IconButton type="button" aria-label="切换右侧栏" aria-expanded={homePanels.rightOpen} onClick={homePanels.toggleRight}><PanelRight size={16} /></IconButton> : null}
+      {homePanels ? <IconButton type="button" aria-label="切换右侧栏" data-right-sidebar-toggle aria-expanded={homePanels.rightOpen} onClick={homePanels.toggleRight}><PanelRight size={16} /></IconButton> : null}
       {projectTabContextMenuPortal}
     </header>
   );

@@ -1,6 +1,5 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { useUiStore } from "../../state/ui-store";
 import { HomeWorkspaceRail } from "./HomeWorkspaceRail";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -11,7 +10,6 @@ it("hides the brand when tasks overflow, stays hidden with reclaimed space, and 
     constructor(callback: () => void) { callbacks.push(callback); }
     observe() {} disconnect() {} unobserve() {}
   });
-  useUiStore.setState({ todoRailCollapsed: false });
   const { container } = render(<HomeWorkspaceRail><div className="todo-rail__list-scroll"><div>Tasks</div></div></HomeWorkspaceRail>);
   const root = container.firstElementChild!;
   expect(root.querySelector(".home-brand small")).toHaveTextContent("— NoriMind");
@@ -29,5 +27,4 @@ it("hides the brand when tasks overflow, stays hidden with reclaimed space, and 
   contentHeight = 60;
   act(() => callbacks.forEach((callback) => callback()));
   await waitFor(() => expect(root).not.toHaveAttribute("data-brand-hidden"));
-  expect(root.querySelector(':scope > [role="separator"]')).toBeInTheDocument();
 });

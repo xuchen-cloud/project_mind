@@ -11,7 +11,6 @@ type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
-import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
@@ -22,7 +21,6 @@ import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import {
 parseFocusRecordId,
-parseFocusTodoId,
 parseRouteId,
 preserveRecordFilters,
 recordFocusId,
@@ -55,7 +53,6 @@ WorkspaceStatusSnapshot,
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { TodoModuleRail } from "../../todo";
 import { ActionContextMenu,Button,PageLoadingSkeleton,TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
@@ -113,7 +110,6 @@ export function ProjectOverviewPage({
   );
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
-  const focusedTodoId = parseFocusTodoId(focusId);
   const shouldAutoFocusProjectName = searchParams.get("renameProject") === "1";
   const composeRecord = searchParams.get("compose") === "record";
   const { pushToast } = useFeedbackStore();
@@ -121,13 +117,8 @@ export function ProjectOverviewPage({
     openSettings,
     pageWidthMode,
     projectSidebarCollapsed,
-    todoRailCollapsed,
-    todoRailWidthPx,
-    projectTodoViewMode,
-    setProjectTodoViewMode,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
-  const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
 
   const projectsQuery = useQuery({
@@ -787,25 +778,6 @@ export function ProjectOverviewPage({
         </div>
       </div>
 
-      <div style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }} className={`home-rail home-rail--project home-rail--project-todos${todoRailCollapsed ? " is-collapsed" : ""}`}>
-        <div className="home-rail__todo">
-      <TodoModuleRail
-        scope={
-          projectTodoViewMode === "workspace"
-            ? { kind: "workspace" }
-            : { kind: "current-project", projectId: activeProject.id }
-        }
-        focusTodoId={focusedTodoId}
-        enabled={visible}
-        canCreateTodo={projectTodoViewMode === "workspace" || !activeProject.isArchived}
-        availableTags={projectTodoViewMode === "current-project" ? availableTags : []}
-        showViewModeSwitch
-        onViewModeChange={setProjectTodoViewMode}
-        onOpenInternalReference={openInternalReference}
-        onOpenContactMention={openContactMention}
-      />
-        </div>
-      </div>
     </div>
   );
 }

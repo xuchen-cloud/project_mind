@@ -1,16 +1,13 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import noriBust from "../../assets/home/nori-bust.png";
-import { TODO_RAIL_WIDTH_MAX_PX, TODO_RAIL_WIDTH_MIN_PX, useUiStore } from "../../state/ui-store";
-import { ResizeHandle } from "../../ui/components";
 
 export function HomeWorkspaceRail({ children }: { children: ReactNode }) {
-  const { todoRailCollapsed, todoRailWidthPx, setTodoRailWidthPx } = useUiStore();
   const rootRef = useRef<HTMLDivElement>(null);
   const [hideBrand, setHideBrand] = useState(false);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
-    if (!root || todoRailCollapsed) return;
+    if (!root) return;
     let frame = 0;
     const measure = () => {
       const list = root.querySelector<HTMLElement>(".todo-rail__list-scroll");
@@ -38,19 +35,16 @@ export function HomeWorkspaceRail({ children }: { children: ReactNode }) {
     mutation.observe(root, { childList: true, subtree: true });
     observe();
     return () => { cancelAnimationFrame(frame); resize.disconnect(); mutation.disconnect(); };
-  }, [todoRailCollapsed]);
+  }, []);
 
   return (
     <div ref={rootRef} data-brand-hidden={hideBrand || undefined}
-      style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }}
-      className={`home-rail home-rail--workspace${todoRailCollapsed ? " is-collapsed" : ""}`}>
-      {!todoRailCollapsed && <ResizeHandle label="调整待办侧栏宽度" edge="left" value={todoRailWidthPx}
-        min={TODO_RAIL_WIDTH_MIN_PX} max={TODO_RAIL_WIDTH_MAX_PX} onChange={setTodoRailWidthPx} className="left-0" />}
+      className="home-rail home-rail--workspace">
       <div className="home-rail__todo">{children}</div>
-      {!todoRailCollapsed && <div className="home-brand" aria-hidden={hideBrand || undefined}>
+      <div className="home-brand" aria-hidden={hideBrand || undefined}>
         <p>“让好想法，<br />在有上下文的地方持续推进。”</p>
         <small>— NoriMind</small><img src={noriBust} alt="Nori 小熊" />
-      </div>}
+      </div>
     </div>
   );
 }

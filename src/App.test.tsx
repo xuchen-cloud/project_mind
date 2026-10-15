@@ -315,6 +315,37 @@ describe("WorkspaceLayout", () => {
     useUiStore.setState(createUiStoreState());
   });
 
+  it.each(["/workspace", "/workspace/records/999", "/projects/1", "/projects/1/records/999", "/projects/1?content=file-51"])("exposes the same floating and pinned right sidebar at %s", async (route) => {
+    const project = { id: 1, name: "Alpha", kind: "normal" as const, status: "active", rootPath: "/tmp/project-1", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([project]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({ project, records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(queryKeys.projects.all, [project]);
+    client.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    client.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    useUiStore.setState({ todoRailCollapsed: true });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [
+      { path: "workspace", element: <button>页面正文</button> },
+      { path: "workspace/records/:noteId", element: <button>页面正文</button> },
+      { path: "projects/:projectId", element: <button>页面正文</button> },
+      { path: "projects/:projectId/records/:noteId", element: <button>页面正文</button> },
+    ] }], { initialEntries: [route] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const toggle = await screen.findByRole("button", { name: "切换右侧栏" });
+    fireEvent.click(toggle);
+    const sidebar = screen.getByRole("region", { name: "右侧栏" });
+    expect(sidebar).toHaveAttribute("data-mode", "floating");
+    const pin = within(sidebar).getByRole("button", { name: "固定右侧栏" });
+    fireEvent.click(pin);
+    expect(sidebar).toHaveAttribute("data-mode", "pinned");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "页面正文" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(sidebar).queryByLabelText("待办范围") !== null).toBe(route.startsWith("/projects/"));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "取消固定右侧栏" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "页面正文" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("migrates legacy preview and assistant path entries into the real cached Project shell while preserving a pinned view", async () => {
     await import("./components/document/ProjectFileContent");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render as baseRender,
   screen,
@@ -15,6 +16,7 @@ import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import type { TodoRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { TodoRail } from "./TodoRail";
+import { RightSidebar } from "../layout/RightSidebar";
 
 // TodoRail now uses useContactMentionOptions(), which needs a QueryClient.
 function render(ui: ReactElement) {
@@ -119,8 +121,9 @@ const finishedTodo: TodoRecord = {
 describe("TodoRail", () => {
   function renderRail(
     partialProps: Partial<React.ComponentProps<typeof TodoRail>> = {},
+    hosted = false,
   ) {
-    return render(
+    const rail = (
       <TodoRail
         title="Todo List"
         scopeLabel="Alpha"
@@ -136,8 +139,13 @@ describe("TodoRail", () => {
         onDeleteProgress={vi.fn()}
         onDeleteTodo={vi.fn()}
         {...partialProps}
-      />,
+      />
     );
+    return render(hosted ? <>
+      <button data-right-sidebar-toggle onClick={() => useUiStore.getState().setTodoRailCollapsed(false)}>打开右栏</button>
+      <button>正文操作</button>
+      <RightSidebar>{rail}</RightSidebar>
+    </> : rail);
   }
 
   async function selectOwnership(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -151,6 +159,23 @@ describe("TodoRail", () => {
   beforeEach(() => {
     installMemoryLocalStorage();
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("keeps a hidden hosted draft inactive until the sidebar is reopened", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn(async () => undefined);
+    renderRail({ onCreateTodo }, true);
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "继续写的草稿");
+    act(() => screen.getByRole("button", { name: "正文操作" }).focus());
+    expect(useUiStore.getState().todoRailCollapsed).toBe(true);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "正文操作" }));
+    await user.click(screen.getByRole("button", { name: "打开右栏" }));
+    expect(onCreateTodo).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue("继续写的草稿");
+    await user.click(screen.getByRole("button", { name: "正文操作" }));
+    expect(onCreateTodo).toHaveBeenCalledWith(expect.objectContaining({ content: "继续写的草稿" }));
   });
 
   it("selects and scrolls to the focused Todo in the correct Rail tab", async () => {

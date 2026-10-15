@@ -77,6 +77,9 @@ import {
   type ProjectSidebarDocumentItem,
   type ProjectSidebarRecordItem,
 } from "./components/layout/ProjectSidebar";
+import { RightSidebar } from "./components/layout/RightSidebar";
+import { WorkspaceTodoRail } from "./components/layout/WorkspaceTodoRail";
+import { HomeWorkspaceRail } from "./components/home/HomeWorkspaceRail";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
 import { ProjectFilePreviewLayer } from "./components/home/ProjectFilePreviewLayer";
 import { ToastStack } from "./components/layout/ToastStack";
@@ -288,6 +291,7 @@ export function WorkspaceLayout({
     rememberProjectRoute,
     clearWorkspaceScopedUiState,
     todoRailCollapsed,
+    todoRailMode,
     todoRailWidthPx,
     setTodoRailCollapsed,
   } = useUiStore();
@@ -452,18 +456,15 @@ export function WorkspaceLayout({
   );
   const showProjectSidebarShell =
     hasWorkspace && activeProjectId !== null && activeProject !== null;
-  const showTodoRailShell =
-    showProjectSidebarShell &&
-    !location.pathname.endsWith("/summary");
+  const showTodoRailShell = workspaceActive || showProjectSidebarShell;
   const showLeftSidebarForWidthConstraint = workspaceActive || showProjectSidebarShell;
-  const showRightSidebarForWidthConstraint = workspaceActive || showTodoRailShell;
 
   useWorkspaceWindowSizeConstraints({
-    overlayHomePanels: location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId) || activeRecordFocusRoute !== null,
+    overlayHomePanels: true,
     showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
     projectSidebarWidthPx,
-    showTodoRail: showRightSidebarForWidthConstraint,
+    showTodoRail: showTodoRailShell && todoRailMode === "pinned",
     todoRailCollapsed,
     todoRailWidthPx,
     setProjectSidebarCollapsed,
@@ -1392,7 +1393,7 @@ export function WorkspaceLayout({
 
   const workspaceTopBar = (
     <WorkspaceTopBar
-      homePanels={location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId) || activeRecordFocusRoute !== null ? { rightWidth: todoRailWidthPx, leftWidth: projectSidebarWidthPx, workspaceName: currentWorkspace.displayName || "Workspace", leftOpen: !projectSidebarCollapsed, rightOpen: !todoRailCollapsed, toggleLeft: () => setProjectSidebarCollapsed(!projectSidebarCollapsed), toggleRight: () => setTodoRailCollapsed(!todoRailCollapsed) } : undefined}
+      homePanels={workspaceActive || showProjectSidebarShell ? { rightWidth: todoRailWidthPx, leftWidth: projectSidebarWidthPx, workspaceName: currentWorkspace.displayName || "Workspace", leftOpen: !projectSidebarCollapsed, rightOpen: !todoRailCollapsed, toggleLeft: () => setProjectSidebarCollapsed(!projectSidebarCollapsed), toggleRight: () => setTodoRailCollapsed(!todoRailCollapsed) } : undefined}
       projects={openedProjects}
       activeProjectId={activeProjectId}
       workspaceActive={workspaceActive}
@@ -1552,7 +1553,7 @@ export function WorkspaceLayout({
         cacheProjectOverviewPages ? (currentWorkspace?.rootPath ?? null) : null
       }
     >
-    <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle${!projectWindow && (workspaceOverviewActive || projectOverviewActive || activeRecordFocusRoute !== null) ? " home-window-shell" : ""}`}>
+    <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle${!projectWindow && (workspaceActive || showProjectSidebarShell) ? " home-window-shell" : ""}`}>
       {projectWindow ? null : workspaceTopBar}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1642,6 +1643,11 @@ export function WorkspaceLayout({
           </main>
           <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} currentProjectId={activeProjectId} />
         </div>
+        {showTodoRailShell ? <RightSidebar key={`${currentWorkspace.rootPath}:${activeProjectId ?? "workspace"}`} showToggle={projectWindow}>
+          {activeProjectId === null
+            ? <HomeWorkspaceRail><WorkspaceTodoRail projectId={null} visible={!todoRailCollapsed} /></HomeWorkspaceRail>
+            : <div className="home-rail home-rail--project home-rail--project-todos"><div className="home-rail__todo"><WorkspaceTodoRail projectId={activeProjectId} visible={!todoRailCollapsed} /></div></div>}
+        </RightSidebar> : null}
       </div>
       <CreateWorkspaceDialog
         open={createWorkspaceOpen}

@@ -1,0 +1,67 @@
+.workspace-right-sidebar {
+  position:relative;
+  flex:none;
+  width:0;
+  min-height:0;
+  z-index:25;
+}
+.workspace-right-sidebar[data-mode="pinned"][data-open="true"] {
+  width:min(var(--right-sidebar-width), calc(100vw - 48px));
+}
+.workspace-right-sidebar__surface {
+  position:absolute;
+  right:8px;
+  top:8px;
+  bottom:8px;
+  display:flex;
+  flex-direction:column;
+  width:min(var(--right-sidebar-width), calc(100vw - 16px));
+  overflow:hidden;
+  background:var(--home-sidebar);
+  border:1px solid var(--home-line);
+  border-radius:12px;
+  box-shadow:var(--shadow-md);
+  transform-origin:left top;
+  transform:translateX(16px);
+  opacity:0;
+  visibility:hidden;
+  transition:transform var(--duration-standard) var(--ease-out),opacity var(--duration-standard) var(--ease-out),visibility 0s var(--duration-standard);
+}
+.workspace-right-sidebar[data-open="true"] > .workspace-right-sidebar__surface {
+  transform:none;
+  opacity:1;
+  visibility:visible;
+  transition-duration:var(--duration-deliberate),var(--duration-deliberate),0s;
+  transition-delay:0s;
+}
+.workspace-right-sidebar[data-mode="pinned"] > .workspace-right-sidebar__surface {
+  top:0;
+  right:0;
+  bottom:0;
+  border:0;
+  border-left:1px solid var(--home-line);
+  border-radius:0;
+  box-shadow:none;
+  width:min(var(--right-sidebar-width), calc(100vw - 48px));
+}
+.workspace-right-sidebar .home-rail:not(.is-collapsed) {
+  position:relative; inset:auto; width:100% !important; height:100%; border:0; min-width:0; box-shadow:none;
+}
+.workspace-right-sidebar .home-rail__todo { flex:1; min-height:0; }
+.workspace-right-sidebar .todo-rail { width:100% !important; height:100%; min-width:0; }
+.workspace-right-sidebar__resize { left:0; translate:0; }
+.workspace-right-sidebar[data-mode] .home-rail button[aria-label="收起代办侧边栏"] { display:inline-flex; }
+@starting-style {
+  .workspace-right-sidebar[data-open="true"] > .workspace-right-sidebar__surface { transform:translateX(16px); opacity:0; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .workspace-right-sidebar__surface,
+  .workspace-right-sidebar[data-open="true"] > .workspace-right-sidebar__surface {
+    transform:none !important; transition:none;
+  }
+  @starting-style {
+    .workspace-right-sidebar[data-open="true"] > .workspace-right-sidebar__surface { transform:none; opacity:1; }
+  }
+}
+
+.workspace-right-sidebar__toggle { position:absolute; right:8px; top:8px; z-index:26; }

@@ -1,5 +1,4 @@
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
-import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
 import { HomeNoteSidebar } from "../home/HomeNoteSidebar";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
@@ -15,7 +14,6 @@ import { colorKeyForTagLabel } from "../../lib/tags";
 import { renameCanonicalRecord } from "../../lib/canonical-record-metadata";
 import { CanonicalRecordCreation, createBlankCanonicalRecord } from "../../lib/canonical-record-creation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
-import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
@@ -44,7 +42,6 @@ type RichEditorValue,
 } from "../rich-editor";
 import { buildWorkspaceNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
-import { TodoModuleRail } from "../../todo";
 import { RecordExportAction } from "../../features/record-export/RecordExportAction";
 import type { RecordExportRequest } from "../../features/record-export/recordExport";
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
@@ -104,7 +101,6 @@ export function WorkspaceRecordFocusPage({
   const { pushToast } = useFeedbackStore();
   const { openSettings } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
-  const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
 
@@ -641,17 +637,6 @@ export function WorkspaceRecordFocusPage({
         </div>
       </div>
 
-      {workspacePageQuery.data ? (
-        <HomeWorkspaceRail>
-        <TodoModuleRail
-          scope={{ kind: "workspace" }}
-          enabled={visible}
-          availableTags={availableTags}
-          onOpenInternalReference={openInternalReference}
-          onOpenContactMention={openContactMention}
-        />
-        </HomeWorkspaceRail>
-      ) : null}
     </div>
   );
 }

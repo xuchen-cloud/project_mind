@@ -1,3 +1,4 @@
+import { RightSidebarHostedContext } from "../layout/RightSidebar";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import "./todo.css";
 import { useTodoListMotion } from "./useTodoListMotion";
@@ -5,8 +6,8 @@ import { TodoPrioritySelector } from "./TodoPrioritySelector";
 import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, ListTodo, SlidersHorizontal, Plus, Search, X } from "lucide-react";
+import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, ListTodo, SlidersHorizontal, Pin, PinOff, Plus, Search, X } from "lucide-react";
 
 import {
   splitInternalReferenceText,
@@ -137,8 +138,11 @@ export function TodoRail({
   onOpenInternalReference,
   onOpenContactMention,
 }: TodoRailProps) {
+  const hosted = useContext(RightSidebarHostedContext);
   const {
     todoRailCollapsed,
+    todoRailMode,
+    setTodoRailMode,
     todoRailWidthPx,
     setTodoRailCollapsed,
     setTodoRailWidthPx,
@@ -397,7 +401,7 @@ export function TodoRail({
   }, [content, isComposing]);
 
   useEffect(() => {
-    if (!isComposing) return;
+    if (!isComposing || (hosted && todoRailCollapsed)) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || createPending || composerTagPending) return;
       if (composerCreationOutcome !== null) return;
@@ -415,7 +419,7 @@ export function TodoRail({
   });
 
   useEffect(() => {
-    if (!isComposing) return;
+    if (!isComposing || (hosted && todoRailCollapsed)) return;
     const handleOutsidePointerDown = (event: PointerEvent) => {
       if (createPending || composerTagPending || composerCreationOutcome !== null) return;
       const target = event.target;
@@ -818,7 +822,7 @@ export function TodoRail({
     );
   }
 
-  if (todoRailCollapsed) {
+  if (todoRailCollapsed && !hosted) {
     return (
       <aside className="sidebar-dock sidebar-dock--right" aria-label={`${title} 侧边栏`}>
         <button
@@ -843,7 +847,7 @@ export function TodoRail({
       style={{ width: `${todoRailWidthPx}px` }}
       aria-label={`${title} 侧边栏`}
     >
-      <ResizeHandle
+      {!hosted ? <ResizeHandle
         label="调整 Todo Rail 宽度"
         edge="left"
         value={todoRailWidthPx}
@@ -851,7 +855,7 @@ export function TodoRail({
         max={TODO_RAIL_WIDTH_MAX_PX}
         onChange={setTodoRailWidthPx}
         className="left-0"
-      />
+      /> : null}
       <div className="todo-rail__header flex items-start justify-between gap-3">
         <div className="todo-rail__heading">
           <h2>{tab === "finished" ? "已完成" : title}</h2>
@@ -891,6 +895,13 @@ export function TodoRail({
               <option value="priority">按优先级</option>
             </select>
           </label>
+          {hosted ? <IconButton type="button" size="sm" variant="ghost"
+            aria-label={todoRailMode === "pinned" ? "取消固定右侧栏" : "固定右侧栏"}
+            title={todoRailMode === "pinned" ? "取消固定，悬浮显示" : "固定右侧栏"}
+            aria-pressed={todoRailMode === "pinned"}
+            onClick={() => setTodoRailMode(todoRailMode === "pinned" ? "floating" : "pinned")}>
+            {todoRailMode === "pinned" ? <PinOff size={14} /> : <Pin size={14} />}
+          </IconButton> : null}
           <IconButton
             type="button"
             size="sm"
