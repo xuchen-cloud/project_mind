@@ -28,14 +28,34 @@ function withActions(element: ReactElement) {
   return { ...result, actions };
 }
 
-it("keeps only the original workspace link in the brand identity even with actions available", () => {
+it("shows the current workspace above the brand and keeps its navigation action", () => {
   const onOpenWorkspace = vi.fn();
   const { actions } = withActions(<HomeWorkspaceIdentity onOpenWorkspace={onOpenWorkspace} />);
   expect(screen.getAllByRole("button")).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "我的工作区" }));
+  expect(screen.getByRole("button", { name: "研究工作区" })).toHaveClass("home-side__identity-title");
+  expect(screen.getByRole("img", { name: "NoriMind" }).parentElement).toHaveClass("home-side__identity-subtitle");
+  fireEvent.click(screen.getByRole("button", { name: "研究工作区" }));
   expect(onOpenWorkspace).toHaveBeenCalledOnce();
   expect(actions.switchWorkspace).not.toHaveBeenCalled();
   expect(actions.openSettings).not.toHaveBeenCalled();
+});
+
+it("shows the project above the brand and workspace, updating names with the current context", () => {
+  const onOpenWorkspace = vi.fn();
+  const { actions, rerender } = withActions(<HomeWorkspaceIdentity projectName="Alpha" onOpenWorkspace={onOpenWorkspace} />);
+  expect(screen.getByText("Alpha")).toHaveClass("home-side__identity-title");
+  expect(screen.getByText("Alpha")).toHaveAttribute("title", "Alpha");
+  const workspace = screen.getByRole("button", { name: "NoriMind · 研究工作区" });
+  expect(workspace).toHaveClass("home-side__identity-subtitle");
+  fireEvent.click(workspace);
+  expect(onOpenWorkspace).toHaveBeenCalledOnce();
+  expect(actions.switchWorkspace).not.toHaveBeenCalled();
+  rerender(<HomeWorkspaceActionsContext.Provider value={{ ...actions, workspaceName: "个人工作区" }}>
+    <HomeWorkspaceIdentity projectName="Beta" onOpenWorkspace={onOpenWorkspace} />
+  </HomeWorkspaceActionsContext.Provider>);
+  expect(screen.getByText("Beta")).toHaveAttribute("title", "Beta");
+  expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "NoriMind · 个人工作区" })).toHaveAttribute("title", "NoriMind · 个人工作区");
 });
 
 it("shows the current workspace and invokes each footer action independently", () => {
@@ -93,6 +113,10 @@ it.each(sidebars)("places the $name footer immediately after its content as a di
   const footer = within(sidebar).getByRole("group", { name: "工作区操作" });
   expect(footer.parentElement).toBe(sidebar);
   expect(footer.previousElementSibling).toBe(sidebar.querySelector(content));
+  const brand = sidebar.querySelector<HTMLElement>(".home-side__brand")!;
+  expect(brand.querySelector(".home-side__identity-title")).toHaveTextContent(sidebar.classList.contains("project-navigation") ? "Alpha" : "研究工作区");
+  expect(within(brand).getByRole("img", { name: "NoriMind" })).toBeInTheDocument();
+  expect(brand.querySelector(".home-side__identity-subtitle")).toHaveTextContent(sidebar.classList.contains("project-navigation") ? "·研究工作区" : "");
   expect(within(sidebar.querySelector<HTMLElement>(".home-side__brand")!).queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
 });
 

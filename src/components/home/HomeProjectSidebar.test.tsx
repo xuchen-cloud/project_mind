@@ -27,8 +27,8 @@ it("shows all records and orders fixed navigation above independent content list
   const { onOpenRecord } = setup();
   await screen.findByRole("button", { name: "#交付" });
   const sidebar = screen.getByRole("complementary", { name: "项目导航侧边栏" });
-  expect(within(sidebar).getByRole("img", { name: "NoriMind" })).toBeInTheDocument();
-  expect(within(sidebar).getByRole("img", { name: "NoriMind" }).compareDocumentPosition(screen.getByRole("textbox", { name: "搜索项目内容" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(sidebar).getByText("Alpha")).toHaveClass("home-side__identity-title");
+  expect(within(sidebar).getByText("Alpha").compareDocumentPosition(screen.getByRole("textbox", { name: "搜索项目内容" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const lists = within(sidebar).getAllByRole("region").map(node => node.getAttribute("aria-label")).filter(label => label?.endsWith("列表"));
   expect(lists).toEqual(["项目标签列表", "项目记录列表", "项目会话列表", "项目文件列表"]);
   fireEvent.click(within(screen.getByRole("region", { name: "项目记录列表" })).getByRole("button", { name: "记录 12" }));

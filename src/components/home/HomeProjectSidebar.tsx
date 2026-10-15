@@ -14,12 +14,11 @@ import { useUiStore, PROJECT_SIDEBAR_WIDTH_MAX_PX, PROJECT_SIDEBAR_WIDTH_MIN_PX 
 import { ActionContextMenu, ResizeHandle, SearchField } from "../../ui/components";
 import { useFeedbackStore } from "../../state/feedback-store";
 import nori from "../../assets/home/nori-bust.png";
-import noriWordmark from "../../assets/home/norimind-wordmark.svg";
 import { recentProjectRecordKey, rememberProjectRecord } from "./project-record-history";
 import "./project-navigation.css";
 
 export function HomeProjectSidebar({
-  projectId, workspaceRoot, project, documents, records, selectedTagId,
+  projectId, projectName, workspaceRoot, project, documents, records, selectedTagId,
   onTagChange, onOpenWorkspace, onOpenRecord, onCreateRecord, activeRecordId, onRenameRecord, onDeleteRecord,
 }: {
   projectId: number;
@@ -70,7 +69,7 @@ export function HomeProjectSidebar({
   if (projectSidebarCollapsed) return <aside className="sidebar-dock sidebar-dock--left"><button type="button" className="sidebar-dock__surface" aria-label="展开项目侧边栏" onClick={toggleProjectSidebarCollapsed}><Compass size={18} /></button></aside>;
   return <aside className="home-side project-navigation" style={{ width: projectSidebarWidthPx }} aria-label="项目导航侧边栏">
     <ResizeHandle label="调整项目侧边栏宽度" edge="right" value={projectSidebarWidthPx} min={PROJECT_SIDEBAR_WIDTH_MIN_PX} max={PROJECT_SIDEBAR_WIDTH_MAX_PX} onChange={setProjectSidebarWidthPx} className="right-0" />
-    <div className="home-side__brand"><img className="home-side__mascot" src={nori} alt="" /><div className="home-side__brand-copy"><img className="home-side__wordmark" src={noriWordmark} alt="NoriMind" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenWorkspace} /></div><button type="button" aria-label="收起项目侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
+    <div className="home-side__brand"><img className="home-side__mascot" src={nori} alt="" /><HomeWorkspaceIdentity projectName={projectName} onOpenWorkspace={onOpenWorkspace} /><button type="button" aria-label="收起项目侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
     <div className="project-navigation__search"><SearchField aria-label="搜索项目内容" placeholder="搜索记录、会话和文件" value={query} onChange={event => setQuery(event.target.value)} /></div>
     <section className="project-navigation__tags" aria-label="项目标签">
       <HomeSidebarList label="项目标签列表"><div className="project-navigation__tag-cloud">

@@ -365,7 +365,6 @@
   width:42px;
   height:42px;
   object-fit:contain}
-.home-side__wordmark { display:block; width:156px; height:32px; max-width:100%; object-fit:contain; object-position:left center; }
 .home-side__brand>button {
   margin-left:auto}
 .home-side__workspace {
@@ -737,8 +736,15 @@
 
 .home-side__brand { align-items:flex-end; gap:8px; padding:24px 16px; }
 .home-side__brand .home-side__mascot { width:52px; height:64px; object-fit:contain; object-position:bottom; }
-.home-side__brand-copy { display:flex; flex-direction:column; min-width:0; }
-.home-side__brand-copy .home-side__workspace { margin:0; padding:0; gap:6px; min-height:24px; font-size:13px; line-height:24px; border-radius:4px; }
+.home-side__brand-copy { display:flex; flex:1; flex-direction:column; min-width:0; gap:2px; }
+.home-side__identity-title, .home-side__identity-subtitle { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+.home-side__identity-title { font-size:var(--type-title-size); line-height:var(--type-title-line); font-weight:600; color:var(--color-text-primary); }
+.home-side__identity-subtitle { display:flex; align-items:center; gap:5px; font-size:var(--type-caption-size); line-height:var(--type-caption-line); font-weight:400; color:var(--color-text-secondary); }
+.home-side__identity-wordmark { flex:none; width:auto; height:14px; }
+.home-side__identity-workspace { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.home-side__brand-copy button { padding:0; border:0; border-radius:4px; background:transparent; cursor:pointer; }
+.home-side__brand-copy button:hover { color:var(--color-accent); }
+.home-side__brand-copy button:focus-visible { outline:2px solid var(--color-accent); outline-offset:2px; }
 .home-side__brand>button { align-self:center; }
 .home-quick-note__panel { isolation:isolate; border:1px solid var(--color-border-strong); border-radius:10px; box-shadow:var(--shadow-sm),0 4px 16px var(--home-shadow-soft); }
 .home-quick-note__panel:focus-within { border-color:var(--color-accent-ring); box-shadow:var(--shadow-sm),0 4px 16px var(--home-shadow-soft); }
@@ -833,7 +839,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-side__workspace-tab { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:500; text-align:left; }
 .home-side__brand { padding:10px 16px 16px; align-items:center; }
 .home-side__brand .home-side__mascot { width:52px; height:52px; object-fit:contain; object-position:top; }
-.home-side__brand .home-side__wordmark { width:140px; height:29px; }
 .home-side__brand-copy { padding-top:0; }
 .home-cover { height:156px; }
 .home-cover__identity { bottom:6px; }
@@ -947,8 +952,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
   color: var(--color-text-tertiary);
 }
 
-.home-side__workspace-row { display:flex; align-items:center; gap:2px; min-height:24px; }
-.home-side__workspace-row .home-side__workspace { white-space:nowrap; margin-right:3px; }
 .home-side__workspace-action { display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; width:22px; height:22px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--color-text-secondary); cursor:pointer; }
 .home-side__workspace-action:hover, .home-side__workspace-action:focus-visible { background:var(--color-bg-hover); }
 
