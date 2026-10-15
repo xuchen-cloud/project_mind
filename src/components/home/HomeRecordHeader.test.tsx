@@ -10,16 +10,17 @@ vi.mock("./HomeCover", () => ({
 }));
 
 it.each([
-  { scopeName: "我的工作区", projectRoot: undefined },
-  { scopeName: "设计项目", projectRoot: "/project" },
-])("keeps $scopeName navigation available before and after docking", ({ scopeName, projectRoot }) => {
+  { scopeName: "我的工作区", projectRoot: undefined, showCover: true },
+  { scopeName: "设计项目", projectRoot: "/project", showCover: false },
+])("keeps $scopeName navigation available before and after docking", ({ scopeName, projectRoot, showCover }) => {
   const onOpenHome = vi.fn();
   const { container } = render(<div className="project-overview-focus__scroll">
-    <HomeRecordHeader identityKey={scopeName} scopeName={scopeName} title="当前笔记" projectRoot={projectRoot} onOpenHome={onOpenHome}>
+    <HomeRecordHeader identityKey={scopeName} scopeName={scopeName} title="当前笔记" projectRoot={projectRoot} showCover={showCover} onOpenHome={onOpenHome}>
       <input aria-label="笔记标题" defaultValue="当前笔记" />
     </HomeRecordHeader>
   </div>);
-  const cover = container.querySelector<HTMLElement>(".home-cover__identity")!;
+  expect(container.querySelector(".home-cover") !== null).toBe(showCover);
+  const cover = container.querySelector<HTMLElement>(showCover ? ".home-cover__identity" : ".home-record-header")!;
   const rect = vi.spyOn(cover, "getBoundingClientRect");
   rect.mockReturnValue({ top: 120, left: 0, width: 600 } as DOMRect);
   fireEvent.scroll(container.firstElementChild!);

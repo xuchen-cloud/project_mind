@@ -613,7 +613,7 @@ export function ProjectNoteFocusPage({
 
   return (
     <div
-      className="home-page home-note-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      className="home-page home-note-page home-note-page--no-cover page-cold-entry relative flex h-full min-h-0 overflow-hidden"
       data-focus-page-key={`${projectId}:${recordId}`}
       data-cold-entry={wasProjectPageCachedAtMount.current ? undefined : "true"}
     >
@@ -654,7 +654,7 @@ export function ProjectNoteFocusPage({
               <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
               <button type="button" onClick={canonical.retry}>重新加载编辑器</button>
             </div> : !editingReady ? <p role="status" className="text-sm text-text-soft">正在准备记录编辑器…</p> : null}
-            <HomeRecordHeader onOpenHome={handleBack} identityKey={`project:${project?.rootPath}`} projectRoot={project?.rootPath} scopeName={project?.name || "项目"} title={title}>
+            <HomeRecordHeader showCover={false} onOpenHome={handleBack} identityKey={`project:${project?.rootPath}`} projectRoot={project?.rootPath} scopeName={project?.name || "项目"} title={title}>
             <div className="flex min-w-0 items-center gap-2">
               <TextField
                 ref={titleInputRef}
