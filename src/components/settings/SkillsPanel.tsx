@@ -7,8 +7,8 @@ import { parseRouteId } from "../../lib/formatters";
 import { queryKeys } from "../../lib/queryKeys";
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
-import { skillsApi, type SkillCatalog } from "../../services/skillsApi";
-import { Button, SectionHeader } from "../../ui/components";
+import { skillsApi, type DiscoveredSkill, type SkillAction, type SkillCatalog } from "../../services/skillsApi";
+import { Button, Dialog, SectionHeader, StatusBadge } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import "../home/home.css";
 import "./skills.css";
@@ -72,6 +72,9 @@ function SkillsCatalog({ projectId }: { projectId: number | null }) {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<DiscoveredSkill | null>(null);
   const generation = useRef(0);
   const openOperation = useRef(0);
 
@@ -100,43 +103,83 @@ function SkillsCatalog({ projectId }: { projectId: number | null }) {
     }
   }
 
+  async function manage(skill: DiscoveredSkill, action: SkillAction) {
+    if (skill.entryPath === null || busy) return;
+    const current = generation.current;
+    setBusy(true);
+    setManageError(null);
+    try {
+      const result = await skillsApi.manage(projectId, skill.entryPath, action);
+      if (generation.current === current) {
+        setCatalog(result);
+        setDeleting(null);
+      }
+    } catch (reason) {
+      if (generation.current === current) setManageError(getErrorMessage(reason, "管理 Skill 失败"));
+    } finally {
+      if (generation.current === current) setBusy(false);
+    }
+  }
+
   if (error) return <div role="alert" className="space-y-2 text-body text-text-muted">
     <p>{error}</p>
     <Button size="sm" variant="secondary" onClick={() => setAttempt(value => value + 1)}>重试</Button>
   </div>;
   if (!catalog) return <p role="status" className="text-body text-text-muted">正在发现 Skills…</p>;
 
+  const skills = [...catalog.skills].sort((a, b) => Number(b.source === "bundled") - Number(a.source === "bundled"));
+
   return <div className="space-y-4">
     <p role="status" className="text-body text-text-muted">
       {catalog.complete ? `已发现 ${catalog.skills.length} 个 Skills` : "发现尚未完成，当前列表可能不完整。可刷新重试。"}
     </p>
     {openError ? <p role="alert" className="text-body text-danger">{openError}</p> : null}
+    {manageError && !deleting ? <p role="alert" className="text-body text-danger">{manageError}</p> : null}
     {catalog.skills.length === 0 ? <p className="text-body text-text-muted">未发现 Skills。</p> : <div className="skills-scroll"><HomeSidebarList label="Skills 列表"><ul className="divide-y divide-border">
-      {catalog.skills.map((skill, index) => <li key={`${skill.source}:${skill.path}:${skill.name}:${index}`} className="space-y-2 py-3">
+      {skills.map((skill, index) => <li key={`${skill.source}:${skill.path}:${skill.name}:${index}`} className="space-y-2 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="break-words text-body font-medium text-text">{skill.name}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="min-w-0 break-words text-body font-medium text-text">{skill.name}</h3>
+              {skill.source === "bundled" ? <StatusBadge tone="accent" className="shrink-0">内置</StatusBadge> : null}
+              {skill.disabled ? <StatusBadge className="shrink-0">已禁用</StatusBadge> : null}
+            </div>
             <p className="break-words text-body text-text-muted">{skill.description}</p>
           </div>
-          {skill.path !== null ? <Button size="sm" variant="ghost" className="shrink-0" aria-label={`打开 ${skill.name}`} onClick={() => { if (skill.path !== null) void openPath(skill.path, false); }}>打开文件</Button> : null}
         </div>
-        <p className="break-all text-caption text-text-muted">来源：<span>{skillSourceLabel(skill.source)}</span></p>
+        {skill.source !== "bundled" ? <p className="break-all text-caption text-text-muted">来源：<span>{skillSourceLabel(skill.source)}</span></p> : null}
         {skill.path !== null ? <p className="break-all text-caption text-text-soft">{skill.path}</p> : null}
+        <div className="flex flex-wrap items-center gap-1">
+          {skill.directory !== null ? <Button size="sm" variant="ghost" aria-label={`打开 ${skill.name} 目录`} onClick={() => { if (skill.directory !== null) void openPath(skill.directory, true); }}>打开目录</Button> : null}
+          {skill.path !== null ? <Button size="sm" variant="ghost" aria-label={`打开 ${skill.name}`} onClick={() => { if (skill.path !== null) void openPath(skill.path, false); }}>打开文件</Button> : null}
+          {skill.entryPath !== null ? <Button size="sm" variant="ghost" disabled={busy || !catalog.complete} aria-label={`${skill.disabled ? "启用" : "禁用"} ${skill.name}`} onClick={() => void manage(skill, skill.disabled ? "enable" : "disable")}>{skill.disabled ? "启用" : "禁用"}</Button> : null}
+          {skill.canDelete ? <Button size="sm" variant="danger" disabled={busy || !catalog.complete} aria-label={`删除 ${skill.name}`} onClick={() => { setManageError(null); setDeleting(skill); }}>删除</Button> : null}
+        </div>
       </li>)}
     </ul></HomeSidebarList></div>}
     {catalog.directories.length > 0 ? <div className="space-y-2">
       <h3 className="text-body font-medium text-text">技能目录</h3>
+      <p className="text-caption text-text-muted">扫描以下目录，每个目录可包含多个 Skill。</p>
       <div className="skills-scroll skills-scroll--directories"><HomeSidebarList label="技能目录"><ul className="space-y-2">{catalog.directories.map(path => <li key={path} className="flex items-start justify-between gap-3">
         <span className="min-w-0 break-all text-body text-text-muted">{path}</span>
         <Button size="sm" variant="ghost" className="shrink-0" aria-label={`打开目录 ${path}`} onClick={() => void openPath(path, true)}>打开目录</Button>
       </li>)}</ul></HomeSidebarList></div>
     </div> : null}
+    <Dialog open={deleting !== null} title={`删除 ${deleting?.name ?? "Skill"}？`}
+      description="将删除此 Skill 及其附带的脚本和资源，无法在应用中撤销。符号链接只移除链接。"
+      layerClassName="z-50" onClose={() => { if (!busy) { setDeleting(null); setManageError(null); } }}
+      footer={<>
+        <Button size="sm" disabled={busy} onClick={() => { setDeleting(null); setManageError(null); }}>取消</Button>
+        <Button size="sm" variant="danger" disabled={busy} onClick={() => { if (deleting) void manage(deleting, "delete"); }}>{busy ? "正在删除…" : "确认删除"}</Button>
+      </>}>
+      <p className="break-all text-body text-text-muted">{deleting?.entryPath}</p>
+      {manageError ? <p role="alert" className="mt-3 text-body text-danger">{manageError}</p> : null}
+    </Dialog>
   </div>;
 }
 
 function skillSourceLabel(source: string): string {
   switch (source) {
-    case "bundled": return "内置";
     case "project-dsh":
     case "project-agents": return "项目";
     case "user-dsh":

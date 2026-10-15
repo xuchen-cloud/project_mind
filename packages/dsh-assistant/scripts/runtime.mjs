@@ -11,7 +11,7 @@ import { readSharedModel, sharedModelPatches, installSharedCredential } from './
 import { readContext, bindContext } from './project-workspace.mjs';
 import { installOfficeService } from './office-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
-import { bundledSkillEnvironment } from './skills.mjs';
+import { bundledSkillEnvironment, prepareBundledSkills } from './skills.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const embedded = process.argv.includes('--embedded');
@@ -32,7 +32,9 @@ if (embedded) {
   context = await readContext(frame);
   if (context.kind === 'project') sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
 }
-Object.assign(process.env, assistantEnvironment(), bundledSkillEnvironment());
+Object.assign(process.env, assistantEnvironment());
+await prepareBundledSkills();
+Object.assign(process.env, bundledSkillEnvironment());
 const home = process.env.DSH_HOME;
 const cwd = embedded ? context.directory : path.join(home, 'workspace');
 await mkdir(cwd, { recursive: true });

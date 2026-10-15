@@ -1743,6 +1743,7 @@ pub fn run() {
             internal_reference_resolve,
             workspace_search,
             skills::skills_list,
+            skills::skills_manage,
             dsh_assistant::dsh_assistant_start,
             dsh_assistant::dsh_assistant_sessions,
             dsh_assistant::dsh_assistant_runtime_status,

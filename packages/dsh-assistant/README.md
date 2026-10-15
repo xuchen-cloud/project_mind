@@ -50,9 +50,13 @@ npm --prefix packages/dsh-assistant ci --no-audit --no-fund
 
 主应用「设置 → Skills」统一显示 DSH 发现的技能，可打开说明文件和目录。选择 Project 时使用其真实工作目录与助手数据目录；Workspace 视图使用当前工作区目录。读取列表无需配置模型或发起模型请求。
 
+内置 Skills 置顶并带「内置」标签；每个 Skill 可打开说明文件及资源目录。「技能目录」展示去重后的扫描根目录，一个根目录可包含多个 Skill，包括空根目录及技能被同名高优先级技能覆盖的根目录。
+
 发现与同名优先级复用官方 `dsh-skill` / `dsh-skill-filesystem`：项目 `.dsh/skills`、项目 `.agents/skills`、助手数据目录中的 `skills`、用户 `.agents/skills`，以及本包的 `skills/` 内置目录。项目根目录按 DSH 的 Git 根目录规则确定；设置展示合并后的有效技能，修改外部文件后可刷新列表。
 
-`skills/project-mind-cli/SKILL.md` 是给 Agent 使用的 Mind CLI 内置 Skill。整个 `skills/` 目录随桌面资源默认打包并参与资源清单校验，运行时助手使用同一内置目录。本机用户安装的技能从其原目录发现。
+`skills/project-mind-cli/SKILL.md` 是给 Agent 使用的 Mind CLI 内置 Skill。整个 `skills/` 目录随桌面资源默认打包并参与资源清单校验。启动时在全局助手数据目录的 `skills/builtin` 中准备指向安装包资源的托管链接，设置与运行时助手使用该根目录；项目助手共享其启用状态。独立启动从助手数据目录派生同一布局。本机用户安装的技能从其原目录发现。
+
+禁用将整个 Skill 条目移入同一扫描根的 `.disabled/`，启用时移回，遇到同名目标时拒绝覆盖。设置会额外展示其中的禁用项，助手不会扫描这些嵌套条目。内置技能仅移动托管链接，安装包资源不变，重启和资源路径升级后保留禁用状态；内置技能不可删除。外部技能需在确认弹窗后删除完整目录（含脚本、资源），flat Markdown 仅删除该文件，符号链接仅删除链接。
 
 ### 独立调试入口
 

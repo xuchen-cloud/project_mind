@@ -44,6 +44,8 @@ async function fixture(t) {
   await put(path.join(source, 'config/desktop.patch.yml'), '[]\n');
   await put(path.join(source, 'scripts/isolation.mjs'), 'export const isolated = true;');
   await put(path.join(source, 'scripts/skills.mjs'), 'export const bundledSkillEnvironment = {};');
+  await put(path.join(source, 'scripts/builtin-skills.mjs'), 'export const prepareBundledSkills = async () => {};');
+  await put(path.join(source, 'scripts/skill-management.mjs'), 'export const manageSkill = async () => {};');
   await put(path.join(source, 'scripts/shared-model.mjs'), 'export const mainModel = true;');
   await put(path.join(source, 'scripts/runtime.mjs'), `import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,7 +100,7 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
       assert.deepEqual(await readFile(path.join(cwd, 'skills', name)), Buffer.from(contents));
     }
     await assert.rejects(lstat(path.join(cwd, 'node_modules')), { code: 'ENOENT' });
-    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['isolation.mjs', 'runtime.mjs', 'shared-model.mjs', 'skills.mjs']);
+    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'isolation.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fresh-helper');
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'), 'other-target');
   });
@@ -145,6 +147,14 @@ test('all bundled skills and resources ship with verified inventory; required sk
     assert.deepEqual(await readFile(path.join(f.destination, 'skills', name)), Buffer.from(contents));
   }
   assert.deepEqual((await readdir(path.join(f.destination, 'skills'))).sort(), ['future-builtin', 'project-mind-cli']);
+  for (const module of ['scripts/builtin-skills.mjs', 'scripts/skill-management.mjs']) {
+    assert.ok(manifest.files.some(entry => entry.file === module));
+    const contents = await readFile(path.join(f.production, module));
+    await rm(path.join(f.production, module));
+    await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
+    await writeFile(path.join(f.production, module), contents);
+    await verifyDshDistribution(f.destination, 'darwin-x64');
+  }
   const resource = path.join(f.destination, 'skills/future-builtin/assets/template.bin');
   await put(resource, 'tampered');
   await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);

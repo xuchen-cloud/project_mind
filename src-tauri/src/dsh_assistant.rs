@@ -979,7 +979,10 @@ pub(crate) fn assistant_script_command(
         return Err("助手资源不完整，请重新安装应用".into());
     }
     let mut command = Command::new(node);
-    command.current_dir(root).arg(script);
+    command.current_dir(root).arg(script).env(
+        "PROJECT_MIND_DSH_SKILLS_DATA",
+        assistant_data_root()?.join("skills"),
+    );
     let _ = app; // Development uses the source root, never bundle path guessing.
     Ok(command)
 }
