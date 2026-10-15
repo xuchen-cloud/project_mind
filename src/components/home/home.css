@@ -932,7 +932,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-rail__files>h2 {
   font-size:var(--type-label-size); line-height:20px; font-weight:600; color:var(--color-text-secondary);
 }
-.home-window-shell .home-rail button[aria-label="收起代办侧边栏"] { display:none; }
 .home-rail__files>h2 { padding:12px 12px 4px; }
 .home-rail__files [data-files-only] { background:transparent; }
 .home-rail__files p.border-dashed { border:0; background:transparent; padding:12px 4px; font-size:12px; color:var(--color-text-tertiary); }

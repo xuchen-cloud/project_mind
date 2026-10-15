@@ -7,7 +7,7 @@ import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { useQuery } from "@tanstack/react-query";
 import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, FolderKanban, ListTodo, SlidersHorizontal, Pin, PinOff, Plus, Search, X } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronLeft, FolderKanban, ListTodo, SlidersHorizontal, Pin, PinOff, Plus, Search, X } from "lucide-react";
 
 import {
   splitInternalReferenceText,
@@ -146,7 +146,6 @@ export function TodoRail({
     todoRailWidthPx,
     setTodoRailCollapsed,
     setTodoRailWidthPx,
-    toggleTodoRailCollapsed,
     todoRailTab: tab,
     setTodoRailTab: setTab,
     todoRailSortMode: sortMode,
@@ -902,15 +901,6 @@ export function TodoRail({
             onClick={() => setTodoRailMode(todoRailMode === "pinned" ? "floating" : "pinned")}>
             {todoRailMode === "pinned" ? <PinOff size={14} /> : <Pin size={14} />}
           </IconButton> : null}
-          <IconButton
-            type="button"
-            size="sm"
-            variant="ghost"
-            aria-label="收起代办侧边栏"
-            onClick={toggleTodoRailCollapsed}
-          >
-            <ChevronRight size={14} />
-          </IconButton>
           <IconButton
             ref={addTodoButtonRef}
             type="button"

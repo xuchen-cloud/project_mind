@@ -579,9 +579,8 @@ describe("TodoRail", () => {
     const create = screen.getByRole("button", { name: "新增代办" });
     const sorting = screen.getByRole("combobox", { name: "待办排序" }).closest("label");
     expect(archive.nextElementSibling).toBe(sorting);
-    const collapse = screen.getByRole("button", { name: "收起代办侧边栏" });
-    expect(sorting?.nextElementSibling).toBe(collapse);
-    expect(collapse.nextElementSibling).toBe(create);
+    expect(screen.queryByRole("button", { name: "收起代办侧边栏" })).not.toBeInTheDocument();
+    expect(sorting?.nextElementSibling).toBe(create);
     expect(create.nextElementSibling).toBeNull();
     expect(create.querySelector("svg")).toHaveAttribute("width", "16");
     expect(create).toHaveClass("bg-transparent");
@@ -594,7 +593,7 @@ describe("TodoRail", () => {
     expect(archive).toHaveAttribute("aria-pressed", "false");
     await user.selectOptions(screen.getByRole("combobox", { name: "待办排序" }), "priority");
     expect(useUiStore.getState().todoRailSortMode).toBe("priority");
-    await user.click(collapse);
+    act(() => useUiStore.getState().setTodoRailCollapsed(true));
     expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "展开代办侧边栏" }));
     await user.click(screen.getByRole("button", { name: "新增代办" }));
@@ -614,7 +613,7 @@ describe("TodoRail", () => {
     expect(screen.getByRole("button", { name: "新增代办" })).toBeInTheDocument();
   });
 
-  it("creates todos, auto-collapses expanded history on blur, and toggles collapse", async () => {
+  it("creates todos, auto-collapses expanded history on blur, and follows external collapse state", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
 
@@ -643,7 +642,7 @@ describe("TodoRail", () => {
     await user.click(within(secondTodoRow!).getByRole("button", { name: "展开已完成子项" }));
     expect(screen.getAllByRole("button", { name: "收起已完成子项" })).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "收起代办侧边栏" }));
+    act(() => useUiStore.getState().setTodoRailCollapsed(true));
     expect(useUiStore.getState().todoRailCollapsed).toBe(true);
     expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
   });
