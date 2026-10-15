@@ -1,7 +1,7 @@
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PanelLeft, Pencil, Plus, Trash2 } from "lucide-react";
-import { HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
+import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { HomeSidebarSplit } from "./HomeSidebarSplit";
 import { ActionContextMenu, ResizeHandle, SearchField } from "../../ui/components";
@@ -40,6 +40,7 @@ export function HomeNoteSidebar({ workspaceRoot, projectId, records, filePanel, 
     <div data-tauri-drag-region className="home-side__top"><button aria-label="切换左侧栏" onClick={toggleProjectSidebarCollapsed}><PanelLeft size={16} /></button><button className="home-side__workspace-tab" onClick={onOpenWorkspace}>我的工作区</button></div>
     <div className="home-side__brand"><img className="home-side__mascot" src={nori} alt="" /><div className="home-side__brand-copy"><img className="home-side__wordmark" src={wordmark} alt="NoriMind" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenWorkspace} /></div></div>
     {projectId ? <HomeSidebarSplit storageKey={`home-note-split:${workspaceRoot}:${projectId}`} upper={recordList} lower={filePanel} /> : <div className="home-side__scroll home-note-sidebar__single"><section className="home-side__section">{recordList}</section></div>}
+    <HomeSidebarFooter />
     {menu && <ActionContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
       { label: "重命名", icon: Pencil, disabled: !onRenameRecord, onSelect: () => setEditing({ id: menu.id, title: records.find(record => record.id === menu.id)?.title ?? "" }) },
       { label: "删除记录", icon: Trash2, tone: "danger", disabled: !onDeleteRecord, onSelect: () => { void onDeleteRecord?.(menu.id); } },
