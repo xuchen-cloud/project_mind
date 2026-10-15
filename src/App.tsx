@@ -329,7 +329,7 @@ export function WorkspaceLayout({
   const agentPanelOpen = useAgentPanelStore(state => state.open);
   const agentPanelExpanded = useAgentPanelStore(state => state.expanded);
   const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath
-    && activeProjectId !== null && agentPanelBinding?.scope.kind === "project" && agentPanelBinding.scope.projectId === activeProjectId;
+    && !!agentPanelBinding && (agentPanelBinding.scope.kind === "project" ? agentPanelBinding.scope.projectId === activeProjectId : activeProjectId === null);
   const filePreviewRequest = useFilePreviewStore(state => state.request);
   useEffect(() => {
     if (!filePreviewRequest || filePreviewRequest.workspaceRoot !== currentWorkspace?.rootPath) return;

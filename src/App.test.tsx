@@ -1807,6 +1807,7 @@ describe("WorkspaceLayout", () => {
           element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
           children: [
             { path: "projects/:projectId", element: <div>legacy route</div> },
+            { path: "workspace", element: <div>legacy Workspace route</div> },
             {
               path: "projects/:projectId/records/:noteId",
               element: <div>legacy Focus route</div>,
@@ -1880,6 +1881,35 @@ describe("WorkspaceLayout", () => {
     expect(document.querySelector('[data-project-resident-id="2"]')).toHaveAttribute("data-project-resident-active", "true");
     const activeLauncher = within(document.querySelector('[data-project-resident-id="2"] .agent-launcher')! as HTMLElement);
     expect(activeLauncher.getByRole("button", { name: "助手" })).toBeEnabled();
+  });
+
+  it("gives the expanded Workspace chat the content area and restores it after route changes and close/reopen", async () => {
+    const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
+    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockImplementation(async projectId => [{ id: "workspace-history", title: "工作区历史", running: projectId === null }]);
+    const select = vi.spyOn(dshAssistantApi, "selectSession").mockResolvedValue("workspace-history");
+    useAgentPanelStore.getState().clearWorkspace();
+    onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); select.mockRestore(); useAgentPanelStore.getState().clearWorkspace(); });
+    const { router } = await renderResidentProjectFixture();
+    await act(() => router.navigate("/workspace"));
+    act(() => useAgentPanelStore.getState().openPanel("/tmp/workspace", { kind: "workspace" }));
+    await screen.findByTestId("dsh-conversation-host");
+    expect(document.querySelector(".workspace-content-shell")).toHaveClass("workspace-content-shell--expanded");
+    expect(document.querySelector(".workspace-content-main")).toHaveAttribute("inert");
+    expect(select).toHaveBeenCalledWith("workspace-history", null);
+    act(() => useAgentPanelStore.getState().setRunBusy("/tmp/workspace", null, true));
+    await act(() => router.navigate("/projects/2?view=overview"));
+    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+    await act(() => router.navigate("/workspace"));
+    await screen.findByTestId("dsh-conversation-host");
+    expect(document.querySelector(".workspace-content-shell")).toHaveClass("workspace-content-shell--expanded");
+    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    expect(document.querySelector(".workspace-content-main")).not.toHaveAttribute("inert");
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+    await act(() => router.navigate("/projects/2?view=overview"));
+    await userEvent.click(screen.getByRole("button", { name: "助手" }));
+    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
   });
 
   it("keeps five Project overviews resident while preserving all opened content shells", async () => {

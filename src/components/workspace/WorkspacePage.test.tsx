@@ -178,13 +178,12 @@ describe("WorkspacePage", () => {
     useUiStore.setState(createUiStoreState());
   });
 
-  it("keeps the Project-only assistant unavailable on the Workspace page", async () => {
+  it("opens the assistant directly on the Workspace page", async () => {
     renderPage();
     const launcher = await screen.findByRole("button", { name: "助手" });
-    expect(launcher).toBeDisabled();
-    expect(launcher).toHaveAttribute("title", "请进入项目使用助手");
+    expect(launcher).toBeEnabled();
     await userEvent.click(launcher);
-    expect(useAgentPanelStore.getState().binding).toBeNull();
+    expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
   });
 
   it("uses a static overview skeleton only for a cold workspace entry", async () => {

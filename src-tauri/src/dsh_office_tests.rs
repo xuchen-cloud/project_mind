@@ -1,4 +1,5 @@
 use super::*;
+use super::super::AssistantContext;
 use crate::{
     agent::models::Scope,
     file_version_service::FileCommitHost,
@@ -85,11 +86,11 @@ async fn dsh_office_operations_save_through_real_grant_replay_and_retain_history
         workspace_generation: binding.generation.clone(),
         root,
         fingerprint: "fixture".into(),
-        project: ProjectContext {
+        context: AssistantContext::Project(ProjectContext {
             id: project.id,
             name: project.name,
             directory: directory.clone(),
-        },
+        }),
     };
     let store = TestStore {
         db: Mutex::new(db),

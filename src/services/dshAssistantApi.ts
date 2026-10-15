@@ -1,10 +1,10 @@
 import { desktopApi } from "./desktopApi";
 
-const starts = new Map<number, { key: string; promise: Promise<void> }>();
-const runtimeTails = new Map<number, Promise<unknown>>();
+const starts = new Map<number | null, { key: string; promise: Promise<void> }>();
+const runtimeTails = new Map<number | null, Promise<unknown>>();
 
-function runtimeCommand<T>(command: string, args: Record<string, unknown>): Promise<T> {
-  const projectId = args.projectId as number;
+function runtimeCommand<T>(command: string, args: Record<string, unknown> & { projectId: number | null }): Promise<T> {
+  const { projectId } = args;
   const next = (runtimeTails.get(projectId) ?? Promise.resolve()).then(() => desktopApi.command<T>(command, args));
   const tail = next.catch(() => {});
   runtimeTails.set(projectId, tail);
@@ -12,9 +12,9 @@ function runtimeCommand<T>(command: string, args: Record<string, unknown>): Prom
   return next;
 }
 
-// Window-local queues per Project; native owns each Project runtime, origin and credentials.
+// Window-local queues per scope; native owns each scope runtime, origin and credentials.
 export const dshAssistantApi = {
-  start(syncKey: string, projectId: number): Promise<void> {
+  start(syncKey: string, projectId: number | null): Promise<void> {
     const key = JSON.stringify([syncKey, projectId]);
     const latestStart = starts.get(projectId);
     if (latestStart?.key === key) return latestStart.promise;
@@ -24,13 +24,13 @@ export const dshAssistantApi = {
     void next.then(clear, clear);
     return next;
   },
-  sessions(projectId: number): Promise<{ id: string; title: string; running: boolean }[]> {
+  sessions(projectId: number | null): Promise<{ id: string; title: string; running: boolean }[]> {
     return runtimeCommand("dsh_assistant_sessions", { projectId });
   },
-  selectSession(sessionId: string | null, projectId: number): Promise<string> {
+  selectSession(sessionId: string | null, projectId: number | null): Promise<string> {
     return runtimeCommand("dsh_assistant_select_session", { projectId, sessionId });
   },
-  deleteSession(sessionId: string, projectId: number): Promise<void> {
+  deleteSession(sessionId: string, projectId: number | null): Promise<void> {
     return runtimeCommand("dsh_assistant_delete_session", { projectId, sessionId });
   },
 };

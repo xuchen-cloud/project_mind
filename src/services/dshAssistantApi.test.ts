@@ -69,3 +69,25 @@ it('does not hold Project B startup behind Project A pending I/O', async () => {
   expect(native.command).toHaveBeenCalledWith('dsh_assistant_start', { projectId: 2 });
   release(); await a;
 });
+
+it('keeps the null Workspace queue independent while a Project waits and preserves explicit null commands', async () => {
+  const { dshAssistantApi } = await import('./dshAssistantApi');
+  let release!: () => void;
+  native.command.mockImplementation((_, args) => args.projectId === 7
+    ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve());
+  const project = dshAssistantApi.start('project', 7);
+  const workspace = dshAssistantApi.start('workspace', null);
+  expect(dshAssistantApi.start('workspace', null)).toBe(workspace);
+  await workspace;
+  await dshAssistantApi.sessions(null);
+  await dshAssistantApi.selectSession(null, null);
+  await dshAssistantApi.deleteSession('owned', null);
+  expect(native.command.mock.calls).toEqual([
+    ['dsh_assistant_start', { projectId: 7 }],
+    ['dsh_assistant_start', { projectId: null }],
+    ['dsh_assistant_sessions', { projectId: null }],
+    ['dsh_assistant_select_session', { projectId: null, sessionId: null }],
+    ['dsh_assistant_delete_session', { projectId: null, sessionId: 'owned' }],
+  ]);
+  release(); await project;
+});

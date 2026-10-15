@@ -1,4 +1,4 @@
-//! DSH owns one Node process per Project and native authenticated client carriers.
+//! DSH owns one Node process per Workspace/Project scope and authenticated carriers.
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -25,33 +25,37 @@ use tokio::{
 #[path = "dsh_office.rs"]
 mod office;
 
+#[cfg(test)]
+#[path = "dsh_workspace_tests.rs"]
+mod workspace_tests;
+
 const READY_TIMEOUT: Duration = Duration::from_secs(45);
 const STOP_TIMEOUT: Duration = Duration::from_secs(8);
 const READY_PREFIX: &str = "MIND_DSH_READY ";
-const SESSION_ERROR: &str = "无法读取当前项目的助手会话，请重试";
+const SESSION_ERROR: &str = "无法读取当前范围的助手会话，请重试";
 const INVALID_READY: &str = "助手启动返回了无效地址，请重试";
 
 #[derive(Default)]
 pub(crate) struct DshAssistantState {
     stopping: AtomicBool,
     // Serializes runtime identity changes and authenticated carrier mutations.
-    inner: Mutex<ProjectRuntimes>,
+    inner: Mutex<ScopedRuntimes>,
     requests: std::sync::Mutex<HashMap<String, PendingRequest>>,
 }
 
 #[derive(Default)]
-struct ProjectRuntimes {
-    projects: HashMap<i64, RuntimeState>,
+struct ScopedRuntimes {
+    scopes: HashMap<Option<i64>, RuntimeState>,
 }
 
-impl ProjectRuntimes {
-    fn project_mut(&mut self, project_id: i64) -> Result<&mut RuntimeState, String> {
-        self.projects.get_mut(&project_id).ok_or_else(|| "助手尚未就绪，请重新打开助手".into())
+impl ScopedRuntimes {
+    fn scope_mut(&mut self, project_id: Option<i64>) -> Result<&mut RuntimeState, String> {
+        self.scopes.get_mut(&project_id).ok_or_else(|| "助手尚未就绪，请重新打开助手".into())
     }
 
     fn active_count(&mut self) -> Result<usize, String> {
         let mut count = 0;
-        for runtime in self.projects.values_mut() {
+        for runtime in self.scopes.values_mut() {
             if let Some(process) = runtime.process.as_mut() {
                 if process.child.try_wait().map_err(|_| "无法检查助手进程状态")?.is_none() { count += 1; }
             }
@@ -61,10 +65,10 @@ impl ProjectRuntimes {
 
     async fn stop(&mut self) -> Result<(), String> {
         let mut failure = None;
-        for runtime in self.projects.values_mut() {
+        for runtime in self.scopes.values_mut() {
             if let Err(error) = runtime.stop().await { failure.get_or_insert(error); }
         }
-        self.projects.clear();
+        self.scopes.clear();
         failure.map_or(Ok(()), Err)
     }
 }
@@ -83,7 +87,13 @@ struct Identity {
     workspace_generation: String,
     root: PathBuf,
     fingerprint: String,
-    project: ProjectContext,
+    context: AssistantContext,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum AssistantContext {
+    Workspace { directory: PathBuf },
+    Project(ProjectContext),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -147,6 +157,41 @@ struct Configuration {
 }
 
 impl Identity {
+    fn project_id(&self) -> Option<i64> {
+        match &self.context {
+            AssistantContext::Workspace { .. } => None,
+            AssistantContext::Project(project) => Some(project.id),
+        }
+    }
+
+    fn directory(&self) -> &Path {
+        match &self.context {
+            AssistantContext::Workspace { directory } => directory,
+            AssistantContext::Project(project) => &project.directory,
+        }
+    }
+
+    fn project(&self) -> Result<&ProjectContext, String> {
+        match &self.context {
+            AssistantContext::Workspace { .. } => Err("此操作需要项目范围的助手".into()),
+            AssistantContext::Project(project) => Ok(project),
+        }
+    }
+
+    fn validate_context(&self, db: &mut crate::db::Database, root: &Path) -> Result<(), String> {
+        if let AssistantContext::Project(project) = &self.context {
+            if ProjectContext::resolve(db, root, project.id)? != *project {
+                return Err("项目名称或目录已变化，请重新打开助手".into());
+            }
+        } else {
+            let directory = root.canonicalize().map_err(|_| "工作区目录不可用")?;
+            if !directory.is_dir() || directory != self.directory() {
+                return Err("工作区目录已变化，请重新打开助手".into());
+            }
+        }
+        Ok(())
+    }
+
     fn matches_workspace(
         &self,
         binding: &crate::agent::models::WorkspaceBinding,
@@ -159,7 +204,7 @@ impl Identity {
 }
 
 impl Configuration {
-    fn resolve(app: &tauri::AppHandle, project_id: i64) -> Result<Self, String> {
+    fn resolve(app: &tauri::AppHandle, project_id: Option<i64>) -> Result<Self, String> {
         let state = app.state::<crate::AppState>();
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("请先打开工作区，再使用助手")?;
@@ -167,7 +212,15 @@ impl Configuration {
             return Err("请先解锁工作区，再使用助手".into());
         }
         let mut db = crate::lock_mutex(&runtime.db);
-        let project = ProjectContext::resolve(&mut db, &runtime.paths.root_path, project_id)?;
+        let context = if let Some(id) = project_id {
+            AssistantContext::Project(ProjectContext::resolve(&mut db, &runtime.paths.root_path, id)?)
+        } else {
+            let directory = runtime.paths.root_path.canonicalize().map_err(|_| "工作区目录不可用")?;
+            if !directory.is_dir() || directory.to_str().is_none() {
+                return Err("工作区目录不可用，请重新打开工作区".into());
+            }
+            AssistantContext::Workspace { directory }
+        };
         let selected = db
             .agent_resolve_profile(None)
             .map_err(|error| match error.code {
@@ -184,7 +237,7 @@ impl Configuration {
                 workspace_generation: runtime.agent_binding.generation.clone(),
                 root: runtime.paths.root_path.clone(),
                 fingerprint: configuration_catalog_fingerprint(&main_fingerprint, &alternatives)?,
-                project,
+                context,
             },
             profile: selected.profile,
             alternatives,
@@ -212,11 +265,17 @@ impl Configuration {
             provider["id"] = serde_json::json!(format!("mind-profile-{id}"));
             provider
         }).collect();
-        serde_json::json!({"type": "configure", "provider": configured_provider_message(&self.profile),
-            "providers": providers, "project": {
-            "id": self.identity.project.id, "name": self.identity.project.name,
-            "directory": self.identity.project.directory,
-        }})
+        let mut message = serde_json::json!({"type": "configure", "provider": configured_provider_message(&self.profile), "providers": providers});
+        if let AssistantContext::Project(project) = &self.identity.context {
+            message["project"] = serde_json::json!({"id": project.id, "name": project.name, "directory": project.directory});
+        } else {
+            message["workspace"] = serde_json::json!({
+                "id": self.identity.workspace_id,
+                "name": self.identity.root.file_name().and_then(|name| name.to_str()).unwrap_or("Workspace"),
+                "directory": self.identity.directory(),
+            });
+        }
+        message
     }
 }
 
@@ -258,16 +317,19 @@ fn configuration_fingerprint(
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-fn authorize_project_label(label: &str, project_id: i64) -> Result<(), String> {
+fn authorize_scope_label(label: &str, project_id: Option<i64>) -> Result<(), String> {
+    if project_id.is_some_and(|id| !(1..=9_007_199_254_740_991).contains(&id)) {
+        return Err("请选择当前工作区中的有效项目".into());
+    }
     if label == "main"
-        || label
+        || (project_id.is_some() && label
             .strip_prefix("project-")
             .and_then(|id| id.parse::<i64>().ok())
-            == Some(project_id)
+            == project_id)
     {
         Ok(())
     } else {
-        Err("此窗口不能操作其他项目的助手".into())
+        Err("此窗口不能操作该范围的助手".into())
     }
 }
 
@@ -543,7 +605,7 @@ fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate
     if session_id.is_empty() || session_id.len() > 512 || session_id.chars().any(char::is_control)
         || id.is_empty() || id.len() > 128 || offset == 0 || offset > u32::MAX as usize || limit == 0 || limit > 2000 { return Err("Invalid source read range or identity".into()); }
     let input = source_file_input(db, identity, binding, path, fixed)?;
-    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project()?.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
     let (bytes, mut source_ref) = db.project_file_read_source(&request, binding, &input).map_err(|e| e.message)?;
     let bytes = BASE64.decode(bytes.base64).map_err(|_| "Invalid File snapshot")?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "Unsupported: File is not UTF-8 text; text source read is unavailable")?;
@@ -571,6 +633,7 @@ fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate
 
 fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>) -> Result<crate::db::project_directory_files::FileBytesInput, String> {
     use crate::agent::models::Scope;
+    let project = identity.project()?;
     // A model can continue reading a persisted fixed File token. The embedded
     // object is still untrusted and passes the same native ownership/policy gate.
     let fixed = if fixed.is_none() {
@@ -580,13 +643,13 @@ fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &cr
         } else { None }
     } else { fixed };
     Ok(if let Some(source) = fixed {
-        if source.object.workspace_id != binding.workspace_id || source.object.scope != (Scope::Project { project_id: identity.project.id }) { return Err("File belongs to another Project".into()); }
+        if source.object.workspace_id != binding.workspace_id || source.object.scope != (Scope::Project { project_id: project.id }) { return Err("File belongs to another Project".into()); }
         crate::db::project_directory_files::FileBytesInput { object: source.object, version_number: source.file_version.ok_or("Fixed File version required")?, expected_content_hash: source.revision }
     } else {
         let requested = Path::new(path.ok_or("File path required")?);
-        let relative = if requested.is_absolute() { requested.strip_prefix(&identity.project.directory).map_err(|_| "File belongs to another Project")? } else { requested };
+        let relative = if requested.is_absolute() { requested.strip_prefix(&project.directory).map_err(|_| "File belongs to another Project")? } else { requested };
         let relative = relative.to_str().ok_or("Invalid File path")?;
-        let file = db.project_file_register(&binding.workspace_id, identity.project.id, relative).map_err(|e| e.to_string())?;
+        let file = db.project_file_register(&binding.workspace_id, project.id, relative).map_err(|e| e.to_string())?;
         if file.state != "ready" { return Err(format!("File requires confirmation: {}", file.state)); }
         crate::db::project_directory_files::FileBytesInput { object: file.object, version_number: file.version_number, expected_content_hash: file.content_hash.ok_or("File version not ready")? }
     })
@@ -595,7 +658,7 @@ fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &cr
 fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, path: &str) -> Result<serde_json::Value, String> {
     use crate::agent::{access::{Caller, RequestContext, ScopeGrant}, models::SourceRef};
     let input = source_file_input(db, identity, binding, Some(path), None)?;
-    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project()?.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
     let actual = db.source_read_historical_file(&request, binding, &input.object).map_err(|e| e.message)?;
     request.authorize_object(binding, &input.object, &actual, "source.read").map_err(|e| e.message)?;
     let file = db.project_file_resolve(&input.object).map_err(|e| e.to_string())?;
@@ -607,6 +670,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
     let offices = office::OfficeBridge::new(app.clone(), identity.clone());
     Arc::new(move |payload, revoked, url, frame_id, alive| {
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
+        identity.project()?;
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
         if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
         let state = app.state::<crate::AppState>();
@@ -614,7 +678,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let runtime = current.as_ref().ok_or("Source Workspace closed")?;
         if !identity.matches_workspace(&runtime.agent_binding, &runtime.paths.root_path) || !runtime.ai_secrets_unlocked() { return Err("Source Workspace binding expired".into()); }
         let mut db = crate::lock_mutex(&runtime.db);
-        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project.id)? != identity.project { return Err("Source Project binding changed".into()); }
+        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project()?.id)? != *identity.project()? { return Err("Source Project binding changed".into()); }
         let result = match operation {
             SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
@@ -636,7 +700,7 @@ fn source_delivery(db: &crate::db::Database, identity: &Identity, binding: &crat
     let expected = source_prepare(db, identity, binding, session_id, &metadata.id, None, Some(metadata.source_ref.clone()), metadata.offset, metadata.requested_limit)?;
     if expected["projection"].as_str() != Some(projection) || format!("{:x}", Sha256::digest(projection.as_bytes())) != projection_hash { return Err("Source projection does not match fixed bytes".into()); }
     if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
-    db.dsh_record_source_evidence(binding, identity.project.id, session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
+    db.dsh_record_source_evidence(binding, identity.project()?.id, session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
     if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
     Ok(())
 }
@@ -854,7 +918,7 @@ fn validate_session_selection(
     if sessions.iter().any(|session| session.id == session_id) {
         Ok(())
     } else {
-        Err("会话不属于当前项目或已被删除，请刷新会话列表".into())
+        Err("会话不属于当前范围或已被删除，请刷新会话列表".into())
     }
 }
 
@@ -933,10 +997,10 @@ fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Com
     let data_root = assistant_data_root()?;
     command.env(
         "PROJECT_MIND_DSH_USER_DATA",
-        project_data_directory(
+        runtime_data_directory(
             &data_root,
             &config.identity.workspace_id,
-            config.identity.project.id,
+            config.identity.project_id(),
         )?,
     );
     command.env(
@@ -1005,6 +1069,13 @@ fn workspace_profile_directory(root: &Path, workspace_id: &str) -> Result<PathBu
     Ok(workspace_data_directory(root, workspace_id)?.join("profiles/assistant"))
 }
 
+fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
+    match project_id {
+        Some(id) => project_data_directory(root, workspace_id, id),
+        None => Ok(workspace_data_directory(root, workspace_id)?.join("workspace")),
+    }
+}
+
 #[cfg(debug_assertions)]
 pub(crate) fn development_node(name: &str) -> Result<PathBuf, String> {
     std::env::var_os("PATH")
@@ -1016,15 +1087,15 @@ pub(crate) fn development_node(name: &str) -> Result<PathBuf, String> {
 }
 
 impl RuntimeState {
-    fn authorize_project(&self, label: &str, project_id: i64) -> Result<(), String> {
+    fn authorize_scope(&self, label: &str, project_id: Option<i64>) -> Result<(), String> {
         let identity = self
             .identity
             .as_ref()
             .ok_or("助手尚未就绪，请重新打开助手")?;
-        if identity.project.id != project_id {
-            return Err("项目已切换，请重新打开助手".into());
+        if identity.project_id() != project_id {
+            return Err("助手范围已变化，请重新打开助手".into());
         }
-        authorize_project_label(label, project_id)
+        authorize_scope_label(label, project_id)
     }
     async fn stop(&mut self) -> Result<(), String> {
         self.identity = None;
@@ -1077,9 +1148,9 @@ impl RuntimeState {
         Ok(())
     }
 
-    async fn ensure_current_project(&mut self, caller: &Webview) -> Result<(), String> {
+    async fn ensure_current_scope(&mut self, caller: &Webview) -> Result<(), String> {
         if let Some(identity) = self.identity.as_ref() {
-            authorize_project_label(caller.label(), identity.project.id)?;
+            authorize_scope_label(caller.label(), identity.project_id())?;
         }
         let app = caller.app_handle();
         let validation = self.check_ready(app).and_then(|_| {
@@ -1087,15 +1158,8 @@ impl RuntimeState {
             let current = crate::lock_mutex(&state.current_workspace);
             let runtime = current.as_ref().ok_or("请先打开工作区，再使用助手")?;
             let identity = self.identity.as_ref().expect("ready identity");
-            let project = ProjectContext::resolve(
-                &mut crate::lock_mutex(&runtime.db),
-                &runtime.paths.root_path,
-                identity.project.id,
-            )?;
-            if project != identity.project {
-                return Err("项目名称或目录已变化，请重新打开助手".into());
-            }
-            Ok(())
+            let mut db = crate::lock_mutex(&runtime.db);
+            identity.validate_context(&mut db, &runtime.paths.root_path)
         });
         if let Err(error) = validation {
             let stopped = self.stop().await;
@@ -1124,14 +1188,14 @@ impl RuntimeState {
     async fn ensure_ready(
         &mut self,
         app: &tauri::AppHandle,
-        project_id: i64,
+        project_id: Option<i64>,
         has_pending_requests: bool,
     ) -> Result<(), String> {
-        // Reject an invalid target Project before resolving settings or stopping the live Project.
+        // Reject an invalid Project target before resolving settings or replacing this scope.
         {
             let state = app.state::<crate::AppState>();
             let current = crate::lock_mutex(&state.current_workspace);
-            if let Some(runtime) = current.as_ref() {
+            if let (Some(runtime), Some(project_id)) = (current.as_ref(), project_id) {
                 ProjectContext::resolve(
                     &mut crate::lock_mutex(&runtime.db),
                     &runtime.paths.root_path,
@@ -1223,7 +1287,7 @@ impl DshAssistantState {
                 }
             }
             let mut runtimes = state.inner.lock().await;
-            for inner in runtimes.projects.values_mut() {
+            for inner in runtimes.scopes.values_mut() {
                 let ids: Vec<_> = inner.connections.iter()
                     .filter(|(_, connection)| connection.owner == owner)
                     .map(|(id, _)| id.clone()).collect();
@@ -1264,16 +1328,16 @@ pub(crate) async fn dsh_assistant_runtime_status(
 pub(crate) async fn dsh_assistant_start(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
-    authorize_project_label(caller.label(), project_id)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
     let has_pending_requests = crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project_id);
-    let inner = runtimes.projects.entry(project_id).or_default();
+    let inner = runtimes.scopes.entry(project_id).or_default();
     inner
         .ensure_ready(caller.app_handle(), project_id, has_pending_requests)
         .await
@@ -1283,23 +1347,22 @@ pub(crate) async fn dsh_assistant_start(
 pub(crate) async fn dsh_assistant_sessions(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
 ) -> Result<Vec<AssistantSession>, String> {
     authorize_caller(&caller)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
+    let inner = runtimes.scope_mut(project_id)?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
-    inner.authorize_project(caller.label(), project_id)?;
-    inner.ensure_current_project(&caller).await?;
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
     let directory = inner
         .identity
         .as_ref()
         .expect("ready identity")
-        .project
-        .directory
-        .clone();
+        .directory()
+        .to_path_buf();
     let process = inner.process.as_mut().expect("ready process");
     let sessions = list_sessions(
         &process.url,
@@ -1308,7 +1371,7 @@ pub(crate) async fn dsh_assistant_sessions(
         &directory,
     )
     .await?;
-    inner.ensure_current_project(&caller).await?;
+    inner.ensure_current_scope(&caller).await?;
     Ok(sessions)
 }
 
@@ -1316,24 +1379,23 @@ pub(crate) async fn dsh_assistant_sessions(
 pub(crate) async fn dsh_assistant_select_session(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     session_id: Option<String>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
+    let inner = runtimes.scope_mut(project_id)?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
-    inner.authorize_project(caller.label(), project_id)?;
-    inner.ensure_current_project(&caller).await?;
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
     let directory = inner
         .identity
         .as_ref()
         .expect("ready identity")
-        .project
-        .directory
-        .clone();
+        .directory()
+        .to_path_buf();
     let process = inner.process.as_mut().expect("ready process");
     let selected = if let Some(id) = session_id {
         let sessions = list_sessions(
@@ -1353,17 +1415,17 @@ pub(crate) async fn dsh_assistant_select_session(
         )
         .await?
     };
-    inner.ensure_current_project(&caller).await?;
+    inner.ensure_current_scope(&caller).await?;
     Ok(selected)
 }
 
 const TRANSPORT_ERROR: &str = "助手通信失败，请重新连接";
-const RUNNING_ERROR: &str = "助手正在执行任务，请先停止当前项目任务后再切换";
+const RUNNING_ERROR: &str = "助手正在执行任务，请先停止当前范围任务后再切换";
 const MAX_CARRIER_BYTES: usize = 300 * 1024 * 1024; // Pinned HTTP carrier limit.
 const MAX_MUX_BYTES: usize = 64 * 1024 * 1024;
 
 struct PendingRequest {
-    project_id: i64,
+    project_id: Option<i64>,
     cancel: Option<oneshot::Sender<()>>,
 }
 struct RequestGuard<'a> {
@@ -1393,7 +1455,7 @@ enum CarrierEvent {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CarrierOutput {
-    project_id: i64,
+    project_id: Option<i64>,
     connection_id: String,
     #[serde(flatten)]
     event: CarrierEvent,
@@ -1404,7 +1466,7 @@ struct SocketWrite {
 }
 struct NativeConnection {
     owner: String,
-    project_id: i64,
+    project_id: Option<i64>,
     writes: mpsc::Sender<SocketWrite>,
     close: watch::Sender<bool>,
     task: JoinHandle<()>,
@@ -1422,9 +1484,9 @@ impl NativeConnection {
             .await
             .map_err(|_| TRANSPORT_ERROR.to_string())
     }
-    fn authorize(&self, owner: &str, project_id: i64) -> Result<(), String> {
+    fn authorize(&self, owner: &str, project_id: Option<i64>) -> Result<(), String> {
         if self.owner != owner || self.project_id != project_id {
-            return Err("此窗口不能操作其他项目的助手连接".into());
+            return Err("此窗口不能操作其他范围的助手连接".into());
         }
         if self.task.is_finished() {
             return Err(TRANSPORT_ERROR.into());
@@ -1499,7 +1561,7 @@ fn spawn_socket(
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
     owner: String,
-    project_id: i64,
+    project_id: Option<i64>,
     connection_id: String,
     channel: tauri::ipc::Channel<CarrierOutput>,
     mut runtime_closed: watch::Receiver<bool>,
@@ -1694,13 +1756,12 @@ impl RuntimeState {
                             .identity
                             .as_ref()
                             .ok_or(TRANSPORT_ERROR)?
-                            .project
-                            .directory
+                            .directory()
                 {
-                    return Err("会话目录由当前项目确定".into());
+                    return Err("会话目录由当前助手范围确定".into());
                 }
             }
-            // bindProject is the authoritative Node wrapper: an explicit workspaceId
+            // bindContext is the authoritative Node wrapper: an explicit workspaceId
             // must equal its mapped workspace. Keep that official create contract.
             if let Some(id) = request.get("workspaceId") {
                 if id.as_str().is_none_or(str::is_empty) {
@@ -1716,12 +1777,11 @@ impl RuntimeState {
         let mut ids = Vec::new();
         payload_session_ids(payload, &mut ids)?;
         if !ids.is_empty() {
-            let directory = &self
+            let directory = self
                 .identity
                 .as_ref()
                 .ok_or(TRANSPORT_ERROR)?
-                .project
-                .directory;
+                .directory();
             let process = self.process.as_mut().ok_or(TRANSPORT_ERROR)?;
             let sessions = list_sessions(
                 &process.url,
@@ -1872,14 +1932,14 @@ async fn fetch_bytes(
 pub(crate) async fn dsh_assistant_fetch(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     request_id: String,
     path: String,
     method: String,
     body_base64: Option<String>,
 ) -> Result<FetchOutput, String> {
     authorize_caller(&caller)?;
-    authorize_project_label(caller.label(), project_id)?;
+    authorize_scope_label(caller.label(), project_id)?;
     if request_id.is_empty() || request_id.len() > 128 {
         return Err(TRANSPORT_ERROR.into());
     }
@@ -1911,9 +1971,9 @@ pub(crate) async fn dsh_assistant_fetch(
         let (endpoint, payload, _) = carrier_path(&path, &method, &body)?;
         let (url, client, cookie, generation, mut runtime_closed, sensitive) = {
             let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
-            inner.authorize_project(caller.label(), project_id)?;
-            inner.ensure_current_project(&caller).await?;
+            let inner = runtimes.scope_mut(project_id)?;
+            inner.authorize_scope(caller.label(), project_id)?;
+            inner.ensure_current_scope(&caller).await?;
             if let Some(payload) = payload {
                 inner.authorize_payload(&endpoint, &payload).await?;
             }
@@ -1950,19 +2010,19 @@ pub(crate) async fn dsh_assistant_fetch(
                 }
                 let identity = inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?;
                 let file = file.canonicalize().map_err(|_| "助手引用文件不可用")?;
-                let attachments = project_data_directory(
+                let attachments = runtime_data_directory(
                     &assistant_data_root()?,
                     &identity.workspace_id,
                     project_id,
                 )?
                 .join("attachments/v1");
                 if !file.is_file()
-                    || (!file.starts_with(&identity.project.directory)
+                    || (!file.starts_with(identity.directory())
                         && !attachments
                             .canonicalize()
                             .is_ok_and(|root| file.starts_with(root)))
                 {
-                    return Err("不能读取当前项目之外的文件".into());
+                    return Err("不能读取当前范围之外的文件".into());
                 }
                 url.query_pairs_mut()
                     .clear()
@@ -1987,15 +2047,15 @@ pub(crate) async fn dsh_assistant_fetch(
         };
         let output = tokio::select! {
             output = fetch_bytes(&client, url, cookie, &method, body, endpoint == "session/uploadFileBinary", &sensitive) => output?,
-            _ = runtime_closed.changed() => return Err("项目已切换，请重新打开助手".into()),
+            _ = runtime_closed.changed() => return Err("助手范围已变化，请重新打开助手".into()),
         };
         let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
-        inner.authorize_project(caller.label(), project_id)?;
+        let inner = runtimes.scope_mut(project_id)?;
+        inner.authorize_scope(caller.label(), project_id)?;
         if inner.generation != generation {
-            return Err("项目已切换，请重新打开助手".into());
+            return Err("助手范围已变化，请重新打开助手".into());
         }
-        inner.ensure_current_project(&caller).await?;
+        inner.ensure_current_scope(&caller).await?;
         Ok(output)
     };
     tokio::select! { result = operation => result, _ = &mut cancelled => Err("助手请求已取消".into()) }
@@ -2005,18 +2065,18 @@ pub(crate) async fn dsh_assistant_fetch(
 pub(crate) async fn dsh_assistant_cancel(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     request_id: String,
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
-    authorize_project_label(caller.label(), project_id)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let key = format!("{}:{request_id}", caller.label());
     let mut requests = crate::lock_mutex(&state.requests);
     if requests
         .get(&key)
         .is_some_and(|request| request.project_id != project_id)
     {
-        return Err("此窗口不能取消其他项目的助手请求".into());
+        return Err("此窗口不能取消其他范围的助手请求".into());
     }
     if let Some(request) = requests.get_mut(&key) {
         if let Some(cancel) = request.cancel.take() {
@@ -2030,14 +2090,14 @@ pub(crate) async fn dsh_assistant_cancel(
 pub(crate) async fn dsh_assistant_connect(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     on_frame: tauri::ipc::Channel<CarrierOutput>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
-    inner.authorize_project(caller.label(), project_id)?;
-    inner.ensure_current_project(&caller).await?;
+    let inner = runtimes.scope_mut(project_id)?;
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
     // A dead physical connection is never reused for a new logical generation.
     inner
         .connections
@@ -2056,7 +2116,7 @@ pub(crate) async fn dsh_assistant_connect(
     .await?;
     let closed = process.closed.subscribe();
     let sensitive = process.sensitive.clone();
-    inner.ensure_current_project(&caller).await?;
+    inner.ensure_current_scope(&caller).await?;
     let id = session_rpc_id();
     let connection = spawn_socket(
         socket,
@@ -2075,16 +2135,16 @@ pub(crate) async fn dsh_assistant_connect(
 pub(crate) async fn dsh_assistant_send(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     connection_id: String,
     frame: CarrierFrame,
 ) -> Result<(), String> {
     use tokio_tungstenite::tungstenite::Message;
     authorize_caller(&caller)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
-    inner.authorize_project(caller.label(), project_id)?;
-    inner.ensure_current_project(&caller).await?;
+    let inner = runtimes.scope_mut(project_id)?;
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
     inner
         .connections
         .get(&connection_id)
@@ -2146,16 +2206,16 @@ pub(crate) async fn dsh_assistant_send(
 pub(crate) async fn dsh_assistant_disconnect(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     connection_id: String,
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
-    authorize_project_label(caller.label(), project_id)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
-    let Some(inner) = runtimes.projects.get_mut(&project_id) else { return Ok(()); };
+    let Some(inner) = runtimes.scopes.get_mut(&project_id) else { return Ok(()); };
     if let Some(connection) = inner.connections.get(&connection_id) {
         if connection.owner != caller.label() || connection.project_id != project_id {
-            return Err("此窗口不能关闭其他项目的助手连接".into());
+            return Err("此窗口不能关闭其他范围的助手连接".into());
         }
     } else {
         return Ok(());
@@ -2172,13 +2232,13 @@ pub(crate) async fn dsh_assistant_disconnect(
 pub(crate) async fn dsh_assistant_create_session(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
-    inner.authorize_project(caller.label(), project_id)?;
-    inner.ensure_current_project(&caller).await?;
+    let inner = runtimes.scope_mut(project_id)?;
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
     let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
     let id = create_session(
         &process.url,
@@ -2186,7 +2246,7 @@ pub(crate) async fn dsh_assistant_create_session(
         &mut process.session_cookie,
     )
     .await?;
-    inner.ensure_current_project(&caller).await?;
+    inner.ensure_current_scope(&caller).await?;
     Ok(id)
 }
 
@@ -2194,17 +2254,17 @@ pub(crate) async fn dsh_assistant_create_session(
 pub(crate) async fn dsh_assistant_delete_session(
     caller: Webview,
     state: State<'_, DshAssistantState>,
-    project_id: i64,
+    project_id: Option<i64>,
     session_id: String,
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.project_mut(project_id)?;
+    let inner = runtimes.scope_mut(project_id)?;
     if crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project_id) {
         return Err("助手请求尚未完成，请稍后再删除会话".into());
     }
-    inner.authorize_project(caller.label(), project_id)?;
-    inner.ensure_current_project(&caller).await?;
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
     inner
         .authorize_payload(
             "mind/session/delete",
@@ -2215,9 +2275,8 @@ pub(crate) async fn dsh_assistant_delete_session(
         .identity
         .as_ref()
         .ok_or(TRANSPORT_ERROR)?
-        .project
-        .directory
-        .clone();
+        .directory()
+        .to_path_buf();
     let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
     let sessions = list_sessions(
         &process.url,
@@ -2229,7 +2288,7 @@ pub(crate) async fn dsh_assistant_delete_session(
     let session = sessions
         .iter()
         .find(|session| session.id == session_id)
-        .ok_or("会话不属于当前项目")?;
+        .ok_or("会话不属于当前范围")?;
     if session.running {
         return Err("会话正在执行任务，请先停止再删除".into());
     }
@@ -2240,7 +2299,7 @@ pub(crate) async fn dsh_assistant_delete_session(
         SessionRequest::Delete(session_id),
     )
     .await?;
-    inner.ensure_current_project(&caller).await
+    inner.ensure_current_scope(&caller).await
 }
 
 #[cfg(test)]
@@ -2269,7 +2328,7 @@ mod tests {
         let project = db.project_create(crate::models::ProjectCreateInput { name: "Source".into(), summary: None, status: None }).unwrap();
         let directory = PathBuf::from(&project.root_path);
         std::fs::write(directory.join("fixed.txt"), "old first\nold second\n").unwrap();
-        let identity = Identity { workspace_id: "source-workspace".into(), workspace_generation: "open-one".into(), root: root.path().into(), fingerprint: "model".into(), project: ProjectContext { id: project.id, name: project.name, directory: directory.clone() } };
+        let identity = Identity { workspace_id: "source-workspace".into(), workspace_generation: "open-one".into(), root: root.path().into(), fingerprint: "model".into(), context: AssistantContext::Project(ProjectContext { id: project.id, name: project.name, directory: directory.clone() }) };
         let binding = crate::agent::models::WorkspaceBinding { workspace_id: identity.workspace_id.clone(), generation: identity.workspace_generation.clone() };
         let prepared = source_prepare(&db, &identity, &binding, "session-a", "prep-a", Some("fixed.txt"), None, 2, 1).unwrap();
         let metadata: SourceProjection = serde_json::from_str(prepared["projection"].as_str().unwrap().split_once('\n').unwrap().1.strip_prefix("<mind-file-source>").unwrap().strip_suffix("</mind-file-source>").unwrap()).unwrap();
@@ -2357,7 +2416,7 @@ mod tests {
         let file = db.project_file_register("native-source", project.id, "fixed.txt").unwrap();
         let fixed = crate::agent::models::SourceRef { object: file.object, revision: file.content_hash.unwrap(), file_version: Some(file.version_number), record_version: None, block_id: None, locator: None, title: "fixed.txt".into(), excerpt: String::new() };
         let binding = crate::agent::models::WorkspaceBinding { workspace_id: "native-source".into(), generation: "open-source".into() };
-        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), project: ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() } };
+        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), context: AssistantContext::Project(ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() }) };
         let database = Arc::new(std::sync::Mutex::new(db));
         let shared = database.clone();
         let source_identity = identity.clone();
@@ -2492,22 +2551,24 @@ input.on('line', line => {
 input.on('close', () => process.exit(0));
 "#).unwrap();
         let node = development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap();
-        let mut pool = ProjectRuntimes::default();
-        for id in [1, 2] {
+        let mut pool = ScopedRuntimes::default();
+        for (scope, generation) in [(None, 3), (Some(1), 1), (Some(2), 2)] {
             let mut command = Command::new(&node);
             command.arg(&script);
             let process = AssistantProcess::launch(command, &serde_json::json!({"type":"configure"})).await.unwrap();
-            pool.projects.insert(id, RuntimeState { process: Some(process), generation: id as u64, ..Default::default() });
+            pool.scopes.insert(scope, RuntimeState { process: Some(process), generation, ..Default::default() });
         }
+        assert_eq!(pool.active_count().unwrap(), 3);
+        assert_eq!(pool.scope_mut(None).unwrap().generation, 3);
+        assert_eq!(pool.scope_mut(Some(2)).unwrap().generation, 2);
+        assert!(pool.scope_mut(Some(3)).is_err());
+        pool.scope_mut(Some(1)).unwrap().stop().await.unwrap();
         assert_eq!(pool.active_count().unwrap(), 2);
-        assert_eq!(pool.project_mut(2).unwrap().generation, 2);
-        assert!(pool.project_mut(3).is_err());
-        pool.project_mut(1).unwrap().stop().await.unwrap();
-        assert_eq!(pool.active_count().unwrap(), 1);
-        assert!(pool.project_mut(2).unwrap().process.as_mut().unwrap().child.try_wait().unwrap().is_none());
+        assert!(pool.scope_mut(None).unwrap().process.as_mut().unwrap().child.try_wait().unwrap().is_none());
+        assert!(pool.scope_mut(Some(2)).unwrap().process.as_mut().unwrap().child.try_wait().unwrap().is_none());
         pool.stop().await.unwrap();
         assert_eq!(pool.active_count().unwrap(), 0);
-        assert!(pool.projects.is_empty());
+        assert!(pool.scopes.is_empty());
     }
 
     #[test]
@@ -2625,11 +2686,11 @@ input.on('close', () => process.exit(0));
                 workspace_generation: "open-a".into(),
                 root: temp.path().to_path_buf(),
                 fingerprint: fingerprint.clone(),
-                project: ProjectContext {
+                context: AssistantContext::Project(ProjectContext {
                     id: 1,
                     name: "Fixture Project".into(),
                     directory: temp.path().join("Fixture Project"),
-                },
+                }),
             },
             profile: selected.profile,
             alternatives: Configuration::configured_profiles(&mut db).unwrap(),
@@ -2677,17 +2738,30 @@ input.on('close', () => process.exit(0));
         assert!(!config
             .identity
             .matches_workspace(&binding, &temp.path().join("other")));
+        let project_context = config.identity.context.clone();
+        config.identity.context = AssistantContext::Workspace { directory: temp.path().canonicalize().unwrap() };
+        let workspace_message = config.message();
+        assert!(workspace_message.get("project").is_none());
+        assert_eq!(workspace_message["workspace"]["id"], "workspace-a");
+        assert_eq!(workspace_message["workspace"]["directory"], temp.path().canonicalize().unwrap().to_str().unwrap());
+        assert_eq!(workspace_message["provider"], message["provider"]);
+        assert_eq!(workspace_message["providers"], message["providers"]);
+        let workspace_runtime = RuntimeState { identity: Some(config.identity.clone()), ..Default::default() };
+        assert!(workspace_runtime.authorize_scope("main", None).is_ok());
+        assert!(workspace_runtime.authorize_scope("project-1", None).is_err());
+        assert!(workspace_runtime.authorize_scope("main", Some(1)).is_err());
+        config.identity.context = project_context;
         let runtime = RuntimeState {
             identity: Some(config.identity),
             ..RuntimeState::default()
         };
-        assert!(runtime.authorize_project("main", 1).is_ok());
-        assert!(runtime.authorize_project("project-1", 1).is_ok());
+        assert!(runtime.authorize_scope("main", Some(1)).is_ok());
+        assert!(runtime.authorize_scope("project-1", Some(1)).is_ok());
         assert_eq!(
-            runtime.authorize_project("main", 2).unwrap_err(),
-            "项目已切换，请重新打开助手"
+            runtime.authorize_scope("main", Some(2)).unwrap_err(),
+            "助手范围已变化，请重新打开助手"
         );
-        assert!(runtime.authorize_project("project-2", 1).is_err());
+        assert!(runtime.authorize_scope("project-2", Some(1)).is_err());
         drop(db);
         let locked = crate::db::Database::open(&db_path, temp.path(), None).unwrap();
         assert_eq!(
@@ -2766,9 +2840,9 @@ input.on('close', () => process.exit(0));
             crate::db::Database::open(&foreign.path().join("db.sqlite"), foreign.path(), None)
                 .unwrap();
         assert!(ProjectContext::resolve(&mut foreign_db, foreign.path(), record.id).is_err());
-        assert!(authorize_project_label("project-1", 2).is_err());
-        assert!(authorize_project_label("main", 2).is_ok());
-        assert!(authorize_project_label("project-2", 2).is_ok());
+        assert!(authorize_scope_label("project-1", Some(2)).is_err());
+        assert!(authorize_scope_label("main", Some(2)).is_ok());
+        assert!(authorize_scope_label("project-2", Some(2)).is_ok());
         for workspace in ["..", "../outside", "/absolute"] {
             assert!(project_data_directory(&root, workspace, record.id).is_err());
         }
@@ -3064,7 +3138,7 @@ input.on('close', () => process.exit(0));
     }
 
     #[tokio::test]
-    async fn raw_socket_authenticates_mux_forwards_binary_ping_and_cleans_up() {
+    async fn workspace_socket_authenticates_mux_forwards_binary_ping_and_cleans_up() {
         use tokio_tungstenite::tungstenite::{
             handshake::server::{Request, Response},
             Message,
@@ -3131,13 +3205,15 @@ input.on('close', () => process.exit(0));
         let connection = spawn_socket(
             socket,
             "main".into(),
-            1,
+            None,
             "native-connection".into(),
             channel,
             runtime_closed,
             Arc::new(vec!["never-on-socket".into()]),
         );
-        assert!(connection.authorize("project-2", 2).is_err());
+        assert!(connection.authorize("project-2", Some(2)).is_err());
+        assert!(connection.authorize("main", Some(1)).is_err());
+        assert!(connection.authorize("main", None).is_ok());
         let (result, sent) = oneshot::channel();
         connection
             .writes
@@ -3157,7 +3233,7 @@ input.on('close', () => process.exit(0));
             .unwrap();
         assert_eq!(text["type"], "text");
         assert_eq!(text["connectionId"], "native-connection");
-        assert_eq!(text["projectId"], 1);
+        assert!(text["projectId"].is_null());
         let binary = tokio::time::timeout(Duration::from_secs(5), received.recv())
             .await
             .unwrap()
@@ -3179,10 +3255,19 @@ input.on('close', () => process.exit(0));
 
     #[tokio::test]
     async fn pinned_runtime_native_carrier_creates_lists_uploads_and_streams_without_gui() {
+        verify_native_carrier(Some(1)).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_native_carrier_creates_lists_uploads_and_streams_without_gui() {
+        verify_native_carrier(None).await;
+    }
+
+    async fn verify_native_carrier(project_id: Option<i64>) {
         use tokio_tungstenite::tungstenite::Message;
         let temp = tempfile::tempdir().unwrap();
-        let directory = temp.path().join("project");
-        std::fs::create_dir(&directory).unwrap();
+        let directory = if project_id.is_some() { temp.path().join("project") } else { temp.path().to_path_buf() };
+        std::fs::create_dir_all(&directory).unwrap();
         let directory = directory.canonicalize().unwrap();
         let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/dsh-assistant");
         let mut command = Command::new(
@@ -3201,7 +3286,14 @@ input.on('close', () => process.exit(0));
             .env("PROJECT_MIND_DSH_USER_DATA", temp.path().join("history"))
             .env("PROJECT_MIND_DSH_PROFILE_DIR", temp.path().join("profile"))
             .env_remove("PROJECT_MIND_DSH_PATCH");
-        let config = serde_json::json!({"type":"configure","provider":{"name":"Native fixture","baseUrl":"http://127.0.0.1:9/v1","modelId":"native-fixture-model","apiKey":"native-fixture-model-key","supportsImage":false},"project":{"id":1,"name":"Native carrier fixture","directory":directory}});
+        let mut config = serde_json::json!({"type":"configure","provider":{"name":"Native fixture","baseUrl":"http://127.0.0.1:9/v1","modelId":"native-fixture-model","apiKey":"native-fixture-model-key","supportsImage":false}});
+        let context = if let Some(id) = project_id {
+            config["project"] = serde_json::json!({"id":id,"name":"Native carrier fixture","directory":directory});
+            AssistantContext::Project(ProjectContext { id, name: "Native carrier fixture".into(), directory: directory.clone() })
+        } else {
+            config["workspace"] = serde_json::json!({"id":"2f3dc81a-bb8d-42c0-bf7d-517f8a7e8d84","name":"Native Workspace fixture","directory":directory});
+            AssistantContext::Workspace { directory: directory.clone() }
+        };
         let mut process = AssistantProcess::launch(command, &config).await.unwrap();
         authenticate(
             &process.url,
@@ -3271,11 +3363,7 @@ input.on('close', () => process.exit(0));
                 workspace_generation: "native-generation".into(),
                 root: temp.path().canonicalize().unwrap(),
                 fingerprint: "native-profile".into(),
-                project: ProjectContext {
-                    id: 1,
-                    name: "Native carrier fixture".into(),
-                    directory: directory.clone(),
-                },
+                context,
             }),
             ..Default::default()
         };
@@ -3303,7 +3391,7 @@ input.on('close', () => process.exit(0));
         let connection = spawn_socket(
             socket,
             "main".into(),
-            1,
+            project_id,
             "native-real".into(),
             channel,
             process.closed.subscribe(),
@@ -3314,10 +3402,10 @@ input.on('close', () => process.exit(0));
 
         // Keep the runtime mutation lock across queueing and written ack, as the
         // native send command does. The actor must complete without that lock.
-        async fn written(state: &Mutex<RuntimeState>, frame: serde_json::Value) {
+        async fn written(project_id: Option<i64>, state: &Mutex<RuntimeState>, frame: serde_json::Value) {
             tokio::time::timeout(Duration::from_secs(10), async {
                 let mut inner = state.lock().await;
-                inner.authorize_project("main", 1).unwrap();
+                inner.authorize_scope("main", project_id).unwrap();
                 if frame["type"] == "open" {
                     inner
                         .authorize_payload(frame["endpoint"].as_str().unwrap(), &frame["payload"])
@@ -3325,7 +3413,7 @@ input.on('close', () => process.exit(0));
                         .unwrap();
                 }
                 let connection = inner.connections.get_mut("native-real").unwrap();
-                connection.authorize("main", 1).unwrap();
+                connection.authorize("main", project_id).unwrap();
                 let (result, response) = oneshot::channel();
                 connection
                     .writes
@@ -3341,6 +3429,7 @@ input.on('close', () => process.exit(0));
             .expect("native actor written ack timed out while runtime lock held");
         }
         async fn downlink(
+            project_id: Option<i64>,
             received: &mut mpsc::UnboundedReceiver<serde_json::Value>,
             stream: &str,
             sensitive: &[String],
@@ -3349,7 +3438,7 @@ input.on('close', () => process.exit(0));
                 loop {
                     let native = received.recv().await.expect("native channel closed");
                     assert_eq!(native["type"], "text");
-                    assert_eq!(native["projectId"], 1);
+                    assert_eq!(native["projectId"], serde_json::json!(project_id));
                     assert_eq!(native["connectionId"], "native-real");
                     let text = native["text"].as_str().unwrap();
                     assert!(!contains_secret(text.as_bytes(), sensitive));
@@ -3363,21 +3452,23 @@ input.on('close', () => process.exit(0));
             .expect("native channel opening frame timed out")
         }
         written(
+            project_id,
             &state,
             serde_json::json!({"type":"open","streamId":"native-ready",
             "endpoint":"$events","payload":{"args":{}}}),
         )
         .await;
-        let ready = downlink(&mut received, "native-ready", &sensitive).await;
+        let ready = downlink(project_id, &mut received, "native-ready", &sensitive).await;
         assert_eq!(ready["type"], "item");
         assert_eq!(ready["value"]["type"], "ready");
         written(
+            project_id,
             &state,
             serde_json::json!({"type":"open","streamId":"native-workspace",
             "endpoint":"workspace/follow","payload":{"args":{}}}),
         )
         .await;
-        let baseline = downlink(&mut received, "native-workspace", &sensitive).await;
+        let baseline = downlink(project_id, &mut received, "native-workspace", &sensitive).await;
         assert_eq!(baseline["type"], "item");
         assert_eq!(baseline["value"]["type"], "baseline");
         let items = baseline["value"]["value"]["items"].as_array().unwrap();
@@ -3387,21 +3478,23 @@ input.on('close', () => process.exit(0));
             initialized["result"]["value"]["workspace"]["workspaceId"]
         );
         written(
+            project_id,
             &state,
             serde_json::json!({"type":"open","streamId":"native-control",
             "endpoint":"session/control","payload":{"args":{}}}),
         )
         .await;
-        let control = downlink(&mut received, "native-control", &sensitive).await;
+        let control = downlink(project_id, &mut received, "native-control", &sensitive).await;
         assert_eq!(control["type"], "item");
         assert_eq!(control["value"]["type"], "baseline");
         written(
+            project_id,
             &state,
             serde_json::json!({"type":"open","streamId":"native-session",
             "endpoint":"session/follow","payload":follow_payload}),
         )
         .await;
-        let snapshot = downlink(&mut received, "native-session", &sensitive).await;
+        let snapshot = downlink(project_id, &mut received, "native-session", &sensitive).await;
         assert_eq!(snapshot["type"], "item");
         let snapshot = &snapshot["value"];
         assert_eq!(snapshot["type"], "snapshot");
@@ -3416,6 +3509,7 @@ input.on('close', () => process.exit(0));
             "native-ready",
         ] {
             written(
+                project_id,
                 &state,
                 serde_json::json!({"type":"cancel","streamId":stream}),
             )
@@ -3505,11 +3599,11 @@ input.on('close', () => process.exit(0));
                 workspace_generation: "generation".into(),
                 root: PathBuf::from("/fixture"),
                 fingerprint: "receipt".into(),
-                project: ProjectContext {
+                context: AssistantContext::Project(ProjectContext {
                     id: 1,
                     name: "Owned".into(),
                     directory: PathBuf::from("/fixture/project"),
-                },
+                }),
             }),
             ..Default::default()
         };
@@ -3526,8 +3620,8 @@ input.on('close', () => process.exit(0));
             .unwrap()
             .is_none());
         assert_eq!(
-            inner.authorize_project("main", 2).unwrap_err(),
-            "项目已切换，请重新打开助手"
+            inner.authorize_scope("main", Some(2)).unwrap_err(),
+            "助手范围已变化，请重新打开助手"
         );
         for payload in [
             serde_json::json!({"args":{"agentId":"foreign"}}),

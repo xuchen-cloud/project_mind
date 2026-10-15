@@ -45,3 +45,18 @@ it("bridges exact Session facts and clears them when the workspace closes or a p
   setDshWorkspaceRoot(null); emit({ ignored: true });
   expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
 });
+
+it("keeps null Workspace busy and session facts separate from a running Project and clears both on close", () => {
+  setDshWorkspaceRoot("/workspace");
+  for (const projectId of [null, 7]) {
+    window.dispatchEvent(new CustomEvent("mind:dsh-project-busy", { detail: { projectId, busy: true } }));
+    window.dispatchEvent(new CustomEvent("mind:dsh-session-runs", { detail: { projectId, runningBySession: { sameId: true } } }));
+  }
+  expect(Object.values(useAgentPanelStore.getState().runsByProject).map(run => run.scope)).toEqual([{ kind: "workspace" }, { kind: "project", projectId: 7 }]);
+  expect(Object.keys(useAgentPanelStore.getState().sessionsByProject)).toHaveLength(2);
+  window.dispatchEvent(new CustomEvent("mind:dsh-project-busy", { detail: { projectId: null, busy: false } }));
+  expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "project", projectId: 7 });
+  setDshWorkspaceRoot(null);
+  expect(useAgentPanelStore.getState().sessionsByProject).toEqual({});
+  expect(useAgentPanelStore.getState().runsByProject).toEqual({});
+});

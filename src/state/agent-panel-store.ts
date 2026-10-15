@@ -11,19 +11,19 @@ export function sameAgentScope(a: AgentScope, b: AgentScope) {
 export function canDiscussObject(panelScope: AgentScope, objectScope: AgentScope) {
   return panelScope.kind === "workspace" || sameAgentScope(panelScope, objectScope);
 }
-export function dshProjectRunKey(workspaceRoot: string, projectId: number) { return JSON.stringify([workspaceRoot, projectId]); }
+export function dshProjectRunKey(workspaceRoot: string, projectId: number | null) { return JSON.stringify([workspaceRoot, projectId]); }
 interface AgentPanelState {
   workspaceRoot: string | null;
   runsByProject: Record<string, AgentPanelBinding>;
   sessionsByProject: Record<string, Record<string, boolean>>;
-  setSessionRuns: (workspaceRoot: string, projectId: number, runningBySession: Record<string, boolean>) => void;
+  setSessionRuns: (workspaceRoot: string, projectId: number | null, runningBySession: Record<string, boolean>) => void;
   bindWorkspace: (workspaceRoot: string | null) => void;
   binding: AgentPanelBinding | null;
   open: boolean;
   expanded: boolean;
   discussionTarget: AgentDiscussionTarget | null;
   runningBinding: AgentPanelBinding | null;
-  setRunBusy: (workspaceRoot: string, projectId: number, busy: boolean) => void;
+  setRunBusy: (workspaceRoot: string, projectId: number | null, busy: boolean) => void;
   setDiscussionTarget: (binding: AgentWorkspaceBinding, object: AgentObjectRef, label: string) => boolean;
   clearDiscussionTarget: () => void;
   openPanel: (workspaceRoot: string, scope: AgentScope) => void;
@@ -32,7 +32,7 @@ interface AgentPanelState {
   clearWorkspace: () => void;
 }
 
-// Window-local UI seats and independently subscribed Project runtime facts.
+// Window-local UI seats and independently subscribed scope runtime facts.
 export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
   workspaceRoot: null, runsByProject: {}, sessionsByProject: {},
   binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null,
@@ -55,7 +55,7 @@ export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
     set(state => {
       const runsByProject = { ...state.runsByProject };
       const key = dshProjectRunKey(workspaceRoot, projectId);
-      if (busy) runsByProject[key] = { workspaceRoot, scope: { kind: "project", projectId } };
+      if (busy) runsByProject[key] = { workspaceRoot, scope: projectId === null ? { kind: "workspace" } : { kind: "project", projectId } };
       else delete runsByProject[key];
       return { runsByProject, runningBinding: Object.values(runsByProject)[0] ?? null };
     });

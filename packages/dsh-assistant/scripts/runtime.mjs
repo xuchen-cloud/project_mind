@@ -8,7 +8,7 @@ import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
-import { readProject, bindProject } from './project-workspace.mjs';
+import { readContext, bindContext } from './project-workspace.mjs';
 import { installOfficeService } from './office-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
 import { bundledSkillEnvironment } from './skills.mjs';
@@ -18,7 +18,7 @@ const embedded = process.argv.includes('--embedded');
 const args = process.argv.slice(2).filter(arg => arg !== '--embedded');
 let input;
 let sharedModel;
-let project;
+let context;
 let sourceBridge;
 let parentClosed = false;
 if (embedded) {
@@ -29,12 +29,12 @@ if (embedded) {
     input.once('close', () => reject(new Error('Main application closed before AI configuration')));
   });
   sharedModel = readSharedModel(frame);
-  project = await readProject(frame);
-  sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
+  context = await readContext(frame);
+  if (context.kind === 'project') sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
 }
 Object.assign(process.env, assistantEnvironment(), bundledSkillEnvironment());
 const home = process.env.DSH_HOME;
-const cwd = embedded ? project.directory : path.join(home, 'workspace');
+const cwd = embedded ? context.directory : path.join(home, 'workspace');
 await mkdir(cwd, { recursive: true });
 process.chdir(cwd);
 const environment = loadLayeredEnv('mind-dsh', cwd);
@@ -79,14 +79,16 @@ try {
     await host.plugin(PluginPackages, { resolution });
     if (embedded) {
       installSharedCredential(host, sharedModel);
-      installSourceTitles(host);
+      if (context.kind === 'project') installSourceTitles(host);
     }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });
   });
   if (embedded) {
-    await bindProject(ctx, project);
-    await installSourceService(ctx, project, sourceBridge);
-    await installOfficeService(ctx, project, sourceBridge);
+    await bindContext(ctx, context);
+    if (context.kind === 'project') {
+      await installSourceService(ctx, context, sourceBridge);
+      await installOfficeService(ctx, context, sourceBridge);
+    }
   }
   for (const listener of readyListeners) listener();
   if (process.send) process.send({ type: 'ready', port: ctx.webServer.port });

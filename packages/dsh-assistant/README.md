@@ -14,9 +14,9 @@
 - 打开助手时按需启动 Node，参数为 `--embedded --port 0 --no-open`。面板隐藏或组件卸载须保留历史，退出主应用时自动关闭 Node。
 - 主应用模型、密钥或代理配置变化后刷新模型运行时，保留已有 DSH 会话历史。
 
-## Project 会话与主应用融合
+## Workspace / Project 会话与主应用融合
 
-- DSH workspace 映射当前主应用 Project，工作目录取原生 DB 中实际的 `project.root_path`。只有项目内提供助手会话；切换 Project 时切换运行时，历史按 stable workspace ID / project ID 分配独立子目录。执行期间先明确提示停止任务再切换，不静默终止；旧项目延迟事件不得写入新项目界面。
+- DSH workspace 映射原生提供的真实 Workspace 或 Project，工作目录分别为 Workspace 根目录和 `project.root_path`。每个范围独立运行，切换页面不停止后台任务；主应用负责导航和运行时生命周期。历史按 stable workspace ID / scope 分配独立子目录，旧范围延迟事件不得写入当前范围界面。
 - 完全隐藏 DSH 左侧 sidebar。会话列表与新建、切换、继续、删除入口由主应用助手 header 管理，助手内容仅保留 **Chat / Trajectory**。
 - 隐藏 DSH 文件树、预览、浏览器和终端 UI；文件浏览由现有主 Project 文件区承接。
 - 主 Settings 导航新增 **DSH 设置**，提供“插件管理”和“运行设置”两个模式，优先复用官方 **PluginManager / Settings** 可独立表单，嵌入主 settings viewport；依赖完整外壳的部分由主应用表单调用对应服务，不使用独立 DSH sidebar。Models 继续由主应用统一 AI 设置管理，助手与插件配置默认共享，变更须影响实际运行时并明确生效时机。
@@ -24,6 +24,17 @@
 - 文件链接与轨迹文件导航打开主 Project 预览，主文件区可插入文件引用；附件上传与项目文件引用分别按真实语义处理，并校验会话所属项目的访问范围。
 
 当前 Tauri 通信适配保留 HTTP RPC、WebSocket mux 的完整客户端协议与会话语义，不用较窄的 stdio SDK 替代客户端协议；前端不获取模型密钥。项目文件引用按真实文件路径接入，外部附件上传 / 读取保持各自语义。
+
+### Node configure 契约（#161）
+
+嵌入模式第一行继续使用 `type: "configure"` 与现有 `provider` / `providers` 模型字段，并且必须且只能携带一个上下文：
+
+- Project 保留原帧：`project: { id: 正安全整数, name: 非空字符串, directory: 实际绝对路径 }`。
+- Workspace 使用 `workspace: { id: 稳定 Workspace UUID 字符串, name: 非空字符串, directory: 实际 Workspace 根目录绝对路径 }`，没有 `project` 字段。
+
+`readContext` 校验身份和实际目录，`bindContext` 将会话绑定到该目录，禁止在 DSH 内更换目录或管理 Workspace / Project。创建、流式发送、停止、历史恢复和归档复用相同上游 controller / registry。原生为两种范围指定不同的 `PROJECT_MIND_DSH_USER_DATA`（即 `DSH_HOME`）：`projects/<workspace-id>/workspace` 与原有 `projects/<workspace-id>/<project-id>`；Node 不重写路径、不迁移 Project 历史，profile 目录仍由原生共享。
+
+Workspace 模式沿用普通 Chat、附件、文件工具、权限与模型服务，不安装 Project 专属 source、source title 和 Office 服务。它不获得 Project File 的原生读写权限，也不接入记忆或额外业务工具。
 
 ## 本地开发与发布资源
 
@@ -65,7 +76,7 @@ DSH 历史当前仍单独存储，默认 `DSH_HOME` 如下，不读取默认 `~/
 | Windows | `%APPDATA%/project-mind-dsh`；APPDATA 未设置时使用 `~/AppData/Roaming/project-mind-dsh` |
 | Linux / 其他 | `$XDG_DATA_HOME/project-mind-dsh`；未设置时使用 `~/.local/share/project-mind-dsh` |
 
-`PROJECT_MIND_DSH_USER_DATA` 可覆盖数据根目录，必须为绝对路径。独立调试模式的 profile 位于 `profiles/assistant`，工作目录为 `<数据目录>/workspace`，也在此保存独立配置和凭据。主应用接入以 stable workspace ID / project ID 划分历史子目录，工作目录使用原生 DB 的 `project.root_path`；模型配置仍来自主应用。
+`PROJECT_MIND_DSH_USER_DATA` 可覆盖数据根目录，必须为绝对路径。独立调试模式的 profile 位于 `profiles/assistant`，工作目录为 `<数据目录>/workspace`，也在此保存独立配置和凭据。主应用接入以 stable workspace ID / scope 划分历史子目录，工作目录使用原生提供的 Workspace 根目录或 `project.root_path`；模型配置仍来自主应用。
 
 单独保存历史是当前实现选择，用户没有要求永久隔离配置或数据；未来业务工具可以共享配置和数据。Project 映射读取原生 DB 的 Project 归属与实际根目录，但尚无业务数据库工具桥；不转换旧 Pi 历史，不删除旧会话数据。
 
@@ -106,3 +117,17 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 **实现、验证与主 agent Standards / Spec 自查完成，无剩余阻塞项。** 本包不 publish，不标记全部 Pi 迁移或 #121 完成；后台 Pi、旧 Pi 历史转换、业务数据库工具桥、Office/PPT 不属于本包。确定性本地 Provider 验收不代表真实外部 Provider 已通过。
 
 范围见 [迁移方案](../../docs/requirements/dsh-assistant-migration.md)，改动、命令与最终收口由主 agent 在 [执行说明](../../docs/requirements/dsh-assistant-execution.md) 维护。
+
+
+## Workspace Node 验证（#161，2026-10-15）
+
+在本包目录运行，基于当前 #161 Node 改动与固定 rc.2 依赖：
+
+- `npm run check`：通过。
+- `npm test`：38/38 通过。
+- `npm run test:integration`：15 个顶层场景、含子用例共 29/29 通过。
+- `git diff --check -- packages/dsh-assistant`：通过。
+
+真实 Node 子进程、HTTP RPC / WebSocket mux 与本地 SSE Provider 验证 Workspace 创建、普通聊天、模型选择、普通文件 read、附件上传入聊、停止及续发、重启历史恢复、归档后恢复不可见，以及独立 DSH_HOME 下的 Project 历史与会话访问隔离。配置边界验证包括无上下文、同时携带两种上下文（含 null）、无效 ID、名称及目录；Workspace 不注册 Project source 路由和 Office 工具，既有 Project source / Office 场景保持通过。
+
+早期依赖目录缺失导致的检查失败已由完整依赖恢复后的上述结果取代。本轮没有调用真实外部模型，也没有执行 Rust、前端或 GUI 验收；这些仍由主 agent 分别收口。未接记忆、新业务工具或历史迁移。

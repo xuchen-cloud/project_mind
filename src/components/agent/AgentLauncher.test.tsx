@@ -83,14 +83,14 @@ describe("assistant workspace entry", () => {
     act(() => { useAgentPanelStore.getState().closePanel(); useAgentPanelStore.getState().openPanel("/workspace", { ...scope }); });
     expect(useAgentPanelStore.getState().binding).toBe(binding);
   });
-  it("disables the Workspace entry with a project-only explanation", async () => {
+  it("opens the Workspace entry without a project", async () => {
     render(<AgentLauncher scope={{ kind: "workspace" }} workspaceRoot="/workspace" visible />);
     const button = screen.getByRole("button", { name: "助手" });
-    expect(button).toBeDisabled(); expect(button).toHaveAttribute("title", "请进入项目使用助手");
+    expect(button).toBeEnabled();
     await userEvent.click(button);
-    expect(useAgentPanelStore.getState().binding).toBeNull();
+    expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
   });
-  it("hides off-project, clears the old target, and follows navigation only while open", async () => {
+  it("follows Workspace and Project navigation, clears the old target, and follows navigation only while open", async () => {
     const client = new QueryClient();
     const shell = (currentProjectId: number | null) => <QueryClientProvider client={client}>
       <AgentWorkspacePanel workspaceRoot="/workspace" currentProjectId={currentProjectId} />
@@ -101,9 +101,10 @@ describe("assistant workspace entry", () => {
       { workspaceId: "workspace", generation: "generation" },
       { workspaceId: "workspace", scope, kind: "record", id: "42" }, "旧项目记录"));
     view.rerender(shell(null));
-    expect(screen.queryByRole("textbox", { name: "草稿" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "草稿" })).toBeVisible();
     expect(useAgentPanelStore.getState().discussionTarget).toBeNull();
-    expect(mocked.panel).toHaveBeenLastCalledWith(expect.objectContaining({ open: false, projectId: 1 }));
+    expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
+    expect(mocked.panel).toHaveBeenLastCalledWith(expect.objectContaining({ open: true, projectId: null }));
     view.rerender(shell(2));
     expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 });
     act(() => useAgentPanelStore.getState().closePanel());

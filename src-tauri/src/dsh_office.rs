@@ -123,7 +123,7 @@ impl Store<'_> {
         validate_session(
             &list,
             self.session_id,
-            &self.bridge.identity.project.directory,
+            self.bridge.identity.directory(),
         )
     }
 }
@@ -155,13 +155,15 @@ impl BoundSourceStore for Store<'_> {
             ));
         }
         let mut db = crate::lock_mutex(&runtime.db);
+        let project = self.bridge.identity.project()
+            .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
         if ProjectContext::resolve(
             &mut db,
             &runtime.paths.root_path,
-            self.bridge.identity.project.id,
+            project.id,
         )
         .map_err(|m| AgentError::new(ErrorCode::ScopeDenied, m))?
-            != self.bridge.identity.project
+            != *project
         {
             return Err(AgentError::new(
                 ErrorCode::ScopeDenied,
@@ -258,6 +260,8 @@ impl OfficeCall {
         identity: &Identity,
         grants: &Mutex<HashMap<String, (String, String)>>,
     ) -> AgentResult<Value> {
+        let project = identity.project()
+            .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
         let request = store.with_current(|binding, db| {
             let mut grants = crate::lock_mutex(grants);
             let (grant, token) = if let Some(grant) = grants.get(&self.session_id) {
@@ -274,7 +278,7 @@ impl OfficeCall {
                     &ConnectionCreateInput {
                         client_label: "DSH Office Session".into(),
                         workspace_content: false,
-                        project_ids: vec![identity.project.id],
+                        project_ids: vec![project.id],
                         all_projects: false,
                         write_operations: vec!["file.update".into()],
                     },

@@ -7,7 +7,7 @@ export interface DshSessionModel {
   reasoningEffort?: string;
 }
 export interface DshConversationHostProps {
-  projectId: number;
+  projectId: number | null;
   sessionId: string;
   focused?: boolean;
   onSessionChange?: (id: string) => void;
@@ -21,6 +21,6 @@ export interface DshConversationHostProps {
   onModelChange?: (model: DshSessionModel) => void;
 }
 export function DshConversationHost(props: DshConversationHostProps): ReactElement;
-export function DshSettingsHost(props: { projectId: number; mode: 'settings' | 'plugins'; onError?: (message: string) => void }): ReactElement;
+export function DshSettingsHost(props: { projectId: number | null; mode: 'settings' | 'plugins'; onError?: (message: string) => void }): ReactElement;
 export function insertDshFileReference(projectId: number, sessionId: string, path: string, sourceRef?: AgentSourceRef): Promise<void>;
 export function disposeDshClients(): Promise<void>;

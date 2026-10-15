@@ -50,7 +50,9 @@ function HostFrame({ mode, reference, renderSlot, SessionProvider }) {
   </div>;
 }
 
-/** One actual DSH service graph per project, shared by chat and main settings. */
+/** One DSH service graph per scope, shared by chat and settings.
+ * @param {number | null} projectId
+ */
 export async function createDshClient(projectId) {
   const ctx = new Context();
   // React 19 dev render timing inspects objects passed through slot props.
@@ -70,7 +72,7 @@ export async function createDshClient(projectId) {
     // Keep this hook for delayed slot injections as declarations change.
     const register = slots.register;
     slots.register = function(options, Component) {
-      const view = options.name === 'conversation.chat.node' && (options.key === 'user' || options.key === 'steering')
+      const view = projectId !== null && options.name === 'conversation.chat.node' && (options.key === 'user' || options.key === 'steering')
         ? adaptFileMessageRenderer(Component) : Component;
       return register.call(this, options, view);
     };
@@ -153,7 +155,7 @@ export async function createDshClient(projectId) {
     // explicit chips and the original composer keep one serializer contract.
     const registerSource = ctx.inputTriggers.registerSource;
     ctx.inputTriggers.registerSource = function(source) {
-      return registerSource.call(this, source.name === 'reference'
+      return registerSource.call(this, projectId !== null && source.name === 'reference'
         ? adaptFileReferences(source, transport.fetch, data => notify('file', data)) : source);
     };
     try { await install(references).await(); }
