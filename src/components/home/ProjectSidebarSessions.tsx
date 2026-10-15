@@ -99,8 +99,8 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled }: ProjectSid
   const visible = sessions.filter(session => session.title.toLocaleLowerCase().includes(needle));
   return <section className="project-navigation__section" aria-label="项目会话">
     <div className="home-side__heading"><span>会话</span><div className="home-side__heading-actions">
-      <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || loading || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
       <button type="button" aria-label="刷新会话" title="刷新会话" disabled={!enabled || loading || opening} onClick={() => { void load(); }}><RefreshCw size={16} /></button>
+      <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || loading || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
     </div></div>
     <HomeSidebarList label="项目会话列表" searchKey={query}>
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}

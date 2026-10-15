@@ -1,18 +1,17 @@
 import { useState, type ComponentProps } from "react";
+import { List, ListTree } from "lucide-react";
 import { ProjectSidebar } from "../layout/ProjectSidebar";
-import { SidebarTabs } from "../../ui/components";
 import { ProjectDirectoryBrowser } from "./ProjectDirectoryBrowser";
 import "./project-directory.css";
 
-/** One file panel for the project overview and record sidebar. */
+/** Presentation changes never alter which project files are managed. */
 export function HomeProjectFiles({ filter, ...props }: Pick<ComponentProps<typeof ProjectSidebar>, "project" | "documents"> & { filter?: { query: string; tagId: number | null } }) {
-  const [mode, setMode] = useState<"managed" | "directory">("managed");
-  const filtering = !!filter?.query.trim() || filter?.tagId != null;
-  return <div className="home-rail__files">
-    <h2>文件</h2>
-    {!filtering ? <div className="project-directory-tabs"><SidebarTabs ariaLabel="项目文件范围" value={mode} onValueChange={setMode}
-      options={[{ value: "managed", label: "已管理文件" }, { value: "directory", label: "项目目录" }]} /></div> : null}
-    {mode === "managed" || filtering ? <ProjectSidebar {...props} fileFilter={filter} filesOnly resident onOpenProject={() => undefined} />
-      : <ProjectDirectoryBrowser key={props.project.id} projectId={props.project.id} />}
+  const [tree, setTree] = useState(false);
+  const label = tree ? "平铺展示" : "文件树展示";
+  return <div className="home-rail__files"><ProjectSidebar {...props}
+    fileFilter={tree ? { query: "", tagId: null } : filter}
+    fileHeaderActions={<button type="button" aria-label={label} title={label} onClick={() => setTree(value => !value)}>{tree ? <List size={16} /> : <ListTree size={16} />}</button>}
+    fileContent={tree ? <ProjectDirectoryBrowser key={props.project.rootPath} rootPath={props.project.rootPath} projectId={props.project.id} /> : undefined}
+    filesOnly resident onOpenProject={() => undefined} />
   </div>;
 }

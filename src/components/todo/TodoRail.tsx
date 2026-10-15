@@ -892,17 +892,6 @@ export function TodoRail({
             </select>
           </label>
           <IconButton
-            ref={addTodoButtonRef}
-            type="button"
-            size="sm"
-            variant="subtle"
-            aria-label="新增代办"
-            disabled={!canCreateTodo || isComposing}
-            onClick={() => setIsComposing(true)}
-          >
-            <Plus size={14} />
-          </IconButton>
-          <IconButton
             type="button"
             size="sm"
             variant="ghost"
@@ -910,6 +899,17 @@ export function TodoRail({
             onClick={toggleTodoRailCollapsed}
           >
             <ChevronRight size={14} />
+          </IconButton>
+          <IconButton
+            ref={addTodoButtonRef}
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="新增代办"
+            disabled={!canCreateTodo || isComposing}
+            onClick={() => setIsComposing(true)}
+          >
+            <Plus size={16} />
           </IconButton>
         </div>
       </div>

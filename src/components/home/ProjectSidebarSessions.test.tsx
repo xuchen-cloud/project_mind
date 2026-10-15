@@ -50,6 +50,27 @@ it("loads real API sessions without selecting/creating, and filters titles local
   expect(api.start).toHaveBeenCalledTimes(1);
 });
 
+it("keeps refresh before creation at the right edge of the heading", async () => {
+  render(component());
+  const refresh = screen.getByRole("button", { name: "刷新会话" });
+  const create = screen.getByRole("button", { name: "新增会话" });
+  expect(refresh).toBeVisible();
+  expect(create).toBeVisible();
+  expect(refresh).toBeDisabled();
+  expect(create).toBeDisabled();
+  expect(refresh.closest(".home-side__heading")).toBe(create.closest(".home-side__heading"));
+  expect(refresh.nextElementSibling).toBe(create);
+  expect(create.nextElementSibling).toBeNull();
+  expect(create.querySelector("svg")).toHaveAttribute("width", "16");
+  expect(refresh.querySelector("svg")).toHaveAttribute("width", "16");
+  await screen.findByRole("button", { name: "Alpha 方案" });
+  expect(refresh).toBeEnabled();
+  expect(create).toBeEnabled();
+  fireEvent.click(refresh);
+  await waitFor(() => expect(api.sessions).toHaveBeenCalledTimes(2));
+  expect(api.selectSession).not.toHaveBeenCalled();
+});
+
 it("selects existing sessions and opens project content with a cancellation signal", async () => {
   const view = render(component());
   fireEvent.click(await screen.findByRole("button", { name: "Alpha 方案" }));

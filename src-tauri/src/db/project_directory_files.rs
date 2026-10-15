@@ -172,7 +172,9 @@ impl Database {
             physical_identity TEXT NOT NULL, content_hash TEXT NOT NULL, version_number INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS project_directory_metadata_intents (
             document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
-            payload TEXT NOT NULL);")?;
+            payload TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS idx_project_directory_discovery_path
+            ON documents(project_id,managed_path) WHERE storage_mode='project_directory';")?;
         crate::source_search_index::SourceIndex::prepare(&self.conn)
             .map_err(|e| anyhow!(e.message))?;
         Ok(())
@@ -1198,6 +1200,28 @@ impl Database {
         }
         self.document_record(document.id)
     }
+    /// Keyset selection keeps discovery independent of UI/AI scope selection.
+    pub(crate) fn project_file_scan_next_project(&self, after: i64) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM projects WHERE is_archived=0 AND id>?1 ORDER BY id LIMIT 1",
+                [after],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+    /// Discovery only: already registered paths retain their identity and head.
+    /// Explicit reads/resolves remain responsible for external content changes.
+    pub(crate) fn project_file_scan_new(
+        &self,
+        workspace: &str,
+        project: i64,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<DirectoryScan> {
+        self.project_file_scan_page(workspace, project, cursor, limit, false, true)
+    }
     pub(crate) fn project_file_scan(
         &self,
         workspace: &str,
@@ -1205,6 +1229,17 @@ impl Database {
         cursor: Option<&str>,
         limit: u32,
         cancelled: bool,
+    ) -> Result<DirectoryScan> {
+        self.project_file_scan_page(workspace, project, cursor, limit, cancelled, false)
+    }
+    fn project_file_scan_page(
+        &self,
+        workspace: &str,
+        project: i64,
+        cursor: Option<&str>,
+        limit: u32,
+        cancelled: bool,
+        only_new: bool,
     ) -> Result<DirectoryScan> {
         use base64::{engine::general_purpose::STANDARD, Engine};
         if !(1..=100).contains(&limit) {
@@ -1272,7 +1307,16 @@ impl Database {
             return Ok(result);
         }
         let mut processed = 0;
-        while processed < limit {
+        let mut snapshot_bytes = 0u64;
+        let mut visited = 0;
+        // Only this page owns the enumeration cache. Each visited directory
+        // keeps at most the page's entry budget, not its full contents.
+        let mut entries_cache: std::collections::HashMap<
+            String,
+            std::collections::VecDeque<fs::DirEntry>,
+        > = std::collections::HashMap::new();
+        // Directory-only / excluded trees must yield too, even without Files.
+        while processed < limit && visited < 128 {
             let Some(frame) = progress.stack.last().cloned() else {
                 break;
             };
@@ -1281,35 +1325,64 @@ impl Database {
             } else {
                 business_path(&root, &frame.relative_path)?
             };
-            // Keep a failing directory at the top of the cursor. It must be
-            // retried, never skipped because a lexicographic file cursor passed.
-            let entries = (|| -> Result<Vec<fs::DirEntry>> {
-                file_versions::relative(&self.workspace_root, &directory)?;
-                Ok(fs::read_dir(&directory)?.collect::<std::io::Result<Vec<_>>>()?)
-            })();
-            let mut entries = match entries {
-                Ok(entries) => entries,
-                Err(error) => {
+            // Report a failed directory and continue its siblings. A later
+            // full pass retries it without pinning every subsequent File.
+            if !entries_cache.contains_key(&frame.relative_path) {
+                let mut invalid_name = false;
+                let entries = (|| -> Result<std::collections::VecDeque<fs::DirEntry>> {
+                    file_versions::relative(&self.workspace_root, &directory)?;
+                    let mut candidates = std::collections::BTreeMap::new();
+                    for entry in fs::read_dir(&directory)? {
+                        let entry = entry?;
+                        let name = entry.file_name();
+                        let Some(text) = name.to_str() else {
+                            invalid_name = true;
+                            continue;
+                        };
+                        if frame
+                            .after
+                            .as_ref()
+                            .is_some_and(|after| text <= after.as_str())
+                        {
+                            continue;
+                        }
+                        candidates.insert(text.to_owned(), entry);
+                        if candidates.len() > 128 {
+                            candidates.pop_last();
+                        }
+                    }
+                    Ok(candidates.into_values().collect())
+                })();
+                if invalid_name {
                     result.failures.push(ScanFailure {
-                        relative_path: frame.relative_path,
-                        reason: error.to_string(),
+                        relative_path: frame.relative_path.clone(),
+                        reason: "Filename is not UTF-8".into(),
                     });
-                    break;
                 }
-            };
-            entries.sort_by_key(|entry| entry.file_name());
-            let entry = entries.into_iter().find(|entry| {
-                frame.after.as_ref().is_none_or(|after| {
-                    entry
-                        .file_name()
-                        .to_str()
-                        .is_none_or(|name| name > after.as_str())
-                })
-            });
+                match entries {
+                    Ok(entries) => {
+                        entries_cache.insert(frame.relative_path.clone(), entries);
+                    }
+                    Err(error) => {
+                        result.failures.push(ScanFailure {
+                            relative_path: frame.relative_path,
+                            reason: error.to_string(),
+                        });
+                        progress.stack.pop();
+                        visited += 1;
+                        continue;
+                    }
+                }
+            }
+            let entry = entries_cache
+                .get_mut(&frame.relative_path)
+                .unwrap()
+                .pop_front();
             let Some(entry) = entry else {
                 progress.stack.pop();
                 continue;
             };
+            visited += 1;
             let name = match entry.file_name().into_string() {
                 Ok(name) => name,
                 Err(_) => {
@@ -1325,6 +1398,7 @@ impl Database {
             } else {
                 format!("{}/{name}", frame.relative_path)
             };
+            progress.stack.last_mut().unwrap().after = Some(name.clone());
             let kind = match entry.file_type() {
                 Ok(kind) => kind,
                 Err(error) => {
@@ -1332,10 +1406,9 @@ impl Database {
                         relative_path: relative,
                         reason: error.to_string(),
                     });
-                    break;
+                    continue;
                 }
             };
-            progress.stack.last_mut().unwrap().after = Some(name.clone());
             if internal_component(&name) {
                 result.excluded.push(ScanExcluded {
                     relative_path: relative,
@@ -1351,6 +1424,20 @@ impl Database {
                 continue;
             }
             if kind.is_dir() {
+                if let Err(error) = business_path(&root, &relative) {
+                    result.failures.push(ScanFailure {
+                        relative_path: relative,
+                        reason: error.to_string(),
+                    });
+                    continue;
+                }
+                if progress.stack.len() >= 256 {
+                    result.failures.push(ScanFailure {
+                        relative_path: relative,
+                        reason: "Directory exceeds the scan depth budget".into(),
+                    });
+                    continue;
+                }
                 progress.stack.push(ScanFrame {
                     relative_path: relative,
                     after: None,
@@ -1364,6 +1451,25 @@ impl Database {
                 });
                 continue;
             }
+            if only_new && self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE project_id=?1 AND managed_path=?2 AND storage_mode='project_directory')",
+                params![project, self.encode_path_ref(&root.join(&relative))], |r| r.get::<_, bool>(0),
+            )? {
+                continue;
+            }
+            if only_new {
+                // Five small Files may share a page; large snapshots yield once
+                // the existing per-File byte budget has been charged. Oversized
+                // Files cost no snapshot bytes and still become visible failures.
+                let max_bytes = crate::file_text_patch::MAX_FILE_BYTES as u64;
+                let bytes = fs::metadata(entry.path()).map(|m| m.len()).unwrap_or(0);
+                let charge = if bytes <= max_bytes { bytes } else { 0 };
+                if processed > 0 && snapshot_bytes + charge > max_bytes {
+                    progress.stack.last_mut().unwrap().after = frame.after;
+                    break;
+                }
+                snapshot_bytes += charge;
+            }
             processed += 1;
             match self.project_file_register(workspace, project, &relative) {
                 Ok(file) => result.files.push(file),
@@ -1372,8 +1478,7 @@ impl Database {
                         relative_path: relative.clone(),
                         reason: format!("{error:#}"),
                     });
-                    progress.stack.last_mut().unwrap().after = frame.after;
-                    break;
+                    // Advance past this failed File; a later full pass retries it.
                 }
             }
         }
@@ -1383,7 +1488,6 @@ impl Database {
         }
         Ok(result)
     }
-
     pub(crate) fn project_file_resolve_related(
         &self,
         object: &ObjectRef,

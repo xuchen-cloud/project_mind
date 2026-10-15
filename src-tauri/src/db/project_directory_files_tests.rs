@@ -1528,3 +1528,128 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
         RESTORE_OLD_BYTES
     );
 }
+
+#[test]
+fn directory_scan_failure_does_not_starve_later_files() {
+    let (_root, db, project, path) = fixture();
+    // Invalid business path is a real per-file failure, independent of OS permissions.
+    fs::write(path.join("a:invalid"), b"bad path").unwrap();
+    fs::write(path.join("z.txt"), b"later business file").unwrap();
+    let first = db
+        .project_file_scan("wp1-workspace", project, None, 1, false)
+        .unwrap();
+    assert_eq!(first.failures.len(), 1);
+    let second = db
+        .project_file_scan(
+            "wp1-workspace",
+            project,
+            first.next_cursor.as_deref(),
+            1,
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        second.files.len(),
+        1,
+        "a failed entry must not pin the cursor forever"
+    );
+    assert_eq!(second.files[0].relative_path, "z.txt");
+}
+
+#[test]
+fn directory_discovery_keeps_oversized_file_visible_and_continues_without_rewriting() {
+    let (_root, db, project, path) = fixture();
+    fs::File::create(path.join("a.bin"))
+        .unwrap()
+        .set_len(100 * 1024 * 1024 + 1)
+        .unwrap();
+    fs::write(path.join("z.txt"), b"after oversized file").unwrap();
+    let first = db
+        .project_file_scan_new("wp1-workspace", project, None, 1)
+        .unwrap();
+    assert_eq!(first.files[0].state, "unavailable");
+    assert_eq!(first.files[0].version_number, 0);
+    let next = db
+        .project_file_scan_new("wp1-workspace", project, first.next_cursor.as_deref(), 1)
+        .unwrap();
+    assert_eq!(next.files[0].relative_path, "z.txt");
+    assert_eq!(next.files[0].state, "ready");
+    let changes = db.conn.total_changes();
+    let scan = db
+        .project_file_scan_new("wp1-workspace", project, None, 100)
+        .unwrap();
+    assert!(scan.complete);
+    assert!(scan.files.is_empty());
+    assert_eq!(db.conn.total_changes(), changes);
+}
+
+#[test]
+fn directory_scan_yields_on_directory_only_trees() {
+    let (_root, db, project, path) = fixture();
+    for i in 0..150 {
+        fs::create_dir(path.join(format!("folder-{i:03}"))).unwrap();
+    }
+    let first = db
+        .project_file_scan_new("wp1-workspace", project, None, 1)
+        .unwrap();
+    assert!(first.files.is_empty());
+    assert!(!first.complete);
+    assert!(first.next_cursor.is_some());
+    let next = db
+        .project_file_scan_new("wp1-workspace", project, first.next_cursor.as_deref(), 1)
+        .unwrap();
+    assert!(next.complete);
+}
+
+#[test]
+fn directory_discovery_resumes_past_many_known_paths_to_find_a_new_folder() {
+    let (_root, db, project, path) = fixture();
+    for i in 0..140 {
+        fs::write(path.join(format!("file-{i:03}")), b"known").unwrap();
+    }
+    let mut cursor = None;
+    loop {
+        let page = db
+            .project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 100)
+            .unwrap();
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    fs::create_dir(path.join("zz-copied")).unwrap();
+    fs::write(path.join("zz-copied/new.txt"), b"new folder file").unwrap();
+    let mut found = vec![];
+    let mut complete = false;
+    for _ in 0..10 {
+        let page = db
+            .project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 5)
+            .unwrap();
+        found.extend(page.files);
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            complete = page.complete;
+            break;
+        }
+    }
+    assert!(complete);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].relative_path, "zz-copied/new.txt");
+}
+
+#[test]
+fn directory_scan_cursor_uses_utf8_order_for_non_bmp_filenames() {
+    let (_root, db, project, path) = fixture();
+    let names = ["\u{e000}.txt", "\u{10000}.txt"];
+    for name in names {
+        fs::write(path.join(name), b"unicode name").unwrap();
+    }
+    let first = db
+        .project_file_scan_new("wp1-workspace", project, None, 1)
+        .unwrap();
+    assert_eq!(first.files[0].relative_path, names[0]);
+    let second = db
+        .project_file_scan_new("wp1-workspace", project, first.next_cursor.as_deref(), 1)
+        .unwrap();
+    assert_eq!(second.files[0].relative_path, names[1]);
+}
