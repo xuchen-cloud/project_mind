@@ -6109,7 +6109,7 @@ impl Database {
         let mut documents = Vec::new();
         for id in ids {
             let document = self.document_record(id)?;
-            if !project_directory_files::hidden_project_path(
+            if !project_directory_files::excluded_project_path(
                 &root,
                 Path::new(&document.managed_path),
             )? {

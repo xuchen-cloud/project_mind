@@ -2,6 +2,8 @@
 
 关联：[#159](https://github.com/xuchen-cloud/project_mind/issues/159)，修正 #142 验收中发现的隐藏文件展示问题。2026-10-15 用户明确将范围从 `.DS_Store` 扩大为所有隐藏文件，不论 macOS 还是 Windows。
 
+后续外部编辑器锁文件、临时文件与系统缓存规则见 [#184 工作包](project-file-temporary-exclusions-20261015.md)。
+
 ## 范围与验收
 
 - 依赖现有目录扫描、统一 File 登记、项目文件平铺列表及文件树读取。

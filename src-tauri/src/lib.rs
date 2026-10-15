@@ -3,6 +3,7 @@ mod ai_jobs;
 mod dsh_assistant;
 mod skills;
 mod project_directory;
+mod project_file_exclusions;
 mod native_file_icons;
 mod ai_provider;
 mod ai_network;
