@@ -65,7 +65,7 @@ export function FileOpenWithButton({ workspaceRoot, projectId, fileId, visible, 
     if (position) { close(true); return; }
     const rect = control.current!.getBoundingClientRect();
     const space = Math.max(12, window.innerHeight - 180);
-    setPosition({ top: Math.min(rect.bottom + 6, space), right: Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - 188)) });
+    setPosition({ top: Math.min(rect.bottom + 6, space), right: Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - 140)) });
     setError(undefined);
     request.current = new AbortController();
   }
