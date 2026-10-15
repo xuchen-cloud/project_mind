@@ -1,0 +1,78 @@
+{
+  "issue": "#118/F03",
+  "python": "3.12.14",
+  "openpyxl": "3.1.5",
+  "samples": {
+    "simple": {
+      "file": "simple.original.xlsx",
+      "sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "bytes": 6188,
+      "sheets": [
+        "明细",
+        "说明"
+      ],
+      "seeded_formula_caches": {
+        "xl/worksheets/sheet1.xml": {
+          "B5": 30,
+          "B7": 20
+        },
+        "xl/worksheets/sheet2.xml": {
+          "B3": 30
+        }
+      },
+      "edits": {
+        "明细": {
+          "A3": "香蕉（SDK编辑）",
+          "B3": 15,
+          "B5": "=SUM(B3:B4)+5"
+        }
+      },
+      "edited_formula_results": {
+        "明细": {
+          "B5": 40,
+          "B7": 30
+        },
+        "说明": {
+          "B3": 40
+        }
+      }
+    },
+    "complex": {
+      "file": "complex.original.xlsx",
+      "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "bytes": 9106,
+      "sheets": [
+        "明细",
+        "说明",
+        "隐藏数据"
+      ],
+      "seeded_formula_caches": {
+        "xl/worksheets/sheet1.xml": {
+          "B5": 30,
+          "B7": 20
+        },
+        "xl/worksheets/sheet2.xml": {
+          "B3": 30
+        }
+      },
+      "edits": {
+        "明细": {
+          "A3": "香蕉（SDK编辑）",
+          "B3": 15,
+          "B5": "=SUM(B3:B4)+5"
+        }
+      },
+      "edited_formula_results": {
+        "明细": {
+          "B5": 40,
+          "B7": 30
+        },
+        "说明": {
+          "B3": 40
+        }
+      }
+    }
+  },
+  "generation_ms": 20.111,
+  "archival_origin": "/tmp/project-mind-univer-validation-20261013/xlsx/fixtures.json"
+}

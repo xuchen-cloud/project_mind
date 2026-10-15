@@ -334,7 +334,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, on
     for (const id of registrars.current.keys()) if (!ids.has(id)) registrars.current.delete(id);
   }, [layout.tabs]);
   useEffect(() => registerLeaveGuard?.(async () => {
-    for (const tab of currentTabs.current) if (tab.object.kind === "record") await guards.current.get(tab.id)?.();
+    for (const tab of currentTabs.current) if (tab.object.kind === "record" || tab.object.kind === "file") await guards.current.get(tab.id)?.();
   }), [registerLeaveGuard]);
   const split = layout.panes.length === 2;
   const singlePane = narrow || (split && maximized);

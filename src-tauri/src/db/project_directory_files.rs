@@ -486,7 +486,7 @@ impl Database {
         baseline: Option<(u32, &str)>,
         receipt: Option<(
             &crate::agent::access::RequestContext,
-            &crate::file_version_restore::FileVersionRestore,
+            &restore::DirectoryReplaceInput,
         )>,
     ) -> Result<DirectoryFile> {
         let root = self.directory_owner(workspace, project)?;
@@ -496,6 +496,7 @@ impl Database {
             self.directory_baseline(existing, version, hash)?;
         }
         let restore_source = receipt
+            .and_then(|(request, input)| input.restore().map(|input|(request,input)))
             .map(|(request, input)| {
                 self.file_version_restore_source(request, &request.binding, input)
                     .map_err(|e| anyhow!(e.message))
@@ -575,6 +576,11 @@ impl Database {
                 ));
             }
         }
+        if let Some((_, input))=receipt {
+            if let Some(staged)=input.staged() {
+                crate::db::file_content::check_transaction(&tx,&crate::file_content::FileContentBegin {object:staged.object.clone(),expected_version_number:staged.expected_version_number,expected_content_hash:staged.expected_content_hash.clone(),length:0,content_hash:hash.clone()}).map_err(|e|anyhow!(e.message))?;
+            }
+        }
         let changed = tx.execute("UPDATE documents SET name=?1,base_name=?1,managed_path=?2,storage_mode='project_directory',current_version_number=?3,version_count=version_count+?4,health='normal',updated_at=?5 WHERE id=?6 AND current_version_number=?7",params![name,encoded_path,new_version, i64::from(new_version!=document.current_version_number),timestamp,document.id,document.current_version_number])?;
         if changed != 1 {
             return Err(failure(
@@ -622,13 +628,7 @@ impl Database {
         }
         self.directory_change(&tx, &object, "file.directory.register", &hash)?;
         if let Some((request, input)) = receipt {
-            let update = file_versions::FileVersionUpdate {
-                object: object.clone(),
-                expected_version_number: input.expected_version_number,
-                expected_content_hash: input.expected_content_hash.clone(),
-                new_content_hash: hash.clone(),
-            };
-            let payload = file_versions::registered_payload(&update, None, None, Some(input));
+            let payload = input.payload(&hash);
             let committed = file_versions::CommittedVersion {
                 document_id: id,
                 version_number: new_version,
@@ -1443,10 +1443,27 @@ impl Database {
         binding: &crate::agent::models::WorkspaceBinding,
         input: &FileBytesInput,
     ) -> crate::agent::errors::AgentResult<(FileBytesResult, crate::agent::models::SourceRef)> {
+        self.project_file_read_source_bounded(request, binding, input, None)
+    }
+    pub(crate) fn project_file_read_office_source(
+        &self,
+        request: &crate::agent::access::RequestContext,
+        binding: &crate::agent::models::WorkspaceBinding,
+        input: &FileBytesInput,
+    ) -> crate::agent::errors::AgentResult<(FileBytesResult, crate::agent::models::SourceRef)> {
+        self.project_file_read_source_bounded(request, binding, input, Some(crate::file_content::MAX_CONTENT as usize))
+    }
+    fn project_file_read_source_bounded(
+        &self,
+        request: &crate::agent::access::RequestContext,
+        binding: &crate::agent::models::WorkspaceBinding,
+        input: &FileBytesInput,
+        limit: Option<usize>,
+    ) -> crate::agent::errors::AgentResult<(FileBytesResult, crate::agent::models::SourceRef)> {
         use crate::agent::errors::{AgentError, ErrorCode};
         let actual = self.source_read_historical_file(request, binding, &input.object)?;
         request.authorize_object(binding, &input.object, &actual, "source.read")?;
-        let bytes = self.project_file_read_bytes(input).map_err(|error| {
+        let bytes = self.project_file_read_bytes_bounded(input, limit).map_err(|error| {
             let error = FileServiceError::from_error(error);
             let code = match error.code {
                 "ownership_mismatch" => ErrorCode::ScopeDenied,
@@ -1474,6 +1491,13 @@ impl Database {
     pub(crate) fn project_file_read_bytes(
         &self,
         input: &FileBytesInput,
+    ) -> Result<FileBytesResult> {
+        self.project_file_read_bytes_bounded(input, None)
+    }
+    fn project_file_read_bytes_bounded(
+        &self,
+        input: &FileBytesInput,
+        limit: Option<usize>,
     ) -> Result<FileBytesResult> {
         use crate::source_file_snapshot::{open_regular, FileStamp};
         use base64::{engine::general_purpose::STANDARD, Engine};
@@ -1512,7 +1536,7 @@ impl Database {
                 "Retained File Version is not a regular file",
             ));
         }
-        let limit = byte_limit(&name);
+        let limit = limit.unwrap_or_else(|| byte_limit(&name));
         if metadata.len() > limit as u64 {
             return Err(failure(
                 "budget_exceeded",

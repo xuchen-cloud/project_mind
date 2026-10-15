@@ -64,10 +64,31 @@ fn crash_point(phase: RestorePhase) {
     std::process::exit(91);
 }
 
+
+/// The original-location journal covers restore and server-owned uploads.
+/// Untagged DTOs preserve existing durable restore journals exactly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(super) enum DirectoryReplaceInput {
+    Restore(FileVersionRestore),
+    Staged(crate::file_content::FileContentUpdate),
+}
+impl DirectoryReplaceInput {
+    fn object(&self)->&ObjectRef { match self { Self::Restore(x)=>&x.object,Self::Staged(x)=>&x.object } }
+    fn version(&self)->u32 { match self { Self::Restore(x)=>x.expected_version_number,Self::Staged(x)=>x.expected_version_number } }
+    fn hash(&self)->&str { match self { Self::Restore(x)=>&x.expected_content_hash,Self::Staged(x)=>&x.expected_content_hash } }
+    pub(super) fn restore(&self)->Option<&FileVersionRestore> { if let Self::Restore(x)=self {Some(x)} else {None} }
+    pub(super) fn staged(&self)->Option<&crate::file_content::FileContentUpdate> { if let Self::Staged(x)=self {Some(x)} else {None} }
+    pub(super) fn payload(&self,new_hash:&str)->file_versions::CommitPayload {
+        let update=FileVersionUpdate {object:self.object().clone(),expected_version_number:self.version(),expected_content_hash:self.hash().into(),new_content_hash:new_hash.into()};
+        file_versions::registered_payload(&update,None,self.staged().map(|x|x.staged_content_id.as_str()),self.restore())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RestoreJournal {
-    input: FileVersionRestore,
+    input: DirectoryReplaceInput,
     caller: String,
     request_id: String,
     target: String,
@@ -102,7 +123,7 @@ impl Database {
         &self,
         journal: &RestoreJournal,
     ) -> Result<(PathBuf, PathBuf, PathBuf)> {
-        let (document, root) = self.directory_target(&journal.input.object)?;
+        let (document, root) = self.directory_target(journal.input.object())?;
         let target = self.decode_path_ref(&journal.target);
         let staged = self.decode_path_ref(&journal.staged);
         let backup = self.decode_path_ref(&journal.backup);
@@ -175,20 +196,14 @@ impl Database {
             return Ok(());
         };
         let journal: RestoreJournal = serde_json::from_str(&pending)?;
-        if journal.input.object != *object {
+        if journal.input.object() != object {
             return Err(failure(
                 "ownership_mismatch",
                 "Restore intent belongs to another File",
             ));
         }
         let (target, staged, backup) = self.directory_restore_paths(&journal)?;
-        let update = FileVersionUpdate {
-            object: object.clone(),
-            expected_version_number: journal.input.expected_version_number,
-            expected_content_hash: journal.input.expected_content_hash.clone(),
-            new_content_hash: journal.new_hash.clone(),
-        };
-        let payload = file_versions::registered_payload(&update, None, None, Some(&journal.input));
+        let payload = journal.input.payload(&journal.new_hash);
         let receipt: Option<CommittedVersion> = self
             .agent_operation_replay(
                 &journal.caller,
@@ -200,8 +215,8 @@ impl Database {
         if receipt.is_none() {
             self.directory_baseline(
                 object,
-                journal.input.expected_version_number,
-                &journal.input.expected_content_hash,
+                journal.input.version(),
+                journal.input.hash(),
             )?;
             // Roll back only our own replacement. A foreign file at the live
             // location stays untouched and requires explicit reconciliation.
@@ -217,7 +232,7 @@ impl Database {
                 }
                 Ok(identity) if identity == journal.original_identity => {
                     if backup.exists()
-                        || file_versions::checksum(&target)? != journal.input.expected_content_hash
+                        || file_versions::checksum(&target)? != journal.input.hash()
                     {
                         return Err(failure(
                             "ambiguous_identity",
@@ -241,7 +256,7 @@ impl Database {
             }
             if !target.exists() {
                 if file_versions::path_identity(&backup)? != journal.original_identity
-                    || file_versions::checksum(&backup)? != journal.input.expected_content_hash
+                    || file_versions::checksum(&backup)? != journal.input.hash()
                 {
                     return Err(failure(
                         "ambiguous_identity",
@@ -256,7 +271,7 @@ impl Database {
         self.directory_restore_remove_owned(
             &backup,
             &journal.original_identity,
-            &journal.input.expected_content_hash,
+            journal.input.hash(),
         )?;
         self.directory_restore_remove_owned(&staged, &journal.new_identity, &journal.new_hash)?;
         self.conn.execute(
@@ -281,24 +296,35 @@ impl Database {
         precommit: &dyn Fn() -> AgentResult<()>,
     ) -> AgentResult<FileVersionCommitOutcome> {
         input.validate()?;
-        let (project, id) = file_id(&input.object).map_err(error)?;
+        self.directory_replace_bound(request,binding,&DirectoryReplaceInput::Restore(input.clone()),&source.managed_path,&source.content_hash,Some(source),fence,precommit)
+    }
+    pub(crate) fn project_file_staged_directory_bound(
+        &self,request:&RequestContext,binding:&WorkspaceBinding,update:&FileVersionUpdate,stage_id:&str,source:&Path,
+        fence:&WorkspaceCommitFence,precommit:&dyn Fn()->AgentResult<()>,
+    )->AgentResult<FileVersionCommitOutcome> {
+        let input=DirectoryReplaceInput::Staged(crate::file_content::FileContentUpdate {object:update.object.clone(),expected_version_number:update.expected_version_number,expected_content_hash:update.expected_content_hash.clone(),staged_content_id:stage_id.into()});
+        self.directory_replace_bound(request,binding,&input,source,&update.new_content_hash,None,fence,precommit)
+    }
+    fn directory_replace_authorize(
+        &self,request:&RequestContext,binding:&WorkspaceBinding,input:&DirectoryReplaceInput,historical:Option<&FileRestoreSource>,
+    )->AgentResult<()> {
+        if let Some(restore)=input.restore() {
+            if &self.file_version_restore_source(request,binding,restore)?!=historical.unwrap() {return Err(AgentError::new(ErrorCode::RevisionConflict,"Historical source changed during replacement"));}
+        } else { self.file_version_registered_target(request,binding,input.object())?; }
+        Ok(())
+    }
+    fn directory_replace_bound(
+        &self,request:&RequestContext,binding:&WorkspaceBinding,input:&DirectoryReplaceInput,source:&Path,new_hash:&str,
+        historical:Option<&FileRestoreSource>,fence:&WorkspaceCommitFence,precommit:&dyn Fn()->AgentResult<()>,
+    )->AgentResult<FileVersionCommitOutcome> {
+
+        let (project, id) = file_id(input.object()).map_err(error)?;
         let _project = self.file_project_lock(project, false).map_err(error)?;
         let _file = self.file_version_lock(id).map_err(error)?;
-        self.directory_restore_recover_locked(&input.object)
+        self.directory_restore_recover_locked(input.object())
             .map_err(error)?;
-        if self.file_version_restore_source(request, binding, input)? != *source {
-            return Err(AgentError::new(
-                ErrorCode::RevisionConflict,
-                "Historical source changed during restoration",
-            ));
-        }
-        let update = FileVersionUpdate {
-            object: input.object.clone(),
-            expected_version_number: input.expected_version_number,
-            expected_content_hash: input.expected_content_hash.clone(),
-            new_content_hash: source.content_hash.clone(),
-        };
-        let payload = file_versions::registered_payload(&update, None, None, Some(input));
+        self.directory_replace_authorize(request,binding,input,historical)?;
+        let payload = input.payload(new_hash);
         if let Some(receipt) = self.agent_operation_replay(
             &request.caller.key(),
             &request.request_id,
@@ -312,9 +338,9 @@ impl Database {
         }
         let current = self
             .directory_baseline(
-                &input.object,
-                input.expected_version_number,
-                &input.expected_content_hash,
+                input.object(),
+                input.version(),
+                input.hash(),
             )
             .map_err(error)?;
         let target = PathBuf::from(&current.managed_path);
@@ -330,20 +356,20 @@ impl Database {
         )
         .map_err(|e| AgentError::new(ErrorCode::IoFailed, e.to_string()))?;
         if file_versions::path_identity(&target).map_err(error)? != physical
-            || file_versions::checksum(&target).map_err(error)? != input.expected_content_hash
+            || file_versions::checksum(&target).map_err(error)? != input.hash()
         {
             return Err(AgentError::new(
                 ErrorCode::FileChangedUnregistered,
                 "Register or confirm current live bytes before restoration",
             ));
         }
-        if source.content_hash == input.expected_content_hash {
+        if new_hash == input.hash() {
             precommit()?;
             let _permit = fence.enter()?;
             let receipt = CommittedVersion {
                 document_id: id,
                 version_number: current.current_version_number,
-                content_hash: source.content_hash.clone(),
+                content_hash: new_hash.to_owned(),
                 no_change: true,
             };
             let receipt = self.agent_atomic_operation(
@@ -364,12 +390,12 @@ impl Database {
         let staged = history.join(format!("restore-new-{nonce}"));
         let backup = history.join(format!("restore-old-{nonce}"));
         let (hash, _, new_identity) = file_versions::snapshot_bounded(
-            &source.managed_path,
+            source,
             &staged,
             Some(crate::file_text_patch::MAX_FILE_BYTES as u64),
         )
         .map_err(error)?;
-        if hash != source.content_hash {
+        if hash != new_hash {
             return Err(AgentError::new(
                 ErrorCode::SourceChanged,
                 "Historical snapshot no longer matches its registered hash",
@@ -402,20 +428,15 @@ impl Database {
         crash_point(RestorePhase::JournalDurable);
         let result = (|| -> AgentResult<FileVersionCommitOutcome> {
             let _permit = fence.enter()?;
-            if self.file_version_restore_source(request, binding, input)? != *source {
-                return Err(AgentError::new(
-                    ErrorCode::RevisionConflict,
-                    "Historical registration changed before commit",
-                ));
-            }
+            self.directory_replace_authorize(request,binding,input,historical)?;
             self.directory_baseline(
-                &input.object,
-                input.expected_version_number,
-                &input.expected_content_hash,
+                input.object(),
+                input.version(),
+                input.hash(),
             )
             .map_err(error)?;
             if file_versions::path_identity(&target).map_err(error)? != physical
-                || file_versions::checksum(&target).map_err(error)? != input.expected_content_hash
+                || file_versions::checksum(&target).map_err(error)? != input.hash()
             {
                 return Err(AgentError::new(
                     ErrorCode::FileChangedUnregistered,
@@ -428,7 +449,7 @@ impl Database {
             #[cfg(test)]
             crash_point(RestorePhase::OriginalArchived);
             if file_versions::path_identity(&backup).map_err(error)? != physical
-                || file_versions::checksum(&backup).map_err(error)? != input.expected_content_hash
+                || file_versions::checksum(&backup).map_err(error)? != input.hash()
             {
                 return Err(AgentError::new(
                     ErrorCode::FileChangedUnregistered,
@@ -446,9 +467,9 @@ impl Database {
                     &binding.workspace_id,
                     project,
                     &target,
-                    &input.object,
+                    input.object(),
                     true,
-                    Some((input.expected_version_number, &input.expected_content_hash)),
+                    Some((input.version(), input.hash())),
                     Some((request, input)),
                 )
                 .map_err(error)?;
@@ -478,7 +499,7 @@ impl Database {
                 committed: true,
             })
         })();
-        match self.directory_restore_recover_locked(&input.object) {
+        match self.directory_restore_recover_locked(input.object()) {
             Ok(()) => result,
             Err(recovery) => Err(AgentError::new(
                 ErrorCode::IoFailed,

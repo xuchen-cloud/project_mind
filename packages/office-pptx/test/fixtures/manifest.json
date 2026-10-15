@@ -1,0 +1,10 @@
+{
+  "simple": {
+    "sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+    "bytes": 31879
+  },
+  "complex": {
+    "sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+    "bytes": 45538
+  }
+}

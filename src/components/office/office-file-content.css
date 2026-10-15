@@ -1,0 +1,4 @@
+.office-file-content { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; font-family:var(--font-ui); color:var(--color-text-primary); background:var(--color-canvas); }
+.office-file-content__status { color:var(--color-text-secondary); font-size:12px; white-space:nowrap; }
+.office-file-content__editor { flex:1; min-height:0; min-width:0; overflow:hidden; }
+.office-file-content > [role=alert] { margin:8px 12px; font-size:12px; line-height:1.5; color:var(--color-danger); }

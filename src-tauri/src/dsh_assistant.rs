@@ -22,6 +22,9 @@ use tokio::{
     task::JoinHandle,
 };
 
+#[path = "dsh_office.rs"]
+mod office;
+
 const READY_TIMEOUT: Duration = Duration::from_secs(45);
 const STOP_TIMEOUT: Duration = Duration::from_secs(8);
 const READY_PREFIX: &str = "MIND_DSH_READY ";
@@ -330,6 +333,7 @@ struct AssistantProcess {
     sensitive: Arc<Vec<String>>,
     source_stdin: Option<Arc<Mutex<Option<tokio::process::ChildStdin>>>>,
     source_revoked: Arc<AtomicBool>,
+    office_alive: Arc<AtomicBool>,
     source_gate: Arc<std::sync::Mutex<()>>,
 }
 
@@ -402,11 +406,14 @@ impl AssistantProcess {
             }
         };
         let source_revoked = Arc::new(AtomicBool::new(false));
+        let office_alive = Arc::new(AtomicBool::new(true));
+        let alive = office_alive.clone();
         let source_gate = Arc::new(std::sync::Mutex::new(()));
         let gate = source_gate.clone();
         let source_stdin = if source.is_some() { Some(Arc::new(Mutex::new(child.stdin.take()))) } else { None };
         let writer = source_stdin.clone();
         let revoked = source_revoked.clone();
+        let source_url = url.clone();
         let drain = tokio::spawn(async move {
             if let (Some(handler), Some(writer)) = (source, writer) {
                 loop {
@@ -418,11 +425,18 @@ impl AssistantProcess {
                     if revoked.load(Ordering::SeqCst) { break; }
                     let task_handler = handler.clone();
                     let task_revoked = revoked.clone();
+                    let task_alive = alive.clone();
+                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeInspect"|"officeEdit"));
                     let task_gate = gate.clone();
+                    let task_url = source_url.clone();
+                    let source_id = frame.id.clone();
                     let result = tokio::task::spawn_blocking(move || {
-                        let _guard = crate::lock_mutex(&task_gate);
+                        // Office compute releases the source gate. Its writes
+                        // carry the native lifecycle fence below. Text/evidence
+                        // requests retain the existing gate.
+                        let _guard = if office_request {None} else {Some(crate::lock_mutex(&task_gate))};
                         if task_revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
-                        let result = task_handler(frame.payload, &task_revoked);
+                        let result = task_handler(frame.payload, &task_revoked, &task_url, &source_id, &task_alive);
                         if task_revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
                         result
                     }).await.unwrap_or_else(|_| Err("Source handler failed".into()));
@@ -467,6 +481,7 @@ impl AssistantProcess {
             session_cookie: None,
             source_stdin,
             source_revoked,
+            office_alive,
             source_gate,
         })
     }
@@ -480,12 +495,13 @@ impl AssistantProcess {
     }
 
     fn revoke_sources(&self) {
+        self.office_alive.store(false, Ordering::SeqCst);
         let _guard = crate::lock_mutex(&self.source_gate);
         self.source_revoked.store(true, Ordering::SeqCst);
     }
 }
 
-type SourceHandler = Arc<dyn Fn(serde_json::Value, &AtomicBool) -> Result<serde_json::Value, String> + Send + Sync>;
+type SourceHandler = Arc<dyn Fn(serde_json::Value, &AtomicBool, &Url, &str, &Arc<AtomicBool>) -> Result<serde_json::Value, String> + Send + Sync>;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceFrame { id: String, payload: serde_json::Value }
@@ -495,6 +511,8 @@ struct SourceFrame { id: String, payload: serde_json::Value }
 enum SourceRequest {
     Resolve { #[serde(rename="sessionId")] session_id: String, path: String },
     Prepare { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize },
+    OfficeInspect { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef> },
+    OfficeEdit { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, #[serde(rename="sourceRef")] source_ref: crate::agent::models::SourceRef, edits: Vec<serde_json::Value> },
     Delivery { #[serde(rename="sessionId")] session_id: String, #[serde(rename="deliveryId")] delivery_id: String, projection: String, #[serde(rename="projectionHash")] projection_hash: String },
 }
 
@@ -586,9 +604,11 @@ fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate
 }
 
 fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation: String) -> SourceHandler {
-    Arc::new(move |payload, revoked| {
+    let offices = office::OfficeBridge::new(app.clone(), identity.clone());
+    Arc::new(move |payload, revoked, url, frame_id, alive| {
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
+        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
         let state = app.state::<crate::AppState>();
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("Source Workspace closed")?;
@@ -596,6 +616,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let mut db = crate::lock_mutex(&runtime.db);
         if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project.id)? != identity.project { return Err("Source Project binding changed".into()); }
         let result = match operation {
+            SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
             SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &identity, &runtime.agent_binding, &session_id, &format!("{runtime_generation}:{}", session_rpc_id()), path.as_deref(), source_ref, offset, limit),
             SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
@@ -2299,7 +2320,7 @@ mod tests {
         command.arg(script).arg(&completed);
         let called = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let count = called.clone();
-        let handler: SourceHandler = Arc::new(move |payload, revoked| {
+        let handler: SourceHandler = Arc::new(move |payload, revoked, _, _, _| {
             assert!(!revoked.load(Ordering::SeqCst));
             assert_eq!(payload["sessionId"], "a");
             count.fetch_add(1, Ordering::SeqCst);
@@ -2332,9 +2353,10 @@ mod tests {
         let shared = database.clone();
         let source_identity = identity.clone();
         let source_binding = binding.clone();
-        let handler: SourceHandler = Arc::new(move |payload, revoked| {
+        let handler: SourceHandler = Arc::new(move |payload, revoked, _, _, _| {
             let db = crate::lock_mutex(&shared);
             match serde_json::from_value::<SourceRequest>(payload).map_err(|_| "Invalid source operation")? {
+                SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => Err("Office not used by this text fixture".into()),
                 SourceRequest::Resolve { session_id, path } => source_resolve(&db, &source_identity, &source_binding, &session_id, &path),
                 SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &source_identity, &source_binding, &session_id, &session_rpc_id(), path.as_deref(), source_ref, offset, limit),
                 SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {

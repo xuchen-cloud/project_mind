@@ -1,0 +1,48 @@
+.office-xlsx-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+.office-xlsx-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
+}
+.office-xlsx-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.office-xlsx-toolbar button:hover { background: var(--color-canvas); color: var(--color-text-primary); }
+.office-xlsx-toolbar button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.office-xlsx-toolbar button:disabled { color: var(--color-text-tertiary); cursor: default; }
+.office-xlsx-status:empty { display: none; }
+.office-xlsx-status { flex: 0 0 auto; padding: 4px 8px; color: var(--color-text-secondary); }
+.office-xlsx-canvas { flex: 1 1 auto; min-height: 0; min-width: 0; position: relative; }
+.office-xlsx-canvas .univer { font-family: var(--font-ui); }
+.office-xlsx-notice:empty { display: none; }
+.office-xlsx-notice {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}

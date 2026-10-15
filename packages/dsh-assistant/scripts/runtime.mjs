@@ -9,6 +9,7 @@ import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readProject, bindProject } from './project-workspace.mjs';
+import { installOfficeService } from './office-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -84,6 +85,7 @@ try {
   if (embedded) {
     await bindProject(ctx, project);
     await installSourceService(ctx, project, sourceBridge);
+    await installOfficeService(ctx, project, sourceBridge);
   }
   for (const listener of readyListeners) listener();
   if (process.send) process.send({ type: 'ready', port: ctx.webServer.port });
