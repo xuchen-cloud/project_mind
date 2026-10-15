@@ -94,3 +94,12 @@ it("ordinary flush stays strict; a close can discard an orphan failure and still
   await close;
   expect(coordinator.getStatus().phase).toBe("idle");
 });
+
+it("offers to close an explicitly withdrawn Record without restoring or saving it", async () => {
+  const failure = new RecordSaveFailure("Record withdrawn", { code: "OBJECT_WITHDRAWN", retryable: false });
+  const { coordinator, options } = await fixture(failure);
+  vi.mocked(recordDocumentApi.editorGet).mockRejectedValue(new AgentApiError({ code: "OBJECT_WITHDRAWN", message: "Record withdrawn", retryable: false }));
+  await discardDeletedRecordForClose(options);
+  expect(desktopApi.confirm).toHaveBeenCalledWith(expect.stringContaining("原始记录已撤回"), "原始记录已撤回");
+  expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
+});

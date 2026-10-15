@@ -26,7 +26,7 @@ type WorkspaceRecordFocusSaveRequestDetail,
 } from "../../lib/record-focus-save";
 import { registerWorkspaceRecordCloseGuard } from "../../lib/project-content-lifecycle";
 import { useDeletedRecordClose } from "../../hooks/useDeletedRecordClose";
-import { isMissingRecordError } from "../../lib/deleted-record-close";
+import { isUnavailableRecordError } from "../../lib/deleted-record-close";
 import { workspaceRecordSaveKey } from "../../lib/record-save-coordinator";
 import {
 createRecordSaveCoordinator,
@@ -337,7 +337,7 @@ export function WorkspaceRecordFocusPage({
           && !saveCoordinator.getLatestSnapshot(recordKey)) return;
         const checkCloseState = () => {
           const failure = saveCoordinator.getRecordStatus(recordKey).lastError;
-          if (isMissingRecordError(failure)) throw failure;
+          if (isUnavailableRecordError(failure)) throw failure;
           const latest = canonicalRef.current;
           if (latest.error) throw latest.error;
           if (latest.syncError) throw latest.syncError;

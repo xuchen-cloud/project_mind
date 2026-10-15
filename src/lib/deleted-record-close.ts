@@ -5,8 +5,8 @@ import type { AgentWorkspaceBinding } from "./agent-types";
 import type { RecordTarget } from "./record-document-types";
 import { RecordSaveFailure, type RecordSaveCoordinator } from "./record-save-coordinator";
 
-export function isMissingRecordError(error: unknown) {
-  return (error instanceof RecordSaveFailure || error instanceof AgentApiError) && error.code === "NOT_FOUND";
+export function isUnavailableRecordError(error: unknown): error is RecordSaveFailure | AgentApiError {
+  return (error instanceof RecordSaveFailure || error instanceof AgentApiError) && (error.code === "NOT_FOUND" || error.code === "OBJECT_WITHDRAWN");
 }
 
 /** NOT_FOUND can refer to a referenced object too: check the actual Record before offering to discard. */
@@ -19,19 +19,20 @@ export async function discardDeletedRecordForClose(options: {
   isCurrent: () => boolean;
 }) {
   const { coordinator, recordKey, target, binding, error, isCurrent } = options;
-  if (!binding || !isMissingRecordError(error)) throw error;
+  if (!binding || !isUnavailableRecordError(error)) throw error;
   const snapshot = coordinator.getLatestSnapshot(recordKey);
-  let missing = false;
+  let unavailableReason: "deleted" | "withdrawn" | null = null;
   try { await recordDocumentApi.editorGet(binding, target); }
   catch (failure) {
-    if (!isMissingRecordError(failure)) throw failure;
-    missing = true;
+    if (!isUnavailableRecordError(failure)) throw failure;
+    unavailableReason = failure.code === "OBJECT_WITHDRAWN" ? "withdrawn" : "deleted";
   }
-  if (!missing) throw error;
+  if (!unavailableReason) throw error;
   const title = snapshot?.title.trim();
+  const reason = unavailableReason === "withdrawn" ? "原始记录已撤回" : "原始记录已删除";
   const accepted = await desktopApi.confirm(
-    `原始记录已删除，无法保存${title ? `“${title}”` : "当前记录"}。关闭会丢失此页面中未保存的内容和待审阅修改。是否仍要关闭？`,
-    "原始记录已删除",
+    `${reason}，无法保存${title ? `“${title}”` : "当前记录"}。关闭会丢失此页面中未保存的内容和待审阅修改。是否仍要关闭？`,
+    reason,
   );
   if (!accepted) throw new Error("已取消关闭，当前记录内容已保留");
   // The dialog yields control: do not discard a changed draft or another Workspace's queue.

@@ -57,7 +57,7 @@ import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
 import { useDeletedRecordClose } from "../../hooks/useDeletedRecordClose";
-import { isMissingRecordError } from "../../lib/deleted-record-close";
+import { isUnavailableRecordError } from "../../lib/deleted-record-close";
 import { useRecordClipboard } from "../../hooks/useRecordClipboard";
 
 import type { RichEditorSession } from "../rich-editor/RichEditor";
@@ -464,7 +464,7 @@ export function ProjectNoteFocusPage({
       return;
     }
     const failure = saveCoordinator.getRecordStatus(projectRecordSaveKey(projectId!, recordId!)).lastError;
-    if (isMissingRecordError(failure)) throw failure;
+    if (isUnavailableRecordError(failure)) throw failure;
     if (canonical.error) throw canonical.error;
     if (canonical.syncError) throw canonical.syncError;
     if (canonical.incomingConflict || resolvingConflictRef.current) {
