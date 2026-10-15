@@ -69,3 +69,15 @@ it.each(['default','selected'])('flushes Office edits before %s external open',a
  else await waitFor(()=>expect(projectFileApi.openWith).toHaveBeenCalledWith(binding,object,'viewer'));
  view.unmount();
 });
+it('keeps the latest Office draft when saving before a version switch fails',async()=>{
+ vi.mocked(fileDocumentApi.versionsList).mockResolvedValueOnce({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{id:'2',versionNumber:2,name:'sample.docx',createdAt:'2026-10-13',contentHash:'hash2',isCurrent:true},{id:'1',versionNumber:1,name:'sample.docx',createdAt:'2026-10-12',contentHash:'hash1',isCurrent:false}],nextCursor:null});
+ const view=mount();await screen.findByText('原文');
+ fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
+ vi.mocked(officeFileApi.save).mockRejectedValueOnce(new Error('保存冲突'));
+ fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));
+ fireEvent.click(await screen.findByRole('menuitemradio',{name:'v1',exact:true}));
+ await waitFor(()=>expect(screen.getAllByRole('alert').some(alert=>alert.textContent==='保存冲突')).toBe(true));
+ expect(screen.getByRole('button',{name:'文件查看版本'})).toHaveTextContent('v2');
+ expect(screen.getByText('保留草稿')).toBeVisible();
+ expect(officeFileApi.inspect).toHaveBeenCalledOnce();view.unmount();
+});

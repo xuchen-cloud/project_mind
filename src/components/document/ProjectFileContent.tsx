@@ -12,6 +12,7 @@ import { markdownImageReferences, localResourcePath } from "../../../packages/ds
 import { prepareStaticHtml } from "../../../packages/dsh-ui/preview/static-html.mjs";
 import { DshFilePreview, type DshPreviewKind } from "../../../packages/dsh-ui/preview";
 import { FileOpenWithButton } from "./FileOpenWithButton";
+import { FileVersionMenu } from "./FileVersionMenu";
 import "./project-file-content.css";
 const OfficeFileContent = lazy(() => import("../office/OfficeFileContent").then(module => ({default:module.OfficeFileContent})));
 
@@ -257,11 +258,10 @@ function FileContent({ workspaceRoot, projectId, fileId, versionNumber, line, pa
   return <section className="project-file-content" hidden={!visible} data-focused={focused || undefined} aria-label="项目文件预览">
     <header className="project-file-content__toolbar">
       <strong title={valid?.name}>{valid?.name ?? "文件"}</strong>
-      <select aria-label="文件查看版本" title="文件查看版本" value={selection ?? "latest"} onChange={event => void choose(event.target.value === "latest" ? undefined : Number(event.target.value))}>
-        <option value="latest">{valid && selection === undefined ? `v${valid.version} · 最新` : "最新版本"}</option>
-        {availableVersions.map(item => <option key={item.id} value={item.versionNumber}>v{item.versionNumber} · 固定</option>)}
-        {selection !== undefined && !availableVersions.some(item => item.versionNumber === selection) ? <option value={selection}>v{selection} · 固定</option> : null}
-      </select>
+      <FileVersionMenu label="文件查看版本" triggerLabel={selection === undefined ? (valid ? `v${valid.version}` : "版本") : `v${selection}`}
+        versions={availableVersions.some(item => item.versionNumber === selection) || selection === undefined ? availableVersions : [...availableVersions, { id: String(selection), versionNumber: selection }]}
+        selectedVersion={selection} includeLatest latestVersion={selection === undefined ? valid?.version : availableVersions.find(item => item.isCurrent)?.versionNumber}
+        visible={visible} onSelect={choose} />
       {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" className="project-file-content__icon-button" aria-label={source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
       {valid?.kind === "office" ? <span ref={setOfficeToolbar} className="project-file-content__office-actions" /> : null}
       <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" /></button>

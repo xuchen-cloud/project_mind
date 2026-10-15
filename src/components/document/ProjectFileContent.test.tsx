@@ -17,6 +17,10 @@ const version = (n: number) => ({ id: String(n), versionNumber: n, name: "sample
 function source(n: number, text = `version${n}`, name = "sample.txt", format: "text" | "markdown" | "html" = "text") {
   return { object, versionNumber: n, contentHash: `hash${n}`, title: name, byteLength: new TextEncoder().encode(text).byteLength, format, text, startChar: 0, endChar: [...text].length, totalChars: [...text].length, nextCursor: null, complete: true };
 }
+async function chooseVersion(version: number) {
+  fireEvent.click(screen.getByRole("button", { name: "文件查看版本" }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: `v${version}`, exact: true }));
+}
 function view(props = input) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrap = (next: typeof input) => <QueryClientProvider client={client}><ProjectFileContent {...next} /></QueryClientProvider>;
@@ -36,7 +40,8 @@ it('previews without Session or model; latest and fixed version share the same F
   const client = new QueryClient();
   render(<QueryClientProvider client={client}><ProjectFileContent {...input} onViewChange={change} /></QueryClientProvider>);
   await screen.findByText('version2');
-  fireEvent.change(screen.getByLabelText('文件查看版本'), { target: { value: '1' } });
+  expect(screen.getByRole('button', { name: '文件查看版本' }).textContent).toBe('v2');
+  await chooseVersion(1);
   await screen.findByText('version1');
   expect(change).toHaveBeenCalledWith({ versionNumber: 1, sourceLocator: undefined, line: undefined, page: undefined });
   expect(screen.getAllByRole('region', { name: '项目文件预览' })).toHaveLength(1);
@@ -136,7 +141,7 @@ it('reloads committed invalidation in latest mode and keeps a historical view fi
   await act(async () => rendered.client.invalidateQueries({ queryKey: ['documentVersions', 7] }));
   await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledOnce());
   await screen.findByText('version2');
-  fireEvent.change(screen.getByLabelText('文件查看版本'), { target: { value: '1' } });
+  await chooseVersion(1);
   await screen.findByText('version1');
   vi.mocked(projectFileApi.readBytes).mockClear();
   await act(async () => rendered.client.invalidateQueries({ queryKey: ['documentVersions', 7] }));
@@ -212,7 +217,7 @@ it('reconciles latest before reading the actual registered head, while fixed ver
   expect(projectFileApi.resolve).toHaveBeenCalledWith(binding, object);
   expect(projectFileApi.readBytes).toHaveBeenLastCalledWith(binding, { object, versionNumber: 3, expectedContentHash: 'hash3' });
   vi.mocked(projectFileApi.resolve).mockClear();
-  fireEvent.change(screen.getByLabelText('文件查看版本'), { target: { value: '1' } });
+  await chooseVersion(1);
   await screen.findByText('version1'); expect(projectFileApi.resolve).not.toHaveBeenCalled();
 });
 it('shows ambiguity reason in latest and keeps retained history readable even when the live file is unavailable', async () => {
@@ -220,7 +225,7 @@ it('shows ambiguity reason in latest and keeps retained history readable even wh
   view(); await screen.findByRole('alert');
   expect(screen.getByRole('alert')).toHaveTextContent('此路径已被其他文件占用');
   expect(projectFileApi.readBytes).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText('文件查看版本'), { target: { value: '1' } });
+  await chooseVersion(1);
   await screen.findByText('version1');
 });
 it('refreshes current related resources on committed dependency changes and releases its subscription when hidden', async () => {
@@ -518,7 +523,7 @@ it('exposes external open on unsupported and pinned File views as the current or
   expect(open).toHaveAttribute('title', expect.stringContaining('当前原件'));
   fireEvent.click(open);
   await waitFor(() => expect(projectFileApi.openLocal).toHaveBeenCalledWith(binding, object));
-  expect(screen.getByLabelText('文件查看版本')).toHaveValue('1');
+  expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v1');
 });
 it('shows external open failures and permits retry without changing the fixed version', async () => {
   vi.mocked(projectFileApi.openLocal).mockRejectedValueOnce(new Error('没有关联应用')).mockResolvedValueOnce(undefined);
@@ -527,7 +532,7 @@ it('shows external open failures and permits retry without changing the fixed ve
   expect(await screen.findByRole('alert')).toHaveTextContent('没有关联应用');
   fireEvent.click(screen.getByRole('button', {name:'在外部应用打开当前原件'}));
   await waitFor(() => expect(projectFileApi.openLocal).toHaveBeenCalledTimes(2));
-  expect(screen.getByLabelText('文件查看版本')).toHaveValue('1');
+  expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v1');
 });
 it('shows the recovery slot only after current File identity needs attention', async () => {
   const client = new QueryClient();
@@ -538,7 +543,7 @@ it('shows the recovery slot only after current File identity needs attention', a
   fireEvent.click(screen.getByRole('button',{name:'刷新'}));
   expect(await screen.findByText('文件位置核对入口')).toBeInTheDocument();
   expect(await screen.findByRole('alert')).toHaveTextContent('文件缺失');
-  fireEvent.change(screen.getByLabelText('文件查看版本'), {target:{value:'1'}});
+  await chooseVersion(1);
   await screen.findByText('version1');
   expect(screen.getByText('文件位置核对入口')).toBeInTheDocument();
   rendered.unmount();
@@ -558,11 +563,11 @@ it('preserves the compact toolbar and fixed version label through refresh withou
   const client=new QueryClient();
   render(<QueryClientProvider client={client}><ProjectFileContent {...input} versionNumber={1} toolbarActions={<button>测试引用入口</button>} /></QueryClientProvider>);
   await screen.findByText('version1');
-  const select=screen.getByRole('combobox',{name:'文件查看版本'});
-  expect(select).toHaveDisplayValue('v1 · 固定');
+  const select=screen.getByRole('button',{name:'文件查看版本'});
+  expect(select).toHaveTextContent('v1');
   expect(screen.getByRole('button',{name:'测试引用入口'}).closest('header')).toBe(select.closest('header'));
   expect(screen.queryByRole('button',{name:'复制完整源码'})).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'刷新'}));
   await waitFor(()=>expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2));
-  expect(select).toHaveValue('1'); expect(projectFileApi.resolve).not.toHaveBeenCalled();
+  expect(select).toHaveTextContent('v1'); expect(projectFileApi.resolve).not.toHaveBeenCalled();
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ const desktopApiMocks = vi.hoisted(() => ({
 }));
 
 const projectMindApiMocks = vi.hoisted(() => ({
+  documentListVersions: vi.fn(async () => []),
   projectTagSettingsGet: vi.fn(async () => ({ tags: [] as ProjectTagRecord[] })),
   documentImport: vi.fn(async ({ projectId, sourcePath }: { projectId: number; sourcePath: string }) =>
     buildDocument({ projectId, name: sourcePath.split("/").pop() ?? "brief.pdf", baseName: sourcePath.split("/").pop() ?? "brief.pdf" }),
@@ -43,6 +44,7 @@ vi.mock("../../services/desktopApi", () => ({
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
     projectTagSettingsGet: projectMindApiMocks.projectTagSettingsGet,
+    documentListVersions: projectMindApiMocks.documentListVersions,
     documentImport: projectMindApiMocks.documentImport,
   },
 }));
@@ -101,6 +103,8 @@ describe("ProjectSidebar", () => {
     desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
+    projectMindApiMocks.documentListVersions.mockReset();
+    projectMindApiMocks.documentListVersions.mockResolvedValue([]);
     projectMindApiMocks.projectTagSettingsGet.mockReset();
     projectMindApiMocks.documentImport.mockReset();
 
@@ -124,6 +128,22 @@ describe("ProjectSidebar", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("chooses a sidebar file version without also opening the latest file", async () => {
+    const document = buildDocument({ id: 29, name: "brief.pdf", baseName: "brief.pdf", currentVersionNumber: 2, versionCount: 2 });
+    const versions = [2, 1].map(versionNumber => ({ id: versionNumber, documentId: 29, versionNumber, name: "brief.pdf", sourcePath: "/source", managedPath: "/managed", createdAt: "2026-10-15T10:00:00Z" }));
+    projectMindApiMocks.documentListVersions.mockResolvedValue(versions as never);
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/tmp/project" }} documents={[document]} onOpenProject={() => undefined} />);
+    expect(projectMindApiMocks.documentListVersions).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "选择 brief.pdf 的版本" }));
+    const menu = await screen.findByRole("menu");
+    const old = await within(menu).findByRole("menuitemradio", {name:"v1",exact:true});
+    expect(within(menu).getByRole("menuitem", {name:"查看历史与比较"})).toBeVisible();
+    expect(useFilePreviewStore.getState().request).toBeNull();
+    fireEvent.click(old);
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toMatchObject({ documentId:29, versionNumber:1 }));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
   });
 
   it("opens an HTML file from the existing file rail without invoking the desktop opener", async () => {

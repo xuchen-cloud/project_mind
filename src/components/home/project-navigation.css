@@ -21,3 +21,11 @@
 .project-navigation__files .project-directory-tabs { padding:0 4px 4px; }
 .project-navigation__files [data-files-only] > div.flex { padding:4px; }
 .home-rail--project-todos .home-rail__todo { flex:1; min-height:0; }
+
+/* File hover follows the same surface as Record and Session navigation. */
+.project-navigation__files .project-sidebar__file-row { border-color:transparent; border-radius:7px; box-shadow:none; }
+.project-navigation__files .project-sidebar__file-row:not([data-health="missing"]) { background:transparent; }
+.project-navigation__files .project-sidebar__file-row:is(:hover,:focus-within,[data-context-open="true"]) { border-color:transparent; background:var(--home-nav-hover); }
+.project-navigation__files .project-sidebar__file-row:focus-visible { outline:2px solid var(--color-accent); outline-offset:-2px; }
+.project-navigation__files .project-directory__entry { border-radius:7px; }
+.project-navigation__files .project-directory__entry:hover { background:var(--home-nav-hover); }
