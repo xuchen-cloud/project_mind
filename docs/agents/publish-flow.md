@@ -2,6 +2,10 @@
 
 本仓库当前没有 CI，也不要求外部 PR review。功能实现完成后，以本地完整验证和 Standards / Spec 双轴 code review 作为合并门禁。
 
+## Target branch
+
+实现分支默认以 `develop` 为基线，PR 默认合入 `develop`。用户明确指定其他目标分支时，遵循用户指示。
+
 ## Merge gate
 
 进入发布流程前必须满足：
@@ -16,7 +20,7 @@
 满足合并门禁后，直接执行：
 
 1. 推送实现分支。
-2. 创建目标为默认分支的 PR。
+2. 创建以本次目标分支为 base 的 PR。
 3. 在 PR 正文中写入 `Closes #<issue-number>`。
 4. 立即合并 PR，不等待额外的 CI 或外部 reviewer。
 5. 确认 PR 状态为 merged，且对应 Issue 已自动关闭。
