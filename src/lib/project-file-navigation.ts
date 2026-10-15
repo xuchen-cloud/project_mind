@@ -21,3 +21,8 @@ export function openProjectFilePreview(projectId: number, path: string, line?: n
 export function notifyProjectFilesChanged(projectId: number) {
   useProjectFileNavigation.getState().refresh(projectId);
 }
+
+/** Directory entries use slash-separated paths; stored native paths use the host separator. */
+export function projectFilePathMatches(managedPath: string, rootPath: string, relativePath: string) {
+  return managedPath.replaceAll("\\", "/") === `${rootPath.replaceAll("\\", "/").replace(/\/$/, "")}/${relativePath}`;
+}

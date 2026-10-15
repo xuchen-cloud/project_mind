@@ -710,6 +710,7 @@ pub(crate) struct AssistantSession {
     id: String,
     title: String,
     running: bool,
+    pinned: bool,
 }
 
 fn session_http_client() -> Result<reqwest::Client, String> {
@@ -733,6 +734,11 @@ struct SessionEnvelope {
 struct SessionResult {
     ok: bool,
     value: Option<serde_json::Value>,
+    error: Option<SessionHostError>,
+}
+#[derive(Deserialize)]
+struct SessionHostError {
+    message: String,
 }
 #[derive(Deserialize)]
 struct SessionListValue {
@@ -747,6 +753,8 @@ struct WireSession {
     projections: Option<SessionProjections>,
     #[serde(default)]
     running: bool,
+    #[serde(default)]
+    pinned: bool,
 }
 #[derive(Deserialize)]
 struct SessionProjections {
@@ -770,10 +778,49 @@ fn session_rpc_id() -> String {
     )
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) enum SessionAction {
+    Rename { title: String },
+    Pin,
+    Unpin,
+    Fork,
+    Archive,
+}
+
 enum SessionRequest {
     List,
     Create,
     Delete(String),
+    Manage {
+        session_id: String,
+        action: SessionAction,
+    },
+}
+
+fn session_action_request(
+    session_id: String,
+    action: SessionAction,
+    sessions: &[AssistantSession],
+) -> Result<SessionRequest, String> {
+    validate_session_selection(&session_id, sessions)?;
+    Ok(SessionRequest::Manage { session_id, action })
+}
+
+fn session_action_result(
+    action: &SessionAction,
+    value: serde_json::Value,
+) -> Result<Option<String>, String> {
+    if matches!(action, SessionAction::Fork) {
+        let id = value
+            .get("sessionId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or(SESSION_ERROR)?;
+        Ok(Some(id.to_string()))
+    } else {
+        Ok(None)
+    }
 }
 
 async fn authenticate(
@@ -829,6 +876,18 @@ async fn session_request(
             "mind/session/delete",
             serde_json::json!({"request": {"sessionId":id}}),
         ),
+        SessionRequest::Manage { session_id, action } => {
+            let (method, request) = match action {
+                SessionAction::Rename { title } => ("session/rename", serde_json::json!({"sessionId":session_id,"title":title})),
+                // Omitting atSeq asks DSH for the latest completed-turn prefix.
+                SessionAction::Fork => ("session/fork", serde_json::json!({"sessionId":session_id})),
+                SessionAction::Pin => ("workspace/pinSession", serde_json::json!({"sessionId":session_id})),
+                SessionAction::Unpin => ("workspace/unpinSession", serde_json::json!({"sessionId":session_id})),
+                // DSH's registry owns activity admission; never request stopActivity.
+                SessionAction::Archive => ("workspace/archiveSession", serde_json::json!({"sessionId":session_id})),
+            };
+            (method, serde_json::json!({"request":request}))
+        }
     };
     let rpc_id = session_rpc_id();
     let endpoint = url
@@ -842,8 +901,12 @@ async fn session_request(
         return Err(SESSION_ERROR.into());
     }
     let envelope: SessionEnvelope = response.json().await.map_err(|_| SESSION_ERROR)?;
-    if envelope.kind != "server-response" || envelope.rpc_id != rpc_id || !envelope.result.ok {
+    if envelope.kind != "server-response" || envelope.rpc_id != rpc_id {
         return Err(SESSION_ERROR.into());
+    }
+    if !envelope.result.ok {
+        return Err(envelope.result.error.map(|error| error.message)
+            .filter(|message| !message.is_empty()).unwrap_or_else(|| SESSION_ERROR.into()));
     }
     if empty_result {
         Ok(envelope.result.value.unwrap_or(serde_json::Value::Null))
@@ -888,6 +951,7 @@ async fn list_sessions(
                 id: item.id,
                 title,
                 running: item.running,
+                pinned: item.pinned,
             })
         })
         .collect()
@@ -2254,6 +2318,50 @@ pub(crate) async fn dsh_assistant_create_session(
 }
 
 #[tauri::command]
+pub(crate) async fn dsh_assistant_manage_session(
+    caller: Webview,
+    state: State<'_, DshAssistantState>,
+    project_id: Option<i64>,
+    session_id: String,
+    action: SessionAction,
+) -> Result<Option<String>, String> {
+    authorize_caller(&caller)?;
+    let mut runtimes = state.inner.lock().await;
+    let inner = runtimes.scope_mut(project_id)?;
+    if state.stopping.load(Ordering::SeqCst) {
+        return Err("应用正在退出".into());
+    }
+    inner.authorize_scope(caller.label(), project_id)?;
+    inner.ensure_current_scope(&caller).await?;
+    let directory = inner
+        .identity
+        .as_ref()
+        .expect("ready identity")
+        .directory()
+        .to_path_buf();
+    let process = inner.process.as_mut().expect("ready process");
+    let sessions = list_sessions(
+        &process.url,
+        &process.session_http,
+        &mut process.session_cookie,
+        &directory,
+    )
+    .await;
+    inner.ensure_current_scope(&caller).await?;
+    let request = session_action_request(session_id, action.clone(), &sessions?)?;
+    let process = inner.process.as_mut().expect("ready process");
+    let result = session_request(
+        &process.url,
+        &process.session_http,
+        &mut process.session_cookie,
+        request,
+    )
+    .await;
+    inner.ensure_current_scope(&caller).await?;
+    session_action_result(&action, result?)
+}
+
+#[tauri::command]
 pub(crate) async fn dsh_assistant_delete_session(
     caller: Webview,
     state: State<'_, DshAssistantState>,
@@ -2878,6 +2986,122 @@ input.on('close', () => process.exit(0));
     }
 
     #[tokio::test]
+    async fn bounded_session_actions_use_upstream_protocol_and_preserve_host_errors() {
+        use axum::{
+            http::{header, StatusCode, Uri},
+            routing::{get, post},
+            Json, Router,
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = Url::parse(&format!(
+            "http://{}/?token=fixture",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let app = Router::new()
+            .route("/", get(|| async { (StatusCode::SEE_OTHER, [(header::SET_COOKIE, "fixture=cookie; HttpOnly")], "") }))
+            .route("/api/session/list", post(|Json(frame): Json<serde_json::Value>| async move {
+                Json(serde_json::json!({"type":"server-response", "rpcId":frame["rpcId"], "result":{"ok":true,"value":{"items":[
+                    {"sessionId":"owned","cwd":"/fixture/current","pinned":true,"running":true},
+                    {"sessionId":"foreign","cwd":"/fixture/foreign"}
+                ]}}}))
+            }))
+            .route("/api/{group}/{operation}", post(move |uri: Uri, Json(frame): Json<serde_json::Value>| {
+                let calls = observed.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    let method = uri.path().strip_prefix("/api/").unwrap();
+                    assert_eq!(frame["method"], method);
+                    let expected = if method == "session/rename" {
+                        serde_json::json!({"request":{"sessionId":"owned","title":"New title"}})
+                    } else { serde_json::json!({"request":{"sessionId":"owned"}}) };
+                    assert_eq!(frame["payload"]["args"], expected);
+                    let result = match method {
+                        "session/fork" => serde_json::json!({"ok":true,"value":{"sessionId":"fork-child"}}),
+                        "workspace/archiveSession" => serde_json::json!({"ok":false,"error":{"code":"workspace/session-active","message":"Session has active execution","details":{}}}),
+                        "session/rename" | "workspace/pinSession" | "workspace/unpinSession" => serde_json::json!({"ok":true,"value":{}}),
+                        _ => panic!("unexpected action {method}"),
+                    };
+                    Json(serde_json::json!({"type":"server-response", "rpcId":frame["rpcId"], "result":result}))
+                }
+            }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = session_http_client().unwrap();
+        let mut cookie = None;
+        let sessions = list_sessions(&url, &client, &mut cookie, Path::new("/fixture/current"))
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].pinned);
+        for action in [
+            SessionAction::Rename {
+                title: "New title".into(),
+            },
+            SessionAction::Pin,
+            SessionAction::Unpin,
+            SessionAction::Fork,
+            SessionAction::Archive,
+        ] {
+            assert!(session_action_request("foreign".into(), action.clone(), &sessions).is_err());
+            let request =
+                session_action_request("owned".into(), action.clone(), &sessions).unwrap();
+            let result = session_request(&url, &client, &mut cookie, request).await;
+            if matches!(action, SessionAction::Archive) {
+                assert_eq!(result.unwrap_err(), "Session has active execution");
+            } else {
+                let id = session_action_result(&action, result.unwrap()).unwrap();
+                assert_eq!(
+                    id,
+                    matches!(action, SessionAction::Fork).then(|| "fork-child".to_string())
+                );
+            }
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        for method in [
+            "workspace/pinSession",
+            "workspace/unpinSession",
+            "workspace/archiveSession",
+        ] {
+            assert!(
+                validate_endpoint(method).is_err(),
+                "native actions must not expand carrier access"
+            );
+        }
+        for frame in [
+            serde_json::json!({}),
+            serde_json::json!({"sessionId":""}),
+            serde_json::json!({"sessionId":42}),
+        ] {
+            assert!(session_action_result(&SessionAction::Fork, frame).is_err());
+        }
+        for (frame, expected) in [
+            (
+                serde_json::json!({"kind":"rename","title":"New title"}),
+                SessionAction::Rename {
+                    title: "New title".into(),
+                },
+            ),
+            (serde_json::json!({"kind":"pin"}), SessionAction::Pin),
+            (serde_json::json!({"kind":"unpin"}), SessionAction::Unpin),
+            (serde_json::json!({"kind":"fork"}), SessionAction::Fork),
+            (
+                serde_json::json!({"kind":"archive"}),
+                SessionAction::Archive,
+            ),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<SessionAction>(frame).unwrap(),
+                expected
+            );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn session_http_authenticates_once_scopes_list_and_creates_without_exposing_failures() {
         use axum::{
             http::{header, HeaderMap, StatusCode, Uri},
@@ -3273,22 +3497,25 @@ input.on('close', () => process.exit(0));
         std::fs::create_dir_all(&directory).unwrap();
         let directory = directory.canonicalize().unwrap();
         let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/dsh-assistant");
-        let mut command = Command::new(
-            development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap(),
-        );
-        command
-            .arg(package.join("scripts/runtime.mjs"))
-            .args([
-                "--embedded",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "0",
-                "--no-open",
-            ])
-            .env("PROJECT_MIND_DSH_USER_DATA", temp.path().join("history"))
-            .env("PROJECT_MIND_DSH_PROFILE_DIR", temp.path().join("profile"))
-            .env_remove("PROJECT_MIND_DSH_PATCH");
+        let fixture_command = || {
+            let mut command = Command::new(
+                development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap(),
+            );
+            command
+                .arg(package.join("scripts/runtime.mjs"))
+                .args([
+                    "--embedded",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "0",
+                    "--no-open",
+                ])
+                .env("PROJECT_MIND_DSH_USER_DATA", temp.path().join("history"))
+                .env("PROJECT_MIND_DSH_PROFILE_DIR", temp.path().join("profile"))
+                .env_remove("PROJECT_MIND_DSH_PATCH");
+            command
+        };
         let mut config = serde_json::json!({"type":"configure","provider":{"name":"Native fixture","baseUrl":"http://127.0.0.1:9/v1","modelId":"native-fixture-model","apiKey":"native-fixture-model-key","supportsImage":false}});
         let context = if let Some(id) = project_id {
             config["project"] = serde_json::json!({"id":id,"name":"Native carrier fixture","directory":directory});
@@ -3297,7 +3524,7 @@ input.on('close', () => process.exit(0));
             config["workspace"] = serde_json::json!({"id":"2f3dc81a-bb8d-42c0-bf7d-517f8a7e8d84","name":"Native Workspace fixture","directory":directory});
             AssistantContext::Workspace { directory: directory.clone() }
         };
-        let mut process = AssistantProcess::launch(command, &config).await.unwrap();
+        let mut process = AssistantProcess::launch(fixture_command(), &config).await.unwrap();
         authenticate(
             &process.url,
             &process.session_http,
@@ -3548,8 +3775,201 @@ input.on('close', () => process.exit(0));
         assert_eq!(receipt["ok"], true);
         assert_eq!(receipt["value"]["file"]["bytes"], 3);
         assert!(receipt["value"]["receiptId"].as_str().is_some());
+        // Exercise the native action request path against the mounted pinned Host,
+        // including its durable registry and title service. No model turn is sent.
+        async fn manage_fixture(
+            process: &mut AssistantProcess,
+            directory: &Path,
+            id: &str,
+            action: SessionAction,
+        ) -> Result<serde_json::Value, String> {
+            let sessions = list_sessions(
+                &process.url,
+                &process.session_http,
+                &mut process.session_cookie,
+                directory,
+            )
+            .await?;
+            let request = session_action_request(id.into(), action.clone(), &sessions)?;
+            let value = session_request(
+                &process.url,
+                &process.session_http,
+                &mut process.session_cookie,
+                request,
+            )
+            .await?;
+            assert_eq!(session_action_result(&action, value.clone())?, None);
+            Ok(value)
+        }
+        let accepted_title = "Native accepted title";
+        let renamed = manage_fixture(
+            &mut process,
+            &directory,
+            &id,
+            SessionAction::Rename {
+                title: accepted_title.into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(renamed["title"], accepted_title);
+        assert!(renamed["seq"].as_u64().is_some());
+        let fork_error = manage_fixture(&mut process, &directory, &id, SessionAction::Fork)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            fork_error,
+            format!("session \"{}\" has no completed turn to fork from", id)
+        );
+        let second = create_session(
+            &process.url,
+            &process.session_http,
+            &mut process.session_cookie,
+        )
+        .await
+        .unwrap();
+        for _ in 0..2 {
+            create_session(
+                &process.url,
+                &process.session_http,
+                &mut process.session_cookie,
+            )
+            .await
+            .unwrap();
+        }
+        let baseline = list_sessions(
+            &process.url,
+            &process.session_http,
+            &mut process.session_cookie,
+            &directory,
+        )
+        .await
+        .unwrap();
+        assert_eq!(baseline.len(), 4);
+        assert!(baseline.iter().all(|session| !session.pinned));
+        assert_eq!(
+            baseline
+                .iter()
+                .find(|session| session.id == id)
+                .unwrap()
+                .title,
+            accepted_title
+        );
+        let original_order: Vec<_> = baseline.iter().map(|session| session.id.clone()).collect();
+        manage_fixture(&mut process, &directory, &second, SessionAction::Pin)
+            .await
+            .unwrap();
+        let pinned = manage_fixture(&mut process, &directory, &id, SessionAction::Pin)
+            .await
+            .unwrap();
+        assert_eq!(pinned["pinnedSessionIds"], serde_json::json!([id, second]));
+        let list = list_sessions(
+            &process.url,
+            &process.session_http,
+            &mut process.session_cookie,
+            &directory,
+        )
+        .await
+        .unwrap();
+        let expected: Vec<_> = [id.clone(), second.clone()]
+            .into_iter()
+            .chain(
+                original_order
+                    .iter()
+                    .filter(|other| **other != id && **other != second)
+                    .cloned(),
+            )
+            .collect();
+        assert_eq!(
+            list.iter()
+                .map(|session| session.id.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            list.iter()
+                .map(|session| session.pinned)
+                .collect::<Vec<_>>(),
+            [true, true, false, false]
+        );
+        manage_fixture(&mut process, &directory, &id, SessionAction::Unpin)
+            .await
+            .unwrap();
+        let list = list_sessions(
+            &process.url,
+            &process.session_http,
+            &mut process.session_cookie,
+            &directory,
+        )
+        .await
+        .unwrap();
+        let expected: Vec<_> = [second.clone()]
+            .into_iter()
+            .chain(
+                original_order
+                    .iter()
+                    .filter(|other| **other != second)
+                    .cloned(),
+            )
+            .collect();
+        assert_eq!(
+            list.iter()
+                .map(|session| session.id.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            list.iter()
+                .map(|session| session.pinned)
+                .collect::<Vec<_>>(),
+            [true, false, false, false]
+        );
+        manage_fixture(&mut process, &directory, &second, SessionAction::Archive)
+            .await
+            .unwrap();
+        let list = list_sessions(
+            &process.url,
+            &process.session_http,
+            &mut process.session_cookie,
+            &directory,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            list.iter()
+                .map(|session| session.id.clone())
+                .collect::<Vec<_>>(),
+            original_order
+                .iter()
+                .filter(|other| **other != second)
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert!(list.iter().all(|session| !session.pinned));
+        manage_fixture(&mut process, &directory, &id, SessionAction::Pin)
+            .await
+            .unwrap();
         process.stop().await.unwrap();
         assert!(process.child.try_wait().unwrap().unwrap().success());
+        let mut restarted = AssistantProcess::launch(fixture_command(), &config)
+            .await
+            .unwrap();
+        let restored = list_sessions(
+            &restarted.url,
+            &restarted.session_http,
+            &mut restarted.session_cookie,
+            &directory,
+        )
+        .await
+        .unwrap();
+        assert_eq!(restored.len(), 3);
+        assert!(!restored.iter().any(|session| session.id == second));
+        assert_eq!(restored[0].id, id);
+        assert!(restored[0].pinned);
+        assert_eq!(restored[0].title, accepted_title);
+        assert!(restored.iter().skip(1).all(|session| !session.pinned));
+        restarted.stop().await.unwrap();
+        assert!(restarted.child.try_wait().unwrap().unwrap().success());
     }
 
     #[tokio::test]

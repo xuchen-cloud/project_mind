@@ -91,3 +91,11 @@ it('keeps the null Workspace queue independent while a Project waits and preserv
   ]);
   release(); await project;
 });
+
+
+it("forwards explicit session actions to the scoped native command and returns the fork identity", async () => {
+  const { dshAssistantApi } = await import("./dshAssistantApi");
+  native.command.mockResolvedValueOnce("child");
+  await expect(dshAssistantApi.manageSession("source", { kind: "fork" }, 7)).resolves.toBe("child");
+  expect(native.command).toHaveBeenCalledWith("dsh_assistant_manage_session", { projectId: 7, sessionId: "source", action: { kind: "fork" } });
+});

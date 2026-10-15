@@ -1,3 +1,7 @@
+import { projectFilePathMatches } from "../../lib/project-file-navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys";
+import { FileContextMenuPanel } from "../document/FileContextMenuPanel";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
 import { HomeSidebarList } from "../home/HomeSidebarList";
@@ -43,7 +47,6 @@ import {
   ActionContextMenu,
   Button,
   IconButton,
-  PopoverPanel,
   ResizeHandle,
   SearchField,
   SidebarFilters,
@@ -94,10 +97,15 @@ export interface ProjectSidebarDocumentItem {
   tags: Array<{ id: number; label: string; colorKey: TagColorKey }>;
 }
 
+export interface ProjectFileMenuControls {
+  openContextMenu: (document: ProjectSidebarDocumentItem, x: number, y: number) => void;
+  renderRenameInput: (relativePath: string) => ReactNode;
+}
+
 interface ProjectSidebarProps {
   filesOnly?: boolean;
   fileHeaderActions?: ReactNode;
-  fileContent?: ReactNode;
+  fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode);
   fileFilter?: { query: string; tagId: number | null };
   project: {
     id: number;
@@ -128,6 +136,8 @@ interface ProjectSidebarProps {
 
 interface ContextMenuState {
   documentId: number;
+  document: ProjectSidebarDocumentItem;
+  listed: boolean;
   x: number;
   y: number;
 }
@@ -138,9 +148,6 @@ interface RecordContextMenuState {
   y: number;
 }
 
-const CONTEXT_MENU_WIDTH = 280;
-const CONTEXT_MENU_HEIGHT = 464;
-const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const DRAG_DEACTIVATE_DELAY_MS = 80;
 const PROJECT_SIDEBAR_TABS = [
   { value: "records", label: "记录" },
@@ -185,6 +192,10 @@ export function ProjectSidebar({
   } = useUiStore();
   const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
+  const queryClient = useQueryClient();
+  const refreshDirectory = () => queryClient.invalidateQueries({
+    queryKey: queryKeys.projectDirectory(project.rootPath, project.id, "", 0).slice(0, 3),
+  });
   const {
     documentMetaMutation,
     documentAddVersionMutation,
@@ -219,7 +230,8 @@ export function ProjectSidebar({
   const [dragActive, setDragActive] = useState(false);
 
   // Document editing state
-  const [editingDocumentId, setEditingDocumentId] = useState<number | null>(null);
+  const [editingDocument, setEditingDocument] = useState<ProjectSidebarDocumentItem | null>(null);
+  const editingDocumentId = editingDocument?.id ?? null;
   const [nameDraft, setNameDraft] = useState("");
   const [pendingTagIdsByDocumentId, setPendingTagIdsByDocumentId] = useState<Record<number, number[]>>({});
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -341,7 +353,7 @@ export function ProjectSidebar({
   });
 
   const contextMenuDocument = contextMenu
-    ? sortedDocuments.find((document) => document.id === contextMenu.documentId) ?? null
+    ? sortedDocuments.find((document) => document.id === contextMenu.documentId) ?? contextMenu.document
     : null;
   const contextMenuRecord = recordContextMenu
     ? records.find((record) => record.id === recordContextMenu.recordId) ?? null
@@ -413,7 +425,7 @@ export function ProjectSidebar({
 
   // Close context menu if document is removed
   useEffect(() => {
-    if (contextMenu && !sortedDocuments.some((document) => document.id === contextMenu.documentId)) {
+    if (contextMenu?.listed && !sortedDocuments.some((document) => document.id === contextMenu.documentId)) {
       setContextMenu(null);
     }
   }, [contextMenu, sortedDocuments]);
@@ -589,7 +601,7 @@ export function ProjectSidebar({
   };
 
   const deleteDocument = (document: ProjectSidebarDocumentItem) => {
-    documentDeleteMutation.mutate({ documentId: document.id });
+    documentDeleteMutation.mutate({ documentId: document.id }, { onSuccess: refreshDirectory });
   };
 
   const beginRenameRecord = (record: ProjectSidebarRecordItem) => {
@@ -617,18 +629,18 @@ export function ProjectSidebar({
       return;
     }
     clearPendingOpen();
-    setEditingDocumentId(document.id);
+    setEditingDocument(document);
     setNameDraft(document.baseName);
   };
 
   const cancelRename = () => {
-    setEditingDocumentId(null);
+    setEditingDocument(null);
     setNameDraft("");
   };
 
   const commitRename = (document: ProjectSidebarDocumentItem) => {
     const nextBaseName = nameDraft.trim();
-    setEditingDocumentId(null);
+    setEditingDocument(null);
     setNameDraft("");
 
     if (!nextBaseName || nextBaseName === document.baseName) {
@@ -638,7 +650,7 @@ export function ProjectSidebar({
     documentMetaMutation.mutate({
       documentId: document.id,
       baseName: nextBaseName,
-    });
+    }, { onSuccess: refreshDirectory });
   };
 
   const handleDocumentClick = (document: ProjectSidebarDocumentItem, event: MouseEvent<HTMLElement>) => {
@@ -679,24 +691,9 @@ export function ProjectSidebar({
     event.preventDefault();
   };
 
-  const openContextMenu = (documentId: number, x: number, y: number) => {
+  const openContextMenu = (document: ProjectSidebarDocumentItem, x: number, y: number) => {
     clearPendingOpen();
-    const maxX =
-      typeof window === "undefined"
-        ? Math.max(CONTEXT_MENU_VIEWPORT_PADDING, x)
-        : Math.max(CONTEXT_MENU_VIEWPORT_PADDING, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING);
-    const maxY =
-      typeof window === "undefined"
-        ? Math.max(CONTEXT_MENU_VIEWPORT_PADDING, y)
-        : Math.max(
-            CONTEXT_MENU_VIEWPORT_PADDING,
-            window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_VIEWPORT_PADDING,
-          );
-    setContextMenu({
-      documentId,
-      x: Math.min(Math.max(CONTEXT_MENU_VIEWPORT_PADDING, x), maxX),
-      y: Math.min(Math.max(CONTEXT_MENU_VIEWPORT_PADDING, y), maxY),
-    });
+    setContextMenu({ documentId: document.id, document, listed: sortedDocuments.some(item => item.id === document.id), x, y });
   };
 
   const handleDocumentKeyDown = (document: ProjectSidebarDocumentItem, event: KeyboardEvent<HTMLElement>) => {
@@ -707,7 +704,7 @@ export function ProjectSidebar({
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
-      openContextMenu(document.id, rect.left + 12, rect.bottom + 6);
+      openContextMenu(document, rect.left + 12, rect.bottom + 6);
       return;
     }
 
@@ -940,7 +937,16 @@ export function ProjectSidebar({
               ) : null}
             </div> : null}
 
-            {fileContent ?? <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
+            {(typeof fileContent === "function" ? fileContent({
+              openContextMenu,
+              renderRenameInput: relativePath => editingDocument && projectFilePathMatches(editingDocument.managedPath, project.rootPath, relativePath) ? (
+                <input autoFocus aria-label={`重命名 ${editingDocument.name}`} data-document-interactive="true"
+                  className="inline-object-input h-6 min-w-0 flex-1 px-1.5 text-[12px] leading-4 text-text outline-none"
+                  value={nameDraft} onChange={event => setNameDraft(event.target.value)}
+                  onBlur={() => commitRename(editingDocument)}
+                  onKeyDown={event => { event.stopPropagation(); handleRenameKeyDown(editingDocument as DocumentRecord, event, cancelRename, commitRename); }} />
+              ) : null,
+            }) : fileContent) ?? <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
@@ -1066,7 +1072,7 @@ export function ProjectSidebar({
                         onMouseDownCapture={(event) => handleDocumentMouseDownCapture(document, event)}
                         onContextMenu={(event) => {
                           event.preventDefault();
-                          openContextMenu(document.id, event.clientX, event.clientY);
+                          openContextMenu(document, event.clientX, event.clientY);
                         }}
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
@@ -1171,19 +1177,7 @@ export function ProjectSidebar({
 
       {/* Context Menu */}
       {contextMenuDocument && contextMenu ? (
-        <PopoverPanel
-          ref={contextMenuRef}
-          className="context-menu__panel fixed z-[80] w-[15rem] max-w-[calc(100vw-16px)] p-1"
-          style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
-          }}
-          role="menu"
-          aria-label="文件操作"
-          data-document-interactive="true"
-          onClick={stopPropagation}
-          onContextMenu={(event) => event.preventDefault()}
-        >
+        <FileContextMenuPanel x={contextMenu.x} y={contextMenu.y} menuRef={contextMenuRef}>
           <div className="grid gap-0.5">
             <DocumentContextMenuAction
               icon={<FolderOpen size={14} />}
@@ -1239,7 +1233,7 @@ export function ProjectSidebar({
             loading={projectTagSettingsQuery.isLoading}
             onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
           />
-        </PopoverPanel>
+        </FileContextMenuPanel>
       ) : null}
 
       {/* Import Dialog */}

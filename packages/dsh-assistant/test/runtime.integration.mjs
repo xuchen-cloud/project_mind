@@ -1142,3 +1142,57 @@ test('embedded runtime rejects malformed or ambiguous context configuration befo
     assert.doesNotMatch(output, /MIND_DSH_READY/);
   }
 });
+
+test('bounded session fork preserves completed history and independent durable continuation', { timeout: 60000 }, async t => {
+  const temporary = await mkdtemp(path.join(tmpdir(), 'mind-dsh-session-fork-'));
+  const provider = await startLocalProvider();
+  const data = path.join(temporary, 'history');
+  const project = { id: 1, name: 'Fork project', directory: path.join(temporary, 'project') };
+  await mkdir(project.directory); project.directory = await realpath(project.directory);
+  const shared = { name: 'Local fork fixture', baseUrl: provider.url, modelId: 'fork-model', apiKey: 'local-integration-key', supportsImage: false };
+  let runtime, source, child;
+  t.after(async () => {
+    try { await source?.close(); await child?.close(); }
+    finally { try { await runtime?.stop(); } finally { await provider.close(); await rm(temporary, { recursive: true, force: true }); } }
+  });
+  runtime = await launch(data, undefined, shared, project);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/rename', { sessionId, title: 'Fork fixture title' });
+  source = await follow(runtime, sessionId);
+  provider.enqueueResponse({ chunks: ['Source completed answer'] });
+  const end = await prompt(runtime, source, sessionId, 'Fork source first turn');
+  const prefix = events(source).filter(event => event.seq <= end.seq);
+  assert.ok(prefix.some(event => event.type === 'assistant/message' && assistantText(event) === 'Source completed answer'));
+  // This is the exact bounded native request: no atSeq, cwd, or workspace override.
+  const forked = await runtime.rpc('session/fork', { sessionId });
+  assert.equal(typeof forked.sessionId, 'string');
+  assert.ok(forked.sessionId.length > 0);
+  assert.notEqual(forked.sessionId, sessionId);
+  child = await follow(runtime, forked.sessionId);
+  assert.equal(child.snapshot.header.parentSession, sessionId);
+  assert.equal(child.snapshot.header.cwd, project.directory);
+  assert.deepEqual(events(child).slice(0, prefix.length), prefix, 'fork must preserve the exact completed source prefix');
+  assert.ok(events(child).some(event => event.type === 'session/end-seed' && event.data.inherited === true));
+  const mapped = await runtime.rpc('workspace/initializeDefault');
+  assert.ok(mapped.workspace.sessionIds.includes(sessionId));
+  assert.ok(mapped.workspace.sessionIds.includes(forked.sessionId));
+  provider.enqueueResponse({ chunks: ['Source independent answer'] });
+  await prompt(runtime, source, sessionId, 'Fork source second turn');
+  assert.ok(!JSON.stringify(events(child)).includes('Fork source second turn'), 'later source history must not enter the fork');
+  provider.enqueueResponse({ chunks: ['Fork independent answer'] });
+  await prompt(runtime, child, forked.sessionId, 'Fork child continuation');
+  assert.ok(!JSON.stringify(events(source)).includes('Fork child continuation'), 'fork continuation must not alter the source');
+  assert.equal(events(child).filter(event => event.type === 'turn/end').length, 2);
+  assert.equal(events(source).filter(event => event.type === 'turn/end').length, 2);
+  assert.equal(provider.requests.length, 3, 'fork itself must not generate a provider request');
+  assert.ok(provider.requests[2].roles.includes('assistant'), 'fork continuation must replay inherited assistant history');
+  const durable = events(child);
+  await source.close(); source = undefined;
+  await child.close(); child = undefined;
+  await runtime.stop();
+  runtime = await launch(data, undefined, shared, project);
+  child = await follow(runtime, forked.sessionId);
+  assertRestoredHistory(child, durable);
+  assert.equal(child.snapshot.header.parentSession, sessionId);
+  assert.ok(events(child).some(event => event.type === 'assistant/message' && assistantText(event) === 'Fork independent answer'));
+});

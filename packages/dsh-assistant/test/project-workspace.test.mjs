@@ -108,3 +108,68 @@ test('Workspace binding rejects other directories and workspace IDs while retain
   assert.deepEqual(await ctx.sessionController.create({ cwd: canonical }), { sessionId: 'new' });
   assert.deepEqual(created, [{ workspaceId: 'mapped' }]);
 });
+
+
+test('session list projects durable pins in registry order and keeps unpinned order and archived filtering', async () => {
+  const directory = await realpath(tmpdir());
+  const items = ['plain-a', 'pin-a', 'removed', 'plain-b', 'pin-b'].map(sessionId => ({ sessionId, cwd: directory, title: sessionId }));
+  const registry = {
+    get: () => ({ sessionIds: items.map(item => item.sessionId) }),
+    archivedSessionIds: ['removed'], pinnedSessionIds: ['missing', 'pin-b', 'removed', 'pin-a'],
+  };
+  const ctx = {
+    workspaceRegistry: registry,
+    workspaceController: { create: async () => ({ workspace: { workspaceId: 'mapped', title: 'Project' } }) },
+    sessionController: { list: async () => ({ items, cursor: 'retained' }) },
+    connection: { fetch: { register() {} } }, effect() {},
+  };
+  await bindContext(ctx, { id: 1, name: 'Project', directory });
+  const list = await ctx.sessionController.list({});
+  assert.equal(list.cursor, 'retained');
+  assert.deepEqual(list.items.map(({ sessionId, pinned }) => [sessionId, pinned]), [
+    ['pin-b', true], ['pin-a', true], ['plain-a', false], ['plain-b', false],
+  ]);
+  assert.deepEqual(items.map(item => item.sessionId), ['plain-a', 'pin-a', 'removed', 'plain-b', 'pin-b']);
+  assert.ok(items.every(item => !Object.hasOwn(item, 'pinned')));
+  registry.pinnedSessionIds = ['plain-b'];
+  assert.deepEqual((await ctx.sessionController.list({})).items.map(({ sessionId, pinned }) => [sessionId, pinned]), [
+    ['plain-b', true], ['plain-a', false], ['pin-a', false], ['pin-b', false],
+  ]);
+});
+
+test('cold owned sessions load durable title through public projections instead of stale list hints', async () => {
+  const directory = await realpath(tmpdir());
+  const signal = AbortSignal.timeout(1000);
+  const loaded = [];
+  const items = [
+    { sessionId: 'cold', cwd: directory, agentAvailable: false, projections: { kind: 'cached', asOfSeq: 0, values: { title: 'Old hint' } } },
+    { sessionId: 'live', cwd: directory, agentAvailable: true, projections: { kind: 'sequenced', asOfSeq: 2, values: { title: 'Live title' } } },
+    { sessionId: 'foreign', cwd: `${directory}/foreign`, agentAvailable: false },
+    { sessionId: 'removed', cwd: directory, agentAvailable: false },
+  ];
+  const ctx = {
+    workspaceRegistry: { get: () => ({ sessionIds: items.map(item => item.sessionId) }), archivedSessionIds: ['removed'], pinnedSessionIds: [] },
+    workspaceController: { create: async () => ({ workspace: { workspaceId: 'mapped', title: 'Project' } }) },
+    sessionController: {
+      list: async () => ({ items }),
+      projections: async (request, actualSignal) => {
+        loaded.push(request); assert.equal(actualSignal, signal);
+        return { asOfSeq: 3, values: { title: 'Durable renamed title' } };
+      },
+    },
+    connection: { fetch: { register() {} } }, effect() {},
+  };
+  await bindContext(ctx, { id: 1, name: 'Project', directory });
+  const list = await ctx.sessionController.list({}, signal);
+  assert.deepEqual(loaded, [{ sessionId: 'cold' }]);
+  assert.deepEqual(list.items[0].projections, { kind: 'sequenced', asOfSeq: 3, values: { title: 'Durable renamed title' } });
+  assert.equal(list.items[1].projections.values.title, 'Live title');
+  assert.equal(items[0].projections.values.title, 'Old hint');
+  ctx.sessionController.projections = async () => { throw new Error('Durable projection unavailable'); };
+  await assert.rejects(ctx.sessionController.list({}, signal), /Durable projection unavailable/);
+  ctx.sessionController.projections = async () => {
+    ctx.workspaceRegistry.archivedSessionIds.push('cold');
+    return { asOfSeq: 3, values: { title: 'Durable renamed title' } };
+  };
+  assert.ok(!(await ctx.sessionController.list({}, signal)).items.some(item => item.sessionId === 'cold'));
+});

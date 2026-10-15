@@ -65,7 +65,22 @@ export async function bindContext(ctx, context) {
   workspaces.rename = workspaces.delete = async () => { throw new Error('Manage workspaces and projects in the main application'); };
   sessions.list = async (...args) => {
     const value = await original.sessionList.apply(sessions, args);
-    return { ...value, items: value.items.filter(item => !isRemoved(item.sessionId)) };
+    const hydrated = [];
+    for (const item of value.items) {
+      if (isRemoved(item.sessionId)) continue;
+      // Cold list rows use a write-behind cache, which can precede a durable
+      // rename. The public observation API folds the log without activating an Agent.
+      if (item.cwd === context.directory && item.agentAvailable === false) {
+        const projections = await sessions.projections({ sessionId: item.sessionId }, args[1]);
+        if (projections === null) throw new Error('Session disappeared while loading its title');
+        hydrated.push({ ...item, projections: { kind: 'sequenced', ...projections } });
+      } else hydrated.push(item);
+    }
+    const pins = new Map(ctx.workspaceRegistry.pinnedSessionIds.map((id, index) => [id, index]));
+    const items = hydrated.filter(item => !isRemoved(item.sessionId))
+      .map(item => ({ ...item, pinned: pins.has(item.sessionId) }));
+    items.sort((a, b) => (pins.get(a.sessionId) ?? pins.size) - (pins.get(b.sessionId) ?? pins.size));
+    return { ...value, items };
   };
   sessions.follow = function(...args) {
     const id = args[0]?.address?.sessionId ?? args[0]?.sessionId;
