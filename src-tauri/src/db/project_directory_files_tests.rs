@@ -1,6 +1,160 @@
 use super::*;
 use crate::models::ProjectCreateInput;
 use base64::{engine::general_purpose::STANDARD, Engine};
+
+// Permission denial exercises the same failed-move branch as a Windows handle
+// opened without FILE_SHARE_DELETE. Restore permissions before asserting so a
+// failure also leaves the temporary fixture removable.
+#[cfg(unix)]
+#[test]
+fn directory_file_failed_move_does_not_retry_or_apply_metadata_on_resolve() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("original.txt"), b"original bytes").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "original.txt")
+        .unwrap();
+    let original_permissions = fs::metadata(&path).unwrap().permissions();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).unwrap();
+    let result = db.document_update_meta(crate::models::DocumentUpdateMetaInput {
+        document_id: first.object.id.parse().unwrap(),
+        base_name: Some("renamed.txt".into()),
+        is_starred: Some(true),
+        tag_ids: Some(vec![]),
+    });
+    fs::set_permissions(&path, original_permissions).unwrap();
+    assert!(result.is_err(), "read-only directory must reject the move");
+    let pending: i64 = db
+        .conn
+        .query_row("SELECT COUNT(*) FROM project_directory_moves", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(pending, 0, "a failed move must not be retried by resolve");
+    let metadata_pending: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM project_directory_metadata_intents",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(metadata_pending, 0);
+    let current = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(current.state, "ready");
+    assert_eq!(current.relative_path, "original.txt");
+    assert_eq!(current.version_number, first.version_number);
+    assert_eq!(bytes(&db, &first), b"original bytes");
+    assert_eq!(
+        fs::read(path.join("original.txt")).unwrap(),
+        b"original bytes"
+    );
+    assert!(!path.join("renamed.txt").exists());
+    assert!(
+        !db.document_record(first.object.id.parse().unwrap())
+            .unwrap()
+            .is_starred
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn directory_file_windows_delete_share_denial_keeps_original_openable() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("资料 original.txt"), b"original bytes").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "资料 original.txt")
+        .unwrap();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(path.join("资料 original.txt"))
+        .unwrap();
+    let result = db.document_update_meta(crate::models::DocumentUpdateMetaInput {
+        document_id: first.object.id.parse().unwrap(),
+        base_name: Some("renamed.txt".into()),
+        is_starred: Some(true),
+        tag_ids: Some(vec![]),
+    });
+    assert!(result.is_err());
+    let pending: i64 = db
+        .conn
+        .query_row("SELECT COUNT(*) FROM project_directory_moves", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(pending, 0);
+    let pending: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM project_directory_metadata_intents",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending, 0);
+    for _ in 0..2 {
+        let current = db.project_file_resolve(&first.object).unwrap();
+        assert_eq!(current.state, "ready");
+        assert_eq!(current.relative_path, "资料 original.txt");
+        assert_eq!(current.version_number, first.version_number);
+        assert_eq!(bytes(&db, &first), b"original bytes");
+    }
+    drop(held);
+    assert_eq!(
+        db.project_file_resolve(&first.object)
+            .unwrap()
+            .relative_path,
+        "资料 original.txt"
+    );
+    assert!(!path.join("renamed.txt").exists());
+    assert!(
+        !db.document_record(first.object.id.parse().unwrap())
+            .unwrap()
+            .is_starred
+    );
+    let renamed = db
+        .project_file_rename(
+            &first.object,
+            "renamed.txt",
+            first.version_number,
+            first.content_hash.as_deref().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(renamed.relative_path, "renamed.txt");
+    assert_eq!(bytes(&db, &first), b"original bytes");
+}
+
+#[cfg(windows)]
+#[test]
+fn directory_file_windows_external_replacement_with_shared_reader_keeps_history() {
+    use std::io::Read;
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("资料 空格")).unwrap();
+    let live = path.join("资料 空格/current.txt");
+    fs::write(&live, b"original bytes").unwrap();
+    let first = db
+        .project_file_register("wp1-workspace", project, "资料 空格/current.txt")
+        .unwrap();
+    let mut held = crate::source_file_snapshot::open_regular(&live).unwrap();
+    fs::write(path.join("replacement.txt"), b"external new bytes").unwrap();
+    fs::rename(path.join("replacement.txt"), &live).unwrap();
+    let current = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(current.state, "ready");
+    assert_eq!(current.version_number, first.version_number + 1);
+    assert_eq!(current.object, first.object);
+    assert_eq!(bytes(&db, &first), b"original bytes");
+    assert_eq!(bytes(&db, &current), b"external new bytes");
+    let mut old = Vec::new();
+    held.read_to_end(&mut old).unwrap();
+    assert_eq!(old, b"original bytes");
+    drop(held);
+    let again = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(again.version_number, current.version_number);
+}
+
 fn fixture() -> (tempfile::TempDir, Database, i64, PathBuf) {
     let root = tempfile::tempdir().unwrap();
     let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();

@@ -25,6 +25,9 @@ use std::{
 };
 
 const JOURNALS: &str = ".project-mind/file-version-journal";
+#[cfg(windows)]
+#[path = "file_versions_windows.rs"]
+mod windows;
 /// Internal intent: adapters resolve uploads to an owned path separately. No
 /// capability or remote path-reading endpoint is registered by this kernel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,10 +260,20 @@ fn crash_point(phase: CommitPhase) {
                 unsafe extern "C" {
                     fn kill(pid: i32, signal: i32) -> i32;
                 }
-                unsafe {
-                    kill(std::process::id() as i32, 9);
+                let result = unsafe { kill(std::process::id() as i32, 9) };
+                assert_eq!(
+                    result,
+                    0,
+                    "Cannot kill crash fixture: {}",
+                    std::io::Error::last_os_error()
+                );
+                // A signal sent to this multithreaded test process can still
+                // be pending on another thread. Do not race it with exit().
+                loop {
+                    std::thread::park();
                 }
             }
+            #[cfg(not(unix))]
             std::process::exit(91);
         }
     }
@@ -419,8 +432,9 @@ pub(crate) fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
     Ok(())
 }
-// Windows durable moves use MOVEFILE_WRITE_THROUGH; directory handles do not
-// support FlushFileBuffers portably. Real package crash acceptance is pending.
+// Windows moves request MOVEFILE_WRITE_THROUGH; directory handles do not support
+// FlushFileBuffers portably. Process-crash tests do not establish power-loss
+// durability; real Windows filesystem acceptance remains pending.
 #[cfg(windows)]
 pub(crate) fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
@@ -449,14 +463,7 @@ pub(crate) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
 }
 #[cfg(windows)]
 pub(crate) fn move_exclusive(from: &Path, to: &Path) -> Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
-    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) } == 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(())
+    windows::move_exclusive(from, to)
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub(crate) fn move_exclusive(_from: &Path, _to: &Path) -> Result<()> {
@@ -2902,8 +2909,10 @@ mod tests {
                 let binding = fixture.binding.clone();
                 let intent = intent.clone();
                 let barrier = barrier.clone();
+                // Match the registered-commit test below: initialize first,
+                // then race File commits, not Workspace startup migrations.
+                let mut db = Database::open(&path, &root, None).unwrap();
                 std::thread::spawn(move || {
-                    let mut db = Database::open(&path, &root, None).unwrap();
                     barrier.wait();
                     db.file_version_commit_gui(&binding, "gui-concurrent", &intent, false)
                         .unwrap()

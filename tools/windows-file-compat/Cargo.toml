@@ -1,0 +1,10 @@
+[package]
+name = "windows-file-compat"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.102"
+tempfile = "=3.27.0"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

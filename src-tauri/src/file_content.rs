@@ -1468,12 +1468,23 @@ fn crash_point(stage: u8) {
         == Some(stage)
     {
         #[cfg(unix)]
-        unsafe {
+        {
             unsafe extern "C" {
                 fn kill(pid: i32, signal: i32) -> i32;
             }
-            kill(std::process::id() as i32, 9);
+            let result = unsafe { kill(std::process::id() as i32, 9) };
+            assert_eq!(
+                result,
+                0,
+                "Cannot kill crash fixture: {}",
+                std::io::Error::last_os_error()
+            );
+            // Wait for SIGKILL instead of letting exit() win on another thread.
+            loop {
+                std::thread::park();
+            }
         }
+        #[cfg(not(unix))]
         std::process::exit(93);
     }
     #[cfg(not(test))]
