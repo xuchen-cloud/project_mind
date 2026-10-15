@@ -554,7 +554,12 @@ describe("TodoRail", () => {
     const create = screen.getByRole("button", { name: "新增代办" });
     const sorting = screen.getByRole("combobox", { name: "待办排序" }).closest("label");
     expect(archive.nextElementSibling).toBe(sorting);
-    expect(sorting?.nextElementSibling).toBe(create);
+    const collapse = screen.getByRole("button", { name: "收起代办侧边栏" });
+    expect(sorting?.nextElementSibling).toBe(collapse);
+    expect(collapse.nextElementSibling).toBe(create);
+    expect(create.nextElementSibling).toBeNull();
+    expect(create.querySelector("svg")).toHaveAttribute("width", "16");
+    expect(create).toHaveClass("bg-transparent");
     expect(archive.closest(".todo-rail__header")).not.toBeNull();
     expect(screen.getByRole("combobox", { name: "待办排序" }).closest(".todo-rail__header")).not.toBeNull();
     expect(container.querySelector(".todo-rail__completion-footer")).toBeNull();
@@ -562,6 +567,13 @@ describe("TodoRail", () => {
     expect(archive).toHaveAttribute("aria-pressed", "true");
     await user.click(archive);
     expect(archive).toHaveAttribute("aria-pressed", "false");
+    await user.selectOptions(screen.getByRole("combobox", { name: "待办排序" }), "priority");
+    expect(useUiStore.getState().todoRailSortMode).toBe("priority");
+    await user.click(collapse);
+    expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "展开代办侧边栏" }));
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toBeVisible();
   });
 
   it("hides the only group heading and retains tasks when project metadata is missing", () => {

@@ -15,6 +15,7 @@ mod source_service;
 mod source_session_summary;
 mod source_session_read;
 mod source_maintenance;
+mod project_file_maintenance;
 mod source_file_snapshot;
 mod source_file_read;
 mod source_text_page;
@@ -1492,6 +1493,7 @@ pub fn run() {
             app.manage(state);
             agent::bridge::commands::restore(app.handle());
             source_maintenance::start(app.handle());
+            project_file_maintenance::start(app.handle());
             overview_maintenance::start(app.handle());
             let record_handle = app.handle().clone();
             std::thread::Builder::new()

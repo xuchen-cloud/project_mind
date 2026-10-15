@@ -60,6 +60,21 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("ProjectSidebar", () => {
+  it("keeps the tree toggle and file import together in the title row in either presentation", async () => {
+    const view = renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId: null }}
+      fileHeaderActions={<button type="button">文件树展示</button>} fileContent={<div>文件树内容</div>}
+      project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={[]} onOpenProject={vi.fn()} />);
+    const add = screen.getByRole("button", { name: "导入文件" });
+    const toggle = screen.getByRole("button", { name: "文件树展示" });
+    expect(add.closest(".home-side__heading")).toContainElement(screen.getByRole("heading", { name: "文件" }));
+    expect(add.parentElement?.lastElementChild).toBe(add);
+    expect(add.parentElement).toContainElement(toggle);
+    fireEvent.click(add);
+    await waitFor(() => expect(desktopApiMocks.pickFiles).toHaveBeenCalledOnce());
+    expect(screen.getByText("文件树内容")).toBeVisible();
+    view.unmount();
+  });
+
   it("uses the shared query and tag without a second search input and keeps file actions", async () => {
     const documents = [
       buildDocument({ id: 1, name: "交付.pdf", baseName: "交付.pdf", tags: [{ id: 7, label: "交付", colorKey: "blue" }] }),

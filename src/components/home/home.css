@@ -1261,3 +1261,11 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell .workspace-topbar__tab--active:hover { background:transparent; }
 .home-window-shell .workspace-topbar__tab--active::before,
 .home-window-shell .workspace-topbar__tab--active::after { content:none; }
+
+/* Shared section creation controls stay at the end of their heading row. */
+.home-side__heading button, .home-record-filters>button[aria-label="新增记录"], .home-record-filters>button[aria-label="清除筛选"] {
+  display:inline-flex; align-items:center; justify-content:center; flex:none;
+  width:24px; height:24px; padding:0; border:0; border-radius:4px; background:transparent; color:var(--color-text-tertiary);
+}
+.home-side__heading button:hover, .home-record-filters>button[aria-label="新增记录"]:hover, .home-record-filters>button[aria-label="清除筛选"]:hover { background:var(--color-bg-hover); }
+.home-side__heading button:focus-visible, .home-record-filters>button:focus-visible { outline:2px solid var(--color-accent); outline-offset:1px; }

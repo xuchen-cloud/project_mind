@@ -10,6 +10,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import {
   ChevronLeft,
@@ -19,6 +20,7 @@ import {
   FolderKanban,
   FolderOpen,
   Pencil,
+  Plus,
   Star,
   Trash2,
   Upload,
@@ -93,6 +95,8 @@ export interface ProjectSidebarDocumentItem {
 
 interface ProjectSidebarProps {
   filesOnly?: boolean;
+  fileHeaderActions?: ReactNode;
+  fileContent?: ReactNode;
   fileFilter?: { query: string; tagId: number | null };
   project: {
     id: number;
@@ -141,6 +145,8 @@ const PROJECT_SIDEBAR_TABS = [
 
 export function ProjectSidebar({
   filesOnly = false,
+  fileHeaderActions,
+  fileContent,
   fileFilter,
   project,
   records: explicitRecords,
@@ -844,9 +850,14 @@ export function ProjectSidebar({
       </div>
       </> : null}
 
+      {filesOnly ? <div className="home-side__heading project-files__heading"><h2>文件</h2><div className="home-side__heading-actions">
+        {fileHeaderActions}
+        <button type="button" aria-label="导入文件" title="导入文件" onClick={() => void pickAndImportFiles()}><Plus size={16} /></button>
+      </div></div> : null}
+
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div className="grid shrink-0 gap-3">
+            {!fileContent && (!filesOnly || !fileFilter) ? <div className="grid shrink-0 gap-3">
               {!filesOnly ? <SidebarTabs
                 ariaLabel="项目侧边栏视图"
                 value={activeTab}
@@ -876,7 +887,7 @@ export function ProjectSidebar({
                     <RecordIcon size={14} />
                   </IconButton>
                 ) : null}
-                {activeTab === "files" ? (
+                {activeTab === "files" && !filesOnly ? (
                   <IconButton
                     type="button"
                     size="sm"
@@ -907,9 +918,9 @@ export function ProjectSidebar({
                   }
                 />
               ) : null}
-            </div>
+            </div> : null}
 
-            <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
+            {fileContent ?? <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
@@ -1106,7 +1117,7 @@ export function ProjectSidebar({
                 )}
               </div>
             )}
-            </HomeSidebarList>
+            </HomeSidebarList>}
         </div>
       </div>
 
