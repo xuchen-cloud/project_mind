@@ -15,7 +15,9 @@
 .office-docx__error { flex:none; margin:0; padding:8px 12px; border-bottom:1px solid var(--color-border); background:var(--color-bg-subtle); color:var(--color-text-secondary); }
 .office-docx > [role="status"] { margin:0; padding:12px; color:var(--color-text-tertiary); }
 .office-docx__frame { position:relative; display:flex; flex:1; min-width:0; min-height:0; overflow:hidden; }
-.office-docx__viewport { flex:1; min-width:0; min-height:0; overflow:auto; padding:32px 32px 48px; }
+/* Keep fit-width measurement stable when the scaled paper crosses the viewport height.
+   WebKit's custom scrollbars do not reliably reserve a scrollbar-gutter. */
+.office-docx__viewport { flex:1; min-width:0; min-height:0; overflow:auto; overflow-y:scroll; padding:32px 32px 48px; }
 /* Clip the unscaled absolute layout box; only the scaled stage contributes scroll dimensions. */
 .office-docx__stage { position:relative; width:calc(var(--office-doc-page-width) * var(--office-doc-zoom)); min-width:100%; height:var(--office-doc-scaled-height); overflow:clip; }
 .office-docx__paper { position:absolute; top:0; left:calc((100% - var(--office-doc-page-width) * var(--office-doc-zoom)) / 2); transform:scale(var(--office-doc-zoom)); transform-origin:top left; box-sizing:border-box; width:var(--office-doc-page-width); min-height:var(--office-doc-page-height); margin:0 auto; padding:var(--office-doc-padding-top) var(--office-doc-padding-right) var(--office-doc-padding-bottom) var(--office-doc-padding-left); border:1px solid var(--color-border); background:var(--color-bg); }

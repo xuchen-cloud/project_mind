@@ -39,6 +39,30 @@ for (const name of ['chromium', 'webkit']) {
         edges: Object.fromEntries(['top', 'bottom', 'left', 'right'].map(side => [side, Number(document.querySelector(`.office-docx__edge--${side}`).style.opacity)])),
       };
     });
+    // Classic scrollbars consume width. At this height, fit zoom used to alternate
+    // between overflowing and fitting, recursively updating React layout effects.
+    await page.addStyleTag({ content: '* { scrollbar-width:auto !important; } *::-webkit-scrollbar { width:8px; height:8px; }' });
+    await page.setViewportSize({ width: 800, height: 1600 });
+    await settle();
+    const threshold = await page.evaluate(() => {
+      const paper = document.querySelector('.office-docx__paper');
+      const viewport = document.querySelector('.office-docx__viewport');
+      const style = getComputedStyle(viewport);
+      const available = viewport.offsetWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      return Math.round(document.querySelector('.office-docx__toolbar').offsetHeight
+        + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+        + paper.offsetHeight * (available - 4) / paper.offsetWidth);
+    });
+    for (const height of [threshold, threshold - 12, threshold + 12, threshold]) {
+      await page.setViewportSize({ width: 800, height });
+      await settle();
+      assert.deepEqual(errors, [], 'Fit zoom must converge at the vertical scrollbar threshold');
+      assert.ok(await body.isVisible(), 'Word remains mounted after resize');
+      const current = await metrics();
+      assert.ok(Math.abs(current.zoom - current.available / model.page.width) < 0.002);
+      assert.ok(current.scrollWidth <= current.clientWidth + 1);
+    }
+    await page.setViewportSize({ width: 1100, height: 800 });
     await settle();
     const baseline = await metrics();
     assert.ok(Math.abs(baseline.width - model.page.width) <= 1);
