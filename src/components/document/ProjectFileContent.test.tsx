@@ -24,6 +24,7 @@ function view(props = input) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(projectFileApi.applications).mockResolvedValue([]);
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
   vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath: "sample.txt", name: "sample.txt", versionNumber: 2, contentHash: "hash2", state: "ready", reason: null });
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: 2, currentContentHash: "hash2", versions: [version(2), version(1)], nextCursor: null });

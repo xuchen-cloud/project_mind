@@ -10,8 +10,6 @@
 .project-file-content__toolbar button:disabled { opacity:.45; cursor:default; }
 .project-file-content__toolbar :is(button,select):focus-visible { outline:2px solid var(--color-accent); outline-offset:2px; }
 .project-file-content__toolbar .project-file-content__icon-button { display:inline-flex; align-items:center; justify-content:center; width:28px; padding:4px; }
-.project-file-content__toolbar .project-file-content__external-button { display:inline-flex; align-items:center; justify-content:center; gap:4px; }
-@container (max-width:300px) { .project-file-content__external-button span { display:none; } }
 .project-file-content__reference { position:relative; display:flex; flex:none; }
 .project-file-content__reference-error { position:absolute; top:100%; right:0; z-index:2; width:260px; max-width:calc(100vw - 48px); margin:4px 0 0; padding:10px 12px; border:1px solid var(--color-border); border-radius:var(--radius-6); box-shadow:var(--shadow-md); background:var(--color-bg); color:var(--color-text); white-space:normal; overflow-wrap:anywhere; }
 .project-file-content__body { flex:1; min-height:0; overflow:hidden; }
