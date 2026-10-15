@@ -59,6 +59,7 @@ pub(crate) fn validate_agent_file_create(input: &AgentFileCreateInput) -> AgentR
     if input.project_id <= 0
         || name.is_empty()
         || super::project_directory_files::excluded_component(name)
+        || crate::project_file_exclusions::is_temporary_file_name(name)
         || name.len() > 255
         || name.trim() != name
         || name.ends_with('.')
@@ -461,14 +462,15 @@ impl Database {
             .ok_or_else(|| anyhow!("Invalid File source name"))?
             .to_owned();
         let root = PathBuf::from(self.project_record(input.project_id)?.root_path);
-        let hidden = if source.starts_with(&root) {
-            super::project_directory_files::hidden_project_path(&root, &source)?
+        let excluded = if source.starts_with(&root) {
+            super::project_directory_files::excluded_project_path(&root, &source)?
         } else {
             super::project_directory_files::excluded_component(&name)
+                || crate::project_file_exclusions::is_temporary_file_name(&name)
                 || super::project_directory_files::hidden_metadata(&fs::symlink_metadata(&source)?)
         };
-        if hidden {
-            bail!("Hidden entries cannot be imported as project Files");
+        if excluded {
+            bail!("Hidden and temporary entries cannot be imported as project Files");
         }
         self.file_import_commit(
             input.project_id,
@@ -1024,6 +1026,7 @@ mod tests {
             "bad.md ",
             "bad:md.txt",
             ".hidden.md",
+            "~$draft.md",
             ".",
         ] {
             input.safe_name = name.into();

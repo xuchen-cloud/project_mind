@@ -160,8 +160,9 @@ pub(crate) fn hidden_metadata(metadata: &fs::Metadata) -> bool {
 }
 
 /// Evaluate only components inside the Project, including hidden ancestors.
-/// Missing Files remain visible through the existing missing-health handling.
-pub(crate) fn hidden_project_path(root: &Path, path: &Path) -> Result<bool> {
+/// Temporary filename patterns apply to Files, not ordinary directories.
+/// Missing business Files retain missing-health handling; temporary names stay excluded.
+pub(crate) fn excluded_project_path(root: &Path, path: &Path) -> Result<bool> {
     let relative = path.strip_prefix(root)?;
     if relative.components().any(|part| {
         part.as_os_str()
@@ -175,12 +176,15 @@ pub(crate) fn hidden_project_path(root: &Path, path: &Path) -> Result<bool> {
         current.push(part);
         match fs::symlink_metadata(&current) {
             Ok(metadata) if hidden_metadata(&metadata) => return Ok(true),
+            Ok(metadata) if current == path && metadata.is_dir() => return Ok(false),
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
             Err(error) => return Err(error.into()),
         }
     }
-    Ok(false)
+    Ok(relative.file_name().and_then(|name| name.to_str()).is_some_and(
+        crate::project_file_exclusions::is_temporary_file_name,
+    ))
 }
 fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     if relative.is_empty()
@@ -191,7 +195,7 @@ fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     {
         return Err(failure(
             "invalid_path",
-            "Expected a visible business File path inside the Project; hidden entries are excluded",
+            "Expected a visible business File path inside the Project; hidden and temporary entries are excluded",
         ));
     }
     if fs::symlink_metadata(root)?.file_type().is_symlink() {
@@ -199,8 +203,8 @@ fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     }
     let path = root.join(relative);
     file_versions::relative(root, &path)?;
-    if hidden_project_path(root, &path)? {
-        return Err(failure("invalid_path", "Hidden entries are excluded from project Files"));
+    if excluded_project_path(root, &path)? {
+        return Err(failure("invalid_path", "Hidden and temporary entries are excluded from project Files"));
     }
     Ok(path)
 }
@@ -1516,6 +1520,13 @@ impl Database {
                         "hidden"
                     }
                     .into(),
+                });
+                continue;
+            }
+            if kind.is_file() && crate::project_file_exclusions::is_temporary_file_name(&name) {
+                result.excluded.push(ScanExcluded {
+                    relative_path: relative,
+                    reason: "temporary".into(),
                 });
                 continue;
             }

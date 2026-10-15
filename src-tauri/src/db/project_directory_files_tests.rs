@@ -2160,3 +2160,196 @@ fn directory_file_atomic_replacement_cannot_claim_another_files_physical_identit
         }
     }
 }
+
+fn temporary_scan_excludes_editor_files(only_new: bool) {
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("sub")).unwrap();
+    let excluded = [
+        "~$报告.docx",
+        "~$表.XLSX",
+        "~$slides.pptx",
+        "~$无扩展名",
+        "scratch.tmp",
+        "scratch.TEMP",
+        "drawing.~vsdx",
+        "#draft#",
+        "draft.txt~",
+        "_draft.swp",
+        "_draft.swo",
+        "_draft.swn",
+        "Thumbs.db",
+        "EHTHUMBS.DB",
+        "EhThumbs_Vista.Db",
+        "DESKTOP.INI",
+        ".env",
+        "sub/~$nested.docx",
+    ];
+    let mut retained = vec![
+        "report.docx",
+        "sheet.xlsx",
+        "slides.pptx",
+        "recovery.asd",
+        "backup.wbk",
+        "backup.xlk",
+        "backup.bak",
+        "Cargo.lock",
+        "package-lock.json",
+        "diagram.svg",
+        "_diagram.svg",
+        "draft.swp",
+        "draft.swo",
+        "draft.swn",
+        "data.tmp/report.docx",
+        "~$资料/report.docx",
+    ];
+    for relative in &retained {
+        fs::create_dir_all(path.join(relative).parent().unwrap()).unwrap();
+        fs::write(path.join(relative), b"business material").unwrap();
+    }
+    for relative in excluded {
+        fs::write(path.join(relative), b"editor cache").unwrap();
+    }
+    let mut found = Vec::new();
+    let mut cursor = None;
+    let mut complete = false;
+    for _ in 0..100 {
+        let page = if only_new {
+            db.project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 3)
+        } else {
+            db.project_file_scan("wp1-workspace", project, cursor.as_deref(), 3, false)
+        }
+        .unwrap();
+        assert!(page.failures.is_empty(), "{:?}", page.failures);
+        found.extend(page.files.into_iter().map(|file| file.relative_path));
+        cursor = page.next_cursor;
+        if page.complete {
+            complete = true;
+            break;
+        }
+        assert!(cursor.is_some());
+    }
+    assert!(
+        complete,
+        "temporary exclusions must not stall scan pagination"
+    );
+    found.sort();
+    retained.sort();
+    assert_eq!(found, retained);
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE project_id=?1",
+            [project],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count as usize, retained.len());
+    for relative in excluded {
+        assert_eq!(fs::read(path.join(relative)).unwrap(), b"editor cache");
+    }
+}
+
+#[test]
+fn temporary_automatic_scan_excludes_editor_files_and_keeps_business_files() {
+    temporary_scan_excludes_editor_files(true);
+}
+
+#[test]
+fn temporary_explicit_scan_excludes_editor_files_and_keeps_business_files() {
+    temporary_scan_excludes_editor_files(false);
+}
+
+#[test]
+fn temporary_register_and_import_reject_files_but_accept_directory_descendants() {
+    for relative in [
+        "~$无扩展名",
+        "sub/~$报告.docx",
+        "scratch.TEMP",
+        "_draft.swp",
+    ] {
+        hidden_register_and_import_rejected(relative, None);
+    }
+    let (_root, mut db, project, path) = fixture();
+    for (index, directory) in ["data.tmp", "~$资料"].into_iter().enumerate() {
+        fs::create_dir(path.join(directory)).unwrap();
+        let relative = format!("{directory}/registered.docx");
+        fs::write(path.join(&relative), b"business material").unwrap();
+        let file = db
+            .project_file_register("wp1-workspace", project, &relative)
+            .unwrap();
+        assert_eq!(file.relative_path, relative);
+        assert_eq!(bytes(&db, &file), b"business material");
+        let source = path.join(directory).join(format!("imported-{index}.docx"));
+        fs::write(&source, b"imported material").unwrap();
+        let object = import_for_location(&mut db, project, &source);
+        assert_eq!(object.kind, ObjectKind::File);
+    }
+    let page = db
+        .project_page_get(crate::models::ProjectIdInput {
+            project_id: project,
+        })
+        .unwrap();
+    assert_eq!(page.project_documents.len(), 4);
+}
+
+#[test]
+fn temporary_legacy_missing_record_is_hidden_without_deleting_record_or_versions() {
+    let (_root, mut db, project, path) = fixture();
+    fs::write(path.join("doc.docx"), b"retained snapshot").unwrap();
+    let file = db
+        .project_file_register("wp1-workspace", project, "doc.docx")
+        .unwrap();
+    let id: i64 = file.object.id.parse().unwrap();
+    // Simulate an older registration without registering a now excluded name.
+    let encoded = db.encode_path_ref(&path.join("~$doc.docx"));
+    db.conn.execute(
+        "UPDATE documents SET name=?1,base_name=?1,managed_path=?2,original_path=?2 WHERE id=?3",
+        params!["~$doc.docx", encoded, id],
+    ).unwrap();
+    fs::rename(path.join("doc.docx"), path.join("~$doc.docx")).unwrap();
+    fs::write(path.join("normal.docx"), b"normal snapshot").unwrap();
+    let normal = db
+        .project_file_register("wp1-workspace", project, "normal.docx")
+        .unwrap();
+    fs::remove_file(path.join("normal.docx")).unwrap();
+    let record_state = |db: &Database| {
+        db.conn.query_row(
+            "SELECT name,base_name,managed_path,original_path,current_version_number,version_count FROM documents WHERE id=?1",
+            [id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?)),
+        ).unwrap()
+    };
+    let before = record_state(&db);
+    let versions_before = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    assert_eq!(versions_before.len(), 1);
+    for missing in [false, true] {
+        if missing {
+            fs::remove_file(path.join("~$doc.docx")).unwrap();
+        }
+        let page = db
+            .project_page_get(crate::models::ProjectIdInput {
+                project_id: project,
+            })
+            .unwrap();
+        assert_eq!(
+            page.project_documents.len(),
+            1,
+            "temporary file missing={missing}"
+        );
+        assert_eq!(page.project_documents[0].id.to_string(), normal.object.id);
+        assert_eq!(page.project_documents[0].health, "missing");
+        assert_eq!(record_state(&db), before);
+        let versions = db
+            .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&versions).unwrap(),
+            serde_json::to_value(&versions_before).unwrap()
+        );
+        assert_eq!(
+            fs::read(&versions[0].managed_path).unwrap(),
+            b"retained snapshot"
+        );
+    }
+}

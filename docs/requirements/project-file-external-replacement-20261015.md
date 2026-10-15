@@ -62,3 +62,13 @@
 - Standards：主 agent 检查完整 diff，保留路径、归属、快照预算、恢复意图、文件锁与事务 CAS；普通未变化 resolve 保留快路径，不增加全库物理归属扫描。无剩余发现。
 - Spec：同路径外部内容变化自动登记新版本、相同内容只更新身份、旧快照及引用保留、本地打开和未保存编辑冲突保护均有验证。遗留未冻结导入与后续 #185 边界明确。无剩余发现。
 - 没有启动 review 子 agent。所有临时诊断日志代码均已移除，`git diff --check` 通过。
+
+### 与临时文件排除规则合并
+
+发布时 `develop` 已合入 #186，基线前进到 `f338dca`。唯一文本冲突来自两包都在同一个测试文件末尾新增用例，保留两边完整测试；自动接纳策略和临时文件排除策略同时保留。
+
+原生路径和导入规则发生变化，因此在合并后的代码上补做完整受影响验证：`project_directory` 69 通过、`project_file_exclusions` 2 通过、`db::file_imports::tests` 11 通过、`file_version_service::tests` 49 通过，合计 131 项，5 个既有子进程辅助项 ignored。仍使用真实 TMPDIR、禁用增量缓存和独立复制的测试程序。前端产品代码、依赖及 DTO 未变化，复用前述 85 项和类型检查。
+
+合并后 `cargo check --manifest-path src-tauri/Cargo.toml --quiet` 通过，仅有既有警告。
+
+主 agent 再次按 `f338dca` 检查本包完整差异，Standards 与 Spec 无剩余发现；没有扩大产品改动范围。

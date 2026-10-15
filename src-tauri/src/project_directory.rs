@@ -67,7 +67,7 @@ fn resolve(root: &Path, relative: &str) -> Result<ResolvedPath> {
         .split('/')
         .any(crate::db::project_directory_files::excluded_component)
     {
-        bail!("隐藏文件和隐藏目录不属于项目业务文件");
+        bail!("隐藏文件、隐藏目录和临时文件不属于项目业务文件");
     }
     if fs::symlink_metadata(root)
         .with_context(|| format!("无法访问项目目录：{}", root.display()))?
@@ -83,8 +83,8 @@ fn resolve(root: &Path, relative: &str) -> Result<ResolvedPath> {
         bail!("项目根路径不是目录：{}", root.display());
     }
     let requested = root.join(relative);
-    if crate::db::project_directory_files::hidden_project_path(&root, &requested)? {
-        bail!("隐藏文件和隐藏目录不属于项目业务文件");
+    if crate::db::project_directory_files::excluded_project_path(&root, &requested)? {
+        bail!("隐藏文件、隐藏目录和临时文件不属于项目业务文件");
     }
     crate::db::file_versions::relative(&root, &requested).or_else(|error| {
         if relative.is_empty() {
@@ -134,6 +134,9 @@ fn list(root: &Path, relative: &str) -> Result<Vec<DirectoryEntry>> {
             .into_string()
             .map_err(|_| anyhow::anyhow!("项目目录包含无法显示的非 UTF-8 文件名"))?;
         if crate::db::project_directory_files::excluded_component(&name) {
+            continue;
+        }
+        if kind.is_file() && crate::project_file_exclusions::is_temporary_file_name(&name) {
             continue;
         }
         if crate::db::project_directory_files::hidden_metadata(&entry.metadata()?) {
@@ -415,6 +418,78 @@ mod tests {
             .unwrap();
         }
         root
+    }
+
+    #[test]
+    fn temporary_directory_tree_hides_files_and_expands_similarly_named_directories() {
+        let root = ds_store_directory_fixture();
+        let excluded = [
+            "~$报告.docx",
+            "~$表.XLSX",
+            "~$slides.pptx",
+            "~$无扩展名",
+            "scratch.tmp",
+            "scratch.TEMP",
+            "drawing.~vsdx",
+            "#draft#",
+            "draft.txt~",
+            "_draft.swp",
+            "_draft.swo",
+            "_draft.swn",
+            "THUMBS.DB",
+            "ehthumbs.db",
+            "ehthumbs_vista.db",
+            "Desktop.ini",
+        ];
+        for relative in excluded {
+            fs::write(root.path().join(relative), b"editor cache").unwrap();
+        }
+        let mut expected = vec![
+            "note.txt",
+            "sub",
+            "data.tmp",
+            "~$资料",
+            "diagram.svg",
+            "_diagram.svg",
+        ];
+        for relative in ["diagram.svg", "_diagram.svg"] {
+            fs::write(root.path().join(relative), b"business material").unwrap();
+        }
+        for directory in ["data.tmp", "~$资料"] {
+            fs::create_dir(root.path().join(directory)).unwrap();
+            let relative = format!("{directory}/report.docx");
+            fs::write(root.path().join(&relative), b"business material").unwrap();
+            fs::write(
+                root.path().join(directory).join("~$report.docx"),
+                b"editor cache",
+            )
+            .unwrap();
+            let children = list(root.path(), directory).unwrap();
+            assert_eq!(children.len(), 1);
+            assert_eq!(children[0].relative_path, relative);
+            assert_eq!(children[0].kind, "file");
+            assert!(resolve(root.path(), &relative).is_ok());
+        }
+        let entries = list(root.path(), "").unwrap();
+        for directory in ["data.tmp", "~$资料"] {
+            assert_eq!(
+                entries
+                    .iter()
+                    .find(|entry| entry.name == directory)
+                    .unwrap()
+                    .kind,
+                "directory"
+            );
+        }
+        let mut names: Vec<_> = entries.into_iter().map(|entry| entry.name).collect();
+        names.sort();
+        expected.sort();
+        assert_eq!(names, expected);
+        for relative in ["~$无扩展名", "data.tmp/~$report.docx", "scratch.TEMP"] {
+            assert!(resolve(root.path(), relative).is_err(), "{relative}");
+            assert!(preview(root.path(), relative).is_err(), "{relative}");
+            assert!(root.path().join(relative).is_file());
+        }
     }
 
     #[test]
