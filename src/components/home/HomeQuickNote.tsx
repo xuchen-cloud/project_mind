@@ -3,7 +3,7 @@ import { useHomeHeadingMotion } from "./useHomeHeadingMotion";
 import { useHomeModal } from "./useHomeModal";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ChevronDown, Expand, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { QuickNoteTransferSession, registerQuickNoteFlusher, type QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
+import { QuickNoteTransferSession, registerQuickNoteFlusher, type QuickNoteTransferContext, type QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
 import type { RichEditorController, RichEditorPersistState, RichEditorValue } from "../rich-editor";
 
 interface Props {
@@ -14,7 +14,8 @@ interface Props {
   initialValue: RichEditorValue;
   records: Array<{ id: number; title?: string | null }>;
   persist: (value: RichEditorValue) => Promise<RichEditorValue>;
-  commit: (value: RichEditorValue, target: QuickNoteTransferTarget) => Promise<unknown>;
+  beforeTransfer?: (context: QuickNoteTransferContext) => Promise<void>;
+  commit: (value: RichEditorValue, target: QuickNoteTransferTarget, context: QuickNoteTransferContext) => Promise<unknown>;
   onClear: () => void;
   onBusyChange?: (busy: boolean) => void;
   onCommitted?: () => void | Promise<void>;
@@ -67,7 +68,8 @@ export function HomeQuickNote(props: Props) {
     readCommitted: () => editorRef.current?.getCommittedValue() ?? latest.current.initialValue,
     isEmpty: (value) => !value.markdown.trim(),
     persist: (value) => latest.current.persist(value),
-    commit: (value, target) => latest.current.commit(value, target),
+    beforeTransfer: (context) => latest.current.beforeTransfer?.(context) ?? Promise.resolve(),
+    commit: (value, target, context) => latest.current.commit(value, target, context),
     clearLocal: () => {
       if (!mounted.current) return;
       editorRef.current?.replaceCommittedContent("<p></p>");

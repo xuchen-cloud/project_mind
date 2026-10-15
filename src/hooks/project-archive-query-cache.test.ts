@@ -27,6 +27,7 @@ const activeProject: ProjectListItem = {
 function todo(id: number, scope: "workspace" | "project", status: "unfinished" | "finished") {
   return {
     id,
+    revision: 1,
     scope,
     projectId: scope === "project" ? activeProject.id : null,
     content: `Todo ${id}`,

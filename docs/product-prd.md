@@ -2,9 +2,9 @@
 
 状态：当前正式基线
 
-更新时间：2026-09-28
+更新时间：2026-10-14
 
-代码基线：`develop` / `880aafb`
+代码依据：当前工作分支实现；产品验收状态见[未完成事项](remaining-work.md)。
 
 ## 1. 产品定位
 
@@ -76,6 +76,10 @@ Todo 支持：
 
 Project File 支持导入、搜索、Tag、重命名、标星、版本、打开所在位置、复制为新版本和删除。文件 Tag 使用统一的轻量推荐浮层，不在右键菜单中展开完整标签列表。
 
+项目目录中的文件可通过扫描纳管。File 使用稳定 ID；同项目内改名或移动保持身份，File Version 保存已登记的不可变字节。旧导入位置未核对时先通过文件位置入口确认，不以同名文件替代原材料。
+
+File 在项目内容页签中预览文本、代码、Markdown、图片、PDF 或静态 HTML，可切换源码和固定历史版本。引用携带 File ID、版本与 hash，历史查看不跟随最新版本。相关图片和样式只能按同项目授权读取，历史依赖缺失会明确显示限制。Office 编辑与可执行 HTML 仍是独立需求。
+
 ### 3.7 Voice Record
 
 Voice Record 当前主体能力包括：
@@ -87,6 +91,14 @@ Voice Record 当前主体能力包括：
 - 手动、周期和结束时会议纪要，以及 AI 标题和复制到正文。
 
 真实 Paraformer 断线恢复、macOS 集中设备验收和 Windows 完整闭环仍未完成，详见[未完成事项](remaining-work.md)。
+
+### 3.8 项目内容页签与助手
+
+每个 Project 独立维护 Record、File 和 Session 内容页签，可排序、移栏、双栏并排和恢复布局；窄窗临时只展示聚焦栏。关闭页签不删除业务对象，关闭会话展示不停止后台任务。同一对象重复打开定位到已有页签，版本和行/page 定位属于查看状态。
+
+Project 助手使用 DSH 原 Chat、Trajectory、输入框和插件组件，项目目录映射到实际 cwd。各 Project 和 Session 的任务可独立运行、停止与恢复；模型凭据由原生端管理，默认沿用通用模型，输入区可选择已有可用配置。DSH 设置使用同一运行时，没有第二份模型配置。
+
+工作区“助手”设置管理原生后台开关、执行模式和维护时间；它尚未控制 DSH 的全部工具行为。旧 Pi 的原生业务工具、CLI/MCP、Overview/知识/记忆后台服务仍保留，Project DSH 业务成果工具和 Workspace 聊天、知识/记忆界面尚待接线。
 
 ## 4. 页面与全局导航
 
@@ -100,7 +112,7 @@ Voice Record 当前主体能力包括：
 
 ## 5. 本地优先与数据边界
 
-- 业务主库为 `<workspace>/.project-mind/workspace.sqlite3`，当前 schema 为 v25。
+- 业务主库为 `<workspace>/.project-mind/workspace.sqlite3`，当前 schema 为 v37。
 - Project 对应 Workspace 根目录下的真实文件夹。
 - Workspace 自有资源使用相对路径持久化；机器相关绝对路径只允许存在于明确的外部来源字段和本地会话发现信息中。
 - Transcript 是不可编辑的语音事实来源；用户要修改时复制到 Record 正文。

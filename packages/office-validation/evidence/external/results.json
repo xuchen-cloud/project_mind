@@ -1,0 +1,2891 @@
+{
+  "issue": "#118/F03",
+  "started": "2026-10-13T12:39:39.985013+00:00",
+  "runtime": {
+    "python": "3.12.14",
+    "pypdf": "6.10.0",
+    "soffice": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+    "soffice_version": {
+      "returncode": 0,
+      "elapsed_ms": 292.557583999951,
+      "stdout": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5\n\n",
+      "stderr": "",
+      "timeout": false
+    }
+  },
+  "cases": [
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.original.docx",
+      "group": "sdk",
+      "id": "sdk--docx-simple-original-b41ac08b4c1e",
+      "started": "2026-10-13T12:39:40.279235+00:00",
+      "source_bytes": 37853,
+      "source_sha256_before": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/input/simple.original.docx",
+      "input_copy_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/input/simple.original.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 974.0995000001931,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/input/simple.original.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/pdf/simple.original.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/pdf/simple.original.pdf",
+      "pdf_bytes": 22647,
+      "pdf_sha256": "eadaf50150b822bf6f45cc143b65f328ad093bb4689963a169edad7a566c2147",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元",
+          "text_chars": 73,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "extractable_text_chars": 73,
+      "finished": "2026-10-13T12:39:41.258075+00:00",
+      "pypdf_text": "中中中中中中中中\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中中中\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+          "text_chars": 71,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 71,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-original-b41ac08b4c1e/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "product-noop",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-noop.docx",
+      "group": "sdk",
+      "id": "sdk--docx-simple-product-noop-73a32d38f0b0",
+      "started": "2026-10-13T12:39:41.258883+00:00",
+      "source_bytes": 21128,
+      "source_sha256_before": "73a32d38f0b0dd7be4083cf52e2ac2cc2b421b3381ba03d12fb86b46adc4a77d",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/input/simple.traditional.unit-noop.docx",
+      "input_copy_sha256": "73a32d38f0b0dd7be4083cf52e2ac2cc2b421b3381ba03d12fb86b46adc4a77d",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/input/simple.traditional.unit-noop.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 581.3631669998358,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/input/simple.traditional.unit-noop.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/pdf/simple.traditional.unit-noop.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "73a32d38f0b0dd7be4083cf52e2ac2cc2b421b3381ba03d12fb86b46adc4a77d",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/pdf/simple.traditional.unit-noop.pdf",
+      "pdf_bytes": 22541,
+      "pdf_sha256": "cfa308d97144f8f07040045fd8f8765afe2723f787766fbb330e3c4509e52ab3",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元",
+          "text_chars": 73,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "extractable_text_chars": 73,
+      "finished": "2026-10-13T12:39:41.843173+00:00",
+      "pypdf_text": "中中中中中中中中\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中中中\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+          "text_chars": 71,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 71,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-noop-73a32d38f0b0/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "product-edited",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-edited.docx",
+      "group": "sdk",
+      "id": "sdk--docx-simple-product-edited-de93f3914934",
+      "started": "2026-10-13T12:39:41.843978+00:00",
+      "source_bytes": 21128,
+      "source_sha256_before": "de93f391493438ee57bae4ce370798fa218262c8e3f7b874d1adba889c0580b2",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/input/simple.traditional.unit-edited.docx",
+      "input_copy_sha256": "de93f391493438ee57bae4ce370798fa218262c8e3f7b874d1adba889c0580b2",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/input/simple.traditional.unit-edited.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 567.8327499999796,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/input/simple.traditional.unit-edited.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/pdf/simple.traditional.unit-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "de93f391493438ee57bae4ce370798fa218262c8e3f7b874d1adba889c0580b2",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/pdf/simple.traditional.unit-edited.pdf",
+      "pdf_bytes": 22540,
+      "pdf_sha256": "716970e7b45562c1790cdc8a7b33b7fb502f57e804237a5db6bfdb366c7e687e",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n已改单元",
+          "text_chars": 73,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n已改单元\n\n\f",
+      "extractable_text_chars": 73,
+      "finished": "2026-10-13T12:39:42.414606+00:00",
+      "pypdf_text": "中中中中中中中中\n第第第 第第第第\n已已已已已已已已已已已已已\n未未未未未未未未未未未未未未未\n已已 已已\n已已 已已已已\n已已已已已已已已已",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中中中\n第第第 第第第第\n已已已已已已已已已已已已已\n未未未未未未未未未未未未未未未\n已已 已已\n已已 已已已已\n已已已已已已已已已",
+          "text_chars": 71,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 71,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-simple-product-edited-de93f3914934/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "complex",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.original.docx",
+      "group": "sdk",
+      "id": "sdk--docx-complex-original-7b9750877adf",
+      "started": "2026-10-13T12:39:42.415447+00:00",
+      "source_bytes": 40331,
+      "source_sha256_before": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/input/complex.original.docx",
+      "input_copy_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/input/complex.original.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 574.712334000651,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/input/complex.original.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/pdf/complex.original.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/pdf/complex.original.pdf",
+      "pdf_bytes": 26027,
+      "pdf_sha256": "8d3475655b549ef83befc90b63fa52577de885a4104a5a96182092db668e2b2e",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n待改单元",
+          "text_chars": 101,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚",
+          "text_chars": 50,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚",
+          "text_chars": 45,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n待改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "extractable_text_chars": 196,
+      "finished": "2026-10-13T12:39:42.996155+00:00",
+      "pypdf_text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n中中中中中中中中\n第第第 第第第第\n第第第第第第第第第第第第第\n未未未未未未未未未未未未未未未\n第第 第第\n第第 第第第第\n第第第第第第第第第\n\f\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第\n\f\n第第第第第第第第第第\n第第第第第第第第第第\n第第第 第第第第\n第第第第第第第第第第第第",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n中中中中中中中中\n第第第 第第第第\n第第第第第第第第第第第第第\n未未未未未未未未未未未未未未未\n第第 第第\n第第 第第第第\n第第第第第第第第第",
+          "text_chars": 97,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第",
+          "text_chars": 49,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第第第\n第第第第第第第第第第\n第第第 第第第第\n第第第第第第第第第第第第",
+          "text_chars": 43,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 189,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-original-7b9750877adf/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "complex",
+      "branch": "product-noop",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-noop.docx",
+      "group": "sdk",
+      "id": "sdk--docx-complex-product-noop-6eb65d9bfb60",
+      "started": "2026-10-13T12:39:42.996963+00:00",
+      "source_bytes": 23411,
+      "source_sha256_before": "6eb65d9bfb601d0c6be003914977125ca6c44ba3f88c238cb89146788c545404",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/input/complex.traditional.unit-noop.docx",
+      "input_copy_sha256": "6eb65d9bfb601d0c6be003914977125ca6c44ba3f88c238cb89146788c545404",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/input/complex.traditional.unit-noop.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 570.4242909996537,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/input/complex.traditional.unit-noop.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/pdf/complex.traditional.unit-noop.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "6eb65d9bfb601d0c6be003914977125ca6c44ba3f88c238cb89146788c545404",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/pdf/complex.traditional.unit-noop.pdf",
+      "pdf_bytes": 25921,
+      "pdf_sha256": "a5a070f1102efdccd8c614131691713fa9d71dc1653e0a2716486c7ae8644af0",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n待改单元",
+          "text_chars": 101,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚",
+          "text_chars": 50,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚",
+          "text_chars": 45,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n待改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "extractable_text_chars": 196,
+      "finished": "2026-10-13T12:39:43.573281+00:00",
+      "pypdf_text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n中中中中中中中中\n第第第 第第第第\n第第第第第第第第第第第第第\n未未未未未未未未未未未未未未未\n第第 第第\n第第 第第第第\n第第第第第第第第第\n\f\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第\n\f\n第第第第第第第第第第\n第第第第第第第第第第\n第第第 第第第第\n第第第第第第第第第第第第",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n中中中中中中中中\n第第第 第第第第\n第第第第第第第第第第第第第\n未未未未未未未未未未未未未未未\n第第 第第\n第第 第第第第\n第第第第第第第第第",
+          "text_chars": 97,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第",
+          "text_chars": 49,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第第第\n第第第第第第第第第第\n第第第 第第第第\n第第第第第第第第第第第第",
+          "text_chars": 43,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 189,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-noop-6eb65d9bfb60/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "complex",
+      "branch": "product-edited",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.docx",
+      "group": "sdk",
+      "id": "sdk--docx-complex-product-edited-dc51b2e6665b",
+      "started": "2026-10-13T12:39:43.574017+00:00",
+      "source_bytes": 23413,
+      "source_sha256_before": "dc51b2e6665b507e535010bfd90c8e34de815ff6cc33cf679e281ddfc3dcc86c",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/input/complex.traditional.unit-edited.docx",
+      "input_copy_sha256": "dc51b2e6665b507e535010bfd90c8e34de815ff6cc33cf679e281ddfc3dcc86c",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/input/complex.traditional.unit-edited.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 570.7092920001742,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/input/complex.traditional.unit-edited.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/pdf/complex.traditional.unit-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "dc51b2e6665b507e535010bfd90c8e34de815ff6cc33cf679e281ddfc3dcc86c",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/pdf/complex.traditional.unit-edited.pdf",
+      "pdf_bytes": 25922,
+      "pdf_sha256": "2d1ddb68338b2bb10296adef7f0880d67e6499e29022ec62f351f10d34f6afdb",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n已改单元",
+          "text_chars": 101,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚",
+          "text_chars": 50,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚",
+          "text_chars": 45,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n已改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "extractable_text_chars": 196,
+      "finished": "2026-10-13T12:39:44.150183+00:00",
+      "pypdf_text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n中中中中中中中中\n第第第 第第第第\n第第第第第第第第第第第第第\n未未未未未未未未未未未未未未未\n第第 第第\n第第 第第第第\n第第第第第第第第第\n\f\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第\n\f\n第第第第第第第第第第\n第第第第第第第第第第\n第第第 第第第第\n第第第第第第第第第第第第",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n中中中中中中中中\n第第第 第第第第\n第第第第第第第第第第第第第\n未未未未未未未未未未未未未未未\n第第 第第\n第第 第第第第\n第第第第第第第第第",
+          "text_chars": 97,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第第第\n第第第第第第第第第第",
+          "text_chars": 49,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第第第\n第第第第第第第第第第\n第第第 第第第第\n第第第第第第第第第第第第",
+          "text_chars": 43,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 189,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--docx-complex-product-edited-dc51b2e6665b/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.original.xlsx",
+      "group": "sdk",
+      "id": "sdk--xlsx-simple-original-4db4acbc9182",
+      "started": "2026-10-13T12:39:44.151133+00:00",
+      "source_bytes": 6188,
+      "source_sha256_before": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/input/simple.original.xlsx",
+      "input_copy_sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/input/simple.original.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 680.0763340006597,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/input/simple.original.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/pdf/simple.original.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/pdf/simple.original.pdf",
+      "pdf_bytes": 25480,
+      "pdf_sha256": "ba4b0b28647dc5c1441c3c3e2fb585273f89d0ac5d9b590f44df3f73a96a6193",
+      "pdf_pages": 2,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行",
+          "text_chars": 105,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "extractable_text_chars": 137,
+      "finished": "2026-10-13T12:39:44.834455+00:00",
+      "pypdf_text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹\n\f\n苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹",
+          "text_chars": 97,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 129,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-original-4db4acbc9182/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "product-noop",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.noop.xlsx",
+      "group": "sdk",
+      "id": "sdk--xlsx-simple-product-noop-ca067e8719bf",
+      "started": "2026-10-13T12:39:44.835233+00:00",
+      "source_bytes": 8210,
+      "source_sha256_before": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/input/simple.unit.noop.xlsx",
+      "input_copy_sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/input/simple.unit.noop.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 557.0045000004029,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/input/simple.unit.noop.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/pdf/simple.unit.noop.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/pdf/simple.unit.noop.pdf",
+      "pdf_bytes": 25485,
+      "pdf_sha256": "800233dacfd1f8aa37264deb3481feb8899f5496e6cae0a2868399b9d228bdf2",
+      "pdf_pages": 2,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行",
+          "text_chars": 105,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "extractable_text_chars": 137,
+      "finished": "2026-10-13T12:39:45.396093+00:00",
+      "pypdf_text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹\n\f\n苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹",
+          "text_chars": 97,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 129,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-noop-ca067e8719bf/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "product-edited",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.edited.xlsx",
+      "group": "sdk",
+      "id": "sdk--xlsx-simple-product-edited-2f92e856ac41",
+      "started": "2026-10-13T12:39:45.397002+00:00",
+      "source_bytes": 8221,
+      "source_sha256_before": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/input/simple.unit.edited.xlsx",
+      "input_copy_sha256": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/input/simple.unit.edited.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 557.9999159999716,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/input/simple.unit.edited.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/pdf/simple.unit.edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/pdf/simple.unit.edited.pdf",
+      "pdf_bytes": 25951,
+      "pdf_sha256": "405aac0e8bff3c295039ff78c8a2e5853f5f5c02f60af19f4cf2f03c93887a9f",
+      "pdf_pages": 2,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行",
+          "text_chars": 112,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "extractable_text_chars": 144,
+      "finished": "2026-10-13T12:39:45.958640+00:00",
+      "pypdf_text": "中中中中中中\n中中 中中 中中\n15.00 已已已\n已已 20.00 已已已\n已已 40.00\n30.00\n已已已已已 12.5%\n已已已已已已已\n已已已SDK已已已\n已已已已已已已已B3已\n已已已已\n已已已\n\f\n已已已已已已已已已已已已\n已已已 123.456\n已已已已 40",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中\n中中 中中 中中\n15.00 已已已\n已已 20.00 已已已\n已已 40.00\n30.00\n已已已已已 12.5%\n已已已已已已已\n已已已SDK已已已\n已已已已已已已已B3已\n已已已已\n已已已",
+          "text_chars": 104,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "已已已已已已已已已已已已\n已已已 123.456\n已已已已 40",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 136,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-simple-product-edited-2f92e856ac41/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "complex",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.original.xlsx",
+      "group": "sdk",
+      "id": "sdk--xlsx-complex-original-33966ea8ccc5",
+      "started": "2026-10-13T12:39:45.959386+00:00",
+      "source_bytes": 9106,
+      "source_sha256_before": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/input/complex.original.xlsx",
+      "input_copy_sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/input/complex.original.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 610.9721669999999,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/input/complex.original.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/pdf/complex.original.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/pdf/complex.original.pdf",
+      "pdf_bytes": 31369,
+      "pdf_sha256": "86e70e7422b4198c9bace082c1bb9ba68a4f963db076a0a33849c6a072cdbb55",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00",
+          "text_chars": 145,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n苹果\n\n梨子\n品名",
+          "text_chars": 60,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n苹果\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "extractable_text_chars": 237,
+      "finished": "2026-10-13T12:39:46.575910+00:00",
+      "pypdf_text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹\n苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n\n\f\n苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n\n\f\n苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹\n苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n",
+          "text_chars": 154,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n",
+          "text_chars": 56,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 242,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-original-33966ea8ccc5/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "complex",
+      "branch": "product-noop",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.noop.xlsx",
+      "group": "sdk",
+      "id": "sdk--xlsx-complex-product-noop-f2244224de11",
+      "started": "2026-10-13T12:39:46.576737+00:00",
+      "source_bytes": 11620,
+      "source_sha256_before": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/input/complex.unit.noop.xlsx",
+      "input_copy_sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/input/complex.unit.noop.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 600.7310000004509,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/input/complex.unit.noop.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/pdf/complex.unit.noop.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/pdf/complex.unit.noop.pdf",
+      "pdf_bytes": 31374,
+      "pdf_sha256": "0f611c2c8abf493911efa94e9f766b4555b081b6004454d5837f8e1afa6e39f4",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00",
+          "text_chars": 145,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n苹果\n\n梨子\n品名",
+          "text_chars": 60,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n苹果\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n苹果\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "extractable_text_chars": 237,
+      "finished": "2026-10-13T12:39:47.183343+00:00",
+      "pypdf_text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹\n苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n\n\f\n苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n\n\f\n苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中\n中中 中中 中中\n苹苹 10.00 苹苹苹\n苹苹 20.00 苹苹苹\n苹苹 30.00\n20.00\n苹苹苹苹苹 12.5%\n苹苹苹苹苹苹苹\n苹苹苹苹苹苹苹苹B3苹\n苹苹苹苹\n苹苹苹\n苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n",
+          "text_chars": 154,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "苹苹 苹苹\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n苹苹\n中中\n中中\n",
+          "text_chars": 56,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "苹苹苹苹苹苹苹苹苹苹苹苹\n苹苹苹 123.456\n苹苹苹苹 30",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 242,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-noop-f2244224de11/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "complex",
+      "branch": "product-edited",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.edited.xlsx",
+      "group": "sdk",
+      "id": "sdk--xlsx-complex-product-edited-9f956d2073a4",
+      "started": "2026-10-13T12:39:47.184527+00:00",
+      "source_bytes": 11642,
+      "source_sha256_before": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/input/complex.unit.edited.xlsx",
+      "input_copy_sha256": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/input/complex.unit.edited.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 595.7183330001499,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/input/complex.unit.edited.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/pdf/complex.unit.edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/pdf/complex.unit.edited.pdf",
+      "pdf_bytes": 31986,
+      "pdf_sha256": "11b8e930d4572a1f18e7565905f9c999a0da4ab5ed3b57cd00f2a8029a3c7f92",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉",
+          "text_chars": 156,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名",
+          "text_chars": 69,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "中文销售统计\n品名\n\n金额\n\n状态\n\n香蕉（SDK编辑）\n梨子\n合计\n\n15.00 已完成\n20.00 待处理\n40.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n30.00\n12.5%\n\n25.00\n20.00\n\n保留中文及换行\n\n金额\n\n原样保留\n第二行\n\n15.00\n10.00\n5.00\n0.00\n\n香蕉\n\n\f未编辑金额图\n25.00\n20.00\n\n金额\n\n15.00\n金额\n\n10.00\n5.00\n0.00\n\n香蕉（ SDK 编辑）\n\n梨子\n品名\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n40\n跨表合计\n\n\f",
+      "extractable_text_chars": 257,
+      "finished": "2026-10-13T12:39:47.786534+00:00",
+      "pypdf_text": "中中中中中中\n中中 中中 中中\n15.00 已已已\n已已 20.00 已已已\n已已 40.00\n30.00\n已已已已已 12.5%\n已已已已已已已\n已已已SDK已已已\n已已已已已已已已B3已\n已已已已\n已已已\n已已已 SDK 已已已 已已\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n已已\n中中\n中中\n\n\f\n已已已 SDK 已已已 已已\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n已已\n中中\n中中\n\n\f\n已已已已已已已已已已已已\n已已已 123.456\n已已已已 40",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "中中中中中中\n中中 中中 中中\n15.00 已已已\n已已 20.00 已已已\n已已 40.00\n30.00\n已已已已已 12.5%\n已已已已已已已\n已已已SDK已已已\n已已已已已已已已B3已\n已已已已\n已已已\n已已已 SDK 已已已 已已\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n已已\n中中\n中中\n",
+          "text_chars": 170,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "已已已 SDK 已已已 已已\n0.00\n5.00\n10.00\n15.00\n20.00\n25.00\n中中中中中中\n已已\n中中\n中中\n",
+          "text_chars": 65,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 3,
+          "text": "已已已已已已已已已已已已\n已已已 123.456\n已已已已 40",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 267,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--xlsx-complex-product-edited-9f956d2073a4/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.original.pptx",
+      "group": "sdk",
+      "id": "sdk--pptx-simple-original-0ba04d437657",
+      "started": "2026-10-13T12:39:47.787587+00:00",
+      "source_bytes": 31879,
+      "source_sha256_before": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/input/simple.original.pptx",
+      "input_copy_sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/input/simple.original.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 701.1539579998498,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/input/simple.original.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/pdf/simple.original.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/pdf/simple.original.pdf",
+      "pdf_bytes": 23353,
+      "pdf_sha256": "17813e70039d659449635ee293295a8a1a0efad17a2d8e3f7576ce3a3b8f91f2",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 48,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "extractable_text_chars": 122,
+      "finished": "2026-10-13T12:39:48.492980+00:00",
+      "pypdf_text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 46,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 118,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-original-0ba04d437657/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "product-noop",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.product-unchanged.pptx",
+      "group": "sdk",
+      "id": "sdk--pptx-simple-product-noop-0190e54ea45f",
+      "started": "2026-10-13T12:39:48.494059+00:00",
+      "source_bytes": 25552,
+      "source_sha256_before": "0190e54ea45f17551cc0bd7f8ffb2b2060f2c5d714fd32c4f67662ba130bd157",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/input/simple.product-unchanged.pptx",
+      "input_copy_sha256": "0190e54ea45f17551cc0bd7f8ffb2b2060f2c5d714fd32c4f67662ba130bd157",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/input/simple.product-unchanged.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 579.8111249996509,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/input/simple.product-unchanged.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/pdf/simple.product-unchanged.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "0190e54ea45f17551cc0bd7f8ffb2b2060f2c5d714fd32c4f67662ba130bd157",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/pdf/simple.product-unchanged.pdf",
+      "pdf_bytes": 23962,
+      "pdf_sha256": "9da310f8d31784f1f7c863bf57496e52ddd7c0296bf0ab53029fb530cbd5632f",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 48,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "extractable_text_chars": 122,
+      "finished": "2026-10-13T12:39:49.078128+00:00",
+      "pypdf_text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 46,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 118,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-noop-0190e54ea45f/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "product-edited",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.edited.pptx",
+      "group": "sdk",
+      "id": "sdk--pptx-simple-product-edited-fd2cb8000797",
+      "started": "2026-10-13T12:39:49.079336+00:00",
+      "source_bytes": 25551,
+      "source_sha256_before": "fd2cb8000797014fdadf64ddcd682ab984b4d3efe8f04ea82abdbd306013d19a",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/input/simple.edited.pptx",
+      "input_copy_sha256": "fd2cb8000797014fdadf64ddcd682ab984b4d3efe8f04ea82abdbd306013d19a",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/input/simple.edited.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 581.8075839997618,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/input/simple.edited.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/pdf/simple.edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "fd2cb8000797014fdadf64ddcd682ab984b4d3efe8f04ea82abdbd306013d19a",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/pdf/simple.edited.pdf",
+      "pdf_bytes": 23964,
+      "pdf_sha256": "82946a931d8c8622ace4f19bd78a5ecbc7b601ada07866c75b51d1f38ce786b2",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 48,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "extractable_text_chars": 122,
+      "finished": "2026-10-13T12:39:49.665232+00:00",
+      "pypdf_text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 46,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 118,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-simple-product-edited-fd2cb8000797/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "complex",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.original.pptx",
+      "group": "sdk",
+      "id": "sdk--pptx-complex-original-dd650366d8e7",
+      "started": "2026-10-13T12:39:49.666551+00:00",
+      "source_bytes": 45538,
+      "source_sha256_before": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/input/complex.original.pptx",
+      "input_copy_sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/input/complex.original.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 693.3123750004597,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/input/complex.original.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/pdf/complex.original.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/pdf/complex.original.pdf",
+      "pdf_bytes": 44516,
+      "pdf_sha256": "6e783e5267391a6e08971f7c30b12cd594b435099e64c52e7c4c18cc1860839a",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 48,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2",
+          "text_chars": 76,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月",
+          "text_chars": 73,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n业务数量\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月\n\n\f",
+      "extractable_text_chars": 197,
+      "finished": "2026-10-13T12:39:50.365822+00:00",
+      "pypdf_text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n事事 事事 事事\n事事事事 12 事事\n事事事事 24 事事\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3\n一一 一一 一一\n0\n5\n10\n15\n20\n25\n30\n业业业业",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 46,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n事事 事事 事事\n事事事事 12 事事\n事事事事 24 事事",
+          "text_chars": 67,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3\n一一 一一 一一\n0\n5\n10\n15\n20\n25\n30\n业业业业",
+          "text_chars": 69,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 182,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-original-dd650366d8e7/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "complex",
+      "branch": "product-noop",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.product-unchanged.pptx",
+      "group": "sdk",
+      "id": "sdk--pptx-complex-product-noop-e3fc94f2797c",
+      "started": "2026-10-13T12:39:50.367031+00:00",
+      "source_bytes": 30842,
+      "source_sha256_before": "e3fc94f2797c889daeb074cfaaf7075d14e4a60b78fa4703f82e0e2b8251c756",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/input/complex.product-unchanged.pptx",
+      "input_copy_sha256": "e3fc94f2797c889daeb074cfaaf7075d14e4a60b78fa4703f82e0e2b8251c756",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/input/complex.product-unchanged.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 649.6962920000442,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/input/complex.product-unchanged.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/pdf/complex.product-unchanged.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "e3fc94f2797c889daeb074cfaaf7075d14e4a60b78fa4703f82e0e2b8251c756",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/pdf/complex.product-unchanged.pdf",
+      "pdf_bytes": 44438,
+      "pdf_sha256": "deeda39410657143d8a16c109f2b8f672a30e851b6eeff06bf4e75809e89a1f5",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 48,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2",
+          "text_chars": 76,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月",
+          "text_chars": 68,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月\n\n\f",
+      "extractable_text_chars": 192,
+      "finished": "2026-10-13T12:39:51.023100+00:00",
+      "pypdf_text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n事事 事事 事事\n中中中中 12 中中\n中中中中 24 中中\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3\n一一 一一 一一\n0\n5\n10\n15\n20\n25\n30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 46,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n事事 事事 事事\n中中中中 12 中中\n中中中中 24 中中",
+          "text_chars": 67,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3\n一一 一一 一一\n0\n5\n10\n15\n20\n25\n30",
+          "text_chars": 64,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 177,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-noop-e3fc94f2797c/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "complex",
+      "branch": "product-edited",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.edited.pptx",
+      "group": "sdk",
+      "id": "sdk--pptx-complex-product-edited-aab8203b4953",
+      "started": "2026-10-13T12:39:51.024436+00:00",
+      "source_bytes": 30840,
+      "source_sha256_before": "aab8203b4953cd6524b3e36f2a688276287f0b5577ae22eedf97b63fbb9967cd",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/input/complex.edited.pptx",
+      "input_copy_sha256": "aab8203b4953cd6524b3e36f2a688276287f0b5577ae22eedf97b63fbb9967cd",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/input/complex.edited.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 626.5373750002254,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/input/complex.edited.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/pdf/complex.edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "aab8203b4953cd6524b3e36f2a688276287f0b5577ae22eedf97b63fbb9967cd",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/pdf/complex.edited.pdf",
+      "pdf_bytes": 44440,
+      "pdf_sha256": "fa341f1264ceaa78dc4faea240dd610ecf84ca449ce3dd2807631be4d229cd51",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 48,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2",
+          "text_chars": 76,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月",
+          "text_chars": 68,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "第一页：项目概况\n项目进展更新\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n事项\n\n数量\n\n状态\n\n中文资料\n\n12\n\n保留\n\n图表验证\n\n24\n\n完成\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n30\n25\n20\n15\n10\n5\n0\n\n固定页序标识： PAGE-3\n\n一月\n\n二月\n\n三月\n\n\f",
+      "extractable_text_chars": 192,
+      "finished": "2026-10-13T12:39:51.657218+00:00",
+      "pypdf_text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n事事 事事 事事\n中中中中 12 中中\n中中中中 24 中中\n\f\n第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3\n一一 一一 一一\n0\n5\n10\n15\n20\n25\n30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "第第第第第第第第\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 46,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n事事 事事 事事\n中中中中 12 中中\n中中中中 24 中中",
+          "text_chars": 67,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第第第第第第第第\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3\n一一 一一 一一\n0\n5\n10\n15\n20\n25\n30",
+          "text_chars": 64,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 177,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/sdk--pptx-complex-product-edited-aab8203b4953/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "chromium",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/docx.browser-edited.docx",
+      "group": "browser",
+      "id": "browser-chromium-docx-simple-browser-edited-cd29128ac697",
+      "started": "2026-10-13T12:39:51.658496+00:00",
+      "source_bytes": 19203,
+      "source_sha256_before": "cd29128ac69720341300be5186e87082b6f19c0e6eae46e8b1aa3d1f2ab60ec8",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/input/docx.browser-edited.docx",
+      "input_copy_sha256": "cd29128ac69720341300be5186e87082b6f19c0e6eae46e8b1aa3d1f2ab60ec8",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/input/docx.browser-edited.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 545.532041000115,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/input/docx.browser-edited.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/pdf/docx.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "cd29128ac69720341300be5186e87082b6f19c0e6eae46e8b1aa3d1f2ab60ec8",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/pdf/docx.browser-edited.pdf",
+      "pdf_bytes": 21542,
+      "pdf_sha256": "81aa2d9b55673e7d11249c29cb937a8685b20a983990d1f6ae06dc2271e2f620",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n图片后未修改段落。\n\n状态\n待改单元",
+          "text_chars": 78,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "extractable_text_chars": 78,
+      "finished": "2026-10-13T12:39:52.206973+00:00",
+      "pypdf_text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+          "text_chars": 77,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 77,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-cd29128ac697/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "chromium",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/pptx.browser-edited.pptx",
+      "group": "browser",
+      "id": "browser-chromium-pptx-simple-browser-edited-eed68faccffc",
+      "started": "2026-10-13T12:39:52.208212+00:00",
+      "source_bytes": 25545,
+      "source_sha256_before": "eed68faccffc5ee97cc61f4f129245652df299858fd0047a67837741a4081dec",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/input/pptx.browser-edited.pptx",
+      "input_copy_sha256": "eed68faccffc5ee97cc61f4f129245652df299858fd0047a67837741a4081dec",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/input/pptx.browser-edited.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 589.1582920003202,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/input/pptx.browser-edited.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/pdf/pptx.browser-edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "eed68faccffc5ee97cc61f4f129245652df299858fd0047a67837741a4081dec",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/pdf/pptx.browser-edited.pdf",
+      "pdf_bytes": 23944,
+      "pdf_sha256": "49c4d6fc2c5d08236b9eb407e7586501666e592394c887a5724f912e31d187f2",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 45,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "浏览器编辑\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "extractable_text_chars": 119,
+      "finished": "2026-10-13T12:39:52.801040+00:00",
+      "pypdf_text": "浏浏浏浏浏\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n\f\n浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 43,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 115,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-pptx-simple-browser-edited-eed68faccffc/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "chromium",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/xlsx.browser-edited.xlsx",
+      "group": "browser",
+      "id": "browser-chromium-xlsx-simple-browser-edited-870b5ea14949",
+      "started": "2026-10-13T12:39:52.802509+00:00",
+      "source_bytes": 8234,
+      "source_sha256_before": "870b5ea14949a8260e06a8119105922ecdfb0c50b52c8f4186771fdacf7aa032",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/input/xlsx.browser-edited.xlsx",
+      "input_copy_sha256": "870b5ea14949a8260e06a8119105922ecdfb0c50b52c8f4186771fdacf7aa032",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/input/xlsx.browser-edited.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 560.1369169999089,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/input/xlsx.browser-edited.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/pdf/xlsx.browser-edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "870b5ea14949a8260e06a8119105922ecdfb0c50b52c8f4186771fdacf7aa032",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/pdf/xlsx.browser-edited.pdf",
+      "pdf_bytes": 25507,
+      "pdf_sha256": "e86dccd9ae439ef88fcf3fdb7e01abfe1476177508fac0702097b58f01cdb1e9",
+      "pdf_pages": 2,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑\n品名\n\n金额\n\n状态\n\n键盘中文编辑\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行",
+          "text_chars": 108,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "浏览器编辑\n品名\n\n金额\n\n状态\n\n键盘中文编辑\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "extractable_text_chars": 140,
+      "finished": "2026-10-13T12:39:53.365908+00:00",
+      "pypdf_text": "浏浏浏浏浏\n浏浏 浏浏 浏浏\n键键键键键键 10.00 键键键\n键键 20.00 键键键\n键键 30.00\n20.00\n键键键键键 12.5%\n键键键键键键键\n键键键键键键键键B3键\n键键键键\n键键键\n\f\n键键键键键键键键键键键键\n键键键 123.456\n键键键键 30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏\n浏浏 浏浏 浏浏\n键键键键键键 10.00 键键键\n键键 20.00 键键键\n键键 30.00\n20.00\n键键键键键 12.5%\n键键键键键键键\n键键键键键键键键B3键\n键键键键\n键键键",
+          "text_chars": 100,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "键键键键键键键键键键键键\n键键键 123.456\n键键键键 30",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 132,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-xlsx-simple-browser-edited-870b5ea14949/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "webkit",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/docx.browser-edited.docx",
+      "group": "browser",
+      "id": "browser-webkit-docx-simple-browser-edited-983a5dfc2f3c",
+      "started": "2026-10-13T12:39:53.367342+00:00",
+      "source_bytes": 19203,
+      "source_sha256_before": "983a5dfc2f3c9403f00a1c147a252b6008a76d7410f3fa52d228d7aeea57ef39",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/input/docx.browser-edited.docx",
+      "input_copy_sha256": "983a5dfc2f3c9403f00a1c147a252b6008a76d7410f3fa52d228d7aeea57ef39",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/input/docx.browser-edited.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 537.4332920000597,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/input/docx.browser-edited.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/pdf/docx.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "983a5dfc2f3c9403f00a1c147a252b6008a76d7410f3fa52d228d7aeea57ef39",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/pdf/docx.browser-edited.pdf",
+      "pdf_bytes": 21542,
+      "pdf_sha256": "293fac6d6dcd9a397e1a4348bc0e4ca7b1c7c9359f4e07fd6f6f9e63d503def8",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n图片后未修改段落。\n\n状态\n待改单元",
+          "text_chars": 78,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "extractable_text_chars": 78,
+      "finished": "2026-10-13T12:39:53.907888+00:00",
+      "pypdf_text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+          "text_chars": 77,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 77,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-983a5dfc2f3c/text-poppler.txt"
+    },
+    {
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "webkit",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/pptx.browser-edited.pptx",
+      "group": "browser",
+      "id": "browser-webkit-pptx-simple-browser-edited-499708ded86d",
+      "started": "2026-10-13T12:39:53.909207+00:00",
+      "source_bytes": 25545,
+      "source_sha256_before": "499708ded86d14d43ca907be50ea3737214a90ac8d630691a74a5318691ed86a",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/input/pptx.browser-edited.pptx",
+      "input_copy_sha256": "499708ded86d14d43ca907be50ea3737214a90ac8d630691a74a5318691ed86a",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/input/pptx.browser-edited.pptx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 590.4446249996909,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/input/pptx.browser-edited.pptx as a Impress document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/pdf/pptx.browser-edited.pdf using filter : impress_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "499708ded86d14d43ca907be50ea3737214a90ac8d630691a74a5318691ed86a",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/pdf/pptx.browser-edited.pdf",
+      "pdf_bytes": 23944,
+      "pdf_sha256": "3f1f80f760d82e11285990c45fa8c7568029fdc4af641f505b49df6425faa425",
+      "pdf_pages": 3,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1",
+          "text_chars": 45,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3",
+          "text_chars": 37,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "text": "浏览器编辑\n项目进展正常\n\n未编辑图片说明：黄方块与白圆。\n\n固定页序标识： PAGE-1\n\n\f第二页：数据保留\n未编辑中文：第二页原文。\n\n固定页序标识： PAGE-2\n\n\f第三页：收尾记录\n未编辑中文：第三页原文。\n\n固定页序标识： PAGE-3\n\n\f",
+      "extractable_text_chars": 119,
+      "finished": "2026-10-13T12:39:54.503543+00:00",
+      "pypdf_text": "浏浏浏浏浏\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项\n\f\n浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2\n\f\n浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏\n项项项项项项\n固固固固固固固 PAGE-1\n项项项项项项项项项项项项项项项",
+          "text_chars": 43,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 2,
+          "text": "浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-2",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        },
+        {
+          "page": 3,
+          "text": "浏浏浏浏浏浏浏浏\n项项项项项项项项项项项项\n固固固固固固固 PAGE-3",
+          "text_chars": 36,
+          "width_points": 959.981102362205,
+          "height_points": 540.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 115,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-pptx-simple-browser-edited-499708ded86d/text-poppler.txt"
+    },
+    {
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "webkit",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/xlsx.browser-edited.xlsx",
+      "group": "browser",
+      "id": "browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6",
+      "started": "2026-10-13T12:39:54.504822+00:00",
+      "source_bytes": 8234,
+      "source_sha256_before": "59a1c938eaf64c49dde093686739c2a59652d5d721a72cbe956690487bd24e4c",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/input/xlsx.browser-edited.xlsx",
+      "input_copy_sha256": "59a1c938eaf64c49dde093686739c2a59652d5d721a72cbe956690487bd24e4c",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/input/xlsx.browser-edited.xlsx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 560.6283329998405,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/input/xlsx.browser-edited.xlsx as a Calc document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/pdf/xlsx.browser-edited.pdf using filter : calc_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "59a1c938eaf64c49dde093686739c2a59652d5d721a72cbe956690487bd24e4c",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/pdf/xlsx.browser-edited.pdf",
+      "pdf_bytes": 25507,
+      "pdf_sha256": "ef75b12df8c7b1bbb5445ae2d8a71e79c7f1cbcd7d6578049d874084a7e9b3ed",
+      "pdf_pages": 2,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑\n品名\n\n金额\n\n状态\n\n键盘中文编辑\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行",
+          "text_chars": 108,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "text": "浏览器编辑\n品名\n\n金额\n\n状态\n\n键盘中文编辑\n梨子\n合计\n\n10.00 已完成\n20.00 待处理\n30.00\n\n未编辑公式（依赖B3）\n保留百分比\n\n20.00\n12.5%\n\n保留中文及换行\n\n原样保留\n第二行\n\n\f未编辑工作表：请保留中文\n123.456\n固定值\n30\n跨表合计\n\n\f",
+      "extractable_text_chars": 140,
+      "finished": "2026-10-13T12:39:55.068798+00:00",
+      "pypdf_text": "浏浏浏浏浏\n浏浏 浏浏 浏浏\n键键键键键键 10.00 键键键\n键键 20.00 键键键\n键键 30.00\n20.00\n键键键键键 12.5%\n键键键键键键键\n键键键键键键键键B3键\n键键键键\n键键键\n\f\n键键键键键键键键键键键键\n键键键 123.456\n键键键键 30",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏\n浏浏 浏浏 浏浏\n键键键键键键 10.00 键键键\n键键 20.00 键键键\n键键 30.00\n20.00\n键键键键键 12.5%\n键键键键键键键\n键键键键键键键键B3键\n键键键键\n键键键",
+          "text_chars": 100,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        },
+        {
+          "page": 2,
+          "text": "键键键键键键键键键键键键\n键键键 123.456\n键键键键 30",
+          "text_chars": 32,
+          "width_points": 595.303937007874,
+          "height_points": 841.889763779528
+        }
+      ],
+      "pypdf_extractable_text_chars": 132,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-xlsx-simple-browser-edited-59a1c938eaf6/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "chromium",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/docx.browser-edited.docx",
+      "group": "browser",
+      "id": "browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3",
+      "started": "2026-10-13T12:45:39.973144+00:00",
+      "source_bytes": 20160,
+      "source_sha256_before": "7b4b0ee2d3b3ca97cc38890c5b5997605578047800fc5ebfc66b1cde696ff4c1",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/input/docx.browser-edited.docx",
+      "input_copy_sha256": "7b4b0ee2d3b3ca97cc38890c5b5997605578047800fc5ebfc66b1cde696ff4c1",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/input/docx.browser-edited.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 953.783250000015,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/input/docx.browser-edited.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/pdf/docx.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "7b4b0ee2d3b3ca97cc38890c5b5997605578047800fc5ebfc66b1cde696ff4c1",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/pdf/docx.browser-edited.pdf",
+      "pdf_bytes": 22593,
+      "pdf_sha256": "553788b21b45b81ea9bec71f1b3cca468e8204d9d7781ed8a5f2eb4a34e3018e",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元",
+          "text_chars": 79,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "extractable_text_chars": 79,
+      "finished": "2026-10-13T12:45:40.931864+00:00",
+      "pypdf_text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+          "text_chars": 77,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 77,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/text-poppler.txt"
+    },
+    {
+      "format": "docx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "engine": "webkit",
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/docx.browser-edited.docx",
+      "group": "browser",
+      "id": "browser-webkit-docx-simple-browser-edited-c70e728760d0",
+      "started": "2026-10-13T12:45:40.935045+00:00",
+      "source_bytes": 20160,
+      "source_sha256_before": "c70e728760d0b7aaa38b888948287ee2e825600bd3f890fd34943d20cd7ab780",
+      "input_copy": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/input/docx.browser-edited.docx",
+      "input_copy_sha256": "c70e728760d0b7aaa38b888948287ee2e825600bd3f890fd34943d20cd7ab780",
+      "status": "reopened",
+      "command": [
+        "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        "-env:UserInstallation=file:///private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/profile",
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--norestore",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/pdf",
+        "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/input/docx.browser-edited.docx"
+      ],
+      "conversion": {
+        "returncode": 0,
+        "elapsed_ms": 581.621415999507,
+        "stdout": "convert /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/input/docx.browser-edited.docx as a Writer document -> /private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/pdf/docx.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n",
+        "timeout": false
+      },
+      "source_sha256_after": "c70e728760d0b7aaa38b888948287ee2e825600bd3f890fd34943d20cd7ab780",
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/pdf/docx.browser-edited.pdf",
+      "pdf_bytes": 22593,
+      "pdf_sha256": "1894b298c13d1ff9672a860c8d42acd53b71d8e7066c41aed61a6de5a4050e0b",
+      "pdf_pages": 1,
+      "pages": [
+        {
+          "page": 1,
+          "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元",
+          "text_chars": 79,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "extractable_text_chars": 79,
+      "finished": "2026-10-13T12:45:41.520174+00:00",
+      "pypdf_text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+      "pypdf_pages": [
+        {
+          "page": 1,
+          "text": "浏浏浏浏浏浏浏浏浏浏浏浏浏浏\n第第第 第第第第\n待待待待待待待待待待待待待\n未未未未未未未未未未未未未未未\n待待 待待\n待待 待待待待\n待待待待待待待待待",
+          "text_chars": 77,
+          "width_points": 612.0,
+          "height_points": 792.0
+        }
+      ],
+      "pypdf_extractable_text_chars": 77,
+      "primary_text_extractor": "Poppler pdftotext 26.05.0",
+      "poppler_text_file": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/text-poppler.txt"
+    }
+  ],
+  "scope": "18 existing SDK files; current/late browser chromium/webkit outputs. Conversion to PDF is external reopen evidence, not fidelity proof.",
+  "comparisons": [
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-noop.docx",
+      "source_sha256": "73a32d38f0b0dd7be4083cf52e2ac2cc2b421b3381ba03d12fb86b46adc4a77d",
+      "group": "sdk",
+      "engine": null,
+      "format": "docx",
+      "sample": "simple",
+      "branch": "product-noop",
+      "original_pages": 1,
+      "candidate_pages": 1,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-edited.docx",
+      "source_sha256": "de93f391493438ee57bae4ce370798fa218262c8e3f7b874d1adba889c0580b2",
+      "group": "sdk",
+      "engine": null,
+      "format": "docx",
+      "sample": "simple",
+      "branch": "product-edited",
+      "original_pages": 1,
+      "candidate_pages": 1,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-noop.docx",
+      "source_sha256": "6eb65d9bfb601d0c6be003914977125ca6c44ba3f88c238cb89146788c545404",
+      "group": "sdk",
+      "engine": null,
+      "format": "docx",
+      "sample": "complex",
+      "branch": "product-noop",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.docx",
+      "source_sha256": "dc51b2e6665b507e535010bfd90c8e34de815ff6cc33cf679e281ddfc3dcc86c",
+      "group": "sdk",
+      "engine": null,
+      "format": "docx",
+      "sample": "complex",
+      "branch": "product-edited",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.noop.xlsx",
+      "source_sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c",
+      "group": "sdk",
+      "engine": null,
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "product-noop",
+      "original_pages": 2,
+      "candidate_pages": 2,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.edited.xlsx",
+      "source_sha256": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f",
+      "group": "sdk",
+      "engine": null,
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "product-edited",
+      "original_pages": 2,
+      "candidate_pages": 2,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.noop.xlsx",
+      "source_sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223",
+      "group": "sdk",
+      "engine": null,
+      "format": "xlsx",
+      "sample": "complex",
+      "branch": "product-noop",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.edited.xlsx",
+      "source_sha256": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a",
+      "group": "sdk",
+      "engine": null,
+      "format": "xlsx",
+      "sample": "complex",
+      "branch": "product-edited",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.product-unchanged.pptx",
+      "source_sha256": "0190e54ea45f17551cc0bd7f8ffb2b2060f2c5d714fd32c4f67662ba130bd157",
+      "group": "sdk",
+      "engine": null,
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "product-noop",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": true,
+      "whole_text_equal_ignoring_whitespace": true,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/simple.edited.pptx",
+      "source_sha256": "fd2cb8000797014fdadf64ddcd682ab984b4d3efe8f04ea82abdbd306013d19a",
+      "group": "sdk",
+      "engine": null,
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "product-edited",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.product-unchanged.pptx",
+      "source_sha256": "e3fc94f2797c889daeb074cfaaf7075d14e4a60b78fa4703f82e0e2b8251c756",
+      "group": "sdk",
+      "engine": null,
+      "format": "pptx",
+      "sample": "complex",
+      "branch": "product-noop",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/pptx/complex.edited.pptx",
+      "source_sha256": "aab8203b4953cd6524b3e36f2a688276287f0b5577ae22eedf97b63fbb9967cd",
+      "group": "sdk",
+      "engine": null,
+      "format": "pptx",
+      "sample": "complex",
+      "branch": "product-edited",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/docx.browser-edited.docx",
+      "source_sha256": "7b4b0ee2d3b3ca97cc38890c5b5997605578047800fc5ebfc66b1cde696ff4c1",
+      "group": "browser",
+      "engine": "chromium",
+      "format": "docx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "original_pages": 1,
+      "candidate_pages": 1,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/pptx.browser-edited.pptx",
+      "source_sha256": "eed68faccffc5ee97cc61f4f129245652df299858fd0047a67837741a4081dec",
+      "group": "browser",
+      "engine": "chromium",
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/chromium/xlsx.browser-edited.xlsx",
+      "source_sha256": "870b5ea14949a8260e06a8119105922ecdfb0c50b52c8f4186771fdacf7aa032",
+      "group": "browser",
+      "engine": "chromium",
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "original_pages": 2,
+      "candidate_pages": 2,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/docx.browser-edited.docx",
+      "source_sha256": "c70e728760d0b7aaa38b888948287ee2e825600bd3f890fd34943d20cd7ab780",
+      "group": "browser",
+      "engine": "webkit",
+      "format": "docx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "original_pages": 1,
+      "candidate_pages": 1,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/pptx.browser-edited.pptx",
+      "source_sha256": "499708ded86d14d43ca907be50ea3737214a90ac8d630691a74a5318691ed86a",
+      "group": "browser",
+      "engine": "webkit",
+      "format": "pptx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "original_pages": 3,
+      "candidate_pages": 3,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ],
+        [
+          959.981102362205,
+          540.0
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    },
+    {
+      "source": "/private/tmp/project-mind-univer-validation-20261013/browser/output/webkit/xlsx.browser-edited.xlsx",
+      "source_sha256": "59a1c938eaf64c49dde093686739c2a59652d5d721a72cbe956690487bd24e4c",
+      "group": "browser",
+      "engine": "webkit",
+      "format": "xlsx",
+      "sample": "simple",
+      "branch": "browser-edited",
+      "original_pages": 2,
+      "candidate_pages": 2,
+      "page_count_equal": true,
+      "original_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "candidate_page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "page_text_equal_ignoring_whitespace": false,
+      "whole_text_equal_ignoring_whitespace": false,
+      "note": "Edited text is expected to differ; equal text/page count does not prove layout/image/formula fidelity."
+    }
+  ],
+  "pending_browser_formats": {
+    "chromium": [],
+    "webkit": []
+  },
+  "finished": "2026-10-13T12:46:28.694531+00:00",
+  "text_extraction_note": "Initial pypdf text exposed repeated Chinese glyphs; Poppler extracts correct source Chinese. Primary page/text comparisons now use Poppler; raw pypdf data preserved per case. Neither extractor proves visible font fidelity."
+}

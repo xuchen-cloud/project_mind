@@ -1,13 +1,17 @@
 import {
   Contact,
+  Cable,
   Pencil,
-  Mic,
   RefreshCw,
   Settings2,
   Sparkles,
   StretchHorizontal,
+  BookOpen,
+  Mic,
+  Bot,
+  MessagesSquare,
 } from "lucide-react";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import type { SettingsSection } from "../../state/ui-store";
@@ -16,11 +20,23 @@ import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
 
+const SkillsPanel = lazy(() =>
+  import("./SkillsPanel").then((module) => ({ default: module.SkillsPanel })),
+);
 const AiSettingsPanel = lazy(() =>
   import("./AiSettingsPanel").then((module) => ({ default: module.AiSettingsPanel })),
 );
+const AgentSettingsPanel = lazy(() =>
+  import("./AgentSettingsPanel").then((module) => ({ default: module.AgentSettingsPanel })),
+);
+const DshSettingsPanel = lazy(() =>
+  import("./DshSettingsPanel").then((module) => ({ default: module.DshSettingsPanel })),
+);
 const ContactSettingsPanel = lazy(() =>
   import("./ContactSettingsPanel").then((module) => ({ default: module.ContactSettingsPanel })),
+);
+const ExternalConnectionsPanel = lazy(() =>
+  import("./ExternalConnectionsPanel").then((module) => ({ default: module.ExternalConnectionsPanel })),
 );
 const RichTextStylePanel = lazy(() =>
   import("./RichTextStylePanel").then((module) => ({ default: module.RichTextStylePanel })),
@@ -43,7 +59,7 @@ interface SettingsDialogProps {
 const SETTINGS_SECTIONS: Array<{
   value: SettingsSection;
   label: string;
-  icon: typeof Settings2;
+  icon: ComponentType<{ size?: number; className?: string }>;
 }> = [
   {
     value: "page-width",
@@ -70,10 +86,18 @@ const SETTINGS_SECTIONS: Array<{
     label: "AI 模型配置",
     icon: Settings2,
   },
+  { value: "skills", label: "Skills", icon: BookOpen },
+  { value: "agent", label: "助手", icon: Bot },
+  { value: "dsh-assistant", label: "DSH 助手", icon: MessagesSquare },
   {
     value: "ai-rewrite",
     label: "AI 技能",
     icon: Pencil,
+  },
+  {
+    value: "external-connections",
+    label: "外部连接",
+    icon: Cable,
   },
   {
     value: "rich-text",
@@ -93,6 +117,12 @@ export function SettingsDialog({
 
   const activePanel = (() => {
     switch (activeSection) {
+      case "skills":
+        return <Suspense fallback={<SettingsPanelFallback />}><SkillsPanel open={open} /></Suspense>;
+      case "dsh-assistant":
+        return <Suspense fallback={<SettingsPanelFallback />}><DshSettingsPanel open={open} /></Suspense>;
+      case "agent":
+        return <Suspense fallback={<SettingsPanelFallback />}><AgentSettingsPanel open={open} /></Suspense>;
       case "page-width":
         return <PageWidthSettingsPanel />;
       case "updates":
@@ -131,6 +161,12 @@ export function SettingsDialog({
               section="rewrite"
               onUnlockAiSecrets={onUnlockAiSecrets}
             />
+          </Suspense>
+        );
+      case "external-connections":
+        return (
+          <Suspense fallback={<SettingsPanelFallback />}>
+            <ExternalConnectionsPanel open={open} />
           </Suspense>
         );
       case "rich-text":
@@ -220,6 +256,9 @@ export function SettingsRouteBridge() {
 }
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
+  if (section === "skills") return "skills";
+  if (section === "dsh-assistant") return "dsh-assistant";
+  if (section === "agent") return "agent";
   if (section === "updates") {
     return "updates";
   }
@@ -243,6 +282,9 @@ function normalizeSettingsSection(section: string | undefined): SettingsSection 
   }
   if (section === "ai-rewrite") {
     return "ai-rewrite";
+  }
+  if (section === "external-connections") {
+    return "external-connections";
   }
   return "page-width";
 }

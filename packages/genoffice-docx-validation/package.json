@@ -1,0 +1,27 @@
+{
+  "name": "project-mind-genoffice-docx-validation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:prototype": "node build.mjs",
+    "validate:engine": "node build/validate.mjs",
+    "validate": "node run-validation.mjs",
+    "validate:browser-outputs": "python3 verify-browser.py"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "@tiptap/react": "3.31.0",
+    "@tiptap/extensions": "3.31.0",
+    "esbuild": "0.25.12",
+    "fast-xml-parser": "5.3.4",
+    "jszip": "3.10.1",
+    "utif2": "4.1.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "opentype.js": "2.0.0",
+    "bidi-js": "1.0.3",
+    "lucide-react": "0.468.0"
+  }
+}

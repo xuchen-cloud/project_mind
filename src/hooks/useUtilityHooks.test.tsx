@@ -20,8 +20,8 @@ function FocusTargetHarness({
   );
 }
 
-function ScrollRestorationHarness({ routeKey }: { routeKey: string }) {
-  const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(routeKey);
+function ScrollRestorationHarness({ routeKey, restore = true }: { routeKey: string; restore?: boolean }) {
+  const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(routeKey, { restore });
   return (
     <div
       ref={scrollRef}
@@ -116,6 +116,22 @@ describe("useFocusTarget", () => {
     view.rerender(<ScrollRestorationHarness routeKey="project-record:1:7" />);
     expect(scroll.scrollTop).toBe(137);
     expect(scroll).toHaveAttribute("data-has-saved-position", "true");
+  });
+
+  it("lets a source anchor replace active saved-position restoration on the same record", () => {
+    vi.useFakeTimers();
+    const key = "source-anchor-restoration-record";
+    const seed = render(<ScrollRestorationHarness routeKey={key} />);
+    seed.getByTestId("focus-scroll").scrollTop = 137;
+    seed.unmount();
+    const view = render(<ScrollRestorationHarness routeKey={key} />);
+    const scroll = view.getByTestId("focus-scroll");
+    expect(scroll.scrollTop).toBe(137);
+    view.rerender(<ScrollRestorationHarness routeKey={key} restore={false} />);
+    scroll.scrollTop = 431;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(scroll.scrollTop).toBe(431);
+    view.unmount();
   });
 
   it("waits for the editor content to finish laying out before restoring", () => {

@@ -1,0 +1,45 @@
+{
+  "name": "@project-mind/office-pptx",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./dist/engine.mjs",
+    "./types": "./types.ts",
+    "./browser": "./dist/browser.mjs"
+  },
+  "scripts": {
+    "sources:verify": "node sources.mjs",
+    "sources:fetch": "node sources.mjs --fetch",
+    "build": "node build.mjs",
+    "test": "node --test test/engine.test.mjs",
+    "test:ui": "vitest run --config vitest.config.ts",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@genoffice/pptx-engine": "file:./vendor/packages/pptx-engine",
+    "@genoffice/pptx-render": "file:./vendor/packages/pptx-render",
+    "@genoffice/agent-core": "file:./vendor/packages/agent-core",
+    "@genoffice/zip-gate": "file:./vendor/packages/zip-gate",
+    "jszip": "3.10.1",
+    "fast-xml-parser": "5.11.2"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.7",
+    "typescript": "5.9.3",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "@types/opentype.js": "1.3.8",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "vitest": "4.1.2",
+    "jsdom": "27.4.0",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1"
+  }
+}

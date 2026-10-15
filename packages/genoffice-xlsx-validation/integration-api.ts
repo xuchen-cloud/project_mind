@@ -1,0 +1,5 @@
+export { XlsxSidecarClient } from './upstream/apps/sheets/src/main/xlsx-sidecar-client.ts'
+export { saveWorkbookViaSidecar } from './upstream/packages/xlsx-gateway/src/gateway/xlsx-package-io.ts'
+export { SheetSession } from './sheet-session.ts'
+export { workbookViewModel } from './view-model.mjs'
+export { prepareFixtureSave } from './fixture-save.ts'

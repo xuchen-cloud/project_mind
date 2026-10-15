@@ -6,6 +6,7 @@ import { queryKeys } from "../lib/queryKeys";
 import type { ProjectListItem, TodoRecord } from "../lib/types";
 import {
   createTodoModule,
+  isTodoRevisionConflict,
   productionTodoTransport,
   type TodoChange,
   type TodoViewScope,
@@ -54,6 +55,7 @@ export function useTodoModule(scope: TodoViewScope, enabled = true) {
       });
       return result;
     } catch (error) {
+      const detail = isTodoRevisionConflict(error) ? "Todo 已变化，已刷新最新数据。请核对后重新操作。" : String(error);
       feedback.setStatus({
         tone: "error",
         label: "Error",
@@ -62,7 +64,7 @@ export function useTodoModule(scope: TodoViewScope, enabled = true) {
       feedback.pushToast({
         tone: "error",
         title: "Todo 更新失败",
-        detail: String(error),
+        detail,
       });
       throw error;
     }

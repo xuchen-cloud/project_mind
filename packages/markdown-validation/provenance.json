@@ -1,0 +1,270 @@
+{
+  "date": "2026-10-13",
+  "node": "v26.8.1",
+  "repositoryCommit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "upstreamFilesVerified": 84,
+  "headlessCssOmitted": true,
+  "probeSourceFiles": [
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/code-file-icon-artwork.ts",
+      "bytes": 57860,
+      "sha256": "1d4c6e8d77f46213258f6bf91acbaa4606cbbe09dff9b3fdc7404a90d5208515"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/CodeFileIcon.tsx",
+      "bytes": 1174,
+      "sha256": "882db02f0af7a6624006166c781cb03119e96febe445278941732a1320ecbbdf"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/code-file-types.ts",
+      "bytes": 6929,
+      "sha256": "d0a34f3ba4affb69335e319ff928824d3427808caaadcec1e9fc1d4b548d42a2"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/FileTypeIcon.tsx",
+      "bytes": 16822,
+      "sha256": "4cf95fa56eb3bfa20d899672573a999acca6d63f03decd56bf46469422308252"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/local-image-syntax.ts",
+      "bytes": 1494,
+      "sha256": "b5d99bb0ecfad38be19d37f51aa67e1a906b5e59040970e958afa76f4c4772cc"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/cjkFriendlyStrong.ts",
+      "bytes": 2933,
+      "sha256": "bc4adf3183f7d0feea17e3a176e7c4b1db5bdddc29e7fc87261f627ff8a39b53"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/mathCompatibility.ts",
+      "bytes": 11301,
+      "sha256": "5f8cec86fd613fd2f67510e22b0a9d661f4173b3d49fb13fef71b25f4abb652b"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/parse.ts",
+      "bytes": 1790,
+      "sha256": "e281b4120306987cce9cf6d8bccfeddec2fe0c7b7b1cc190966f6dcbfd320b1b"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/incremental.ts",
+      "bytes": 15170,
+      "sha256": "eaa266bb77dfb646738d0fdd79be4f1c4bc5490f7bf3f4127f9ffb72ef741ff8"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/clipboard.ts",
+      "bytes": 1712,
+      "sha256": "f3c5ff3d5ac550adda2366e245d33cf4d91d219bfb8692ef1943866d83748a0f"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/icons/shared-artwork.tsx",
+      "bytes": 6308,
+      "sha256": "25c995efd540d047afcee7dbf54742ca62dc0d159bdbf93794cb617419b08f84"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/icons/index.tsx",
+      "bytes": 114045,
+      "sha256": "25052a41938e69b557fd730f1ada0deae0994f1ee410195f98c83661188b958a"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/HostPortal.tsx",
+      "bytes": 591,
+      "sha256": "cf40da5e2ef40df4fa887154db3d6059d979c2b4892ce0767fd99df1d0a5b563"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/ShortcutKeys.tsx",
+      "bytes": 875,
+      "sha256": "9a79d439af8196f373bb064470ab2c8d38ca5746257a806fd798389929a8f751"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/useDismissOnOutsidePointer.ts",
+      "bytes": 1371,
+      "sha256": "c7e05b448eeade540b7c6623a5c60401a63d09589bb27a573760ae5defbb4644"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/input-modality.ts",
+      "bytes": 2086,
+      "sha256": "91268be3f5ddb7b9a1defb13628d96082477e8771cdaa5df37d6d8b16bbbf2ba"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/Tooltip.tsx",
+      "bytes": 12618,
+      "sha256": "ba8ddef7d7550a4ded7781a9e9be4d563c4030d556646642eb9136cdebd0e774"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/highlight.ts",
+      "bytes": 25982,
+      "sha256": "518069013f4da8f1fcf4192873be178e1ea594ad2efd95c4d69cbbdf64b97750"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/CodeToolbar.tsx",
+      "bytes": 2645,
+      "sha256": "6bd7e7c39628894a4b92e1e8e58fbc96c8df411a5ffb14edf152d2a8f5df4b21"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/useViewportHighlighting.ts",
+      "bytes": 2481,
+      "sha256": "29fb78ac857415989b70bf0cf73a8eef3b25843df227441838be2e08ba1f8d36"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/CodeBlock.tsx",
+      "bytes": 9488,
+      "sha256": "a94484fa23282e253970571025ab62b5c9dc1e1fbf6166ae196c9ca7f2dc7ae7"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/file-link.ts",
+      "bytes": 1420,
+      "sha256": "5739f469133c873ecc97256f6de026b50425a4f0a9f75c662d3b6b26516d26c0"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/katex.tsx",
+      "bytes": 3956,
+      "sha256": "8227e04d29333d2568021ed012143237b457852bce25d82cf394d72b941e74a5"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/SiteGlyph.tsx",
+      "bytes": 4491,
+      "sha256": "cd5a4fc8644be21fbeca2e9c1359592a412c3920d926a4fa1f0740c68a317158"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/LinkIcon.tsx",
+      "bytes": 6741,
+      "sha256": "243b360d7a74b6470bbce6034a3518214bb840a305b0e731bd0600409ddbc3eb"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/MarkdownDelegate.tsx",
+      "bytes": 2398,
+      "sha256": "0c861f20d56f27ce52c47b9e5e19af243204fba6fc0aafb9a6b5c1b83e846b53"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/pointer-grace.ts",
+      "bytes": 1534,
+      "sha256": "cba1529e052cf3ea09fd3851990219e2b80d61fa4b3d35da490f28ba9f9965c6"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/overlay-top-margin.ts",
+      "bytes": 683,
+      "sha256": "511166e7ccb03981ac498dc80459c5bc53a1455c48ebca1bdb8264c292d113f6"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/HoverCard.tsx",
+      "bytes": 12760,
+      "sha256": "4efc56f775ae238115f2fdc6c6f449c98a8055d561eca0cc264378e936667290"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/ImageLightbox.tsx",
+      "bytes": 2499,
+      "sha256": "5d54b24f116b2f5c816b460fb0733064db8550ca735623586ae88e5f99017923"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/ImagePreview.tsx",
+      "bytes": 1434,
+      "sha256": "ac0503f4e7e5a56d3d88d8006b70db381b5bbcd76b2719a51a5cabe495f2b70e"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/render.tsx",
+      "bytes": 31640,
+      "sha256": "6e4af631d34ae8c8ea1dbeabd1b4593ee9ff23c3470d2855708b3cf8b84bbca2"
+    },
+    {
+      "path": "packages/dsh-ui/upstream/client/ui-primitives/src/markdown/MarkdownText.tsx",
+      "bytes": 8824,
+      "sha256": "ff500ab71ac6a55df416f84cc1f5900327b9908c5180c4e2b3888377bd417a97"
+    },
+    {
+      "path": "packages/dsh-ui/preview/resources.mjs",
+      "bytes": 1967,
+      "sha256": "99a86d7a61b7d077d900b84a970ded67f9a0dc14d10d5a790b0eb46dd149e793"
+    },
+    {
+      "path": "packages/markdown-validation/upstream/apps/markdown/src/shared/source-text.ts",
+      "bytes": 1113,
+      "sha256": "465dda59c1a03f0bbd879fb496b1ce1fd50b65d4975e6dcef48f77f0622ddbab"
+    },
+    {
+      "path": "packages/markdown-validation/upstream/apps/markdown/src/renderer/markdown/docText.ts",
+      "bytes": 4402,
+      "sha256": "00b5e3cae5a3c7e05f83aeeb67f3e235ded8a2c52151b16c61902cb243803ad0"
+    },
+    {
+      "path": "packages/markdown-validation/upstream/apps/markdown/src/renderer/markdown/roundtripSerializer.ts",
+      "bytes": 1266,
+      "sha256": "1992468830e82ce89709b52f03e1abbffc131d0e3ec74f8ee2f923a9bb742d1d"
+    },
+    {
+      "path": "packages/markdown-validation/entry.tsx",
+      "bytes": 626,
+      "sha256": "58702b598b5f62d474b4f1170973a619f8ce13d40c3b1589661a42c964090b19"
+    }
+  ],
+  "installedDependencies": {
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "jsdom": "27.4.0",
+    "mdast-util-from-markdown": "2.0.3",
+    "mdast-util-gfm": "3.1.0",
+    "micromark-extension-gfm": "3.0.0",
+    "mdast-util-math": "3.0.0",
+    "micromark-extension-math": "3.1.0",
+    "katex": "0.16.47",
+    "shiki": "4.3.1",
+    "lexical": "0.49.0",
+    "@tiptap/react": "3.21.0",
+    "dompurify": "3.4.11"
+  },
+  "notInstalled": [
+    "@codemirror/state",
+    "@codemirror/view",
+    "@codemirror/lang-markdown"
+  ],
+  "scope": "Existing parser and React SSR renderer + fixed-SHA GenOffice pure source helpers; buffer edit/save demonstration; no editor DOM or native CAS",
+  "staticInspectedSnapshot": [
+    {
+      "path": "src/components/document/ProjectFileContent.tsx",
+      "sha256": "e35faf7bdf5a3685699e3d6dbeac229798f4529a32094476d16e5f1a2e73eead"
+    },
+    {
+      "path": "src/components/rich-editor/RichEditor.tsx",
+      "sha256": "a397cf7497299f6eaf277f01b8ba92ac33010fef7af0e63fcde518a59817a6c8"
+    },
+    {
+      "path": "src/lib/file-source.ts",
+      "sha256": "537391fe4b8f93092c049355aa5442491c455b2fb6eab80902683f7010840336"
+    },
+    {
+      "path": "src/services/fileDocumentApi.ts",
+      "sha256": "8bff71358bc6e31901ac619af3ae0d9cee4203eb284d677e1e461d4b4d88d808"
+    },
+    {
+      "path": "src-tauri/src/file_source_read.rs",
+      "sha256": "7c6b6321e315d8ff3e54116c6f580c61549a9127d087f8492e016b16ec5767a3"
+    },
+    {
+      "path": "src-tauri/src/file_content.rs",
+      "sha256": "20e7f9e024f690d0934c8d4567b415243fa779b7f7fc33ddb5c61bc99431085a"
+    },
+    {
+      "path": "src-tauri/src/agent/file_tools.rs",
+      "sha256": "7e87e8ddd45fd6c53d7cbd0ce331b724179bb65dd606e41d8c36fa03bb9d0d6c"
+    },
+    {
+      "path": "src-tauri/src/agent/file_outputs.rs",
+      "sha256": "a171d36c9979281d6e0de58879641d91468bcd13ecb43674250a66abe9c15d5a"
+    },
+    {
+      "path": "packages/dsh-ui/preview/index.jsx",
+      "sha256": "16dd8b7de0f51194592e855a791338243e36b8b7c2da2484fa8d68ec0f808075"
+    },
+    {
+      "path": "packages/dsh-ui/preview/resources.mjs",
+      "sha256": "99a86d7a61b7d077d900b84a970ded67f9a0dc14d10d5a790b0eb46dd149e793"
+    },
+    {
+      "path": "package.json",
+      "sha256": "2858669af5ef66bbea7b6b77e7beba62e81cdd54446596d5fec3feb389ca2eb6"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "b4d267ed4f3b2bc2a9c1d4965d1cbb3fdbf94853e069b800ab37fae35d8f6003"
+    }
+  ]
+}

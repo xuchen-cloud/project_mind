@@ -1,0 +1,50 @@
+/* One fixed navigation surface; each content module owns its scroll viewport. */
+.project-navigation { overflow:hidden; padding:0 8px 8px; }
+.project-navigation .home-side__brand { flex:none; padding-inline:8px; }
+.project-navigation__search { flex:none; padding:4px 4px 8px; }
+.project-navigation__search .search-field { width:100%; }
+.project-navigation__tags { display:flex; flex-direction:column; flex:0 1 auto; min-height:28px; max-height:112px; padding:0 4px 8px; }
+.project-navigation__tag-cloud { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+.project-navigation__tag-cloud .entity-tag-chip { flex:0 1 auto; min-width:0; }
+.project-navigation__tag-cloud .entity-tag-chip > span { overflow:hidden; text-overflow:ellipsis; }
+.project-navigation__tag-cloud [aria-pressed=true] { --entity-tag-background:var(--color-accent-ring); color:var(--color-accent); }
+.project-navigation__modules { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,.8fr) minmax(0,1.4fr); flex:1; min-height:0; gap:8px; }
+.project-navigation__section { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; border-top:1px solid var(--home-line); }
+.project-navigation .home-side__heading { flex:none; min-height:32px; padding:4px 8px; font-size:var(--type-label-size); line-height:var(--type-label-line); }
+.project-navigation .home-side__heading button { display:inline-flex; align-items:center; justify-content:center; min-width:24px; height:24px; border-radius:4px; }
+.project-navigation .home-side__heading button:hover { background:var(--home-nav-hover); }
+.project-navigation .home-side__list { scrollbar-gutter:stable; }
+.project-navigation .home-side__list > div { padding-right:0; }
+.project-navigation__section .home-side__item { gap:4px; min-height:30px; padding:6px 8px; font-size:var(--type-caption-size); line-height:var(--type-caption-line); font-weight:var(--weight-regular); }
+.project-navigation__section .home-side__item:not(.is-active) { color:var(--color-text-secondary); }
+.project-navigation__files > .home-rail__files { min-height:0; }
+.project-navigation__files .home-rail__files > h2 { flex:none; padding:6px 8px; min-height:32px; }
+.project-navigation__files .project-directory-tabs { padding:0 4px 4px; }
+.project-navigation__files [data-files-only] > div.flex { padding:4px; }
+.home-rail--project-todos .home-rail__todo { flex:1; min-height:0; }
+
+/* File hover follows the same surface as Record and Session navigation. */
+.project-navigation__files .project-sidebar__file-list { gap:0; }
+.project-navigation__files .project-sidebar__file-row { align-items:center; min-height:30px; gap:0 4px; padding:3px 4px; border:0; border-radius:7px; box-shadow:none; font-size:var(--type-caption-size); line-height:var(--type-caption-line); color:var(--color-text-secondary); }
+.project-navigation__files .project-sidebar__file-icon { width:12px; height:12px; background:transparent; color:inherit; }
+.project-navigation__files .project-sidebar__file-name { font-size:inherit; line-height:inherit; font-weight:var(--weight-regular); color:inherit; }
+.project-navigation__files .project-sidebar__file-row:not([data-health="missing"]) { background:transparent; }
+.project-navigation__files .project-sidebar__file-row:is(:hover,:focus-within,[data-context-open="true"]) { border-color:transparent; background:var(--home-nav-hover); }
+.project-navigation__files .project-sidebar__file-row:focus-visible { outline:2px solid var(--color-accent); outline-offset:-2px; }
+.project-navigation__files .project-directory__entry { border-radius:7px; }
+.project-navigation__files .project-directory__entry:hover { background:var(--home-nav-hover); }
+
+/* Focused content keeps the same accent surface across navigation presentations. */
+.project-navigation .home-side__item.is-active,
+.project-navigation .home-side__item.is-active:hover,
+.project-sidebar__file-row.is-active,
+.project-navigation__files .project-sidebar__file-row.is-active:is(:hover,:focus-within,[data-context-open="true"]),
+.project-navigation__files .project-sidebar__file-row.is-active,
+.project-directory__entry.is-active,
+.project-navigation__files .project-directory__entry.is-active:hover,
+.project-navigation__files .project-directory__entry.is-active {
+  background:var(--color-accent-ring);
+  color:var(--color-accent);
+}
+.project-sidebar__file-row.is-active .project-sidebar__file-name,
+.project-sidebar__file-row.is-active .project-sidebar__file-icon { color:inherit; }

@@ -1,10 +1,19 @@
-import { HomeProjectFiles } from "./components/home/HomeProjectFiles";
+import { isDebugBuild } from "./lib/build-mode";
+import { ProjectContentWorkspace, projectContentTabRoute } from "./components/project/ProjectContentWorkspace";
+import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
+import { prepareProjectContentClose, prepareWorkspaceContentClose } from "./lib/project-content-lifecycle";
+import { useFilePreviewStore } from "./state/file-preview-store";
+import { AgentWorkspacePanel } from "./components/agent/AgentWorkspacePanel";
+import { setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events";
+import { useAgentPanelStore } from "./state/agent-panel-store";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
-import { HomeNoteSidebar } from "./components/home/HomeNoteSidebar";
+import { useWorkspaceBusinessChanges } from "./hooks/useWorkspaceBusinessChanges";
+import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
+import { ArchivedProjectsDialog } from "./components/workspace/ArchivedProjectsDialog";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
 import { flushQuickNotes } from "./lib/quick-note-transfer";
 import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderKanban } from "lucide-react";
 import { Outlet, useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -54,6 +63,7 @@ import {
 } from "./lib/richTextStyle";
 import { projectMindApi } from "./services/projectMindApi";
 import { desktopApi } from "./services/desktopApi";
+import { voiceApi } from "./services/voiceApi";
 import { useFeedbackStore } from "./state/feedback-store";
 import { useUiStore } from "./state/ui-store";
 import { useProjectMutations } from "./hooks/useProjectMutations";
@@ -68,11 +78,15 @@ import {
   type ProjectSidebarDocumentItem,
   type ProjectSidebarRecordItem,
 } from "./components/layout/ProjectSidebar";
+import { RightSidebar } from "./components/layout/RightSidebar";
+import { WorkspaceTodoRail } from "./components/layout/WorkspaceTodoRail";
+import { HomeWorkspaceRail } from "./components/home/HomeWorkspaceRail";
 import { WorkspaceTopBar } from "./components/layout/WorkspaceTopBar";
+import { ProjectFilePreviewLayer } from "./components/home/ProjectFilePreviewLayer";
 import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
-import { HomeProjectSidebar, rememberProjectRecord } from "./components/home/HomeProjectSidebar";
+import { rememberProjectRecord } from "./components/home/project-record-history";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
@@ -86,6 +100,8 @@ import {
   RecordFocusResidencyProvider,
   RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
+
+const HomeProjectSidebar = lazy(() => import("./components/home/HomeProjectSidebar").then(module => ({ default: module.HomeProjectSidebar })));
 
 function toProjectSidebarRecords(
   records: NoteRecord[],
@@ -159,7 +175,7 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
     case "project":
       return null;
     case "note":
-      return projectPath(result.projectId, recordFocusId(result.id));
+      return recordPath(result.projectId, result.id);
     case "todo":
       return result.scope === "workspace"
         ? `${workspacePath()}?focus=todo-${result.id}`
@@ -189,6 +205,8 @@ export function WorkspaceLayout({
   const currentWindowLabel = getCurrentWindowLabel();
   const currentProjectWindowId = parseProjectWindowProjectId(currentWindowLabel);
   const activeProjectId = parseRouteId(params.projectId);
+  const activeProjectIdRef = useRef(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
   const activeRecordId =
     parseRouteId(params.noteId) ??
     parseFocusRecordId(new URLSearchParams(location.search).get("focus"));
@@ -274,6 +292,7 @@ export function WorkspaceLayout({
     rememberProjectRoute,
     clearWorkspaceScopedUiState,
     todoRailCollapsed,
+    todoRailMode,
     todoRailWidthPx,
     setTodoRailCollapsed,
   } = useUiStore();
@@ -296,6 +315,54 @@ export function WorkspaceLayout({
     queryFn: projectMindApi.workspaceStatusGet,
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
+  useEffect(() => {
+    const open = (event: Event) => {
+      const request = (event as CustomEvent<ProjectContentOpenResult>).detail;
+      if (!request || request.workspaceRoot !== currentWorkspace?.rootPath) return;
+      openProjectTab(request.scope.projectId);
+      navigate(projectContentTabRoute(request.scope.projectId, { id: request.tabId, object: request.object, view: request.view ?? {} }));
+    };
+    window.addEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
+    return () => window.removeEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
+  }, [currentWorkspace?.rootPath, navigate, openProjectTab]);
+  useEffect(() => { setDshWorkspaceRoot(currentWorkspace?.rootPath ?? null); }, [currentWorkspace?.rootPath]);
+  const agentPanelBinding = useAgentPanelStore(state => state.binding);
+  const agentPanelOpen = useAgentPanelStore(state => state.open);
+  const agentPanelExpanded = useAgentPanelStore(state => state.expanded);
+  const agentPanelVisible = agentPanelOpen && agentPanelBinding?.workspaceRoot === currentWorkspace?.rootPath
+    && !!agentPanelBinding && (agentPanelBinding.scope.kind === "project" ? agentPanelBinding.scope.projectId === activeProjectId : activeProjectId === null);
+  const filePreviewRequest = useFilePreviewStore(state => state.request);
+  useEffect(() => {
+    if (!filePreviewRequest || filePreviewRequest.workspaceRoot !== currentWorkspace?.rootPath) return;
+    const controller = new AbortController();
+    void openProjectContent({ workspaceRoot: filePreviewRequest.workspaceRoot, projectId: filePreviewRequest.projectId,
+      object: { kind: "file", id: filePreviewRequest.documentId, title: filePreviewRequest.title },
+      ...(filePreviewRequest.versionNumber !== undefined ? { view: { versionNumber: filePreviewRequest.versionNumber } } : {}), signal: controller.signal,
+    }).then(() => useFilePreviewStore.getState().closePreview(), reason => {
+      if (!controller.signal.aborted) {
+        useFilePreviewStore.getState().closePreview();
+        pushToast({ tone: "error", title: "无法打开文件", detail: String(reason) });
+      }
+    });
+    return () => controller.abort();
+  }, [filePreviewRequest, currentWorkspace?.rootPath, pushToast]);
+  const previousPreviewNavigation = useRef(location.key);
+  useEffect(() => {
+    if (previousPreviewNavigation.current === location.key) return;
+    previousPreviewNavigation.current = location.key;
+    useFilePreviewStore.getState().closePreview();
+  }, [location.key]);
+  useEffect(() => {
+    if (!currentWorkspace && filePreviewRequest) useFilePreviewStore.getState().closePreview();
+  }, [currentWorkspace, filePreviewRequest]);
+  useEffect(() => {
+    if (!currentWorkspace && agentPanelBinding) useAgentPanelStore.getState().clearWorkspace();
+  }, [currentWorkspace, agentPanelBinding]);
+  const businessChangeError = useWorkspaceBusinessChanges(currentWorkspace?.rootPath);
+  useSourceMaintenanceSelection(currentWorkspace?.rootPath, activeProjectId);
+  useEffect(() => {
+    if (businessChangeError) setStatus({ tone: "error", label: "Refresh failed", message: "工作区变更同步失败，重新切回窗口后会重试" });
+  }, [businessChangeError, setStatus]);
   useEffect(() => () => cancelAllQuickNoteRecordMetadata(), [currentWorkspace?.rootPath]);
   useEffect(() => {
     if (currentWorkspace && activeProjectId && activeRecordId) {
@@ -315,12 +382,14 @@ export function WorkspaceLayout({
     injectedRecordSaveCoordinator ?? internalRecordSaveCoordinator;
   const recordSaveStatus = useRecordSaveStatus(recordSaveCoordinator);
   const flushRecordSaves = useCallback(async () => {
+    if (currentWorkspace) await prepareWorkspaceContentClose(currentWorkspace.rootPath);
     if (!submitActiveFocusRecord()) {
       throw new Error("无法捕获当前 Record 的 Committed Content");
     }
-    await recordSaveCoordinator.flush();
+    const { flushRecordSavesForClose } = await import("./lib/deleted-record-close");
+    await flushRecordSavesForClose(recordSaveCoordinator);
     await flushQuickNotes();
-  }, [recordSaveCoordinator, submitActiveFocusRecord]);
+  }, [recordSaveCoordinator, submitActiveFocusRecord, currentWorkspace?.rootPath]);
 
   useEffect(() => {
     if (!hasWorkspace) {
@@ -389,18 +458,15 @@ export function WorkspaceLayout({
   );
   const showProjectSidebarShell =
     hasWorkspace && activeProjectId !== null && activeProject !== null;
-  const showTodoRailShell =
-    showProjectSidebarShell &&
-    !location.pathname.endsWith("/summary");
+  const showTodoRailShell = workspaceActive || showProjectSidebarShell;
   const showLeftSidebarForWidthConstraint = workspaceActive || showProjectSidebarShell;
-  const showRightSidebarForWidthConstraint = workspaceActive || showTodoRailShell;
 
   useWorkspaceWindowSizeConstraints({
-    overlayHomePanels: location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId) || activeRecordFocusRoute !== null,
+    overlayHomePanels: true,
     showProjectSidebar: showLeftSidebarForWidthConstraint,
     projectSidebarCollapsed,
     projectSidebarWidthPx,
-    showTodoRail: showRightSidebarForWidthConstraint,
+    showTodoRail: showTodoRailShell && todoRailMode === "pinned",
     todoRailCollapsed,
     todoRailWidthPx,
     setProjectSidebarCollapsed,
@@ -445,11 +511,15 @@ export function WorkspaceLayout({
   const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
+  const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
+  const voiceRecordCreatingRef = useRef(false);
+  const [creatingVoiceRecord, setCreatingVoiceRecord] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [workspaceOverviewRoute, setWorkspaceOverviewRoute] = useState(workspacePath());
 
   const workspaceVisible = hasWorkspace;
 
-  const { createProjectMutation, refreshProjectScope } = useProjectMutations(
+  const { createProjectMutation, archiveMutation, refreshProjectScope } = useProjectMutations(
     (path, options) => navigate(path, options),
     activeProjectId,
   );
@@ -555,8 +625,16 @@ export function WorkspaceLayout({
 
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return null;
+      }
       if (!(await desktopApi.prepareVoiceLeave())) return null;
       await flushRecordSaves();
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return null;
+      }
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
@@ -613,9 +691,17 @@ export function WorkspaceLayout({
 
   const handleSwitchWorkspace = useCallback(async () => {
     try {
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return;
+      }
       if (!(await desktopApi.prepareVoiceLeave())) return;
       await flushRecordSaves();
       await desktopApi.flushOtherWorkspaceWindows();
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return;
+      }
       await desktopApi.destroyOtherWorkspaceWindows();
       const snapshot = await projectMindApi.workspaceClose();
       await applyWorkspaceStatus(snapshot, true);
@@ -652,7 +738,7 @@ export function WorkspaceLayout({
       setCreateWorkspaceError("请选择 workspace 根目录。");
       return;
     }
-    if (!createWorkspacePassword.trim()) {
+    if (!isDebugBuild && !createWorkspacePassword.trim()) {
       setCreateWorkspaceError("请输入 workspace 密码。");
       return;
     }
@@ -661,9 +747,13 @@ export function WorkspaceLayout({
       setCreateWorkspacePending(true);
       setCreateWorkspaceError(null);
       await flushRecordSaves();
+      if (useAgentPanelStore.getState().runningBinding) {
+        showDshBusyFeedback();
+        return;
+      }
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
-        password: createWorkspacePassword,
+        password: isDebugBuild ? "" : createWorkspacePassword,
       });
       await applyWorkspaceStatus(snapshot, true);
       setCreateWorkspaceOpen(false);
@@ -787,18 +877,20 @@ export function WorkspaceLayout({
           : resolveProjectNavigationPath(projectId);
 
       try {
+        if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
         await openProjectInNewWindow(projectId, route);
       } catch {
         return;
       }
       closeProjectTab(projectId);
 
-      if (activeProjectId === projectId) {
+      if (activeProjectIdRef.current === projectId) {
         navigate(workspacePath());
       }
     },
     [
       activeProjectId,
+      currentWorkspace?.rootPath,
       closeProjectTab,
       location.pathname,
       location.search,
@@ -810,12 +902,18 @@ export function WorkspaceLayout({
 
   const closeProjectTabAndMaybeNavigate = useCallback(
     async (projectId: number) => {
+      try {
+        if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
+      } catch (reason) {
+        pushToast({ tone: "error", title: "项目内容尚不能关闭", detail: String(reason) });
+        return;
+      }
       closeProjectTab(projectId);
-      if (activeProjectId === projectId) {
+      if (activeProjectIdRef.current === projectId) {
         navigate(workspacePath());
       }
     },
-    [activeProjectId, closeProjectTab, navigate],
+    [closeProjectTab, navigate, currentWorkspace?.rootPath, pushToast],
   );
 
   const updateProjectRecordFilters = useCallback(
@@ -858,34 +956,50 @@ export function WorkspaceLayout({
         return;
       }
 
-      await projectMindApi.projectRecordUpsert({
-        projectId,
-        noteId: record.id,
-        title: title.trim() || undefined,
-        markdown: record.contentMarkdown,
-        html: record.contentHtml ?? "",
-        defaultCodeLanguage: record.defaultCodeLanguage ?? null,
-        tagIds: record.tags.map((tag) => tag.id),
-      });
+      const { renameCanonicalRecord } = await import("./lib/canonical-record-metadata");
+      await renameCanonicalRecord(currentWorkspace?.rootPath ?? "", { scope: { kind: "project", projectId }, recordId: record.id }, title);
       await refreshProjectScope(queryClient, projectId);
     },
-    [activeProjectId, queryClient, refreshProjectScope],
+    [activeProjectId, currentWorkspace?.rootPath, queryClient, refreshProjectScope],
   );
+
+  const createProjectSidebarVoiceRecord = useCallback(async () => {
+    if (activeProjectId === null || voiceRecordCreatingRef.current) return;
+    voiceRecordCreatingRef.current = true;
+    setCreatingVoiceRecord(true);
+    try {
+      const snapshot = await voiceApi.start({ target: { scope: "project", projectId: activeProjectId }, requestId: crypto.randomUUID() });
+      await refreshProjectScope(queryClient, activeProjectId);
+      await queryClient.invalidateQueries({ queryKey: ["voice-playback"] });
+      if (snapshot.projectNoteId !== null) {
+        navigate(preserveRecordFilters(recordPath(activeProjectId, snapshot.projectNoteId), location.search));
+      }
+      try {
+        await desktopApi.openVoiceCaptionWindow();
+      } catch (error) {
+        pushToast({ tone: "error", title: "无法打开录音浮窗", detail: String(error) });
+      }
+    } catch (error) {
+      pushToast({ tone: "error", title: "新增语音记录失败", detail: String(error) });
+    } finally {
+      voiceRecordCreatingRef.current = false;
+      setCreatingVoiceRecord(false);
+    }
+  }, [activeProjectId, location.search, navigate, pushToast, queryClient, refreshProjectScope]);
 
   const createProjectSidebarRecord = useCallback(async () => {
     if (activeProjectId === null) {
       return;
     }
-    const record = await projectMindApi.projectRecordUpsert({
-      projectId: activeProjectId,
-      markdown: "",
-      html: "<p></p>",
-      defaultCodeLanguage: null,
-      tagIds: [],
-    });
-    await refreshProjectScope(queryClient, activeProjectId);
-    navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
-  }, [activeProjectId, location.search, navigate, queryClient, refreshProjectScope]);
+    try {
+      const { CanonicalRecordCreation, createBlankCanonicalRecord } = await import("./lib/canonical-record-creation");
+      const creation = projectRecordCreationRef.current ??= new CanonicalRecordCreation();
+      const { record } = await createBlankCanonicalRecord(currentWorkspace?.rootPath ?? "", { kind: "project", projectId: activeProjectId }, creation);
+      await refreshProjectScope(queryClient, activeProjectId);
+      creation.reset();
+      navigate(preserveRecordFilters(recordPath(activeProjectId, record.id), location.search));
+    } catch (error) { pushToast({ tone: "error", title: "新建记录失败", detail: String(error) }); }
+  }, [activeProjectId, currentWorkspace?.rootPath, location.search, navigate, pushToast, queryClient, refreshProjectScope]);
 
   const deleteProjectSidebarRecord = useCallback(
     async (record: ProjectSidebarRecordItem) => {
@@ -950,6 +1064,13 @@ export function WorkspaceLayout({
           navigate(route);
         }
       } else if (result.projectId !== null) {
+        if (result.kind === "document" && currentWorkspace) {
+          try {
+            await openProjectContent({ workspaceRoot: currentWorkspace.rootPath, projectId: result.projectId,
+              object: { kind: "file", id: result.id, title: result.title } });
+          } catch (reason) { pushToast({ tone: "error", title: "打开文件失败", detail: String(reason) }); }
+          return;
+        }
         const route = workspaceSearchResultRoute(result);
         if (route) {
           if (result.kind === "todo") {
@@ -965,6 +1086,8 @@ export function WorkspaceLayout({
     },
     [
       activeProjectId,
+      currentWorkspace?.rootPath,
+      pushToast,
       navigate,
       openProjectInTab,
       openProjectTab,
@@ -1298,7 +1421,7 @@ export function WorkspaceLayout({
 
   const workspaceTopBar = (
     <WorkspaceTopBar
-      homePanels={location.pathname === workspacePath() || isProjectOverviewPath(location.pathname, activeProjectId) || activeRecordFocusRoute !== null ? { rightWidth: todoRailWidthPx, leftWidth: projectSidebarWidthPx, workspaceName: currentWorkspace.displayName || "Workspace", leftOpen: !projectSidebarCollapsed, rightOpen: !todoRailCollapsed, toggleLeft: () => setProjectSidebarCollapsed(!projectSidebarCollapsed), toggleRight: () => setTodoRailCollapsed(!todoRailCollapsed) } : undefined}
+      homePanels={workspaceActive || showProjectSidebarShell ? { rightWidth: todoRailWidthPx, leftWidth: projectSidebarWidthPx, workspaceName: currentWorkspace.displayName || "Workspace", leftOpen: !projectSidebarCollapsed, rightOpen: !todoRailCollapsed, toggleLeft: () => setProjectSidebarCollapsed(!projectSidebarCollapsed), toggleRight: () => setTodoRailCollapsed(!todoRailCollapsed) } : undefined}
       projects={openedProjects}
       activeProjectId={activeProjectId}
       workspaceActive={workspaceActive}
@@ -1407,10 +1530,6 @@ export function WorkspaceLayout({
           const resident =
             active || residentProjectIds.includes(project.id);
 
-          if (!resident) {
-            return null;
-          }
-
           const route = active
             ? `${location.pathname}${location.search}`
             : (projectRecentPaths[project.id] ?? projectPath(project.id));
@@ -1426,16 +1545,12 @@ export function WorkspaceLayout({
               aria-hidden={active ? undefined : true}
               inert={!active}
             >
-              <div
-                className="h-full min-h-0"
-                style={{ display: overviewActive ? undefined : "none" }}
-                aria-hidden={overviewActive ? undefined : true}
-                inert={!overviewActive}
-              >
+              <ProjectContentWorkspace workspaceRoot={currentWorkspace.rootPath} projectId={project.id} active={active}
+                overview={visible => resident ? (
                 <ProjectOverviewPage
                   projectIdOverride={project.id}
                   searchParamsOverride={cachedSearchParams}
-                  visible={overviewActive}
+                  visible={visible}
                   onSearchParamsOverride={(nextSearchParams, options) => {
                     const nextRoute = buildProjectOverviewRoute(
                       project.id,
@@ -1448,15 +1563,14 @@ export function WorkspaceLayout({
                     }
                   }}
                 />
-              </div>
-              <RecordFocusResidentPages projectId={project.id} />
+                ) : null} />
             </div>
           );
         })}
       </>
     ) : null;
   return (
-    <HomeWorkspaceActionsContext.Provider value={{ switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width") }}>
+    <HomeWorkspaceActionsContext.Provider value={{ workspaceName: currentWorkspace.displayName || "Workspace", switchWorkspace: () => { void handleSwitchWorkspace(); }, openSettings: () => openSettings("page-width"), openArchivedProjects: () => setArchiveDialogOpen(true) }}>
     <RecordSaveCoordinatorProvider
       coordinator={recordSaveCoordinator}
       flushBarrier={flushRecordSaves}
@@ -1467,26 +1581,24 @@ export function WorkspaceLayout({
         cacheProjectOverviewPages ? (currentWorkspace?.rootPath ?? null) : null
       }
     >
-    <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle${!projectWindow && (workspaceOverviewActive || projectOverviewActive || activeRecordFocusRoute !== null) ? " home-window-shell" : ""}`}>
+    <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle${!projectWindow && (workspaceActive || showProjectSidebarShell) ? " home-window-shell" : ""}`}>
       {projectWindow ? null : workspaceTopBar}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {showProjectSidebarShell && projectOverviewActive ? (
-          <HomeProjectSidebar projectId={activeProject.id} projectName={activeProject.name} workspaceRoot={currentWorkspace.rootPath}
+        {showProjectSidebarShell && (projectOverviewActive || activeRecordFocusRoute?.kind === "project") ? (
+          <Suspense fallback={<aside className="home-side" style={{ width: projectSidebarWidthPx }} aria-label="项目导航侧边栏" />}><HomeProjectSidebar key={`${currentWorkspace.rootPath}:${activeProject.id}`}
+            projectId={activeProject.id} projectName={activeProject.name} workspaceRoot={currentWorkspace.rootPath}
+            project={activeProject} documents={projectSidebarDocuments}
             records={projectSidebarOverviewQuery.data?.records ?? []} selectedTagId={projectRecordTagId}
             onTagChange={(tagId) => updateProjectRecordFilters({ tagId })}
             onOpenWorkspace={() => navigate(workspacePath())}
+            onOpenProject={() => navigate(preserveRecordFilters(`${projectPath(activeProject.id)}?view=overview`, location.search))}
             onOpenRecord={(recordId) => navigate(preserveRecordFilters(recordPath(activeProject.id, recordId), location.search))}
-            onCreateRecord={() => void createProjectSidebarRecord()} />
-        ) : showProjectSidebarShell && activeRecordFocusRoute?.kind === "project" ? (
-          <HomeNoteSidebar workspaceRoot={currentWorkspace.rootPath} projectId={activeProject.id}
-            onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
-            onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }}
-            records={projectSidebarRecords} filePanel={<HomeProjectFiles project={activeProject} documents={projectSidebarDocuments} />} activeRecordId={activeRecordId ?? 0}
-            onOpenWorkspace={() => navigate(workspacePath())}
-            onOpenRecord={(id) => { rememberProjectRecord(currentWorkspace.rootPath, activeProject.id, id); navigate(preserveRecordFilters(recordPath(activeProject.id, id), location.search)); }}
             onCreateRecord={() => void createProjectSidebarRecord()}
-          />
+            onCreateVoiceRecord={() => void createProjectSidebarVoiceRecord()}
+            creatingVoiceRecord={creatingVoiceRecord}
+            onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
+            onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }} /></Suspense>
         ) : showProjectSidebarShell ? (
           <ProjectSidebar
             project={{
@@ -1512,6 +1624,8 @@ export function WorkspaceLayout({
             onCreateRecord={() => {
               void createProjectSidebarRecord();
             }}
+            onCreateVoiceRecord={() => void createProjectSidebarVoiceRecord()}
+            creatingVoiceRecord={creatingVoiceRecord}
             onOpenRecord={(recordId) => {
               void (async () => {
                 const isProjectRecordFocusPage =
@@ -1548,15 +1662,23 @@ export function WorkspaceLayout({
           />
         ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <main className="min-h-0 flex-1 overflow-hidden">
-            {cachedWorkspaceResidentShell}
-            {cachedProjectResidentShells}
-            {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
-              ? null
-              : mainContent}
+        <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>
+          <main className="workspace-content-main" inert={agentPanelVisible && agentPanelExpanded}>
+            <div className="h-full min-h-0 overflow-hidden">
+              {cachedWorkspaceResidentShell}
+              {cachedProjectResidentShells}
+              {projectOverviewActive || workspaceOverviewActive || recordFocusResidencyActive
+                ? null
+                : mainContent}
+            </div>
           </main>
+          <AgentWorkspacePanel workspaceRoot={currentWorkspace.rootPath} workspaceName={currentWorkspace.displayName} currentProjectId={activeProjectId} />
         </div>
+        {showTodoRailShell ? <RightSidebar key={`${currentWorkspace.rootPath}:${activeProjectId ?? "workspace"}`} showToggle={projectWindow}>
+          {activeProjectId === null
+            ? <HomeWorkspaceRail><WorkspaceTodoRail projectId={null} visible={!todoRailCollapsed} /></HomeWorkspaceRail>
+            : <div className="home-rail home-rail--project home-rail--project-todos"><div className="home-rail__todo"><WorkspaceTodoRail projectId={activeProjectId} visible={!todoRailCollapsed} /></div></div>}
+        </RightSidebar> : null}
       </div>
       <CreateWorkspaceDialog
         open={createWorkspaceOpen}
@@ -1579,6 +1701,15 @@ export function WorkspaceLayout({
         onPasswordChange={setUnlockPassword}
         onClose={() => closeUnlockDialog(false)}
         onSubmit={() => void handleUnlockSubmit()}
+      />
+
+      <ArchivedProjectsDialog
+        key={currentWorkspace.rootPath}
+        open={archiveDialogOpen}
+        projects={(projectsQuery.data ?? []).filter(project => project.isArchived)}
+        onClose={() => setArchiveDialogOpen(false)}
+        onOpenProject={projectId => { void openProjectInTab(projectId); }}
+        onRestoreProject={projectId => archiveMutation.mutate({ projectId, isArchived: false })}
       />
 
       <SettingsDialog
@@ -1608,6 +1739,7 @@ export function WorkspaceLayout({
         }}
       />
 
+      <ProjectFilePreviewLayer currentProjectId={activeProjectId ?? null} workspaceRoot={currentWorkspace.rootPath} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
     </RecordFocusResidencyProvider>

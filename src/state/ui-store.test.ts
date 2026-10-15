@@ -21,6 +21,67 @@ describe("useUiStore", () => {
     useUiStore.setState(createUiStoreState());
   });
 
+  it("defaults the todo rail to floating without changing its collapse default", () => {
+    useUiStore.persist.clearStorage();
+    const store = createUiStore();
+
+    expect(createUiStoreState().todoRailMode).toBe("floating");
+    expect(store.getState().todoRailMode).toBe("floating");
+    expect(store.getState().todoRailCollapsed).toBe(false);
+  });
+
+  it("switches todo rail modes independently of collapse state", () => {
+    useUiStore.getState().setTodoRailMode("pinned");
+    expect(useUiStore.getState().todoRailMode).toBe("pinned");
+    expect(useUiStore.getState().todoRailCollapsed).toBe(false);
+
+    useUiStore.getState().setTodoRailCollapsed(true);
+    useUiStore.getState().setTodoRailMode("floating");
+    expect(useUiStore.getState().todoRailMode).toBe("floating");
+    expect(useUiStore.getState().todoRailCollapsed).toBe(true);
+  });
+
+  it.each(["pinned", "floating"] as const)(
+    "rehydrates the %s todo rail mode in a fresh store",
+    async (mode) => {
+      useUiStore.getState().setTodoRailMode("pinned");
+      useUiStore.getState().setTodoRailMode(mode);
+
+      const store = createUiStore();
+      await store.persist.rehydrate();
+
+      expect(store.getState().todoRailMode).toBe(mode);
+    },
+  );
+
+  it("migrates older v1 preferences to floating while preserving saved preferences", async () => {
+    const preferences = {
+      noteEditorWidthPx: 960,
+      pageWidthMode: "wide" as const,
+      todoRailWidthPx: 360,
+      projectSidebarWidthPx: 320,
+      projectSidebarCollapsed: true,
+      todoRailCollapsed: true,
+      projectTodoViewMode: "workspace" as const,
+    };
+    await uiStorePersistStorage?.setItem(UI_STORE_STORAGE_KEY, {
+      state: preferences,
+      version: 1,
+    });
+
+    const store = createUiStore();
+    await store.persist.rehydrate();
+
+    expect(store.getState()).toMatchObject({
+      ...preferences,
+      todoRailMode: "floating",
+    });
+    expect(await uiStorePersistStorage?.getItem(UI_STORE_STORAGE_KEY)).toEqual({
+      state: { ...preferences, todoRailMode: "floating" },
+      version: 2,
+    });
+  });
+
   it("preserves the main editor minimum width at the 1180px desktop seam", () => {
     expect(
       PROJECT_SIDEBAR_WIDTH_DEFAULT_PX +
@@ -122,9 +183,10 @@ describe("useUiStore", () => {
         projectSidebarWidthPx: PROJECT_SIDEBAR_WIDTH_DEFAULT_PX,
         projectSidebarCollapsed: false,
         todoRailCollapsed: false,
+        todoRailMode: "floating",
         projectTodoViewMode: "current-project",
       },
-      version: 1,
+      version: 2,
     });
   });
 });

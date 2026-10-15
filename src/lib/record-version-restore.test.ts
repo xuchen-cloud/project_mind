@@ -1,0 +1,31 @@
+import { beforeEach, expect, it, vi } from "vitest";
+import { RecordVersionRestoreSession } from "./record-version-restore";
+import { recordDocumentApi } from "../services/recordDocumentApi";
+vi.mock("../services/recordDocumentApi", () => ({ recordDocumentApi: { editorsFlush: vi.fn(), restore: vi.fn() } }));
+const binding = { workspaceId: "workspace", generation: "opened" };
+const target = { scope: { kind: "workspace" as const }, recordId: 7 };
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(recordDocumentApi.editorsFlush).mockResolvedValue({ head: { headRevision: 4 } } as never); });
+it("flushes every editor before restoring and safely replays a lost response", async () => {
+  vi.mocked(recordDocumentApi.restore).mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({} as never);
+  const session = new RecordVersionRestoreSession();
+  await expect(session.restore(binding,target,"version-1")).rejects.toThrow("response lost");
+  await session.restore(binding,target,"version-1");
+  expect(recordDocumentApi.editorsFlush).toHaveBeenCalledTimes(1);
+  const calls = vi.mocked(recordDocumentApi.restore).mock.calls;
+  expect(calls[0]).toEqual(calls[1]);
+  expect(calls[0]).toEqual([binding,{ target, versionId: "version-1", baseRevision: 4 }, expect.any(String)]);
+});
+it("keeps a failed flush from starting a restore and starts a fresh attempt after explicit rereading", async () => {
+  vi.mocked(recordDocumentApi.editorsFlush).mockRejectedValueOnce(new Error("EDITOR_REVIEW_PENDING"));
+  const session = new RecordVersionRestoreSession();
+  await expect(session.restore(binding,target,"version-1")).rejects.toThrow("EDITOR_REVIEW_PENDING");
+  expect(recordDocumentApi.restore).not.toHaveBeenCalled();
+  vi.mocked(recordDocumentApi.restore).mockRejectedValueOnce(new Error("REVISION_CONFLICT")).mockResolvedValueOnce({} as never);
+  await expect(session.restore(binding,target,"version-1")).rejects.toThrow("REVISION_CONFLICT");
+  session.reset();
+  vi.mocked(recordDocumentApi.editorsFlush).mockResolvedValue({ head: { headRevision: 6 } } as never);
+  await session.restore(binding,target,"version-1");
+  const calls = vi.mocked(recordDocumentApi.restore).mock.calls;
+  expect(calls[1][1].baseRevision).toBe(6);
+  expect(calls[1][2]).not.toBe(calls[0][2]);
+});

@@ -1,0 +1,5 @@
+node_modules/
+upstream/
+generated/
+__pycache__/
+*.wasm

@@ -1,0 +1,4 @@
+node_modules/
+dist/
+test/ui/model.json
+.playwright-cli/

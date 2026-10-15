@@ -1,0 +1,68 @@
+{
+  "simple": {
+    "default_documentStyle_equals_modern": true,
+    "default_sectionBreaks_equals_modern": true,
+    "modes": {
+      "default": {
+        "documentFlavor": 2,
+        "pageSize": {
+          "width": 960,
+          "height": 1122.6666666666667
+        },
+        "marginTop": 50,
+        "marginLeft": 50
+      },
+      "modern": {
+        "documentFlavor": 2,
+        "pageSize": {
+          "width": 960,
+          "height": 1122.6666666666667
+        },
+        "marginTop": 50,
+        "marginLeft": 50
+      },
+      "traditional": {
+        "documentFlavor": 1,
+        "pageSize": {
+          "width": 816,
+          "height": 1056
+        },
+        "marginTop": 96,
+        "marginLeft": 120
+      }
+    }
+  },
+  "complex": {
+    "default_documentStyle_equals_modern": true,
+    "default_sectionBreaks_equals_modern": true,
+    "modes": {
+      "default": {
+        "documentFlavor": 2,
+        "pageSize": {
+          "width": 960,
+          "height": 1122.6666666666667
+        },
+        "marginTop": 50,
+        "marginLeft": 50
+      },
+      "modern": {
+        "documentFlavor": 2,
+        "pageSize": {
+          "width": 960,
+          "height": 1122.6666666666667
+        },
+        "marginTop": 50,
+        "marginLeft": 50
+      },
+      "traditional": {
+        "documentFlavor": 1,
+        "pageSize": {
+          "width": 793.9333333333334,
+          "height": 1122.2666666666667
+        },
+        "marginTop": 96,
+        "marginLeft": 120
+      }
+    }
+  }
+}

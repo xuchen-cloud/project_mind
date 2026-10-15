@@ -1,0 +1,31 @@
+{
+  "name": "project-mind-genoffice-pptx-validation",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@genoffice/agent-core": "file:./upstream/packages/agent-core",
+    "@genoffice/zip-gate": "file:./upstream/packages/zip-gate",
+    "@genoffice/pptx-engine": "file:./upstream/packages/pptx-engine",
+    "@genoffice/pptx-render": "file:./upstream/packages/pptx-render",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "konva": "10.0.12",
+    "react-konva": "19.2.0",
+    "@types/node": "24.10.1",
+    "@types/opentype.js": "1.3.8",
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "esbuild": "0.27.7"
+  },
+  "scripts": {
+    "fetch": "python3 fetch-core.py",
+    "probe": "tsx probe.ts",
+    "build": "node build.mjs",
+    "ui": "vite --config vite.ui.config.mjs",
+    "ui:build": "vite build --config vite.ui.config.mjs --outDir ../ui-build",
+    "verify": "node verify.mjs"
+  }
+}

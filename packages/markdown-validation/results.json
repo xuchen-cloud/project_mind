@@ -1,0 +1,236 @@
+{
+  "status": "passed",
+  "node": "v26.8.1",
+  "upstreamSha": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "checks": [
+    {
+      "name": "lf:no_op_byte_identical",
+      "passed": true
+    },
+    {
+      "name": "lf:only_target_utf8_bytes_changed",
+      "passed": true
+    },
+    {
+      "name": "lf:original_hash_unchanged",
+      "passed": true
+    },
+    {
+      "name": "crlf:no_op_byte_identical",
+      "passed": true
+    },
+    {
+      "name": "crlf:only_target_utf8_bytes_changed",
+      "passed": true
+    },
+    {
+      "name": "crlf:original_hash_unchanged",
+      "passed": true
+    },
+    {
+      "name": "bom_crlf:no_op_byte_identical",
+      "passed": true
+    },
+    {
+      "name": "bom_crlf:only_target_utf8_bytes_changed",
+      "passed": true
+    },
+    {
+      "name": "bom_crlf:original_hash_unchanged",
+      "passed": true
+    },
+    {
+      "name": "no_final_newline:no_op_byte_identical",
+      "passed": true
+    },
+    {
+      "name": "no_final_newline:only_target_utf8_bytes_changed",
+      "passed": true
+    },
+    {
+      "name": "no_final_newline:original_hash_unchanged",
+      "passed": true
+    },
+    {
+      "name": "mixed:no_op_byte_identical",
+      "passed": true
+    },
+    {
+      "name": "mixed:only_target_utf8_bytes_changed",
+      "passed": true
+    },
+    {
+      "name": "mixed:original_hash_unchanged",
+      "passed": true
+    },
+    {
+      "name": "classic_cr:no_op_byte_identical",
+      "passed": true
+    },
+    {
+      "name": "classic_cr:only_target_utf8_bytes_changed",
+      "passed": true
+    },
+    {
+      "name": "classic_cr:original_hash_unchanged",
+      "passed": true
+    },
+    {
+      "name": "GFM_table",
+      "passed": true
+    },
+    {
+      "name": "GFM_task_checked_and_unchecked",
+      "passed": true
+    },
+    {
+      "name": "fence_embedded_fake_image_is_code",
+      "passed": true
+    },
+    {
+      "name": "blockquote_and_ordered_list_start",
+      "passed": true
+    },
+    {
+      "name": "authored_relative_path_decode",
+      "passed": true
+    },
+    {
+      "name": "reference_image_is_found",
+      "passed": true
+    },
+    {
+      "name": "resource_rewrite_changes_preview_only",
+      "passed": true
+    },
+    {
+      "name": "actual_preview_table",
+      "passed": true
+    },
+    {
+      "name": "actual_preview_tasks_disabled",
+      "passed": true
+    },
+    {
+      "name": "actual_preview_images_data_url",
+      "passed": true
+    },
+    {
+      "name": "actual_preview_Chinese_and_reference_link",
+      "passed": true
+    },
+    {
+      "name": "HTML_literals_no_active_nodes",
+      "passed": true
+    },
+    {
+      "name": "no_JS_hrefs_or_event_attributes",
+      "passed": true
+    }
+  ],
+  "sourceCases": [
+    {
+      "name": "lf",
+      "originalSha256": "f63c4644680da411882aa738c9490670b550694026ef05fc18093fcae5656678",
+      "editedSha256": "1b03af3a0eed347d47607bc8f7ff8e1314557f692a76f51f342be891fe6138ba",
+      "bytes": 662,
+      "genofficeReadWriteHelperExact": true,
+      "genofficeEnvelopeHelperExact": true,
+      "format": {
+        "bom": false,
+        "eol": "\n",
+        "trailingNewline": true
+      }
+    },
+    {
+      "name": "crlf",
+      "originalSha256": "2612e8f3fceaafcb8a6c5ab94dec95a2369f93250ed1e4f61144e6316fa8dee4",
+      "editedSha256": "4e9a0710756bd11abb44120953bf160bb38407c5bcd4adf34d4387cfd4216b8f",
+      "bytes": 700,
+      "genofficeReadWriteHelperExact": true,
+      "genofficeEnvelopeHelperExact": true,
+      "format": {
+        "bom": false,
+        "eol": "\r\n",
+        "trailingNewline": true
+      }
+    },
+    {
+      "name": "bom_crlf",
+      "originalSha256": "87325c151ffef11c15f98fd244f3b5a6da26a7f8b0cf9aa06119b832b59010de",
+      "editedSha256": "e4a7d77188b0bb5731ad76350e7a10f4ad7b707baaa654a07bcd2e5184ac89db",
+      "bytes": 703,
+      "genofficeReadWriteHelperExact": true,
+      "genofficeEnvelopeHelperExact": true,
+      "format": {
+        "bom": true,
+        "eol": "\r\n",
+        "trailingNewline": true
+      }
+    },
+    {
+      "name": "no_final_newline",
+      "originalSha256": "1e13871c58863ef537de1d5493e6aedeb1d338f325b95a75b66bb16fbcefe9cb",
+      "editedSha256": "3a0643391267dcf89c6578ebbcee99242aecbb7c6d2a494cf0ad4ed076adefe3",
+      "bytes": 661,
+      "genofficeReadWriteHelperExact": true,
+      "genofficeEnvelopeHelperExact": true,
+      "format": {
+        "bom": false,
+        "eol": "\n",
+        "trailingNewline": false
+      }
+    },
+    {
+      "name": "mixed",
+      "originalSha256": "ac2f13969890026875c9e7cfe56869dcce599ad8262b0af9b87f95c823fc77a3",
+      "editedSha256": "2c7577fc450b7c15c32d40715d2a18b42334eacdb6a56c44186b013dbde66e6d",
+      "bytes": 666,
+      "genofficeReadWriteHelperExact": false,
+      "genofficeEnvelopeHelperExact": false,
+      "format": {
+        "bom": true,
+        "eol": "\r\n",
+        "trailingNewline": true
+      }
+    },
+    {
+      "name": "classic_cr",
+      "originalSha256": "7d5e795e31862b4805a6d86e5b4ea20339e4155335a62ecf8cf5812b3d1a5c85",
+      "editedSha256": "a9e79a2e700e0d65ceee89851ad102a27194fb5a398327a4561c19b4a92e6add",
+      "bytes": 662,
+      "genofficeReadWriteHelperExact": false,
+      "genofficeEnvelopeHelperExact": true,
+      "format": {
+        "bom": false,
+        "eol": "\n",
+        "trailingNewline": true
+      }
+    }
+  ],
+  "preview": {
+    "parser": "Existing parseGfmWithMath",
+    "renderer": "Existing MarkdownText SSR",
+    "htmlSha256": "6cd2f31402993c8952323189b876665b9cbb76f1c3e032764a08b2552e5defd9",
+    "resourceReferences": [
+      "images/%E5%9B%BE.png",
+      "images/reference.png"
+    ]
+  },
+  "limitations": {
+    "genofficeSourceHelpers": {
+      "mixedExact": false,
+      "classicCRExact": false,
+      "scope": "Actual fixed-SHA pure helpers only; full Tiptap/source-map/Electron save flow not run"
+    },
+    "duplicateReferenceImages": {
+      "firstCommonMarkDefinition": "images/first.png",
+      "currentResourceHelperReferences": [
+        "images/second.png"
+      ],
+      "matchesFirstDefinition": false
+    },
+    "resourceMimeAndOwnership": "Probe uses a supplied PNG map. Project File resolution, native path/ownership budgets and network blocking inspected statically, not invoked here.",
+    "editorAndCAS": "Byte-splice demonstration only; no DOM textarea/CodeMirror/IME/undo or native File/CAS commit executed."
+  }
+}

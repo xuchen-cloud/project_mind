@@ -34,6 +34,7 @@ pub struct ResolvedAiProfile {
     pub model: String,
     pub supports_text: bool,
     pub supports_image: bool,
+    pub(crate) network: crate::ai_network::ResolvedAiNetwork,
 }
 
 #[derive(Debug, Clone)]
@@ -929,7 +930,7 @@ fn request_text(
         });
     }
 
-    let client = Client::builder()
+    let client = crate::ai_network::client_builder(&profile.network)?
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(purpose.timeout())
         .build()
@@ -983,7 +984,7 @@ fn request_text_streaming_for_purpose(
         });
     }
 
-    let client = Client::builder()
+    let client = crate::ai_network::client_builder(&profile.network)?
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(purpose.timeout())
         .build()
@@ -2642,6 +2643,29 @@ mod tests {
         )
         .unwrap();
         assert_ne!(annotated.data_base64, normalized.data_base64);
+        assert!(prepare_provider_image(
+            &path_text,
+            "image/svg+xml",
+            &annotated_signature,
+            Some(annotations),
+            "openai_compatible",
+        )
+        .is_err());
+        fs::remove_file(path).unwrap();
+    }
+
+    // Text rasterization uses native fonts only on the supported desktop
+    // platforms. The generic normalization/signature test above runs everywhere.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn image_text_annotations_render_distinct_glyphs() {
+        let path = std::env::temp_dir().join(format!(
+            "project-mind-image-text-annotations-{}.png",
+            std::process::id()
+        ));
+        let image = RgbaImage::from_pixel(3200, 1600, Rgba([255, 255, 255, 0]));
+        DynamicImage::ImageRgba8(image).save(&path).unwrap();
+        let path_text = path.to_string_lossy().to_string();
         let text_a = r#"{"version":1,"image":{"width":3200,"height":1600},"items":[{"id":"t","type":"text","x":10,"y":10,"width":400,"height":80,"fontSize":40,"text":"ABC"}]}"#;
         let text_b = text_a.replace("ABC", "XYZ");
         let text_a_signature = image_target_signature(&path_text, Some(text_a)).unwrap();
@@ -2663,14 +2687,6 @@ mod tests {
         )
         .unwrap();
         assert_ne!(rendered_a.data_base64, rendered_b.data_base64);
-        assert!(prepare_provider_image(
-            &path_text,
-            "image/svg+xml",
-            &annotated_signature,
-            Some(annotations),
-            "openai_compatible",
-        )
-        .is_err());
         fs::remove_file(path).unwrap();
     }
 
@@ -2943,6 +2959,7 @@ mod tests {
             model: model.to_string(),
             supports_text: true,
             supports_image: true,
+            network: Default::default(),
         }
     }
 
@@ -2956,6 +2973,7 @@ mod tests {
             model: "mock".into(),
             supports_text: true,
             supports_image: false,
+            network: Default::default(),
         };
         let result =
             super::run_voice_minutes(&profile, None, &[(1_000, "确定周五发布。".into())]).unwrap();

@@ -1,0 +1,598 @@
+{
+  "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+  "upstream_commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "node": "v26.8.1",
+  "fixture_manifest_sha256": "6bbcaee2cfdc8e3c271b67cd09e18e84e6e6faa175acaaa2a619f607bd0d41c0",
+  "runs": [
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → original SaveBlock[] → saveDocx",
+      "baseline_hash": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "case": "simple",
+      "mode": "noop",
+      "path": "engine",
+      "status": "completed",
+      "output": "simple.engine.noop.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 1
+      },
+      "plan_summary": null,
+      "output_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "byte_identical": true
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc(readSections, pmDocOptions) → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "case": "simple",
+      "mode": "noop",
+      "path": "public-pm",
+      "status": "completed",
+      "output": "simple.public-pm.noop.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 1
+      },
+      "plan_summary": {
+        "changedCount": 0,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "byte_identical": true
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc(readSections, pmDocOptions) → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "case": "simple",
+      "mode": "edited",
+      "path": "public-pm",
+      "status": "completed",
+      "output": "simple.public-pm.edited.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 1
+      },
+      "plan_summary": {
+        "changedCount": 2,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "generated",
+          "original",
+          "xml",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "b683120a3310407098a0dd61eb43c4b1fa65bb1666b9c8abbfd604df8ae64417",
+      "byte_identical": false
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc → upstream editorExtensions/getSchema → ProseMirror EditorState transaction/getJSON → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "case": "simple",
+      "mode": "noop",
+      "path": "tiptap-schema",
+      "status": "completed",
+      "schema": {
+        "node_types": [
+          "doc",
+          "text",
+          "hardBreak",
+          "docNoteRef",
+          "docXeMark",
+          "docRuby",
+          "docInlineImage",
+          "docInlineMath",
+          "docParagraph",
+          "docHeading",
+          "docListItem",
+          "docTable",
+          "docTableRow",
+          "docTableCell",
+          "docTableHeader",
+          "docNestedTable",
+          "docCellBoxes",
+          "docProtected"
+        ],
+        "mark_types": [
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "link",
+          "refField",
+          "instrField",
+          "ctrlCheckbox",
+          "rprChange",
+          "docTextStyle",
+          "comment",
+          "ins",
+          "del",
+          "docSym"
+        ],
+        "valid": true,
+        "edit_method": "Node.fromJSON/schema check → toJSON"
+      },
+      "output": "simple.tiptap-schema.noop.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 1
+      },
+      "plan_summary": {
+        "changedCount": 0,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "byte_identical": true
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc → upstream editorExtensions/getSchema → ProseMirror EditorState transaction/getJSON → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "case": "simple",
+      "mode": "edited",
+      "path": "tiptap-schema",
+      "status": "completed",
+      "schema": {
+        "node_types": [
+          "doc",
+          "text",
+          "hardBreak",
+          "docNoteRef",
+          "docXeMark",
+          "docRuby",
+          "docInlineImage",
+          "docInlineMath",
+          "docParagraph",
+          "docHeading",
+          "docListItem",
+          "docTable",
+          "docTableRow",
+          "docTableCell",
+          "docTableHeader",
+          "docNestedTable",
+          "docCellBoxes",
+          "docProtected"
+        ],
+        "mark_types": [
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "link",
+          "refField",
+          "instrField",
+          "ctrlCheckbox",
+          "rprChange",
+          "docTextStyle",
+          "comment",
+          "ins",
+          "del",
+          "docSym"
+        ],
+        "valid": true,
+        "edit_method": "EditorState.tr.insertText"
+      },
+      "output": "simple.tiptap-schema.edited.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 1
+      },
+      "plan_summary": {
+        "changedCount": 2,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "generated",
+          "original",
+          "xml",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "b683120a3310407098a0dd61eb43c4b1fa65bb1666b9c8abbfd604df8ae64417",
+      "byte_identical": false
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → original SaveBlock[] → saveDocx",
+      "baseline_hash": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "case": "complex",
+      "mode": "noop",
+      "path": "engine",
+      "status": "completed",
+      "output": "complex.engine.noop.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "passthrough",
+          "heading",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 2
+      },
+      "plan_summary": null,
+      "output_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "byte_identical": true
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc(readSections, pmDocOptions) → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "case": "complex",
+      "mode": "noop",
+      "path": "public-pm",
+      "status": "completed",
+      "output": "complex.public-pm.noop.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "passthrough",
+          "heading",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 2
+      },
+      "plan_summary": {
+        "changedCount": 0,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "byte_identical": true
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc(readSections, pmDocOptions) → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "case": "complex",
+      "mode": "edited",
+      "path": "public-pm",
+      "status": "completed",
+      "output": "complex.public-pm.edited.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "passthrough",
+          "heading",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 2
+      },
+      "plan_summary": {
+        "changedCount": 2,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "generated",
+          "original",
+          "xml",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "c449cc78825d6fa6ea388a7f2ae8b28f574020ad8e2060814a0412caf5bfd2dc",
+      "byte_identical": false
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc → upstream editorExtensions/getSchema → ProseMirror EditorState transaction/getJSON → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "case": "complex",
+      "mode": "noop",
+      "path": "tiptap-schema",
+      "status": "completed",
+      "schema": {
+        "node_types": [
+          "doc",
+          "text",
+          "hardBreak",
+          "docNoteRef",
+          "docXeMark",
+          "docRuby",
+          "docInlineImage",
+          "docInlineMath",
+          "docParagraph",
+          "docHeading",
+          "docListItem",
+          "docTable",
+          "docTableRow",
+          "docTableCell",
+          "docTableHeader",
+          "docNestedTable",
+          "docCellBoxes",
+          "docProtected"
+        ],
+        "mark_types": [
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "link",
+          "refField",
+          "instrField",
+          "ctrlCheckbox",
+          "rprChange",
+          "docTextStyle",
+          "comment",
+          "ins",
+          "del",
+          "docSym"
+        ],
+        "valid": true,
+        "edit_method": "Node.fromJSON/schema check → toJSON"
+      },
+      "output": "complex.tiptap-schema.noop.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "passthrough",
+          "heading",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 2
+      },
+      "plan_summary": {
+        "changedCount": 0,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "byte_identical": true
+    },
+    {
+      "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+      "model_path": "parseDocx → blocksToPmDoc → upstream editorExtensions/getSchema → ProseMirror EditorState transaction/getJSON → pmDocToSavePlan → saveDocx",
+      "baseline_hash": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "case": "complex",
+      "mode": "edited",
+      "path": "tiptap-schema",
+      "status": "completed",
+      "schema": {
+        "node_types": [
+          "doc",
+          "text",
+          "hardBreak",
+          "docNoteRef",
+          "docXeMark",
+          "docRuby",
+          "docInlineImage",
+          "docInlineMath",
+          "docParagraph",
+          "docHeading",
+          "docListItem",
+          "docTable",
+          "docTableRow",
+          "docTableCell",
+          "docTableHeader",
+          "docNestedTable",
+          "docCellBoxes",
+          "docProtected"
+        ],
+        "mark_types": [
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "link",
+          "refField",
+          "instrField",
+          "ctrlCheckbox",
+          "rprChange",
+          "docTextStyle",
+          "comment",
+          "ins",
+          "del",
+          "docSym"
+        ],
+        "valid": true,
+        "edit_method": "EditorState.tr.insertText"
+      },
+      "output": "complex.tiptap-schema.edited.docx",
+      "reopened_assertions": {
+        "paragraph": true,
+        "table_cell": true,
+        "block_types": [
+          "paragraph",
+          "heading",
+          "paragraph",
+          "paragraph",
+          "table",
+          "image",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "paragraph",
+          "passthrough",
+          "heading",
+          "paragraph",
+          "passthrough"
+        ],
+        "section_count": 2
+      },
+      "plan_summary": {
+        "changedCount": 2,
+        "deletedCount": 0,
+        "saveBlockKinds": [
+          "original",
+          "original",
+          "generated",
+          "original",
+          "xml",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original",
+          "original"
+        ]
+      },
+      "output_sha256": "c449cc78825d6fa6ea388a7f2ae8b28f574020ad8e2060814a0412caf5bfd2dc",
+      "byte_identical": false
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import { queryKeys } from "./queryKeys";
 describe("search query keys", () => {
   it("centralizes every Workspace-scoped cache root for lifecycle cleanup", () => {
     expect(queryKeys.workspaceScoped).toEqual([
+      ["agent"],
       ["projects"],
       ["project-page"],
       ["search"],
@@ -16,6 +17,8 @@ describe("search query keys", () => {
       ["project-tag-settings"],
       ["contacts"],
       ["documentVersions"],
+      ["project-content-binding"],
+      ["project-directory"],
     ]);
   });
 

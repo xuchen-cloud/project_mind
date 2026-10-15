@@ -1,12 +1,61 @@
+pub mod agent;
 mod ai_jobs;
+mod dsh_assistant;
+mod skills;
+mod project_directory;
+mod project_file_exclusions;
+mod native_file_icons;
 mod ai_provider;
+mod ai_network;
 mod db;
 mod models;
+mod record_documents;
+mod record_document_worker;
+mod source_extraction_worker;
+mod source_search_index;
+mod source_service;
+mod source_session_summary;
+mod source_session_read;
+mod source_maintenance;
+mod project_file_maintenance;
+mod source_file_snapshot;
+mod source_file_read;
+mod source_text_page;
+mod source_native;
+mod overview_evidence;
+mod overview_service;
+mod overview_generation;
+mod overview_model;
+mod overview_maintenance;
+mod overview_session;
+mod overview_commands;
+mod knowledge_service;
+mod memory_commands;
+mod knowledge_registry;
+mod utility_process;
+mod record_document_service;
+mod record_version_reads;
+mod record_document_commands;
+mod file_document_commands;
+mod file_version_service;
+mod file_version_restore;
+mod file_text_patch;
+mod file_content;
+mod file_source_read;
+mod file_read_commands;
+mod file_office;
+mod office_worker;
+mod office_process;
+mod file_office_commands;
+mod workspace_commit_fence;
+mod record_editor_coordination;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
 pub mod voice;
 mod workspace;
+mod workspace_initialization;
+mod committed_changes;
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -30,7 +79,7 @@ use models::{
     AiJobEnqueueInput, AiJobSnapshot, AiProfileTestInput, AiProfileTestResult,
     AiProviderProfileDeleteInput, AiProviderProfileRecord, AiProviderProfileUpsertInput,
     AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput, ContactUpsertInput,
-    DocumentAddVersionInput, DocumentDeleteInput, DocumentImportClipboardImageInput,
+    DocumentDeleteInput, DocumentImportClipboardImageInput,
     DocumentImportClipboardNoteImageInput, DocumentImportInput, DocumentImportNoteImageInput,
     DocumentListVersionsInput, DocumentRecord, DocumentRelocateInput, DocumentUpdateMetaInput,
     DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
@@ -113,11 +162,15 @@ pub struct SeedDemoWorkspaceResult {
 }
 
 pub(crate) struct WorkspaceRuntime {
+    agent_binding: agent::models::WorkspaceBinding,
+    agent_runs: Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>,
+    agent_cancel_started: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
     pub(crate) paths: WorkspacePaths,
     secret_state: Arc<Mutex<Option<String>>>,
     pub(crate) db: Mutex<Database>,
+    file_commit_fence: Arc<workspace_commit_fence::WorkspaceCommitFence>,
     ai_jobs: AiJobManager,
     voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) voice_recovery_running: std::sync::atomic::AtomicBool,
@@ -131,7 +184,13 @@ impl WorkspaceRuntime {
         paths: WorkspacePaths,
         secret_password: Option<String>,
     ) -> Result<Self> {
-        let mut db = Database::open(&paths.db_path, &paths.root_path, secret_password.clone())?;
+        let opened = workspace_initialization::open_workspace_database(
+            &paths.db_path, &paths.root_path, secret_password.clone(), &metadata.workspace_id,
+        )?;
+        if let Some(error) = opened.checkpoint_error {
+            let _ = app_handle.emit("record:checkpoint-error", error);
+        }
+        let mut db = opened.db;
         let execution = db.ai_execution_settings_get()?;
         let secret_state = Arc::new(Mutex::new(secret_password));
         let app_handle = app_handle.clone();
@@ -145,12 +204,22 @@ impl WorkspaceRuntime {
             }),
         );
 
+        let agent_binding = agent::models::WorkspaceBinding {
+                workspace_id: metadata.workspace_id.clone(),
+                generation: format!("{:032x}", rand::random::<u128>()),
+            };
+        db.agent_gui_interrupt_orphans(&agent_binding)
+            .map_err(|error| anyhow!(error.message))?;
         Ok(Self {
+            agent_binding,
+            agent_runs: Mutex::new(std::collections::HashMap::new()),
+            agent_cancel_started: Mutex::new(std::collections::HashMap::new()),
             summary: workspace_summary(&paths.root_path, &metadata),
             metadata,
             paths,
             secret_state,
             db: Mutex::new(db),
+            file_commit_fence: Arc::new(workspace_commit_fence::WorkspaceCommitFence::new()),
             ai_jobs,
             voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             voice_recovery_running: std::sync::atomic::AtomicBool::new(false),
@@ -162,6 +231,12 @@ impl WorkspaceRuntime {
         lock_mutex(&self.secret_state).is_some()
     }
 
+    fn cancel_agent_runs(&self) {
+        for cancel in lock_mutex(&self.agent_runs).values() {
+            cancel.send_replace(true);
+        }
+    }
+
     pub(crate) fn kick_voice_minutes(&self) {
         voice::processing::kick(
             self.paths.db_path.clone(),
@@ -171,18 +246,17 @@ impl WorkspaceRuntime {
         );
     }
 
-    fn set_secret_password(&self, secret_password: Option<String>) -> Result<()> {
-        {
-            let mut secret = lock_mutex(&self.secret_state);
-            *secret = secret_password.clone();
-        }
-
+    fn set_secret_password(&self, secret_password: Option<String>) -> Result<Option<agent::errors::AgentError>> {
         let mut db_guard = lock_mutex(&self.db);
-        let next_db = Database::open(&self.paths.db_path, &self.paths.root_path, secret_password)?;
+        let opened = workspace_initialization::open_workspace_database(
+            &self.paths.db_path, &self.paths.root_path, secret_password.clone(), &self.agent_binding.workspace_id,
+        )?;
+        let mut next_db = opened.db;
+        let execution = next_db.ai_execution_settings_get()?;
         *db_guard = next_db;
-        let execution = db_guard.ai_execution_settings_get()?;
+        *lock_mutex(&self.secret_state) = secret_password;
         self.ai_jobs.set_max_concurrency(execution.max_concurrency);
-        Ok(())
+        Ok(opened.checkpoint_error)
     }
 }
 
@@ -192,6 +266,8 @@ pub(crate) struct AppState {
     current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
     voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
     exit_authorized: std::sync::atomic::AtomicBool,
+    record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
+    external_bridge: agent::bridge::BridgeRuntime,
 }
 
 impl AppState {
@@ -239,6 +315,8 @@ impl AppState {
     fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
         let mut current = lock_mutex(&self.current_workspace);
         if let Some(previous) = current.as_ref() {
+            previous.cancel_agent_runs();
+            previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
         }
         *current = runtime;
@@ -252,6 +330,7 @@ impl AppState {
 
     fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
+        self.seal_current_record_checkpoints()?;
         let (metadata, paths) = load_metadata(root_path)?;
         let runtime = Arc::new(WorkspaceRuntime::new(
             &self.app_handle,
@@ -259,6 +338,18 @@ impl AppState {
             paths,
             None,
         )?);
+        #[cfg(debug_assertions)]
+        {
+            if let Some(password) = debug_workspace_password(
+                &runtime.metadata,
+                std::env::var("PROJECT_MIND_DEV_WORKSPACE_PASSWORD").ok().as_deref(),
+                debug_cached_workspace_password,
+            )? {
+                if let Some(error) = runtime.set_secret_password(Some(password))? {
+                    let _ = self.app_handle.emit("record:checkpoint-error", error);
+                }
+            }
+        }
         self.set_current_workspace(Some(runtime));
 
         let mut session = load_local_session(&self.local_session_path)?;
@@ -273,35 +364,136 @@ impl AppState {
         root_path: &Path,
         password: &str,
     ) -> Result<WorkspaceStatusSnapshot> {
+        #[cfg(debug_assertions)]
+        debug_create_workspace(root_path, debug_cache_workspace_password)?;
+        #[cfg(not(debug_assertions))]
         create_workspace(root_path, password)?;
+        #[cfg(debug_assertions)]
+        let _ = password;
         self.open_workspace_root(root_path)
     }
 
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
-        let previous = lock_mutex(&self.current_workspace).clone();
-        close_workspace_runtime(&self.local_session_path, &self.current_workspace)?;
-        if let Some(previous) = previous {
+        self.seal_current_record_checkpoints()?;
+        close_workspace_runtime(&self.local_session_path, &self.current_workspace, |previous| {
+            previous.cancel_agent_runs();
+            previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
-        }
+        })?;
         self.status_snapshot()
     }
 
     fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
         verify_workspace_password(&runtime.metadata, password)?;
-        runtime.set_secret_password(Some(password.to_string()))?;
+        if let Some(error) = runtime.set_secret_password(Some(password.to_string()))? {
+            let _ = self.app_handle.emit("record:checkpoint-error", error);
+        }
         self.status_snapshot()
+    }
+
+    fn seal_current_record_checkpoints(&self) -> Result<()> {
+        let current = lock_mutex(&self.current_workspace);
+        if let Some(workspace) = current.as_ref() {
+            lock_mutex(&workspace.db)
+                .record_seal_checkpoints(record_documents::RecordCheckpointReason::Shutdown, &workspace.agent_binding.workspace_id)
+                .map_err(|error| anyhow!(error.message))?;
+        }
+        Ok(())
     }
 
     fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
-        runtime.set_secret_password(None)?;
+        runtime.cancel_agent_runs();
+        if let Some(error) = runtime.set_secret_password(None)? {
+            let _ = self.app_handle.emit("record:checkpoint-error", error);
+        }
         self.status_snapshot()
     }
 }
 
 type CommandResult<T> = std::result::Result<T, String>;
+
+#[cfg(debug_assertions)]
+fn debug_workspace_key_path(app_data: &Path, workspace_id: &str) -> Result<PathBuf> {
+    if workspace_id.len() != 32 || !workspace_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("invalid workspace identity for development cache");
+    }
+    Ok(app_data.join("debug-workspace-keys").join(workspace_id))
+}
+
+#[cfg(debug_assertions)]
+fn debug_read_workspace_key(app_data: &Path, workspace_id: &str) -> Result<Option<String>> {
+    match fs::read_to_string(debug_workspace_key_path(app_data, workspace_id)?) {
+        Ok(password) => Ok(Some(password)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).context("failed to read development workspace key"),
+    }
+}
+
+#[cfg(debug_assertions)]
+fn debug_write_workspace_key(app_data: &Path, workspace_id: &str, password: &str) -> Result<()> {
+    use std::io::Write;
+    let path = debug_workspace_key_path(app_data, workspace_id)?;
+    let directory = path.parent().unwrap();
+    fs::create_dir_all(directory)?;
+    // NamedTempFile creates a private file (0600 on Unix) and atomically
+    // replaces the key. Production builds have no development key cache.
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    temporary.write_all(password.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn debug_cached_workspace_password(workspace_id: &str) -> Result<Option<String>> {
+    debug_read_workspace_key(&default_app_data_dir()?, workspace_id)
+}
+
+#[cfg(debug_assertions)]
+fn debug_cache_workspace_password(workspace_id: &str, password: &str) -> Result<()> {
+    debug_write_workspace_key(&default_app_data_dir()?, workspace_id, password)
+}
+
+#[cfg(debug_assertions)]
+fn debug_workspace_password(
+    metadata: &WorkspaceMetadata,
+    fixture_password: Option<&str>,
+    read: impl FnOnce(&str) -> Result<Option<String>>,
+) -> Result<Option<String>> {
+    if let Some(password) = fixture_password {
+        // Explicit acceptance configuration needs no cache access. It can
+        // unlock only the workspace whose verifier matches that password.
+        match verify_workspace_password(metadata, password) {
+            Ok(()) => return Ok(Some(password.to_owned())),
+            Err(error) if error.to_string() == "workspace password is incorrect" => {},
+            Err(error) => return Err(error),
+        }
+    }
+    if let Some(password) = read(&metadata.workspace_id)? {
+        verify_workspace_password(metadata, &password)?;
+        return Ok(Some(password));
+    }
+    Ok(None)
+}
+
+#[cfg(debug_assertions)]
+fn debug_create_workspace(
+    root: &Path,
+    save: impl FnOnce(&str, &str) -> Result<()>,
+) -> Result<()> {
+    let password = format!("{:032x}{:032x}", rand::random::<u128>(), rand::random::<u128>());
+    let (metadata, paths) = create_workspace(root, &password)?;
+    if let Err(error) = save(&metadata.workspace_id, &password) {
+        // No database exists yet; allow creation to be retried without losing a generated key.
+        std::fs::remove_file(&paths.metadata_path)
+            .context("failed to roll back workspace metadata after development key cache failure")?;
+        return Err(error);
+    }
+    Ok(())
+}
 
 fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
@@ -313,11 +505,15 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 fn close_workspace_runtime<T>(
     local_session_path: &Path,
     current_workspace: &Mutex<Option<T>>,
+    on_close: impl FnOnce(&T),
 ) -> Result<()> {
     let mut session = load_local_session(local_session_path)?;
     session.clear_current_workspace();
     save_local_session(local_session_path, &session)?;
     let mut current = lock_mutex(current_workspace);
+    if let Some(previous) = current.as_ref() {
+        on_close(previous);
+    }
     *current = None;
     Ok(())
 }
@@ -329,8 +525,22 @@ fn with_db<T>(
     let runtime = state
         .current_workspace()
         .map_err(|error| error.to_string())?;
-    let mut db = lock_mutex(&runtime.db);
-    task(&mut db).map_err(|error| error.to_string())
+    let request_id = format!("gui:{:032x}", rand::random::<u128>());
+    let (result, changes) = {
+        let current = lock_mutex(&state.current_workspace);
+        if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &runtime)) {
+            return Err("Workspace changed before the command acquired storage".into());
+        }
+        let mut db = lock_mutex(&runtime.db);
+        committed_changes::capture_native_committed(&runtime.agent_binding, &mut db, &request_id, task)
+            .map_err(|error| error.to_string())?
+    };
+    // Both the transaction and storage lock are released before event delivery.
+    if let Some(changes) = changes {
+        use committed_changes::CommittedChangePublisher;
+        state.publish_committed(changes);
+    }
+    result.map_err(|error| error.to_string())
 }
 
 fn with_workspace_runtime<T>(
@@ -401,7 +611,19 @@ fn thumbnail_cache_key(path: &str, len: u64, modified_millis: u128, max_edge: u3
     format!("{:016x}", hasher.finish())
 }
 
+#[cfg(debug_assertions)]
+fn debug_app_data_dir_override(path: PathBuf) -> Result<PathBuf> {
+    if !path.is_absolute() {
+        bail!("PROJECT_MIND_APP_DATA_DIR must be an absolute path");
+    }
+    Ok(path)
+}
+
 fn default_app_data_dir() -> Result<PathBuf> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = env::var_os("PROJECT_MIND_APP_DATA_DIR") {
+        return debug_app_data_dir_override(PathBuf::from(path));
+    }
     #[cfg(target_os = "macos")]
     {
         return Ok(default_home_dir()?
@@ -614,30 +836,36 @@ fn workspace_status_get(state: State<'_, AppState>) -> CommandResult<WorkspaceSt
 }
 
 #[tauri::command]
-fn workspace_create(
+async fn workspace_create(
     state: State<'_, AppState>,
     input: WorkspaceCreateInput,
 ) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .create_workspace_root(Path::new(input.root_path.trim()), &input.password)
-        .map_err(|error| error.to_string())
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.create_workspace_root(Path::new(input.root_path.trim()), &input.password).map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
-fn workspace_open(
+async fn workspace_open(
     state: State<'_, AppState>,
     input: WorkspaceOpenInput,
 ) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .open_workspace_root(Path::new(input.root_path.trim()))
-        .map_err(|error| error.to_string())
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.open_workspace_root(Path::new(input.root_path.trim())).map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
-fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .close_current_workspace()
-        .map_err(|error| error.to_string())
+async fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.close_current_workspace().map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
@@ -651,10 +879,12 @@ fn workspace_unlock(
 }
 
 #[tauri::command]
-fn workspace_lock(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .lock_current_workspace_secrets()
-        .map_err(|error| error.to_string())
+async fn workspace_lock(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    state.app_handle.state::<dsh_assistant::DshAssistantState>()
+        .invalidate(&state.app_handle, || {
+            state.lock_current_workspace_secrets().map_err(|error| error.to_string())
+        })
+        .await
 }
 
 #[tauri::command]
@@ -767,28 +997,31 @@ fn contact_delete(
     with_db(state, |db| db.contact_delete(input))
 }
 
+// Retired desktop adapters deliberately have no AppState/database access. Old
+// renderer requests cannot mutate even Records that lack a canonical baseline.
+fn reject_legacy_record_write<I, O>(_: I) -> CommandResult<O> {
+    Err("旧记录写入接口已停用，请通过正文或元信息保存接口提交；草稿已保留".into())
+}
+
 #[tauri::command]
 fn project_record_upsert(
-    state: State<'_, AppState>,
     input: ProjectRecordUpsertInput,
 ) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.project_record_upsert(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn project_quick_note_commit(
-    state: State<'_, AppState>,
     input: ProjectQuickNoteCommitInput,
 ) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.project_quick_note_commit(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn project_record_metadata_apply(
-    state: State<'_, AppState>,
     input: ProjectRecordMetadataApplyInput,
 ) -> CommandResult<NoteRecord> {
-    with_db(state, |db| db.project_record_metadata_apply(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
@@ -893,26 +1126,23 @@ fn workspace_quick_note_upsert(
 
 #[tauri::command]
 fn workspace_quick_note_commit(
-    state: State<'_, AppState>,
     input: WorkspaceQuickNoteCommitInput,
 ) -> CommandResult<WorkspaceRecord> {
-    with_db(state, |db| db.workspace_quick_note_commit(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn workspace_record_upsert(
-    state: State<'_, AppState>,
     input: WorkspaceRecordUpsertInput,
 ) -> CommandResult<WorkspaceRecord> {
-    with_db(state, |db| db.workspace_record_upsert(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
 fn workspace_record_metadata_apply(
-    state: State<'_, AppState>,
     input: WorkspaceRecordMetadataApplyInput,
 ) -> CommandResult<WorkspaceRecord> {
-    with_db(state, |db| db.workspace_record_metadata_apply(input))
+    reject_legacy_record_write(input)
 }
 
 #[tauri::command]
@@ -993,14 +1223,6 @@ fn document_list_versions(
     input: DocumentListVersionsInput,
 ) -> CommandResult<Vec<DocumentVersionRecord>> {
     with_db(state, |db| db.document_list_versions(input))
-}
-
-#[tauri::command]
-fn document_add_version(
-    state: State<'_, AppState>,
-    input: DocumentAddVersionInput,
-) -> CommandResult<DocumentRecord> {
-    with_db(state, |db| db.document_add_version(input))
 }
 
 #[tauri::command]
@@ -1118,6 +1340,14 @@ fn ai_jobs_list_active(state: State<'_, AppState>) -> CommandResult<Vec<AiJobSna
 }
 
 #[tauri::command]
+fn ai_network_settings_upsert(
+    state: State<'_, AppState>,
+    input: models::AiNetworkSettingsUpsertInput,
+) -> CommandResult<models::AiNetworkSettings> {
+    with_db(state, |db| db.ai_network_settings_upsert(input))
+}
+
+#[tauri::command]
 fn ai_execution_settings_upsert(
     state: State<'_, AppState>,
     input: AiExecutionSettings,
@@ -1137,19 +1367,39 @@ fn ai_execution_settings_upsert(
 }
 
 #[tauri::command]
-fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
+async fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    settle_agents_before_exit(&state).await;
+    state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
+    state.app_handle.state::<dsh_assistant::DshAssistantState>().shutdown().await?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.exit(0);
     Ok(())
 }
 
 #[tauri::command]
-fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
+async fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
     state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    settle_agents_before_exit(&state).await;
+    state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
+    state.app_handle.state::<dsh_assistant::DshAssistantState>().shutdown().await?;
     state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
     state.app_handle.request_restart();
     Ok(())
+}
+
+async fn settle_agents_before_exit(state: &AppState) {
+    let runtime = lock_mutex(&state.current_workspace).clone();
+    if let Some(runtime) = runtime {
+        runtime.cancel_agent_runs();
+        // The Host cancels, then kills after its grace period. A damaged database
+        // must not trap application exit; startup marks unfinished runs interrupted.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            while !lock_mutex(&runtime.agent_runs).is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }).await;
+    }
 }
 
 #[tauri::command]
@@ -1184,6 +1434,41 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                dsh_assistant::DshAssistantState::detach_parent(window.app_handle().clone(), window.label().into());
+            }
+        })
+        .on_page_load(|webview, payload| {
+            if payload.event() != tauri::webview::PageLoadEvent::Started {
+                return;
+            }
+            let label = webview.label();
+            let parent_label = label == "main"
+                || label.strip_prefix("project-").is_some_and(|id| {
+                    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
+                });
+            let window = webview.window();
+            if !parent_label || window.label() != label {
+                return;
+            }
+            let url = payload.url();
+            let local = if cfg!(dev) {
+                webview.app_handle().config().build.dev_url.as_ref()
+                    .is_some_and(|dev| dev.origin() == url.origin())
+            } else {
+                (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+                    || (matches!(url.scheme(), "http" | "https")
+                        && url.host_str() == Some("tauri.localhost"))
+            };
+            if !local {
+                return;
+            }
+            // A document reload skips React cleanup; release its carriers while
+            // retaining the runtime and any executing task.
+            dsh_assistant::DshAssistantState::detach_parent(webview.app_handle().clone(), label.into());
+
+        })
         .setup(|app| {
             ensure_main_window(app)?;
 
@@ -1195,8 +1480,10 @@ pub fn run() {
                 app_handle: app.handle().clone(),
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
+                record_editors: Arc::new(record_editor_coordination::RecordEditorCoordinator::default()),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
+                external_bridge: agent::bridge::BridgeRuntime::default(),
             };
 
             let local_session = load_local_session(&local_session_path)?;
@@ -1204,7 +1491,26 @@ pub fn run() {
                 let _ = state.open_workspace_root(Path::new(&last_root));
             }
 
+            app.manage(dsh_assistant::DshAssistantState::default());
             app.manage(state);
+            agent::bridge::commands::restore(app.handle());
+            source_maintenance::start(app.handle());
+            project_file_maintenance::start(app.handle());
+            overview_maintenance::start(app.handle());
+            let record_handle = app.handle().clone();
+            std::thread::Builder::new()
+                .name("record-checkpoints".into())
+                .spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let state = record_handle.state::<AppState>();
+                    let current = lock_mutex(&state.current_workspace);
+                    if let Some(workspace) = current.as_ref() {
+                        let db = lock_mutex(&workspace.db);
+                        if let Err(error) = db.record_seal_pending_checkpoints(false, &workspace.agent_binding.workspace_id) {
+                            let _ = record_handle.emit("record:checkpoint-error", error);
+                        }
+                    }
+                })?;
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("voice-supervisor".into())
@@ -1214,40 +1520,123 @@ pub fn run() {
                     let workspace = lock_mutex(&state.current_workspace).clone();
                     if let Some(workspace) = workspace {
                         let mut voice = lock_mutex(&state.voice_runtime);
-                        if !lock_mutex(&state.current_workspace)
+                        let current = lock_mutex(&state.current_workspace);
+                        if !current
                             .as_ref()
                             .is_some_and(|current| Arc::ptr_eq(current, &workspace))
                         {
                             continue;
                         }
                         let mut db = lock_mutex(&workspace.db);
-                        match voice.snapshot(&mut db, &workspace.paths.root_path) {
+                        let captured = committed_changes::capture_native_committed(&workspace.agent_binding, &mut db, "voice-supervisor", |db|
+                            voice.snapshot(db, &workspace.paths.root_path));
+                        let (result, changes) = match captured {
+                            Ok(captured) => captured,
+                            Err(error) => (Err(error), None),
+                        };
+                        let (recover, error) = match result {
                             Ok(snapshot) => {
-                                let current = lock_mutex(&state.current_workspace);
-                                if !current.as_ref().is_some_and(|active| Arc::ptr_eq(active, &workspace)) {
-                                    workspace.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
-                                    continue;
-                                }
                                 let busy = !workspace.ai_secrets_unlocked()
                                     || snapshot.as_ref().is_some_and(|session| {
                                         matches!(session.phase.as_str(), "recording" | "preparing" | "ending")
                                     });
                                 workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
                                 let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
-                                drop(db);
-                                if recover {
-                                    voice::recovery::kick(workspace.clone());
-                                }
+                                (recover, None)
                             }
                             Err(error) => {
-                                let _ = handle.emit("voice:error", error.to_string());
+                                (false, Some(error))
                             }
-                        }
+                        };
+                        drop(db);
+                        drop(current);
+                        drop(voice);
+                        if let Some(changes) = changes { committed_changes::publish_to(&handle, changes); }
+                        if let Some(error) = error { let _ = handle.emit("voice:error", error.to_string()); }
+                        if recover { voice::recovery::kick(workspace.clone(), handle.clone()); }
                     }
                 })?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            source_maintenance::agent_source_maintenance,
+            overview_commands::agent_overview_maintenance,
+            overview_commands::agent_overview_corrections_get,
+            overview_commands::agent_overview_correction_upsert,
+            overview_commands::agent_overview_correction_delete,
+            record_document_commands::record_editor_register,
+            record_document_commands::record_cut_register,
+            record_document_commands::record_cut_claim,
+            record_document_commands::record_editor_unregister,
+            record_document_commands::record_editor_flush_reply,
+            record_document_commands::record_editors_flush,
+            record_document_commands::record_workspace_binding_get,
+            record_document_commands::record_quick_note_transfer,
+            record_document_commands::record_editor_get,
+            record_document_commands::record_body_save,
+            record_document_commands::record_metadata_apply,
+            record_document_commands::record_create,
+            record_document_commands::record_metadata_get,
+            record_document_commands::record_metadata_update,
+            record_document_commands::record_checkpoint,
+            record_document_commands::record_versions_list,
+            record_document_commands::record_version_get,
+            record_document_commands::record_version_preview,
+            record_document_commands::record_version_restore,
+            record_document_commands::record_versions_compare,
+            record_document_commands::record_version_capacity,
+            agent::commands::agent_status_get,
+            agent::bridge::commands::agent_connections_status,
+            agent::bridge::commands::agent_cli_install,
+            agent::bridge::commands::agent_cli_uninstall,
+            agent::bridge::commands::agent_connections_enable,
+            agent::bridge::commands::agent_connection_create,
+            agent::bridge::commands::agent_connection_revoke,
+            agent::conversation_commands::agent_session_create,
+            agent::conversation_commands::agent_sessions_list,
+            agent::conversation_commands::agent_session_search,
+            agent::conversation_commands::agent_session_get,
+            agent::session_history::agent_session_messages_read,
+            agent::conversation_commands::agent_session_archive,
+            agent::conversation_commands::agent_session_delete,
+            agent::conversation_commands::agent_run_get,
+            agent::conversation_commands::agent_run_events_list,
+            agent::run_commands::agent_run_start,
+            agent::run_commands::agent_run_cancel,
+            agent::run_commands::agent_profile_probe,
+            agent::output_commands::agent_output_list,
+            agent::output_commands::agent_output_get,
+            agent::output_commands::agent_output_preview,
+            agent::output_commands::agent_output_update,
+            agent::output_commands::agent_output_dismiss,
+            agent::output_review::agent_output_review,
+            file_read_commands::file_source_read,
+            file_read_commands::file_versions_list,
+            file_read_commands::file_versions_get,
+            file_read_commands::file_version_restore,
+            file_office_commands::file_office_inspect,
+            file_office_commands::file_office_save,
+            agent::output_commands::agent_output_commit,
+            agent::output_commands::agent_operation_list,
+            agent::output_commands::agent_operation_get,
+            agent::output_commands::agent_operation_undo,
+            agent::output_commands::agent_operation_undo_batch,
+            agent::output_commands::agent_operation_restore_created,
+            agent::source_navigation::agent_source_resolve,
+            agent::commands::agent_context_get,
+            agent::commands::agent_overview_get,
+            agent::commands::agent_knowledge_get,
+            agent::commands::agent_knowledge_search,
+            memory_commands::agent_memory_list,
+            memory_commands::agent_memory_get,
+            memory_commands::agent_memory_update,
+            agent::commands::agent_settings_get,
+            agent::commands::agent_settings_update,
+            agent::commands::agent_instructions_list,
+            agent::commands::agent_instruction_upsert,
+            agent::commands::agent_instruction_delete,
+            agent::commands::agent_changes_list,
+            agent::commands::agent_business_changes_list,
             voice_caption_apply_material,
             voice::commands::voice_availability_get,
             voice::commands::voice_model_status_get,
@@ -1331,7 +1720,8 @@ pub fn run() {
             document_update_meta,
             document_relocate,
             document_list_versions,
-            document_add_version,
+            file_document_commands::document_version_prepare,
+            file_document_commands::document_add_version,
             document_delete,
             ai_settings_get,
             rich_text_style_get,
@@ -1349,9 +1739,40 @@ pub fn run() {
             ai_image_target_signature,
             ai_jobs_list_active,
             ai_execution_settings_upsert,
+            ai_network_settings_upsert,
             internal_reference_search,
             internal_reference_resolve,
             workspace_search,
+            skills::skills_list,
+            skills::skills_manage,
+            dsh_assistant::dsh_assistant_start,
+            dsh_assistant::dsh_assistant_sessions,
+            dsh_assistant::dsh_assistant_runtime_status,
+            dsh_assistant::dsh_assistant_select_session,
+            dsh_assistant::dsh_assistant_fetch,
+            dsh_assistant::dsh_assistant_cancel,
+            dsh_assistant::dsh_assistant_connect,
+            dsh_assistant::dsh_assistant_send,
+            dsh_assistant::dsh_assistant_disconnect,
+            dsh_assistant::dsh_assistant_create_session,
+            dsh_assistant::dsh_assistant_manage_session,
+            dsh_assistant::dsh_assistant_delete_session,
+            project_directory::project_directory_list,
+            project_directory::project_directory_preview,
+            project_directory::project_directory_open,
+            project_directory::project_directory_resolve_reference,
+            project_directory::project_file_register,
+            project_directory::project_file_resolve,
+            project_directory::project_file_resolve_related,
+            project_directory::project_file_read_bytes,
+            project_directory::project_file_open_local,
+            native_file_icons::desktop_file_type_icon,
+            project_directory::project_file_applications,
+            project_directory::project_file_open_with,
+            project_directory::project_file_move,
+            project_directory::project_file_rename,
+            project_directory::project_file_reconcile,
+            project_directory::project_file_scan,
             app_exit,
             app_restart
         ])
@@ -1364,9 +1785,40 @@ pub fn run() {
                     && lock_mutex(&state.current_workspace).is_some() {
                     api.prevent_exit();
                     let _ = app.emit_to("main", "app:exit-requested", ());
+                } else if !state.exit_authorized.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_exit();
+                    let handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if handle.state::<dsh_assistant::DshAssistantState>().shutdown().await.is_err() {
+                            handle.state::<dsh_assistant::DshAssistantState>().exit_fallback();
+                        }
+                        handle.state::<AppState>().exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+                        handle.exit(0);
+                    });
                 }
+            } else if let tauri::RunEvent::Exit = event {
+                app.state::<dsh_assistant::DshAssistantState>().exit_fallback();
             }
         });
+}
+
+#[cfg(all(test, debug_assertions))]
+mod app_data_override_tests {
+    use super::debug_app_data_dir_override;
+    use std::path::PathBuf;
+
+    #[test]
+    fn absolute_fixture_path_is_preserved() {
+        let path = std::env::temp_dir().join("project-mind-isolated-acceptance");
+        assert_eq!(debug_app_data_dir_override(path.clone()).unwrap(), path);
+    }
+
+    #[test]
+    fn relative_and_empty_fixture_paths_are_rejected() {
+        for path in [PathBuf::new(), PathBuf::from("relative-fixture")] {
+            assert!(debug_app_data_dir_override(path).is_err());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1406,13 +1858,101 @@ mod workspace_lifecycle_tests {
         let mut session = LocalSessionState::default();
         session.record_recent_workspace(Path::new("active-workspace"));
         save_local_session(&session_path, &session).unwrap();
-        let current_runtime = Mutex::new(Some("active-runtime"));
+        let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+        let current_runtime = Mutex::new(Some(fence.clone()));
 
-        close_workspace_runtime(&session_path, &current_runtime).unwrap();
+        close_workspace_runtime(&session_path, &current_runtime, |fence| fence.invalidate()).unwrap();
 
         assert!(current_runtime.lock().unwrap().is_none());
+        assert_eq!(
+            fence.enter().unwrap_err().code,
+            crate::agent::errors::ErrorCode::WorkspaceChanged,
+        );
         let session = load_local_session(&session_path).unwrap();
         assert_eq!(session.last_opened_workspace_root, None);
         assert_eq!(session.recent_workspace_roots.len(), 1);
+    }
+    #[test]
+    fn failed_workspace_close_keeps_runtime_and_commit_fence_active() {
+        let temp = tempfile::tempdir().unwrap();
+        let blocker = temp.path().join("not-a-directory");
+        std::fs::write(&blocker, b"keep").unwrap();
+        let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+        let current_runtime = Mutex::new(Some(fence.clone()));
+        assert!(close_workspace_runtime(
+            &blocker.join("workspace-session.json"),
+            &current_runtime,
+            |fence| fence.invalidate(),
+        ).is_err());
+        assert!(current_runtime.lock().unwrap().is_some());
+        assert!(fence.enter().is_ok());
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod debug_workspace_auto_unlock_tests {
+    use super::{debug_create_workspace, debug_workspace_password, debug_read_workspace_key, debug_write_workspace_key, debug_workspace_key_path};
+    use crate::workspace::{create_workspace, load_metadata, verify_workspace_password};
+
+    #[test]
+    fn new_workspace_uses_local_generated_key_and_reopens_without_keychain() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        let app_data = temp.path().join("app-data");
+        debug_create_workspace(&root, |id, password| debug_write_workspace_key(&app_data, id, password)).unwrap();
+        let (metadata, _) = load_metadata(&root).unwrap();
+        let password = debug_workspace_password(&metadata, None,
+            |id| debug_read_workspace_key(&app_data, id),
+        ).unwrap().unwrap();
+        verify_workspace_password(&metadata, &password).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let key = debug_workspace_key_path(&app_data, &metadata.workspace_id).unwrap();
+            assert_eq!(std::fs::metadata(key).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn explicit_fixture_configuration_unlocks_without_any_cache_access() {
+        let temp = tempfile::tempdir().unwrap();
+        let (metadata, _) = create_workspace(temp.path(), "fixture-password").unwrap();
+        let password = debug_workspace_password(&metadata, Some("fixture-password"),
+            |_| panic!("explicit fixture must not access a password cache"),
+        ).unwrap();
+        assert_eq!(password.as_deref(), Some("fixture-password"));
+    }
+
+    #[test]
+    fn uncached_workspace_stays_locked_and_wrong_fixture_cannot_unlock_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let (metadata, _) = create_workspace(temp.path(), "existing-password").unwrap();
+        for fixture in [None, Some("other-fixture-password")] {
+            assert!(debug_workspace_password(&metadata, fixture, |_| Ok(None)).unwrap().is_none());
+        }
+        assert!(debug_workspace_password(&metadata, None, |_| Ok(Some("wrong".into()))).is_err());
+    }
+
+    #[test]
+    fn development_key_cache_is_workspace_scoped_and_rejects_path_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = "00000000000000000000000000000001";
+        let second = "00000000000000000000000000000002";
+        debug_write_workspace_key(temp.path(), first, "first generated key").unwrap();
+        debug_write_workspace_key(temp.path(), second, "second generated key").unwrap();
+        assert_eq!(debug_read_workspace_key(temp.path(), first).unwrap().as_deref(), Some("first generated key"));
+        assert_eq!(debug_read_workspace_key(temp.path(), second).unwrap().as_deref(), Some("second generated key"));
+        for id in ["../outside", "/absolute", "", "0000000000000000000000000000000g"] {
+            assert!(debug_write_workspace_key(temp.path(), id, "key").is_err());
+            assert!(debug_read_workspace_key(temp.path(), id).is_err());
+        }
+    }
+
+    #[test]
+    fn local_cache_failure_does_not_leave_an_unrecoverable_generated_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(debug_create_workspace(temp.path(), |_, _| Err(anyhow::anyhow!("store unavailable"))).is_err());
+        assert!(load_metadata(temp.path()).is_err());
+        debug_create_workspace(temp.path(), |_, _| Ok(())).unwrap();
     }
 }

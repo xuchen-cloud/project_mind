@@ -1,0 +1,134 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "apps/pdf/src/main/text-edit.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/text-edit.ts",
+      "bytes": 106764,
+      "sha256": "f3b7d2e96005e340eb5a92ca020030f8ce508b846cdb9faf12c9027bd6513b32",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(81920 bytes read, 24844 more expected)"
+    },
+    {
+      "path": "apps/pdf/src/main/font-cmap.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/font-cmap.ts",
+      "bytes": 2916,
+      "sha256": "16b81cff9f15aa5e974506b41a5862c56ea73bb449a0d586d8ffea0b1ca111fa",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "apps/pdf/src/main/font-locate.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/font-locate.ts",
+      "bytes": 251,
+      "sha256": "50209937d848a0f62847b1b1379cf02492b6a1e98d9c01a91ea637fc4fbee678",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "apps/pdf/src/main/font-subset.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/font-subset.ts",
+      "bytes": 8197,
+      "sha256": "e21aaf07165476c6511354d8372df05750fd4b9d439f15c54fc690b3fe18f2c6",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(2756 bytes read, 5441 more expected)"
+    },
+    {
+      "path": "apps/pdf/src/main/wasm-path.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/wasm-path.ts",
+      "bytes": 1220,
+      "sha256": "9e1b993dffaad77125212b9a3aa3b19744bf9a3e6400cc4062051cf06bd61a60",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "apps/pdf/src/shared/ipc.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/shared/ipc.ts",
+      "bytes": 43356,
+      "sha256": "190bcf5f3055d33a9627df7ab169cc4d4a5182d79996bde417d2d94c9760c90d",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "apps/pdf/src/shared/radicals.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/shared/radicals.ts",
+      "bytes": 8862,
+      "sha256": "575de046475eb6a074676ffb6e0fb22adf2e317c8dcec133cf529a556c07a09d",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(6890 bytes read, 1972 more expected)"
+    },
+    {
+      "path": "apps/pdf/src/shared/x-layers.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/shared/x-layers.ts",
+      "bytes": 1811,
+      "sha256": "b4207c97c41dc63b6190e3e74eccda182bab6a93e0c66321ab927d22e02225c0",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "packages/font-metrics/src/index.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/packages/font-metrics/src/index.ts",
+      "bytes": 256,
+      "sha256": "96bf394d35724cce93cd7bad43bb974d5284f3b88dfeb9af20e7bbd2657f3658",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "packages/font-metrics/src/advance.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/packages/font-metrics/src/advance.ts",
+      "bytes": 7832,
+      "sha256": "f5aff6ad39a8ed8d6a3ad626774c6a38a39b13d28c2eceddc1ad17700908eb89",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(2756 bytes read, 5076 more expected)"
+    },
+    {
+      "path": "packages/font-metrics/src/font-locate.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/packages/font-metrics/src/font-locate.ts",
+      "bytes": 7398,
+      "sha256": "754ae6e55722a6ee11cda9700727ffb6fce6a57930c55ca187879f0e2bb94b59",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(2756 bytes read, 4642 more expected)"
+    },
+    {
+      "path": "packages/font-metrics/src/metrics.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/packages/font-metrics/src/metrics.ts",
+      "bytes": 5274,
+      "sha256": "281b3ef96dbc21f75db77446301b48eeaf130c7b62accbca4a6b27580b2d733d",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(2756 bytes read, 2518 more expected)"
+    },
+    {
+      "path": "packages/font-metrics/src/sfnt.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/packages/font-metrics/src/sfnt.ts",
+      "bytes": 9297,
+      "sha256": "dc143fcd8ea26b1963e10050280fa4cc13f23f9cd910ce3f919ba54703431068",
+      "transport": "fixed-git-object-from-readonly-checkout",
+      "raw_fetch_error": "IncompleteRead: IncompleteRead(2756 bytes read, 6541 more expected)"
+    },
+    {
+      "path": "apps/pdf/package.json",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/package.json",
+      "bytes": 1293,
+      "sha256": "a96d8d91c1db7e8029820a0f4f723cf65f9848dce3a01e9175a11f895faa2637",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "packages/font-metrics/package.json",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/packages/font-metrics/package.json",
+      "bytes": 516,
+      "sha256": "7b88a8669d72008a44aa8d6df95e7f545dc826c66c18a20de67cb352fd9c6365",
+      "transport": "raw-github",
+      "raw_fetch_error": null
+    },
+    {
+      "path": "apps/pdf/src/main/save-pdf.ts",
+      "url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/save-pdf.ts",
+      "sha256": "3b6ee1034ecedc239174ff213d732b787713c978f1025423d36e0cc3793ac2f4",
+      "bytes": 53288,
+      "transport": "raw-github-node-fetch",
+      "raw_fetch_error": null
+    }
+  ]
+}

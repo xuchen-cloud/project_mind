@@ -3,12 +3,16 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const buildMode = vi.hoisted(() => ({ debug: true }));
+vi.mock("../../lib/build-mode", () => ({ get isDebugBuild() { return buildMode.debug; } }));
+
 import type { AiSettingsSnapshot } from "../../lib/types";
 
 const {
   mockAiSettingsGet,
   mockAiBindingUpsert,
   mockAiExecutionSettingsUpsert,
+  mockAiNetworkSettingsUpsert,
   mockAiProfileUpsert,
   mockAiProfileDelete,
   mockAiProfileTest,
@@ -23,6 +27,7 @@ const {
   mockAiSettingsGet: vi.fn(),
   mockAiBindingUpsert: vi.fn(),
   mockAiExecutionSettingsUpsert: vi.fn(),
+  mockAiNetworkSettingsUpsert: vi.fn(),
   mockAiProfileUpsert: vi.fn(),
   mockAiProfileDelete: vi.fn(),
   mockAiProfileTest: vi.fn(),
@@ -40,6 +45,7 @@ vi.mock("../../services/projectMindApi", () => ({
     aiSettingsGet: mockAiSettingsGet,
     aiBindingUpsert: mockAiBindingUpsert,
     aiExecutionSettingsUpsert: mockAiExecutionSettingsUpsert,
+    aiNetworkSettingsUpsert: mockAiNetworkSettingsUpsert,
     aiProfileUpsert: mockAiProfileUpsert,
     aiProfileDelete: mockAiProfileDelete,
     aiProfileTest: mockAiProfileTest,
@@ -75,12 +81,13 @@ import { AiSettingsPanel } from "./AiSettingsPanel";
 let aiSettingsSnapshot: AiSettingsSnapshot;
 
 describe("AiSettingsPanel", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { buildMode.debug = true; vi.useRealTimers(); vi.unstubAllEnvs(); });
 
   beforeEach(() => {
     mockAiSettingsGet.mockReset();
     mockAiBindingUpsert.mockReset();
     mockAiExecutionSettingsUpsert.mockReset();
+    mockAiNetworkSettingsUpsert.mockReset();
     mockAiProfileUpsert.mockReset();
     mockAiProfileDelete.mockReset();
     mockAiProfileTest.mockReset();
@@ -161,6 +168,7 @@ describe("AiSettingsPanel", () => {
       execution: {
         maxConcurrency: 1,
       },
+      network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     };
 
@@ -251,6 +259,16 @@ describe("AiSettingsPanel", () => {
       return aiSettingsSnapshot.editorSkills;
     });
     mockAiExecutionSettingsUpsert.mockImplementation(async (input) => input);
+    mockAiNetworkSettingsUpsert.mockImplementation(async (input) => {
+      const saved = {
+        mode: input.mode,
+        proxyUrl: input.proxyUrl,
+        username: input.username ?? null,
+        hasStoredPassword: Boolean(input.password),
+      };
+      aiSettingsSnapshot = { ...aiSettingsSnapshot, network: saved };
+      return saved;
+    });
   });
 
   it("reveals the create form only after clicking the card-level create button", async () => {
@@ -269,6 +287,16 @@ describe("AiSettingsPanel", () => {
 
     await waitFor(() => expect(mockAiProfileUpsert).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getAllByText("New Profile").length).toBeGreaterThan(0));
+  });
+
+  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("explains one-time DEV initialization or release unlock for old encrypted credentials ($label)", async ({ debug: dev }) => {
+    buildMode.debug = dev; aiSettingsSnapshot.aiSecretsUnlocked = false;
+    const unlock = vi.fn(async () => true);
+    render(<QueryClientProvider client={new QueryClient()}><AiSettingsPanel open section="models" onUnlockAiSecrets={unlock} /></QueryClientProvider>);
+    const button = await screen.findByRole("button", { name: dev ? "初始化自动解锁" : "解锁 Secrets" });
+    if (dev) expect(screen.getByText(/首次使用旧加密工作区需要输入原密码/u)).toBeVisible();
+    else expect(screen.getByText(/需要先输入当前 workspace 密码/u)).toBeVisible();
+    fireEvent.click(button); expect(unlock).toHaveBeenCalledOnce(); expect(mockAiProfileUpsert).not.toHaveBeenCalled();
   });
 
   it("expands an existing profile inline within the same panel", async () => {
@@ -350,6 +378,172 @@ describe("AiSettingsPanel", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("saves a custom proxy and refreshes the displayed setting", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const mode = await screen.findByLabelText("连接方式");
+    expect(mode).toHaveValue("system");
+    await user.selectOptions(mode, "custom");
+    await user.type(screen.getByLabelText("代理地址"), "http://127.0.0.1:7890");
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+
+    await waitFor(() =>
+      expect(mockAiNetworkSettingsUpsert).toHaveBeenCalledWith(
+        { mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: null },
+      ),
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存连接方式" })).toBeDisabled());
+    expect(screen.getByLabelText("代理地址")).toHaveValue("http://127.0.0.1:7890");
+    expect(mockSetStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "success", message: "AI 连接设置已保存" }),
+    );
+  });
+
+  it("saves separate proxy credentials without displaying the saved password", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.selectOptions(await screen.findByLabelText("连接方式"), "custom");
+    await user.type(screen.getByLabelText("代理地址"), "http://127.0.0.1:7890");
+    await user.type(screen.getByLabelText("代理用户名（可选）"), "proxy-user");
+    await user.type(screen.getByLabelText("代理密码（可选）"), "proxy-secret");
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+
+    await waitFor(() => expect(mockAiNetworkSettingsUpsert).toHaveBeenCalledWith(
+      { mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", password: "proxy-secret" },
+    ));
+    await waitFor(() => expect(screen.getByLabelText("代理密码（可选）")).toHaveValue(""));
+    expect(screen.getByLabelText("代理密码（可选）")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("代理密码（可选）")).toHaveAttribute("placeholder", "已保存，留空保持");
+    expect(aiSettingsSnapshot.network).toEqual({
+      mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", hasStoredPassword: true,
+    });
+  });
+
+  it("omits a blank password when the username changes and lets the backend clear the old secret", async () => {
+    const user = userEvent.setup();
+    aiSettingsSnapshot = {
+      ...aiSettingsSnapshot,
+      network: {
+        mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", hasStoredPassword: true,
+      },
+    };
+    mockAiNetworkSettingsUpsert.mockImplementation(async (input) => {
+      const saved = {
+        mode: input.mode,
+        proxyUrl: input.proxyUrl,
+        username: input.username,
+        hasStoredPassword: false,
+      };
+      aiSettingsSnapshot = { ...aiSettingsSnapshot, network: saved };
+      return saved;
+    });
+    renderPanel();
+
+    await screen.findByLabelText("代理密码（可选）");
+    await user.type(screen.getByLabelText("代理用户名（可选）"), "2");
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+    await waitFor(() => expect(mockAiNetworkSettingsUpsert).toHaveBeenCalledWith(
+      { mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user2" },
+    ));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "清除已保存密码" })).not.toBeInTheDocument());
+  });
+
+  it("explicitly clears a saved proxy password", async () => {
+    const user = userEvent.setup();
+    aiSettingsSnapshot = {
+      ...aiSettingsSnapshot,
+      network: {
+        mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", hasStoredPassword: true,
+      },
+    };
+    mockAiNetworkSettingsUpsert.mockImplementation(async (input) => {
+      const saved = { mode: input.mode, proxyUrl: input.proxyUrl, username: input.username, hasStoredPassword: false };
+      aiSettingsSnapshot = { ...aiSettingsSnapshot, network: saved };
+      return saved;
+    });
+    renderPanel();
+
+    await screen.findByRole("button", { name: "清除已保存密码" });
+    await user.click(screen.getByRole("button", { name: "清除已保存密码" }));
+    expect(screen.getByRole("button", { name: "保留已保存密码" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+    await waitFor(() => expect(mockAiNetworkSettingsUpsert).toHaveBeenLastCalledWith(
+      { mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: "proxy-user", password: "" },
+    ));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "清除已保存密码" })).not.toBeInTheDocument());
+  });
+
+  it("accepts credentials in a proxy URL and displays the cleaned address returned by the backend", async () => {
+    const user = userEvent.setup();
+    mockAiNetworkSettingsUpsert.mockImplementationOnce(async () => {
+      const saved = {
+        mode: "custom" as const,
+        proxyUrl: "http://127.0.0.1:7890/",
+        username: "proxy-user",
+        hasStoredPassword: true,
+      };
+      aiSettingsSnapshot = { ...aiSettingsSnapshot, network: saved };
+      return saved;
+    });
+    renderPanel();
+
+    await user.selectOptions(await screen.findByLabelText("连接方式"), "custom");
+    await user.type(screen.getByLabelText("代理地址"), "http://proxy-user:proxy-secret@127.0.0.1:7890");
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+
+    await waitFor(() => expect(mockAiNetworkSettingsUpsert).toHaveBeenCalledWith(
+      { mode: "custom", proxyUrl: "http://proxy-user:proxy-secret@127.0.0.1:7890", username: null },
+    ));
+    await waitFor(() => expect(screen.getByLabelText("代理地址")).toHaveValue("http://127.0.0.1:7890/"));
+    expect(screen.getByLabelText("代理用户名（可选）")).toHaveValue("proxy-user");
+    expect(screen.getByLabelText("代理密码（可选）")).toHaveValue("");
+  });
+
+  it("hides the proxy URL in system and direct modes", async () => {
+    const user = userEvent.setup();
+    aiSettingsSnapshot = {
+      ...aiSettingsSnapshot,
+      network: { mode: "custom", proxyUrl: "http://127.0.0.1:7890", username: null, hasStoredPassword: false },
+    };
+    renderPanel();
+
+    const mode = await screen.findByLabelText("连接方式");
+    expect(screen.getByLabelText("代理地址")).toHaveValue("http://127.0.0.1:7890");
+    await user.selectOptions(mode, "system");
+    expect(screen.queryByLabelText("代理地址")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+    await waitFor(() => expect(mockAiNetworkSettingsUpsert).toHaveBeenCalledWith(
+      { mode: "system", proxyUrl: null },
+    ));
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存连接方式" })).toBeDisabled());
+    await user.selectOptions(mode, "direct");
+    expect(screen.queryByLabelText("代理地址")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+    await waitFor(() => expect(mockAiNetworkSettingsUpsert).toHaveBeenLastCalledWith(
+      { mode: "direct", proxyUrl: null },
+    ));
+  });
+
+  it("keeps a failed proxy change unsaved and shows the native error feedback", async () => {
+    const user = userEvent.setup();
+    mockAiNetworkSettingsUpsert.mockRejectedValueOnce(new Error("代理地址无效"));
+    renderPanel();
+
+    await user.selectOptions(await screen.findByLabelText("连接方式"), "custom");
+    await user.type(screen.getByLabelText("代理地址"), "socks5://127.0.0.1:7890");
+    await user.click(screen.getByRole("button", { name: "保存连接方式" }));
+
+    await waitFor(() => expect(mockPushToast).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: "error", detail: "代理地址无效" }),
+    ));
+    expect(screen.getByRole("button", { name: "保存连接方式" })).toBeEnabled();
+    expect(screen.getByLabelText("代理地址")).toHaveValue("socks5://127.0.0.1:7890");
+    expect(aiSettingsSnapshot.network).toEqual({ mode: "system", proxyUrl: null, username: null, hasStoredPassword: false });
+    expect(mockSetStatus).not.toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
   });
 
   it("creates a custom editor AI skill from the settings panel", async () => {

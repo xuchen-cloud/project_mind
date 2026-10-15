@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 
 // Node can expose an incomplete experimental `localStorage` when its
 // --localstorage-file flag has no usable path. Keep jsdom tests deterministic.
-if (typeof window.localStorage?.clear !== "function") {
+if (typeof window !== "undefined" && typeof window.localStorage?.clear !== "function") {
   const values = new Map<string, string>();
   const storage: Storage = {
     get length() { return values.size; },
@@ -19,7 +19,7 @@ if (typeof window.localStorage?.clear !== "function") {
 
 // jsdom has no layout engine. Layout-specific tests replace this default with
 // a controllable observer and explicit element dimensions.
-if (typeof globalThis.ResizeObserver === "undefined") {
+if (typeof window !== "undefined" && typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}
@@ -32,6 +32,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 afterEach(async () => {
+  if (typeof window === "undefined") return;
   const { resetAiJobSync } = await import("../lib/aiJobs");
   resetAiJobSync();
   cleanup();

@@ -1,0 +1,1266 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "LICENSE",
+      "git_blob_sha1": "3017411926aa8731558e70c3d16f6ce0b6f68d5c",
+      "bytes": 11345
+    },
+    {
+      "path": "NOTICE",
+      "git_blob_sha1": "34d8590f9b07df119df295d6eb02194bfd75cdd5",
+      "bytes": 2489
+    },
+    {
+      "path": "apps/docs/src/renderer/autocorrect-pref.ts",
+      "git_blob_sha1": "55965a039ae9990c64ea06f8c14fcf22bc14ab5b",
+      "bytes": 1836
+    },
+    {
+      "path": "apps/docs/src/renderer/doc-style-css.ts",
+      "git_blob_sha1": "015b2180c145e9a20bfe84745e9332723f470175",
+      "bytes": 57250
+    },
+    {
+      "path": "apps/docs/src/renderer/dom-range.ts",
+      "git_blob_sha1": "1e5724bed88a23ef3af59a387f38d86d2b6030b6",
+      "bytes": 288
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/active-editor.ts",
+      "git_blob_sha1": "4f2864ccd69bbc69b76764bce2f876b369dd165e",
+      "bytes": 1513
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/ai-queue-anchors.ts",
+      "git_blob_sha1": "8cb4c614b0f8c47039374f0730783fcf02555f08",
+      "bytes": 3677
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/autocorrect.ts",
+      "git_blob_sha1": "9a44fec2627bcc193808dcaaf7a686f1aeda964c",
+      "bytes": 12043
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/border-metrics.ts",
+      "git_blob_sha1": "97c3aad46e116dbf8b1665869fe664ed009f9457",
+      "bytes": 4005
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/caret-marks.ts",
+      "git_blob_sha1": "3669dcdd0e964d12334e601a7158d0d99e49cd23",
+      "bytes": 8270
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/checkbox-toggle.ts",
+      "git_blob_sha1": "b296d85a71aa5d99dea6f0c95a4f43b37f253232",
+      "bytes": 3623
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/cjk-punct-shrink.ts",
+      "git_blob_sha1": "bb68a0871637467d594c827873daac6500310d47",
+      "bytes": 31296
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/column-layout.ts",
+      "git_blob_sha1": "00d93d3d50d48182fa7e72cc61cf5bf714ac80a7",
+      "bytes": 10222
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/convert.ts",
+      "git_blob_sha1": "684cfd94b1f5f8677a189270dcc2d76793cd5608",
+      "bytes": 150212
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/dark-page.ts",
+      "git_blob_sha1": "d81ca25a0fa877df7ce3635c8c619501abeaa497",
+      "bytes": 6869
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/decoration-extensions.ts",
+      "git_blob_sha1": "88a57ad75873677751d0189011d6c3b23ab2c187",
+      "bytes": 53214
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/direction.ts",
+      "git_blob_sha1": "e26a35e9d71d4162c278da1ed3fc996a20644395",
+      "bytes": 8567
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/equation.ts",
+      "git_blob_sha1": "1149d09de4092ec84aa7a5dd835926737a18c04b",
+      "bytes": 1623
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/extensions.ts",
+      "git_blob_sha1": "2b3e2bb21c80806c923cdd9f3d7687f724f61da4",
+      "bytes": 292674
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/field-codes.ts",
+      "git_blob_sha1": "d3d409b6311fd452d0547bf67356f6f55c05d90c",
+      "bytes": 7248
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/float-table-spacing.ts",
+      "git_blob_sha1": "fd1d62b657e563c7f04fb069597d48c3422cff43",
+      "bytes": 2755
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/floating-z-order.ts",
+      "git_blob_sha1": "a111de20de851121a009cba7f300096f11b39238",
+      "bytes": 6527
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/hf-dom.ts",
+      "git_blob_sha1": "279702e657762ee652d9feee37073bc30c6ea909",
+      "bytes": 65248
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/hf-text.ts",
+      "git_blob_sha1": "defe22378d867ea28b8389d6abb3b5a55f8ac51c",
+      "bytes": 3582
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/image-rotation.ts",
+      "git_blob_sha1": "52ddb74bed070ef4bf4b5a6da8f4019f1642d6eb",
+      "bytes": 2795
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/inactive-selection.ts",
+      "git_blob_sha1": "ae68e38dc48a64a5b9d9d47a751013d5feec8740",
+      "bytes": 2370
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/inline-rule.ts",
+      "git_blob_sha1": "3c91867a9260fa69a2f39563aa448bda43e42453",
+      "bytes": 1898
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/justify-shrink.ts",
+      "git_blob_sha1": "5527dddd88041c99509ca9a2d8137b379b338627",
+      "bytes": 24316
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/local-edit.ts",
+      "git_blob_sha1": "a410ca1429b6ee5174c717b617d7ccab3a431a48",
+      "bytes": 4042
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/marks.ts",
+      "git_blob_sha1": "f8015ef113d90f15b8e37466c7967ba504a12e21",
+      "bytes": 33473
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/move-block.ts",
+      "git_blob_sha1": "c8ea0029f05a82dd3cced24d0c772eaf43498a06",
+      "bytes": 1736
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/numbering.ts",
+      "git_blob_sha1": "14c6369fd27562088064cc1d8a11ee6a5eb43245",
+      "bytes": 372
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/page-break.ts",
+      "git_blob_sha1": "25999a016946b48a031b3316b4f576e2d6c6abfc",
+      "bytes": 2681
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/page-gap-nav.ts",
+      "git_blob_sha1": "ac3e30135625ad83b6a608e02b54420106c857ad",
+      "bytes": 14840
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/pagination-gaps.ts",
+      "git_blob_sha1": "682c75d87fdc98d74fda610830bbf77b0add862f",
+      "bytes": 68744
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/para-border-merge.ts",
+      "git_blob_sha1": "234bfec6ad9748365b096aad9fd213667ca8074c",
+      "bytes": 4607
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/para-flags.ts",
+      "git_blob_sha1": "89e823fb3fb14afed704ea53781479eb471b82d9",
+      "bytes": 3847
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/para-frame.ts",
+      "git_blob_sha1": "a5e94976645c917802b4387e52114bc2f5d430db",
+      "bytes": 2767
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/persistable-image.ts",
+      "git_blob_sha1": "9a70e34d2ef8efb9c8a1854d59a33b1cc8018bfa",
+      "bytes": 179
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/prosemirror-perf.ts",
+      "git_blob_sha1": "08514e1e3d90668499a713883fe15b1a89d3279d",
+      "bytes": 5093
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/protected-render.ts",
+      "git_blob_sha1": "2536d01335c1a019ce7d1c7d5dbbe1ff1b5bee1c",
+      "bytes": 99106
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/revisions.ts",
+      "git_blob_sha1": "553b4f349167473640b608b7fcece8a8825fbfca",
+      "bytes": 48642
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/run-border.ts",
+      "git_blob_sha1": "d2e3a29e34e92f6b574e0db114bebbd332127b77",
+      "bytes": 1595
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/script-fonts.ts",
+      "git_blob_sha1": "a1e8979eb2022ff90f8cb77c07bd211d2058b154",
+      "bytes": 3550
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/settled-measure.ts",
+      "git_blob_sha1": "8062af3543b0d891cfb10cd2bea52a50cd2a3679",
+      "bytes": 7052
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/shading-ink.ts",
+      "git_blob_sha1": "96d15a95dda97f143cb1dbd27b0e25b86fff5588",
+      "bytes": 913
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/shape-svg.ts",
+      "git_blob_sha1": "1f6d36fbf9054aabaf650f761920fe6e9f1add5f",
+      "bytes": 9363
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/streaming-tail-guard.ts",
+      "git_blob_sha1": "0e1770ba3a9762b39e93cfa23f5464cee2c62570",
+      "bytes": 5167
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/table-column-drag.ts",
+      "git_blob_sha1": "22c58da2333504b75ab4c8c7e0ff53d1d8953c40",
+      "bytes": 7971
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/table-handle.ts",
+      "git_blob_sha1": "632aa851c423717844f937dbd1c0253109de8a58",
+      "bytes": 10141
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/table-sizing.ts",
+      "git_blob_sha1": "a4d94d0bc2274563ff2bdd45958a1e4f23a0063b",
+      "bytes": 9817
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/text-color.ts",
+      "git_blob_sha1": "128557b18a1ec93876a633967734a9fa76fa3e15",
+      "bytes": 623
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/text-effects.ts",
+      "git_blob_sha1": "b8fae3a30c86a082adb29c02c165e8bdc9d2e44f",
+      "bytes": 3474
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/text-outline.ts",
+      "git_blob_sha1": "39cb2c5efd79b0c3f3a59d3c07d9217f1e5e9bc4",
+      "bytes": 927
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/top-level-pos.ts",
+      "git_blob_sha1": "82801254882ef70fb55819841ba6046ec3c9e03c",
+      "bytes": 2336
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/touched-blocks.ts",
+      "git_blob_sha1": "c952f3ced8f87ba66cf9d9af06821b2e3f9a67c8",
+      "bytes": 1945
+    },
+    {
+      "path": "apps/docs/src/renderer/editor/trailing-table-exit.ts",
+      "git_blob_sha1": "630fad4848dc8f9a275c1cf1e45403f886876982",
+      "bytes": 1465
+    },
+    {
+      "path": "apps/docs/src/renderer/font-check.ts",
+      "git_blob_sha1": "20e56b25c4f581f9298cbe300113eba39c2d1b99",
+      "bytes": 3818
+    },
+    {
+      "path": "apps/docs/src/renderer/font-list.ts",
+      "git_blob_sha1": "f8aa628febf8c9efbad783c42a6141bef3aaea7b",
+      "bytes": 1954
+    },
+    {
+      "path": "apps/docs/src/renderer/fonts/LICENSE-OFL.txt",
+      "git_blob_sha1": "0700f5a8343170acbdc1d8e0f5dacf12d918c40d",
+      "bytes": 5154
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/ar.ts",
+      "git_blob_sha1": "cdee012ed6d059135e9d796b2d9ea3a3a94ac7ff",
+      "bytes": 12495
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/cs.ts",
+      "git_blob_sha1": "aec6878f8e7301eaa93d2248fd2e195c011809c1",
+      "bytes": 9889
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/de.ts",
+      "git_blob_sha1": "4c54d556117cbbbe2d7759bc944b705c84249a4e",
+      "bytes": 10367
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/en.ts",
+      "git_blob_sha1": "689312f736c517ca9076b0a7acaace52ca8fa959",
+      "bytes": 9071
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/es.ts",
+      "git_blob_sha1": "4705cd0abdf27f9d81e7d780a430b3bfb6b6d3d7",
+      "bytes": 10168
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/fr.ts",
+      "git_blob_sha1": "e00e6b04f15bd28f1c1b1eb34958edd9546382c7",
+      "bytes": 10489
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/he.ts",
+      "git_blob_sha1": "dbc8931a42ac1126b19f67aa9c48b84105a9fc67",
+      "bytes": 11289
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/hi.ts",
+      "git_blob_sha1": "516d50a4ff25a61e701eca5a56f15e6ab08604cf",
+      "bytes": 17278
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/id.ts",
+      "git_blob_sha1": "7a1fb7d1f6ee47f0feab3a954a70b5de2097c4c4",
+      "bytes": 9354
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/it.ts",
+      "git_blob_sha1": "bc7782e18589c13235b8f70340e7bcc6835a06f8",
+      "bytes": 10228
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/ja.ts",
+      "git_blob_sha1": "361c80c6ce3857e122a6c6942dcc796698c94b5c",
+      "bytes": 11274
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/ko.ts",
+      "git_blob_sha1": "152439ec8025a89efdeb9c99cd9aecd0e97d8b52",
+      "bytes": 10224
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/ms.ts",
+      "git_blob_sha1": "325d7fe1990a943e56dd0cd6be488182f2d5abfe",
+      "bytes": 9437
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/nl.ts",
+      "git_blob_sha1": "788526f8ab0fed69dfd2fe39c520e8484685d279",
+      "bytes": 9999
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/pl.ts",
+      "git_blob_sha1": "0c75237e6d716b2b81bbe862a04611f63a3ef38b",
+      "bytes": 9924
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/pt.ts",
+      "git_blob_sha1": "ca4907e02a0eb0d4ae647faa4ae11015525e62c2",
+      "bytes": 10025
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/ru.ts",
+      "git_blob_sha1": "0e1679990965b1797415d021b228b673e9fb2ea9",
+      "bytes": 14127
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/th.ts",
+      "git_blob_sha1": "c84faa2f691c3176042d6ef59ed467e83d40e79b",
+      "bytes": 16979
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/vi.ts",
+      "git_blob_sha1": "7c8ff33fc9d63a801b46f71ff3f05cfc232c4cf2",
+      "bytes": 11400
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/zh-TW.ts",
+      "git_blob_sha1": "4d568b2bb0dc8fb93853f77ecdc48e7092f7cdaf",
+      "bytes": 8549
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ai/zh.ts",
+      "git_blob_sha1": "9a918ac2422b3c6f15a170d334b327b3c105f5e6",
+      "bytes": 8450
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/ar.ts",
+      "git_blob_sha1": "9a0858f5e784908e35adcb2c4a70956fafdd1199",
+      "bytes": 28814
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/cs.ts",
+      "git_blob_sha1": "cb767fe76ff7c779b17b0fb42a204ad26df98f22",
+      "bytes": 23959
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/de.ts",
+      "git_blob_sha1": "446e556dd5a9929c1db431950902fa14f54c6545",
+      "bytes": 24766
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/en.ts",
+      "git_blob_sha1": "271b81566488884eda4e442fbdb4ecb8263d7a94",
+      "bytes": 21717
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/es.ts",
+      "git_blob_sha1": "ec79e73688ed3e26afc69bc84493731ab451d68f",
+      "bytes": 24342
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/fr.ts",
+      "git_blob_sha1": "90e27c1db5a49309c279d4bc17e4d455de28b9d1",
+      "bytes": 25116
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/he.ts",
+      "git_blob_sha1": "c6e4e832bc9b330373f89d8374554809c899cc36",
+      "bytes": 26897
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/hi.ts",
+      "git_blob_sha1": "84d8f5c941bc023904282371f74e9121b79ed745",
+      "bytes": 39381
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/id.ts",
+      "git_blob_sha1": "eeb0029479e65f2ba24b6d83ab8cadd8dcc174d4",
+      "bytes": 22849
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/it.ts",
+      "git_blob_sha1": "44d4e4e2c555ac7936c809dc9f7db27ef5da44c6",
+      "bytes": 24115
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/ja.ts",
+      "git_blob_sha1": "9c3bee1feec28e2c167bd5fdefc75acd6ec91d51",
+      "bytes": 27290
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/ko.ts",
+      "git_blob_sha1": "b752a3ea556f78299431cd1153ee24e3f5fddb7e",
+      "bytes": 25170
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/ms.ts",
+      "git_blob_sha1": "3c302a06d5c40ce92ae32b8a6c3a25ad622ad0f5",
+      "bytes": 22923
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/nl.ts",
+      "git_blob_sha1": "ba168079480644009087781851873e6219837a91",
+      "bytes": 23888
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/pl.ts",
+      "git_blob_sha1": "71e7e2c18357a1f2c2df736289f23950ca3b5e25",
+      "bytes": 24064
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/pt.ts",
+      "git_blob_sha1": "faffc15fdbd5b028b97f48e691bceaa7a3423170",
+      "bytes": 23850
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/ru.ts",
+      "git_blob_sha1": "1970a9987ee6a8a659a6a39ffa776f0c10973b4f",
+      "bytes": 33517
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/th.ts",
+      "git_blob_sha1": "4fd4e453d6854ff90f02455c2fd5f69c11f25e82",
+      "bytes": 39305
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/vi.ts",
+      "git_blob_sha1": "171b9e804964ba18da70301b1a2dd7535f80caa5",
+      "bytes": 26175
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/zh-TW.ts",
+      "git_blob_sha1": "82e57980aae596f8c42a3684bfa5bcb67844ea1e",
+      "bytes": 21121
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/app/zh.ts",
+      "git_blob_sha1": "191ff55c3400eff660168b24d43bffc3bfea0508",
+      "bytes": 21378
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/locale.tsx",
+      "git_blob_sha1": "7974f044b35ea73d7d4ed79b1af8ca2e69a9131f",
+      "bytes": 5428
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/ar.ts",
+      "git_blob_sha1": "617b6f328df6a32a52c447417b37fd5852233fa8",
+      "bytes": 52165
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/cs.ts",
+      "git_blob_sha1": "79956b79326604ad2bdcc45c05cf53e652a00e53",
+      "bytes": 43650
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/de.ts",
+      "git_blob_sha1": "54a1671da54d53133949d16c82e80e1edec6283b",
+      "bytes": 43999
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/en.ts",
+      "git_blob_sha1": "8d65fe78749f74596f0ed42c2fec513588327730",
+      "bytes": 39965
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/es.ts",
+      "git_blob_sha1": "cd9c3b9aef12e17d97c010baafcadbc493a26bb2",
+      "bytes": 44419
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/fr.ts",
+      "git_blob_sha1": "01437c715e3678b6f05e1c3e8ad5c44407138847",
+      "bytes": 45100
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/he.ts",
+      "git_blob_sha1": "48a8108d2935ae679e056170406390cb7a03c21e",
+      "bytes": 48435
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/hi.ts",
+      "git_blob_sha1": "36e4a290e8ec61e634fd784b8235f5e3bbde7d08",
+      "bytes": 68746
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/id.ts",
+      "git_blob_sha1": "441c777025dfda93d23fff107789ce6b83c78e39",
+      "bytes": 41344
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/it.ts",
+      "git_blob_sha1": "4ce5194aeb7675f01c849e950b6b8059bb4e2611",
+      "bytes": 44160
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/ja.ts",
+      "git_blob_sha1": "f24cf47e7b39e3d7419518408d168c60dc4bbef2",
+      "bytes": 45996
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/ko.ts",
+      "git_blob_sha1": "f44970764fa6ce6f400df34210ff25d37b46c779",
+      "bytes": 43541
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/ms.ts",
+      "git_blob_sha1": "1bcb7c6761213a3ed725af4c7b850ac09f1be3d3",
+      "bytes": 41693
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/nl.ts",
+      "git_blob_sha1": "0ce84e6a394593d6abc1f212565e9c0a6a08febf",
+      "bytes": 43303
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/pl.ts",
+      "git_blob_sha1": "d9eb031d51537522dbc70ed7bf14d41c2b8c2da3",
+      "bytes": 43599
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/pt.ts",
+      "git_blob_sha1": "3bd4a95d22dc6e42bea1e9ad9dd843e2d350d38a",
+      "bytes": 43855
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/ru.ts",
+      "git_blob_sha1": "755958233a3df4bd8807939249c2a38c31463e87",
+      "bytes": 59471
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/th.ts",
+      "git_blob_sha1": "b2b91603308e5f9214a08b95a92b9e4282bda983",
+      "bytes": 67930
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/vi.ts",
+      "git_blob_sha1": "e8e282ca03e9b8e3a197cac100c643fe187d966a",
+      "bytes": 46553
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/zh-TW.ts",
+      "git_blob_sha1": "6439b9514a76413c1293b8fdbc080b14551fde70",
+      "bytes": 38724
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/ribbon/zh.ts",
+      "git_blob_sha1": "4858513ee17504bde33ce022fc513c6560cd27db",
+      "bytes": 38700
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings-ai.ts",
+      "git_blob_sha1": "773fe6117685f320360cc9d1549f4b33de720889",
+      "bytes": 935
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings-app.ts",
+      "git_blob_sha1": "b300f5bfdfdf2420f753f098bda0749e7e584446",
+      "bytes": 976
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings-editor.ts",
+      "git_blob_sha1": "7c866d2af25259a91c86535b53376ec47c6cf3f9",
+      "bytes": 53780
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings-ribbon.ts",
+      "git_blob_sha1": "81880842a797726fc837a10c3fe5e5e141709def",
+      "bytes": 980
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings-table.ts",
+      "git_blob_sha1": "9faa073e39bc1f1a97d98f15333b4fb9c5694cbf",
+      "bytes": 3080
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings-zotero.ts",
+      "git_blob_sha1": "65435c5578734ab4d52800aa2ea818781be2c42a",
+      "bytes": 24325
+    },
+    {
+      "path": "apps/docs/src/renderer/i18n/strings.ts",
+      "git_blob_sha1": "0d7f4d25bf0bcd7a4932aa565036ae44bf92c825",
+      "bytes": 3603
+    },
+    {
+      "path": "apps/docs/src/renderer/line-metrics.ts",
+      "git_blob_sha1": "9cc2ce2358c5c749fbe1bd2b93e350210cf8a894",
+      "bytes": 123944
+    },
+    {
+      "path": "apps/docs/src/renderer/note-format.ts",
+      "git_blob_sha1": "726186a6f3029d484eca476fbdad2cc6691e8b4a",
+      "bytes": 2831
+    },
+    {
+      "path": "apps/docs/src/renderer/page-margins.ts",
+      "git_blob_sha1": "ba92e8a68cbc46ba3ff3605b131f1e6182ac66b0",
+      "bytes": 1075
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-hf.ts",
+      "git_blob_sha1": "502871eecf49957869d6ab0c70a2e06607a62180",
+      "bytes": 7807
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-index.ts",
+      "git_blob_sha1": "ecda3afdf23b3b07f84fc09325c43e5e298cede9",
+      "bytes": 4599
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-lines.ts",
+      "git_blob_sha1": "448a7d0490ec54495eb3405d6c843b4c732abf46",
+      "bytes": 58756
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-measure.ts",
+      "git_blob_sha1": "c4d3678981cb015b032a31ec4f862a9a25c6d34f",
+      "bytes": 30326
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-sections.ts",
+      "git_blob_sha1": "1176ec180c082583c776f3407de9e561f591e36d",
+      "bytes": 36373
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-slices.ts",
+      "git_blob_sha1": "fb5dd9159c58894454b41f370bdb6cc8f919d2ba",
+      "bytes": 102430
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination-types.ts",
+      "git_blob_sha1": "a7bcd2fe42a1e61cfdf6e3f7a3ec72de170df24c",
+      "bytes": 27799
+    },
+    {
+      "path": "apps/docs/src/renderer/pagination.ts",
+      "git_blob_sha1": "3529ce055f25db9745a5cb6732a96358fa8716bf",
+      "bytes": 928
+    },
+    {
+      "path": "apps/docs/src/renderer/phased-content.ts",
+      "git_blob_sha1": "10c9072ef4d43f60d3594f9a75f15d74b857d3dd",
+      "bytes": 5675
+    },
+    {
+      "path": "apps/docs/src/renderer/styles.css",
+      "git_blob_sha1": "e48870078a8d3703629d40ec0c64bfa23d34e0be",
+      "bytes": 311567
+    },
+    {
+      "path": "packages/docx-engine/src/alt-chunk.ts",
+      "git_blob_sha1": "b810480e6c6b841705d2371936263c987a68ffb9",
+      "bytes": 10893
+    },
+    {
+      "path": "packages/docx-engine/src/blank.ts",
+      "git_blob_sha1": "eec2be5ee8d66b85b55b3485dfc09e75b05a3427",
+      "bytes": 23843
+    },
+    {
+      "path": "packages/docx-engine/src/chart.ts",
+      "git_blob_sha1": "297bff281f7d7719579d173b6c035e7ef15f7a8e",
+      "bytes": 45899
+    },
+    {
+      "path": "packages/docx-engine/src/checkbox-control.ts",
+      "git_blob_sha1": "8b973fd29b18e7cf41394e3ce0979b3a8c4fd71e",
+      "bytes": 3192
+    },
+    {
+      "path": "packages/docx-engine/src/eq-field.ts",
+      "git_blob_sha1": "5e0de55040b5f1a186ee38e6098b8e479bc74b23",
+      "bytes": 9839
+    },
+    {
+      "path": "packages/docx-engine/src/field-balance.ts",
+      "git_blob_sha1": "e5d3304b2430da4f62b4e151cf7de2cfcbc6d911",
+      "bytes": 6183
+    },
+    {
+      "path": "packages/docx-engine/src/font-settings.ts",
+      "git_blob_sha1": "8e71423e11fe4a66bece5bb47008858490485f5a",
+      "bytes": 905
+    },
+    {
+      "path": "packages/docx-engine/src/font-table.ts",
+      "git_blob_sha1": "44e7f6bd85e8fa877a086f6b670fbcdddaec8f4b",
+      "bytes": 5373
+    },
+    {
+      "path": "packages/docx-engine/src/generate.ts",
+      "git_blob_sha1": "c81da948be09fc09837a4dc4c5e1a996d233ebe8",
+      "bytes": 156635
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "git_blob_sha1": "5a085d3b9bda51806eebbc00d5e1d7c23af1dbd1",
+      "bytes": 4432
+    },
+    {
+      "path": "packages/docx-engine/src/ink.ts",
+      "git_blob_sha1": "d907459fcdf24fe5f6970a1b0a4e1eec60677f77",
+      "bytes": 6585
+    },
+    {
+      "path": "packages/docx-engine/src/lazy-media.ts",
+      "git_blob_sha1": "16cb06fd8a36750a25404cc0feaa9d863765f8f4",
+      "bytes": 2305
+    },
+    {
+      "path": "packages/docx-engine/src/list-markers.ts",
+      "git_blob_sha1": "7ce0fff7ccb83129b2cfbfeefadf28333de0201e",
+      "bytes": 18505
+    },
+    {
+      "path": "packages/docx-engine/src/math.ts",
+      "git_blob_sha1": "c8d10d5a1a317c078536339498f1a928b38b0231",
+      "bytes": 34889
+    },
+    {
+      "path": "packages/docx-engine/src/metafile.ts",
+      "git_blob_sha1": "6c52e2516b11922a8d568d50870fe1fffa4675bb",
+      "bytes": 4648
+    },
+    {
+      "path": "packages/docx-engine/src/notes.ts",
+      "git_blob_sha1": "d8943c5fac5d2b2fc4aa5523118977009d03a952",
+      "bytes": 15219
+    },
+    {
+      "path": "packages/docx-engine/src/ooxml-normalize.ts",
+      "git_blob_sha1": "6aa1e2c3dc12beea985897315fde1e6587d3ebc2",
+      "bytes": 15743
+    },
+    {
+      "path": "packages/docx-engine/src/parse-block-passes.ts",
+      "git_blob_sha1": "a9cdf97fc3c9bc1948aaf622d65be6d3dacb53c3",
+      "bytes": 9228
+    },
+    {
+      "path": "packages/docx-engine/src/parse-drawing-geometry.ts",
+      "git_blob_sha1": "4d48aed03bf0dde96ff3ccd8a9ac930c4c2b3b39",
+      "bytes": 23669
+    },
+    {
+      "path": "packages/docx-engine/src/parse-fields.ts",
+      "git_blob_sha1": "2a2cb258ccb9d81f21772223a73a7fe528fc5fd3",
+      "bytes": 15973
+    },
+    {
+      "path": "packages/docx-engine/src/parse-package.ts",
+      "git_blob_sha1": "923a9e2eeb1a0a17c8c5128e620ce4576abc08d0",
+      "bytes": 17536
+    },
+    {
+      "path": "packages/docx-engine/src/parse-props.ts",
+      "git_blob_sha1": "63cbb5273ac28cc20dc084ad2fdd08009e88b5b0",
+      "bytes": 46529
+    },
+    {
+      "path": "packages/docx-engine/src/parse-sdt.ts",
+      "git_blob_sha1": "851882b949d90b0cb1b0a794e5777d7dc863e6a8",
+      "bytes": 6314
+    },
+    {
+      "path": "packages/docx-engine/src/parse-styles.ts",
+      "git_blob_sha1": "5b163db72f21e6e599ff5ae7a0fa2adc5022cdc5",
+      "bytes": 28601
+    },
+    {
+      "path": "packages/docx-engine/src/parse-vml.ts",
+      "git_blob_sha1": "2da786512fb74ca88f602b02aa6b89dfac826d23",
+      "bytes": 20675
+    },
+    {
+      "path": "packages/docx-engine/src/parse-xml-text.ts",
+      "git_blob_sha1": "24c750609ccf9868f38b66b31159ec130d087620",
+      "bytes": 5213
+    },
+    {
+      "path": "packages/docx-engine/src/parse.ts",
+      "git_blob_sha1": "cc51e23e61a4cca3b94041469401799ebd1be901",
+      "bytes": 336005
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "git_blob_sha1": "ad34960b868808b451e378f6976989939f29806b",
+      "bytes": 107599
+    },
+    {
+      "path": "packages/docx-engine/src/protection.ts",
+      "git_blob_sha1": "03286f496bb0c8213ef7896ce7c79917a2cb72b5",
+      "bytes": 5679
+    },
+    {
+      "path": "packages/docx-engine/src/resource-cleanup.ts",
+      "git_blob_sha1": "3eef4844c57c9367355d1f4aeb7e23f32900f39d",
+      "bytes": 11387
+    },
+    {
+      "path": "packages/docx-engine/src/scan.ts",
+      "git_blob_sha1": "7b6ea5ab46286f29240c83e6cf6604cf27f92813",
+      "bytes": 5850
+    },
+    {
+      "path": "packages/docx-engine/src/section.ts",
+      "git_blob_sha1": "ba11cc22513e5d9bae73bbbb40dd30aa6eda36c2",
+      "bytes": 24115
+    },
+    {
+      "path": "packages/docx-engine/src/sources.ts",
+      "git_blob_sha1": "77cf66d427ee6b9f4f30a7929725131130d7fcc9",
+      "bytes": 5711
+    },
+    {
+      "path": "packages/docx-engine/src/style-upsert.ts",
+      "git_blob_sha1": "1f70523a2f710c06a41802819de4ad51c383d1d4",
+      "bytes": 14440
+    },
+    {
+      "path": "packages/docx-engine/src/symbol-fonts.ts",
+      "git_blob_sha1": "3cb19098d11de73233621386d1379598efb46d15",
+      "bytes": 19785
+    },
+    {
+      "path": "packages/docx-engine/src/text-patch.ts",
+      "git_blob_sha1": "d77638d71ae51407c86162983c787ccb9e3bd0fb",
+      "bytes": 6924
+    },
+    {
+      "path": "packages/docx-engine/src/theme.ts",
+      "git_blob_sha1": "b37bff80927bdd29c1f96011a103b8bf5797e0b2",
+      "bytes": 10292
+    },
+    {
+      "path": "packages/docx-engine/src/tiff.ts",
+      "git_blob_sha1": "7052986a3f4f2f3e9ff0d833b9d13fd84936e0e5",
+      "bytes": 5538
+    },
+    {
+      "path": "packages/docx-engine/src/types.ts",
+      "git_blob_sha1": "3075563f7a4ff1f2a6c2404307803d133bd82b73",
+      "bytes": 104873
+    },
+    {
+      "path": "packages/docx-engine/src/vendor/emf-converter/LICENSE",
+      "git_blob_sha1": "401a9a4766c76d99688ea57a2886951f2dd686d4",
+      "bytes": 11363
+    },
+    {
+      "path": "packages/docx-engine/src/vendor/emf-converter/index.mjs",
+      "git_blob_sha1": "94c7bdbe11a64060bcb7a53ce3507e466629470f",
+      "bytes": 196942
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "git_blob_sha1": "155ec8aa1cec60e00f3346e3d7793c3c3c0e968d",
+      "bytes": 12733
+    },
+    {
+      "path": "packages/docx-engine/src/xml-utils.ts",
+      "git_blob_sha1": "fccb9e829ac42c3de5e275634d729687e54fe7ba",
+      "bytes": 4797
+    },
+    {
+      "path": "packages/docx-engine/src/zip-load.ts",
+      "git_blob_sha1": "5158f2a6667d0c4711dee24602d47da392973bb9",
+      "bytes": 4816
+    },
+    {
+      "path": "packages/docx-engine/src/zotero-doc-props.ts",
+      "git_blob_sha1": "104f2885c041aa3ac6977f17cc951ddea9c09d74",
+      "bytes": 4072
+    },
+    {
+      "path": "packages/i18n/src/font-names.ts",
+      "git_blob_sha1": "2e2de3a9ae86447999c24b7eadb85fe27bfd8b1a",
+      "bytes": 3036
+    },
+    {
+      "path": "packages/i18n/src/index.ts",
+      "git_blob_sha1": "cacf047acfde9f76a3d430c171c2d71c02d87c17",
+      "bytes": 6737
+    },
+    {
+      "path": "packages/pptx-engine/src/custgeom.ts",
+      "git_blob_sha1": "0d4eb02305d5c66cfd4fc0eb1f796ea024825862",
+      "bytes": 14446
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/LICENSE",
+      "git_blob_sha1": "4201f40d931f476b0459e1bf0ec4c84b4e466bfe",
+      "bytes": 17184
+    },
+    {
+      "path": "packages/pptx-render/src/preset-geometry.ts",
+      "git_blob_sha1": "368846466bbf6fcea8d84b8628098a8d9a7eee2a",
+      "bytes": 52737
+    },
+    {
+      "path": "packages/ui/src/AiComposer.tsx",
+      "git_blob_sha1": "2bf8f97a54f9f67f84c5b4c6e9ce90d534be2303",
+      "bytes": 5864
+    },
+    {
+      "path": "packages/ui/src/AiModelPicker.tsx",
+      "git_blob_sha1": "b95a6b5d9fda67bc0a6c3d287bcccbeedc63f9ca",
+      "bytes": 8138
+    },
+    {
+      "path": "packages/ui/src/AiPanelSideButton.tsx",
+      "git_blob_sha1": "672a3a767edf584c677c832dac6f61634301adc2",
+      "bytes": 1571
+    },
+    {
+      "path": "packages/ui/src/AiQueueStrip.tsx",
+      "git_blob_sha1": "f01988bfe9e8bec027911c9424cadbc39bcfae39",
+      "bytes": 8916
+    },
+    {
+      "path": "packages/ui/src/AiScopeQuote.tsx",
+      "git_blob_sha1": "936b1d31d7348a6c2712d621629218a194f35187",
+      "bytes": 521
+    },
+    {
+      "path": "packages/ui/src/AiTypingIndicator.tsx",
+      "git_blob_sha1": "7f5f539658d379e390ca932767412259706e8b1b",
+      "bytes": 1595
+    },
+    {
+      "path": "packages/ui/src/AiUsageChip.tsx",
+      "git_blob_sha1": "87aa529f8a5debd347d120bb7451dafc95195cf3",
+      "bytes": 2221
+    },
+    {
+      "path": "packages/ui/src/Markdown.tsx",
+      "git_blob_sha1": "eb23fe1c3910b6c43c60718d601892ec1ba347b3",
+      "bytes": 10849
+    },
+    {
+      "path": "packages/ui/src/ai-model-picker-options.ts",
+      "git_blob_sha1": "2342567a357db8a898f36ba3300c517596c27337",
+      "bytes": 3424
+    },
+    {
+      "path": "packages/ui/src/ai-panel-prefs-store.ts",
+      "git_blob_sha1": "4e336e56ec2401dbf548ac6a445f20a58e4c0bc6",
+      "bytes": 2288
+    },
+    {
+      "path": "packages/ui/src/ai-panel-prefs.ts",
+      "git_blob_sha1": "9bed88e817414674455821ecaebc260f65624739",
+      "bytes": 3126
+    },
+    {
+      "path": "packages/ui/src/ai-usage.css",
+      "git_blob_sha1": "cd8f7972ce23c7356bc0eef4f2ba8c1fd618eb46",
+      "bytes": 588
+    },
+    {
+      "path": "packages/ui/src/auto-save-pref.ts",
+      "git_blob_sha1": "77991093152988f19a52eab91df126ed8cc17204",
+      "bytes": 3135
+    },
+    {
+      "path": "packages/ui/src/chat-run-queue.ts",
+      "git_blob_sha1": "5d6f14c6450221be8a1cbcb3304fd5f8c2ea32f2",
+      "bytes": 6101
+    },
+    {
+      "path": "packages/ui/src/color-picker.tsx",
+      "git_blob_sha1": "5fc115f3f0a6d40b1e0c781192d646b4db16e1b2",
+      "bytes": 10226
+    },
+    {
+      "path": "packages/ui/src/cutout.ts",
+      "git_blob_sha1": "a189e52a395f68af0c9df80cbcaffc29fd52381d",
+      "bytes": 6740
+    },
+    {
+      "path": "packages/ui/src/dropdown.tsx",
+      "git_blob_sha1": "a6152e9f4cec5f8f220ebe2dc32168b0262f42d9",
+      "bytes": 8577
+    },
+    {
+      "path": "packages/ui/src/file-nav.ts",
+      "git_blob_sha1": "379df5e952d8302836498f5d32ac229bdcb9ec98",
+      "bytes": 1783
+    },
+    {
+      "path": "packages/ui/src/find-panel.tsx",
+      "git_blob_sha1": "b59f6105123a1b80ef507cf3194e428d5e3c543b",
+      "bytes": 9560
+    },
+    {
+      "path": "packages/ui/src/find-text.ts",
+      "git_blob_sha1": "3022b89971c05f55890b89a81ef34b1e9e533d84",
+      "bytes": 1115
+    },
+    {
+      "path": "packages/ui/src/font-list.ts",
+      "git_blob_sha1": "f73a4b3b4740547cc203faf7026e75c20c2fb9b4",
+      "bytes": 5689
+    },
+    {
+      "path": "packages/ui/src/icons.tsx",
+      "git_blob_sha1": "a79128713afab14627ca6f36dd7ed42467b5a048",
+      "bytes": 2634
+    },
+    {
+      "path": "packages/ui/src/image-dialogs.tsx",
+      "git_blob_sha1": "5befedd4394dafaa9d273d3c61e7d45521f6e4d9",
+      "bytes": 21308
+    },
+    {
+      "path": "packages/ui/src/image-viewer-focus.ts",
+      "git_blob_sha1": "dd732f661cae91002504c9ac474bda62b7e7305e",
+      "bytes": 4254
+    },
+    {
+      "path": "packages/ui/src/image-viewer.tsx",
+      "git_blob_sha1": "33702672c9da97c7c7bbc16827677ebf9d940b16",
+      "bytes": 7812
+    },
+    {
+      "path": "packages/ui/src/index.ts",
+      "git_blob_sha1": "9bbf1129d81389718da59e6c1b0e84c95d54cee4",
+      "bytes": 4006
+    },
+    {
+      "path": "packages/ui/src/modal-keys.ts",
+      "git_blob_sha1": "ca52358aa0890c532269f00502da7eec309d33cb",
+      "bytes": 2716
+    },
+    {
+      "path": "packages/ui/src/popover-dismiss.ts",
+      "git_blob_sha1": "7d21b1ab30f5a90f759b169b5b249449baa50ee8",
+      "bytes": 3984
+    },
+    {
+      "path": "packages/ui/src/provider-logos.tsx",
+      "git_blob_sha1": "2acbc8bb51b96b07c66458ba11ac92c169498f03",
+      "bytes": 27274
+    },
+    {
+      "path": "packages/ui/src/ribbon-collapse.tsx",
+      "git_blob_sha1": "dbd57f8bc1db140af3cd7a7f6e9e2c430438a819",
+      "bytes": 10493
+    },
+    {
+      "path": "packages/ui/src/screentip.ts",
+      "git_blob_sha1": "c01c82dc2533a5a51673da20dedb2bba1f7f774d",
+      "bytes": 7488
+    },
+    {
+      "path": "packages/ui/src/shape-gallery.tsx",
+      "git_blob_sha1": "5983009d01d71e870ab517ccf469966d23d32450",
+      "bytes": 11821
+    },
+    {
+      "path": "packages/ui/src/strings-ai-model-picker.ts",
+      "git_blob_sha1": "d00a9324f5f0e7c5274c036f879df9f3b5291c3e",
+      "bytes": 2288
+    },
+    {
+      "path": "packages/ui/src/strings-ai-panel-side.ts",
+      "git_blob_sha1": "4a6501f6142f237a58dfc6fdfd9885e284840a74",
+      "bytes": 2479
+    },
+    {
+      "path": "packages/ui/src/strings-ai-queue.ts",
+      "git_blob_sha1": "723dbcefd4591f49bb90dd8c1a5678fd12a91e4a",
+      "bytes": 10702
+    },
+    {
+      "path": "packages/ui/src/strings-ai-usage.ts",
+      "git_blob_sha1": "5b0a625cd09523402c5b1a586ea3953ab573e990",
+      "bytes": 2990
+    },
+    {
+      "path": "packages/ui/src/strings-crop-edges.ts",
+      "git_blob_sha1": "4bced0aabb954164d1c7e4909adf4bd7c95b9eb5",
+      "bytes": 5609
+    },
+    {
+      "path": "packages/ui/src/strings-image-viewer.ts",
+      "git_blob_sha1": "ac6027d7cdd4f291d947eb5a82a77d0076319309",
+      "bytes": 896
+    },
+    {
+      "path": "packages/ui/src/symbol-fonts.ts",
+      "git_blob_sha1": "a14794ee5f325df753767b335ee8283af0c33c24",
+      "bytes": 661
+    },
+    {
+      "path": "packages/ui/src/use-redact-label.ts",
+      "git_blob_sha1": "e54f59982bbe59fd9ae05db25bf2bee1752ec1b2",
+      "bytes": 2698
+    },
+    {
+      "path": "packages/ui/src/wheel-zoom.ts",
+      "git_blob_sha1": "de49d3f6417760645cf77a3c95403139e1579cdf",
+      "bytes": 6339
+    },
+    {
+      "path": "packages/ui/src/wordart-presets.ts",
+      "git_blob_sha1": "3c8d26b443b6a6f0d7d5ac511ea221beec01a354",
+      "bytes": 3418
+    },
+    {
+      "path": "packages/zip-gate/src/byte-stream.ts",
+      "git_blob_sha1": "1dbb2c3936f237f5233712cb19c6334f21fa574e",
+      "bytes": 1950
+    },
+    {
+      "path": "packages/zip-gate/src/index.ts",
+      "git_blob_sha1": "857e68cb3ce0e07d27a059fc00971292b12e0f77",
+      "bytes": 10391
+    },
+    {
+      "path": "packages/agent-core/src/redact-core.ts",
+      "git_blob_sha1": "367cae89f74d29cc15fb78d481756a376546a41c",
+      "bytes": 7103
+    },
+    {
+      "path": "packages/ai-provider/src/browser.ts",
+      "git_blob_sha1": "26e98a57dc29405d371b16a94b7111da70e0f706",
+      "bytes": 841
+    },
+    {
+      "path": "packages/ai-provider/src/custom-endpoints.ts",
+      "git_blob_sha1": "9b6fc38141b1920acf0c45e4088d3f1512c384eb",
+      "bytes": 4719
+    },
+    {
+      "path": "packages/ai-provider/src/fetch.ts",
+      "git_blob_sha1": "9840c76d3215287ab1e13396da17c5de18a9e8e0",
+      "bytes": 3269
+    },
+    {
+      "path": "packages/ai-provider/src/http-error.ts",
+      "git_blob_sha1": "47ba58031b243da7202213e8bdc72a508a8d2563",
+      "bytes": 1400
+    },
+    {
+      "path": "packages/ai-provider/src/media.ts",
+      "git_blob_sha1": "87c415c39d4d96dbdd9b95d43462db5ab6afbf24",
+      "bytes": 13497
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/anthropic.ts",
+      "git_blob_sha1": "cbc6d1dc62785c3bd4537cdb075b673acce658d8",
+      "bytes": 14827
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/gemini-schema.ts",
+      "git_blob_sha1": "bd9e11ca3001f1d6c7f7255accae588ac1671a46",
+      "bytes": 4903
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/gemini.ts",
+      "git_blob_sha1": "40684c8af457fd4893074771dad48776bbcf5c0c",
+      "bytes": 13010
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/shared.ts",
+      "git_blob_sha1": "cf1fd4a7d48e6b299026315204431be3afb4c374",
+      "bytes": 14562
+    },
+    {
+      "path": "packages/ai-provider/src/providers.ts",
+      "git_blob_sha1": "874427be412e10e244964e5eadd4ad82f0f46273",
+      "bytes": 23517
+    },
+    {
+      "path": "packages/ai-provider/src/registry.ts",
+      "git_blob_sha1": "dbbbcf1a278ab6792f7b3b913517a8a906c834d4",
+      "bytes": 16830
+    },
+    {
+      "path": "packages/ai-provider/src/search-settings.ts",
+      "git_blob_sha1": "12c884ccb0076611ee433e3d86dc270423fe27d7",
+      "bytes": 2426
+    },
+    {
+      "path": "packages/ai-provider/src/watchdog.ts",
+      "git_blob_sha1": "a3876b75c193b8d03de694b210140ae742f6f2a8",
+      "bytes": 3660
+    }
+  ]
+}

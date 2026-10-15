@@ -61,6 +61,7 @@ pub struct NoteRecord {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoProgressRecord {
+    pub todo_revision: u64,
     pub id: i64,
     pub todo_id: i64,
     pub content: String,
@@ -82,6 +83,7 @@ pub enum TodoScope {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoRecord {
+    pub revision: u64,
     pub id: i64,
     pub scope: TodoScope,
     pub project_id: Option<i64>,
@@ -256,6 +258,33 @@ pub struct AiEditorSkillRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiProxyMode {
+    #[default]
+    System,
+    Custom,
+    Direct,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiNetworkSettings {
+    pub mode: AiProxyMode,
+    pub proxy_url: Option<String>,
+    pub username: Option<String>,
+    pub has_stored_password: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiNetworkSettingsUpsertInput {
+    pub mode: AiProxyMode,
+    pub proxy_url: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettingsSnapshot {
@@ -266,6 +295,7 @@ pub struct AiSettingsSnapshot {
     pub security_mode: String,
     pub ai_secrets_unlocked: bool,
     pub execution: AiExecutionSettings,
+    pub network: AiNetworkSettings,
     pub editor_skills: Vec<AiEditorSkillRecord>,
 }
 
@@ -751,6 +781,7 @@ pub struct TodoCreateInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateContentInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub content: String,
     pub due_date: Option<String>,
@@ -761,6 +792,7 @@ pub struct TodoUpdateContentInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateTagsInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
@@ -769,6 +801,7 @@ pub struct TodoUpdateTagsInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateStatusInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub status: String,
 }
@@ -776,6 +809,7 @@ pub struct TodoUpdateStatusInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdatePriorityInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub priority: String,
 }
@@ -783,6 +817,7 @@ pub struct TodoUpdatePriorityInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoAddProgressInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
     pub content: String,
     pub progress_date: String,
@@ -792,6 +827,7 @@ pub struct TodoAddProgressInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoUpdateProgressInput {
+    pub expected_revision: u64,
     pub progress_id: i64,
     pub content: String,
     pub progress_date: String,
@@ -802,12 +838,14 @@ pub struct TodoUpdateProgressInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoDeleteProgressInput {
+    pub expected_revision: u64,
     pub progress_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoDeleteInput {
+    pub expected_revision: u64,
     pub todo_id: i64,
 }
 

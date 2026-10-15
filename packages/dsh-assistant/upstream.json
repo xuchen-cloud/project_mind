@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/dataelement/dsh-desktop",
+  "commit": "115a0b474cc2c4794316171c640a8898398591fe",
+  "archiveUrl": "https://codeload.github.com/dataelement/dsh-desktop/tar.gz/115a0b474cc2c4794316171c640a8898398591fe",
+  "archiveSha256": "4c53f4da089590db938d0ebfbdd2447e71063426e5f1910456ba4b0bc79b93e2",
+  "desktopVersion": "0.1.1",
+  "dshVersion": "0.2.0-rc.2"
+}

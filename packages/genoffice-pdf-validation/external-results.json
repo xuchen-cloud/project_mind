@@ -1,0 +1,341 @@
+{
+  "poppler_version": {
+    "command": [
+      "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+      "-v"
+    ],
+    "exit": 0,
+    "elapsed_ms": 12.319166999077424,
+    "stdout": "",
+    "stderr": "pdftotext version 26.05.0\nCopyright 2005-2026 The Poppler Developers - http://poppler.freedesktop.org\nCopyright 1996-2011, 2022 Glyph & Cog, LLC\n"
+  },
+  "runs": [
+    {
+      "name": "simple",
+      "kind": "original",
+      "file": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf",
+      "sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305",
+      "outdir": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.original",
+      "pdfinfo": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfinfo",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 242.1864590014593,
+        "stdout": "Title:           untitled\nSubject:         unspecified\nKeywords:        \nAuthor:          anonymous\nCreator:         anonymous\nProducer:        ReportLab PDF Library - (opensource)\nCreationDate:    Sat Jan  1 08:00:00 2000 CST\nModDate:         Sat Jan  1 08:00:00 2000 CST\nCustom Metadata: no\nMetadata Stream: no\nTagged:          no\nUserProperties:  no\nSuspects:        no\nForm:            AcroForm\nJavaScript:      no\nPages:           2\nEncrypted:       no\nPage size:       612 x 792 pts (letter)\nPage rot:        0\nFile size:       8210 bytes\nOptimized:       no\nPDF version:     1.3\n",
+        "stderr": ""
+      },
+      "text": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-layout",
+          "-enc",
+          "UTF-8",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.original/text.txt"
+        ],
+        "exit": 0,
+        "elapsed_ms": 18.862917000660673,
+        "stdout": "",
+        "stderr": ""
+      },
+      "images": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfimages",
+          "-list",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 143.97408300101233,
+        "stdout": "page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio\n--------------------------------------------------------------------------------------------\n   1     0 image      80    40  rgb     3   8  image  no         3  0    72    72   50B 0.5%\n",
+        "stderr": ""
+      },
+      "render": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftoppm",
+          "-r",
+          "72",
+          "-png",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.original/page"
+        ],
+        "exit": 0,
+        "elapsed_ms": 1072.3566670003493,
+        "stdout": "",
+        "stderr": "Fontconfig error: Cannot load default config file: File not found\n"
+      },
+      "text_content": "SIMPLE ORIGINAL TEXT\n\n\nUNEDITED PAGE-1 PARAGRAPH\n\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n\n\n\n\nAlice\n\fPAGE-2 UNEDITED CONTENT\n\f",
+      "pngs": [
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.original/page-1.png",
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.original/page-2.png"
+      ],
+      "status": "passed"
+    },
+    {
+      "name": "simple",
+      "kind": "core-edited",
+      "file": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf",
+      "sha256": "d5dd1bfc769791a144568c788bdf7e2bcc037a43d65fa16336d0dd4c403b6e7d",
+      "outdir": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.core-edited",
+      "pdfinfo": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfinfo",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 12.666415999774472,
+        "stdout": "Title:           untitled\nSubject:         unspecified\nKeywords:        \nAuthor:          anonymous\nCreator:         anonymous\nProducer:        ReportLab PDF Library - (opensource)\nCreationDate:    Sat Jan  1 08:00:00 2000 CST\nModDate:         Sat Jan  1 08:00:00 2000 CST\nCustom Metadata: no\nMetadata Stream: no\nTagged:          no\nUserProperties:  no\nSuspects:        no\nForm:            AcroForm\nJavaScript:      no\nPages:           2\nEncrypted:       no\nPage size:       612 x 792 pts (letter)\nPage rot:        0\nFile size:       7736 bytes\nOptimized:       no\nPDF version:     1.3\n",
+        "stderr": ""
+      },
+      "text": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-layout",
+          "-enc",
+          "UTF-8",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.core-edited/text.txt"
+        ],
+        "exit": 0,
+        "elapsed_ms": 12.812250000934,
+        "stdout": "",
+        "stderr": ""
+      },
+      "images": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfimages",
+          "-list",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 12.807208000594983,
+        "stdout": "page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio\n--------------------------------------------------------------------------------------------\n   1     0 image      80    40  rgb     3   8  image  no         3  0    72    72   50B 0.5%\n",
+        "stderr": ""
+      },
+      "render": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftoppm",
+          "-r",
+          "72",
+          "-png",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.core-edited/page"
+        ],
+        "exit": 0,
+        "elapsed_ms": 927.6213749999442,
+        "stdout": "",
+        "stderr": "Fontconfig error: Cannot load default config file: File not found\n"
+      },
+      "text_content": "SIMPLE REPLACED TEXT\n\n\nUNEDITED PAGE-1 PARAGRAPH\n\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n\n\n\n\nAlice\n\fPAGE-2 UNEDITED CONTENT\n\f",
+      "pngs": [
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.core-edited/page-1.png",
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.core-edited/page-2.png"
+      ],
+      "status": "passed"
+    },
+    {
+      "name": "complex",
+      "kind": "original",
+      "file": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.original.pdf",
+      "sha256": "db97c42390689d88168781d4ec3cb6f6b093593203ee0dc6be18630aeda82fac",
+      "outdir": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.original",
+      "pdfinfo": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfinfo",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.original.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 13.310584001374082,
+        "stdout": "Title:           untitled\nSubject:         unspecified\nKeywords:        \nAuthor:          anonymous\nCreator:         anonymous\nProducer:        ReportLab PDF Library - (opensource)\nCreationDate:    Sat Jan  1 08:00:00 2000 CST\nModDate:         Sat Jan  1 08:00:00 2000 CST\nCustom Metadata: no\nMetadata Stream: no\nTagged:          no\nUserProperties:  no\nSuspects:        no\nForm:            AcroForm\nJavaScript:      no\nPages:           2\nEncrypted:       no\nPage size:       612 x 792 pts (letter)\nPage rot:        0\nFile size:       47218 bytes\nOptimized:       no\nPDF version:     1.3\n",
+        "stderr": ""
+      },
+      "text": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-layout",
+          "-enc",
+          "UTF-8",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.original.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.original/text.txt"
+        ],
+        "exit": 0,
+        "elapsed_ms": 13.376124999922467,
+        "stdout": "",
+        "stderr": ""
+      },
+      "images": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfimages",
+          "-list",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.original.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 13.110791000144673,
+        "stdout": "page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio\n--------------------------------------------------------------------------------------------\n   1     0 image      80    40  rgb     3   8  image  no         3  0    72    72   50B 0.5%\n",
+        "stderr": ""
+      },
+      "render": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftoppm",
+          "-r",
+          "72",
+          "-png",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.original.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.original/page"
+        ],
+        "exit": 0,
+        "elapsed_ms": 937.9920840001432,
+        "stdout": "",
+        "stderr": "Fontconfig error: Cannot load default config file: File not found\n"
+      },
+      "text_content": "中文目标：山川日月保持原样。\n\n\nUNEDITED PAGE-1 PARAGRAPH\n\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n\n未改中文段落：风雨天地仍然保留。\n\n\n\n\nAlice\n\fPAGE-2 UNEDITED CONTENT\n\n\n第二页中文原文完整保留。\n\f",
+      "pngs": [
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.original/page-1.png",
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.original/page-2.png"
+      ],
+      "status": "passed"
+    },
+    {
+      "name": "complex",
+      "kind": "core-edited",
+      "file": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.pdf",
+      "sha256": "1f8b909fad8093714abe428980ddd87caa1231bb145c23bda7672b12c76426be",
+      "outdir": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.core-edited",
+      "pdfinfo": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfinfo",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 12.743291999868234,
+        "stdout": "Title:           untitled\nSubject:         unspecified\nKeywords:        \nAuthor:          anonymous\nCreator:         anonymous\nProducer:        ReportLab PDF Library - (opensource)\nCreationDate:    Sat Jan  1 08:00:00 2000 CST\nModDate:         Sat Jan  1 08:00:00 2000 CST\nCustom Metadata: no\nMetadata Stream: no\nTagged:          no\nUserProperties:  no\nSuspects:        no\nForm:            AcroForm\nJavaScript:      no\nPages:           2\nEncrypted:       no\nPage size:       612 x 792 pts (letter)\nPage rot:        0\nFile size:       62294 bytes\nOptimized:       no\nPDF version:     1.3\n",
+        "stderr": ""
+      },
+      "text": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext",
+          "-layout",
+          "-enc",
+          "UTF-8",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.core-edited/text.txt"
+        ],
+        "exit": 0,
+        "elapsed_ms": 13.139083001078689,
+        "stdout": "",
+        "stderr": ""
+      },
+      "images": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdfimages",
+          "-list",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.pdf"
+        ],
+        "exit": 0,
+        "elapsed_ms": 13.198000000556931,
+        "stdout": "page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio\n--------------------------------------------------------------------------------------------\n   1     0 image      80    40  rgb     3   8  image  no         3  0    72    72   50B 0.5%\n",
+        "stderr": ""
+      },
+      "render": {
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftoppm",
+          "-r",
+          "72",
+          "-png",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.pdf",
+          "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.core-edited/page"
+        ],
+        "exit": 0,
+        "elapsed_ms": 940.4057920000923,
+        "stdout": "",
+        "stderr": "Fontconfig error: Cannot load default config file: File not found\n"
+      },
+      "text_content": "中文目标：星辰日月保持原样。\n\n\nUNEDITED PAGE-1 PARAGRAPH\n\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n\n未改中文段落：风雨天地仍然保留。\n\n\n\n\nAlice\n\fPAGE-2 UNEDITED CONTENT\n\n\n第二页中文原文完整保留。\n\f",
+      "pngs": [
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.core-edited/page-1.png",
+        "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.core-edited/page-2.png"
+      ],
+      "status": "passed"
+    }
+  ],
+  "comparisons": [
+    {
+      "name": "simple",
+      "poppler_old_target_absent": true,
+      "poppler_new_target_present": true,
+      "poppler_unedited_text_unchanged": true,
+      "pypdf_status": "passed",
+      "pixel_checks": [
+        {
+          "page": 1,
+          "difference_bounds": [
+            105,
+            61,
+            221,
+            73
+          ],
+          "excluded_target_rect": [
+            45,
+            51,
+            216,
+            80
+          ],
+          "outside_target_difference_bounds": [
+            217,
+            61,
+            221,
+            64
+          ],
+          "outside_target_pixels_equal": false
+        },
+        {
+          "page": 2,
+          "difference_bounds": null,
+          "excluded_target_rect": null,
+          "outside_target_difference_bounds": null,
+          "outside_target_pixels_equal": true
+        }
+      ],
+      "comparison_png": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/simple.page1-comparison.png",
+      "status": "limited"
+    },
+    {
+      "name": "complex",
+      "poppler_old_target_absent": true,
+      "poppler_new_target_present": true,
+      "poppler_unedited_text_unchanged": true,
+      "pypdf_status": "passed",
+      "pixel_checks": [
+        {
+          "page": 1,
+          "difference_bounds": [
+            121,
+            60,
+            148,
+            73
+          ],
+          "excluded_target_rect": [
+            45,
+            51,
+            251,
+            80
+          ],
+          "outside_target_difference_bounds": null,
+          "outside_target_pixels_equal": true
+        },
+        {
+          "page": 2,
+          "difference_bounds": null,
+          "excluded_target_rect": null,
+          "outside_target_difference_bounds": null,
+          "outside_target_pixels_equal": true
+        }
+      ],
+      "comparison_png": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/evidence/visual/complex.page1-comparison.png",
+      "status": "passed"
+    }
+  ],
+  "visual_inspection": "PNG generated for main agent to view; no GUI validation claimed.",
+  "status": "limited"
+}

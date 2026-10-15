@@ -1,9 +1,17 @@
+import { validateInternalReferenceSourceRef } from "../../lib/internalReferences";
+import { agentApi } from "../../services/agentApi";
+import { projectFileApi } from "../../services/projectFileApi";
+import type { AgentObjectRef } from "../../lib/agent-types";
 import { Suspense, forwardRef, lazy, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createDocument, type Editor, type JSONContent } from "@tiptap/core";
+import { applyRecordIncomingDocument } from "./recordIncomingDocument";
+import { revealSourceBlock, type SourceBlockNavigation } from "../../lib/source-navigation";
+import { prepareRecordCutHtml, registerRecordCutHtml, type RecordCutTransport } from "./extensions/StableRecordBlocks";
+import { readRecordCutClipboard, recordCutPasteEvent } from "./recordCutClipboard";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
-import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import { Mapping } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
@@ -357,6 +365,9 @@ interface EditorSkillWidgetState {
 
 interface RichEditorProps {
   html?: string;
+  /** In-memory state from this exact Record; never serialize into layout storage. */
+  session?: RichEditorSession | null;
+  onSessionReady?: () => void;
   defaultHtml?: string;
   variant?: RichEditorVariant;
   showToolbar?: boolean;
@@ -379,7 +390,13 @@ interface RichEditorProps {
   onSnapshot?: (value: RichEditorValue) => void;
   onDirtyChange?: (dirty: boolean) => void;
   controllerRef?: MutableRefObject<RichEditorController | null>;
+  sourceBlockNavigation?: SourceBlockNavigation | null;
+  onSourceBlockResult?: (located: boolean) => void;
   onSave?: (value: RichEditorValue) => Promise<unknown> | unknown;
+  /** Capture ordinary committed edits before the AI action and its result after
+   * acceptance, so a Record can persist both sides as separate boundaries. */
+  onBeforeAiCommit?: () => boolean;
+  onAiCommit?: (value: RichEditorValue) => void;
   onPersistStateChange?: (state: RichEditorPersistState) => void;
   onBlurPersisted?: (result: unknown) => void;
   onModEnter?: () => Promise<unknown> | unknown;
@@ -389,6 +406,9 @@ interface RichEditorProps {
   tagMentions?: RichEditorTagMentionOptions;
   aiSettings?: AiSettingsSnapshot | null;
   contentIdentity?: string;
+  /** Workspace UUID + scoped Record identity; enables canonical block anchors. */
+  recordKey?: string;
+  recordClipboard?: RecordCutTransport;
   onOpenAiSettings?: () => void;
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
@@ -406,12 +426,28 @@ export interface RichEditorSelectionPayload {
   removeSelectionAndSave: () => Promise<unknown>;
 }
 
+export interface RichEditorSession {
+  identity: string | undefined;
+  recordKey: string | undefined;
+  state: EditorState;
+  committedValue: RichEditorValue;
+  persistedHtml: string;
+}
+
 export interface RichEditorController {
+  isBusy: () => boolean;
+  captureSession: () => RichEditorSession | null;
   getValue: () => RichEditorValue;
   getCommittedValue: () => RichEditorValue;
   getDocumentJson: () => JSONContent;
+  getCommittedDocumentJson: () => JSONContent;
   getActiveAiProtectionCount: () => number;
+  getPendingAiReviewCount: () => number;
+  hasUnsavedCommittedContent: () => boolean;
+  acknowledgeCommittedContent: (value: RichEditorValue) => void;
+  applyIncomingContent: (html: string) => boolean;
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
+  revealBlock: (blockId: string) => boolean;
   appendMarkdown: (markdown: string) => RichEditorValue | null;
   save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
   replaceCommittedContent: (html: string) => void;
@@ -428,6 +464,8 @@ export interface RichEditorSelectionAction {
 
 export function RichEditor({
   html,
+  session,
+  onSessionReady,
   defaultHtml,
   variant = "toolbar",
   showToolbar = true,
@@ -442,7 +480,11 @@ export function RichEditor({
   onSnapshot,
   onDirtyChange,
   controllerRef,
+  sourceBlockNavigation,
+  onSourceBlockResult,
   onSave,
+  onBeforeAiCommit,
+  onAiCommit,
   onPersistStateChange,
   onBlurPersisted,
   onModEnter,
@@ -452,6 +494,8 @@ export function RichEditor({
   tagMentions,
   aiSettings,
   contentIdentity,
+  recordKey,
+  recordClipboard,
   onOpenAiSettings,
   selectionActions,
   renderToolbarExtras,
@@ -572,6 +616,8 @@ export function RichEditor({
   const persistStateRef = useRef<RichEditorPersistState>("idle");
   const dirtyStateRef = useRef(false);
   const syntheticPasteRef = useRef(false);
+  const recordClipboardRef = useRef(recordClipboard);
+  recordClipboardRef.current = recordClipboard;
   const frameRef = useRef<HTMLDivElement | null>(null);
   const tableToolbarRef = useRef<HTMLDivElement | null>(null);
   const codeToolbarRef = useRef<HTMLDivElement | null>(null);
@@ -677,6 +723,9 @@ export function RichEditor({
   const imageInterpretationReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableImageDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "image_default"));
   const effectiveReadOnly = readOnly;
+  const referenceSelectionContextRef = useRef({ contentIdentity, recordKey, readOnly, context: internalReferences?.context });
+  referenceSelectionContextRef.current = { contentIdentity, recordKey, readOnly, context: internalReferences?.context };
+  const referenceSelectionRequestRef = useRef(0);
   const rewriteUnavailableReason = aiSettings?.aiSecretsUnlocked === false
     ? "需先解锁 AI 配置"
     : !editorRewriteReady
@@ -884,23 +933,59 @@ export function RichEditor({
       }
 
       const target = buildInternalReferenceTarget(reference);
-      const referenceNode = nodeType.create({
-        refKind: target.refKind,
-        refId: target.refId,
-        label: target.label,
-      });
-      const tr = view.state.tr.delete(trigger.start, trigger.end);
-
-      tr.insert(trigger.start, referenceNode);
-
-      const nextSelectionPos = trigger.start + referenceNode.nodeSize;
-      tr.insertText(" ", nextSelectionPos);
-      tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
-      view.dispatch(tr.scrollIntoView());
-      closeInternalReferencePicker();
+      const insert = () => {
+        const referenceNode = nodeType.create(target);
+        const tr = view.state.tr.delete(trigger.start, trigger.end);
+        tr.insert(trigger.start, referenceNode);
+        const nextSelectionPos = trigger.start + referenceNode.nodeSize;
+        tr.insertText(" ", nextSelectionPos);
+        tr.setSelection(TextSelection.create(tr.doc, nextSelectionPos + 1));
+        view.dispatch(tr.scrollIntoView());
+        closeInternalReferencePicker();
+      };
+      const request = ++referenceSelectionRequestRef.current;
+      if (reference.kind !== "document") { insert(); return true; }
+      const before = view.state;
+      const identity = referenceSelectionContextRef.current;
+      const stillCurrent = () => {
+        const current = referenceSelectionContextRef.current;
+        const picker = referencePickerRef.current;
+        return !view.isDestroyed && !current.readOnly && current.contentIdentity === identity.contentIdentity
+          && current.recordKey === identity.recordKey && current.context?.scope === identity.context?.scope
+          && current.context?.projectId === identity.context?.projectId && request === referenceSelectionRequestRef.current
+          && view.state.doc === before.doc && view.state.selection.eq(before.selection)
+          && picker?.start === trigger.start && picker.end === trigger.end && picker.query === trigger.query;
+      };
+      // Only a deliberate picker selection may attach evidence; preview and
+      // autosave never initiate this read or convert a path into a fixed ref.
+      void (async () => {
+        try {
+          const binding = (await agentApi.statusGet()).binding;
+          if (!binding) throw new Error("请先打开工作区");
+          if (identity.recordKey && !identity.recordKey.startsWith(`${binding.workspaceId}:`))
+            throw new Error("工作区已切换，请重新选择引用");
+          if (reference.projectId === null || !reference.projectId
+            || (identity.context?.scope === "project" && reference.projectId !== identity.context.projectId))
+            throw new Error("文件不属于引用所在项目");
+          const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: reference.projectId },
+            kind: "file", id: String(reference.id) };
+          const file = await projectFileApi.resolve(binding, object);
+          if (file.state !== "ready" || !file.contentHash) throw new Error(file.reason || "文件版本尚不可读取");
+          const bytes = await projectFileApi.readBytes(binding, { object, versionNumber: file.versionNumber, expectedContentHash: file.contentHash });
+          const current = (await agentApi.statusGet()).binding;
+          if (!current || current.workspaceId !== binding.workspaceId || current.generation !== binding.generation)
+            throw new Error("工作区已切换，请重新选择引用");
+          if (!stillCurrent()) throw new Error("编辑内容或引用位置已变化，请重新选择文件");
+          target.sourceRef = validateInternalReferenceSourceRef({ object: bytes.object, revision: bytes.contentHash, fileVersion: bytes.versionNumber,
+            recordVersion: null, blockId: null, locator: null, title: bytes.name, excerpt: "" });
+          insert();
+        } catch (failure) {
+          pushToast({ tone: "error", title: "插入文件引用失败", detail: failure instanceof Error ? failure.message : String(failure) });
+        }
+      })();
       return true;
     },
-    [closeInternalReferencePicker],
+    [closeInternalReferencePicker, pushToast],
   );
 
   const closeContactMentionPicker = useCallback(() => {
@@ -1282,9 +1367,24 @@ export function RichEditor({
     [flushDeferredEditorUi],
   );
 
+  const pastedHtmlRef = useRef(handlePastedHtml);
+  pastedHtmlRef.current = handlePastedHtml;
   const editorExtensions = useMemo(
-    () => buildRichEditorExtensions(placeholder),
-    [placeholder],
+    () => buildRichEditorExtensions(placeholder, { stableBlocks: Boolean(recordKey), recordKey,
+      clipboardPayload: (view) => buildRichTextClipboardPayload(view.state.selection.content(), view),
+      onCopied: (view, payload) => upgradeClipboardImages(view.state.selection.content(), view, payload),
+      cutTransport: recordClipboard ? {
+        registerCut: (token) => recordClipboardRef.current?.registerCut(token) ?? Promise.resolve(),
+        claimCut: (token) => recordClipboardRef.current?.claimCut(token) ?? Promise.resolve(false),
+      } : undefined,
+      pasteCut: async (view, payload, preserveIds, restoreTarget) => {
+        if (!preserveIds && payload.html) return pastedHtmlRef.current(view, payload.html, restoreTarget);
+        syntheticPasteRef.current = true;
+        if (payload.html) view.pasteHTML(payload.html, createSyntheticPasteEvent());
+        else view.pasteText(payload.text, createSyntheticPasteEvent());
+      },
+    }),
+    [placeholder, recordKey, Boolean(recordClipboard)],
   );
 
   const captureCommittedValue = useCallback((nextEditor: Editor) => {
@@ -1312,8 +1412,8 @@ export function RichEditor({
       clipboardTextSerializer: (content, view) => serializeRichTextClipboard(content, view),
       transformPastedHTML: (rawHtml) => sanitizePastedHtml(rawHtml),
       handleDOMEvents: {
-        copy: (view, event) => handleEditorClipboardEvent(view, event, "copy", effectiveReadOnly),
-        cut: (view, event) => handleEditorClipboardEvent(view, event, "cut", effectiveReadOnly),
+        copy: (view, event) => recordKey ? false : handleEditorClipboardEvent(view, event, "copy", effectiveReadOnly),
+        cut: (view, event) => recordKey ? false : handleEditorClipboardEvent(view, event, "cut", effectiveReadOnly),
       },
       handlePaste: (view, event) => {
         if (syntheticPasteRef.current) {
@@ -1564,7 +1664,19 @@ export function RichEditor({
         return false;
       },
     },
+    onBeforeCreate: ({ editor: nextEditor }) => {
+      if (session && session.identity === contentIdentity && session.recordKey === recordKey) {
+        // Extension plugins (including trailing nodes) must be built against
+        // the same schema as the restored history's steps and document.
+        nextEditor.schema = session.state.schema;
+        nextEditor.extensionManager.schema = session.state.schema;
+      }
+    },
     onCreate: ({ editor: nextEditor }) => {
+      if (session && session.identity === contentIdentity && session.recordKey === recordKey) {
+        nextEditor.view.updateState(session.state.reconfigure({ plugins: nextEditor.state.plugins }));
+        lastPersistedHtmlRef.current = session.persistedHtml;
+      }
       captureCommittedValue(nextEditor);
       updatePersistState("idle");
     },
@@ -2389,12 +2501,48 @@ export function RichEditor({
     }
 
     controllerRef.current = {
+      isBusy: () => saveInFlightRef.current || assetBusyRef.current !== null,
+      captureSession: () => {
+        if (!editor || saveInFlightRef.current || assetBusyRef.current !== null
+          || rewriteSessionsRef.current.length > 0) return null;
+        return {
+          identity: contentIdentity, recordKey,
+          // Only history needs plugin state across mounts. Other plugin fields
+          // may hold view decorations or UI callbacks and are freshly initialized.
+          state: editor.state.reconfigure({ plugins: editor.state.plugins.filter((plugin) => "key" in plugin && typeof plugin.key === "string" && plugin.key.startsWith("history$")) }),
+          committedValue: captureCommittedValue(editor), persistedHtml: lastPersistedHtmlRef.current,
+        };
+      },
       getValue: getCurrentValue,
       getCommittedValue: () => latestCommittedValueRef.current ?? getCurrentValue(),
       getDocumentJson: () => editor?.getJSON() ?? { type: "doc", content: [] },
+      getCommittedDocumentJson: () => editor
+        ? structuredClone(projectCommittedEditorDocument(editor, rewriteSessionsRef.current).toJSON())
+        : { type: "doc", content: [] },
       getActiveAiProtectionCount: () => editor
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length
         : 0,
+      getPendingAiReviewCount: () => rewriteSessionsRef.current.length,
+      hasUnsavedCommittedContent: () => !!editor && captureCommittedValue(editor).html !== lastPersistedHtmlRef.current,
+      acknowledgeCommittedContent: (value) => {
+        lastPersistedHtmlRef.current = value.html;
+        if (editor && captureCommittedValue(editor).html === value.html) updatePersistState("saved");
+      },
+      applyIncomingContent: (html) => {
+        if (!editor || rewriteSessionsRef.current.length > 0 || captureCommittedValue(editor).html !== lastPersistedHtmlRef.current) return false;
+        const document = createDocument(normalizeHtml(html), editor.schema);
+        clearChangePublishTimer();
+        aiPreviewMutationRef.current = true;
+        try { applyRecordIncomingDocument(editor, document); }
+        finally { aiPreviewMutationRef.current = false; }
+        const snapshot = captureCommittedValue(editor);
+        lastResolvedHtmlRef.current = snapshot.html;
+        lastPersistedHtmlRef.current = snapshot.html;
+        latestCommittedValueRef.current = snapshot;
+        publishChangeSnapshot(snapshot, { immediate: true, sync: true });
+        updatePersistState("saved");
+        return true;
+      },
       focus: (position) => {
         if (!editor) {
           return;
@@ -2407,6 +2555,7 @@ export function RichEditor({
 
         editor.commands.focus(position ?? "end", { scrollIntoView: false });
       },
+      revealBlock: (blockId) => !!editor && revealSourceBlock(editor, blockId),
       appendMarkdown: (markdown) => editor && !readOnly && insertMarkdownAtPosition(editor, editor.state.doc.content.size, markdown)
         ? getCurrentValue()
         : null,
@@ -2438,7 +2587,19 @@ export function RichEditor({
     return () => {
       controllerRef.current = null;
     };
-  }, [captureCommittedValue, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState]);
+  }, [captureCommittedValue, clearChangePublishTimer, controllerRef, editor, effectiveReadOnly, getCurrentValue, handleManualSave, publishChangeSnapshot, readOnly, updatePersistState, contentIdentity, recordKey]);
+
+  useEffect(() => {
+    if (editor && !saveInFlightRef.current && assetBusy === null
+      && rewriteSessions.length === 0 && persistState !== "saving" && persistState !== "error") {
+      onSessionReady?.();
+    }
+  }, [editor, assetBusy, rewriteSessions.length, persistState, onSessionReady]);
+
+  useEffect(() => {
+    if (!editor || !sourceBlockNavigation) return;
+    onSourceBlockResult?.(revealSourceBlock(editor, sourceBlockNavigation.blockId));
+  }, [editor, sourceBlockNavigation?.blockId, sourceBlockNavigation?.key, onSourceBlockResult]);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -3419,6 +3580,7 @@ export function RichEditor({
   const acceptModifyPreview = useCallback(() => {
     const session = rewriteSessionRef.current;
     if (!editor || !session?.modifyPreview) return;
+    if (onBeforeAiCommit?.() === false) return;
     const preview = session.modifyPreview;
     rollbackRewritePreview(session);
     setEditorRewriteProtectedRange(editor, null, session.targetKey);
@@ -3437,8 +3599,6 @@ export function RichEditor({
     } finally {
       aiPreviewMutationRef.current = false;
     }
-    publishAiEditorSnapshot();
-    releaseEditorViewportPreservation(editor, 1_000);
     setRewriteSession((current) =>
       current?.answer
         ? {
@@ -3449,7 +3609,10 @@ export function RichEditor({
         : null,
     );
     synchronizeResolvedRewriteSession(session.targetKey, resolvedSession);
-  }, [editor, publishAiEditorSnapshot, rollbackRewritePreview]);
+    publishAiEditorSnapshot();
+    onAiCommit?.(captureCommittedValue(editor));
+    releaseEditorViewportPreservation(editor, 1_000);
+  }, [editor, publishAiEditorSnapshot, rollbackRewritePreview, onBeforeAiCommit, onAiCommit, captureCommittedValue]);
 
   const rejectModifyPreview = useCallback(() => {
     if (rewriteJob?.status === "queued" || rewriteJob?.status === "running") {
@@ -3496,6 +3659,7 @@ export function RichEditor({
     if (!editor || !rewriteSession?.answer || rewriteSession.parseError) {
       return;
     }
+    if (onBeforeAiCommit?.() === false) return;
 
     const protectedRange = getEditorRewriteProtectedRange(editor, rewriteSession.targetKey);
     const insertPosition = getInsertPositionAfterSelectedBlock(
@@ -3539,12 +3703,13 @@ export function RichEditor({
     }
     editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
     publishAiEditorSnapshot();
+    onAiCommit?.(captureCommittedValue(editor));
     releaseEditorViewportPreservation(editor, 1_000);
     window.requestAnimationFrame(() => {
       internalEditorCommitInFlightRef.current = false;
       setControlledHtmlReconcileGeneration((current) => current + 1);
     });
-  }, [editor, publishAiEditorSnapshot, pushToast, rewriteSession]);
+  }, [editor, publishAiEditorSnapshot, pushToast, rewriteSession, onBeforeAiCommit, onAiCommit, captureCommittedValue]);
 
   const retryAiSession = useCallback(() => {
     if (!rewriteSession) {
@@ -3867,8 +4032,13 @@ export function RichEditor({
     }
 
     return runEditorPasteCommand(editor, {
-      onPasteHtml: (html, restoreTarget) =>
-        handlePastedHtml(editor.view, html, restoreTarget),
+      onPasteHtml: (html, restoreTarget) => {
+        if (recordKey && readRecordCutClipboard("", html)) {
+          if (!restoreTarget()) return false;
+          if (!editor.view.dom.dispatchEvent(recordCutPasteEvent(html))) return true;
+        }
+        return handlePastedHtml(editor.view, html, restoreTarget);
+      },
       onPasteImages: (files, restoreTarget) =>
         handlePastedImages(editor.view, files, restoreTarget),
       onFailure: () =>
@@ -3878,7 +4048,7 @@ export function RichEditor({
           detail: "剪贴板内容无法安全插入。",
         }),
     });
-  }, [editor, handlePastedHtml, handlePastedImages, pushToast]);
+  }, [editor, handlePastedHtml, handlePastedImages, pushToast, recordKey]);
 
   const handleEditorContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -4443,6 +4613,13 @@ export function RichEditor({
         ref={frameRef}
         className="rich-editor__frame"
         onKeyDownCapture={(event) => {
+          if (!effectiveReadOnly && !event.nativeEvent.isComposing
+            && event.key.toLowerCase() === "s" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleManualSave({ force: true }).catch(() => undefined);
+            return;
+          }
           if (
             !event.nativeEvent.isComposing &&
             event.key.toLowerCase() === "f" &&
@@ -5505,23 +5682,31 @@ function serializeEditor(editor: Editor): RichEditorValue {
   };
 }
 
-function serializeCommittedEditor(
+function projectCommittedEditorDocument(
   editor: Editor,
   sessions: readonly EditorSkillSessionState[],
-): RichEditorValue {
+) {
   const previews = sessions
     .flatMap((session) => session.modifyPreview && session.modifyPreview.showing !== "original"
       ? [{ session, preview: session.modifyPreview }]
       : [])
     .sort((left, right) => right.preview.currentFrom - left.preview.currentFrom);
   if (previews.length === 0) {
-    return serializeEditor(editor);
+    return editor.state.doc;
   }
   let projection = editor.state.tr;
   for (const { preview } of previews) {
     projection = projection.replaceRange(preview.currentFrom, preview.currentTo, preview.originalSlice);
   }
-  const projectedDoc = projection.doc;
+  return projection.doc;
+}
+
+function serializeCommittedEditor(
+  editor: Editor,
+  sessions: readonly EditorSkillSessionState[],
+): RichEditorValue {
+  const projectedDoc = projectCommittedEditorDocument(editor, sessions);
+  if (projectedDoc === editor.state.doc) return serializeEditor(editor);
   const container = document.createElement("div");
   container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(projectedDoc.content));
   return {
@@ -7955,16 +8140,12 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
     // Fall through to best-effort clipboard APIs.
   }
 
-  const payload = await buildRichTextClipboardPayloadAsync(
-    editor.state.selection.content(),
-    editor.view,
-  );
-
-  if (!payload) {
-    return;
-  }
-
+  const cutTarget = command === "cut" && editor.isEditable ? captureEditorPasteTarget(editor) : null;
   try {
+    const payload = await buildRichTextClipboardPayloadAsync(editor.state.selection.content(), editor.view);
+    if (!payload) return;
+    if (cutTarget) payload.html = prepareRecordCutHtml(editor.view, payload.html);
+    let written = false;
     if (
       typeof ClipboardItem !== "undefined" &&
       navigator.clipboard?.write
@@ -7975,16 +8156,19 @@ async function runEditorClipboardCommand(editor: Editor, command: "copy" | "cut"
           "text/html": new Blob([payload.html], { type: "text/html" }),
         }),
       ]);
+      written = true;
     } else if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(payload.text);
+      written = true;
+    }
+    if (written && !editor.isDestroyed && editor.isEditable && cutTarget?.restore()) {
+      const previous = editor.state.doc;
+      editor.view.dispatch(editor.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+      if (!previous.eq(editor.state.doc)) await registerRecordCutHtml(editor.view, payload.html);
     }
   } catch {
-    // Clipboard permissions vary by webview/browser; fail silently.
-  }
-
-  if (command === "cut" && editor.isEditable) {
-    editor.view.dispatch(editor.state.tr.deleteSelection().scrollIntoView());
-  }
+    // A failed clipboard write leaves the selected content in place.
+  } finally { cutTarget?.release(); }
 }
 
 function serializeRichTextClipboard(content: Slice, view: EditorView) {
@@ -8237,6 +8421,19 @@ function inferClipboardImageMimeType(image: HTMLImageElement) {
   return "image/png";
 }
 
+function upgradeClipboardImages(content: Slice, view: EditorView, payload: { html: string; text: string }) {
+  if (payload.html.includes("<img")) {
+    void buildRichTextClipboardPayloadAsync(content, view)
+      .then(async (upgradedPayload) => {
+        if (!upgradedPayload || (upgradedPayload.html === payload.html && upgradedPayload.text === payload.text)) return;
+        await writeRichTextClipboardPayloadAsync(upgradedPayload);
+      })
+      .catch(() => {
+        // Async clipboard upgrades are best-effort only.
+      });
+  }
+}
+
 function handleEditorClipboardEvent(
   view: EditorView,
   event: Event,
@@ -8255,22 +8452,7 @@ function handleEditorClipboardEvent(
   clipboardEvent.clipboardData.setData("text/plain", payload.text);
   clipboardEvent.clipboardData.setData("text/html", payload.html);
 
-  if (payload.html.includes("<img")) {
-    void buildRichTextClipboardPayloadAsync(content, view)
-      .then(async (upgradedPayload) => {
-        if (
-          !upgradedPayload ||
-          (upgradedPayload.html === payload.html && upgradedPayload.text === payload.text)
-        ) {
-          return;
-        }
-
-        await writeRichTextClipboardPayloadAsync(upgradedPayload);
-      })
-      .catch(() => {
-        // Async clipboard upgrades are best-effort only.
-      });
-  }
+  upgradeClipboardImages(content, view, payload);
 
   if (command === "cut" && !readOnly) {
     view.dispatch(view.state.tr.deleteSelection().scrollIntoView());

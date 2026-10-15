@@ -1,0 +1,39 @@
+# Apply after the official dsh-base + dsh-web-app bundle layers.
+# Keep the upstream conversation, history, workspace, settings and HTTP RPC + Remote WebSocket mux rows (model SSE).
+- id: ui-brand-official
+  disabled: true
+
+- id: ui-settings-account
+  disabled: true
+
+# Auto selects a native chooser on a local macOS/Windows host. Compose both
+# official browse halves instead, so selection happens inside the browser.
+- id: directory-picker
+  disabled: true
+
+# Independent browser mode does not offer native application launch controls.
+# Preserve the session controller, including history and live session control.
+- id: session-controller
+  config:
+    nativeOpen: false
+
+- id: open-in-app
+  disabled: true
+
+- id: ui-open-in-app
+  disabled: true
+
+# The Web bundle carries an Office dependency, but this assistant does not prepare or run its engine. The upstream
+# document preview remains mounted and supplies its unavailable guidance.
+- id: office-to-pdf
+  disabled: true
+
+- insert:
+    - id: dsh-desktop-client-ui
+      name: dsh-desktop-client-ui
+
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+
+    - id: ui-directory-picker-browse
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'

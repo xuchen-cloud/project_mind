@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/dataelement/dsh-desktop",
+  "commit": "115a0b474cc2c4794316171c640a8898398591fe",
+  "sourceDirectory": "packages/dsh-desktop-client-ui",
+  "runtimeVersion": "0.2.0-rc.2",
+  "licenseSource": "LICENSE",
+  "upstreamSha256": {
+    "index.js": "39947400685dd3eeb870bfa2b713c001404e259c82bfef420d8a5cc31faf3b78",
+    "client.js": "12fbe5932d3f7c1ce57ea5f6903b2cf8477e604204575298a73898daf3b27e52",
+    "package.json": "504c8db2c0c2eb4c974045e0ac946965c48598dc9475baeca32b64ab27c7b021",
+    "LICENSE": "434c81c99d0154715e5bdfca16fe5fcc4473346d34a329e19d2aea4ef73cb29e"
+  },
+  "modifications": {
+    "client.js": "Gate native actions on window.dshDesktop. The marked Project Mind embedded shell hides the original left/right sidebar and consumes native project/session/settings navigation using official controller services; standalone branding, menus and styles stay upstream.",
+    "package.json": "Pin DSH peer dependencies to 0.2.0-rc.2 and Cordis to 4.0.4."
+  }
+}

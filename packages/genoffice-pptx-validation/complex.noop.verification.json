@@ -1,0 +1,1271 @@
+{
+  "kind": "complex",
+  "mode": "noop",
+  "original": "/private/tmp/project-mind-genoffice-pptx-validation-20261013/complex.original.pptx",
+  "candidate": "complex.noop.pptx",
+  "status": "failed",
+  "elapsed_ms": 16.36,
+  "checks": [
+    {
+      "name": "original_checksum_unchanged",
+      "passed": true,
+      "expected": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+      "actual": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891"
+    },
+    {
+      "name": "slide_count",
+      "passed": true,
+      "expected": 3,
+      "actual": 3
+    },
+    {
+      "name": "slide_dimensions",
+      "passed": true,
+      "expected": [
+        12191695,
+        6858000
+      ],
+      "actual": [
+        12191695,
+        6858000
+      ]
+    },
+    {
+      "name": "relationship_integrity",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_1_texts_and_order",
+      "passed": true,
+      "expected": [
+        "第一页：项目概况",
+        "项目进展正常",
+        "固定页序标识：PAGE-1",
+        "未编辑图片说明：黄方块与白圆。"
+      ],
+      "actual": [
+        "第一页：项目概况",
+        "项目进展正常",
+        "固定页序标识：PAGE-1",
+        "未编辑图片说明：黄方块与白圆。"
+      ]
+    },
+    {
+      "name": "slide_1_tables",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_1_charts",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_1_notes",
+      "passed": true,
+      "expected": "演讲者备注第1页：此内容必须保留。",
+      "actual": "演讲者备注第1页：此内容必须保留。"
+    },
+    {
+      "name": "slide_1_images_bytes_and_position",
+      "passed": true,
+      "expected": [
+        {
+          "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+          "left": 731520,
+          "top": 2560320,
+          "width": 2926080,
+          "height": 1645920,
+          "crop": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "actual": [
+        {
+          "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+          "left": 731520,
+          "top": 2560320,
+          "width": 2926080,
+          "height": 1645920,
+          "crop": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "slide_1_layout_name",
+      "passed": true,
+      "expected": "Title Slide",
+      "actual": "Title Slide"
+    },
+    {
+      "name": "slide_1_layout_xml",
+      "passed": true,
+      "expected": "b63decb6b703f6e75b13dfcc7a2ee98a5086795eefd0fc6cf63537373b58bc28",
+      "actual": "b63decb6b703f6e75b13dfcc7a2ee98a5086795eefd0fc6cf63537373b58bc28"
+    },
+    {
+      "name": "slide_1_master_xml",
+      "passed": true,
+      "expected": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154",
+      "actual": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+    },
+    {
+      "name": "slide_1_relationship_types",
+      "passed": true,
+      "expected": [
+        "image",
+        "notesSlide",
+        "slideLayout"
+      ],
+      "actual": [
+        "image",
+        "notesSlide",
+        "slideLayout"
+      ]
+    },
+    {
+      "name": "slide_1_layout_relationship_target",
+      "passed": true,
+      "expected": [
+        "ppt/slideLayouts/slideLayout1.xml"
+      ],
+      "actual": [
+        "ppt/slideLayouts/slideLayout1.xml"
+      ]
+    },
+    {
+      "name": "slide_2_texts_and_order",
+      "passed": true,
+      "expected": [
+        "第二页：数据保留",
+        "未编辑中文：第二页原文。",
+        "固定页序标识：PAGE-2"
+      ],
+      "actual": [
+        "第二页：数据保留",
+        "未编辑中文：第二页原文。",
+        "固定页序标识：PAGE-2"
+      ]
+    },
+    {
+      "name": "slide_2_tables",
+      "passed": true,
+      "expected": [
+        [
+          [
+            "事项",
+            "数量",
+            "状态"
+          ],
+          [
+            "中文资料",
+            "12",
+            "保留"
+          ],
+          [
+            "图表验证",
+            "24",
+            "完成"
+          ]
+        ]
+      ],
+      "actual": [
+        [
+          [
+            "事项",
+            "数量",
+            "状态"
+          ],
+          [
+            "中文资料",
+            "12",
+            "保留"
+          ],
+          [
+            "图表验证",
+            "24",
+            "完成"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "slide_2_charts",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_2_notes",
+      "passed": true,
+      "expected": "演讲者备注第2页：此内容必须保留。",
+      "actual": "演讲者备注第2页：此内容必须保留。"
+    },
+    {
+      "name": "slide_2_images_bytes_and_position",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_2_layout_name",
+      "passed": true,
+      "expected": "Title Only",
+      "actual": "Title Only"
+    },
+    {
+      "name": "slide_2_layout_xml",
+      "passed": true,
+      "expected": "47ced226e6b044bd4d3bc66983f6a9cb0e45a29f04a3062cdc128164f995bf90",
+      "actual": "47ced226e6b044bd4d3bc66983f6a9cb0e45a29f04a3062cdc128164f995bf90"
+    },
+    {
+      "name": "slide_2_master_xml",
+      "passed": true,
+      "expected": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154",
+      "actual": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+    },
+    {
+      "name": "slide_2_relationship_types",
+      "passed": true,
+      "expected": [
+        "notesSlide",
+        "slideLayout"
+      ],
+      "actual": [
+        "notesSlide",
+        "slideLayout"
+      ]
+    },
+    {
+      "name": "slide_2_layout_relationship_target",
+      "passed": true,
+      "expected": [
+        "ppt/slideLayouts/slideLayout6.xml"
+      ],
+      "actual": [
+        "ppt/slideLayouts/slideLayout6.xml"
+      ]
+    },
+    {
+      "name": "slide_3_texts_and_order",
+      "passed": true,
+      "expected": [
+        "第三页：收尾记录",
+        "未编辑中文：第三页原文。",
+        "固定页序标识：PAGE-3"
+      ],
+      "actual": [
+        "第三页：收尾记录",
+        "未编辑中文：第三页原文。",
+        "固定页序标识：PAGE-3"
+      ]
+    },
+    {
+      "name": "slide_3_tables",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_3_charts",
+      "passed": true,
+      "expected": [
+        {
+          "type": "COLUMN_CLUSTERED (51)",
+          "python_chart_type_error": null,
+          "xml_plot_types": [
+            "barChart"
+          ],
+          "grouping": [
+            "clustered"
+          ],
+          "bar_direction": [
+            "col"
+          ],
+          "series": [
+            {
+              "name": "业务数量",
+              "values": [
+                12.0,
+                24.0,
+                18.0
+              ]
+            }
+          ],
+          "category_cache": [
+            "一月",
+            "二月",
+            "三月"
+          ],
+          "formula_refs": [
+            "Sheet1!$B$1",
+            "Sheet1!$A$2:$A$4",
+            "Sheet1!$B$2:$B$4"
+          ]
+        }
+      ],
+      "actual": [
+        {
+          "type": "COLUMN_CLUSTERED (51)",
+          "python_chart_type_error": null,
+          "xml_plot_types": [
+            "barChart"
+          ],
+          "grouping": [
+            "clustered"
+          ],
+          "bar_direction": [
+            "col"
+          ],
+          "series": [
+            {
+              "name": "业务数量",
+              "values": [
+                12.0,
+                24.0,
+                18.0
+              ]
+            }
+          ],
+          "category_cache": [
+            "一月",
+            "二月",
+            "三月"
+          ],
+          "formula_refs": [
+            "Sheet1!$B$1",
+            "Sheet1!$A$2:$A$4",
+            "Sheet1!$B$2:$B$4"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "slide_3_notes",
+      "passed": true,
+      "expected": "演讲者备注第3页：此内容必须保留。",
+      "actual": "演讲者备注第3页：此内容必须保留。"
+    },
+    {
+      "name": "slide_3_images_bytes_and_position",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "slide_3_layout_name",
+      "passed": true,
+      "expected": "Blank",
+      "actual": "Blank"
+    },
+    {
+      "name": "slide_3_layout_xml",
+      "passed": true,
+      "expected": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+      "actual": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106"
+    },
+    {
+      "name": "slide_3_master_xml",
+      "passed": true,
+      "expected": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154",
+      "actual": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+    },
+    {
+      "name": "slide_3_relationship_types",
+      "passed": true,
+      "expected": [
+        "chart",
+        "notesSlide",
+        "slideLayout"
+      ],
+      "actual": [
+        "chart",
+        "notesSlide",
+        "slideLayout"
+      ]
+    },
+    {
+      "name": "slide_3_layout_relationship_target",
+      "passed": true,
+      "expected": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ],
+      "actual": [
+        "ppt/slideLayouts/slideLayout7.xml"
+      ]
+    },
+    {
+      "name": "zip_notes_part_count",
+      "passed": true,
+      "expected": 3,
+      "actual": 3
+    },
+    {
+      "name": "zip_masters_part_count",
+      "passed": true,
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "name": "zip_layouts_part_count",
+      "passed": true,
+      "expected": 11,
+      "actual": 11
+    },
+    {
+      "name": "zip_charts_part_count",
+      "passed": true,
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "name": "zip_embeddings_part_count",
+      "passed": false,
+      "expected": 1,
+      "actual": 2
+    },
+    {
+      "name": "zip_notes_masters_part_count",
+      "passed": true,
+      "expected": 1,
+      "actual": 1
+    },
+    {
+      "name": "layout_master_relationships",
+      "passed": true,
+      "expected": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      },
+      "actual": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "embedded_chart_workbook_content",
+      "passed": true,
+      "expected": [
+        {
+          "Sheet1": [
+            [
+              null,
+              "业务数量"
+            ],
+            [
+              "一月",
+              12
+            ],
+            [
+              "二月",
+              24
+            ],
+            [
+              "三月",
+              18
+            ]
+          ]
+        }
+      ],
+      "actual": [
+        {
+          "Sheet1": [
+            [
+              null,
+              "业务数量"
+            ],
+            [
+              "一月",
+              12
+            ],
+            [
+              "二月",
+              24
+            ],
+            [
+              "三月",
+              18
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "original_inventory": {
+    "sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891",
+    "bytes": 45538,
+    "size": [
+      12191695,
+      6858000
+    ],
+    "slides": [
+      {
+        "texts": [
+          "第一页：项目概况",
+          "项目进展正常",
+          "固定页序标识：PAGE-1",
+          "未编辑图片说明：黄方块与白圆。"
+        ],
+        "pictures": [
+          {
+            "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+            "left": 731520,
+            "top": 2560320,
+            "width": 2926080,
+            "height": 1645920,
+            "crop": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "tables": [],
+        "charts": [],
+        "notes": "演讲者备注第1页：此内容必须保留。",
+        "layout_name": "Title Slide",
+        "layout_xml_sha256": "b63decb6b703f6e75b13dfcc7a2ee98a5086795eefd0fc6cf63537373b58bc28",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第二页：数据保留",
+          "未编辑中文：第二页原文。",
+          "固定页序标识：PAGE-2"
+        ],
+        "pictures": [],
+        "tables": [
+          [
+            [
+              "事项",
+              "数量",
+              "状态"
+            ],
+            [
+              "中文资料",
+              "12",
+              "保留"
+            ],
+            [
+              "图表验证",
+              "24",
+              "完成"
+            ]
+          ]
+        ],
+        "charts": [],
+        "notes": "演讲者备注第2页：此内容必须保留。",
+        "layout_name": "Title Only",
+        "layout_xml_sha256": "47ced226e6b044bd4d3bc66983f6a9cb0e45a29f04a3062cdc128164f995bf90",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第三页：收尾记录",
+          "未编辑中文：第三页原文。",
+          "固定页序标识：PAGE-3"
+        ],
+        "pictures": [],
+        "tables": [],
+        "charts": [
+          {
+            "type": "COLUMN_CLUSTERED (51)",
+            "python_chart_type_error": null,
+            "xml_plot_types": [
+              "barChart"
+            ],
+            "grouping": [
+              "clustered"
+            ],
+            "bar_direction": [
+              "col"
+            ],
+            "series": [
+              {
+                "name": "业务数量",
+                "values": [
+                  12.0,
+                  24.0,
+                  18.0
+                ]
+              }
+            ],
+            "category_cache": [
+              "一月",
+              "二月",
+              "三月"
+            ],
+            "formula_refs": [
+              "Sheet1!$B$1",
+              "Sheet1!$A$2:$A$4",
+              "Sheet1!$B$2:$B$4"
+            ]
+          }
+        ],
+        "notes": "演讲者备注第3页：此内容必须保留。",
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      }
+    ],
+    "zip": {
+      "notes": {
+        "ppt/notesSlides/notesSlide1.xml": "51081fb260075118fb17c5e5463925b87ebfdd80680526d112343bfedbfdd67a",
+        "ppt/notesSlides/notesSlide2.xml": "673b0cca1f5c618ff16da383c83bd66d6b81bcdf2ffd50ece8f564f452d70675",
+        "ppt/notesSlides/notesSlide3.xml": "64400ea1fa8487ab8b981706ea221675cbdfb9d34ae7cababa0a9ec00666cf9b"
+      },
+      "masters": {
+        "ppt/slideMasters/slideMaster1.xml": "44cc65956f47c1cf689803dcc7a1d9225c93d3fd90754a9f85e2bdcea27565bc"
+      },
+      "layouts": {
+        "ppt/slideLayouts/slideLayout11.xml": "355ac266c2671b83b662759afb0ee0ecfb7cdd6ec936019ecef60dbc95c14dac",
+        "ppt/slideLayouts/slideLayout1.xml": "25c93a2f186df69897585729d52fc610349e29dcf0b5b6080160df6490698709",
+        "ppt/slideLayouts/slideLayout2.xml": "5f800acd9e43b9b438c987bd71cf0966b27ad02ce8df14df80708510cbd700be",
+        "ppt/slideLayouts/slideLayout3.xml": "e83a85b737e1447051ac7fd9bbaaba4ac1b4210cfc630cdcfcdbc191fdb141d1",
+        "ppt/slideLayouts/slideLayout4.xml": "1ebe316051a0caaac0e972989a7591e66d1fbb4a0764fe984c31a4ab5b6554bf",
+        "ppt/slideLayouts/slideLayout5.xml": "3df8e6f498622ef440f5568a2c967c97f47c74b46b47a976304c7b7c9ab54c74",
+        "ppt/slideLayouts/slideLayout6.xml": "18e5b26c6f7c30dabe0b294faf38b2d2ef60ae778fbba9c3fe71f6560143a402",
+        "ppt/slideLayouts/slideLayout7.xml": "e4d86b009a8ca6ca9ecfadc97c68b7123b60544df09a7ea42864a4f5f74ce09c",
+        "ppt/slideLayouts/slideLayout8.xml": "950b9d16468d58fe59a8c0aeb17a03b7d18a9f5bbeac438e38a2248462a72cbe",
+        "ppt/slideLayouts/slideLayout9.xml": "4e9439878755a7faea188d684939b2fb7d26b7e09086e792789f9137ca353e15",
+        "ppt/slideLayouts/slideLayout10.xml": "1f8304c9d6c08ff9bd41b639d0c7e866b6515f61e6081c9ccc89ed8d0f8b4194"
+      },
+      "charts": {
+        "ppt/charts/chart1.xml": "17cb32ecf21bd52a7c69ed5275aae27a2601c6893aa4f020b36f587fcf3eec96"
+      },
+      "embeddings": {
+        "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx": "1a61de679331e77905611deaeaa37836db8fe84a2ff707578936a981e27db58b"
+      },
+      "notes_masters": {
+        "ppt/notesMasters/notesMaster1.xml": "970fd6eed1e6c9ce4ccf270a6ed26e381f852de88d22d5eff8cf75f383b85311"
+      },
+      "slide_order_ids": [
+        "256",
+        "257",
+        "258"
+      ],
+      "slide_relationships": {
+        "ppt/slides/slide1.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout1.xml",
+            "external": false
+          },
+          {
+            "type": "notesSlide",
+            "target": "ppt/notesSlides/notesSlide1.xml",
+            "external": false
+          },
+          {
+            "type": "image",
+            "target": "ppt/media/image1.png",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide2.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout6.xml",
+            "external": false
+          },
+          {
+            "type": "notesSlide",
+            "target": "ppt/notesSlides/notesSlide2.xml",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide3.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          },
+          {
+            "type": "notesSlide",
+            "target": "ppt/notesSlides/notesSlide3.xml",
+            "external": false
+          },
+          {
+            "type": "chart",
+            "target": "ppt/charts/chart1.xml",
+            "external": false
+          }
+        ]
+      },
+      "layout_relationships": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      },
+      "embedded_workbooks": {
+        "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx": {
+          "Sheet1": [
+            [
+              null,
+              "业务数量"
+            ],
+            [
+              "一月",
+              12
+            ],
+            [
+              "二月",
+              24
+            ],
+            [
+              "三月",
+              18
+            ]
+          ]
+        }
+      },
+      "dangling_relationships": []
+    }
+  },
+  "candidate_inventory": {
+    "sha256": "0ae3d4e42bc4e6de9a4d20759638a36a395a3964952550c6ca70b3a6f7386a11",
+    "bytes": 59685,
+    "size": [
+      12191695,
+      6858000
+    ],
+    "slides": [
+      {
+        "texts": [
+          "第一页：项目概况",
+          "项目进展正常",
+          "固定页序标识：PAGE-1",
+          "未编辑图片说明：黄方块与白圆。"
+        ],
+        "pictures": [
+          {
+            "sha256": "4e345e8790a8a3b9e0d57e5c60abb33f5890b757c05e3acd49d2bff63558c305",
+            "left": 731520,
+            "top": 2560320,
+            "width": 2926080,
+            "height": 1645920,
+            "crop": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "tables": [],
+        "charts": [],
+        "notes": "演讲者备注第1页：此内容必须保留。",
+        "layout_name": "Title Slide",
+        "layout_xml_sha256": "b63decb6b703f6e75b13dfcc7a2ee98a5086795eefd0fc6cf63537373b58bc28",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第二页：数据保留",
+          "未编辑中文：第二页原文。",
+          "固定页序标识：PAGE-2"
+        ],
+        "pictures": [],
+        "tables": [
+          [
+            [
+              "事项",
+              "数量",
+              "状态"
+            ],
+            [
+              "中文资料",
+              "12",
+              "保留"
+            ],
+            [
+              "图表验证",
+              "24",
+              "完成"
+            ]
+          ]
+        ],
+        "charts": [],
+        "notes": "演讲者备注第2页：此内容必须保留。",
+        "layout_name": "Title Only",
+        "layout_xml_sha256": "47ced226e6b044bd4d3bc66983f6a9cb0e45a29f04a3062cdc128164f995bf90",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      },
+      {
+        "texts": [
+          "第三页：收尾记录",
+          "未编辑中文：第三页原文。",
+          "固定页序标识：PAGE-3"
+        ],
+        "pictures": [],
+        "tables": [],
+        "charts": [
+          {
+            "type": "COLUMN_CLUSTERED (51)",
+            "python_chart_type_error": null,
+            "xml_plot_types": [
+              "barChart"
+            ],
+            "grouping": [
+              "clustered"
+            ],
+            "bar_direction": [
+              "col"
+            ],
+            "series": [
+              {
+                "name": "业务数量",
+                "values": [
+                  12.0,
+                  24.0,
+                  18.0
+                ]
+              }
+            ],
+            "category_cache": [
+              "一月",
+              "二月",
+              "三月"
+            ],
+            "formula_refs": [
+              "Sheet1!$B$1",
+              "Sheet1!$A$2:$A$4",
+              "Sheet1!$B$2:$B$4"
+            ]
+          }
+        ],
+        "notes": "演讲者备注第3页：此内容必须保留。",
+        "layout_name": "Blank",
+        "layout_xml_sha256": "e350fa920ed9c0cfcbf144910fd97a7a87985e274b348694011f8c5fd9595106",
+        "master_xml_sha256": "bd60237858a9e810121e44fc7b72cf251d92ae9a6669578191411dc85280a154"
+      }
+    ],
+    "zip": {
+      "notes": {
+        "ppt/notesSlides/notesSlide1.xml": "51081fb260075118fb17c5e5463925b87ebfdd80680526d112343bfedbfdd67a",
+        "ppt/notesSlides/notesSlide2.xml": "673b0cca1f5c618ff16da383c83bd66d6b81bcdf2ffd50ece8f564f452d70675",
+        "ppt/notesSlides/notesSlide3.xml": "64400ea1fa8487ab8b981706ea221675cbdfb9d34ae7cababa0a9ec00666cf9b"
+      },
+      "masters": {
+        "ppt/slideMasters/slideMaster1.xml": "44cc65956f47c1cf689803dcc7a1d9225c93d3fd90754a9f85e2bdcea27565bc"
+      },
+      "layouts": {
+        "ppt/slideLayouts/slideLayout11.xml": "355ac266c2671b83b662759afb0ee0ecfb7cdd6ec936019ecef60dbc95c14dac",
+        "ppt/slideLayouts/slideLayout1.xml": "25c93a2f186df69897585729d52fc610349e29dcf0b5b6080160df6490698709",
+        "ppt/slideLayouts/slideLayout2.xml": "5f800acd9e43b9b438c987bd71cf0966b27ad02ce8df14df80708510cbd700be",
+        "ppt/slideLayouts/slideLayout3.xml": "e83a85b737e1447051ac7fd9bbaaba4ac1b4210cfc630cdcfcdbc191fdb141d1",
+        "ppt/slideLayouts/slideLayout4.xml": "1ebe316051a0caaac0e972989a7591e66d1fbb4a0764fe984c31a4ab5b6554bf",
+        "ppt/slideLayouts/slideLayout5.xml": "3df8e6f498622ef440f5568a2c967c97f47c74b46b47a976304c7b7c9ab54c74",
+        "ppt/slideLayouts/slideLayout6.xml": "18e5b26c6f7c30dabe0b294faf38b2d2ef60ae778fbba9c3fe71f6560143a402",
+        "ppt/slideLayouts/slideLayout7.xml": "e4d86b009a8ca6ca9ecfadc97c68b7123b60544df09a7ea42864a4f5f74ce09c",
+        "ppt/slideLayouts/slideLayout8.xml": "950b9d16468d58fe59a8c0aeb17a03b7d18a9f5bbeac438e38a2248462a72cbe",
+        "ppt/slideLayouts/slideLayout9.xml": "4e9439878755a7faea188d684939b2fb7d26b7e09086e792789f9137ca353e15",
+        "ppt/slideLayouts/slideLayout10.xml": "1f8304c9d6c08ff9bd41b639d0c7e866b6515f61e6081c9ccc89ed8d0f8b4194"
+      },
+      "charts": {
+        "ppt/charts/chart1.xml": "17cb32ecf21bd52a7c69ed5275aae27a2601c6893aa4f020b36f587fcf3eec96"
+      },
+      "embeddings": {
+        "ppt/embeddings/": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx": "1a61de679331e77905611deaeaa37836db8fe84a2ff707578936a981e27db58b"
+      },
+      "notes_masters": {
+        "ppt/notesMasters/notesMaster1.xml": "970fd6eed1e6c9ce4ccf270a6ed26e381f852de88d22d5eff8cf75f383b85311"
+      },
+      "slide_order_ids": [
+        "256",
+        "257",
+        "258"
+      ],
+      "slide_relationships": {
+        "ppt/slides/slide1.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout1.xml",
+            "external": false
+          },
+          {
+            "type": "notesSlide",
+            "target": "ppt/notesSlides/notesSlide1.xml",
+            "external": false
+          },
+          {
+            "type": "image",
+            "target": "ppt/media/image1.png",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide2.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout6.xml",
+            "external": false
+          },
+          {
+            "type": "notesSlide",
+            "target": "ppt/notesSlides/notesSlide2.xml",
+            "external": false
+          }
+        ],
+        "ppt/slides/slide3.xml": [
+          {
+            "type": "slideLayout",
+            "target": "ppt/slideLayouts/slideLayout7.xml",
+            "external": false
+          },
+          {
+            "type": "notesSlide",
+            "target": "ppt/notesSlides/notesSlide3.xml",
+            "external": false
+          },
+          {
+            "type": "chart",
+            "target": "ppt/charts/chart1.xml",
+            "external": false
+          }
+        ]
+      },
+      "layout_relationships": {
+        "ppt/slideLayouts/slideLayout11.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout1.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout2.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout3.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout4.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout5.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout6.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout7.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout8.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout9.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ],
+        "ppt/slideLayouts/slideLayout10.xml": [
+          {
+            "type": "slideMaster",
+            "target": "ppt/slideMasters/slideMaster1.xml",
+            "external": false
+          }
+        ]
+      },
+      "embedded_workbooks": {
+        "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx": {
+          "Sheet1": [
+            [
+              null,
+              "业务数量"
+            ],
+            [
+              "一月",
+              12
+            ],
+            [
+              "二月",
+              24
+            ],
+            [
+              "三月",
+              18
+            ]
+          ]
+        }
+      },
+      "dangling_relationships": []
+    }
+  }
+}

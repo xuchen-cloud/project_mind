@@ -1,6 +1,6 @@
 # ProjectMind 文档索引
 
-更新时间：2026-09-28
+更新时间：2026-10-14
 
 本目录只保留三类文档：当前基线、仍有效的决策、历史归档。正在推进但尚未完成的事项统一记录在[未完成事项](remaining-work.md)，不再分散维护多个执行计划。
 
@@ -23,14 +23,29 @@
 ## 当前待办
 
 - [未完成事项](remaining-work.md)：唯一的仓库内待办总表；GitHub Issues 是正式跟踪器。
+- [2026-10-14 main 差异检视](technical/main-branch-review-20261014.md)：本轮清理、确定发现、实际覆盖与验证复用；子 agent 未返回结论，不计作通过。
+
+## Project 内容与助手
+
+- [内容 Tab 规格](requirements/project-content-tabs.md)与[实施记录](requirements/project-content-tabs-execution.md)：Record / File / Session、双栏、文件身份与固定版本来源、多项目后台运行；平台验收限制保留在记录中。
+- [内容栏优化](requirements/tab-strip-refinement-20261013.md)：阅读工具栏、Tab 辨识与会话模型入口；临时放大阅读栏仍见未完成事项。
+- [DSH 组件接入](requirements/dsh-ui-component-integration.md)与[迁移记录](requirements/dsh-assistant-migration.md)：主应用 Project 聊天的现行入口。
+- [原生助手框架](../src-tauri/src/agent/README.md)：Pi、后台维护与 CLI/MCP；这些能力不能直接视为已接入 DSH 聊天。
+
+## 文件能力选型参考
+
+- [GenOffice、Univer SDK 与 DSH 插件集成调研](technical/office-integration-candidate-research-20261013.md)：核对应用内 Office 预览、基础编辑、原格式回存与主项目接缝；源码评估不代表格式能力已交付。
+- [Univer / GenOffice 实际验证](technical/univer-office-validation-20261013.md)：三格式样本往返、Chrome/WebKit 编辑与保存限制；GenOffice 无水印 PPT 探针与同样本 Word/Excel 对比。
+- [Markdown 选型与验证](technical/markdown-integration-candidate-research-20261013.md)：复用 GFM 预览、源码编辑方案、源字节和资源保留边界。
+- [PDF 选型与验证](technical/pdf-integration-candidate-research-20261013.md)：预览、批注/表单、原文修改分别评价；GenOffice PDFium 候选与实际限制。
 
 ## AI 能力实施规格与参考
 
 - [LLM Wiki 渐进式披露专项调研](technical/llm-wiki-progressive-disclosure-research.md)：原始模式与qmd源码核对，区分设计借鉴与实际集成。
 
-- [AI 工作上下文主规格](requirements/ai-work-context-spec.md)：从用户目标到知识维护、渐进读取、成果操作与接入；Overview独立于QuickNote，尚未实现。
+- [AI 工作上下文主规格](requirements/ai-work-context-spec.md)：从用户目标到知识维护、渐进读取、成果操作与接入；Overview独立于QuickNote，实施中，完整工作流尚未交付。
 - [AI 工程契约](requirements/ai-work-context-engineering-spec.md)：按模块查数据、接口、版本与故障处理。
-- [AI 交付计划与验收](requirements/ai-work-context-delivery.md)：对应 [父Issue #97](https://github.com/xuchen-cloud/project_mind/issues/97) 的19个工作包和A01～A72验收，执行状态以Issues为准。
+- [AI 交付计划与验收](requirements/ai-work-context-delivery.md)：19个Issue、A01～A72验收；包含2026-10-08代码审查快照、交付阻塞和R01～R16执行拆分，实际关闭状态以Issues为准。
 
 - [AI 能力方向讨论稿](technical/ai-capability-direction.md)：早期讨论，实施范围与默认行为以开发规格为准。
 - [AI 能力参考调研](technical/ai-capability-reference-research.md)：为讨论稿提供参考，不代表产品承诺。

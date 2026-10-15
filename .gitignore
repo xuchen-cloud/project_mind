@@ -1,4 +1,7 @@
 node_modules
+packages/agent-host/runtime
+src-tauri/resources/agent-host/
+src-tauri/resources/.record-runtime-*/
 dist
 target
 src-tauri/target
@@ -8,3 +11,17 @@ src-tauri/gen
 project_mind_app_window*.png
 project_mind_overview.png
 .playwright-cli/
+
+# Generated isolated source extraction bundles
+packages/agent-host/source-dist/
+src-tauri/resources/source-extractor/
+src-tauri/resources/dsh-assistant/
+src-tauri/resources/.dsh-runtime-*/
+src-tauri/binaries/
+src-tauri/resources/.source-extractor-*/
+
+# Generated Office utility distributions
+packages/agent-host/office-dist/
+src-tauri/resources/office-editor/
+src-tauri/resources/.office-editor-*/
+src-tauri/target-office/

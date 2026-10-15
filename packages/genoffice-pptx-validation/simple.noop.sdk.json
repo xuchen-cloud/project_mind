@@ -1,0 +1,612 @@
+{
+  "before": {
+    "size": {
+      "cx": 12191695,
+      "cy": 6858000
+    },
+    "slides": [
+      {
+        "path": "ppt/slides/slide1.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_0",
+            "type": "text",
+            "text": "第一页：项目概况",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_1",
+            "type": "text",
+            "text": "项目进展正常",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_2",
+            "type": "text",
+            "text": "固定页序标识：PAGE-1",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "pic_3",
+            "type": "picture",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2560320,
+                "cx": 2926080,
+                "cy": 1645920
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "mediaRef": "ppt/media/image1.png"
+          },
+          {
+            "id": "sp_4",
+            "type": "text",
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "transform": {
+              "offset": {
+                "x": 4114800,
+                "y": 2926080,
+                "cx": 6400800,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide2.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_d",
+            "type": "text",
+            "text": "第二页：数据保留",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_e",
+            "type": "text",
+            "text": "未编辑中文：第二页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_f",
+            "type": "text",
+            "text": "固定页序标识：PAGE-2",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide3.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_o",
+            "type": "text",
+            "text": "第三页：收尾记录",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_p",
+            "type": "text",
+            "text": "未编辑中文：第三页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_q",
+            "type": "text",
+            "text": "固定页序标识：PAGE-3",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "size": {
+      "cx": 12191695,
+      "cy": 6858000
+    },
+    "slides": [
+      {
+        "path": "ppt/slides/slide1.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_0",
+            "type": "text",
+            "text": "第一页：项目概况",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_1",
+            "type": "text",
+            "text": "项目进展正常",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_2",
+            "type": "text",
+            "text": "固定页序标识：PAGE-1",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "pic_3",
+            "type": "picture",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2560320,
+                "cx": 2926080,
+                "cy": 1645920
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "mediaRef": "ppt/media/image1.png"
+          },
+          {
+            "id": "sp_4",
+            "type": "text",
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "transform": {
+              "offset": {
+                "x": 4114800,
+                "y": 2926080,
+                "cx": 6400800,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide2.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_d",
+            "type": "text",
+            "text": "第二页：数据保留",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_e",
+            "type": "text",
+            "text": "未编辑中文：第二页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_f",
+            "type": "text",
+            "text": "固定页序标识：PAGE-2",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide3.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_o",
+            "type": "text",
+            "text": "第三页：收尾记录",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_p",
+            "type": "text",
+            "text": "未编辑中文：第三页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_q",
+            "type": "text",
+            "text": "固定页序标识：PAGE-3",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "size": {
+      "cx": 12191695,
+      "cy": 6858000
+    },
+    "slides": [
+      {
+        "path": "ppt/slides/slide1.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_z",
+            "type": "text",
+            "text": "第一页：项目概况",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_10",
+            "type": "text",
+            "text": "项目进展正常",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_11",
+            "type": "text",
+            "text": "固定页序标识：PAGE-1",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "pic_12",
+            "type": "picture",
+            "text": "",
+            "transform": {
+              "offset": {
+                "x": 731520,
+                "y": 2560320,
+                "cx": 2926080,
+                "cy": 1645920
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            },
+            "mediaRef": "ppt/media/image1.png"
+          },
+          {
+            "id": "sp_13",
+            "type": "text",
+            "text": "未编辑图片说明：黄方块与白圆。",
+            "transform": {
+              "offset": {
+                "x": 4114800,
+                "y": 2926080,
+                "cx": 6400800,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide2.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_1c",
+            "type": "text",
+            "text": "第二页：数据保留",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_1d",
+            "type": "text",
+            "text": "未编辑中文：第二页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_1e",
+            "type": "text",
+            "text": "固定页序标识：PAGE-2",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ppt/slides/slide3.xml",
+        "notes": "",
+        "elements": [
+          {
+            "id": "sp_1n",
+            "type": "text",
+            "text": "第三页：收尾记录",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 365760,
+                "cx": 10058400,
+                "cy": 914400
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_1o",
+            "type": "text",
+            "text": "未编辑中文：第三页原文。",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 1463040,
+                "cx": 10058400,
+                "cy": 548640
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          },
+          {
+            "id": "sp_1p",
+            "type": "text",
+            "text": "固定页序标识：PAGE-3",
+            "transform": {
+              "offset": {
+                "x": 548640,
+                "y": 5943600,
+                "cx": 8229600,
+                "cy": 365760
+              },
+              "rot": 0,
+              "flipH": false,
+              "flipV": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "semanticMatch": false
+}

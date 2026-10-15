@@ -1,0 +1,1276 @@
+{
+  "status": "passed",
+  "input": {
+    "file": "complex.original.xlsx",
+    "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2"
+  },
+  "output": {
+    "file": "complex.browser-edited.xlsx",
+    "sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5"
+  },
+  "assertions": 94,
+  "passed_assertions": 94,
+  "failed_assertions": 0,
+  "checks": [
+    {
+      "name": "sheet_order",
+      "category": "content",
+      "passed": true,
+      "expected": [
+        "明细",
+        "说明",
+        "隐藏数据"
+      ],
+      "actual": [
+        "明细",
+        "说明",
+        "隐藏数据"
+      ]
+    },
+    {
+      "name": "明细!A1.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "中文销售统计",
+      "actual": "中文销售统计"
+    },
+    {
+      "name": "明细!A2.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "品名",
+      "actual": "品名"
+    },
+    {
+      "name": "明细!B2.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "金额",
+      "actual": "金额"
+    },
+    {
+      "name": "明细!C2.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "状态",
+      "actual": "状态"
+    },
+    {
+      "name": "明细!A3.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "香蕉（SDK编辑）",
+      "actual": "香蕉（SDK编辑）"
+    },
+    {
+      "name": "明细!B3.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": 15,
+      "actual": 15
+    },
+    {
+      "name": "明细!C3.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "已完成",
+      "actual": "已完成"
+    },
+    {
+      "name": "明细!A4.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "梨子",
+      "actual": "梨子"
+    },
+    {
+      "name": "明细!B4.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": 20,
+      "actual": 20
+    },
+    {
+      "name": "明细!C4.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "待处理",
+      "actual": "待处理"
+    },
+    {
+      "name": "明细!A5.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "合计",
+      "actual": "合计"
+    },
+    {
+      "name": "明细!B5.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "=SUM(B3:B4)+5",
+      "actual": "=SUM(B3:B4)+5"
+    },
+    {
+      "name": "明细!A7.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "未编辑公式（依赖B3）",
+      "actual": "未编辑公式（依赖B3）"
+    },
+    {
+      "name": "明细!B7.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "=B3*2",
+      "actual": "=B3*2"
+    },
+    {
+      "name": "明细!A8.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "保留百分比",
+      "actual": "保留百分比"
+    },
+    {
+      "name": "明细!B8.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": 0.125,
+      "actual": 0.125
+    },
+    {
+      "name": "明细!A9.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "保留中文及换行",
+      "actual": "保留中文及换行"
+    },
+    {
+      "name": "明细!B9.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "原样保留\n第二行",
+      "actual": "原样保留\n第二行"
+    },
+    {
+      "name": "明细.unexpected_nonempty_cells",
+      "category": "content",
+      "passed": true,
+      "expected": {},
+      "actual": {}
+    },
+    {
+      "name": "明细!B5.formula_cache",
+      "category": "calculation",
+      "passed": true,
+      "expected": 40,
+      "actual": 40
+    },
+    {
+      "name": "明细!B7.formula_cache",
+      "category": "calculation",
+      "passed": true,
+      "expected": 30,
+      "actual": 30
+    },
+    {
+      "name": "明细.state",
+      "category": "content",
+      "passed": true,
+      "expected": "visible",
+      "actual": "visible"
+    },
+    {
+      "name": "明细.merges",
+      "category": "content",
+      "passed": true,
+      "expected": [
+        "A1:C1"
+      ],
+      "actual": [
+        "A1:C1"
+      ]
+    },
+    {
+      "name": "明细.freeze",
+      "category": "preservation",
+      "passed": true,
+      "expected": "B3",
+      "actual": "B3"
+    },
+    {
+      "name": "明细.dimensions",
+      "category": "preservation",
+      "passed": true,
+      "expected": {
+        "rows": {
+          "1": {
+            "height": 26.0,
+            "hidden": false
+          },
+          "9": {
+            "height": 32.0,
+            "hidden": false
+          }
+        },
+        "cols": {
+          "A": {
+            "width": 28.0,
+            "hidden": false
+          },
+          "B": {
+            "width": 22.0,
+            "hidden": false
+          },
+          "C": {
+            "width": 16.0,
+            "hidden": false
+          }
+        }
+      },
+      "actual": {
+        "rows": {
+          "1": {
+            "height": 26.0,
+            "hidden": false
+          },
+          "9": {
+            "height": 32.0,
+            "hidden": false
+          }
+        },
+        "cols": {
+          "A": {
+            "width": 28.0,
+            "hidden": false
+          },
+          "B": {
+            "width": 22.0,
+            "hidden": false
+          },
+          "C": {
+            "width": 16.0,
+            "hidden": false
+          }
+        }
+      }
+    },
+    {
+      "name": "明细.conditional_formatting",
+      "category": "preservation",
+      "passed": true,
+      "expected": [
+        {
+          "range": "B3:B4",
+          "rules": [
+            "<cfRule dxfId=\"0\" operator=\"greaterThan\" priority=\"1\" type=\"cellIs\"><formula>12</formula></cfRule>"
+          ]
+        }
+      ],
+      "actual": [
+        {
+          "range": "B3:B4",
+          "rules": [
+            "<cfRule dxfId=\"0\" operator=\"greaterThan\" priority=\"1\" type=\"cellIs\"><formula>12</formula></cfRule>"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "明细.cf_differential_styles",
+      "category": "preservation",
+      "passed": true,
+      "expected": [
+        "<dxf><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFFFC7CE\"></fgColor></patternFill></fill></dxf>"
+      ],
+      "actual": [
+        "<dxf><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFFFC7CE\"></fgColor></patternFill></fill></dxf>"
+      ]
+    },
+    {
+      "name": "明细.data_validation",
+      "category": "preservation",
+      "passed": true,
+      "expected": "<dataValidations count=\"1\"><dataValidation allowBlank=\"0\" error=\"请选择列表中的状态\" errorTitle=\"无效状态\" showDropDown=\"0\" showErrorMessage=\"1\" showInputMessage=\"0\" sqref=\"C3:C4\" type=\"list\"><formula1>\"已完成,待处理\"</formula1></dataValidation></dataValidations>",
+      "actual": "<dataValidations count=\"1\"><dataValidation allowBlank=\"0\" error=\"请选择列表中的状态\" errorTitle=\"无效状态\" showDropDown=\"0\" showErrorMessage=\"1\" showInputMessage=\"0\" sqref=\"C3:C4\" type=\"list\"><formula1>\"已完成,待处理\"</formula1></dataValidation></dataValidations>"
+    },
+    {
+      "name": "明细.charts",
+      "category": "content",
+      "passed": true,
+      "expected": [
+        "<barChart><barDir val=\"col\"></barDir><grouping val=\"clustered\"></grouping><ser><idx val=\"0\"></idx><order val=\"0\"></order><tx><strRef><f>'明细'!B2</f></strRef></tx><spPr><a:ln xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:prstDash val=\"solid\"></a:prstDash></a:ln></spPr><cat><numRef><f>'明细'!$A$3:$A$4</f></numRef></cat><val><numRef><f>'明细'!$B$3:$B$4</f></numRef></val></ser><gapWidth val=\"150\"></gapWidth><axId val=\"10\"></axId><axId val=\"100\"></axId></barChart>"
+      ],
+      "actual": [
+        "<barChart><barDir val=\"col\"></barDir><grouping val=\"clustered\"></grouping><ser><idx val=\"0\"></idx><order val=\"0\"></order><tx><strRef><f>'明细'!B2</f></strRef></tx><spPr><a:ln xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:prstDash val=\"solid\"></a:prstDash></a:ln></spPr><cat><numRef><f>'明细'!$A$3:$A$4</f></numRef></cat><val><numRef><f>'明细'!$B$3:$B$4</f></numRef></val></ser><gapWidth val=\"150\"></gapWidth><axId val=\"10\"></axId><axId val=\"100\"></axId></barChart>"
+      ]
+    },
+    {
+      "name": "明细.images",
+      "category": "content",
+      "passed": true,
+      "expected": [
+        {
+          "sha256": "476fd7c7fd065b4740ce8d5e13793112e3a40cd6cfd9c8183e707796cb2adaea",
+          "width": 120,
+          "height": 60,
+          "anchor": {
+            "type": "OneCellAnchor",
+            "from": "<marker><col>4</col><colOff>0</colOff><row>17</row><rowOff>0</rowOff></marker>",
+            "to": null,
+            "ext": "<ext cx=\"1143000\" cy=\"571500\"></ext>"
+          }
+        }
+      ],
+      "actual": [
+        {
+          "sha256": "476fd7c7fd065b4740ce8d5e13793112e3a40cd6cfd9c8183e707796cb2adaea",
+          "width": 120,
+          "height": 60,
+          "anchor": {
+            "type": "OneCellAnchor",
+            "from": "<marker><col>4</col><colOff>0</colOff><row>17</row><rowOff>0</rowOff></marker>",
+            "to": null,
+            "ext": "<ext cx=\"1143000\" cy=\"571500\"></ext>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "明细!A1.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FF17365D\"></color><sz val=\"16\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFE2EFDA\"></fgColor></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FF17365D\"></color><sz val=\"16\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFE2EFDA\"></fgColor></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!A2.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FFFFFFFF\"></color><sz val=\"11\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF305496\"></fgColor></patternFill></fill>",
+        "border": "<border><bottom style=\"thin\"><color rgb=\"FF000000\"></color></bottom></border>",
+        "alignment": "<alignment horizontal=\"center\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FFFFFFFF\"></color><sz val=\"11\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF305496\"></fgColor></patternFill></fill>",
+        "border": "<border><bottom style=\"thin\"><color rgb=\"FF000000\"></color></bottom></border>",
+        "alignment": "<alignment horizontal=\"center\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B2.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FFFFFFFF\"></color><sz val=\"11\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF305496\"></fgColor></patternFill></fill>",
+        "border": "<border><bottom style=\"thin\"><color rgb=\"FF000000\"></color></bottom></border>",
+        "alignment": "<alignment horizontal=\"center\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FFFFFFFF\"></color><sz val=\"11\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF305496\"></fgColor></patternFill></fill>",
+        "border": "<border><bottom style=\"thin\"><color rgb=\"FF000000\"></color></bottom></border>",
+        "alignment": "<alignment horizontal=\"center\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!C2.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FFFFFFFF\"></color><sz val=\"11\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF305496\"></fgColor></patternFill></fill>",
+        "border": "<border><bottom style=\"thin\"><color rgb=\"FF000000\"></color></bottom></border>",
+        "alignment": "<alignment horizontal=\"center\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Arial\"></name><b val=\"1\"></b><color rgb=\"FFFFFFFF\"></color><sz val=\"11\"></sz></font>",
+        "fill": "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF305496\"></fgColor></patternFill></fill>",
+        "border": "<border><bottom style=\"thin\"><color rgb=\"FF000000\"></color></bottom></border>",
+        "alignment": "<alignment horizontal=\"center\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!A3.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B3.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      }
+    },
+    {
+      "name": "明细!C3.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!A4.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B4.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      }
+    },
+    {
+      "name": "明细!C4.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!A5.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B5.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      }
+    },
+    {
+      "name": "明细!A7.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B7.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "#,##0.00"
+      }
+    },
+    {
+      "name": "明细!A8.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B8.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "0.0%"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "0.0%"
+      }
+    },
+    {
+      "name": "明细!A9.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "明细!B9.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment vertical=\"center\" wrapText=\"1\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment vertical=\"center\" wrapText=\"1\"></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "说明!A1.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "未编辑工作表：请保留中文",
+      "actual": "未编辑工作表：请保留中文"
+    },
+    {
+      "name": "说明!A2.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "固定值",
+      "actual": "固定值"
+    },
+    {
+      "name": "说明!B2.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": 123.456,
+      "actual": 123.456
+    },
+    {
+      "name": "说明!A3.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "跨表合计",
+      "actual": "跨表合计"
+    },
+    {
+      "name": "说明!B3.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "='明细'!B5",
+      "actual": "='明细'!B5"
+    },
+    {
+      "name": "说明.unexpected_nonempty_cells",
+      "category": "content",
+      "passed": true,
+      "expected": {},
+      "actual": {}
+    },
+    {
+      "name": "说明!B3.formula_cache",
+      "category": "calculation",
+      "passed": true,
+      "expected": 40,
+      "actual": 40
+    },
+    {
+      "name": "说明.state",
+      "category": "content",
+      "passed": true,
+      "expected": "visible",
+      "actual": "visible"
+    },
+    {
+      "name": "说明.merges",
+      "category": "content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "说明.freeze",
+      "category": "preservation",
+      "passed": true,
+      "expected": null,
+      "actual": null
+    },
+    {
+      "name": "说明.dimensions",
+      "category": "preservation",
+      "passed": true,
+      "expected": {
+        "rows": {},
+        "cols": {}
+      },
+      "actual": {
+        "rows": {},
+        "cols": {}
+      }
+    },
+    {
+      "name": "说明.conditional_formatting",
+      "category": "preservation",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "说明.cf_differential_styles",
+      "category": "preservation",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "说明.data_validation",
+      "category": "preservation",
+      "passed": true,
+      "expected": "<dataValidations count=\"0\"></dataValidations>",
+      "actual": "<dataValidations count=\"0\"></dataValidations>"
+    },
+    {
+      "name": "说明.charts",
+      "category": "content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "说明.images",
+      "category": "content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "说明!A1.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "说明!A2.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "说明!B2.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "0.000"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "0.000"
+      }
+    },
+    {
+      "name": "说明!A3.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "说明!B3.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "隐藏数据!A1.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": "未触碰隐藏资料",
+      "actual": "未触碰隐藏资料"
+    },
+    {
+      "name": "隐藏数据!B1.value_or_formula",
+      "category": "content",
+      "passed": true,
+      "expected": 99,
+      "actual": 99
+    },
+    {
+      "name": "隐藏数据.unexpected_nonempty_cells",
+      "category": "content",
+      "passed": true,
+      "expected": {},
+      "actual": {}
+    },
+    {
+      "name": "隐藏数据.state",
+      "category": "content",
+      "passed": true,
+      "expected": "hidden",
+      "actual": "hidden"
+    },
+    {
+      "name": "隐藏数据.merges",
+      "category": "content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "隐藏数据.freeze",
+      "category": "preservation",
+      "passed": true,
+      "expected": null,
+      "actual": null
+    },
+    {
+      "name": "隐藏数据.dimensions",
+      "category": "preservation",
+      "passed": true,
+      "expected": {
+        "rows": {},
+        "cols": {}
+      },
+      "actual": {
+        "rows": {},
+        "cols": {}
+      }
+    },
+    {
+      "name": "隐藏数据.conditional_formatting",
+      "category": "preservation",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "隐藏数据.cf_differential_styles",
+      "category": "preservation",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "隐藏数据.data_validation",
+      "category": "preservation",
+      "passed": true,
+      "expected": "<dataValidations count=\"0\"></dataValidations>",
+      "actual": "<dataValidations count=\"0\"></dataValidations>"
+    },
+    {
+      "name": "隐藏数据.charts",
+      "category": "content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "隐藏数据.images",
+      "category": "content",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "隐藏数据!A1.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "隐藏数据!B1.style",
+      "category": "style",
+      "passed": true,
+      "expected": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      },
+      "actual": {
+        "font": "<font><name val=\"Calibri\"></name><family val=\"2\"></family><color theme=\"1\"></color><sz val=\"11\"></sz><scheme val=\"minor\"></scheme></font>",
+        "fill": "<fill><patternFill></patternFill></fill>",
+        "border": "<border><left></left><right></right><top></top><bottom></bottom><diagonal></diagonal></border>",
+        "alignment": "<alignment></alignment>",
+        "protection": "<protection hidden=\"0\" locked=\"1\"></protection>",
+        "number_format": "General"
+      }
+    },
+    {
+      "name": "creator_company_application",
+      "passed": true,
+      "expected": {
+        "docProps/core.xml": {
+          "creator": [
+            "openpyxl"
+          ],
+          "Company": [],
+          "Application": []
+        },
+        "docProps/app.xml": {
+          "creator": [],
+          "Company": [],
+          "Application": [
+            "Microsoft Excel Compatible / Openpyxl 3.1.5"
+          ]
+        }
+      },
+      "actual": {
+        "docProps/core.xml": {
+          "creator": [
+            "openpyxl"
+          ],
+          "Company": [],
+          "Application": []
+        },
+        "docProps/app.xml": {
+          "creator": [],
+          "Company": [],
+          "Application": [
+            "Microsoft Excel Compatible / Openpyxl 3.1.5"
+          ]
+        }
+      },
+      "category": "metadata"
+    },
+    {
+      "name": "untouched_compressed_payloads",
+      "passed": true,
+      "expected": [],
+      "actual": [],
+      "category": "preservation"
+    },
+    {
+      "name": "worksheet_xml_outside_allowed_edits",
+      "passed": true,
+      "expected": [],
+      "actual": [],
+      "category": "preservation"
+    },
+    {
+      "name": "no_extra_or_missing_zip_parts",
+      "passed": true,
+      "expected": {
+        "added": [],
+        "deleted": []
+      },
+      "actual": {
+        "added": [],
+        "deleted": []
+      },
+      "category": "preservation"
+    },
+    {
+      "name": "sdk.明细.2:0.value",
+      "passed": true,
+      "expected": "香蕉（SDK编辑）",
+      "actual": "香蕉（SDK编辑）",
+      "category": "sdk"
+    },
+    {
+      "name": "sdk.明细.2:1.value",
+      "passed": true,
+      "expected": 15,
+      "actual": 15,
+      "category": "sdk"
+    },
+    {
+      "name": "sdk.明细.4:1.formula",
+      "passed": true,
+      "expected": "=SUM(B3:B4)+5",
+      "actual": "=SUM(B3:B4)+5",
+      "category": "sdk"
+    },
+    {
+      "name": "sdk.明细.4:1.value",
+      "passed": true,
+      "expected": 40,
+      "actual": 40,
+      "category": "sdk"
+    },
+    {
+      "name": "sdk.明细.6:1.value",
+      "passed": true,
+      "expected": 30,
+      "actual": 30,
+      "category": "sdk"
+    },
+    {
+      "name": "sdk.说明.2:1.value",
+      "passed": true,
+      "expected": 40,
+      "actual": 40,
+      "category": "sdk"
+    }
+  ],
+  "failures": [],
+  "zip_parts": {
+    "deleted": [],
+    "added": [],
+    "changed": [
+      "xl/worksheets/sheet1.xml",
+      "xl/worksheets/sheet2.xml"
+    ]
+  },
+  "raw_formula_caches": {
+    "original": {
+      "xl/worksheets/sheet1.xml": {
+        "B5": {
+          "formula": "SUM(B3:B4)",
+          "value": "30"
+        },
+        "B7": {
+          "formula": "B3*2",
+          "value": "20"
+        }
+      },
+      "xl/worksheets/sheet2.xml": {
+        "B3": {
+          "formula": "'明细'!B5",
+          "value": "30"
+        }
+      },
+      "xl/worksheets/sheet3.xml": {}
+    },
+    "output": {
+      "xl/worksheets/sheet1.xml": {
+        "B5": {
+          "formula": "SUM(B3:B4)+5",
+          "value": "40"
+        },
+        "B7": {
+          "formula": "B3*2",
+          "value": "30"
+        }
+      },
+      "xl/worksheets/sheet2.xml": {
+        "B3": {
+          "formula": "'明细'!B5",
+          "value": "40"
+        }
+      },
+      "xl/worksheets/sheet3.xml": {}
+    }
+  },
+  "chart_details": {
+    "original": {
+      "xl/charts/chart1.xml": {
+        "titles": [
+          "未编辑金额图",
+          "品名",
+          "金额"
+        ],
+        "references": [
+          "'明细'!B2",
+          "'明细'!$A$3:$A$4",
+          "'明细'!$B$3:$B$4"
+        ],
+        "cache_values": [],
+        "chart_type": [
+          "barChart"
+        ],
+        "axes": [
+          "<catAx xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><axId val=\"10\"></axId><scaling><orientation xmlns=\"\" val=\"minMax\"></orientation></scaling><axPos val=\"l\"></axPos><title><tx xmlns=\"\"><rich xmlns=\"\"><a:bodyPr xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"></a:bodyPr><a:p xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:pPr xmlns=\"\"><a:defRPr xmlns=\"\"></a:defRPr></a:pPr><a:r xmlns=\"\"><a:t xmlns=\"\">品名</a:t></a:r></a:p></rich></tx></title><majorTickMark val=\"none\"></majorTickMark><minorTickMark val=\"none\"></minorTickMark><crossAx val=\"100\"></crossAx><lblOffset val=\"100\"></lblOffset></catAx>",
+          "<valAx xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><axId val=\"100\"></axId><scaling><orientation xmlns=\"\" val=\"minMax\"></orientation></scaling><axPos val=\"l\"></axPos><majorGridlines></majorGridlines><title><tx xmlns=\"\"><rich xmlns=\"\"><a:bodyPr xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"></a:bodyPr><a:p xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:pPr xmlns=\"\"><a:defRPr xmlns=\"\"></a:defRPr></a:pPr><a:r xmlns=\"\"><a:t xmlns=\"\">金额</a:t></a:r></a:p></rich></tx></title><majorTickMark val=\"none\"></majorTickMark><minorTickMark val=\"none\"></minorTickMark><crossAx val=\"10\"></crossAx></valAx>"
+        ]
+      }
+    },
+    "output": {
+      "xl/charts/chart1.xml": {
+        "titles": [
+          "未编辑金额图",
+          "品名",
+          "金额"
+        ],
+        "references": [
+          "'明细'!B2",
+          "'明细'!$A$3:$A$4",
+          "'明细'!$B$3:$B$4"
+        ],
+        "cache_values": [],
+        "chart_type": [
+          "barChart"
+        ],
+        "axes": [
+          "<catAx xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><axId val=\"10\"></axId><scaling><orientation xmlns=\"\" val=\"minMax\"></orientation></scaling><axPos val=\"l\"></axPos><title><tx xmlns=\"\"><rich xmlns=\"\"><a:bodyPr xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"></a:bodyPr><a:p xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:pPr xmlns=\"\"><a:defRPr xmlns=\"\"></a:defRPr></a:pPr><a:r xmlns=\"\"><a:t xmlns=\"\">品名</a:t></a:r></a:p></rich></tx></title><majorTickMark val=\"none\"></majorTickMark><minorTickMark val=\"none\"></minorTickMark><crossAx val=\"100\"></crossAx><lblOffset val=\"100\"></lblOffset></catAx>",
+          "<valAx xmlns=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><axId val=\"100\"></axId><scaling><orientation xmlns=\"\" val=\"minMax\"></orientation></scaling><axPos val=\"l\"></axPos><majorGridlines></majorGridlines><title><tx xmlns=\"\"><rich xmlns=\"\"><a:bodyPr xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"></a:bodyPr><a:p xmlns=\"\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:pPr xmlns=\"\"><a:defRPr xmlns=\"\"></a:defRPr></a:pPr><a:r xmlns=\"\"><a:t xmlns=\"\">金额</a:t></a:r></a:p></rich></tx></title><majorTickMark val=\"none\"></majorTickMark><minorTickMark val=\"none\"></minorTickMark><crossAx val=\"10\"></crossAx></valAx>"
+        ]
+      }
+    }
+  },
+  "warnings": []
+}

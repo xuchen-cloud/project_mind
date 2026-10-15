@@ -1,0 +1,29 @@
+{
+  "source_url": "https://raw.githubusercontent.com/genspark-ai/genoffice/d32d1711f1bf985430757b8c6b3fbddd3831d946/apps/pdf/src/main/save-pdf.ts",
+  "source_sha256": "3b6ee1034ecedc239174ff213d732b787713c978f1025423d36e0cc3793ac2f4",
+  "extracted_body_sha256": "d9a74dcd03b1e5515755ad9eaf055dab5ce06334604cf018238c029ed2bed7b0",
+  "transformation": "Exact finalPageIndex/verifyContentEdits function bodies plus export; no behavior changes. esbuild bundles real text-edit module. Actual unused image-edit import remains external, not shimmed.",
+  "runs": [
+    {
+      "name": "simple",
+      "output": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.pdflib-final-stage.pdf",
+      "sha256": "60e187082df5804950d59ee06d2db6a405a473807692f86be6283ac660902399",
+      "status": "passed",
+      "missing_text_guard": {
+        "status": "passed",
+        "error": "save-verify-failed pages=1: replacement text missing from saved output (\"CONTROLLEDTEXTMISSIN\"); the file was not written"
+      }
+    },
+    {
+      "name": "complex",
+      "output": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.pdflib-final-stage.pdf",
+      "sha256": "25499528bd62d1b919de3ba6705181ce823d1e941f50d4c9bd73464649434dfc",
+      "status": "passed",
+      "missing_text_guard": {
+        "status": "passed",
+        "error": "save-verify-failed pages=1: replacement text missing from saved output (\"CONTROLLEDTEXTMISSIN\"); the file was not written"
+      }
+    }
+  ],
+  "full_save_pipeline": false
+}

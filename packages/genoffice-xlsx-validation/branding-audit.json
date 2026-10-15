@@ -1,0 +1,20 @@
+{
+  "scope": "downloaded public XLSX runtime + selected renderer source; not whole Electron app or GUI",
+  "filesScanned": 85,
+  "hits": [
+    {
+      "path": "apps/sheets/native/xlsx-engine/src/visuals/tests.rs",
+      "line": 1613,
+      "text": "// A watermark blipFill shape must not paint the fillRef"
+    },
+    {
+      "path": "apps/sheets/src/renderer/create-univer.ts",
+      "line": 5,
+      "text": "/// `@univerjs-pro/*` packages (npm license \"None\") into the lockfile and"
+    }
+  ],
+  "runtimeLicenseCheckBypass": false,
+  "eeLoaded": false,
+  "proDependenciesInstalled": [],
+  "conclusion": "No watermark/branding/license injection found in exercised gateway+sidecar. Matches are comments about avoiding pro presets and a test of an existing source watermark drawing. UI branding not visually validated."
+}

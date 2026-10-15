@@ -1,3 +1,67 @@
+pub(crate) mod agent;
+mod agent_connections;
+mod agent_references;
+mod agent_connection_operations;
+mod agent_profiles;
+mod ai_network;
+mod agent_sessions;
+mod agent_session_maintenance;
+mod agent_session_summary;
+pub(crate) mod agent_session_search;
+mod agent_session_search_schema;
+pub(crate) mod agent_run_provenance;
+pub(crate) mod agent_session_model_search;
+mod agent_run_provenance_schema;
+mod workspace_overview_schema;
+mod agent_memory_schema;
+mod agent_runtime_schema;
+mod agent_operations;
+mod agent_operation_batches;
+mod agent_creation_batches;
+mod agent_creation_references;
+mod agent_outputs;
+mod agent_output_review;
+mod agent_output_schema;
+pub(crate) mod agent_record_withdrawals;
+mod agent_record_undo;
+pub(crate) mod todo_revisions;
+pub(crate) mod agent_todo_undo;
+pub(crate) mod agent_todo_outputs;
+mod file_output_schema;
+pub(crate) mod agent_file_outputs;
+pub(crate) mod agent_file_undo;
+pub(crate) mod file_reads;
+mod agent_overviews;
+mod overview_inventory;
+pub(crate) mod overview_maintenance;
+pub(crate) mod overview_schedule;
+mod source_catalogue;
+mod agent_knowledge;
+pub(crate) mod agent_memory;
+#[path = "memory_service.rs"]
+pub(crate) mod memory_service;
+mod agent_instructions;
+mod record_documents;
+mod record_references;
+mod workspace_record_references;
+mod sources;
+mod source_files;
+mod source_native;
+mod source_navigation;
+mod source_transcript;
+pub(crate) mod source_index_queue;
+mod committed_changes;
+mod native_changes;
+pub(crate) mod source_registry;
+pub(crate) mod source_maintenance;
+pub(crate) mod file_versions;
+pub(crate) mod file_imports;
+mod file_metadata;
+mod file_deletions;
+mod file_relocations;
+pub(crate) mod file_content;
+pub(crate) mod project_directory_files;
+pub(crate) mod dsh_source_evidence;
 mod voice_recovery;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
@@ -22,10 +86,9 @@ use crate::{
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
         AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
-        ContactUpsertInput, DocumentAddVersionInput, DocumentDeleteInput,
-        DocumentImportClipboardImageInput, DocumentImportClipboardNoteImageInput,
+        ContactUpsertInput, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
-        DocumentRecord, DocumentRelocateInput, DocumentTagRecord, DocumentUpdateMetaInput,
+        DocumentRecord, DocumentTagRecord,
         DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
@@ -77,7 +140,10 @@ const VOICE_RECORD_SCHEMA_VERSION: i64 = 22;
 const VOICE_MINUTES_SCHEMA_VERSION: i64 = 23;
 const VOICE_RELIABILITY_SCHEMA_VERSION: i64 = 24;
 const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
-const CURRENT_SCHEMA_VERSION: i64 = VOICE_RECOVERY_SCHEMA_VERSION;
+const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
+const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
+const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
+const CURRENT_SCHEMA_VERSION: i64 = agent_memory_schema::AGENT_MEMORY_SCHEMA_VERSION;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -94,6 +160,7 @@ const WINDOWS_RESERVED_PATH_NAMES: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 const APP_SETTING_KEY_RICH_TEXT_STYLE: &str = "rich_text_style";
+const APP_SETTING_KEY_AI_NETWORK_SETTINGS: &str = "ai_network_settings";
 const APP_SETTING_KEY_AI_EXECUTION_SETTINGS: &str = "ai_execution_settings";
 const APP_SETTING_KEY_AI_EDITOR_REWRITE_ACTIONS: &str = "ai_editor_rewrite_actions";
 const APP_SETTING_KEY_AI_EDITOR_SKILLS: &str = "ai_editor_skills";
@@ -145,6 +212,7 @@ const WORKSPACE_SEARCH_PRIORITY_TAG: u8 = 9;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InternalReferenceFilterKind {
     Note,
+    WorkspaceRecord,
     Todo,
     Document,
 }
@@ -153,7 +221,10 @@ impl InternalReferenceFilterKind {
     fn matches_result_kind(self, kind: &str) -> bool {
         matches!(
             (self, kind),
-            (Self::Note, "note") | (Self::Todo, "todo") | (Self::Document, "document")
+            (Self::Note, "note" | "workspace_record")
+                | (Self::WorkspaceRecord, "workspace_record")
+                | (Self::Todo, "todo")
+                | (Self::Document, "document")
         )
     }
 }
@@ -223,6 +294,7 @@ pub struct Database {
     conn: Connection,
     workspace_root: PathBuf,
     secret_password: Option<String>,
+    native_workspace_id: Option<String>,
 }
 
 pub struct VoiceMinutesLine {
@@ -294,9 +366,41 @@ impl Database {
             conn,
             workspace_root: workspace_root.to_path_buf(),
             secret_password,
+            native_workspace_id: None,
         };
+        if crate::workspace::workspace_paths(workspace_root).metadata_path.exists() {
+            db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
+        }
         db.migrate()?;
+        db.source_registry_prepare()?;
         db.voice_retry_asset_cleanup()?;
+        Ok(db)
+    }
+
+    /// A current Host may open another connection to its already initialized
+    /// database for long File IO. Never create a missing database, run Host
+    /// startup/migrations, or retry unrelated Voice cleanup in this path.
+    pub(crate) fn open_runtime_connection(
+        db_path: &Path,
+        workspace_root: &Path,
+        secret_password: Option<String>,
+    ) -> Result<Self> {
+        crate::db::file_versions::relative(workspace_root, db_path)?;
+        crate::db::file_versions::regular(db_path)?;
+        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW;
+        let conn = Connection::open_with_flags(db_path, flags)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        let db = Self {
+            conn,
+            workspace_root: workspace_root.to_path_buf(),
+            secret_password,
+            native_workspace_id: None,
+        };
+        if db.schema_version()? != CURRENT_SCHEMA_VERSION {
+            anyhow::bail!("Workspace Host database schema is not current");
+        }
         Ok(db)
     }
 
@@ -502,8 +606,8 @@ impl Database {
         )?;
 
         if is_fresh_workspace {
-            self.set_schema_version(CURRENT_SCHEMA_VERSION)?;
-        } else if initial_schema_version < CURRENT_SCHEMA_VERSION {
+            self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
+        } else if initial_schema_version < LEGACY_DOMAIN_RETIRE_SCHEMA_VERSION {
             self.ensure_legacy_domain_schema()?;
             self.ensure_column(
                 "projects",
@@ -748,6 +852,16 @@ impl Database {
         if self.schema_version()? < VOICE_RECOVERY_SCHEMA_VERSION {
             self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
         }
+        self.ensure_agent_schema()?;
+        self.ensure_record_document_schema()?;
+        self.ensure_agent_runtime_schema()?;
+        self.ensure_agent_output_schema()?;
+        self.ensure_todo_revision_schema()?;
+        self.ensure_file_output_schema()?;
+        self.ensure_agent_session_search_schema()?;
+        self.ensure_agent_run_provenance_schema()?;
+        self.ensure_workspace_overview_schema()?;
+        self.ensure_agent_memory_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -1148,6 +1262,21 @@ impl Database {
         text: &str,
         language: Option<&str>,
     ) -> Result<VoiceTranscriptSegment> {
+        let tx = self.conn.unchecked_transaction()?;
+        let result = self.voice_transcript_append_final_in_transaction(session_id, provider_key, start_ms, end_ms, text, language)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    fn voice_transcript_append_final_in_transaction(
+        &self,
+        session_id: &str,
+        provider_key: &str,
+        start_ms: u64,
+        end_ms: u64,
+        text: &str,
+        language: Option<&str>,
+    ) -> Result<VoiceTranscriptSegment> {
         let provider_key = provider_key.trim();
         let text = text.trim();
         if provider_key.is_empty()
@@ -1163,7 +1292,7 @@ impl Database {
         let start = i64::try_from(start_ms)?;
         let end = i64::try_from(end_ms)?;
         let id = format!("{session_id}:{provider_key}");
-        self.conn.execute(
+        let inserted = self.conn.execute(
             r#"
             INSERT INTO voice_transcript_segments
               (id, session_id, provider_key, start_ms, end_ms, text, language, created_at)
@@ -1206,6 +1335,9 @@ impl Database {
             return Err(anyhow!(
                 "provider key conflicts with an existing final Transcript segment"
             ));
+        }
+        if inserted == 1 {
+            native_changes::append_transcript_final(&self.conn, self.native_workspace_id.as_deref(), session_id, &stored.0)?;
         }
         Ok(VoiceTranscriptSegment {
             id: stored.0,
@@ -1902,15 +2034,15 @@ impl Database {
         Ok(DemoSeedResult {
             workspace_root: workspace_root.to_string_lossy().to_string(),
             project_count: count("projects")?,
-            project_record_count: count("notes")?,
+            project_record_count: count("agent_visible_notes")?,
             workspace_record_count: self.conn.query_row(
-                "SELECT COUNT(*) FROM workspace_notes WHERE note_kind = ?1",
+                "SELECT COUNT(*) FROM agent_visible_workspace_notes WHERE note_kind = ?1",
                 [WORKSPACE_NOTE_KIND_STANDARD],
                 |row| row.get(0),
             )?,
-            todo_count: count("todos")?,
+            todo_count: count("agent_visible_todos")?,
             file_count: self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE storage_mode != ?1",
+                "SELECT COUNT(*) FROM agent_visible_files WHERE storage_mode != ?1",
                 [MANAGED_NOTE_IMAGE_STORAGE_MODE],
                 |row| row.get(0),
             )?,
@@ -2106,7 +2238,7 @@ impl Database {
             SELECT
               p.id, p.name, p.kind, p.status, p.root_path, p.summary, p.summary_markdown, p.summary_html,
               p.quick_note_code_language, p.is_archived, p.created_at, p.updated_at,
-              (SELECT COUNT(*) FROM todos t WHERE t.scope = 'project' AND t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
+              (SELECT COUNT(*) FROM agent_visible_todos t WHERE t.scope = 'project' AND t.project_id = p.id AND t.status = 'unfinished') AS open_todo_count
             FROM projects p
             {}
             ORDER BY p.created_at DESC, p.id DESC
@@ -2144,7 +2276,7 @@ impl Database {
             .map_err(Into::into)
     }
 
-    pub fn project_create(&mut self, input: ProjectCreateInput) -> Result<ProjectRecord> {
+    fn project_create_native(&self, input: ProjectCreateInput) -> Result<(ProjectRecord, native_changes::ProjectRootCreate)> {
         let timestamp = now_iso();
         let base = self.workspace_root.clone();
         if !base.exists() {
@@ -2165,7 +2297,8 @@ impl Database {
                 project_dir.display()
             ));
         }
-        fs::create_dir_all(&project_dir)?;
+        fs::create_dir(&project_dir)?;
+        let directory = native_changes::ProjectRootCreate::new(project_dir.clone());
 
         let summary = input.summary.unwrap_or_default();
         let summary_markdown = summary.clone();
@@ -2193,7 +2326,7 @@ impl Database {
         )?;
 
         let id = self.conn.last_insert_rowid();
-        self.project_record(id)
+        Ok((self.project_record(id)?, directory))
     }
 
     pub fn project_page_get(&mut self, input: ProjectIdInput) -> Result<ProjectPageData> {
@@ -2232,7 +2365,7 @@ impl Database {
         })
     }
 
-    fn rename_project_root(&mut self, current: &ProjectRecord, next_name: &str) -> Result<()> {
+    fn rename_project_root(&self, current: &ProjectRecord, next_name: &str) -> Result<Option<native_changes::ProjectRootRename>> {
         let current_dir = PathBuf::from(&current.root_path);
         if !current_dir.exists() {
             return Err(anyhow!(
@@ -2245,7 +2378,7 @@ impl Database {
             .workspace_root
             .join(project_directory_name(next_name.trim())?);
         if current_dir == next_dir {
-            return Ok(());
+            return Ok(None);
         }
 
         if next_dir.exists() {
@@ -2324,58 +2457,48 @@ impl Database {
             )
         })?;
 
-        let tx = self.conn.transaction()?;
-        let update_result: Result<()> = (|| {
-            tx.execute(
-                "UPDATE projects SET root_path = ?1 WHERE id = ?2",
-                params![next_root_path_ref, current.id],
+        let rename = native_changes::ProjectRootRename::new(current_dir, next_dir);
+        self.conn.execute(
+            "UPDATE projects SET root_path = ?1 WHERE id = ?2",
+            params![next_root_path_ref, current.id],
+        )?;
+
+        for (document_id, managed_path_ref, history_dir_ref, original_path_ref) in
+            &document_path_updates
+        {
+            self.conn.execute(
+                r#"
+                UPDATE documents
+                SET managed_path = ?1,
+                    history_dir_path = ?2,
+                    original_path = ?3
+                WHERE id = ?4
+                "#,
+                params![
+                    managed_path_ref,
+                    history_dir_ref,
+                    original_path_ref,
+                    document_id
+                ],
             )?;
-
-            for (document_id, managed_path_ref, history_dir_ref, original_path_ref) in
-                &document_path_updates
-            {
-                tx.execute(
-                    r#"
-                    UPDATE documents
-                    SET managed_path = ?1,
-                        history_dir_path = ?2,
-                        original_path = ?3
-                    WHERE id = ?4
-                    "#,
-                    params![
-                        managed_path_ref,
-                        history_dir_ref,
-                        original_path_ref,
-                        document_id
-                    ],
-                )?;
-            }
-
-            for (version_id, managed_path_ref, source_path_ref) in &version_path_updates {
-                tx.execute(
-                    r#"
-                    UPDATE document_versions
-                    SET managed_path = ?1,
-                        source_path = ?2
-                    WHERE id = ?3
-                    "#,
-                    params![managed_path_ref, source_path_ref, version_id],
-                )?;
-            }
-
-            tx.commit()?;
-            Ok(())
-        })();
-
-        if let Err(error) = update_result {
-            let _ = fs::rename(&next_dir, &current_dir);
-            return Err(error);
         }
 
-        Ok(())
+        for (version_id, managed_path_ref, source_path_ref) in &version_path_updates {
+            self.conn.execute(
+                r#"
+                UPDATE document_versions
+                SET managed_path = ?1,
+                    source_path = ?2
+                WHERE id = ?3
+                "#,
+                params![managed_path_ref, source_path_ref, version_id],
+            )?;
+        }
+
+        Ok(Some(rename))
     }
 
-    pub fn project_update(&mut self, input: ProjectUpdateInput) -> Result<ProjectRecord> {
+    fn project_update_native(&self, input: ProjectUpdateInput) -> Result<(ProjectRecord, Option<native_changes::ProjectRootRename>)> {
         let current = self.project_record(input.project_id)?;
         let project_name = match input.name.as_deref() {
             Some(value) => {
@@ -2422,9 +2545,9 @@ impl Database {
             .as_deref()
             .map(normalize_code_language)
             .unwrap_or_else(|| current.summary_code_language.clone());
-        if project_name != current.name {
-            self.rename_project_root(&current, &project_name)?;
-        }
+        let rename = if project_name != current.name {
+            self.rename_project_root(&current, &project_name)?
+        } else { None };
         self.conn.execute(
             "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, quick_note_code_language = ?5, status = ?6, updated_at = ?7 WHERE id = ?8",
             params![
@@ -2438,10 +2561,10 @@ impl Database {
                 input.project_id
             ],
         )?;
-        self.project_record(input.project_id)
+        Ok((self.project_record(input.project_id)?, rename))
     }
 
-    pub fn project_set_archive(&mut self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
+    fn project_set_archive_native(&self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
         self.conn.execute(
             "UPDATE projects SET is_archived = ?1, updated_at = ?2 WHERE id = ?3",
             params![bool_to_int(input.is_archived), now_iso(), input.project_id],
@@ -2488,11 +2611,27 @@ impl Database {
     }
 
     pub fn project_delete(&mut self, input: ProjectDeleteInput) -> Result<ProjectRecord> {
+        self.file_version_recover_pending()?;
+        let _file_project_lock = self.file_project_lock(input.project_id, true)?;
         let current = self.project_record(input.project_id)?;
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
         let path = self.encode_path_ref(Path::new(&current.root_path));
-        let transaction = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        // Check every File before cascading deletion can erase retained source
+        // evidence. The same write transaction prevents new references from
+        // appearing between this check and deletion.
+        let document_ids = transaction
+            .prepare("SELECT id FROM documents WHERE project_id=?1")?
+            .query_map([input.project_id], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for document_id in document_ids {
+            self.file_delete_require_unreferenced(&self.document_record(document_id)?)?;
+        }
+        native_changes::append_project_deletions(&transaction, self.native_workspace_id.as_deref(), input.project_id)?;
         transaction.execute("DELETE FROM projects WHERE id = ?1", [input.project_id])?;
         transaction.execute("INSERT INTO project_asset_cleanup(project_id, path) VALUES (?1, ?2)", params![input.project_id, path])?;
         transaction.commit()?;
@@ -2533,20 +2672,6 @@ impl Database {
 
         let tag_id = self.upsert_file_tag_by_label(input.project_id, &label, &color_key, &now)?;
         self.file_tag_record(tag_id)
-    }
-
-    pub fn file_tag_option_delete(
-        &mut self,
-        input: FileTagOptionDeleteInput,
-    ) -> Result<FileTagSettingsSnapshot> {
-        self.scoped_file_tag_record(input.project_id, input.tag_id)?;
-        self.conn.execute(
-            "DELETE FROM file_tag_options WHERE id = ?1",
-            params![input.tag_id],
-        )?;
-        self.file_tag_settings_get(FileTagSettingsGetInput {
-            project_id: input.project_id,
-        })
     }
 
     pub fn contact_list(&self) -> Result<Vec<ContactRecord>> {
@@ -2708,6 +2833,10 @@ impl Database {
             .and_then(normalize_code_language);
         match input.note_id {
             Some(note_id) => {
+                self.require_legacy_record_write(&crate::record_documents::RecordTarget {
+                    scope: crate::agent::models::Scope::Project { project_id: input.project_id },
+                    record_id: note_id,
+                })?;
                 let current = self.note_record(note_id)?;
                 self.conn.execute(
                     r#"
@@ -2829,10 +2958,12 @@ impl Database {
 
     pub fn project_record_delete(&mut self, input: ProjectRecordDeleteInput) -> Result<NoteRecord> {
         let current = self.note_record(input.note_id)?;
-        self.conn
-            .execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
-        self.voice_retry_asset_cleanup()?;
+        let tx = self.conn.unchecked_transaction()?;
+        native_changes::append_record_deletions(&tx, self.native_workspace_id.as_deref(), &crate::agent::models::Scope::Project { project_id: current.project_id }, input.note_id)?;
+        tx.execute("DELETE FROM notes WHERE id = ?1", [input.note_id])?;
         self.touch_project(current.project_id)?;
+        tx.commit()?;
+        self.voice_retry_asset_cleanup()?;
         Ok(current)
     }
 
@@ -2840,7 +2971,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id
-            FROM workspace_notes
+            FROM agent_visible_workspace_notes
             WHERE note_kind = ?1
             ORDER BY updated_at DESC, id DESC
             "#,
@@ -2866,6 +2997,10 @@ impl Database {
 
         match input.note_id {
             Some(note_id) => {
+                self.require_legacy_record_write(&crate::record_documents::RecordTarget {
+                    scope: crate::agent::models::Scope::Workspace,
+                    record_id: note_id,
+                })?;
                 self.conn.execute(
                     r#"
                     UPDATE workspace_notes
@@ -2992,7 +3127,7 @@ impl Database {
         }
     }
 
-    pub fn workspace_quick_note_get(&mut self) -> Result<Option<WorkspaceRecord>> {
+    pub fn workspace_quick_note_get(&self) -> Result<Option<WorkspaceRecord>> {
         let quick_note_id = self
             .conn
             .query_row(
@@ -3013,8 +3148,8 @@ impl Database {
             .transpose()
     }
 
-    pub fn workspace_quick_note_upsert(
-        &mut self,
+    fn workspace_quick_note_upsert_native(
+        &self,
         input: WorkspaceQuickNoteUpsertInput,
     ) -> Result<WorkspaceRecord> {
         let timestamp = now_iso();
@@ -3123,14 +3258,17 @@ impl Database {
         input: WorkspaceRecordDeleteInput,
     ) -> Result<WorkspaceRecord> {
         let current = self.workspace_note_record(input.note_id)?;
-
-        self.conn
-            .execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        let note_kind: String = self.conn.query_row("SELECT note_kind FROM workspace_notes WHERE id=?1", [input.note_id], |r| r.get(0))?;
+        if note_kind != WORKSPACE_NOTE_KIND_STANDARD { return Err(anyhow!("Workspace Record target is not a Record")); }
+        let tx = self.conn.unchecked_transaction()?;
+        native_changes::append_record_deletions(&tx, self.native_workspace_id.as_deref(), &crate::agent::models::Scope::Workspace, input.note_id)?;
+        tx.execute("DELETE FROM workspace_notes WHERE id = ?1", [input.note_id])?;
+        tx.commit()?;
         self.voice_retry_asset_cleanup()?;
         Ok(current)
     }
 
-    pub fn todo_create(&mut self, input: TodoCreateInput) -> Result<TodoRecord> {
+    pub(super) fn todo_create_native(&self, input: TodoCreateInput) -> Result<TodoRecord> {
         let scope = input.scope;
         self.validate_todo_internal_references(scope, input.project_id, &input.content, None)?;
         let scope_value = match scope {
@@ -3162,12 +3300,13 @@ impl Database {
         )?;
         let id = self.conn.last_insert_rowid();
         self.write_todo_tags(id, &tag_ids, &timestamp)?;
+        todo_revisions::initialize(&self.conn, id, None).map_err(todo_revision_error)?;
         let record = self.todo_record(id)?;
         self.touch_todo_owners(&record)?;
         Ok(record)
     }
 
-    pub fn todo_update_content(&mut self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_content_native(&self, input: TodoUpdateContentInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
         self.validate_todo_internal_references(
             current.scope,
@@ -3187,7 +3326,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_update_tags(&mut self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_tags_native(&self, input: TodoUpdateTagsInput) -> Result<TodoRecord> {
         let timestamp = now_iso();
         let current = self.todo_record(input.todo_id)?;
         self.replace_todo_tags(input.todo_id, &input.tag_ids, &timestamp)?;
@@ -3199,7 +3338,7 @@ impl Database {
         self.todo_record(input.todo_id)
     }
 
-    pub fn todo_update_status(&mut self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_status_native(&self, input: TodoUpdateStatusInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
             params![input.status, now_iso(), input.todo_id],
@@ -3209,7 +3348,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_update_priority(&mut self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
+    pub(super) fn todo_update_priority_native(&self, input: TodoUpdatePriorityInput) -> Result<TodoRecord> {
         self.conn.execute(
             "UPDATE todos SET priority = ?1, updated_at = ?2 WHERE id = ?3",
             params![input.priority, now_iso(), input.todo_id],
@@ -3219,7 +3358,7 @@ impl Database {
         Ok(record)
     }
 
-    pub fn todo_add_progress(&mut self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
+    pub(super) fn todo_add_progress_native(&self, input: TodoAddProgressInput) -> Result<TodoProgressRecord> {
         let timestamp = now_iso();
         let todo = self.todo_record(input.todo_id)?;
         self.validate_todo_internal_references(todo.scope, todo.project_id, &input.content, None)?;
@@ -3247,8 +3386,8 @@ impl Database {
         self.todo_progress_record(progress_id)
     }
 
-    pub fn todo_update_progress(
-        &mut self,
+    pub(super) fn todo_update_progress_native(
+        &self,
         input: TodoUpdateProgressInput,
     ) -> Result<TodoProgressRecord> {
         let current = self.todo_progress_record(input.progress_id)?;
@@ -3293,7 +3432,7 @@ impl Database {
     }
 
     fn validate_todo_internal_references(
-        &mut self,
+        &self,
         source_scope: TodoScope,
         source_project_id: Option<i64>,
         content: &str,
@@ -3337,8 +3476,8 @@ impl Database {
         Ok(())
     }
 
-    pub fn todo_delete_progress(
-        &mut self,
+    pub(super) fn todo_delete_progress_native(
+        &self,
         input: TodoDeleteProgressInput,
     ) -> Result<TodoProgressRecord> {
         let current = self.todo_progress_record(input.progress_id)?;
@@ -3356,7 +3495,7 @@ impl Database {
         Ok(current)
     }
 
-    pub fn todo_delete(&mut self, input: TodoDeleteInput) -> Result<TodoRecord> {
+    pub(super) fn todo_delete_native(&self, input: TodoDeleteInput) -> Result<TodoRecord> {
         let current = self.todo_record(input.todo_id)?;
         self.conn
             .execute("DELETE FROM todos WHERE id = ?1", [input.todo_id])?;
@@ -3367,7 +3506,7 @@ impl Database {
     pub fn todo_list_open(&mut self, input: ProjectIdInput) -> Result<Vec<TodoRecord>> {
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT id FROM todos
+            SELECT id FROM agent_visible_todos
             WHERE project_id = ?1 AND status = 'unfinished'
             ORDER BY created_at DESC, id DESC
             "#,
@@ -3382,7 +3521,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT t.id
-            FROM todos t
+            FROM agent_visible_todos t
             LEFT JOIN projects p ON p.id = t.project_id
             WHERE t.scope = 'workspace'
                OR (t.scope = 'project' AND p.is_archived = 0)
@@ -3396,83 +3535,6 @@ impl Database {
             .query_map([], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter().map(|id| self.todo_record(id)).collect()
-    }
-
-    pub fn document_import(&mut self, input: DocumentImportInput) -> Result<DocumentRecord> {
-        self.ensure_project_file_layout(input.project_id)?;
-        let timestamp = now_iso();
-        let source = PathBuf::from(&input.source_path);
-        if !source.exists() {
-            return Err(anyhow!("source file does not exist"));
-        }
-
-        let project = self.project_record(input.project_id)?;
-        let target_dir = self.document_target_dir(input.project_id)?;
-
-        let file_name = source
-            .file_name()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| anyhow!("invalid file name"))?
-            .to_string();
-        self.ensure_document_name_available(input.project_id, &file_name, None)?;
-        let managed_path = target_dir.join(&file_name);
-        let storage_mode = self.materialize_file_for_target(
-            Path::new(&project.root_path),
-            &source,
-            &managed_path,
-        )?;
-
-        let mime = mime_guess::from_path(&source)
-            .first_or_octet_stream()
-            .essence_str()
-            .to_string();
-
-        self.conn.execute(
-            r#"
-            INSERT INTO documents (
-              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, ?8, 1, 1, 'normal', ?9, ?10)
-            "#,
-            params![
-                input.project_id,
-                file_name,
-                file_name,
-                self.encode_path_ref(&source),
-                self.encode_path_ref(&managed_path),
-                storage_mode,
-                mime,
-                bool_to_int(input.is_starred),
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let id = self.conn.last_insert_rowid();
-        let history_dir = self.history_dir_path_for(&managed_path, id);
-        self.conn.execute(
-            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
-            params![self.encode_path_ref(&history_dir), id],
-        )?;
-        self.conn.execute(
-            r#"
-            INSERT INTO document_versions (
-              document_id, version_number, name, source_path, managed_path, created_at
-            )
-            VALUES (?1, 1, ?2, ?3, ?4, ?5)
-            "#,
-            params![
-                id,
-                file_name,
-                self.encode_path_ref(&source),
-                self.encode_path_ref(&managed_path),
-                timestamp
-            ],
-        )?;
-        if let Some(tag_ids) = input.tag_ids.as_deref() {
-            self.replace_document_tags(id, tag_ids, &timestamp)?;
-        }
-        self.touch_project(input.project_id)?;
-        self.document_record(id)
     }
 
     pub fn document_import_note_image(
@@ -3553,81 +3615,6 @@ impl Database {
                 timestamp
             ],
         )?;
-        self.touch_project(input.project_id)?;
-        self.document_record(id)
-    }
-
-    pub fn document_import_clipboard_image(
-        &mut self,
-        input: DocumentImportClipboardImageInput,
-    ) -> Result<DocumentRecord> {
-        self.ensure_project_file_layout(input.project_id)?;
-        let timestamp = now_iso();
-        let target_dir = self.document_target_dir(input.project_id)?;
-        let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
-
-        self.ensure_document_name_available(input.project_id, &file_name, None)?;
-
-        let managed_path = target_dir.join(&file_name);
-        if let Some(parent) = managed_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let bytes = STANDARD
-            .decode(input.data_base64.trim())
-            .context("failed to decode clipboard image")?;
-
-        fs::write(&managed_path, &bytes).with_context(|| {
-            format!(
-                "failed to write clipboard image to {}",
-                managed_path.display()
-            )
-        })?;
-
-        self.conn.execute(
-            r#"
-            INSERT INTO documents (
-              project_id, name, base_name, original_path, managed_path, history_dir_path, storage_mode, mime_type, is_starred, current_version_number, version_count, health, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, ?7, ?8, 1, 1, 'normal', ?9, ?10)
-            "#,
-            params![
-                input.project_id,
-                file_name,
-                file_name,
-                self.encode_path_ref(&managed_path),
-                self.encode_path_ref(&managed_path),
-                "managed_clipboard",
-                input.mime_type,
-                bool_to_int(input.is_starred),
-                timestamp,
-                timestamp
-            ],
-        )?;
-        let id = self.conn.last_insert_rowid();
-        let history_dir = self.history_dir_path_for(&managed_path, id);
-        self.conn.execute(
-            "UPDATE documents SET history_dir_path = ?1 WHERE id = ?2",
-            params![self.encode_path_ref(&history_dir), id],
-        )?;
-        self.conn.execute(
-            r#"
-            INSERT INTO document_versions (
-              document_id, version_number, name, source_path, managed_path, created_at
-            )
-            VALUES (?1, 1, ?2, ?3, ?4, ?5)
-            "#,
-            params![
-                id,
-                file_name,
-                self.encode_path_ref(&managed_path),
-                self.encode_path_ref(&managed_path),
-                timestamp
-            ],
-        )?;
-        if let Some(tag_ids) = input.tag_ids.as_deref() {
-            self.replace_document_tags(id, tag_ids, &timestamp)?;
-        }
         self.touch_project(input.project_id)?;
         self.document_record(id)
     }
@@ -3762,80 +3749,6 @@ impl Database {
         })
     }
 
-    pub fn document_update_meta(
-        &mut self,
-        input: DocumentUpdateMetaInput,
-    ) -> Result<DocumentRecord> {
-        let timestamp = now_iso();
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let next_base_name = match input.base_name.as_deref() {
-            Some(base_name) => self.normalize_document_base_name(base_name, &current.base_name)?,
-            None => current.base_name.clone(),
-        };
-
-        if next_base_name != current.base_name {
-            self.move_document_storage(&current, &next_base_name)?;
-        }
-
-        self.conn.execute(
-            "UPDATE documents SET base_name = ?1, is_starred = ?2, updated_at = ?3 WHERE id = ?4",
-            params![
-                next_base_name,
-                bool_to_int(input.is_starred.unwrap_or(current.is_starred)),
-                timestamp,
-                input.document_id
-            ],
-        )?;
-        if let Some(tag_ids) = input.tag_ids.as_deref() {
-            self.replace_document_tags(input.document_id, tag_ids, &timestamp)?;
-        }
-        self.touch_project(current.project_id)?;
-        self.document_record(input.document_id)
-    }
-
-    pub fn document_relocate(&mut self, input: DocumentRelocateInput) -> Result<DocumentRecord> {
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let new_source = PathBuf::from(&input.new_source_path);
-        if !new_source.exists() {
-            return Err(anyhow!("relocation source file does not exist"));
-        }
-
-        let managed_path = PathBuf::from(&current.managed_path);
-        if let Some(parent) = managed_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::copy(&new_source, &managed_path)?;
-
-        self.conn.execute(
-            r#"
-            UPDATE documents
-            SET original_path = ?1, health = 'normal', updated_at = ?2
-            WHERE id = ?3
-            "#,
-            params![
-                self.encode_path_ref(&new_source),
-                now_iso(),
-                input.document_id
-            ],
-        )?;
-        self.conn.execute(
-            r#"
-            UPDATE document_versions
-            SET source_path = ?1
-            WHERE document_id = ?2 AND version_number = ?3
-            "#,
-            params![
-                self.encode_path_ref(&new_source),
-                input.document_id,
-                current.current_version_number
-            ],
-        )?;
-        self.touch_project(current.project_id)?;
-        self.document_record(input.document_id)
-    }
-
     pub fn document_list_versions(
         &mut self,
         input: DocumentListVersionsInput,
@@ -3843,179 +3756,6 @@ impl Database {
         let document = self.document_record(input.document_id)?;
         self.ensure_project_file_layout(document.project_id)?;
         self.fetch_document_versions(input.document_id)
-    }
-
-    pub fn document_add_version(
-        &mut self,
-        input: DocumentAddVersionInput,
-    ) -> Result<DocumentRecord> {
-        let timestamp = now_iso();
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let current_path = PathBuf::from(&current.managed_path);
-        if !current_path.exists() {
-            return Err(anyhow!(
-                "current document file is missing; please relocate it before adding a version"
-            ));
-        }
-
-        let project = self.project_record(current.project_id)?;
-        let target_dir = self.document_target_dir(current.project_id)?;
-        let history_dir = PathBuf::from(&current.history_dir_path);
-        let previous_version_name =
-            versioned_file_name(&current.base_name, current.current_version_number);
-        let previous_history_path = history_dir.join(&previous_version_name);
-        let next_version_number = current.current_version_number + 1;
-        let next_name = versioned_file_name(&current.base_name, next_version_number);
-        let next_path = target_dir.join(&next_name);
-        let current_source_path_ref = self
-            .document_version_source_path_ref(input.document_id, current.current_version_number)?;
-        let source = input.source_path.as_deref().map(PathBuf::from);
-
-        if let Some(source) = source.as_ref() {
-            if !source.exists() {
-                return Err(anyhow!("version source file does not exist"));
-            }
-            if *source == current_path {
-                return Err(anyhow!(
-                    "cannot add a version from the current managed file"
-                ));
-            }
-            if next_path.exists() && next_path != *source {
-                return Err(anyhow!("target version file already exists"));
-            }
-        } else if next_path.exists() {
-            return Err(anyhow!("target version file already exists"));
-        }
-
-        fs::create_dir_all(&history_dir)?;
-        fs::rename(&current_path, &previous_history_path).with_context(|| {
-            format!(
-                "failed to archive current version from {} to {}",
-                current_path.display(),
-                previous_history_path.display()
-            )
-        })?;
-
-        let (storage_mode, next_source_path_ref) = if let Some(source) = source.as_ref() {
-            match self.materialize_file_for_target(
-                Path::new(&project.root_path),
-                source,
-                &next_path,
-            ) {
-                Ok(storage_mode) => (storage_mode, self.encode_path_ref(source)),
-                Err(error) => {
-                    let _ = fs::rename(&previous_history_path, &current_path);
-                    return Err(error);
-                }
-            }
-        } else {
-            if let Err(error) = fs::copy(&previous_history_path, &next_path).with_context(|| {
-                format!(
-                    "failed to copy archived version from {} to {}",
-                    previous_history_path.display(),
-                    next_path.display()
-                )
-            }) {
-                let _ = fs::rename(&previous_history_path, &current_path);
-                return Err(error);
-            }
-            ("managed_copy".to_string(), current_source_path_ref.clone())
-        };
-
-        if source.is_some() {
-            self.conn.execute(
-                r#"
-                UPDATE documents
-                SET name = ?1,
-                    original_path = ?2,
-                    managed_path = ?3,
-                    storage_mode = ?4,
-                    current_version_number = ?5,
-                    version_count = ?6,
-                    updated_at = ?7
-                WHERE id = ?8
-                "#,
-                params![
-                    next_name,
-                    &next_source_path_ref,
-                    self.encode_path_ref(&next_path),
-                    storage_mode,
-                    next_version_number,
-                    current.version_count + 1,
-                    timestamp,
-                    input.document_id
-                ],
-            )?;
-        } else {
-            self.conn.execute(
-                r#"
-                UPDATE documents
-                SET name = ?1,
-                    managed_path = ?2,
-                    storage_mode = ?3,
-                    current_version_number = ?4,
-                    version_count = ?5,
-                    updated_at = ?6
-                WHERE id = ?7
-                "#,
-                params![
-                    next_name,
-                    self.encode_path_ref(&next_path),
-                    storage_mode,
-                    next_version_number,
-                    current.version_count + 1,
-                    timestamp,
-                    input.document_id
-                ],
-            )?;
-        }
-        self.conn.execute(
-            r#"
-            UPDATE document_versions
-            SET name = ?1, managed_path = ?2
-            WHERE document_id = ?3 AND version_number = ?4
-            "#,
-            params![
-                previous_version_name,
-                self.encode_path_ref(&previous_history_path),
-                input.document_id,
-                current.current_version_number
-            ],
-        )?;
-        self.conn.execute(
-            r#"
-            INSERT INTO document_versions (
-              document_id, version_number, name, source_path, managed_path, created_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            "#,
-            params![
-                input.document_id,
-                next_version_number,
-                next_name,
-                &next_source_path_ref,
-                self.encode_path_ref(&next_path),
-                timestamp
-            ],
-        )?;
-
-        self.touch_project(current.project_id)?;
-        self.document_record(input.document_id)
-    }
-
-    pub fn document_delete(&mut self, input: DocumentDeleteInput) -> Result<DocumentRecord> {
-        let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-
-        let managed_assets = collect_document_managed_assets_for_delete(&current);
-        move_paths_to_trash(&managed_assets)?;
-
-        self.conn
-            .execute("DELETE FROM documents WHERE id = ?1", [input.document_id])?;
-
-        self.touch_project(current.project_id)?;
-        Ok(current)
     }
 
     pub fn ai_settings_get(&mut self) -> Result<AiSettingsSnapshot> {
@@ -4061,6 +3801,7 @@ impl Database {
             security_mode: WORKSPACE_SECURITY_MODE.to_string(),
             ai_secrets_unlocked: self.secret_password.is_some(),
             execution,
+            network: self.ai_network_settings_get()?,
             editor_skills,
         })
     }
@@ -4711,6 +4452,7 @@ impl Database {
         .ok_or_else(|| anyhow!("testing an AI profile requires an API key"))?;
 
         let profile = ResolvedAiProfile {
+            network: self.resolve_ai_network()?,
             profile_name: input.name.trim().to_string(),
             provider_family: input.provider_family.trim().to_string(),
             base_url: normalize_base_url(&input.base_url),
@@ -4986,7 +4728,7 @@ impl Database {
               ), '') AS tag_match_text,
               wn.updated_at,
               COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
-            FROM workspace_notes wn
+            FROM agent_visible_workspace_notes wn
             WHERE EXISTS (SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.workspace_note_id=wn.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1)
               OR wn.title LIKE ?1
               OR wn.content_markdown LIKE ?1
@@ -5140,7 +4882,7 @@ impl Database {
               p.name AS project_name,
               n.updated_at,
               COALESCE((SELECT ts.text FROM voice_transcript_segments ts JOIN recording_sessions rs ON rs.id=ts.session_id JOIN voice_records vr ON vr.id=rs.voice_record_id WHERE vr.project_note_id=n.id AND ts.text LIKE ?1 ORDER BY ts.start_ms,ts.id LIMIT 1), '') AS transcript_match_text
-            FROM notes n
+            FROM agent_visible_notes n
             INNER JOIN projects p ON p.id = n.project_id
             WHERE (
               (
@@ -5219,7 +4961,7 @@ impl Database {
               ), '') AS tag_match_text,
               COALESCE(p.name, 'Workspace'),
               t.updated_at
-            FROM todos t
+            FROM agent_visible_todos t
             LEFT JOIN projects p ON p.id = t.project_id
             WHERE (
               t.content LIKE ?1
@@ -5296,7 +5038,7 @@ impl Database {
               ), '') AS tag_match_text,
               p.name,
               d.updated_at
-            FROM documents d
+            FROM agent_visible_files d
             INNER JOIN projects p ON p.id = d.project_id
             WHERE (
                 d.name LIKE ?1
@@ -5416,6 +5158,13 @@ impl Database {
         let query_is_empty = query.is_empty();
         let mut candidates = Vec::new();
 
+        if scope == "workspace"
+            && (parsed_query.kind_filter.is_none()
+                || parsed_query.kind_filter.is_some_and(|kind| kind.matches_result_kind("workspace_record")))
+        {
+            candidates.extend(self.workspace_record_reference_candidates()?);
+        }
+
         if parsed_query.kind_filter.is_none()
             || parsed_query
                 .kind_filter
@@ -5438,7 +5187,7 @@ impl Database {
               COALESCE(NULLIF(TRIM(n.content_markdown), ''), '') AS content_match_text,
               p.name AS project_name,
               n.updated_at
-            FROM notes n
+            FROM agent_visible_notes n
             INNER JOIN projects p ON p.id = n.project_id
             WHERE p.is_archived = 0
               AND (?1 IS NULL OR n.project_id = ?1)
@@ -5490,7 +5239,7 @@ impl Database {
               COALESCE(NULLIF(TRIM(t.content), ''), '') AS content_match_text,
               COALESCE(p.name, 'Workspace') AS scope_name,
               t.updated_at
-            FROM todos t
+            FROM agent_visible_todos t
             LEFT JOIN projects p ON p.id = t.project_id
             WHERE t.status = 'unfinished'
               AND (
@@ -5543,7 +5292,7 @@ impl Database {
               d.name AS name_match_text,
               p.name AS project_name,
               d.updated_at
-            FROM documents d
+            FROM agent_visible_files d
             INNER JOIN projects p ON p.id = d.project_id
             WHERE d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}'
               AND p.is_archived = 0
@@ -5621,10 +5370,19 @@ impl Database {
     }
 
     pub fn internal_reference_resolve(
-        &mut self,
+        &self,
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
+        if input.kind.trim() == "todo" && self.conn.query_row("SELECT EXISTS(SELECT 1 FROM todos WHERE id=?1)", [input.id], |row| row.get::<_,bool>(0))? {
+            agent_todo_undo::require_todo_visible(&self.conn, input.id).map_err(todo_revision_error)?;
+        }
+        if input.kind.trim()=="note" {
+            if let Some(project_id)=self.conn.query_row("SELECT project_id FROM notes WHERE id=?1",[input.id],|row|row.get(0)).optional()? {
+                agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget{scope:crate::agent::models::Scope::Project{project_id},record_id:input.id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
+            }
+        }
         match input.kind.trim() {
+            "workspace_record" => self.workspace_record_reference_resolve(input.id),
             "note" => self
                 .conn
                 .query_row(
@@ -5671,7 +5429,7 @@ impl Database {
                       t.scope,
                       t.project_id,
                       COALESCE(NULLIF(TRIM(t.content), ''), 'Todo')
-                    FROM todos t
+                    FROM agent_visible_todos t
                     WHERE t.id = ?1
                     "#,
                     [input.id],
@@ -5732,6 +5490,10 @@ impl Database {
                     )
                     .optional()?;
 
+                if let Some((id, _, _, _)) = &resolved {
+                    agent_file_undo::require_file_visible(&self.conn, *id)
+                        .map_err(|error| anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
+                }
                 Ok(resolved.map(|(id, project_id, name, managed_path_ref)| {
                     InternalReferenceResolveResult {
                         kind: "document".to_string(),
@@ -5787,6 +5549,8 @@ impl Database {
     }
 
     fn note_record(&self, note_id: i64) -> Result<NoteRecord> {
+        let project_id=self.conn.query_row("SELECT project_id FROM notes WHERE id=?1",[note_id],|row|row.get(0))?;
+        agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget {scope:crate::agent::models::Scope::Project{project_id},record_id:note_id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
         let tags = self.fetch_note_tags(note_id)?;
         let mut note = self.conn.query_row(
             r#"
@@ -5820,6 +5584,7 @@ impl Database {
     }
 
     fn workspace_note_record(&self, note_id: i64) -> Result<WorkspaceRecord> {
+        agent_record_withdrawals::require_record_visible(&self.conn,&crate::record_documents::RecordTarget {scope:crate::agent::models::Scope::Workspace,record_id:note_id}).map_err(|error|anyhow!(serde_json::to_string(&error).unwrap_or(error.message)))?;
         let tags = self.fetch_workspace_note_tags(note_id)?;
         let mut note = self.conn.query_row(
             r#"
@@ -5845,7 +5610,14 @@ impl Database {
         Ok(note)
     }
 
-    fn todo_progress_record(&self, progress_id: i64) -> Result<TodoProgressRecord> {
+    pub(super) fn todo_progress_record(&self, progress_id: i64) -> Result<TodoProgressRecord> {
+        let todo_id:i64 = self.conn.query_row("SELECT todo_id FROM todo_progresses WHERE id=?1", [progress_id], |row| row.get(0))?;
+        agent_todo_undo::require_todo_visible(&self.conn, todo_id).map_err(todo_revision_error)?;
+        self.todo_progress_record_unchecked(progress_id)
+    }
+    pub(super) fn todo_progress_record_unchecked(&self, progress_id: i64) -> Result<TodoProgressRecord> {
+        let todo_id:i64 = self.conn.query_row("SELECT todo_id FROM todo_progresses WHERE id=?1", [progress_id], |row| row.get(0))?;
+        let revision = todo_revisions::head(&self.conn, todo_id).map_err(todo_revision_error)?.revision;
         self.conn
             .query_row(
                 r#"
@@ -5855,6 +5627,7 @@ impl Database {
                 [progress_id],
                 |row| {
                     Ok(TodoProgressRecord {
+                        todo_revision: revision,
                         id: row.get(0)?,
                         todo_id: row.get(1)?,
                         content: row.get(2)?,
@@ -5870,7 +5643,12 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn todo_record(&self, todo_id: i64) -> Result<TodoRecord> {
+    pub(super) fn todo_record(&self, todo_id: i64) -> Result<TodoRecord> {
+        agent_todo_undo::require_todo_visible(&self.conn, todo_id).map_err(todo_revision_error)?;
+        self.todo_record_unchecked(todo_id)
+    }
+    pub(super) fn todo_record_unchecked(&self, todo_id: i64) -> Result<TodoRecord> {
+        let revision = todo_revisions::head(&self.conn, todo_id).map_err(todo_revision_error)?.revision;
         let base = self.conn.query_row(
             r#"
             SELECT
@@ -5900,9 +5678,10 @@ impl Database {
             "project" => TodoScope::Project,
             value => return Err(anyhow!("Unsupported todo scope: {value}")),
         };
-        let progresses = self.fetch_todo_progresses(todo_id)?;
+        let progresses = self.fetch_todo_progresses_unchecked(todo_id)?;
         let tags = self.fetch_todo_tags(todo_id)?;
         Ok(TodoRecord {
+            revision,
             id: base.0,
             scope,
             project_id: base.2,
@@ -6120,6 +5899,7 @@ impl Database {
         }
 
         Ok(ResolvedAiProfile {
+            network: self.resolve_ai_network()?,
             profile_name: profile.name,
             provider_family: profile.provider_family,
             base_url: profile.base_url,
@@ -6170,6 +5950,7 @@ impl Database {
             return Err(anyhow!("AI profile is unavailable"));
         }
         Ok(ResolvedAiProfile {
+            network: self.resolve_ai_network()?,
             profile_name: profile.name,
             provider_family: profile.provider_family,
             base_url: profile.base_url,
@@ -6182,7 +5963,7 @@ impl Database {
 
     fn fetch_project_notes(&self, project_id: i64) -> Result<Vec<NoteRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM notes WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
+            "SELECT id FROM agent_visible_notes WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt
             .query_map([project_id], |row| row.get::<_, i64>(0))?
@@ -6190,7 +5971,7 @@ impl Database {
         ids.into_iter().map(|id| self.note_record(id)).collect()
     }
 
-    fn fetch_todo_progresses(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
+    fn fetch_todo_progresses_unchecked(&self, todo_id: i64) -> Result<Vec<TodoProgressRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT id FROM todo_progresses WHERE todo_id = ?1 ORDER BY CASE status WHEN 'unfinished' THEN 0 ELSE 1 END ASC, order_index ASC, progress_date DESC, created_at DESC",
         )?;
@@ -6198,7 +5979,7 @@ impl Database {
             .query_map([todo_id], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.into_iter()
-            .map(|id| self.todo_progress_record(id))
+            .map(|id| self.todo_progress_record_unchecked(id))
             .collect()
     }
 
@@ -6312,7 +6093,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id
-            FROM documents
+            FROM agent_visible_files
             WHERE project_id = ?1
               AND storage_mode != ?2
             ORDER BY created_at DESC, id DESC
@@ -6324,7 +6105,18 @@ impl Database {
                 |row| row.get::<_, i64>(0),
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        ids.into_iter().map(|id| self.document_record(id)).collect()
+        let root = PathBuf::from(self.project_record(project_id)?.root_path);
+        let mut documents = Vec::new();
+        for id in ids {
+            let document = self.document_record(id)?;
+            if !project_directory_files::excluded_project_path(
+                &root,
+                Path::new(&document.managed_path),
+            )? {
+                documents.push(document);
+            }
+        }
+        Ok(documents)
     }
 
     fn rewrite_path_ref_prefix_if_within(
@@ -6423,7 +6215,7 @@ impl Database {
     }
 
     fn upsert_file_tag_by_label(
-        &mut self,
+        &self,
         project_id: Option<i64>,
         label: &str,
         color_key: &str,
@@ -6470,10 +6262,10 @@ impl Database {
                   f.created_at,
                   f.updated_at
                 FROM file_tag_options f
-                LEFT JOIN document_tag_links l ON l.tag_id = f.id
-                LEFT JOIN note_tag_links nl ON nl.tag_id = f.id
-                LEFT JOIN todo_tag_links tl ON tl.tag_id = f.id
-                LEFT JOIN workspace_note_tag_links wnl ON wnl.tag_id = f.id
+                LEFT JOIN document_tag_links l ON l.tag_id = f.id AND l.document_id IN (SELECT id FROM agent_visible_files)
+                LEFT JOIN note_tag_links nl ON nl.tag_id = f.id AND nl.note_id IN (SELECT id FROM agent_visible_notes)
+                LEFT JOIN todo_tag_links tl ON tl.tag_id = f.id AND tl.todo_id IN (SELECT id FROM agent_visible_todos)
+                LEFT JOIN workspace_note_tag_links wnl ON wnl.tag_id = f.id AND wnl.workspace_note_id IN (SELECT id FROM agent_visible_workspace_notes)
                 WHERE f.id = ?1
                 GROUP BY f.id, f.label, f.color_key, f.created_at, f.updated_at
                 "#,
@@ -6570,41 +6362,7 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn replace_document_tags(
-        &mut self,
-        document_id: i64,
-        tag_ids: &[i64],
-        timestamp: &str,
-    ) -> Result<()> {
-        let project_id = self.conn.query_row(
-            "SELECT project_id FROM documents WHERE id = ?1",
-            [document_id],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let normalized_tag_ids = normalize_file_tag_ids(tag_ids);
-        for &tag_id in &normalized_tag_ids {
-            self.scoped_file_tag_record(Some(project_id), tag_id)?;
-        }
-
-        self.conn.execute(
-            "DELETE FROM document_tag_links WHERE document_id = ?1",
-            params![document_id],
-        )?;
-
-        for tag_id in normalized_tag_ids {
-            self.conn.execute(
-                r#"
-                INSERT INTO document_tag_links (document_id, tag_id, created_at)
-                VALUES (?1, ?2, ?3)
-                "#,
-                params![document_id, tag_id, timestamp],
-            )?;
-        }
-
-        Ok(())
-    }
-
-    fn replace_note_tags(&mut self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
+    fn replace_note_tags(&self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
         let project_id = self.conn.query_row(
             "SELECT project_id FROM notes WHERE id = ?1",
             [note_id],
@@ -6634,7 +6392,7 @@ impl Database {
     }
 
     fn replace_workspace_note_tags(
-        &mut self,
+        &self,
         note_id: i64,
         tag_ids: &[i64],
         timestamp: &str,
@@ -6662,7 +6420,7 @@ impl Database {
         Ok(())
     }
 
-    fn replace_todo_tags(&mut self, todo_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
+    fn replace_todo_tags(&self, todo_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
         let project_id = self.conn.query_row(
             "SELECT project_id FROM todos WHERE id = ?1",
             [todo_id],
@@ -6681,7 +6439,7 @@ impl Database {
     }
 
     fn write_todo_tags(
-        &mut self,
+        &self,
         todo_id: i64,
         normalized_tag_ids: &[i64],
         timestamp: &str,
@@ -6706,9 +6464,9 @@ impl Database {
 
     fn fetch_project_todos(&self, project_id: i64, finished: bool) -> Result<Vec<TodoRecord>> {
         let query = if finished {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'finished' ORDER BY created_at DESC, id DESC"
+            "SELECT id FROM agent_visible_todos WHERE project_id = ?1 AND status = 'finished' ORDER BY created_at DESC, id DESC"
         } else {
-            "SELECT id FROM todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY created_at DESC, id DESC"
+            "SELECT id FROM agent_visible_todos WHERE project_id = ?1 AND status = 'unfinished' ORDER BY created_at DESC, id DESC"
         };
         let mut stmt = self.conn.prepare(query)?;
         let ids = stmt
@@ -6742,13 +6500,6 @@ impl Database {
 
     fn ensure_project_file_layout(&mut self, _project_id: i64) -> Result<()> {
         self.backfill_file_layout_metadata()
-    }
-
-    fn document_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
-        let project = self.project_record(project_id)?;
-        let project_root = PathBuf::from(&project.root_path);
-        fs::create_dir_all(&project_root)?;
-        Ok(project_root)
     }
 
     fn note_image_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
@@ -6889,236 +6640,11 @@ impl Database {
         })
     }
 
-    fn materialize_file_for_target(
-        &self,
-        project_root: &Path,
-        source: &Path,
-        target_path: &Path,
-    ) -> Result<String> {
-        if source == target_path {
-            return Ok("managed_existing".to_string());
-        }
-
-        if target_path.exists() {
-            return Err(anyhow!(
-                "target file already exists at {}",
-                target_path.display()
-            ));
-        }
-
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        if path_is_within(source, project_root) {
-            fs::rename(source, target_path).with_context(|| {
-                format!(
-                    "failed to move file from {} to {}",
-                    source.display(),
-                    target_path.display()
-                )
-            })?;
-            Ok("managed_move".to_string())
-        } else {
-            fs::copy(source, target_path).with_context(|| {
-                format!(
-                    "failed to copy file from {} to {}",
-                    source.display(),
-                    target_path.display()
-                )
-            })?;
-            Ok("managed_copy".to_string())
-        }
-    }
-
     fn history_dir_path_for(&self, managed_path: &Path, document_id: i64) -> PathBuf {
         managed_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(format!(".{}.pm-versions", document_id))
-    }
-
-    fn move_document_storage(
-        &mut self,
-        document: &DocumentRecord,
-        next_base_name: &str,
-    ) -> Result<()> {
-        struct VersionStoragePlan {
-            version_id: i64,
-            source_path: PathBuf,
-            temp_path: Option<PathBuf>,
-            final_name: String,
-            final_path: PathBuf,
-            final_path_ref: String,
-        }
-
-        let target_dir = self.document_target_dir(document.project_id)?;
-        self.ensure_document_name_available(
-            document.project_id,
-            next_base_name,
-            Some(document.id),
-        )?;
-
-        let history_dir = PathBuf::from(&document.history_dir_path);
-        let next_current_name =
-            versioned_file_name(next_base_name, document.current_version_number);
-        let next_current_path = target_dir.join(&next_current_name);
-        let next_history_dir = self.history_dir_path_for(&next_current_path, document.id);
-        let versions = self.fetch_document_versions(document.id)?;
-        let known_paths = versions
-            .iter()
-            .map(|version| PathBuf::from(&version.managed_path))
-            .collect::<HashSet<_>>();
-
-        if next_history_dir.exists() && next_history_dir != history_dir {
-            return Err(anyhow!(
-                "target history folder already exists at {}",
-                next_history_dir.display()
-            ));
-        }
-
-        if let Some(parent) = next_current_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let needs_history_dir = versions
-            .iter()
-            .any(|version| version.version_number != document.current_version_number);
-        if needs_history_dir {
-            fs::create_dir_all(&next_history_dir)?;
-        }
-
-        let mut plans = Vec::with_capacity(versions.len());
-        for version in versions {
-            let source_path = PathBuf::from(&version.managed_path);
-            let final_name = versioned_file_name(next_base_name, version.version_number);
-            let final_path = if version.version_number == document.current_version_number {
-                next_current_path.clone()
-            } else {
-                next_history_dir.join(&final_name)
-            };
-
-            if final_path.exists() && !known_paths.contains(&final_path) {
-                return Err(anyhow!(
-                    "target file already exists at {}",
-                    final_path.display()
-                ));
-            }
-
-            let temp_path = if source_path.exists() && source_path != final_path {
-                let temp_name =
-                    format!(".{}.pm-rename-{}.tmp", document.id, version.version_number);
-                let candidate = source_path.with_file_name(temp_name);
-                if candidate.exists() {
-                    return Err(anyhow!(
-                        "temporary rename path already exists at {}",
-                        candidate.display()
-                    ));
-                }
-                Some(candidate)
-            } else {
-                None
-            };
-
-            plans.push(VersionStoragePlan {
-                version_id: version.id,
-                source_path,
-                temp_path,
-                final_name,
-                final_path: final_path.clone(),
-                final_path_ref: self.encode_path_ref(&final_path),
-            });
-        }
-
-        let next_current_path_ref = self.encode_path_ref(&next_current_path);
-        let next_history_dir_ref = self.encode_path_ref(&next_history_dir);
-
-        let rollback_file_moves = |plans: &[VersionStoragePlan], finalized_count: usize| {
-            for plan in plans.iter().take(finalized_count).rev() {
-                if plan.final_path.exists() && plan.final_path != plan.source_path {
-                    let _ = fs::rename(&plan.final_path, &plan.source_path);
-                }
-            }
-            for plan in plans.iter().skip(finalized_count) {
-                if let Some(temp_path) = &plan.temp_path {
-                    if temp_path.exists() {
-                        let _ = fs::rename(temp_path, &plan.source_path);
-                    }
-                }
-            }
-        };
-
-        for plan in &plans {
-            if let Some(temp_path) = &plan.temp_path {
-                fs::rename(&plan.source_path, temp_path).with_context(|| {
-                    format!(
-                        "failed to prepare file rename from {} to {}",
-                        plan.source_path.display(),
-                        temp_path.display()
-                    )
-                })?;
-            }
-        }
-
-        let mut finalized_count = 0usize;
-        for plan in &plans {
-            if let Some(temp_path) = &plan.temp_path {
-                if let Some(parent) = plan.final_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                if let Err(error) = fs::rename(temp_path, &plan.final_path).with_context(|| {
-                    format!(
-                        "failed to move renamed file from {} to {}",
-                        temp_path.display(),
-                        plan.final_path.display()
-                    )
-                }) {
-                    rollback_file_moves(&plans, finalized_count);
-                    return Err(error);
-                }
-                finalized_count += 1;
-            }
-        }
-
-        let tx = match self.conn.transaction() {
-            Ok(tx) => tx,
-            Err(error) => {
-                rollback_file_moves(&plans, finalized_count);
-                return Err(error.into());
-            }
-        };
-
-        let update_result: Result<()> = (|| {
-            tx.execute(
-                "UPDATE documents SET name = ?1, managed_path = ?2, history_dir_path = ?3 WHERE id = ?4",
-                params![
-                    next_current_name,
-                    next_current_path_ref,
-                    next_history_dir_ref,
-                    document.id
-                ],
-            )?;
-
-            for plan in &plans {
-                tx.execute(
-                    "UPDATE document_versions SET name = ?1, managed_path = ?2 WHERE id = ?3",
-                    params![plan.final_name, plan.final_path_ref, plan.version_id],
-                )?;
-            }
-
-            tx.commit()?;
-            Ok(())
-        })();
-
-        if let Err(error) = update_result {
-            rollback_file_moves(&plans, finalized_count);
-            return Err(error);
-        }
-
-        if history_dir != next_history_dir && history_dir.exists() {
-            let _ = fs::remove_dir(&history_dir);
-        }
-
-        Ok(())
     }
 
     fn refresh_document_health(&mut self, project_id: i64) -> Result<()> {
@@ -7635,7 +7161,7 @@ impl Database {
             r#"
             SELECT DISTINCT f.id, f.label, f.color_key, d.project_id
             FROM file_tag_options f
-            LEFT JOIN document_tag_links l ON l.tag_id = f.id
+            LEFT JOIN document_tag_links l ON l.tag_id = f.id AND l.document_id IN (SELECT id FROM agent_visible_files)
             LEFT JOIN documents d ON d.id = l.document_id
             WHERE f.project_id IS NULL
             "#,
@@ -8458,7 +7984,7 @@ fn normalize_internal_reference_label(kind: &str, value: &str) -> String {
     let normalized =
         normalize_internal_reference_match_text(&strip_internal_reference_label_tokens(value));
     let fallback = match kind {
-        "note" => "记录",
+        "note" | "workspace_record" => "记录",
         "todo" => "Todo",
         "document" => "文件",
         _ => "未命名引用",
@@ -8537,6 +8063,7 @@ fn parse_internal_reference_search_query(raw: &str) -> ParsedInternalReferenceSe
     let normalized_prefix = prefix.trim().to_ascii_lowercase();
     let kind_filter = match normalized_prefix.as_str() {
         "note" => Some(InternalReferenceFilterKind::Note),
+        "workspace_record" => Some(InternalReferenceFilterKind::WorkspaceRecord),
         "todo" => Some(InternalReferenceFilterKind::Todo),
         "doc" | "document" => Some(InternalReferenceFilterKind::Document),
         _ => None,
@@ -8573,7 +8100,7 @@ fn parse_internal_reference_tokens(content: &str) -> Vec<(String, i64)> {
         let Some((kind, id)) = target.split_once(':') else {
             continue;
         };
-        if matches!(kind, "note" | "todo" | "document") {
+        if matches!(kind, "note" | "workspace_record" | "todo" | "document") {
             if let Ok(id) = id.parse::<i64>() {
                 references.push((kind.to_string(), id));
             }
@@ -8581,6 +8108,10 @@ fn parse_internal_reference_tokens(content: &str) -> Vec<(String, i64)> {
     }
 
     references
+}
+
+fn todo_revision_error(error: crate::agent::errors::AgentError) -> anyhow::Error {
+    anyhow!(serde_json::to_string(&error).expect("AgentError is JSON serializable"))
 }
 
 fn todo_scope_from_sql(value: String, column_index: usize) -> rusqlite::Result<TodoScope> {
@@ -9430,21 +8961,6 @@ fn remove_path_if_exists(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn collect_document_managed_assets_for_delete(document: &DocumentRecord) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let managed_path = PathBuf::from(&document.managed_path);
-    if managed_path.exists() {
-        paths.push(managed_path);
-    }
-
-    let history_dir = PathBuf::from(&document.history_dir_path);
-    if history_dir.exists() {
-        paths.push(history_dir);
-    }
-
-    paths
-}
-
 fn move_paths_to_trash(paths: &[PathBuf]) -> Result<()> {
     if paths.is_empty() {
         return Ok(());
@@ -9541,16 +9057,11 @@ fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-fn path_is_within(path: &Path, root: &Path) -> bool {
-    match (path.canonicalize(), root.canonicalize()) {
-        (Ok(path), Ok(root)) => path.starts_with(root),
-        _ => path.starts_with(root),
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{DocumentAddVersionInput, DocumentDeleteInput, DocumentUpdateMetaInput};
     use std::{
         fs,
         sync::atomic::{AtomicU64, Ordering},
@@ -9568,7 +9079,7 @@ mod tests {
                 priority: "not_urgent_important".to_string(), due_date: None, tag_ids: vec![],
             }).unwrap();
             for status in ["unfinished", "finished", "unfinished"] {
-                db.todo_update_status(TodoUpdateStatusInput { todo_id: todo.id, status: status.to_string() }).unwrap();
+                db.todo_update_status(TodoUpdateStatusInput { expected_revision: db.todo_record(todo.id).unwrap().revision, todo_id: todo.id, status: status.to_string() }).unwrap();
                 for search_scope in ["workspace", "project"] {
                     for query in ["", "推荐状态", "todo:推荐状态"] {
                         let hits = db.internal_reference_search(InternalReferenceSearchInput {
@@ -9650,6 +9161,42 @@ mod tests {
             .as_nanos();
         let counter = TEST_UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{timestamp}-{counter}")
+    }
+
+    /// A historical fixture must remove newly published storage before it
+    /// declares an old version; production migrations retain strict CREATE.
+    fn remove_later_agent_schema_fixture(database: &Database) {
+        super::agent_memory_schema::remove_agent_memory_schema_fixture(database);
+        database.conn.execute_batch(r#"
+DROP TABLE agent_run_source_dependencies;
+DROP TABLE agent_run_provenance;
+DROP TABLE agent_session_scan_state;
+DROP INDEX agent_session_search_rows_session;
+DROP TRIGGER agent_session_search_row_delete;
+DROP TABLE agent_session_search_rows;
+DROP TABLE agent_session_search_fts;
+DROP VIEW agent_visible_files;
+DROP VIEW agent_visible_todos;
+DROP TABLE todo_revision_heads;
+DROP TABLE todo_revision_snapshots;
+DROP INDEX agent_todo_output_dedupe;
+ALTER TABLE agent_outputs DROP COLUMN dedupe_key;
+DROP VIEW agent_visible_notes;
+DROP VIEW agent_visible_workspace_notes;
+DROP TABLE agent_object_withdrawals;
+DROP INDEX idx_agent_receipt_operation_id;
+DROP INDEX idx_agent_receipts_run;
+ALTER TABLE agent_operation_receipts DROP COLUMN operation_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN run_id;
+ALTER TABLE agent_operation_receipts DROP COLUMN target_ref_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_revision;
+ALTER TABLE agent_operation_receipts DROP COLUMN before_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN after_snapshot_ref;
+ALTER TABLE agent_operation_receipts DROP COLUMN output_context_json;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_state;
+ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
+"#).unwrap();
     }
 
     fn setup_database() -> (TestHarness, Database) {
@@ -10145,6 +9692,7 @@ mod tests {
         let (harness, database) = setup_database();
         enable_legacy_domain_fixture_schema(&database);
         let db_path = harness.root.join("app.sqlite3");
+        remove_later_agent_schema_fixture(&database);
         database
             .conn
             .execute_batch(
@@ -10208,6 +9756,7 @@ mod tests {
                 params![stale_html, project.id],
             )
             .unwrap();
+        remove_later_agent_schema_fixture(&database);
         database.set_schema_version(19).unwrap();
         drop(database);
 
@@ -10271,6 +9820,7 @@ mod tests {
                 params![stale_html, note.id],
             )
             .unwrap();
+        remove_later_agent_schema_fixture(&database);
         database.set_schema_version(19).unwrap();
         drop(database);
 
@@ -10810,7 +10360,7 @@ mod tests {
         assert_eq!(created.tags[0].id, workspace_tag.id);
 
         let updated = database
-            .todo_update_content(TodoUpdateContentInput {
+            .todo_update_content(TodoUpdateContentInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 content: "完成跨项目复盘模板".to_string(),
                 due_date: Some("2026-08-05".to_string()),
@@ -10821,7 +10371,7 @@ mod tests {
         assert_eq!(updated.due_date.as_deref(), Some("2026-08-05"));
 
         let prioritized = database
-            .todo_update_priority(TodoUpdatePriorityInput {
+            .todo_update_priority(TodoUpdatePriorityInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 priority: "urgent_important".to_string(),
             })
@@ -10829,7 +10379,7 @@ mod tests {
         assert_eq!(prioritized.priority, "urgent_important");
 
         let subtask = database
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 content: "整理访谈材料".to_string(),
                 progress_date: "2026-07-30".to_string(),
@@ -10837,7 +10387,7 @@ mod tests {
             })
             .unwrap();
         database
-            .todo_update_progress(TodoUpdateProgressInput {
+            .todo_update_progress(TodoUpdateProgressInput { expected_revision: database.todo_progress_record(subtask.id).unwrap().todo_revision,
                 progress_id: subtask.id,
                 content: subtask.content,
                 progress_date: subtask.progress_date,
@@ -10847,7 +10397,7 @@ mod tests {
             .unwrap();
 
         let finished = database
-            .todo_update_status(TodoUpdateStatusInput {
+            .todo_update_status(TodoUpdateStatusInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
                 status: "finished".to_string(),
             })
@@ -10860,7 +10410,7 @@ mod tests {
         assert_eq!(page.finished_todos[0].id, created.id);
 
         database
-            .todo_delete(TodoDeleteInput {
+            .todo_delete(TodoDeleteInput { expected_revision: database.todo_record(created.id).unwrap().revision,
                 todo_id: created.id,
             })
             .unwrap();
@@ -10916,7 +10466,7 @@ mod tests {
             })
             .unwrap();
 
-        let update_result = database.todo_update_content(TodoUpdateContentInput {
+        let update_result = database.todo_update_content(TodoUpdateContentInput { expected_revision: database.todo_record(todo.id).unwrap().revision,
             todo_id: todo.id,
             content: "不应保存的修改".to_string(),
             due_date: Some("2026-08-10".to_string()),
@@ -10993,7 +10543,7 @@ mod tests {
         assert_ne!(todo.created_at.get(..10), todo.due_date.as_deref());
 
         let progress = database
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: database.todo_record(todo.id).unwrap().revision,
                 todo_id: todo.id,
                 content: "确认附件".to_string(),
                 progress_date: "2026-07-14".to_string(),
@@ -11563,7 +11113,7 @@ mod tests {
             .contains("Workspace Todo 不能新增指向已归档 Project 的引用"));
 
         let preserved = database
-            .todo_update_content(TodoUpdateContentInput {
+            .todo_update_content(TodoUpdateContentInput { expected_revision: database.todo_record(workspace_with_reference.id).unwrap().revision,
                 todo_id: workspace_with_reference.id,
                 content: format!("{} 继续跟进", other_project_reference),
                 due_date: None,
@@ -11813,7 +11363,7 @@ mod tests {
             })
             .unwrap();
         database
-            .todo_add_progress(TodoAddProgressInput {
+            .todo_add_progress(TodoAddProgressInput { expected_revision: database.todo_record(project_todo.id).unwrap().revision,
                 todo_id: project_todo.id,
                 content: "Current 独有 Subtask".to_string(),
                 progress_date: "2026-07-30".to_string(),
@@ -13070,6 +12620,7 @@ mod tests {
             )
             .unwrap();
         let legacy_conclusion_id = database.conn.last_insert_rowid();
+        remove_later_agent_schema_fixture(&database);
         database
             .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
             .unwrap();
@@ -13225,6 +12776,7 @@ mod tests {
             )
             .unwrap();
         let legacy_activity_id = database.conn.last_insert_rowid();
+        remove_later_agent_schema_fixture(&database);
         database
             .set_schema_version(RICH_TEXT_RELATIVE_ASSET_PATH_SCHEMA_VERSION)
             .unwrap();
@@ -13281,6 +12833,7 @@ mod tests {
                 params![project.id, "2025-03-04T05:06:07.000Z"],
             )
             .unwrap();
+        remove_later_agent_schema_fixture(&database);
         database
             .conn
             .execute_batch(
@@ -14015,3 +13568,7 @@ fn nullable_trimmed(value: Option<&str>) -> Option<String> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
 }
+
+#[cfg(test)]
+#[path = "db/todo_gui_revision_tests.rs"]
+mod todo_gui_revision_tests;

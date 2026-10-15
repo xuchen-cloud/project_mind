@@ -4,6 +4,7 @@ import {
   buildInternalReferenceTarget,
   buildInternalReferenceToken,
   getInternalReferenceKindLabel,
+  parseInternalReferenceSourceRef,
 } from "../../../lib/internalReferences";
 
 declare module "@tiptap/core" {
@@ -35,6 +36,15 @@ export const InternalReference = Node.create({
         parseHTML: (element: HTMLElement) => element.getAttribute("data-ref-id"),
         renderHTML: (attributes: Record<string, unknown>) =>
           attributes.refId ? { "data-ref-id": attributes.refId } : {},
+      },
+      sourceRef: {
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const json = element.getAttribute("data-source-ref");
+          return json === null ? null : parseInternalReferenceSourceRef(json);
+        },
+        renderHTML: (attributes: Record<string, unknown>) => attributes.sourceRef
+          ? { "data-source-ref": JSON.stringify(attributes.sourceRef) } : {},
       },
       label: {
         default: "未命名引用",
@@ -70,6 +80,7 @@ export const InternalReference = Node.create({
         "data-ref-kind": reference.refKind,
         "data-ref-id": reference.refId,
         "data-label": reference.label,
+        ...(HTMLAttributes["data-source-ref"] ? { "data-source-ref": HTMLAttributes["data-source-ref"] } : {}),
         class: "internal-reference-chip",
         role: "link",
         "aria-label": `${getInternalReferenceKindLabel(reference.refKind)} ${reference.label}`,
@@ -106,7 +117,7 @@ export const InternalReference = Node.create({
 });
 
 function asKind(value: unknown) {
-  return value === "todo" || value === "document" ? value : "note";
+  return value === "todo" || value === "document" || value === "workspace_record" ? value : "note";
 }
 
 function asId(value: unknown) {

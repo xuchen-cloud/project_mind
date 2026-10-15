@@ -2,8 +2,8 @@ import { useRef, type ReactNode } from "react";
 import { HomeCover, HomeIdentityIcon, ProjectHomeIcon } from "./HomeCover";
 import { useHomeHeadingMotion } from "./useHomeHeadingMotion";
 
-export function HomeRecordHeader({ identityKey, scopeName, title, projectRoot, onOpenHome, children }: {
-  identityKey: string; scopeName: string; title: string; projectRoot?: string; onOpenHome: () => void; children: ReactNode;
+export function HomeRecordHeader({ identityKey, scopeName, title, projectRoot, showCover = true, onOpenHome, children }: {
+  identityKey: string; scopeName: string; title: string; projectRoot?: string; showCover?: boolean; onOpenHome: () => void; children: ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
   const visible = useHomeHeadingMotion(ref, identityKey, title || "未命名记录");
@@ -13,8 +13,9 @@ export function HomeRecordHeader({ identityKey, scopeName, title, projectRoot, o
     <span>{scopeName}</span>
   </button>;
   return <>
-    <HomeCover identityKey={identityKey} defaultIcon={projectRoot ? "Compass" : "House"}
+    {showCover ? <HomeCover identityKey={identityKey} defaultIcon={projectRoot ? "Compass" : "House"}
       title={<div className="home-record-heading">{scopeLink()}{children}</div>} />
+      : <header className="home-record-header"><div className="home-record-heading">{scopeLink()}{children}</div></header>}
     <section ref={ref} className="home-quick-note home-record-dock" data-page-heading="true" data-title-visible={visible || undefined} aria-label="笔记标题">
       <div className="home-quick-note__page-heading" aria-hidden={!visible}>
         {scopeLink(true)}

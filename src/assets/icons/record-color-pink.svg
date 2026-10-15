@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" fill="none">
+  <title>Record · Pink</title>
+  <!-- Original minimal notebook: continuous spine, two record lines, no binding dots. -->
+  <rect x="3" y="1" width="22" height="26" rx="4" fill="#FB7299"/>
+  <path d="M8 1V27" stroke="#FFF" stroke-opacity=".45" stroke-width="1.6"/>
+  <path d="M12.5 10.2H20.2M12.5 16.3H18.2" stroke="#FFF" stroke-width="2.1" stroke-linecap="round"/>
+</svg>

@@ -18,6 +18,18 @@ afterEach(async () => {
 });
 
 describe("Record Export use case", () => {
+  it("keeps Workspace and Project reference labels readable in a portable export", async () => {
+    const directory=await mkdtemp(join(tmpdir(),"project-mind-workspace-ref-export-"));
+    tempDirectories.push(directory);
+    const targetPath=join(directory,"refs.md");
+    const source:RecordExportSource={...representativeSource,recordKind:"workspace",projectName:null,committedHtml:'<p><span data-type="internal-reference" data-ref-kind="note" data-ref-id="42" data-label="项目资料">项目资料</span> 和 <span data-type="internal-reference" data-ref-kind="workspace_record" data-ref-id="42" data-label="个人方法">个人方法</span></p>'};
+    const coordinator=createRecordExportCoordinator(createFilesystemPlatform(async()=>source));
+    await coordinator.export({format:"markdown",includeImages:false,targetPath});
+    const markdown=await readFile(targetPath,"utf8");
+    expect(markdown).toContain("项目资料 和 个人方法");
+    expect(markdown).not.toContain("/projects/");
+    expect(markdown).not.toContain("/workspace/");
+  });
   it("exports saved Committed Content as portable GFM without private editor data", async () => {
     const directory = await mkdtemp(join(tmpdir(), "project-mind-record-export-"));
     tempDirectories.push(directory);

@@ -5013,122 +5013,9 @@ textarea {
   display: none;
 }
 
-.workspace-topbar__tab,
-.workspace-topbar__tab-trigger,
-.workspace-topbar__tab-close,
 .workspace-topbar__search-toggle,
 .workspace-topbar__search label,
-.workspace-topbar__search [role="option"] {
-  transition: none;
-}
-
-.workspace-topbar__tablist {
-  overflow-x: clip;
-  overflow-y: hidden;
-}
-
-.workspace-topbar__tab {
-  min-width: 0;
-  flex: 1 1 8.5rem;
-  max-width: 10.5rem;
-  overflow: hidden;
-  container-type: inline-size;
-  container-name: workspace-topbar-tab;
-}
-
-.workspace-topbar__tab-trigger {
-  min-width: 0;
-  text-align: left;
-  column-gap: 6px;
-}
-
-.workspace-topbar__tab-icon {
-  display: inline-flex;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 20px;
-  align-items: center;
-  justify-content: center;
-}
-
-.workspace-topbar__tab-icon svg {
-  display: block;
-}
-
-.workspace-topbar__tab-label {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: clip;
-  -webkit-mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 calc(100% - 1.15rem),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 calc(100% - 1.15rem),
-    transparent 100%
-  );
-}
-
-.workspace-topbar__tab--active .workspace-topbar__tab-label {
-  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.8rem), transparent 100%);
-  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.8rem), transparent 100%);
-}
-
-.workspace-topbar__tab-close {
-  margin: 0;
-  padding: 0;
-  display: inline-flex;
-  opacity: 0.55;
-}
-
-.workspace-topbar__tab-close--persistent {
-  opacity: 0.72;
-}
-
-.workspace-topbar__tab--workspace {
-  flex: 0 0 36px;
-  width:36px; max-width:36px; justify-content:center;
-}
-
-.workspace-topbar__tablist::-webkit-scrollbar {
-  display: none;
-}
-
-@container workspace-topbar-tab (max-width: 6.75rem) {
-  .workspace-topbar__tab-label {
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.95rem), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.95rem), transparent 100%);
-  }
-
-  .workspace-topbar__tab-close:not(.workspace-topbar__tab-close--persistent) {
-    display: none;
-    opacity: 0;
-  }
-
-  .workspace-topbar__tab:hover .workspace-topbar__tab-close:not(.workspace-topbar__tab-close--persistent),
-.workspace-topbar__tab:focus-within .workspace-topbar__tab-close:not(.workspace-topbar__tab-close--persistent) {
-    display: inline-flex;
-    opacity: 0.72;
-  }
-}
-
-@container workspace-topbar-tab (max-width: 5.4rem) {
-  .workspace-topbar__tab-label {
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.7rem), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.7rem), transparent 100%);
-  }
-
-  .workspace-topbar__tab--active .workspace-topbar__tab-label {
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.55rem), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 0.55rem), transparent 100%);
-  }
-}
+.workspace-topbar__search [role="option"] { transition: none; }
 
 @media (max-width: 1180px) {
   .workspace-topbar__search {
@@ -5158,15 +5045,6 @@ textarea {
     gap: 0.35rem;
   }
 
-  .workspace-topbar__tab {
-    flex-basis: 6rem;
-    max-width: 7.5rem;
-  }
-
-  .workspace-topbar__tab--workspace {
-    flex-basis:36px;
-    max-width:36px;
-  }
 }
 
 /* Homepage palette: intentionally scoped by home components. */
@@ -5255,3 +5133,13 @@ input:is([type="search"],[placeholder*="搜索"],[aria-label*="搜索"]):is(:foc
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
+
+/* The assistant shares the content row; expansion retains the mounted page. */
+.workspace-content-shell { display:flex; min-width:0; min-height:0; flex:1; overflow:hidden; }
+.workspace-content-main { min-width:0; min-height:0; flex:1 1 0%; overflow:hidden; transition:flex-basis var(--duration-standard) var(--ease-soft),flex-grow var(--duration-standard) var(--ease-soft); }
+.workspace-content-shell--expanded .workspace-content-main { flex:0 1 0%; visibility:hidden; }
+.workspace-content-shell--expanded .agent-workspace-panel { flex:1 1 100%; border-left:0; }
+@media (max-width:900px) {
+  .workspace-content-shell--agent .workspace-content-main { flex:0 1 0%; visibility:hidden; }
+}
+@media (prefers-reduced-motion:reduce) { .workspace-content-main { transition:none; } }

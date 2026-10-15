@@ -22,7 +22,20 @@ import {
   buildProjectNoteImageAssetHandlers,
   buildWorkspaceNoteImageAssetHandlers,
   externalizeEmbeddedImageDataUrls,
+  materializeEmbeddedRecordImages,
 } from "./noteImageAssets";
+
+it("materializes embedded Record images while retaining block identity and annotation metadata", async () => {
+  const document = { type: "doc", content: [{ type: "image", attrs: {
+    blockId: "a".repeat(32), src: "data:image/png;base64,aGVsbG8=", alt: "Screenshot", annotationState: "retained-annotations",
+  } }] };
+  const insertPastedImage = vi.fn(async () => ({ kind: "image" as const, title: "Screenshot", path: "/workspace/assets/clip.png", mimeType: "image/png", documentId: 31 }));
+  await materializeEmbeddedRecordImages(document, { insertPastedImage });
+  expect(insertPastedImage).toHaveBeenCalledTimes(1);
+  expect(document.content[0].attrs).toMatchObject({ blockId: "a".repeat(32), path: "/workspace/assets/clip.png", documentId: 31, annotationState: "retained-annotations" });
+  await materializeEmbeddedRecordImages(document, { insertPastedImage });
+  expect(insertPastedImage).toHaveBeenCalledTimes(1);
+});
 
 describe("buildProjectNoteImageAssetHandlers", () => {
   beforeEach(() => {

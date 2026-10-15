@@ -1,0 +1,3373 @@
+{
+  "strict_results_unchanged": true,
+  "semantic_runs": [
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "noop",
+      "strict_status_retained": "limited",
+      "strict_assertions_retained": 70,
+      "strict_failed_assertions_retained": 4,
+      "supported_semantics_status": "passed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [],
+      "confirmed_content_or_calculation_failures": [],
+      "strict_difference_classification": [
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    },
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "edited",
+      "strict_status_retained": "limited",
+      "strict_assertions_retained": 70,
+      "strict_failed_assertions_retained": 4,
+      "supported_semantics_status": "passed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [],
+      "confirmed_content_or_calculation_failures": [],
+      "strict_difference_classification": [
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    },
+    {
+      "kind": "simple",
+      "family": "aggregate",
+      "branch": "noop",
+      "strict_status_retained": "limited",
+      "strict_assertions_retained": 70,
+      "strict_failed_assertions_retained": 4,
+      "supported_semantics_status": "passed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [],
+      "confirmed_content_or_calculation_failures": [],
+      "strict_difference_classification": [
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "noop",
+      "strict_status_retained": "failed",
+      "strict_assertions_retained": 84,
+      "strict_failed_assertions_retained": 7,
+      "supported_semantics_status": "passed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [
+        {
+          "sheet": "明细",
+          "index": 0,
+          "edited_dependencies": false,
+          "status": "passed",
+          "properties": [
+            {
+              "name": "type",
+              "passed": true
+            },
+            {
+              "name": "barDir",
+              "passed": true
+            },
+            {
+              "name": "grouping",
+              "passed": true
+            },
+            {
+              "name": "gapWidth",
+              "passed": true
+            },
+            {
+              "name": "titles",
+              "passed": true
+            },
+            {
+              "name": "references",
+              "passed": true
+            },
+            {
+              "name": "axes",
+              "passed": true
+            },
+            {
+              "name": "anchor",
+              "passed": true
+            },
+            {
+              "name": "series_order",
+              "passed": true
+            }
+          ],
+          "cache_checks": [
+            {
+              "reference": "'明细'!$B$2",
+              "expected": [
+                "金额"
+              ],
+              "actual": [
+                "金额"
+              ],
+              "passed": true
+            },
+            {
+              "reference": "'明细'!$A$3:$A$4",
+              "expected": [
+                "苹果",
+                "梨子"
+              ],
+              "actual": [
+                "苹果",
+                "梨子"
+              ],
+              "passed": true
+            },
+            {
+              "reference": "'明细'!$B$3:$B$4",
+              "expected": [
+                10,
+                20
+              ],
+              "actual": [
+                10.0,
+                20.0
+              ],
+              "passed": true
+            }
+          ],
+          "signatures": {
+            "original": {
+              "type": "BarChart",
+              "barDir": "col",
+              "grouping": "clustered",
+              "gapWidth": 150.0,
+              "titles": [
+                "未编辑金额图",
+                "品名",
+                "金额"
+              ],
+              "references": [
+                "'明细'!B2",
+                "'明细'!A3:A4",
+                "'明细'!B3:B4"
+              ],
+              "axes": [
+                {
+                  "tag": "catAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "品名",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "lblOffset",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "valAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "majorGridlines",
+                      "attrs": {},
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "金额",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ],
+              "anchor": {
+                "tag": "oneCellAnchor",
+                "attrs": {},
+                "text": "",
+                "children": [
+                  {
+                    "tag": "from",
+                    "attrs": {},
+                    "text": "",
+                    "children": [
+                      {
+                        "tag": "col",
+                        "attrs": {},
+                        "text": "4",
+                        "children": []
+                      },
+                      {
+                        "tag": "colOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      },
+                      {
+                        "tag": "row",
+                        "attrs": {},
+                        "text": "1",
+                        "children": []
+                      },
+                      {
+                        "tag": "rowOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "ext",
+                    "attrs": {
+                      "cx": "5400000",
+                      "cy": "2700000"
+                    },
+                    "text": "",
+                    "children": []
+                  },
+                  {
+                    "tag": "clientData",
+                    "attrs": {},
+                    "text": "",
+                    "children": []
+                  }
+                ]
+              },
+              "series_order": [
+                [
+                  0,
+                  0
+                ]
+              ]
+            },
+            "output": {
+              "type": "BarChart",
+              "barDir": "col",
+              "grouping": "clustered",
+              "gapWidth": 150.0,
+              "titles": [
+                "未编辑金额图",
+                "品名",
+                "金额"
+              ],
+              "references": [
+                "'明细'!B2",
+                "'明细'!A3:A4",
+                "'明细'!B3:B4"
+              ],
+              "axes": [
+                {
+                  "tag": "catAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "品名",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "lblOffset",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "valAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "majorGridlines",
+                      "attrs": {},
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "金额",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ],
+              "anchor": {
+                "tag": "oneCellAnchor",
+                "attrs": {},
+                "text": "",
+                "children": [
+                  {
+                    "tag": "from",
+                    "attrs": {},
+                    "text": "",
+                    "children": [
+                      {
+                        "tag": "col",
+                        "attrs": {},
+                        "text": "4",
+                        "children": []
+                      },
+                      {
+                        "tag": "colOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      },
+                      {
+                        "tag": "row",
+                        "attrs": {},
+                        "text": "1",
+                        "children": []
+                      },
+                      {
+                        "tag": "rowOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "ext",
+                    "attrs": {
+                      "cx": "5400000",
+                      "cy": "2700000"
+                    },
+                    "text": "",
+                    "children": []
+                  },
+                  {
+                    "tag": "clientData",
+                    "attrs": {},
+                    "text": "",
+                    "children": []
+                  }
+                ]
+              },
+              "series_order": [
+                [
+                  0,
+                  0
+                ]
+              ]
+            }
+          },
+          "classification": "source references unchanged; text categories represented as strRef and caches generated from current sheet data",
+          "unproven": [
+            "native application rendering and layout",
+            "pixel appearance and label overlap",
+            "behavior in Web SDK after createUnit/save",
+            "uncovered chart families and features"
+          ]
+        }
+      ],
+      "confirmed_content_or_calculation_failures": [],
+      "strict_difference_classification": [
+        {
+          "name": "明细.conditional_formatting",
+          "classification": "scalar numeric literal 12 to 12.0; rule, range and differential fill preserved"
+        },
+        {
+          "name": "明细.data_validation",
+          "classification": "default errorStyle stop materialized; range/list/error messages preserved"
+        },
+        {
+          "name": "明细.charts",
+          "classification": "absolute reference spelling, text category reference type and caches regenerated; see independent chart checks"
+        },
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "edited",
+      "strict_status_retained": "failed",
+      "strict_assertions_retained": 84,
+      "strict_failed_assertions_retained": 7,
+      "supported_semantics_status": "passed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [
+        {
+          "sheet": "明细",
+          "index": 0,
+          "edited_dependencies": true,
+          "status": "passed",
+          "properties": [
+            {
+              "name": "type",
+              "passed": true
+            },
+            {
+              "name": "barDir",
+              "passed": true
+            },
+            {
+              "name": "grouping",
+              "passed": true
+            },
+            {
+              "name": "gapWidth",
+              "passed": true
+            },
+            {
+              "name": "titles",
+              "passed": true
+            },
+            {
+              "name": "references",
+              "passed": true
+            },
+            {
+              "name": "axes",
+              "passed": true
+            },
+            {
+              "name": "anchor",
+              "passed": true
+            },
+            {
+              "name": "series_order",
+              "passed": true
+            }
+          ],
+          "cache_checks": [
+            {
+              "reference": "'明细'!$B$2",
+              "expected": [
+                "金额"
+              ],
+              "actual": [
+                "金额"
+              ],
+              "passed": true
+            },
+            {
+              "reference": "'明细'!$A$3:$A$4",
+              "expected": [
+                "香蕉（SDK编辑）",
+                "梨子"
+              ],
+              "actual": [
+                "香蕉（SDK编辑）",
+                "梨子"
+              ],
+              "passed": true
+            },
+            {
+              "reference": "'明细'!$B$3:$B$4",
+              "expected": [
+                15,
+                20
+              ],
+              "actual": [
+                15.0,
+                20.0
+              ],
+              "passed": true
+            }
+          ],
+          "signatures": {
+            "original": {
+              "type": "BarChart",
+              "barDir": "col",
+              "grouping": "clustered",
+              "gapWidth": 150.0,
+              "titles": [
+                "未编辑金额图",
+                "品名",
+                "金额"
+              ],
+              "references": [
+                "'明细'!B2",
+                "'明细'!A3:A4",
+                "'明细'!B3:B4"
+              ],
+              "axes": [
+                {
+                  "tag": "catAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "品名",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "lblOffset",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "valAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "majorGridlines",
+                      "attrs": {},
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "金额",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ],
+              "anchor": {
+                "tag": "oneCellAnchor",
+                "attrs": {},
+                "text": "",
+                "children": [
+                  {
+                    "tag": "from",
+                    "attrs": {},
+                    "text": "",
+                    "children": [
+                      {
+                        "tag": "col",
+                        "attrs": {},
+                        "text": "4",
+                        "children": []
+                      },
+                      {
+                        "tag": "colOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      },
+                      {
+                        "tag": "row",
+                        "attrs": {},
+                        "text": "1",
+                        "children": []
+                      },
+                      {
+                        "tag": "rowOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "ext",
+                    "attrs": {
+                      "cx": "5400000",
+                      "cy": "2700000"
+                    },
+                    "text": "",
+                    "children": []
+                  },
+                  {
+                    "tag": "clientData",
+                    "attrs": {},
+                    "text": "",
+                    "children": []
+                  }
+                ]
+              },
+              "series_order": [
+                [
+                  0,
+                  0
+                ]
+              ]
+            },
+            "output": {
+              "type": "BarChart",
+              "barDir": "col",
+              "grouping": "clustered",
+              "gapWidth": 150.0,
+              "titles": [
+                "未编辑金额图",
+                "品名",
+                "金额"
+              ],
+              "references": [
+                "'明细'!B2",
+                "'明细'!A3:A4",
+                "'明细'!B3:B4"
+              ],
+              "axes": [
+                {
+                  "tag": "catAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "品名",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "lblOffset",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "valAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "majorGridlines",
+                      "attrs": {},
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "金额",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ],
+              "anchor": {
+                "tag": "oneCellAnchor",
+                "attrs": {},
+                "text": "",
+                "children": [
+                  {
+                    "tag": "from",
+                    "attrs": {},
+                    "text": "",
+                    "children": [
+                      {
+                        "tag": "col",
+                        "attrs": {},
+                        "text": "4",
+                        "children": []
+                      },
+                      {
+                        "tag": "colOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      },
+                      {
+                        "tag": "row",
+                        "attrs": {},
+                        "text": "1",
+                        "children": []
+                      },
+                      {
+                        "tag": "rowOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "ext",
+                    "attrs": {
+                      "cx": "5400000",
+                      "cy": "2700000"
+                    },
+                    "text": "",
+                    "children": []
+                  },
+                  {
+                    "tag": "clientData",
+                    "attrs": {},
+                    "text": "",
+                    "children": []
+                  }
+                ]
+              },
+              "series_order": [
+                [
+                  0,
+                  0
+                ]
+              ]
+            }
+          },
+          "classification": "source references unchanged; text categories represented as strRef and caches generated from current sheet data",
+          "unproven": [
+            "native application rendering and layout",
+            "pixel appearance and label overlap",
+            "behavior in Web SDK after createUnit/save",
+            "uncovered chart families and features"
+          ]
+        }
+      ],
+      "confirmed_content_or_calculation_failures": [],
+      "strict_difference_classification": [
+        {
+          "name": "明细.conditional_formatting",
+          "classification": "scalar numeric literal 12 to 12.0; rule, range and differential fill preserved"
+        },
+        {
+          "name": "明细.data_validation",
+          "classification": "default errorStyle stop materialized; range/list/error messages preserved"
+        },
+        {
+          "name": "明细.charts",
+          "classification": "absolute reference spelling, text category reference type and caches regenerated; see independent chart checks"
+        },
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    },
+    {
+      "kind": "complex",
+      "family": "aggregate",
+      "branch": "noop",
+      "strict_status_retained": "failed",
+      "strict_assertions_retained": 84,
+      "strict_failed_assertions_retained": 7,
+      "supported_semantics_status": "passed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [
+        {
+          "sheet": "明细",
+          "index": 0,
+          "edited_dependencies": false,
+          "status": "passed",
+          "properties": [
+            {
+              "name": "type",
+              "passed": true
+            },
+            {
+              "name": "barDir",
+              "passed": true
+            },
+            {
+              "name": "grouping",
+              "passed": true
+            },
+            {
+              "name": "gapWidth",
+              "passed": true
+            },
+            {
+              "name": "titles",
+              "passed": true
+            },
+            {
+              "name": "references",
+              "passed": true
+            },
+            {
+              "name": "axes",
+              "passed": true
+            },
+            {
+              "name": "anchor",
+              "passed": true
+            },
+            {
+              "name": "series_order",
+              "passed": true
+            }
+          ],
+          "cache_checks": [
+            {
+              "reference": "'明细'!$B$2",
+              "expected": [
+                "金额"
+              ],
+              "actual": [
+                "金额"
+              ],
+              "passed": true
+            },
+            {
+              "reference": "'明细'!$A$3:$A$4",
+              "expected": [
+                "苹果",
+                "梨子"
+              ],
+              "actual": [
+                "苹果",
+                "梨子"
+              ],
+              "passed": true
+            },
+            {
+              "reference": "'明细'!$B$3:$B$4",
+              "expected": [
+                10,
+                20
+              ],
+              "actual": [
+                10.0,
+                20.0
+              ],
+              "passed": true
+            }
+          ],
+          "signatures": {
+            "original": {
+              "type": "BarChart",
+              "barDir": "col",
+              "grouping": "clustered",
+              "gapWidth": 150.0,
+              "titles": [
+                "未编辑金额图",
+                "品名",
+                "金额"
+              ],
+              "references": [
+                "'明细'!B2",
+                "'明细'!A3:A4",
+                "'明细'!B3:B4"
+              ],
+              "axes": [
+                {
+                  "tag": "catAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "品名",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "lblOffset",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "valAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "majorGridlines",
+                      "attrs": {},
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "金额",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ],
+              "anchor": {
+                "tag": "oneCellAnchor",
+                "attrs": {},
+                "text": "",
+                "children": [
+                  {
+                    "tag": "from",
+                    "attrs": {},
+                    "text": "",
+                    "children": [
+                      {
+                        "tag": "col",
+                        "attrs": {},
+                        "text": "4",
+                        "children": []
+                      },
+                      {
+                        "tag": "colOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      },
+                      {
+                        "tag": "row",
+                        "attrs": {},
+                        "text": "1",
+                        "children": []
+                      },
+                      {
+                        "tag": "rowOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "ext",
+                    "attrs": {
+                      "cx": "5400000",
+                      "cy": "2700000"
+                    },
+                    "text": "",
+                    "children": []
+                  },
+                  {
+                    "tag": "clientData",
+                    "attrs": {},
+                    "text": "",
+                    "children": []
+                  }
+                ]
+              },
+              "series_order": [
+                [
+                  0,
+                  0
+                ]
+              ]
+            },
+            "output": {
+              "type": "BarChart",
+              "barDir": "col",
+              "grouping": "clustered",
+              "gapWidth": 150.0,
+              "titles": [
+                "未编辑金额图",
+                "品名",
+                "金额"
+              ],
+              "references": [
+                "'明细'!B2",
+                "'明细'!A3:A4",
+                "'明细'!B3:B4"
+              ],
+              "axes": [
+                {
+                  "tag": "catAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "品名",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "lblOffset",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "valAx",
+                  "attrs": {},
+                  "text": "",
+                  "children": [
+                    {
+                      "tag": "axId",
+                      "attrs": {
+                        "val": "100"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "scaling",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "orientation",
+                          "attrs": {
+                            "val": "minMax"
+                          },
+                          "text": "",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "axPos",
+                      "attrs": {
+                        "val": "l"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "majorGridlines",
+                      "attrs": {},
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "title",
+                      "attrs": {},
+                      "text": "",
+                      "children": [
+                        {
+                          "tag": "tx",
+                          "attrs": {},
+                          "text": "",
+                          "children": [
+                            {
+                              "tag": "rich",
+                              "attrs": {},
+                              "text": "",
+                              "children": [
+                                {
+                                  "tag": "bodyPr",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": []
+                                },
+                                {
+                                  "tag": "p",
+                                  "attrs": {},
+                                  "text": "",
+                                  "children": [
+                                    {
+                                      "tag": "pPr",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "defRPr",
+                                          "attrs": {},
+                                          "text": "",
+                                          "children": []
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "tag": "r",
+                                      "attrs": {},
+                                      "text": "",
+                                      "children": [
+                                        {
+                                          "tag": "t",
+                                          "attrs": {},
+                                          "text": "金额",
+                                          "children": []
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "majorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "minorTickMark",
+                      "attrs": {
+                        "val": "none"
+                      },
+                      "text": "",
+                      "children": []
+                    },
+                    {
+                      "tag": "crossAx",
+                      "attrs": {
+                        "val": "10"
+                      },
+                      "text": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ],
+              "anchor": {
+                "tag": "oneCellAnchor",
+                "attrs": {},
+                "text": "",
+                "children": [
+                  {
+                    "tag": "from",
+                    "attrs": {},
+                    "text": "",
+                    "children": [
+                      {
+                        "tag": "col",
+                        "attrs": {},
+                        "text": "4",
+                        "children": []
+                      },
+                      {
+                        "tag": "colOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      },
+                      {
+                        "tag": "row",
+                        "attrs": {},
+                        "text": "1",
+                        "children": []
+                      },
+                      {
+                        "tag": "rowOff",
+                        "attrs": {},
+                        "text": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "ext",
+                    "attrs": {
+                      "cx": "5400000",
+                      "cy": "2700000"
+                    },
+                    "text": "",
+                    "children": []
+                  },
+                  {
+                    "tag": "clientData",
+                    "attrs": {},
+                    "text": "",
+                    "children": []
+                  }
+                ]
+              },
+              "series_order": [
+                [
+                  0,
+                  0
+                ]
+              ]
+            }
+          },
+          "classification": "source references unchanged; text categories represented as strRef and caches generated from current sheet data",
+          "unproven": [
+            "native application rendering and layout",
+            "pixel appearance and label overlap",
+            "behavior in Web SDK after createUnit/save",
+            "uncovered chart families and features"
+          ]
+        }
+      ],
+      "confirmed_content_or_calculation_failures": [],
+      "strict_difference_classification": [
+        {
+          "name": "明细.conditional_formatting",
+          "classification": "scalar numeric literal 12 to 12.0; rule, range and differential fill preserved"
+        },
+        {
+          "name": "明细.data_validation",
+          "classification": "default errorStyle stop materialized; range/list/error messages preserved"
+        },
+        {
+          "name": "明细.charts",
+          "classification": "absolute reference spelling, text category reference type and caches regenerated; see independent chart checks"
+        },
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    },
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "edited-default",
+      "strict_status_retained": "failed",
+      "strict_assertions_retained": 70,
+      "strict_failed_assertions_retained": 6,
+      "supported_semantics_status": "failed",
+      "checks": [
+        {
+          "name": "明细!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.effective_style",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.effective_style",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting_rule_and_dxf",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "passed": true
+        }
+      ],
+      "charts": [],
+      "confirmed_content_or_calculation_failures": [
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": false,
+          "expected": 30,
+          "actual": 20
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": false,
+          "expected": 40,
+          "actual": 30
+        }
+      ],
+      "strict_difference_classification": [
+        {
+          "name": "明细!B7.formula_cache",
+          "classification": "actual failed content/calculation assertion"
+        },
+        {
+          "name": "明细!A1.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!A2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!B2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "明细!C2.style",
+          "classification": "XML normalization/default materialization; effective tested properties preserved"
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "classification": "actual failed content/calculation assertion"
+        }
+      ],
+      "scope_limit": "Semantic pass covers these controlled properties only. Strict differences remain and full visual/native/WebSDK preservation is unproven."
+    }
+  ],
+  "ms": 102.37470900028711
+}

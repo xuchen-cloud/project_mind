@@ -2,11 +2,9 @@ import "@fontsource/work-sans/400.css";
 import "@fontsource/work-sans/500.css";
 import "@fontsource/work-sans/600.css";
 import "@fontsource-variable/noto-sans-sc/wght.css";
-import "./styles/file-icons.css";
 import "./styles/app.css";
 
 import React, { Suspense, lazy } from "react";
-import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Navigate, RouterProvider, createHashRouter, useParams } from "react-router-dom";
 
@@ -15,6 +13,7 @@ import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { createProjectMindQueryClient } from "./lib/queryClient";
+import { renderReactRoot } from "./lib/react-root";
 import {
   loadProjectNoteFocusPageModule,
   loadWorkspaceRecordFocusPageModule,
@@ -61,11 +60,22 @@ const router = createHashRouter([
 ]);
 
 const queryClient = createProjectMindQueryClient();
+// A replacement router must mount with its own initial state and subscriptions.
+const routerGeneration = import.meta.hot
+  ? (import.meta.hot.data.routerGeneration = (import.meta.hot.data.routerGeneration ?? 0) + 1)
+  : 0;
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+renderReactRoot(
+  document.getElementById("root")!,
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <RouterProvider key={routerGeneration} router={router} />
     </QueryClientProvider>
   </React.StrictMode>,
+  import.meta.hot?.data,
 );
+
+if (import.meta.hot) {
+  import.meta.hot.accept();
+  import.meta.hot.dispose(() => router.dispose());
+}

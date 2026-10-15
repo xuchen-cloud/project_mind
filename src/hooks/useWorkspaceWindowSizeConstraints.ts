@@ -108,12 +108,13 @@ export function useWorkspaceWindowSizeConstraints(
   const previousCollapsedStateRef = useRef({
     projectSidebarCollapsed: options.projectSidebarCollapsed,
     todoRailCollapsed: options.todoRailCollapsed,
+    showTodoRail: options.showTodoRail,
   });
 
   useLayoutEffect(() => {
     const previous = previousCollapsedStateRef.current;
     const preferredPanel: PreferredPanel =
-      previous.todoRailCollapsed && !options.todoRailCollapsed
+      (previous.todoRailCollapsed || !previous.showTodoRail) && options.showTodoRail && !options.todoRailCollapsed
         ? "todo-rail"
         : previous.projectSidebarCollapsed && !options.projectSidebarCollapsed
           ? "project-sidebar"
@@ -121,12 +122,13 @@ export function useWorkspaceWindowSizeConstraints(
     previousCollapsedStateRef.current = {
       projectSidebarCollapsed: options.projectSidebarCollapsed,
       todoRailCollapsed: options.todoRailCollapsed,
+      showTodoRail: options.showTodoRail,
     };
 
     const protectMainEditor = () => {
       if (options.overlayHomePanels && window.innerWidth < 1024) {
         if (previousViewportRef.current !== window.innerWidth) {
-          options.setTodoRailCollapsed?.(true);
+          if (options.showTodoRail) options.setTodoRailCollapsed?.(true);
           if (window.innerWidth < 800) options.setProjectSidebarCollapsed?.(true);
         }
         previousViewportRef.current = window.innerWidth;

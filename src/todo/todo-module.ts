@@ -26,6 +26,14 @@ import {
   optimisticTodoFromInput,
 } from "./todo-cache";
 
+/** GUI commands reject serialized AgentError strings; Agent calls retain the error object. */
+export function isTodoRevisionConflict(error: unknown): boolean {
+  if (error && typeof error === "object" && "code" in error) return error.code === "REVISION_CONFLICT";
+  const serialized = typeof error === "string" ? error : error instanceof Error ? error.message : null;
+  if (!serialized) return false;
+  try { return JSON.parse(serialized)?.code === "REVISION_CONFLICT"; } catch { return false; }
+}
+
 export type TodoViewScope =
   | { kind: "workspace" }
   | { kind: "current-project"; projectId: number };
@@ -109,6 +117,7 @@ export function createTodoModule({
     const projectsPromise = readQuery({
       queryKey: queryKeys.projects.all,
       queryFn: () => transport.projectsList({ includeArchived: true }),
+      ...(options.force ? { staleTime: 0, retry: false } : {}),
     });
 
     if (scope.kind === "workspace") {
@@ -116,6 +125,7 @@ export function createTodoModule({
         readQuery({
           queryKey: queryKeys.workspacePage,
           queryFn: () => transport.workspacePageGet(),
+          ...(options.force ? { staleTime: 0, retry: false } : {}),
         }),
         projectsPromise,
       ]);
@@ -125,6 +135,7 @@ export function createTodoModule({
         readQuery({
           queryKey: queryKeys.projectPage(scope.projectId),
           queryFn: () => transport.projectPageGet({ projectId: scope.projectId }),
+          ...(options.force ? { staleTime: 0, retry: false } : {}),
         }),
         projectsPromise,
       ]);
@@ -232,7 +243,9 @@ export function createTodoModule({
     for (const [, collection] of queryClient.getQueriesData<TodoRecord[]>({
       queryKey: queryKeys.todoCollections.all,
     })) {
-      for (const todo of collection ?? []) todos.set(todo.id, todo);
+      for (const todo of collection ?? []) {
+        if ((todos.get(todo.id)?.revision ?? -1) <= todo.revision) todos.set(todo.id, todo);
+      }
     }
     return [...todos.values()];
   }
@@ -253,6 +266,18 @@ export function createTodoModule({
       : { scope: "project", projectId: todo.projectId as number };
   }
 
+  async function refreshAfterConflict(source: TodoRecord) {
+    try {
+      await cache.cancel(source.projectId);
+      await Promise.all([
+        load({ kind: "workspace" }, { force: true }),
+        ...(source.projectId === null ? [] : [load({ kind: "current-project", projectId: source.projectId }, { force: true })]),
+      ]);
+    } catch (cause) {
+      throw Object.assign(new Error("Todo 已变化，但刷新最新数据失败。请手动刷新后再操作。"), { cause });
+    }
+  }
+
   async function mutateExistingTodo<T>({
     source,
     optimisticTodo,
@@ -262,27 +287,30 @@ export function createTodoModule({
   }: {
     source: TodoRecord;
     optimisticTodo: TodoRecord;
-    run: () => Promise<T>;
+    run: (expectedRevision: number) => Promise<T>;
     reconcile: (result: T, optimistic: TodoRecord) => TodoRecord | null;
     openTodoDelta?: number;
   }) {
     const mutationRevision = (todoMutationRevisions.get(source.id) ?? 0) + 1;
     todoMutationRevisions.set(source.id, mutationRevision);
     await cache.cancel(source.projectId);
-    const snapshot = cache.snapshot(source.projectId);
     cache.upsert(optimisticTodo);
     cache.updateProjectOpenCount(source.projectId, openTodoDelta);
     try {
-      const result = await run();
+      const result = await run(source.revision);
       if (todoMutationRevisions.get(source.id) === mutationRevision) {
         const saved = reconcile(result, optimisticTodo);
-        if (saved) cache.upsert(saved);
+        const current = findTodo(source.id);
+        if (saved && current && current.revision <= saved.revision) cache.upsert(saved);
       }
       return result;
     } catch (error) {
-      if (todoMutationRevisions.get(source.id) === mutationRevision) {
-        cache.restore(source.projectId, snapshot);
+      if (isTodoRevisionConflict(error)) {
+        await refreshAfterConflict(source);
+      } else if (todoMutationRevisions.get(source.id) === mutationRevision && (findTodo(source.id)?.revision ?? Infinity) <= source.revision) {
+        cache.upsert(source);
       }
+      if (!isTodoRevisionConflict(error)) cache.syncProjectOpenCount(source.projectId);
       throw error;
     }
   }
@@ -313,7 +341,6 @@ export function createTodoModule({
             tagIds: synced.tagIds,
           };
     await cache.cancel(input.projectId);
-    const snapshot = cache.snapshot(input.projectId);
     const optimisticTodo = {
       ...optimisticTodoFromInput(input),
       tags: synced.tags,
@@ -327,7 +354,10 @@ export function createTodoModule({
       cache.upsert(saved);
       return saved;
     } catch (error) {
-      cache.restore(input.projectId, snapshot);
+      if (findTodo(optimisticTodo.id)) {
+        cache.remove(optimisticTodo);
+        cache.syncProjectOpenCount(input.projectId);
+      }
       throw error;
     }
   }
@@ -353,9 +383,10 @@ export function createTodoModule({
       return mutateExistingTodo({
         source,
         optimisticTodo,
-        run: () =>
+        run: (expectedRevision) =>
           transport.todoUpdateContent({
             todoId: source.id,
+            expectedRevision,
             content: synced.content,
             dueDate: command.dueDate,
             tagIds: synced.tagIds,
@@ -370,7 +401,7 @@ export function createTodoModule({
       return mutateExistingTodo({
         source,
         optimisticTodo: { ...source, priority: command.priority },
-        run: () => transport.todoUpdatePriority({ todoId: source.id, priority: command.priority }),
+        run: expectedRevision => transport.todoUpdatePriority({ todoId: source.id, expectedRevision, priority: command.priority }),
         reconcile: (saved) => saved,
       });
     }
@@ -384,7 +415,7 @@ export function createTodoModule({
         source,
         optimisticTodo: { ...source, status: command.status },
         openTodoDelta,
-        run: () => transport.todoUpdateStatus({ todoId: source.id, status: command.status }),
+        run: expectedRevision => transport.todoUpdateStatus({ todoId: source.id, expectedRevision, status: command.status }),
         reconcile: (saved) => saved,
       });
     }
@@ -395,7 +426,7 @@ export function createTodoModule({
       return mutateExistingTodo({
         source,
         optimisticTodo: { ...source, tags: command.tags },
-        run: () => transport.todoUpdateTags({ todoId: source.id, tagIds: command.tagIds }),
+        run: expectedRevision => transport.todoUpdateTags({ todoId: source.id, expectedRevision, tagIds: command.tagIds }),
         reconcile: (saved) => saved,
       });
     }
@@ -406,6 +437,7 @@ export function createTodoModule({
       const optimisticProgress: TodoProgressRecord = {
         id: -Date.now(),
         todoId: source.id,
+        todoRevision: source.revision,
         content: command.content,
         progressDate: command.progressDate,
         dueDate: command.dueDate ?? null,
@@ -417,15 +449,17 @@ export function createTodoModule({
       return mutateExistingTodo({
         source,
         optimisticTodo: { ...source, progresses: [optimisticProgress, ...source.progresses] },
-        run: () =>
+        run: (expectedRevision) =>
           transport.todoAddProgress({
             todoId: source.id,
+            expectedRevision,
             content: command.content,
             progressDate: command.progressDate,
             dueDate: command.dueDate,
           }),
         reconcile: (saved, optimistic) => ({
           ...optimistic,
+          revision: saved.todoRevision,
           progresses: [saved, ...optimistic.progresses.filter((progress) => progress.id >= 0)],
         }),
       });
@@ -457,9 +491,10 @@ export function createTodoModule({
       return mutateExistingTodo({
         source,
         optimisticTodo,
-        run: () =>
+        run: (expectedRevision) =>
           transport.todoUpdateProgress({
             progressId: command.progressId,
+            expectedRevision,
             content: command.content,
             progressDate: command.progressDate,
             dueDate: command.dueDate,
@@ -467,6 +502,7 @@ export function createTodoModule({
           }),
         reconcile: (saved, optimistic) => ({
           ...optimistic,
+          revision: saved.todoRevision,
           progresses: optimistic.progresses.map((progress) =>
             progress.id === saved.id ? saved : progress,
           ),
@@ -483,23 +519,29 @@ export function createTodoModule({
           ...source,
           progresses: source.progresses.filter((progress) => progress.id !== command.progressId),
         },
-        run: () => transport.todoDeleteProgress({ progressId: command.progressId }),
-        reconcile: (_deleted, optimistic) => optimistic,
+        run: expectedRevision => transport.todoDeleteProgress({ progressId: command.progressId, expectedRevision }),
+        reconcile: (deleted, optimistic) => ({ ...optimistic, revision: deleted.todoRevision }),
       });
     }
 
     const source = findTodo(command.todoId);
     if (!source) throw new Error(`Todo ${command.todoId} 不存在`);
     await cache.cancel(source.projectId);
-    const snapshot = cache.snapshot(source.projectId);
+    const mutationRevision = (todoMutationRevisions.get(source.id) ?? 0) + 1;
+    todoMutationRevisions.set(source.id, mutationRevision);
     cache.remove(source);
     cache.updateProjectOpenCount(source.projectId, source.status === "unfinished" ? -1 : 0);
     try {
-      const deleted = await transport.todoDelete({ todoId: source.id });
+      const deleted = await transport.todoDelete({ todoId: source.id, expectedRevision: source.revision });
       cache.remove(deleted);
       return deleted;
     } catch (error) {
-      cache.restore(source.projectId, snapshot);
+      if (isTodoRevisionConflict(error)) {
+        await refreshAfterConflict(source);
+      } else if (todoMutationRevisions.get(source.id) === mutationRevision && !findTodo(source.id)) {
+        cache.upsert(source);
+      }
+      if (!isTodoRevisionConflict(error)) cache.syncProjectOpenCount(source.projectId);
       throw error;
     }
   }

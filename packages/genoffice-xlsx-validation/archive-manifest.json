@@ -1,0 +1,401 @@
+{
+  "archiveSource": "/tmp/project-mind-genoffice-xlsx-validation-20261013",
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 64,
+      "sha256": "b43c52855e01bad950b66b71c5a23826503968c7c690fdbc82b08ea26f129b47"
+    },
+    {
+      "path": "FINDINGS.md",
+      "bytes": 12477,
+      "sha256": "c062c1249abb4baf8fc344ec0492af0fbcffea78549a87f5f44a809b9feacfe7"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 5526,
+      "sha256": "4faf82b1ffe2097857d51bc0a3c1c6021e0cd1277a9f0b5ce72b119b1f7f73ed"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 11345,
+      "sha256": "68e32334df324ef4fc79fad3a26487e5abac36055a484bb6c8d7ecf9d8350885"
+    },
+    {
+      "path": "NOTICE",
+      "bytes": 2489,
+      "sha256": "26fa7a458f2463af07f96af3d4b26b3cc3b4de688340838e3c9b3b958d390882"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3787,
+      "sha256": "6eb8f8d2de8d9b7a82cfaf62e0b09db4dbd983c447401ac88e7d20a4c9e4295b"
+    },
+    {
+      "path": "branding-audit.json",
+      "bytes": 824,
+      "sha256": "aa4c58bc2ab8a696bf3aa289c68b651ba95e604d805e8f04e8e58e2b3241cbf8"
+    },
+    {
+      "path": "browser/index.html",
+      "bytes": 1331,
+      "sha256": "e06c97702e5823a9527ae992c382ab90e6d00d63a07277cbffc2811066e8190c"
+    },
+    {
+      "path": "browser/main.js",
+      "bytes": 2239,
+      "sha256": "6c966566c5d83e37a139749c7269c75f2797cae47f49a686a7b938fc98feb11c"
+    },
+    {
+      "path": "browser/output/chromium/complex.browser-edited.xlsx",
+      "bytes": 9181,
+      "sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5"
+    },
+    {
+      "path": "browser/output/chromium/complex.events.json",
+      "bytes": 33476,
+      "sha256": "d71f1905c461ff66adb14ff6cf2c5412b81e5685eb1664729787f2a714d5ea02"
+    },
+    {
+      "path": "browser/output/chromium/complex.verification.json",
+      "bytes": 48378,
+      "sha256": "826bbbff0e699bf30c45fc81341edf247a5dc50bdacac332c810f925cb8c12f6"
+    },
+    {
+      "path": "browser/output/chromium/simple.browser-edited.xlsx",
+      "bytes": 6267,
+      "sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b"
+    },
+    {
+      "path": "browser/output/chromium/simple.events.json",
+      "bytes": 23591,
+      "sha256": "2f9642d7b7ad136d755df1caaba603c182af1c25e26d9f38b18908d8da1beb04"
+    },
+    {
+      "path": "browser/output/chromium/simple.verification.json",
+      "bytes": 37140,
+      "sha256": "1811a0574dc531b5aeeaedc92cbd4c196bf100e361010252215a2a370888d93e"
+    },
+    {
+      "path": "browser/output/webkit/complex.browser-edited.xlsx",
+      "bytes": 9181,
+      "sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5"
+    },
+    {
+      "path": "browser/output/webkit/complex.events.json",
+      "bytes": 33474,
+      "sha256": "9aff303ec2e95db055c14e891411cbe45d2e585dc6826f32400301e9f6a6499e"
+    },
+    {
+      "path": "browser/output/webkit/complex.verification.json",
+      "bytes": 48378,
+      "sha256": "826bbbff0e699bf30c45fc81341edf247a5dc50bdacac332c810f925cb8c12f6"
+    },
+    {
+      "path": "browser/output/webkit/simple.browser-edited.xlsx",
+      "bytes": 6267,
+      "sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b"
+    },
+    {
+      "path": "browser/output/webkit/simple.events.json",
+      "bytes": 23588,
+      "sha256": "93945eba89907ae12d746ecc135bbbfce483471fc8374facdf8e5d373114efca"
+    },
+    {
+      "path": "browser/output/webkit/simple.verification.json",
+      "bytes": 37140,
+      "sha256": "1811a0574dc531b5aeeaedc92cbd4c196bf100e361010252215a2a370888d93e"
+    },
+    {
+      "path": "browser/server.mjs",
+      "bytes": 3553,
+      "sha256": "34a53d10e5b5b2c30c53f01af9913682f353370a746bd670351bdafd53e4da8a"
+    },
+    {
+      "path": "browser-results.json",
+      "bytes": 2930,
+      "sha256": "a64fa634aedc9fbf1d63cd86af6b98b760adaffe1939a073887591d5adc8c4e0"
+    },
+    {
+      "path": "build.mjs",
+      "bytes": 302,
+      "sha256": "3ef08e1ebee735131dc1c057a6a0d25668d4995530778944c53f7a2270bdc310"
+    },
+    {
+      "path": "cargo-build.log",
+      "bytes": 4862,
+      "sha256": "c78d442e05751400e814f6f1b277c46d6d7b95e0eec726b74ddf260281a1023d"
+    },
+    {
+      "path": "compare.py",
+      "bytes": 7159,
+      "sha256": "80bca375f891178121450098f0a2d66026e66c7316eaaf00cc05f5ddd68378aa"
+    },
+    {
+      "path": "complex.chromium.independent.json",
+      "bytes": 50707,
+      "sha256": "ffc62cb562fd484b785233d05708e80e5192f2384450cca87e3d9961df075ad9"
+    },
+    {
+      "path": "complex.edited-default.reopen.sdk.json",
+      "bytes": 15232,
+      "sha256": "35eb280db13d91d4aedf95b7b27f48182b3b5871723cb4b2084bba52445db94e"
+    },
+    {
+      "path": "complex.edited-default.xlsx",
+      "bytes": 9167,
+      "sha256": "e20db5c62ab4441aa08340a6912de22540a7e5c0ba50ecd5bf68b5a70afa7bf6"
+    },
+    {
+      "path": "complex.edited-ironcalc-cache-sheet-touch.reopen.sdk.json",
+      "bytes": 15249,
+      "sha256": "94b9cc24d3a916d6cf2d21be7021a3fd05967150f06467b70e04d6c47a4f8ecb"
+    },
+    {
+      "path": "complex.edited-ironcalc-cache-sheet-touch.xlsx",
+      "bytes": 9181,
+      "sha256": "04872814d71773b71f91bf121c1a17de803d84426645d13adc42a0425dca08f5"
+    },
+    {
+      "path": "complex.edited-ironcalc.reopen.sdk.json",
+      "bytes": 15231,
+      "sha256": "2491aef862941872b18148962366291e4e631e4ea5830b3f23ad4d4cf44f1d18"
+    },
+    {
+      "path": "complex.edited-ironcalc.xlsx",
+      "bytes": 9172,
+      "sha256": "fe78b390bf17a158171caa2c761ae1d277768b3df292cb9840dd4c86489b5168"
+    },
+    {
+      "path": "complex.noop.import.sdk.json",
+      "bytes": 15207,
+      "sha256": "377f3c93761fd2aa558e596f72635692954552303a01643ca53d3cf53b2e37df"
+    },
+    {
+      "path": "complex.noop.reopen.sdk.json",
+      "bytes": 15203,
+      "sha256": "a5f3ad397a362b5b9f0ee7791fbf0f390fab33fb4c6b3419e4f194b72e0aa839"
+    },
+    {
+      "path": "complex.noop.xlsx",
+      "bytes": 9106,
+      "sha256": "e0a89fcefaaf3259246e4c94056de5562546441e86fc534d9ac8dc40c7d4e502"
+    },
+    {
+      "path": "complex.original.xlsx",
+      "bytes": 9106,
+      "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2"
+    },
+    {
+      "path": "complex.view-model.json",
+      "bytes": 11014,
+      "sha256": "2da78876d7e30416439fa839697107110c011eab7c070ca49f75c383c640b409"
+    },
+    {
+      "path": "complex.webkit.independent.json",
+      "bytes": 50707,
+      "sha256": "ffc62cb562fd484b785233d05708e80e5192f2384450cca87e3d9961df075ad9"
+    },
+    {
+      "path": "execution-errors.json",
+      "bytes": 788,
+      "sha256": "21e0184f435677e08ecddbf83e4b23ce2e755959864bcc5555536418ec07bec1"
+    },
+    {
+      "path": "fetch-core.py",
+      "bytes": 2216,
+      "sha256": "081c078f8bccfda8c1ecf7ab922243f3feddc48dfe040503e954b58482afad25"
+    },
+    {
+      "path": "fetch.log",
+      "bytes": 69,
+      "sha256": "a40eb469bb12abb3f69fe2b20ceef4ddd901b6fad76e2bf571861868c5b00185"
+    },
+    {
+      "path": "findings.json",
+      "bytes": 8240,
+      "sha256": "25c3ee34119e02f8bd425f8d07e4e822ac3d0af448fcb7d3e725e5b90d2b52bf"
+    },
+    {
+      "path": "fixture-save.ts",
+      "bytes": 1025,
+      "sha256": "b6c3371cffa2ca999c4465a0d721c6a1a41e55cc45c4849e428b5764072d924c"
+    },
+    {
+      "path": "fixtures.json",
+      "bytes": 1702,
+      "sha256": "541d7186efb947479e8fbba75cc39649e5aef93949ede61d08876b938633da14"
+    },
+    {
+      "path": "fixtures.source.json",
+      "bytes": 1729,
+      "sha256": "92a476cd60b958300b1372b35e0db743e55c169ce2bd52c9d2b88e13fca69a02"
+    },
+    {
+      "path": "integration-api.ts",
+      "bytes": 354,
+      "sha256": "d103aaad58456e5a35d736a6fab816bc876c7ef47556036227058bf08af95970"
+    },
+    {
+      "path": "local-provenance.json",
+      "bytes": 577,
+      "sha256": "87efc9c85c23f5e7a1e4396db676a5c28c56e8edffa09613095893db81a26f32"
+    },
+    {
+      "path": "npm-install.log",
+      "bytes": 95,
+      "sha256": "af98311bb1d80f09b9dca4c2031a453c048fe851961c9c266aaca0d0da397377"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 59605,
+      "sha256": "8965e70ddaa31711f5a1248bddc921b0c94323c19ebc6c4a5f8a649e662c25f5"
+    },
+    {
+      "path": "package.json",
+      "bytes": 294,
+      "sha256": "052f33cd248dd0f264a68248532bb3efad5c21694701d08bda341a87e5ed699d"
+    },
+    {
+      "path": "probe.log",
+      "bytes": 1298,
+      "sha256": "64be2b221450a000dd510bbdac2486b696ccd1c667a0f8b117970b4b6e8f482b"
+    },
+    {
+      "path": "probe.ts",
+      "bytes": 5400,
+      "sha256": "caab79c746e8341b28ce1563337de6763255c367620f604bf798bdba70ebd726"
+    },
+    {
+      "path": "reproduce.py",
+      "bytes": 2147,
+      "sha256": "9e563834708a18b5dee525091890714da3f7a846dd5e00eb6e3e3530bf167de1"
+    },
+    {
+      "path": "results.initial.json",
+      "bytes": 296740,
+      "sha256": "3dd0c5f13aba2348cc4648ead80f0513f65225b1e4ff63094bbd8af1bb130dd5"
+    },
+    {
+      "path": "results.json",
+      "bytes": 404301,
+      "sha256": "111af87714b5b2cee7293049e8673423130c893160ec3fc2351c0b61df8245fb"
+    },
+    {
+      "path": "sdk-results.initial.json",
+      "bytes": 26092,
+      "sha256": "d924ea277885c17b34bb38666ed9b10c2da53827803a0be655b952ec2237a87a"
+    },
+    {
+      "path": "sdk-results.json",
+      "bytes": 47728,
+      "sha256": "ca1c4be65feccf92e9ba94e3413e5be2a36ebe4408e813c93f21d3aa563dca8d"
+    },
+    {
+      "path": "sheet-session.ts",
+      "bytes": 2919,
+      "sha256": "97739d497f40136cdf112bfc83d35543c7d92e2d4950bec1397454a266b71db1"
+    },
+    {
+      "path": "simple.chromium.independent.json",
+      "bytes": 39469,
+      "sha256": "9215e21c4a684a1c2b2f115533d2b63a4e58b1c304d0b1f5e0dd17c70c2db362"
+    },
+    {
+      "path": "simple.edited-default.reopen.sdk.json",
+      "bytes": 10141,
+      "sha256": "7c95dba092fe80ee7f159a1ad149eb8120a28a4b204b3447572dcf3e432310cb"
+    },
+    {
+      "path": "simple.edited-default.xlsx",
+      "bytes": 6252,
+      "sha256": "57737676a14020482f54c55b8181e73d6f41dca6bac159e15a347d41e4b6ea26"
+    },
+    {
+      "path": "simple.edited-ironcalc-cache-sheet-touch.reopen.sdk.json",
+      "bytes": 10158,
+      "sha256": "d8d879f9f2b8642c8bbf04a397ad0e3865c87b96d22d0f9b5b26b7284c906650"
+    },
+    {
+      "path": "simple.edited-ironcalc-cache-sheet-touch.xlsx",
+      "bytes": 6267,
+      "sha256": "f4c52096d2fd8a94effe4b3b1892d3dfd7bc4c71c72ff4840caf06fb2677710b"
+    },
+    {
+      "path": "simple.edited-ironcalc.reopen.sdk.json",
+      "bytes": 10140,
+      "sha256": "a0411ce1bfc11178f82c7602fbc39662a2a9888a1afbd8a35b375ef07caa7d76"
+    },
+    {
+      "path": "simple.edited-ironcalc.xlsx",
+      "bytes": 6258,
+      "sha256": "4798e9ceacba898441178e3857f70eaedb7ed9be1e63f9c5537a568c73c01999"
+    },
+    {
+      "path": "simple.noop.import.sdk.json",
+      "bytes": 10116,
+      "sha256": "b027bce7fa1af607b58a1f97959ce9303bcf6ce02bcd9b29d791f51e4d1feded"
+    },
+    {
+      "path": "simple.noop.reopen.sdk.json",
+      "bytes": 10112,
+      "sha256": "d0ce070a35de85f0a153c181e58ae57e0599801fde53a183297d59668cf2eb50"
+    },
+    {
+      "path": "simple.noop.xlsx",
+      "bytes": 6188,
+      "sha256": "ff8d8ec0532a5319afb55f3e9a151f7a830ab1c123c9846458b3d2bf9d51a1cc"
+    },
+    {
+      "path": "simple.original.xlsx",
+      "bytes": 6188,
+      "sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46"
+    },
+    {
+      "path": "simple.view-model.json",
+      "bytes": 7308,
+      "sha256": "38e3349fc168d800557f8cdc3f4583c207e1b5a800a2c2ceb373c2c858268b88"
+    },
+    {
+      "path": "simple.webkit.independent.json",
+      "bytes": 39469,
+      "sha256": "9215e21c4a684a1c2b2f115533d2b63a4e58b1c304d0b1f5e0dd17c70c2db362"
+    },
+    {
+      "path": "source-provenance.json",
+      "bytes": 25599,
+      "sha256": "83efa88d92db4463698810ae1ffa18793ada9baf7cc0c878ea85efd65cec21e4"
+    },
+    {
+      "path": "tree.json",
+      "bytes": 1516892,
+      "sha256": "368596f12a3d9c1e3958a329bfa39cd55ed006eeee47277316843cd5f9d350af"
+    },
+    {
+      "path": "verify-candidate.py",
+      "bytes": 940,
+      "sha256": "4bda7f84a684ae37ddd8fc0353bf033e585149a57578cc44428e48202e28f544"
+    },
+    {
+      "path": "verify.py",
+      "bytes": 5588,
+      "sha256": "a883239dc298f3accc95c9c66d651cb109698b3b276db8d230a97d70e78ae25c"
+    },
+    {
+      "path": "view-model.mjs",
+      "bytes": 1110,
+      "sha256": "2ec7b934b9e06249cf5b71ff6d430ec140b909cace446afac2d572b10178d699"
+    }
+  ],
+  "excluded": [
+    "upstream/",
+    "node_modules/",
+    "target/",
+    "temp/",
+    "*.bundle.mjs"
+  ],
+  "fixtureHashAssertions": {
+    "simple": true,
+    "complex": true
+  }
+}

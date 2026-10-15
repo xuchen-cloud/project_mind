@@ -12,6 +12,8 @@ import { VoicePlayer } from "../../lib/voice-player";
 export interface VoiceRecordPanelProps {
   target: VoiceRecordLookup;
   visible?: boolean;
+  sourceTimeMs?: number | null;
+  sourceNavigationKey?: string;
   onTitleUpdated?: (title: string) => void;
   onCopyMinutes?: (content: string) => Promise<void>;
 }
@@ -22,7 +24,7 @@ function formatTime(milliseconds: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCopyMinutes }: VoiceRecordPanelProps) {
+export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceNavigationKey, onTitleUpdated, onCopyMinutes }: VoiceRecordPanelProps) {
   const queryClient = useQueryClient();
   const playbackQuery = useQuery({
     queryKey: ["voice-playback", target],
@@ -40,6 +42,7 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [sourceSeekStatus, setSourceSeekStatus] = useState<string | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [minutesError, setMinutesError] = useState<string | null>(null);
   const [generatingMinutes, setGeneratingMinutes] = useState(false);
@@ -119,6 +122,23 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
     });
     return () => { abort.abort(); player.dispose(); playerRef.current = null; };
   }, [playbackQuery.data?.chunks]);
+
+  useEffect(() => {
+    setSourceSeekStatus(null);
+    if (!visible || sourceTimeMs == null || !ready || !playerRef.current) return;
+    if (!Number.isFinite(sourceTimeMs) || sourceTimeMs < 0 || sourceTimeMs > totalMs) {
+      setSourceSeekStatus("来源时间点已超出当前录音范围，无法定位。");
+      return;
+    }
+    // Pause before seeking: an already playing resident player must not
+    // schedule audio while a new source destination is being revealed.
+    playerRef.current.pause();
+    playerRef.current.seek(sourceTimeMs / 1000);
+    positionRef.current = sourceTimeMs;
+    setPositionMs(sourceTimeMs);
+    setPlaying(false);
+    setSourceSeekStatus(`已定位录音来源 ${formatTime(sourceTimeMs)}。`);
+  }, [visible, ready, totalMs, sourceTimeMs, sourceNavigationKey]);
 
   function syncAudio(nextPositionMs: number, shouldPlay: boolean) {
     const player = playerRef.current;
@@ -264,6 +284,7 @@ export function VoiceRecordPanel({ target, visible = true, onTitleUpdated, onCop
         <p className="text-body text-text-muted">暂停或结束录制后，这里会显示已保存的音频。</p>
       )}
       {playbackError ? <p className="mt-2 text-caption text-danger">{playbackError}</p> : null}
+      {visible && sourceSeekStatus ? <p role="status" className="mt-2 text-caption text-text-soft">{sourceSeekStatus}</p> : null}
       <section aria-label="会议纪要" className="mt-4 border-t border-border pt-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-body font-medium text-text">会议纪要</h3>

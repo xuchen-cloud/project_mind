@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { queryKeys } from "../../lib/queryKeys";
 
 const apiMocks = vi.hoisted(() => ({
@@ -34,6 +35,8 @@ const projectMutationMocks = vi.hoisted(() => ({
 const workspaceRecordMutationMocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
 }));
+const recordCreationMocks = vi.hoisted(() => ({ bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: recordCreationMocks }));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: apiMocks,
@@ -88,17 +91,19 @@ vi.mock("../../services/desktopApi", () => ({
 }));
 
 import { WorkspacePage } from "./WorkspacePage";
+import { WorkspaceTodoRail } from "../layout/WorkspaceTodoRail";
 
 function LocationDisplay() {
   const location = useLocation();
   return <div data-testid="location-display">{`${location.pathname}${location.search}`}</div>;
 }
 
-function renderPage(initialEntries: string[] = ["/"]) {
+function renderPage(initialEntries: string[] = ["/"], withTodoRail = false) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={initialEntries}>
         <WorkspacePage />
+        {withTodoRail ? <WorkspaceTodoRail projectId={null} /> : null}
         <LocationDisplay />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -108,6 +113,7 @@ function renderPage(initialEntries: string[] = ["/"]) {
 describe("WorkspacePage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    useAgentPanelStore.getState().clearWorkspace();
     apiMocks.projectsList.mockReset();
     apiMocks.workspacePageGet.mockReset();
     apiMocks.workspaceStatusGet.mockReset();
@@ -170,6 +176,14 @@ describe("WorkspacePage", () => {
       updatedAt: "2026-04-06T08:00:00.000Z",
     });
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("opens the assistant directly on the Workspace page", async () => {
+    renderPage();
+    const launcher = await screen.findByRole("button", { name: "助手" });
+    expect(launcher).toBeEnabled();
+    await userEvent.click(launcher);
+    expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
   });
 
   it("uses a static overview skeleton only for a cold workspace entry", async () => {
@@ -267,7 +281,9 @@ describe("WorkspacePage", () => {
 
     expect(await screen.findByLabelText("QuickNote")).toBeInTheDocument();
 
-    expect(await screen.findByText("Workspace history record")).toBeInTheDocument();
+    expect(within(await screen.findByTestId("workspace-page-body-record")).getByText("Workspace history record")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "工作区记录列表" })).getByRole("button", { name: "Workspace history record" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "待办", exact: true })).not.toBeInTheDocument();
   });
 
   it("shows the overview page content", async () => {
@@ -301,7 +317,7 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage();
+    renderPage(["/"], true);
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "待办", exact: true })).toBeInTheDocument();
@@ -326,7 +342,7 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage();
+    renderPage(["/"], true);
 
     expect(await screen.findByLabelText("工作区导航侧边栏")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "待办", exact: true })).toBeInTheDocument();
@@ -345,7 +361,7 @@ describe("WorkspacePage", () => {
         createdAt: "2026-04-06T08:00:00.000Z", updatedAt: "2026-04-06T08:00:00.000Z",
       }],
     });
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByRole("heading", { name: "待办", exact: true });
     expect(await screen.findByText("工作区独立待办")).toBeInTheDocument();
@@ -355,7 +371,7 @@ describe("WorkspacePage", () => {
   it("creates a tagged Workspace Todo when the Workspace has no Projects", async () => {
     const user = userEvent.setup();
 
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByRole("heading", { name: "待办", exact: true });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
@@ -419,7 +435,7 @@ describe("WorkspacePage", () => {
             ],
     }));
 
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByRole("heading", { name: "待办", exact: true });
     await user.click(screen.getByRole("button", { name: "新增代办" }));
@@ -504,7 +520,7 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    renderPage();
+    renderPage(["/"], true);
 
     await screen.findByText("整理跨项目复盘");
     expect(screen.getByRole("heading", { name: "工作区", exact: true })).toBeInTheDocument();
@@ -818,9 +834,11 @@ describe("WorkspacePage", () => {
 
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: /归档项目/i }));
+    const archiveButton = await screen.findByRole("button", { name: /归档项目/i });
+    expect(archiveButton.closest(".home-side__footer")).not.toBeNull();
+    await user.click(archiveButton);
 
-    const dialog = screen.getByRole("dialog", { name: "归档项目" });
+    const dialog = await screen.findByRole("dialog", { name: "归档项目" });
     expect(within(dialog).getByText("Beta Archive")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "打开" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "恢复" })).toBeInTheDocument();
@@ -862,7 +880,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
-    await user.click(within(screen.getByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "打开" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "打开" }));
 
     expect(desktopApiMocks.focusProjectWindow).toHaveBeenCalledWith(2);
   });
@@ -903,7 +921,7 @@ describe("WorkspacePage", () => {
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
-    await user.click(within(screen.getByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "恢复" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "归档项目" })).getByRole("button", { name: "恢复" }));
 
     expect(projectMutationMocks.archiveMutate).toHaveBeenCalledWith({
       projectId: 2,
@@ -935,7 +953,7 @@ describe("WorkspacePage", () => {
 
     await user.click(await screen.findByRole("button", { name: /归档项目/i }));
 
-    expect(within(screen.getByRole("dialog", { name: "归档项目" })).getByText("暂无归档项目")).toBeInTheDocument();
+    expect(within(await screen.findByRole("dialog", { name: "归档项目" })).getByText("暂无归档项目")).toBeInTheDocument();
   });
 
   it("filters record body from the sidebar search and tag pills", async () => {
@@ -986,18 +1004,38 @@ describe("WorkspacePage", () => {
 
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     const recordPage = screen.getByTestId("workspace-page-body-record");
+    const sidebarRecords = within(sidebar).getByRole("region", { name: "工作区记录列表" });
+    const search = within(sidebar).getByRole("textbox", { name: "搜索工作区记录" });
+    expect(within(sidebarRecords).getByRole("button", { name: "招聘同步" })).toBeInTheDocument();
+    expect(within(recordPage).getByText("招聘同步")).toBeInTheDocument();
 
     await user.click(within(sidebar).getByRole("button", { name: /#\s*预算/ }));
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("搜索记录"), "命中");
+    expect(within(sidebarRecords).getByRole("button", { name: "预算复盘" })).toBeInTheDocument();
+    expect(within(sidebarRecords).queryByRole("button", { name: "招聘同步" })).not.toBeInTheDocument();
+
+    await user.type(search, "另一个");
+    expect(within(sidebarRecords).queryAllByRole("button")).toHaveLength(0);
+    expect(within(recordPage).queryByText("预算复盘")).not.toBeInTheDocument();
+    expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "命中");
+    expect(screen.getByLabelText("搜索记录")).toHaveValue("命中");
+    expect(within(sidebarRecords).getByRole("button", { name: "预算复盘" })).toBeInTheDocument();
+    expect(within(sidebarRecords).queryByRole("button", { name: "招聘同步" })).not.toBeInTheDocument();
 
     expect(within(recordPage).getByText("预算复盘")).toBeInTheDocument();
     expect(within(recordPage).queryByText("招聘同步")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "清除筛选" }));
     expect(screen.getByLabelText("搜索记录")).toHaveValue("");
+    expect(search).toHaveValue("");
+    expect(within(sidebar).getByRole("button", { name: "全部", pressed: true })).toBeInTheDocument();
+    expect(within(sidebarRecords).getByRole("button", { name: "预算复盘" })).toBeInTheDocument();
+    expect(within(sidebarRecords).getByRole("button", { name: "招聘同步" })).toBeInTheDocument();
     expect(within(recordPage).getByText("招聘同步")).toBeInTheDocument();
 
   });
@@ -1032,11 +1070,11 @@ describe("WorkspacePage", () => {
     });
     apiMocks.projectTagSettingsGet.mockResolvedValueOnce({ tags: [] });
 
-    const page = renderPage(["/?view=record&recordQuery=预算"]);
+    renderPage(["/?view=record&recordQuery=预算"]);
 
-    const sidebar = await screen.findByLabelText("工作区导航侧边栏");
+    const recordPage = await screen.findByTestId("workspace-page-body-record");
 
-    await user.click(screen.getByRole("button", { name: /预算复盘/ }));
+    await user.click(within(recordPage).getByRole("button", { name: /预算复盘/ }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/7?recordQuery=%E9%A2%84%E7%AE%97");
 
@@ -1067,11 +1105,10 @@ describe("WorkspacePage", () => {
     const sidebar = await screen.findByLabelText("工作区导航侧边栏");
     await user.click(screen.getByRole("button", { name: "新增记录" }));
 
-    expect(workspaceRecordMutationMocks.mutateAsync).toHaveBeenCalledWith({
-      markdown: "",
-      html: "<p></p>",
-      tagIds: [],
-    });
+    await waitFor(() => expect(recordCreationMocks.create).toHaveBeenCalledWith(expect.any(Object), {
+      scope: { kind: "workspace" }, title: null, document: { type: "doc", content: [{ type: "paragraph" }] }, tagIds: [], codeLanguage: null,
+    }, expect.any(String)));
+    expect(workspaceRecordMutationMocks.mutateAsync).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(screen.getByTestId("location-display")).toHaveTextContent("/workspace/records/99");
     });

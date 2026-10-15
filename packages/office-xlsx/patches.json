@@ -1,0 +1,193 @@
+[
+  {
+    "destination": "native/engine/src/recalc.rs",
+    "reason": "Typed native recalculation without user-input coercion; legacy input preserved for upstream tests",
+    "sha256": "96d8fa8c26db45df6df47914739c4c6a62e8e7c4a651e425cabc465624945e10",
+    "changes": [
+      {
+        "at": 1536,
+        "remove": "",
+        "insert": "lowercase\")]\npub enum RecalcKind { Blank, String, Number, Formula }\n\n#[derive(Debug, Deserialize)]\n#[serde(rename_all = \""
+      },
+      {
+        "at": 1572,
+        "remove": "",
+        "insert": "\n    #[serde(default)]\n    pub kind: Option<RecalcKind>,"
+      },
+      {
+        "at": 8524,
+        "remove": "",
+        "insert": "let fingerprint = format!(\"{:?}:{}\", edit.kind, edit.input);\n        "
+      },
+      {
+        "at": 8560,
+        "remove": "edit.",
+        "insert": "f"
+      },
+      {
+        "at": 8567,
+        "remove": "",
+        "insert": "ger"
+      },
+      {
+        "at": 8568,
+        "remove": "u",
+        "insert": "rin"
+      },
+      {
+        "at": 8675,
+        "remove": "entry\n            .mode",
+        "insert": ""
+      },
+      {
+        "at": 8699,
+        "remove": "\n            .s",
+        "insert": ""
+      },
+      {
+        "at": 8716,
+        "remove": "_use",
+        "insert": " "
+      },
+      {
+        "at": 8721,
+        "remove": "_input(\n",
+        "insert": "ow"
+      },
+      {
+        "at": 8730,
+        "remove": "               sheet,\n               ",
+        "insert": "="
+      },
+      {
+        "at": 8787,
+        "remove": ",",
+        "insert": ";"
+      },
+      {
+        "at": 8797,
+        "remove": "",
+        "insert": "let"
+      },
+      {
+        "at": 8798,
+        "remove": "",
+        "insert": "column"
+      },
+      {
+        "at": 8799,
+        "remove": "     ",
+        "insert": "="
+      },
+      {
+        "at": 8827,
+        "remove": "",
+        "insert": ";\n        match edit.kind {\n            Some(RecalcKind::Blank) => entry.model.cell_clear_contents(sheet"
+      },
+      {
+        "at": 8828,
+        "remove": "",
+        "insert": " row, column),\n            Some(RecalcKind::String) => entry.model.update_cell_with_text(sheet, row, column, &edit.input),\n            Some(RecalcKind::Number) => {"
+      },
+      {
+        "at": 8844,
+        "remove": "",
+        "insert": " let value: f64 = edit.input.parse().map_err(|_| SidecarError::InvalidRequest(\"Invalid numeric edit\".into()))?;\n                if !value.is_finite() { return Err(SidecarError::InvalidRequest(\"Non-finite numeric edit\".into())); }\n                entry.model.update_cell_with_number(sheet, row, column, value)\n            }\n            Some(RecalcKind::Formula) => entry.model.update_cell_with_formula(sheet, row, column,"
+      },
+      {
+        "at": 8863,
+        "remove": "",
+        "insert": ")"
+      },
+      {
+        "at": 8877,
+        "remove": "",
+        "insert": "None => entry.model.set_user_input(sheet, row, column, edit.input.clone("
+      },
+      {
+        "at": 8878,
+        "remove": "",
+        "insert": "),\n        }"
+      },
+      {
+        "at": 9053,
+        "remove": "edit.",
+        "insert": "f"
+      },
+      {
+        "at": 9060,
+        "remove": "",
+        "insert": "ger"
+      },
+      {
+        "at": 9061,
+        "remove": "u",
+        "insert": "rin"
+      },
+      {
+        "at": 9063,
+        "remove": ".clone()",
+        "insert": ""
+      },
+      {
+        "at": 22068,
+        "remove": "",
+        "insert": "\n                kind: None,"
+      }
+    ]
+  },
+  {
+    "destination": "vendor/packages/xlsx-gateway/src/gateway/xlsx-gateway.ts",
+    "reason": "Include cache-only sheets in the mutation planner; no synthetic cell edit",
+    "sha256": "b4a990d1be2f94d664b9f9ffe7eedc99c1e7455b6562d429ed8a115ddd7e4ae6",
+    "changes": [
+      {
+        "at": 33201,
+        "remove": "",
+        "insert": "t.sheetName),\n    ...formulaValues.map((sheet) => shee"
+      }
+    ]
+  },
+  {
+    "destination": "vendor/packages/xlsx-gateway/src/gateway/xlsx-package-io.ts",
+    "reason": "Host-owned temporary root and strict UTF-8 decoding of planner inputs; private temporary candidates avoid permission-prohibited Node fsync; native File commit remains durable",
+    "sha256": "32124845e02540d0deadf04f82a047a63d2b992d5aa0a5c229a7e1352caeb13c",
+    "changes": [
+      {
+        "at": 2760,
+        "remove": "",
+        "insert": "tempRoot?: string\n  readonly temporaryCandidate?: boolean\n  readonly "
+      },
+      {
+        "at": 5455,
+        "remove": "",
+        "insert": "new TextDecoder('utf-8', { fatal: true }).decode("
+      },
+      {
+        "at": 5476,
+        "remove": ", 'utf8'",
+        "insert": ")"
+      },
+      {
+        "at": 5938,
+        "remove": "",
+        "insert": "request.tempRoot ?? "
+      },
+      {
+        "at": 8166,
+        "remove": "    await promoteFileAtomically(temporaryTarget, request.targetPath)",
+        "insert": "    // Private candidates are consumed by the native durable File commit.\n    if (request.temporaryCandidate) await rename(temporaryTarget, request.targetPath)\n    else await promoteFileAtomically(temporaryTarget, request.targetPath)"
+      },
+      {
+        "at": 10336,
+        "remove": "",
+        "insert": "new TextDecoder('utf-8', { fatal: true }).decode("
+      },
+      {
+        "at": 10357,
+        "remove": ", 'utf8'",
+        "insert": ")"
+      }
+    ]
+  }
+]

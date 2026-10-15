@@ -1,0 +1,25 @@
+.dsh-ui-host { min-width: 0; min-height: 0; height: 100%; position: relative; isolation: isolate; --dsh-frame-leading-clearance: 0px; }
+.dsh-ui-frame { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+.dsh-ui-settings { overflow: auto; min-height: 0; }
+.dsh-ui-portals { position: static; height: auto; isolation: auto; }
+.dsh-ui-host [data-shell-leading], .dsh-ui-host [data-sidebar-right-expand] { display: none; }
+.dsh-ui-host > [role='status'], .dsh-ui-host > [role='alert'] { padding: 20px; }
+@media (prefers-reduced-motion: reduce) { .dsh-ui-host *, .dsh-ui-host *::before, .dsh-ui-host *::after { scroll-behavior: auto !important; } }
+
+.dsh-ui-host [data-mind-scroll-edges] { mask-image: linear-gradient(to bottom, rgba(0,0,0,var(--dsh-edge-top)) 0, black var(--dsh-edge-height), black calc(100% - var(--dsh-edge-height)), rgba(0,0,0,var(--dsh-edge-bottom)) 100%); }
+
+/* Model selection sits beside the send action in the original input toolbar. */
+.dsh-ui-host .mind-model-trigger { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: min(240px, 42vw); padding: 5px 7px; border: 0; border-radius: 6px; color: var(--dsw-alias-label-secondary); background: transparent; font: inherit; font-size: 13px; cursor: pointer; transition: background-color 150ms ease; }
+.dsh-ui-host .mind-model-trigger:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-ui-host .mind-model-trigger:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 2px; }
+.dsh-ui-host .mind-model-trigger:disabled { opacity: .6; cursor: default; }
+.dsh-ui-host .mind-model-trigger__label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dsh-ui-host .mind-model-trigger__chevron { display: inline-flex; flex: none; transition: transform 150ms ease; }
+.dsh-ui-host .mind-model-trigger__chevron[data-open="true"] { transform: rotate(180deg); }
+.dsh-ui-host .mind-model-menu { min-width: 220px; max-width: min(340px, calc(100vw - 24px)); }
+.dsh-ui-host .mind-model-menu > [role="presentation"]:not(:last-child) { max-height: min(320px, 55vh); overflow-y: auto; }
+.dsh-ui-host .mind-model-menu [role="alert"] { white-space: normal; color: var(--dsw-alias-state-error-primary); }
+@media (prefers-reduced-motion: reduce) { .dsh-ui-host .mind-model-trigger, .dsh-ui-host .mind-model-trigger__chevron { transition: none; } }
+/* Keep the model directory compact, including its provider headings. */
+.dsh-ui-host .mind-model-menu [role="menuitem"] { min-height: 0; padding: 4px 8px; font-size: 12px; line-height: 18px; }
+.dsh-ui-host .mind-model-menu > [role="presentation"]:not(:last-child) > [role="presentation"] { padding: 3px 8px; font-size: 11px; line-height: 16px; }

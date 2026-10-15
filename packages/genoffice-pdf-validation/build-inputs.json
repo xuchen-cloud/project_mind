@@ -1,0 +1,346 @@
+{
+  "inputs": {
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-cmap.ts": {
+      "bytes": 2916,
+      "imports": [],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/sfnt.ts": {
+      "bytes": 9297,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/advance.ts": {
+      "bytes": 7832,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/sfnt.ts",
+          "kind": "import-statement",
+          "original": "./sfnt"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/font-locate.ts": {
+      "bytes": 7398,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/sfnt.ts",
+          "kind": "import-statement",
+          "original": "./sfnt"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/metrics.ts": {
+      "bytes": 5274,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/sfnt.ts",
+          "kind": "import-statement",
+          "original": "./sfnt"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/index.ts": {
+      "bytes": 256,
+      "imports": [
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/advance.ts",
+          "kind": "import-statement",
+          "original": "./advance"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/font-locate.ts",
+          "kind": "import-statement",
+          "original": "./font-locate"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/metrics.ts",
+          "kind": "import-statement",
+          "original": "./metrics"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-locate.ts": {
+      "bytes": 251,
+      "imports": [
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/index.ts",
+          "kind": "import-statement",
+          "original": "@genoffice/font-metrics"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/wasm-path.ts": {
+      "bytes": 1220,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-subset.ts": {
+      "bytes": 8197,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/wasm-path.ts",
+          "kind": "import-statement",
+          "original": "./wasm-path"
+        }
+      ],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/ipc.ts": {
+      "bytes": 43356,
+      "imports": [],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/radicals.ts": {
+      "bytes": 8862,
+      "imports": [],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/x-layers.ts": {
+      "bytes": 1811,
+      "imports": [],
+      "format": "esm"
+    },
+    "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/text-edit.ts": {
+      "bytes": 106764,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "pdf-lib",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-cmap.ts",
+          "kind": "import-statement",
+          "original": "./font-cmap"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-locate.ts",
+          "kind": "import-statement",
+          "original": "./font-locate"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-subset.ts",
+          "kind": "import-statement",
+          "original": "./font-subset"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/wasm-path.ts",
+          "kind": "import-statement",
+          "original": "./wasm-path"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/ipc.ts",
+          "kind": "import-statement",
+          "original": "../shared/ipc"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/radicals.ts",
+          "kind": "import-statement",
+          "original": "../shared/radicals"
+        },
+        {
+          "path": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/x-layers.ts",
+          "kind": "import-statement",
+          "original": "../shared/x-layers"
+        },
+        {
+          "path": "@embedpdf/pdfium",
+          "kind": "dynamic-import",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "../../../tmp/project-mind-genoffice-pdf-validation-20261013/generated/core.mjs": {
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "pdf-lib",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@embedpdf/pdfium",
+          "kind": "dynamic-import",
+          "external": true
+        }
+      ],
+      "exports": [
+        "FPDF_PAGEOBJ_TEXT",
+        "applyTextEdits",
+        "applyTextInserts",
+        "canDrawText",
+        "chainPdfium",
+        "eraseTextRuns",
+        "fallbackFontFor",
+        "foldMap",
+        "listEditFonts",
+        "loadPdfium",
+        "mergeEngineCodepoints",
+        "norm",
+        "plannedCharStyles",
+        "saveDoc",
+        "spliceIntoEngine",
+        "textInsertAxes",
+        "validateTextEdits",
+        "verifyTextEdits",
+        "withDocument",
+        "wsEditClamp"
+      ],
+      "entryPoint": "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/text-edit.ts",
+      "inputs": {
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/text-edit.ts": {
+          "bytesInOutput": 62591
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-cmap.ts": {
+          "bytesInOutput": 2211
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/sfnt.ts": {
+          "bytesInOutput": 6086
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/advance.ts": {
+          "bytesInOutput": 48
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/index.ts": {
+          "bytesInOutput": 0
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/packages/font-metrics/src/font-locate.ts": {
+          "bytesInOutput": 4832
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-locate.ts": {
+          "bytesInOutput": 0
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/font-subset.ts": {
+          "bytesInOutput": 5298
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/main/wasm-path.ts": {
+          "bytesInOutput": 719
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/ipc.ts": {
+          "bytesInOutput": 38
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/radicals.ts": {
+          "bytesInOutput": 7938
+        },
+        "../../../private/tmp/project-mind-genoffice-pdf-validation-20261013/upstream/apps/pdf/src/shared/x-layers.ts": {
+          "bytesInOutput": 968
+        }
+      },
+      "bytes": 92454
+    }
+  }
+}

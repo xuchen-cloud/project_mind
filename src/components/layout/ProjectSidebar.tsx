@@ -1,5 +1,10 @@
+import { projectFilePathMatches } from "../../lib/project-file-navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys";
+import { FileContextMenuPanel } from "../document/FileContextMenuPanel";
+import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
-import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
+import { HomeSidebarList } from "../home/HomeSidebarList";
 import {
   useCallback,
   useEffect,
@@ -9,18 +14,18 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   FilePlus2,
-  FileText,
   Files,
   FolderKanban,
   FolderOpen,
-  NotebookText,
   Mic,
   Pencil,
+  Plus,
   Star,
   Trash2,
   Upload,
@@ -42,7 +47,6 @@ import {
   ActionContextMenu,
   Button,
   IconButton,
-  PopoverPanel,
   ResizeHandle,
   SearchField,
   SidebarFilters,
@@ -52,6 +56,7 @@ import {
 import { cn } from "../../ui/lib/cn";
 import { HomeEmptyState } from "../home/HomeEmptyState";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
+import { FileIcon } from "../document/FileIcon";
 import { DocumentContextTags } from "../document/DocumentContextTags";
 import {
   DocumentContextMenuAction,
@@ -60,6 +65,7 @@ import {
   handleRenameKeyDown,
   isInteractiveTarget,
   stopPropagation,
+  useDocumentPreview,
 } from "../document/DocumentSharedComponents";
 
 export interface ProjectSidebarRecordItem {
@@ -87,12 +93,20 @@ export interface ProjectSidebarDocumentItem {
   isStarred: boolean;
   currentVersionNumber: number;
   versionCount: number;
-  health: "normal" | "missing";
+  health: DocumentRecord["health"];
   tags: Array<{ id: number; label: string; colorKey: TagColorKey }>;
+}
+
+export interface ProjectFileMenuControls {
+  openContextMenu: (document: ProjectSidebarDocumentItem, x: number, y: number) => void;
+  renderRenameInput: (relativePath: string) => ReactNode;
 }
 
 interface ProjectSidebarProps {
   filesOnly?: boolean;
+  fileHeaderActions?: ReactNode;
+  fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode);
+  fileFilter?: { query: string; tagId: number | null };
   project: {
     id: number;
     name: string;
@@ -103,6 +117,7 @@ interface ProjectSidebarProps {
   records?: ProjectSidebarRecordItem[];
   documents?: ProjectSidebarDocumentItem[];
   activeRecordId?: number | null;
+  activeFileId?: number | null;
   recordQuery?: string;
   onRecordQueryChange?: (value: string) => void;
   activeRecordTagId?: number | null;
@@ -112,6 +127,8 @@ interface ProjectSidebarProps {
   onOpenRecord?: (recordId: number) => void;
   onFocusRecord?: (recordId: number) => void;
   onCreateRecord?: () => void;
+  onCreateVoiceRecord?: () => void;
+  creatingVoiceRecord?: boolean;
   onRenameRecord?: (record: ProjectSidebarRecordItem, title: string) => Promise<unknown> | unknown;
   onDeleteRecord?: (record: ProjectSidebarRecordItem) => Promise<unknown> | unknown;
   onOpenDocument?: (document: ProjectSidebarDocumentItem) => void;
@@ -119,6 +136,8 @@ interface ProjectSidebarProps {
 
 interface ContextMenuState {
   documentId: number;
+  document: ProjectSidebarDocumentItem;
+  listed: boolean;
   x: number;
   y: number;
 }
@@ -129,9 +148,6 @@ interface RecordContextMenuState {
   y: number;
 }
 
-const CONTEXT_MENU_WIDTH = 280;
-const CONTEXT_MENU_HEIGHT = 464;
-const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const DRAG_DEACTIVATE_DELAY_MS = 80;
 const PROJECT_SIDEBAR_TABS = [
   { value: "records", label: "记录" },
@@ -140,10 +156,14 @@ const PROJECT_SIDEBAR_TABS = [
 
 export function ProjectSidebar({
   filesOnly = false,
+  fileHeaderActions,
+  fileContent,
+  fileFilter,
   project,
   records: explicitRecords,
   documents = [],
   activeRecordId,
+  activeFileId,
   recordQuery: recordQueryProp,
   onRecordQueryChange,
   activeRecordTagId: activeRecordTagIdProp,
@@ -153,6 +173,8 @@ export function ProjectSidebar({
   onOpenRecord,
   onFocusRecord,
   onCreateRecord,
+  onCreateVoiceRecord,
+  creatingVoiceRecord = false,
   onRenameRecord,
   onDeleteRecord,
   onOpenDocument,
@@ -170,6 +192,10 @@ export function ProjectSidebar({
   } = useUiStore();
   const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
+  const queryClient = useQueryClient();
+  const refreshDirectory = () => queryClient.invalidateQueries({
+    queryKey: queryKeys.projectDirectory(project.rootPath, project.id, "", 0).slice(0, 3),
+  });
   const {
     documentMetaMutation,
     documentAddVersionMutation,
@@ -194,16 +220,18 @@ export function ProjectSidebar({
   const openRecord = onOpenRecord ?? (() => undefined);
 
   // UI State
+  const openPreview = useDocumentPreview();
   const [localRecordQuery, setLocalRecordQuery] = useState("");
   const [localActiveRecordTagId, setLocalActiveRecordTagId] = useState<number | null>(null);
-  const fileQuery = projectFileFilters[project.id]?.query ?? "";
-  const documentTagId = projectFileFilters[project.id]?.tagId ?? null;
+  const fileQuery = fileFilter?.query ?? projectFileFilters[project.id]?.query ?? "";
+  const documentTagId = fileFilter ? fileFilter.tagId : projectFileFilters[project.id]?.tagId ?? null;
   const setFileQuery = (query: string) => setProjectFileQuery(project.id, query);
   const setDocumentTagId = (tagId: number | null) => setProjectDocumentTagId(project.id, tagId);
   const [dragActive, setDragActive] = useState(false);
 
   // Document editing state
-  const [editingDocumentId, setEditingDocumentId] = useState<number | null>(null);
+  const [editingDocument, setEditingDocument] = useState<ProjectSidebarDocumentItem | null>(null);
+  const editingDocumentId = editingDocument?.id ?? null;
   const [nameDraft, setNameDraft] = useState("");
   const [pendingTagIdsByDocumentId, setPendingTagIdsByDocumentId] = useState<Record<number, number[]>>({});
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -311,8 +339,6 @@ export function ProjectSidebar({
   }
 
   const normalizedFileQuery = fileQuery.trim().toLowerCase();
-  const searchMotionRef = useRef<HTMLDivElement>(null);
-  useSearchResultsMotion(searchMotionRef, `${activeTab}:${recordQuery}:${fileQuery}`);
   const filteredDocuments = sortedDocuments.filter((document) => {
     const matchesQuery =
       !normalizedFileQuery ||
@@ -327,7 +353,7 @@ export function ProjectSidebar({
   });
 
   const contextMenuDocument = contextMenu
-    ? sortedDocuments.find((document) => document.id === contextMenu.documentId) ?? null
+    ? sortedDocuments.find((document) => document.id === contextMenu.documentId) ?? contextMenu.document
     : null;
   const contextMenuRecord = recordContextMenu
     ? records.find((record) => record.id === recordContextMenu.recordId) ?? null
@@ -399,7 +425,7 @@ export function ProjectSidebar({
 
   // Close context menu if document is removed
   useEffect(() => {
-    if (contextMenu && !sortedDocuments.some((document) => document.id === contextMenu.documentId)) {
+    if (contextMenu?.listed && !sortedDocuments.some((document) => document.id === contextMenu.documentId)) {
       setContextMenu(null);
     }
   }, [contextMenu, sortedDocuments]);
@@ -518,6 +544,7 @@ export function ProjectSidebar({
   };
 
   const openDocument = (document: ProjectSidebarDocumentItem) => {
+    if (openPreview(document)) return;
     if (document.health === "missing") {
       pushToast({
         tone: "error",
@@ -542,23 +569,39 @@ export function ProjectSidebar({
     );
   };
 
+  const versionActionGeneration = useRef(0);
+  useEffect(() => {
+    versionActionGeneration.current += 1;
+    return () => { versionActionGeneration.current += 1; };
+  }, [project.id, project.rootPath, resident]);
+
   const addDocumentVersionAndOpen = async (document: ProjectSidebarDocumentItem) => {
     if (document.health === "missing") {
       return;
     }
 
+    const actionGeneration = versionActionGeneration.current;
     try {
-      const nextDocument = await documentAddVersionMutation.mutateAsync({
+      const result = await documentAddVersionMutation.mutateAsync({
         documentId: document.id,
+        projectId: document.projectId,
+        managedPath: document.managedPath,
+        expectedVersionNumber: document.currentVersionNumber,
       });
-      await runDesktopAction(desktopApi.openFile(nextDocument.managedPath), "打开文件失败", nextDocument.managedPath);
+      if (!result || actionGeneration !== versionActionGeneration.current) return;
+      if (openPreview(document, result.receipt.versionNumber)) return;
+      if (!result.versionPath) {
+        pushToast({ tone: "info", title: `v${result.receipt.versionNumber} 已登记`, detail: "版本已保存，请刷新文件列表后打开。" });
+        return;
+      }
+      await runDesktopAction(desktopApi.openFile(result.versionPath), "打开文件失败", result.versionPath);
     } catch {
       return;
     }
   };
 
   const deleteDocument = (document: ProjectSidebarDocumentItem) => {
-    documentDeleteMutation.mutate({ documentId: document.id });
+    documentDeleteMutation.mutate({ documentId: document.id }, { onSuccess: refreshDirectory });
   };
 
   const beginRenameRecord = (record: ProjectSidebarRecordItem) => {
@@ -586,18 +629,18 @@ export function ProjectSidebar({
       return;
     }
     clearPendingOpen();
-    setEditingDocumentId(document.id);
+    setEditingDocument(document);
     setNameDraft(document.baseName);
   };
 
   const cancelRename = () => {
-    setEditingDocumentId(null);
+    setEditingDocument(null);
     setNameDraft("");
   };
 
   const commitRename = (document: ProjectSidebarDocumentItem) => {
     const nextBaseName = nameDraft.trim();
-    setEditingDocumentId(null);
+    setEditingDocument(null);
     setNameDraft("");
 
     if (!nextBaseName || nextBaseName === document.baseName) {
@@ -607,7 +650,7 @@ export function ProjectSidebar({
     documentMetaMutation.mutate({
       documentId: document.id,
       baseName: nextBaseName,
-    });
+    }, { onSuccess: refreshDirectory });
   };
 
   const handleDocumentClick = (document: ProjectSidebarDocumentItem, event: MouseEvent<HTMLElement>) => {
@@ -632,7 +675,7 @@ export function ProjectSidebar({
     openTimerRef.current = window.setTimeout(() => {
       openTimerRef.current = null;
       if (onOpenDocument) {
-        onOpenDocument(document);
+        if (!openPreview(document)) onOpenDocument(document);
       } else {
         openDocument(document);
       }
@@ -648,24 +691,9 @@ export function ProjectSidebar({
     event.preventDefault();
   };
 
-  const openContextMenu = (documentId: number, x: number, y: number) => {
+  const openContextMenu = (document: ProjectSidebarDocumentItem, x: number, y: number) => {
     clearPendingOpen();
-    const maxX =
-      typeof window === "undefined"
-        ? Math.max(CONTEXT_MENU_VIEWPORT_PADDING, x)
-        : Math.max(CONTEXT_MENU_VIEWPORT_PADDING, window.innerWidth - CONTEXT_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING);
-    const maxY =
-      typeof window === "undefined"
-        ? Math.max(CONTEXT_MENU_VIEWPORT_PADDING, y)
-        : Math.max(
-            CONTEXT_MENU_VIEWPORT_PADDING,
-            window.innerHeight - CONTEXT_MENU_HEIGHT - CONTEXT_MENU_VIEWPORT_PADDING,
-          );
-    setContextMenu({
-      documentId,
-      x: Math.min(Math.max(CONTEXT_MENU_VIEWPORT_PADDING, x), maxX),
-      y: Math.min(Math.max(CONTEXT_MENU_VIEWPORT_PADDING, y), maxY),
-    });
+    setContextMenu({ documentId: document.id, document, listed: sortedDocuments.some(item => item.id === document.id), x, y });
   };
 
   const handleDocumentKeyDown = (document: ProjectSidebarDocumentItem, event: KeyboardEvent<HTMLElement>) => {
@@ -676,7 +704,7 @@ export function ProjectSidebar({
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
-      openContextMenu(document.id, rect.left + 12, rect.bottom + 6);
+      openContextMenu(document, rect.left + 12, rect.bottom + 6);
       return;
     }
 
@@ -684,7 +712,7 @@ export function ProjectSidebar({
       event.preventDefault();
       clearPendingOpen();
       if (onOpenDocument) {
-        onOpenDocument(document);
+        if (!openPreview(document)) onOpenDocument(document);
       } else {
         openDocument(document);
       }
@@ -826,9 +854,14 @@ export function ProjectSidebar({
       </div>
       </> : null}
 
+      {filesOnly ? <div className="home-side__heading project-files__heading"><h2>文件</h2><div className="home-side__heading-actions">
+        {fileHeaderActions}
+        <button type="button" aria-label="导入文件" title="导入文件" onClick={() => void pickAndImportFiles()}><Plus size={16} /></button>
+      </div></div> : null}
+
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div className="grid shrink-0 gap-3">
+            {!fileContent && (!filesOnly || !fileFilter) ? <div className="grid shrink-0 gap-3">
               {!filesOnly ? <SidebarTabs
                 ariaLabel="项目侧边栏视图"
                 value={activeTab}
@@ -836,7 +869,7 @@ export function ProjectSidebar({
                 onValueChange={setActiveTab}
               /> : null}
               <div className="flex items-center gap-2">
-                <SearchField
+                {!fileFilter ? <SearchField
                   aria-label={activeTab === "records" ? "搜索记录" : "搜索文件"}
                   placeholder={activeTab === "records" ? "搜索记录或标签" : "搜索文件或标签"}
                   value={activeTab === "records" ? recordQuery : fileQuery}
@@ -846,7 +879,20 @@ export function ProjectSidebar({
                       : setFileQuery(event.target.value)
                   }
                   className="flex-1"
-                />
+                /> : null}
+                {activeTab === "records" && onCreateVoiceRecord ? (
+                  <IconButton
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label="新增语音记录"
+                    title="新增语音记录"
+                    disabled={creatingVoiceRecord}
+                    onClick={onCreateVoiceRecord}
+                  >
+                    <Mic size={14} />
+                  </IconButton>
+                ) : null}
                 {activeTab === "records" ? (
                   <IconButton
                     type="button"
@@ -855,10 +901,10 @@ export function ProjectSidebar({
                     aria-label="新增记录"
                     onClick={() => onCreateRecord?.()}
                   >
-                    <NotebookText size={14} />
+                    <RecordIcon size={14} />
                   </IconButton>
                 ) : null}
-                {activeTab === "files" ? (
+                {activeTab === "files" && !filesOnly ? (
                   <IconButton
                     type="button"
                     size="sm"
@@ -870,7 +916,7 @@ export function ProjectSidebar({
                   </IconButton>
                 ) : null}
               </div>
-              {(activeTab === "records" ? recordTagOptions : documentTagOptions).length > 0 ? (
+              {!fileFilter && (activeTab === "records" ? recordTagOptions : documentTagOptions).length > 0 ? (
                 <SidebarFilters
                   ariaLabel={
                     activeTab === "records"
@@ -889,9 +935,18 @@ export function ProjectSidebar({
                   }
                 />
               ) : null}
-            </div>
+            </div> : null}
 
-            <div ref={searchMotionRef} className="min-h-0 flex-1 overflow-y-auto">
+            {(typeof fileContent === "function" ? fileContent({
+              openContextMenu,
+              renderRenameInput: relativePath => editingDocument && projectFilePathMatches(editingDocument.managedPath, project.rootPath, relativePath) ? (
+                <input autoFocus aria-label={`重命名 ${editingDocument.name}`} data-document-interactive="true"
+                  className="inline-object-input h-6 min-w-0 flex-1 px-1.5 text-[12px] leading-4 text-text outline-none"
+                  value={nameDraft} onChange={event => setNameDraft(event.target.value)}
+                  onBlur={() => commitRename(editingDocument)}
+                  onKeyDown={event => { event.stopPropagation(); handleRenameKeyDown(editingDocument as DocumentRecord, event, cancelRename, commitRename); }} />
+              ) : null,
+            }) : fileContent) ?? <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
@@ -937,7 +992,7 @@ export function ProjectSidebar({
                       }}
                     >
                       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                        {record.isVoice ? <Mic size={15} aria-label="语音记录" className="text-accent" /> : <NotebookText size={15} />}
+                        <RecordIcon size={15} isVoice={record.isVoice} aria-label={record.isVoice ? "语音记录" : undefined} />
                       </span>
                       <span className="min-w-0 flex-1">
                         {isEditingRecord ? (
@@ -978,7 +1033,7 @@ export function ProjectSidebar({
             ) : (
               <div
                 className={cn(
-                  "grid gap-1.5 rounded-[var(--radius-8)] transition-colors",
+                  "project-sidebar__file-list grid gap-1.5 rounded-[var(--radius-8)] transition-colors",
                   dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]",
                 )}
               >
@@ -995,11 +1050,12 @@ export function ProjectSidebar({
                     const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
 
                     return (
-                      <button
+                      <div
                         key={document.id}
-                        type="button"
+                        role="button"
                         className={cn(
-                          "group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          "project-sidebar__file-row group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          document.id === activeFileId && "is-active",
                           isEditing ? "" : "context-menu-no-select",
                           document.health === "missing"
                             ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
@@ -1007,18 +1063,21 @@ export function ProjectSidebar({
                               ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
                               : "border-transparent hover:border-border hover:bg-bg",
                         )}
+                        aria-current={document.id === activeFileId ? "true" : undefined}
+                        data-health={document.health}
+                        data-context-open={isContextOpen || undefined}
                         tabIndex={0}
                         aria-label={buildDocumentAriaLabel(document.baseName, tags)}
                         onClick={(event) => handleDocumentClick(document, event)}
                         onMouseDownCapture={(event) => handleDocumentMouseDownCapture(document, event)}
                         onContextMenu={(event) => {
                           event.preventDefault();
-                          openContextMenu(document.id, event.clientX, event.clientY);
+                          openContextMenu(document, event.clientX, event.clientY);
                         }}
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
-                        <span className="flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
-                          {resolveDocumentIcon(document)}
+                        <span className="project-sidebar__file-icon flex h-6 w-7 shrink-0 items-center justify-center rounded-[var(--radius-6)] bg-bg text-text-soft">
+                          <FileIcon name={document.name} size={filesOnly ? 12 : 20} />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-1.5">
@@ -1042,7 +1101,7 @@ export function ProjectSidebar({
                             ) : (
                               <>
                                 <p
-                                  className="min-w-0 flex-1 truncate font-sans text-[12px] font-medium leading-4.5 text-text"
+                                  className="project-sidebar__file-name min-w-0 flex-1 truncate font-sans text-[12px] font-medium leading-4.5 text-text"
                                   title={document.baseName}
                                   onDoubleClick={(event) => {
                                     stopPropagation(event);
@@ -1051,10 +1110,11 @@ export function ProjectSidebar({
                                 >
                                   {document.baseName}
                                 </p>
-                                {document.versionCount > 1 ? (
+                                {document.versionCount > 0 ? (
                                   <DocumentVersionDropdown
                                     document={document as DocumentRecord}
                                     onOpenVersion={(version) => {
+                                      if (openPreview(document, version.versionNumber)) return;
                                       void runDesktopAction(
                                         desktopApi.openFile(version.managedPath),
                                         "打开版本文件失败",
@@ -1065,15 +1125,14 @@ export function ProjectSidebar({
                                 ) : null}
                               </>
                             )}
-                            {document.health === "missing" ? (
+                            {document.health !== "normal" ? (
                               <StatusBadge tone="danger" className="shrink-0 px-1 py-0 text-[10px] tracking-[0.1em]">
-                                失效
+                                {document.health === "missing" ? "缺失" : document.health === "changed" ? "待核对" : "不可用"}
                               </StatusBadge>
                             ) : null}
                           </span>
                         </span>
-                        <TagPreview tags={tags} fullWidth />
-                      </button>
+                      </div>
                     );
                   })
                 ) : (
@@ -1087,7 +1146,7 @@ export function ProjectSidebar({
                 )}
               </div>
             )}
-            </div>
+            </HomeSidebarList>}
         </div>
       </div>
 
@@ -1118,19 +1177,7 @@ export function ProjectSidebar({
 
       {/* Context Menu */}
       {contextMenuDocument && contextMenu ? (
-        <PopoverPanel
-          ref={contextMenuRef}
-          className="context-menu__panel fixed z-[80] w-[15rem] max-w-[calc(100vw-16px)] p-1"
-          style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
-          }}
-          role="menu"
-          aria-label="文件操作"
-          data-document-interactive="true"
-          onClick={stopPropagation}
-          onContextMenu={(event) => event.preventDefault()}
-        >
+        <FileContextMenuPanel x={contextMenu.x} y={contextMenu.y} menuRef={contextMenuRef}>
           <div className="grid gap-0.5">
             <DocumentContextMenuAction
               icon={<FolderOpen size={14} />}
@@ -1152,7 +1199,7 @@ export function ProjectSidebar({
             />
             <DocumentContextMenuAction
               icon={<FilePlus2 size={14} />}
-              label="复制为新版本并打开"
+              label="登记当前内容并打开"
               disabled={contextMenuDocument.health === "missing"}
               onClick={() => {
                 setContextMenu(null);
@@ -1186,7 +1233,7 @@ export function ProjectSidebar({
             loading={projectTagSettingsQuery.isLoading}
             onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
           />
-        </PopoverPanel>
+        </FileContextMenuPanel>
       ) : null}
 
       {/* Import Dialog */}
@@ -1207,10 +1254,10 @@ export function ProjectSidebar({
   );
 }
 
-function TagPreview({ tags, fullWidth = false }: { tags: ProjectSidebarRecordItem["tags"]; fullWidth?: boolean }) {
+function TagPreview({ tags }: { tags: ProjectSidebarRecordItem["tags"] }) {
   if (tags.length === 0) return null;
   return (
-    <span className={cn("mt-1.5 flex flex-wrap gap-1", fullWidth && "basis-full")}>
+    <span className="mt-1.5 flex flex-wrap gap-1">
       {tags.slice(0, 3).map((tag) => (
         <span key={tag.id} className="entity-tag-chip entity-tag-chip--compact">
           <span aria-hidden="true">#</span><span>{tag.label}</span>
@@ -1218,132 +1265,6 @@ function TagPreview({ tags, fullWidth = false }: { tags: ProjectSidebarRecordIte
       ))}
     </span>
   );
-}
-
-function resolveDocumentIcon(document: ProjectSidebarDocumentItem) {
-  const mimeType = document.mimeType.trim().toLowerCase();
-  const extension = document.name.split(".").pop()?.trim().toLowerCase() ?? "";
-
-  const type = resolveDocumentIconType(mimeType, extension);
-
-  return (
-    <span
-      className={cn("pm-file-icon", type.iconClass, type.colorClass)}
-      title={type.title}
-      aria-hidden="true"
-    />
-  );
-}
-
-function resolveDocumentIconType(mimeType: string, extension: string): {
-  iconClass: string;
-  title: string;
-  colorClass: string;
-} {
-  if (
-    mimeType.startsWith("image/") ||
-    ["apng", "avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "webp"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--image",
-      title: "图片",
-      colorClass: "pm-file-icon--blue",
-    };
-  }
-
-  if (
-    mimeType.includes("spreadsheet") ||
-    mimeType.includes("excel") ||
-    ["csv", "numbers", "ods", "xls", "xlsm", "xlsx"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--excel",
-      title: "表格",
-      colorClass: "pm-file-icon--green",
-    };
-  }
-
-  if (
-    mimeType.includes("presentation") ||
-    mimeType.includes("powerpoint") ||
-    ["key", "odp", "pps", "ppsx", "ppt", "pptx"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--powerpoint",
-      title: "演示文稿",
-      colorClass: "pm-file-icon--orange",
-    };
-  }
-
-  if (
-    mimeType.includes("wordprocessingml") ||
-    mimeType.includes("msword") ||
-    ["doc", "docx", "odt", "pages", "rtf"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--word",
-      title: "Word 文档",
-      colorClass: "pm-file-icon--blue",
-    };
-  }
-
-  if (mimeType === "application/pdf" || extension === "pdf") {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "PDF",
-      colorClass: "pm-file-icon--red",
-    };
-  }
-
-  if (
-    mimeType.includes("message") ||
-    mimeType.includes("rfc822") ||
-    ["eml", "msg"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--outlook",
-      title: "邮件",
-      colorClass: "pm-file-icon--purple",
-    };
-  }
-
-  if (
-    mimeType.includes("zip") ||
-    mimeType.includes("compressed") ||
-    ["7z", "br", "bz2", "gz", "rar", "tar", "tgz", "zip"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "压缩包",
-      colorClass: "pm-file-icon--yellow",
-    };
-  }
-
-  if (
-    mimeType.includes("json") ||
-    mimeType.includes("xml") ||
-    ["css", "go", "html", "js", "json", "jsx", "md", "py", "rs", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)
-  ) {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "代码",
-      colorClass: "pm-file-icon--purple",
-    };
-  }
-
-  if (mimeType.startsWith("text/") || ["log", "txt"].includes(extension)) {
-    return {
-      iconClass: "pm-file-icon--default",
-      title: "文本",
-      colorClass: "pm-file-icon--grey",
-    };
-  }
-
-  return {
-    iconClass: "pm-file-icon--default",
-    title: "文件",
-    colorClass: "pm-file-icon--grey",
-  };
 }
 
 function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {

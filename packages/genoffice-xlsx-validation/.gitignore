@@ -1,0 +1,6 @@
+node_modules/
+upstream/
+target/
+temp/
+__pycache__/
+*.bundle.mjs

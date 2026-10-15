@@ -1,0 +1,175 @@
+{
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "packages/agent-core/src/electron-transport.ts",
+      "git_blob_sha1": "4b0f073351c842431facfb477786f8733853717f",
+      "bytes": 6291
+    },
+    {
+      "path": "packages/agent-core/src/index.ts",
+      "git_blob_sha1": "34e0b20b3e7a991660058160773d106b679b2b97",
+      "bytes": 1188
+    },
+    {
+      "path": "packages/agent-core/src/knowledge-base-skill.ts",
+      "git_blob_sha1": "a18888c1580812c1123f114201c0801097d24cb8",
+      "bytes": 9056
+    },
+    {
+      "path": "packages/agent-core/src/loop.ts",
+      "git_blob_sha1": "7555adfc501b980491ffc6859bd07e4e7a9c2194",
+      "bytes": 56414
+    },
+    {
+      "path": "packages/agent-core/src/redact-core.ts",
+      "git_blob_sha1": "367cae89f74d29cc15fb78d481756a376546a41c",
+      "bytes": 7103
+    },
+    {
+      "path": "packages/agent-core/src/redact-range.ts",
+      "git_blob_sha1": "923f1bab049243fdcc943269185adcc9433de672",
+      "bytes": 8100
+    },
+    {
+      "path": "packages/agent-core/src/skill.ts",
+      "git_blob_sha1": "72b122c5c5c954c22fe55d573a341d4bc71c2f14",
+      "bytes": 3408
+    },
+    {
+      "path": "packages/agent-core/src/stream-text.ts",
+      "git_blob_sha1": "52d9d7da53d7c7c562936c43ff15a4c3dc35c586",
+      "bytes": 4872
+    },
+    {
+      "path": "packages/agent-core/src/types.ts",
+      "git_blob_sha1": "197002be9e6338fe64c0561aa502e9e2e68d9748",
+      "bytes": 4594
+    },
+    {
+      "path": "packages/ai-provider/src/ai-settings-guard.ts",
+      "git_blob_sha1": "9c07cb1372eb8f308fae01be85722ee4628f3684",
+      "bytes": 8084
+    },
+    {
+      "path": "packages/ai-provider/src/browser.ts",
+      "git_blob_sha1": "26e98a57dc29405d371b16a94b7111da70e0f706",
+      "bytes": 841
+    },
+    {
+      "path": "packages/ai-provider/src/chat.ts",
+      "git_blob_sha1": "8da32048e42a7b4dd9c2fe2a54ba86f15427e3e3",
+      "bytes": 2260
+    },
+    {
+      "path": "packages/ai-provider/src/codex-app-server.ts",
+      "git_blob_sha1": "3f63e845f52661bb26b8c334f4dbe04fac5f3acf",
+      "bytes": 38030
+    },
+    {
+      "path": "packages/ai-provider/src/custom-endpoints.ts",
+      "git_blob_sha1": "9b6fc38141b1920acf0c45e4088d3f1512c384eb",
+      "bytes": 4719
+    },
+    {
+      "path": "packages/ai-provider/src/custom-models.ts",
+      "git_blob_sha1": "de8880fbbb5c7c4e886345b366f622340f7ec7a3",
+      "bytes": 4416
+    },
+    {
+      "path": "packages/ai-provider/src/fetch.ts",
+      "git_blob_sha1": "9840c76d3215287ab1e13396da17c5de18a9e8e0",
+      "bytes": 3269
+    },
+    {
+      "path": "packages/ai-provider/src/http-error.ts",
+      "git_blob_sha1": "47ba58031b243da7202213e8bdc72a508a8d2563",
+      "bytes": 1400
+    },
+    {
+      "path": "packages/ai-provider/src/index.ts",
+      "git_blob_sha1": "f5cef4eda4aff6b1475c6ff0f609a1c415956aa9",
+      "bytes": 2600
+    },
+    {
+      "path": "packages/ai-provider/src/media-protocols.ts",
+      "git_blob_sha1": "8f8d89cb30ee994f1904fca036267ed47a7c2e82",
+      "bytes": 30085
+    },
+    {
+      "path": "packages/ai-provider/src/media.ts",
+      "git_blob_sha1": "87c415c39d4d96dbdd9b95d43462db5ab6afbf24",
+      "bytes": 13497
+    },
+    {
+      "path": "packages/ai-provider/src/network-error.ts",
+      "git_blob_sha1": "abed2bcac19def923d6881d945106ea1ad4779ca",
+      "bytes": 1881
+    },
+    {
+      "path": "packages/ai-provider/src/output-cap.ts",
+      "git_blob_sha1": "66e73b597278c3fca13a7f5febc070ac128f8df7",
+      "bytes": 1990
+    },
+    {
+      "path": "packages/ai-provider/src/overload-error.ts",
+      "git_blob_sha1": "563ac8a272275729e8b5604b2227ab7733b5a19f",
+      "bytes": 2343
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/anthropic.ts",
+      "git_blob_sha1": "cbc6d1dc62785c3bd4537cdb075b673acce658d8",
+      "bytes": 14827
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/gemini-schema.ts",
+      "git_blob_sha1": "bd9e11ca3001f1d6c7f7255accae588ac1671a46",
+      "bytes": 4903
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/gemini.ts",
+      "git_blob_sha1": "40684c8af457fd4893074771dad48776bbcf5c0c",
+      "bytes": 13010
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/openai-compatible.ts",
+      "git_blob_sha1": "626f7bc0b4fc10ad693bc4b80edc1b9f9f8c1b39",
+      "bytes": 16518
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/shared.ts",
+      "git_blob_sha1": "cf1fd4a7d48e6b299026315204431be3afb4c374",
+      "bytes": 14562
+    },
+    {
+      "path": "packages/ai-provider/src/providers.ts",
+      "git_blob_sha1": "874427be412e10e244964e5eadd4ad82f0f46273",
+      "bytes": 23517
+    },
+    {
+      "path": "packages/ai-provider/src/registry.ts",
+      "git_blob_sha1": "dbbbcf1a278ab6792f7b3b913517a8a906c834d4",
+      "bytes": 16830
+    },
+    {
+      "path": "packages/ai-provider/src/search-settings.ts",
+      "git_blob_sha1": "12c884ccb0076611ee433e3d86dc270423fe27d7",
+      "bytes": 2426
+    },
+    {
+      "path": "packages/ai-provider/src/stream.ts",
+      "git_blob_sha1": "799ad24575af18c1a75b50bbfe1a768672719e5e",
+      "bytes": 2205
+    },
+    {
+      "path": "packages/ai-provider/src/types.ts",
+      "git_blob_sha1": "0532a4e28b3ab9dec1225c84a7661ded2682001d",
+      "bytes": 7773
+    },
+    {
+      "path": "packages/ai-provider/src/watchdog.ts",
+      "git_blob_sha1": "a3876b75c193b8d03de694b210140ae742f6f2a8",
+      "bytes": 3660
+    }
+  ]
+}

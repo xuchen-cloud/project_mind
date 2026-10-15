@@ -2,6 +2,8 @@
 
 Project Mind 帮助个人在长期工作空间中组织阶段性项目，使当前理解、历史依据和下一步行动保持在同一上下文内。
 
+范围更新（2026-10-09）：用户确认将项目内 HTML/Markdown/Word/Excel/PPT 编辑预览及开源软件集成独立为[需求 #118](docs/requirements/project-file-integration.md)；原 HTML Issue #115 迁出 AI [需求 #97](https://github.com/xuchen-cloud/project_mind/issues/97)。AI 仍负责 File 成果生成、HTML/Markdown 原始源码续改及原生保存/版本/撤销，#118 不作为 AI M0～M4 发布前置。
+
 ## Language
 
 ### 工作边界
@@ -43,6 +45,8 @@ _Avoid_：项目状态摘要、Project Record、Project Todo
 **Record**：
 已经判断值得保留、可以独立查找和引用的信息单元；它具有相对完整的上下文，可以继续修订，但不再是待处理的临时片段。
 _Avoid_：Note、Activity、Conclusion（对象）、QuickNote
+
+Record 正文以统一 canonical 文档为准，手工编辑与独立助手写入复用同一原生保存服务、不可变版本、块标识与版本 CAS。助手修改前协调目标编辑器 flush Committed Content；未接受的 AI 预览或忙碌编辑器会阻止提交，后续正文或元信息变更不能被旧操作覆盖。
 
 **Project Record**：
 归属于一个 Project 的 Record，用于保存该项目中的事件、材料、观察或判断，其生命周期与所属 Project 一致。
@@ -150,7 +154,45 @@ _Avoid_：User、Assignee、Project Contact
 内容中指向 Contact 的上下文连接，用于表达人员相关性，不表示负责人、执行者或权限关系。
 _Avoid_：Assignee、任务分配、权限授予
 
-### AI 编辑
+### Context 与 Agent
+
+**Context（工作上下文）**：
+由 File、Record、Todo、会话、知识、Overview 和记忆等组成的持续工作现场，既为 Agent 提供理解依据，也承接其工作成果，并通过页面供用户与 Agent 共同查看、编辑和维护。Context 中的内容保留各自的业务身份、归属和生命周期，单次模型输入仅选取其中与任务相关且已授权的部分。
+_Avoid_：单次提示词、全量模型输入、只供 AI 读取的资料库
+
+**Agent（助手）**：
+在 Context 中理解用户目标、读取相关依据并采取行动的统一 AI 协作者，其成果与后续理解回到 Context 持续沉淀。编辑器、Project 和 Workspace 中的入口是不同工作场景，场景仍遵循明确的作用域、授权和内容生效规则。
+_Avoid_：按入口划分的独立 AI 身份、全局共享上下文
+
+**Agent Harness**：
+Agent 的运行与协作环境，组织模型、会话、工具、Skill、MCP、Plugin 和 Memory Component，并通过 Context 完成工作。扩展与记忆行为采用 Workspace 统一配置，各 Project 沿用；运行开关、时间和频率由 Harness 的结构化设置管理。
+_Avoid_：Agent 本身、模型本身、Context 内容库
+
+**Skill**：
+以文件表达、可供 Agent 复用的工作方法与行为说明，采用 Workspace 统一配置，各 Project 沿用。用户与获相应文件修改权限的 Agent 均可直接编辑；Agent 修改后告知实际结果。记忆与整理行为写在同一个 Skill 的两个章节中，运行调度单独由 Harness 设置管理。
+_Avoid_：记忆条目、AI Editor Skill、运行调度设置
+
+**Memory Component（记忆组件）**：
+Harness 中组织记忆读取、使用和维护的组件，通过 Context 能力并遵循 Skill 中的记忆与整理行为完成工作。记忆内容属于 Context，组件负责 Agent 如何使用和维护这些内容。
+_Avoid_：记忆正文、另一份记忆存储
+
+**Memory（记忆）**：
+Agent 沉淀并供后续工作使用的理解，包括 Overview 和 Workspace 长期记忆；两种形式保留各自的作用域、来源和生命周期。
+_Avoid_：仅 Workspace 长期记忆、原始资料全集
+
+**Memory Behavior（记忆行为）**：
+Agent 针对新交互和任务中的信息，判断应记住什么、保存到哪里，并定向新增或更新当前理解的工作方式；也包括用户明确指定某项内容的纠正、替换或停用。它可更新 Overview 和 Workspace 长期记忆，按信息的适用范围与授权选择目标，由 Workspace 统一 Skill 的记忆行为章节表达。
+_Avoid_：记忆条目、仅长期记忆写入、硬编码的语义分类规则
+
+**Organization Behavior（整理行为）**：
+Agent 回看已有资料和记忆，补全理解、合并重复、处理冲突、清理过时内容并调整结构的工作方式。它可更新 Overview 和 Workspace 长期记忆，与记忆行为按发生场合区分，而不按写入对象区分；由同一 Workspace Skill 的整理行为章节表达，实际调度时间、频率和开关由 Harness 的结构化设置管理。
+_Avoid_：仅 Overview 更新、长期记忆之外的独立系统
+
+**AI 网络连接**：当前 Workspace 的模型调用共用系统代理、自定义 HTTP/HTTPS 或直连设置；连接测试使用同一设置。范围及限制在[独立需求 NP1 / #119](docs/requirements/ai-network-proxy.md)维护。
+
+### AI 编辑（现有实现术语）
+
+下列术语描述当前编辑器能力，保留其内容生效规则；统一 Agent 的能力组织以 Context、Agent Harness 与 Skill 为准。
 
 **AI Editor Skill**：
 归属于 Workspace、可在 QuickNote 和 Record 编辑器中复用的用户自定义编辑能力，由名称、说明和提示词表达意图，并可分别适用于文字和图片菜单。
@@ -177,7 +219,7 @@ _Avoid_：图片 Job、持久化 AI 历史、编辑器全局会话
 _Avoid_：实时预览内容、编辑器 DOM 快照
 
 **AI Metadata Fill**：
-用户在 Record 标题区域显式发起、以 Committed Content 和同作用域现有 Tag 为输入的一次 AI 填写操作；它生成标题并优先复用现有 Tag，必要时新增少量 Tag，成功后以一个原子变更写入 Record。整篇 QuickNote 发布成新 Record 时自动触发同一能力；QuickNote 自动保存和追加到已有 Record 不触发。
+用户在 Record 标题区域显式发起的 AI 标题与 Tag 填写操作，依据 Committed Content 和同作用域现有 Tag，优先复用现有 Tag，必要时新增少量 Tag；成功时标题与 Tag 一起生效。整篇 QuickNote 发布成新 Record 时自动触发同一能力；QuickNote 自动保存和追加到已有 Record 不触发。
 _Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag 推荐
 
 ### 内容携带
@@ -185,3 +227,29 @@ _Avoid_：AI Editor Skill、AI Answer、自动后台分类、跨作用域 Tag �
 **Record Export**：
 单条 Workspace Record 或 Project Record 在其 Committed Content 状态下形成的本地可携带副本，可表现为 Markdown/ZIP、DOCX 或 PDF，但不改变原 Record。
 _Avoid_：Backup、Workspace Export、未确认内容快照
+
+### AI 工作上下文
+
+**Overview（AI Overview）**：
+Context 中由 Agent 与用户共同查看、纠正和维护、有版本与来源依据的作用域理解，供后续工作按问题渐进读取；独立于用户 QuickNote，不是普通 Record。Project Overview 承载项目理解及“项目背景与约定”，Workspace Overview 承载工作区层面的理解。
+_Avoid_：Project QuickNote、项目主页、用户已确认事实
+
+**Workspace 长期记忆**：
+唯一归属于 Workspace、可由该工作区内有权 Project Agent 沿用的精简、当前有效且有来源依据的跨任务信息。来源出自 Project 不改变归属；项目专属稳定背景与约定保存在 Project Overview 的“项目背景与约定”栏目。用户在项目会话中明确要求记住通用信息时，内置 Agent 按具体请求保存到 Workspace 并告知位置；指代或适用范围不清时先澄清。沿用记忆不授予原文读取或记忆写入权限，来源状态、授权及用户纠正或停用继续约束操作与使用。
+_Avoid_：Project Memory、项目背景栏目、原始 Record、会话全文
+
+**Scope Grant**：
+Agent 或外部连接在指定 Workspace 内、针对明确 Project 或 Workspace 范围获得的操作授权；只有实际获授的目标和操作可执行，资料正文、模型声明或工具参数不能扩大它。
+_Avoid_：当前页面、模型声明的授权
+
+**Context Instruction**：
+用户明确保存的作用域上下文说明，与模型生成知识、QuickNote 分离；模型不能自行修改。
+_Avoid_：磁盘 AGENTS 自动发现、模型推断、QuickNote
+
+**Operation Receipt**：
+Workspace 中保存的原生操作实际成功结果，绑定调用方、请求和真实目标，供结果追溯、安全重试及授权范围内的撤销与恢复使用。
+_Avoid_：模型自述完成、临时通知
+
+## AI 规格与实现依据
+
+统一 AI 产品语义以[主规格](docs/requirements/ai-work-context-spec.md)为准，长期记忆边界与生命周期见[长期记忆需求](docs/requirements/workspace-memory-lifecycle.md)。实现约束与交付状态分别见[工程契约](docs/requirements/ai-work-context-engineering-spec.md)和[验收台账](docs/requirements/ai-work-context-acceptance.md)。原领域文档中的实现长段落与历史验证记录已原文移至[AI 领域证据历史](docs/technical/ai-domain-evidence-history-20261010.md)，其中历史结论不代表统一模型已交付。

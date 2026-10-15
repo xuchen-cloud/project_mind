@@ -1,0 +1,657 @@
+{
+  "protocol_id": "genoffice-docx-controlled-roundtrip-v1",
+  "model_path": "parseDocx → original SaveBlock[] → saveDocx",
+  "baseline_hash": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+  "fixture_manifest_sha256": "6bbcaee2cfdc8e3c271b67cd09e18e84e6e6faa175acaaa2a619f607bd0d41c0",
+  "case": "simple",
+  "mode": "noop",
+  "status": "passed",
+  "checks": [
+    {
+      "name": "paragraphs",
+      "passed": true,
+      "expected": [
+        "中文文档往返验证",
+        "第一节 基础内容",
+        "待修改中文段落：春风拂面。",
+        "未修改段落：山川日月保持原样。",
+        "",
+        "图片后未修改段落。"
+      ],
+      "actual": [
+        "中文文档往返验证",
+        "第一节 基础内容",
+        "待修改中文段落：春风拂面。",
+        "未修改段落：山川日月保持原样。",
+        "",
+        "图片后未修改段落。"
+      ]
+    },
+    {
+      "name": "tables",
+      "passed": true,
+      "expected": [
+        [
+          [
+            "姓名",
+            "状态"
+          ],
+          [
+            "张三",
+            "待改单元"
+          ]
+        ]
+      ],
+      "actual": [
+        [
+          [
+            "姓名",
+            "状态"
+          ],
+          [
+            "张三",
+            "待改单元"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "headings",
+      "passed": true,
+      "expected": [
+        {
+          "text": "中文文档往返验证",
+          "style": "Title"
+        },
+        {
+          "text": "第一节 基础内容",
+          "style": "Heading1"
+        }
+      ],
+      "actual": [
+        {
+          "text": "中文文档往返验证",
+          "style": "Title"
+        },
+        {
+          "text": "第一节 基础内容",
+          "style": "Heading1"
+        }
+      ]
+    },
+    {
+      "name": "image_extents",
+      "passed": true,
+      "expected": [
+        {
+          "cx": "1463040",
+          "cy": "731520"
+        }
+      ],
+      "actual": [
+        {
+          "cx": "1463040",
+          "cy": "731520"
+        }
+      ]
+    },
+    {
+      "name": "image_placements",
+      "passed": true,
+      "expected": [
+        {
+          "body_index": 5,
+          "paragraph_text": "",
+          "geometry_xml": "<w:drawing xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:mo=\"http://schemas.microsoft.com/office/mac/office/2008/main\" xmlns:mv=\"urn:schemas-microsoft-com:mac:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:w10=\"urn:schemas-microsoft-com:office:word\" xmlns:w14=\"http://schemas.microsoft.com/office/word/2010/wordml\" xmlns:wne=\"http://schemas.microsoft.com/office/word/2006/wordml\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:wp14=\"http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing\" xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\" xmlns:wpi=\"http://schemas.microsoft.com/office/word/2010/wordprocessingInk\" xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\"><wp:inline xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><wp:extent cx=\"1463040\" cy=\"731520\"></wp:extent><wp:docPr id=\"1\" name=\"Picture 1\"></wp:docPr><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"></a:graphicFrameLocks></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"0\" name=\"fixture-image.png\"></pic:cNvPr><pic:cNvPicPr></pic:cNvPicPr></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"rId9\"></a:blip><a:stretch><a:fillRect></a:fillRect></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"></a:off><a:ext cx=\"1463040\" cy=\"731520\"></a:ext></a:xfrm><a:prstGeom prst=\"rect\"></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"
+        }
+      ],
+      "actual": [
+        {
+          "body_index": 5,
+          "paragraph_text": "",
+          "geometry_xml": "<w:drawing xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:mo=\"http://schemas.microsoft.com/office/mac/office/2008/main\" xmlns:mv=\"urn:schemas-microsoft-com:mac:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:w10=\"urn:schemas-microsoft-com:office:word\" xmlns:w14=\"http://schemas.microsoft.com/office/word/2010/wordml\" xmlns:wne=\"http://schemas.microsoft.com/office/word/2006/wordml\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:wp14=\"http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing\" xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\" xmlns:wpi=\"http://schemas.microsoft.com/office/word/2010/wordprocessingInk\" xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\"><wp:inline xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><wp:extent cx=\"1463040\" cy=\"731520\"></wp:extent><wp:docPr id=\"1\" name=\"Picture 1\"></wp:docPr><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"></a:graphicFrameLocks></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"0\" name=\"fixture-image.png\"></pic:cNvPr><pic:cNvPicPr></pic:cNvPicPr></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"rId9\"></a:blip><a:stretch><a:fillRect></a:fillRect></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"></a:off><a:ext cx=\"1463040\" cy=\"731520\"></a:ext></a:xfrm><a:prstGeom prst=\"rect\"></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"
+        }
+      ]
+    },
+    {
+      "name": "sections",
+      "passed": true,
+      "expected": [
+        {
+          "pgSz": [
+            {
+              "w": "12240",
+              "h": "15840"
+            }
+          ],
+          "pgMar": [
+            {
+              "top": "1440",
+              "right": "1800",
+              "bottom": "1440",
+              "left": "1800",
+              "header": "720",
+              "footer": "720",
+              "gutter": "0"
+            }
+          ],
+          "type": [],
+          "cols": [
+            {
+              "space": "720"
+            }
+          ]
+        }
+      ],
+      "actual": [
+        {
+          "pgSz": [
+            {
+              "w": "12240",
+              "h": "15840"
+            }
+          ],
+          "pgMar": [
+            {
+              "top": "1440",
+              "right": "1800",
+              "bottom": "1440",
+              "left": "1800",
+              "header": "720",
+              "footer": "720",
+              "gutter": "0"
+            }
+          ],
+          "type": [],
+          "cols": [
+            {
+              "space": "720"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "headers_footers",
+      "passed": true,
+      "expected": {
+        "header": [],
+        "footer": []
+      },
+      "actual": {
+        "header": [],
+        "footer": []
+      }
+    },
+    {
+      "name": "headers_footers_reference_counts",
+      "passed": true,
+      "expected": {
+        "header": 0,
+        "footer": 0
+      },
+      "actual": {
+        "header": 0,
+        "footer": 0
+      }
+    },
+    {
+      "name": "headers_footers_per_section",
+      "passed": true,
+      "expected": [
+        {}
+      ],
+      "actual": [
+        {}
+      ]
+    },
+    {
+      "name": "explicit_bold_text",
+      "passed": true,
+      "expected": "未修改段落：山川日月保持原样。",
+      "actual": "未修改段落：山川日月保持原样。"
+    },
+    {
+      "name": "page_break_count",
+      "passed": true,
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "name": "hyperlinks",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "hyperlink_text_targets",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    },
+    {
+      "name": "core_metadata",
+      "passed": true,
+      "expected": {
+        "author": "python-docx",
+        "category": "",
+        "comments": "generated by python-docx",
+        "content_status": "",
+        "identifier": "",
+        "keywords": "",
+        "language": "",
+        "last_modified_by": "",
+        "subject": "",
+        "title": "中文文档往返验证",
+        "version": ""
+      },
+      "actual": {
+        "author": "python-docx",
+        "category": "",
+        "comments": "generated by python-docx",
+        "content_status": "",
+        "identifier": "",
+        "keywords": "",
+        "language": "",
+        "last_modified_by": "",
+        "subject": "",
+        "title": "中文文档往返验证",
+        "version": ""
+      }
+    },
+    {
+      "name": "application_metadata",
+      "passed": true,
+      "expected": {
+        "Template": "Normal.dotm",
+        "TotalTime": "0",
+        "Pages": "1",
+        "Words": "0",
+        "Characters": "0",
+        "Application": "Microsoft Macintosh Word",
+        "DocSecurity": "0",
+        "Lines": "0",
+        "Paragraphs": "0",
+        "ScaleCrop": "false",
+        "HeadingPairs": "\n    ",
+        "TitlesOfParts": "\n    ",
+        "Manager": "",
+        "Company": "",
+        "LinksUpToDate": "false",
+        "CharactersWithSpaces": "0",
+        "SharedDoc": "false",
+        "HyperlinkBase": "",
+        "HyperlinksChanged": "false",
+        "AppVersion": "14.0000"
+      },
+      "actual": {
+        "Template": "Normal.dotm",
+        "TotalTime": "0",
+        "Pages": "1",
+        "Words": "0",
+        "Characters": "0",
+        "Application": "Microsoft Macintosh Word",
+        "DocSecurity": "0",
+        "Lines": "0",
+        "Paragraphs": "0",
+        "ScaleCrop": "false",
+        "HeadingPairs": "\n    ",
+        "TitlesOfParts": "\n    ",
+        "Manager": "",
+        "Company": "",
+        "LinksUpToDate": "false",
+        "CharactersWithSpaces": "0",
+        "SharedDoc": "false",
+        "HyperlinkBase": "",
+        "HyperlinksChanged": "false",
+        "AppVersion": "14.0000"
+      }
+    },
+    {
+      "name": "media_bytes_sha256",
+      "passed": true,
+      "expected": [
+        "d3a9d4b514d7cb75f205e56cd7515d172b9f7daad639177a614ba9d3643191b0"
+      ],
+      "actual": [
+        "d3a9d4b514d7cb75f205e56cd7515d172b9f7daad639177a614ba9d3643191b0"
+      ]
+    },
+    {
+      "name": "media_pixels_sha256",
+      "passed": true,
+      "expected": [
+        "9a0ca688b2d678aa5c0545f400fce37c5cef1dab3d6eddac378b35f1c075a457"
+      ],
+      "actual": [
+        "9a0ca688b2d678aa5c0545f400fce37c5cef1dab3d6eddac378b35f1c075a457"
+      ]
+    },
+    {
+      "name": "media_size",
+      "passed": true,
+      "expected": [
+        [
+          160,
+          80
+        ]
+      ],
+      "actual": [
+        [
+          160,
+          80
+        ]
+      ]
+    },
+    {
+      "name": "full_document_xml_semantics_with_only_controlled_text_replacements",
+      "passed": true,
+      "expected": "identical elements, attributes, order and text except the two targets; non-whitespace text ignores redundant xml:space=preserve",
+      "actual": "matched"
+    },
+    {
+      "name": "only_expected_package_parts_changed",
+      "passed": true,
+      "expected": [],
+      "actual": []
+    }
+  ],
+  "strictchanges": [],
+  "zip_directory_changes": {
+    "added": [],
+    "removed": []
+  },
+  "core_volatile": {
+    "before": {
+      "created": "2013-12-23 23:15:00+00:00",
+      "modified": "2013-12-23 23:15:00+00:00",
+      "revision": "1"
+    },
+    "after": {
+      "created": "2013-12-23 23:15:00+00:00",
+      "modified": "2013-12-23 23:15:00+00:00",
+      "revision": "1"
+    }
+  },
+  "output_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+  "source": {
+    "path": "/private/tmp/project-mind-genoffice-docx-validation-20261013/fixtures/simple.original.docx",
+    "bytes": 37853,
+    "sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+    "paragraphs": [
+      "中文文档往返验证",
+      "第一节 基础内容",
+      "待修改中文段落：春风拂面。",
+      "未修改段落：山川日月保持原样。",
+      "",
+      "图片后未修改段落。"
+    ],
+    "tables": [
+      [
+        [
+          "姓名",
+          "状态"
+        ],
+        [
+          "张三",
+          "待改单元"
+        ]
+      ]
+    ],
+    "headings": [
+      {
+        "text": "中文文档往返验证",
+        "style": "Title"
+      },
+      {
+        "text": "第一节 基础内容",
+        "style": "Heading1"
+      }
+    ],
+    "media": [
+      {
+        "bytes_sha256": "d3a9d4b514d7cb75f205e56cd7515d172b9f7daad639177a614ba9d3643191b0",
+        "size": [
+          160,
+          80
+        ],
+        "pixels_sha256": "9a0ca688b2d678aa5c0545f400fce37c5cef1dab3d6eddac378b35f1c075a457"
+      }
+    ],
+    "image_extents": [
+      {
+        "cx": "1463040",
+        "cy": "731520"
+      }
+    ],
+    "sections": [
+      {
+        "pgSz": [
+          {
+            "w": "12240",
+            "h": "15840"
+          }
+        ],
+        "pgMar": [
+          {
+            "top": "1440",
+            "right": "1800",
+            "bottom": "1440",
+            "left": "1800",
+            "header": "720",
+            "footer": "720",
+            "gutter": "0"
+          }
+        ],
+        "type": [],
+        "cols": [
+          {
+            "space": "720"
+          }
+        ]
+      }
+    ],
+    "headers_footers": {
+      "header": [],
+      "footer": []
+    },
+    "headers_footers_reference_counts": {
+      "header": 0,
+      "footer": 0
+    },
+    "headers_footers_per_section": [
+      {}
+    ],
+    "explicit_bold_text": "未修改段落：山川日月保持原样。",
+    "page_break_count": 0,
+    "hyperlinks": [],
+    "core_metadata": {
+      "author": "python-docx",
+      "category": "",
+      "comments": "generated by python-docx",
+      "content_status": "",
+      "identifier": "",
+      "keywords": "",
+      "language": "",
+      "last_modified_by": "",
+      "subject": "",
+      "title": "中文文档往返验证",
+      "version": ""
+    },
+    "core_volatile": {
+      "created": "2013-12-23 23:15:00+00:00",
+      "modified": "2013-12-23 23:15:00+00:00",
+      "revision": "1"
+    },
+    "application_metadata": {
+      "Template": "Normal.dotm",
+      "TotalTime": "0",
+      "Pages": "1",
+      "Words": "0",
+      "Characters": "0",
+      "Application": "Microsoft Macintosh Word",
+      "DocSecurity": "0",
+      "Lines": "0",
+      "Paragraphs": "0",
+      "ScaleCrop": "false",
+      "HeadingPairs": "\n    ",
+      "TitlesOfParts": "\n    ",
+      "Manager": "",
+      "Company": "",
+      "LinksUpToDate": "false",
+      "CharactersWithSpaces": "0",
+      "SharedDoc": "false",
+      "HyperlinkBase": "",
+      "HyperlinksChanged": "false",
+      "AppVersion": "14.0000"
+    },
+    "image_placements": [
+      {
+        "body_index": 5,
+        "paragraph_text": "",
+        "geometry_xml": "<w:drawing xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:mo=\"http://schemas.microsoft.com/office/mac/office/2008/main\" xmlns:mv=\"urn:schemas-microsoft-com:mac:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:w10=\"urn:schemas-microsoft-com:office:word\" xmlns:w14=\"http://schemas.microsoft.com/office/word/2010/wordml\" xmlns:wne=\"http://schemas.microsoft.com/office/word/2006/wordml\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:wp14=\"http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing\" xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\" xmlns:wpi=\"http://schemas.microsoft.com/office/word/2010/wordprocessingInk\" xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\"><wp:inline xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><wp:extent cx=\"1463040\" cy=\"731520\"></wp:extent><wp:docPr id=\"1\" name=\"Picture 1\"></wp:docPr><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"></a:graphicFrameLocks></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"0\" name=\"fixture-image.png\"></pic:cNvPr><pic:cNvPicPr></pic:cNvPicPr></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"rId9\"></a:blip><a:stretch><a:fillRect></a:fillRect></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"></a:off><a:ext cx=\"1463040\" cy=\"731520\"></a:ext></a:xfrm><a:prstGeom prst=\"rect\"></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"
+      }
+    ],
+    "hyperlink_text_targets": []
+  },
+  "candidate": {
+    "path": "/private/tmp/project-mind-genoffice-docx-validation-20261013/simple.engine.noop.docx",
+    "bytes": 37853,
+    "sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+    "paragraphs": [
+      "中文文档往返验证",
+      "第一节 基础内容",
+      "待修改中文段落：春风拂面。",
+      "未修改段落：山川日月保持原样。",
+      "",
+      "图片后未修改段落。"
+    ],
+    "tables": [
+      [
+        [
+          "姓名",
+          "状态"
+        ],
+        [
+          "张三",
+          "待改单元"
+        ]
+      ]
+    ],
+    "headings": [
+      {
+        "text": "中文文档往返验证",
+        "style": "Title"
+      },
+      {
+        "text": "第一节 基础内容",
+        "style": "Heading1"
+      }
+    ],
+    "media": [
+      {
+        "bytes_sha256": "d3a9d4b514d7cb75f205e56cd7515d172b9f7daad639177a614ba9d3643191b0",
+        "size": [
+          160,
+          80
+        ],
+        "pixels_sha256": "9a0ca688b2d678aa5c0545f400fce37c5cef1dab3d6eddac378b35f1c075a457"
+      }
+    ],
+    "image_extents": [
+      {
+        "cx": "1463040",
+        "cy": "731520"
+      }
+    ],
+    "sections": [
+      {
+        "pgSz": [
+          {
+            "w": "12240",
+            "h": "15840"
+          }
+        ],
+        "pgMar": [
+          {
+            "top": "1440",
+            "right": "1800",
+            "bottom": "1440",
+            "left": "1800",
+            "header": "720",
+            "footer": "720",
+            "gutter": "0"
+          }
+        ],
+        "type": [],
+        "cols": [
+          {
+            "space": "720"
+          }
+        ]
+      }
+    ],
+    "headers_footers": {
+      "header": [],
+      "footer": []
+    },
+    "headers_footers_reference_counts": {
+      "header": 0,
+      "footer": 0
+    },
+    "headers_footers_per_section": [
+      {}
+    ],
+    "explicit_bold_text": "未修改段落：山川日月保持原样。",
+    "page_break_count": 0,
+    "hyperlinks": [],
+    "core_metadata": {
+      "author": "python-docx",
+      "category": "",
+      "comments": "generated by python-docx",
+      "content_status": "",
+      "identifier": "",
+      "keywords": "",
+      "language": "",
+      "last_modified_by": "",
+      "subject": "",
+      "title": "中文文档往返验证",
+      "version": ""
+    },
+    "core_volatile": {
+      "created": "2013-12-23 23:15:00+00:00",
+      "modified": "2013-12-23 23:15:00+00:00",
+      "revision": "1"
+    },
+    "application_metadata": {
+      "Template": "Normal.dotm",
+      "TotalTime": "0",
+      "Pages": "1",
+      "Words": "0",
+      "Characters": "0",
+      "Application": "Microsoft Macintosh Word",
+      "DocSecurity": "0",
+      "Lines": "0",
+      "Paragraphs": "0",
+      "ScaleCrop": "false",
+      "HeadingPairs": "\n    ",
+      "TitlesOfParts": "\n    ",
+      "Manager": "",
+      "Company": "",
+      "LinksUpToDate": "false",
+      "CharactersWithSpaces": "0",
+      "SharedDoc": "false",
+      "HyperlinkBase": "",
+      "HyperlinksChanged": "false",
+      "AppVersion": "14.0000"
+    },
+    "image_placements": [
+      {
+        "body_index": 5,
+        "paragraph_text": "",
+        "geometry_xml": "<w:drawing xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" xmlns:mo=\"http://schemas.microsoft.com/office/mac/office/2008/main\" xmlns:mv=\"urn:schemas-microsoft-com:mac:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:w10=\"urn:schemas-microsoft-com:office:word\" xmlns:w14=\"http://schemas.microsoft.com/office/word/2010/wordml\" xmlns:wne=\"http://schemas.microsoft.com/office/word/2006/wordml\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:wp14=\"http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing\" xmlns:wpc=\"http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas\" xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\" xmlns:wpi=\"http://schemas.microsoft.com/office/word/2010/wordprocessingInk\" xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\"><wp:inline xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><wp:extent cx=\"1463040\" cy=\"731520\"></wp:extent><wp:docPr id=\"1\" name=\"Picture 1\"></wp:docPr><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"></a:graphicFrameLocks></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"0\" name=\"fixture-image.png\"></pic:cNvPr><pic:cNvPicPr></pic:cNvPicPr></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"rId9\"></a:blip><a:stretch><a:fillRect></a:fillRect></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"></a:off><a:ext cx=\"1463040\" cy=\"731520\"></a:ext></a:xfrm><a:prstGeom prst=\"rect\"></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"
+      }
+    ],
+    "hyperlink_text_targets": []
+  }
+}

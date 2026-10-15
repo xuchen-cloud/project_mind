@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   play: vi.fn(async () => undefined),
   pause: vi.fn(),
   seek: vi.fn(),
+  load: vi.fn(async (): Promise<void> => undefined),
 }));
 
 vi.mock("../../services/voiceApi", () => ({
@@ -27,7 +28,7 @@ vi.mock("../../lib/voice-player", () => ({
   VoicePlayer: class {
     duration = 60;
     position = 0;
-    async load() {}
+    load() { return mocks.load(); }
     play() { return mocks.play(); }
     pause() { mocks.pause(); }
     seek(position: number) { mocks.seek(position); }
@@ -71,6 +72,7 @@ describe("VoiceRecordPanel", () => {
     mocks.play.mockClear();
     mocks.pause.mockClear();
     mocks.seek.mockClear();
+    mocks.load.mockReset().mockResolvedValue(undefined);
     mocks.transcriptList.mockResolvedValue({ segments: [], nextCursor: null });
     mocks.playbackGet.mockResolvedValue({
       sessionId: "session-one",
@@ -101,6 +103,50 @@ describe("VoiceRecordPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "播放录音" }));
     expect(mocks.play).toHaveBeenCalledTimes(1);
     expect(mocks.playbackGet).toHaveBeenCalledWith({ scope: "workspace", recordId: 7 });
+    view.unmount();
+  });
+
+  it("source navigation waits for audio readiness, seeks milliseconds, and never autoplays", async () => {
+    let loaded!: () => void;
+    mocks.load.mockImplementationOnce(() => new Promise<void>(resolve => { loaded = resolve; }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} sourceTimeMs={1250} sourceNavigationKey="source-one" />
+    </QueryClientProvider>);
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(1));
+    expect(mocks.seek).not.toHaveBeenCalled();
+    loaded();
+    await waitFor(() => expect(mocks.seek).toHaveBeenCalledWith(1.25));
+    expect(mocks.pause.mock.invocationCallOrder[0]).toBeLessThan(mocks.seek.mock.invocationCallOrder[0]);
+    expect(mocks.play).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("录音进度")).toHaveValue("1250");
+    view.unmount();
+  });
+
+  it("source navigation defers hidden resident changes and seeks a second timestamp when visible", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = (visible: boolean, time: number) => <QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} visible={visible} sourceTimeMs={time} sourceNavigationKey={`source-${time}`} />
+    </QueryClientProvider>;
+    const view = render(panel(true, 5000));
+    await waitFor(() => expect(mocks.seek).toHaveBeenCalledWith(5));
+    const calls = mocks.seek.mock.calls.length;
+    view.rerender(panel(false, 11000));
+    expect(mocks.seek).toHaveBeenCalledTimes(calls);
+    view.rerender(panel(true, 11000));
+    await waitFor(() => expect(mocks.seek).toHaveBeenLastCalledWith(11));
+    expect(mocks.play).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("source navigation reports an unavailable timestamp without silently clamping it", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} sourceTimeMs={90000} />
+    </QueryClientProvider>);
+    expect(await screen.findByRole("status")).toHaveTextContent("来源时间点已超出当前录音范围");
+    expect(mocks.seek).not.toHaveBeenCalled();
+    expect(mocks.play).not.toHaveBeenCalled();
     view.unmount();
   });
 

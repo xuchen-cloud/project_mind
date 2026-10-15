@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render as baseRender,
   screen,
@@ -15,6 +16,7 @@ import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import type { TodoRecord } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { TodoRail } from "./TodoRail";
+import { RightSidebar } from "../layout/RightSidebar";
 
 // TodoRail now uses useContactMentionOptions(), which needs a QueryClient.
 function render(ui: ReactElement) {
@@ -24,6 +26,7 @@ function render(ui: ReactElement) {
 }
 
 const todoWithHistory: TodoRecord = {
+  revision: 1,
   id: 1,
   scope: "project",
   projectId: 1,
@@ -36,6 +39,7 @@ const todoWithHistory: TodoRecord = {
     {
       id: 101,
       todoId: 1,
+      todoRevision: 1,
       content: "已同步法务",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T10:00:00.000Z",
@@ -46,6 +50,7 @@ const todoWithHistory: TodoRecord = {
     {
       id: 102,
       todoId: 1,
+      todoRevision: 1,
       content: "等待财务确认",
       progressDate: "2026-04-05",
       createdAt: "2026-04-05T09:00:00.000Z",
@@ -65,6 +70,7 @@ const anotherTodoWithHistory: TodoRecord = {
     {
       id: 103,
       todoId: 3,
+      todoRevision: 1,
       content: "已和税务对齐方案",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T11:00:00.000Z",
@@ -75,6 +81,7 @@ const anotherTodoWithHistory: TodoRecord = {
     {
       id: 105,
       todoId: 3,
+      todoRevision: 1,
       content: "已收集财务问题",
       progressDate: "2026-04-05",
       createdAt: "2026-04-05T10:00:00.000Z",
@@ -103,6 +110,7 @@ const finishedTodo: TodoRecord = {
     {
       id: 104,
       todoId: 2,
+      todoRevision: 1,
       content: "已发出最终版本",
       progressDate: "2026-04-06",
       createdAt: "2026-04-06T12:00:00.000Z",
@@ -113,8 +121,9 @@ const finishedTodo: TodoRecord = {
 describe("TodoRail", () => {
   function renderRail(
     partialProps: Partial<React.ComponentProps<typeof TodoRail>> = {},
+    hosted = false,
   ) {
-    return render(
+    const rail = (
       <TodoRail
         title="Todo List"
         scopeLabel="Alpha"
@@ -130,8 +139,13 @@ describe("TodoRail", () => {
         onDeleteProgress={vi.fn()}
         onDeleteTodo={vi.fn()}
         {...partialProps}
-      />,
+      />
     );
+    return render(hosted ? <>
+      <button data-right-sidebar-toggle onClick={() => useUiStore.getState().setTodoRailCollapsed(false)}>打开右栏</button>
+      <button>正文操作</button>
+      <RightSidebar>{rail}</RightSidebar>
+    </> : rail);
   }
 
   async function selectOwnership(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -145,6 +159,23 @@ describe("TodoRail", () => {
   beforeEach(() => {
     installMemoryLocalStorage();
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("keeps a hidden hosted draft inactive until the sidebar is reopened", async () => {
+    const user = userEvent.setup();
+    const onCreateTodo = vi.fn(async () => undefined);
+    renderRail({ onCreateTodo }, true);
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    await user.type(screen.getByPlaceholderText("写下一条需要推进的 Todo"), "继续写的草稿");
+    act(() => screen.getByRole("button", { name: "正文操作" }).focus());
+    expect(useUiStore.getState().todoRailCollapsed).toBe(true);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "正文操作" }));
+    await user.click(screen.getByRole("button", { name: "打开右栏" }));
+    expect(onCreateTodo).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toHaveValue("继续写的草稿");
+    await user.click(screen.getByRole("button", { name: "正文操作" }));
+    expect(onCreateTodo).toHaveBeenCalledWith(expect.objectContaining({ content: "继续写的草稿" }));
   });
 
   it("selects and scrolls to the focused Todo in the correct Rail tab", async () => {
@@ -548,7 +579,11 @@ describe("TodoRail", () => {
     const create = screen.getByRole("button", { name: "新增代办" });
     const sorting = screen.getByRole("combobox", { name: "待办排序" }).closest("label");
     expect(archive.nextElementSibling).toBe(sorting);
+    expect(screen.queryByRole("button", { name: "收起代办侧边栏" })).not.toBeInTheDocument();
     expect(sorting?.nextElementSibling).toBe(create);
+    expect(create.nextElementSibling).toBeNull();
+    expect(create.querySelector("svg")).toHaveAttribute("width", "16");
+    expect(create).toHaveClass("bg-transparent");
     expect(archive.closest(".todo-rail__header")).not.toBeNull();
     expect(screen.getByRole("combobox", { name: "待办排序" }).closest(".todo-rail__header")).not.toBeNull();
     expect(container.querySelector(".todo-rail__completion-footer")).toBeNull();
@@ -556,6 +591,13 @@ describe("TodoRail", () => {
     expect(archive).toHaveAttribute("aria-pressed", "true");
     await user.click(archive);
     expect(archive).toHaveAttribute("aria-pressed", "false");
+    await user.selectOptions(screen.getByRole("combobox", { name: "待办排序" }), "priority");
+    expect(useUiStore.getState().todoRailSortMode).toBe("priority");
+    act(() => useUiStore.getState().setTodoRailCollapsed(true));
+    expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "展开代办侧边栏" }));
+    await user.click(screen.getByRole("button", { name: "新增代办" }));
+    expect(screen.getByPlaceholderText("写下一条需要推进的 Todo")).toBeVisible();
   });
 
   it("hides the only group heading and retains tasks when project metadata is missing", () => {
@@ -571,7 +613,7 @@ describe("TodoRail", () => {
     expect(screen.getByRole("button", { name: "新增代办" })).toBeInTheDocument();
   });
 
-  it("creates todos, auto-collapses expanded history on blur, and toggles collapse", async () => {
+  it("creates todos, auto-collapses expanded history on blur, and follows external collapse state", async () => {
     const user = userEvent.setup();
     const onCreateTodo = vi.fn();
 
@@ -600,7 +642,7 @@ describe("TodoRail", () => {
     await user.click(within(secondTodoRow!).getByRole("button", { name: "展开已完成子项" }));
     expect(screen.getAllByRole("button", { name: "收起已完成子项" })).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "收起代办侧边栏" }));
+    act(() => useUiStore.getState().setTodoRailCollapsed(true));
     expect(useUiStore.getState().todoRailCollapsed).toBe(true);
     expect(screen.getByRole("button", { name: "展开代办侧边栏" })).toBeInTheDocument();
   });

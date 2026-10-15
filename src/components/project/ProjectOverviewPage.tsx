@@ -1,3 +1,4 @@
+import { AgentLauncher } from "../agent/AgentLauncher";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { Save,Trash2 } from "lucide-react";
@@ -9,9 +10,7 @@ useState,
 type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
-import { HomeRailDivider } from "../home/HomeRailDivider";
 
-import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
@@ -22,7 +21,6 @@ import { useFocusTarget } from "../../hooks/useUtilityHooks";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import {
 parseFocusRecordId,
-parseFocusTodoId,
 parseRouteId,
 preserveRecordFilters,
 recordFocusId,
@@ -36,24 +34,25 @@ parseRecordFilterTagId,
 import { queryKeys } from "../../lib/queryKeys";
 import { completeQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metadata";
 import { deriveQuickNoteMetadata } from "../../lib/quick-note-metadata";
-import type { QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
-import { appendMarkdownSection,appendRichTextSection } from "../../lib/record-move";
+import type { QuickNoteTransferContext, QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
+import { CanonicalQuickNoteTransfer } from "../../lib/canonical-quick-note-transfer";
+import { CanonicalRecordCreation } from "../../lib/canonical-record-creation";
+import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { RESIDENT_PROJECT_QUERY_OPTIONS } from "../../lib/resident-pages";
 import { extractTagMentionIds } from "../../lib/tagMentions";
 import {
 colorKeyForTagLabel,
-findTagByLabel,
-mergeUniqueTagIds
+findTagByLabel
 } from "../../lib/tags";
 import type {
 NoteRecord,
 ProjectPageData,
 ProjectTagRecord,
+WorkspaceStatusSnapshot,
 } from "../../lib/types";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { useUiStore } from "../../state/ui-store";
-import { TodoModuleRail } from "../../todo";
 import { ActionContextMenu,Button,PageLoadingSkeleton,TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
@@ -62,7 +61,6 @@ import { HomeEmptyState } from "../home/HomeEmptyState";
 import { HomeCover, ProjectHomeIcon } from "../home/HomeCover";
 import { HomeQuickNote } from "../home/HomeQuickNote";
 import { HomeRecordFilters } from "../home/HomeRecordFilters";
-import { HomeProjectFiles } from "../home/HomeProjectFiles";
 import { RecordListItem } from "../record/RecordListItem";
 import {
 getRenderableRichTextHtml,
@@ -100,6 +98,10 @@ export function ProjectOverviewPage({
   const [routeSearchParams, setRouteSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const saveCoordinator = useRecordSaveCoordinator();
+  const quickNoteTransfer = useMemo(() => new CanonicalQuickNoteTransfer(), []);
+  const recordCreation = useMemo(() => new CanonicalRecordCreation(), []);
+  const [creatingRecord, setCreatingRecord] = useState(false);
   const searchParams = searchParamsOverride ?? routeSearchParams;
   const setProjectSearchParams = onSearchParamsOverride ?? setRouteSearchParams;
   const projectId = projectIdOverride ?? parseRouteId(params.projectId);
@@ -108,7 +110,6 @@ export function ProjectOverviewPage({
   );
   const focusId = searchParams.get("focus");
   const focusedRecordId = parseFocusRecordId(focusId);
-  const focusedTodoId = parseFocusTodoId(focusId);
   const shouldAutoFocusProjectName = searchParams.get("renameProject") === "1";
   const composeRecord = searchParams.get("compose") === "record";
   const { pushToast } = useFeedbackStore();
@@ -116,13 +117,8 @@ export function ProjectOverviewPage({
     openSettings,
     pageWidthMode,
     projectSidebarCollapsed,
-    todoRailCollapsed,
-    todoRailWidthPx,
-    projectTodoViewMode,
-    setProjectTodoViewMode,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
-  const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
 
   const projectsQuery = useQuery({
@@ -174,7 +170,6 @@ export function ProjectOverviewPage({
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
   const [recordDraftCodeLanguage, setRecordDraftCodeLanguage] = useState<string | null>(null);
   const [recordDraftTagIds, setRecordDraftTagIds] = useState<number[]>([]);
-  const [savingRecordId, setSavingRecordId] = useState<number | null>(null);
   const [recordContextMenu, setRecordContextMenu] = useState<{
     x: number;
     y: number;
@@ -342,28 +337,6 @@ export function ProjectOverviewPage({
     );
   }
 
-  async function ensureTagIdsFromText(markdown: string, explicitTagIds: number[]) {
-    if (!projectId) return explicitTagIds;
-
-    const mentionedTagIds = extractTagMentionIds(markdown);
-    const hashLabels = deriveQuickNoteMetadata(markdown).tagLabels;
-    const hashTagIds: number[] = [];
-
-    for (const label of hashLabels) {
-      const existing = findTagByLabel(availableTags, label);
-      const tag =
-        existing ??
-        (await projectMindApi.projectTagUpsert({
-          projectId,
-          label,
-          colorKey: colorKeyForTagLabel(label),
-        }));
-      hashTagIds.push(tag.id);
-    }
-
-    return mergeUniqueTagIds(explicitTagIds, mentionedTagIds, hashTagIds);
-  }
-
   function syncProjectTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
       queryKeys.projectTags.project(projectId),
@@ -426,7 +399,7 @@ export function ProjectOverviewPage({
     return normalized;
   }
 
-  async function commitProjectQuickNote(value: RichEditorValue, target: QuickNoteTransferTarget) {
+  async function commitProjectQuickNote(value: RichEditorValue, target: QuickNoteTransferTarget, context: QuickNoteTransferContext) {
     if (!projectId) throw new Error("当前 Project 不可用");
     const metadata = deriveQuickNoteMetadata(value.markdown);
     const targetRecord = target.kind === "append"
@@ -435,98 +408,51 @@ export function ProjectOverviewPage({
     if (target.kind === "append" && (!targetRecord || targetRecord.projectId !== projectId)) {
       throw new Error("只能追加到当前 Project 的 Record");
     }
-    const tagIds = mergeUniqueTagIds(
-      targetRecord?.tags?.map((tag) => tag.id) ?? [],
-      extractTagMentionIds(value.markdown),
-    );
-    for (const label of metadata.tagLabels) {
-      const existing = findTagByLabel(availableTags, label);
-      const tag = existing ?? await projectMindApi.projectTagUpsert({
+    const result = await quickNoteTransfer.commit({
+      workspaceRoot: saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "",
+      scope: { kind: "project", projectId }, target, markdown: value.markdown,
+      title: metadata.title ?? (value.text.trim().split(/[。！？.!?\n]/u)[0]?.slice(0, 36) || "未命名记录"),
+      coordinator: saveCoordinator,
+      resolveTagIds: async () => {
+        const tagIds = extractTagMentionIds(value.markdown);
+        for (const label of metadata.tagLabels) {
+          const existing = findTagByLabel(availableTags, label);
+          const tag = existing ?? await projectMindApi.projectTagUpsert({
         projectId,
-        label,
-        colorKey: colorKeyForTagLabel(label),
-      });
-      if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
-    }
-    const record = await projectMindApi.projectQuickNoteCommit({
-      projectId,
-      expectedMarkdown: value.markdown,
-      recordId: targetRecord?.id,
-      expectedRecordMarkdown: targetRecord?.contentMarkdown,
-      expectedRecordUpdatedAt: targetRecord?.updatedAt,
-      title: targetRecord ? targetRecord.title ?? undefined : metadata.title ?? (value.text.trim().split(/[。！？.!?\n]/u)[0]?.slice(0, 36) || "未命名记录"),
-      markdown: targetRecord
-        ? appendMarkdownSection(targetRecord.contentMarkdown, value.markdown)
-        : value.markdown,
-      html: targetRecord
-        ? appendRichTextSection(
-            { html: targetRecord.contentHtml, markdown: targetRecord.contentMarkdown },
-            value.html,
-          )
-        : value.html,
-      defaultCodeLanguage: targetRecord ? targetRecord.defaultCodeLanguage : quickNoteCodeLanguage,
-      tagIds,
-    });
+            label, colorKey: colorKeyForTagLabel(label),
+          });
+          if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
+        }
+        return tagIds;
+      },
+    }, context);
+    const record = result.editor.record as NoteRecord;
     upsertRecordInProjectCache(record);
-    if (!targetRecord) void completeQuickNoteRecordMetadata({ record, projectId, availableTags, aiSettings })
+    if (!targetRecord) void completeQuickNoteRecordMetadata({ binding: result.binding, record, projectId, availableTags, aiSettings })
       .then(() => refreshProject()).catch(() => pushToast({ tone: "info", title: "记录已保存", detail: "AI 标题和标签未填写，可在记录中重试 AI 填写。" }));
     return record;
   }
 
   async function createRecord() {
-    const nextValue = recordDraftEditorRef.current?.getValue() ?? recordDraftValue;
-
-    if (!projectId || !nextValue.markdown.trim()) return;
-
-    const externalizedValue = await externalizeEmbeddedImageDataUrls(
-      nextValue,
-      projectQuickNoteAssetHandlers,
-    );
-    const normalized = normalizeRichEditorValue(externalizedValue);
-    const tagIds = await ensureTagIdsFromText(normalized.markdown, recordDraftTagIds);
-    const savedRecord = await projectMindApi.projectRecordUpsert({
-      projectId,
-      title: recordDraftTitle.trim() || undefined,
-      markdown: normalized.markdown,
-      html: normalized.html,
-      defaultCodeLanguage: recordDraftCodeLanguage,
-      tagIds,
-    });
-    upsertRecordInProjectCache(savedRecord);
-    closeRecordDraft();
-    setRecordDraftTitle("");
-    setRecordDraftValue(EMPTY_VALUE);
-    setRecordDraftCodeLanguage(null);
-    setRecordDraftTagIds([]);
-  }
-
-  async function saveRecord(
-    note: NoteRecord,
-    value: RichEditorValue,
-    title: string,
-    tagIds: number[],
-    defaultCodeLanguage: string | null,
-  ) {
-    setSavingRecordId(note.id);
-
-    try {
-      const recordAssetHandlers = buildProjectNoteImageAssetHandlers(note.projectId);
-      const externalizedValue = await externalizeEmbeddedImageDataUrls(value, recordAssetHandlers);
-      const normalized = normalizeRichEditorValue(externalizedValue);
-      const nextTagIds = await ensureTagIdsFromText(normalized.markdown, tagIds);
-      const savedRecord = await projectMindApi.projectRecordUpsert({
-        projectId: note.projectId,
-        noteId: note.id,
-        title: title.trim() || undefined,
-        markdown: normalized.markdown,
-        html: normalized.html,
-        defaultCodeLanguage,
-        tagIds: nextTagIds,
-      });
-      upsertRecordInProjectCache(savedRecord);
-    } finally {
-      setSavingRecordId(null);
+    const editor = recordDraftEditorRef.current;
+    if (!projectId || !editor || creatingRecord || !editor.getCommittedValue().markdown.trim()) return;
+    if (editor.getPendingAiReviewCount() > 0) {
+      pushToast({ tone: "info", title: "请先处理 AI 候选", detail: "接受或取消待确认的 AI 内容后再创建记录，草稿已保留。" });
+      return;
     }
+    setCreatingRecord(true);
+    try {
+      const saved = await recordCreation.create(saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "", {
+        scope: { kind: "project", projectId }, title: recordDraftTitle.trim() || null,
+        document: editor.getCommittedDocumentJson(), codeLanguage: recordDraftCodeLanguage, tagIds: recordDraftTagIds,
+      });
+      upsertRecordInProjectCache(saved.record as NoteRecord);
+      recordCreation.reset();
+      closeRecordDraft();
+      setRecordDraftTitle(""); setRecordDraftValue(EMPTY_VALUE); setRecordDraftCodeLanguage(null); setRecordDraftTagIds([]);
+    } catch (failure) {
+      pushToast({ tone: "error", title: "创建记录失败", detail: String(failure) });
+    } finally { setCreatingRecord(false); }
   }
 
   async function deleteRecord(note: NoteRecord) {
@@ -612,6 +538,9 @@ export function ProjectOverviewPage({
           <HomeCover identityKey={`project:${activeProject.rootPath}`} defaultIcon="Compass" canEditIcon
             title={<input ref={projectNameInputRef} aria-label="项目名称" disabled={publishingQuickNote} value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => void saveProjectName()} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}
           />
+          <AgentLauncher scope={{ kind: "project", projectId: activeProject.id }}
+            workspaceRoot={queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath}
+            visible={visible} />
           <HomeQuickNote
             pageTitle={nameDraft}
             pageIcon={<ProjectHomeIcon rootPath={activeProject.rootPath} size={20} />}
@@ -622,6 +551,7 @@ export function ProjectOverviewPage({
             records={allRecords}
             onBusyChange={setPublishingQuickNote}
             persist={saveProjectQuickNote}
+            beforeTransfer={(context) => quickNoteTransfer.bind(saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "", context)}
             commit={commitProjectQuickNote}
             onClear={() => {
               setQuickNoteDraft(EMPTY_VALUE);
@@ -714,7 +644,6 @@ export function ProjectOverviewPage({
                     <RichEditor
                       contentIdentity={`project-record-draft:${activeProject.id}`}
                       html={recordDraftValue.html}
-                      readOnly={!visible}
                       aiSettings={aiSettings}
                       defaultCodeLanguage={recordDraftCodeLanguage}
                       onDefaultCodeLanguageChange={setRecordDraftCodeLanguage}
@@ -741,6 +670,7 @@ export function ProjectOverviewPage({
                       }}
                       contactMentions={contactMentionOptions}
                       controllerRef={recordDraftEditorRef}
+                      readOnly={!visible || creatingRecord}
                       onOpenAiSettings={() => openSettings("ai-rewrite")}
                     />
                     <div className="project-history-record__composer-actions">
@@ -749,6 +679,7 @@ export function ProjectOverviewPage({
                         size="sm"
                         variant="ghost"
                         onClick={closeRecordDraft}
+                        disabled={creatingRecord}
                       >
                         取消
                       </Button>
@@ -757,6 +688,7 @@ export function ProjectOverviewPage({
                         size="sm"
                         variant="primary"
                         leadingIcon={<Save size={14} />}
+                        disabled={creatingRecord}
                         onClick={() => void createRecord()}
                       >
                         保存记录
@@ -792,8 +724,7 @@ export function ProjectOverviewPage({
                         }}
                         focused={focusedRecordId === note.id}
                         availableTags={availableTags}
-                        busy={savingRecordId === note.id}
-                        onSave={saveRecord}
+                        busy={false}
                         onOpenContextMenu={openRecordContextMenu}
                         onOpenFocusPage={(current) =>
                           navigate(
@@ -847,27 +778,6 @@ export function ProjectOverviewPage({
         </div>
       </div>
 
-      <div style={{ width: todoRailCollapsed ? undefined : todoRailWidthPx }} className={`home-rail home-rail--project${todoRailCollapsed ? " is-collapsed" : ""}`}>
-        <div className="home-rail__todo">
-      <TodoModuleRail
-        scope={
-          projectTodoViewMode === "workspace"
-            ? { kind: "workspace" }
-            : { kind: "current-project", projectId: activeProject.id }
-        }
-        focusTodoId={focusedTodoId}
-        enabled={visible}
-        canCreateTodo={projectTodoViewMode === "workspace" || !activeProject.isArchived}
-        availableTags={projectTodoViewMode === "current-project" ? availableTags : []}
-        showViewModeSwitch
-        onViewModeChange={setProjectTodoViewMode}
-        onOpenInternalReference={openInternalReference}
-        onOpenContactMention={openContactMention}
-      />
-        </div>
-        {!todoRailCollapsed ? <HomeRailDivider key={activeProject.rootPath} identity={activeProject.rootPath} /> : null}
-        {visible && !todoRailCollapsed ? <HomeProjectFiles project={activeProject} documents={(projectPage.projectDocuments ?? []).map((file) => ({ ...file, tags: file.tags ?? [] }))} /> : null}
-      </div>
     </div>
   );
 }

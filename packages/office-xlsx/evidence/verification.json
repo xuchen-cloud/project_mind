@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-14",
+  "upstream": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "native": "macOS arm64",
+  "packageTypecheck": "passed, including React wrapper and dist declaration",
+  "engineCases": 11,
+  "engineValidation": "core 9 + added source UTF-8 and relocated dist; affected cases reused after browser-only changes",
+  "nativeRecalcCases": 18,
+  "independent": {
+    "simple": "80/80",
+    "complex": "94/94"
+  },
+  "browsers": [
+    {
+      "engine": "Chromium",
+      "version": "151.0.7922.34"
+    },
+    {
+      "engine": "WebKit",
+      "version": "26.5"
+    }
+  ],
+  "browserAcceptance": "2/2: native typing, pending notification order, pending commit and byte save/reopen, freeze, undo/redo, baseline, cancel, unsupported input refusal, range/object notices, sheet switch, dispose",
+  "ports": "none: ephemeral loopback servers closed",
+  "crossTarget": "OFFICE_RUST_TARGET wired with explicit cargo --target and isolated CARGO_BUILD_TARGET; other platform binaries not executed",
+  "assets": {
+    "engine.mjs": "e5cf7b2f12bf924a5cd535e1c4d68aa5bd6664f70d0419aa627ae3c6c2bba28e",
+    "browser.mjs": "c7c8514e9fc6434efb1634cf214c8b2ff65a8902521c30d13293fcf86bac7aef",
+    "browser.css": "75f31175a55f2a23c75592311eb300df8fd1e1050dcdaa178873ebce02f60285",
+    "browser.d.mts": "a230b0c54f734fa68b49543842dfcd217f1dd92b1f26fd6b871a806144ceb31f",
+    "types.d.ts": "1186bff227244710e73174fca0b3cbc3328d26fd3973668aafa3a7253c6eae13",
+    "xlsx-sidecar": "94afde9d9ba4f4a2ba543b495feec2249088610eaa60efdc0960986ffdc43171",
+    "THIRD-PARTY-NOTICES.txt": "e4b5d2d1b398c3038821b3a3b8eb034c5e664621f2a14edcfa4710f417b010cd"
+  },
+  "nativePermissionAcceptance": "Node 24.21.0 permission worker: private temporary candidate rename, durable final commit remains Rust FileContentService; 11 engine cases and all-format native save/reopen passed after fix"
+}

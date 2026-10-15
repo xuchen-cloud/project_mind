@@ -1,0 +1,5 @@
+native/xlsx-sidecar
+native/xlsx-sidecar.exe
+tests/output/
+*.log
+tests/fixtures/__pycache__/

@@ -1,5 +1,4 @@
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
-import { HomeWorkspaceRail } from "../home/HomeWorkspaceRail";
 import { HomeNoteSidebar } from "../home/HomeNoteSidebar";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
@@ -12,18 +11,22 @@ parseRouteId,
 preserveRecordFilters,workspacePath
 } from "../../lib/formatters";
 import { colorKeyForTagLabel } from "../../lib/tags";
-import { buildWorkspaceRecordRenameInput } from "../../lib/workspace-records";
+import { renameCanonicalRecord } from "../../lib/canonical-record-metadata";
+import { CanonicalRecordCreation, createBlankCanonicalRecord } from "../../lib/canonical-record-creation";
 import { useContactMentionOptions } from "../../hooks/useContactMentionOptions";
-import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
 import { useInternalReferenceNavigation } from "../../hooks/useInternalReferenceNavigation";
 import { useDelayedPending } from "../../hooks/useDelayedPending";
 import { useScrollPositionRestoration } from "../../hooks/useUtilityHooks";
+import { useRecordSourceNavigation } from "../../hooks/useRecordSourceNavigation";
 import { projectMindApi } from "../../services/projectMindApi";
 import { queryKeys } from "../../lib/queryKeys";
 import {
 WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
 type WorkspaceRecordFocusSaveRequestDetail,
 } from "../../lib/record-focus-save";
+import { registerWorkspaceRecordCloseGuard } from "../../lib/project-content-lifecycle";
+import { useDeletedRecordClose } from "../../hooks/useDeletedRecordClose";
+import { isUnavailableRecordError } from "../../lib/deleted-record-close";
 import { workspaceRecordSaveKey } from "../../lib/record-save-coordinator";
 import {
 createRecordSaveCoordinator,
@@ -42,7 +45,6 @@ type RichEditorValue,
 } from "../rich-editor";
 import { buildWorkspaceNoteImageAssetHandlers } from "../rich-editor/noteImageAssets";
 import { EntityTagEditor } from "../tags/EntityTagEditor";
-import { TodoModuleRail } from "../../todo";
 import { RecordExportAction } from "../../features/record-export/RecordExportAction";
 import type { RecordExportRequest } from "../../features/record-export/recordExport";
 import { createDesktopRecordExporter } from "../../features/record-export/desktopRecordExportPlatform";
@@ -55,8 +57,12 @@ import {
 recordFocusDraftFromRecord,
 recordFocusDraftFromSnapshot,
 } from "../record/recordFocusDraft";
+import { RecordHistoryAction } from "../record/RecordHistoryAction";
+import { RecordConflictActions } from "../record/RecordConflictActions";
 import { RecordAiMetadataAction } from "../record/RecordAiMetadataAction";
 import { VoiceRecordPanel } from "../voice/VoiceRecordPanel";
+import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
+import { useRecordClipboard } from "../../hooks/useRecordClipboard";
 
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
@@ -93,11 +99,11 @@ export function WorkspaceRecordFocusPage({
   );
   const { scrollRef, hasSavedPosition } = useScrollPositionRestoration(
     `workspace-record:${recordId}`,
+    { restore: !searchParams.has("sourceBlock") && !searchParams.has("sourceTimeMs") },
   );
   const { pushToast } = useFeedbackStore();
   const { openSettings } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
-  const openContactMention = useContactMentionNavigation();
   const contactMentionOptions = useContactMentionOptions();
   const workspaceAssetHandlers = useMemo(() => buildWorkspaceNoteImageAssetHandlers(), []);
 
@@ -112,6 +118,8 @@ export function WorkspaceRecordFocusPage({
   );
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
   const editorControllerRef = useRef<RichEditorController | null>(null);
+  const resolvingConflictRef = useRef(false);
+  const sidebarRecordCreation = useRef(new CanonicalRecordCreation());
   const lastSavedUpdatedAtRef = useRef<string | null>(initialDraft?.updatedAt ?? null);
   const titleValueRef = useRef(initialDraft?.title ?? "");
   const tagIdsValueRef = useRef<number[]>(initialDraft?.tagIds ?? []);
@@ -156,6 +164,70 @@ export function WorkspaceRecordFocusPage({
     [currentWorkspace?.rootPath, queryClient],
   );
   const saveCoordinator = workspaceSaveCoordinator ?? fallbackSaveCoordinator;
+  const canonical = useCanonicalRecordEditor({
+    target: recordId !== null ? { scope: { kind: "workspace" }, recordId } : null,
+    coordinator: saveCoordinator, enabled: draftReady,
+    flushEditor: async () => {
+      const editor = editorControllerRef.current;
+      if (!editor) return "busy";
+      if (editor.getPendingAiReviewCount() > 0) return "review_pending";
+      const signature = () => JSON.stringify({ title: titleValueRef.current, tags: tagIdsValueRef.current,
+        language: codeLanguageValueRef.current, document: editor.getCommittedDocumentJson() });
+      const before = signature();
+      if (!submitCurrentRecord()) return "busy";
+      await saveCoordinator.flush(workspaceRecordSaveKey(recordId!));
+      if (editor.getPendingAiReviewCount() > 0) return "review_pending";
+      return signature() === before ? "saved" : "busy";
+    },
+    receiveIncoming: (state, previous) => {
+      const sameTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
+        === [...previous.metadata.tagIds].sort((a, b) => a - b).join(",");
+      if (titleValueRef.current !== (previous.metadata.title ?? "") || !sameTags
+        || codeLanguageValueRef.current !== previous.codeLanguage
+        || !editorControllerRef.current?.applyIncomingContent(state.record.contentHtml ?? "<p></p>")) return false;
+      const draft = recordFocusDraftFromRecord(state.record);
+      setTitle(draft.title); titleValueRef.current = draft.title;
+      setTagIds(draft.tagIds); tagIdsValueRef.current = draft.tagIds;
+      setContent(editorControllerRef.current.getCommittedValue());
+      setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
+      lastSavedUpdatedAtRef.current = state.record.updatedAt;
+      return true;
+    },
+  });
+  const canonicalRef = useRef(canonical);
+  canonicalRef.current = canonical;
+  const pendingSnapshot = recordId === null ? null : saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId));
+  const getDraftSignature = useCallback(() => JSON.stringify({
+    title: titleValueRef.current,
+    tags: tagIdsValueRef.current,
+    language: codeLanguageValueRef.current,
+    document: editorControllerRef.current?.getCommittedDocumentJson(),
+  }), []);
+  const { isDiscarded, prepareClose } = useDeletedRecordClose({
+    coordinator: saveCoordinator,
+    recordKey: workspaceRecordSaveKey(recordId ?? 0),
+    target: { scope: { kind: "workspace" }, recordId: recordId ?? 0 },
+    binding: canonical.binding ?? pendingSnapshot?.canonicalBody?.binding ?? null,
+    workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "",
+    getDraftSignature,
+  });
+  const recordClipboard = useRecordClipboard(canonical.binding, canonical.state?.head.target ?? null);
+  const [hydratedRecordKey, setHydratedRecordKey] = useState<string | null>(null);
+  const editingReady = canonical.ready && hydratedRecordKey === canonical.loadIdentity;
+  const sourceNavigation = useRecordSourceNavigation(searchParams, visible, editingReady,
+    canonical.state?.head.headRevision ?? null);
+  useLayoutEffect(() => {
+    if (!canonical.state || !canonical.loadIdentity || hydratedRecordKey === canonical.loadIdentity) return;
+    const pending = recordId !== null ? saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId)) : null;
+    const draft = pending ? recordFocusDraftFromSnapshot(pending) : recordFocusDraftFromRecord(canonical.state.record);
+    setTitle(draft.title); titleValueRef.current = draft.title;
+    setTagIds(draft.tagIds); tagIdsValueRef.current = draft.tagIds;
+    setContent(draft.content);
+    setCodeLanguage(draft.codeLanguage); codeLanguageValueRef.current = draft.codeLanguage;
+    lastSavedUpdatedAtRef.current = canonical.state.record.updatedAt;
+    resolvingConflictRef.current = false;
+    setHydratedRecordKey(canonical.loadIdentity);
+  }, [canonical.state, canonical.loadIdentity, hydratedRecordKey, recordId, saveCoordinator]);
   function syncWorkspaceTagCache(tag: ProjectTagRecord) {
     queryClient.setQueryData<{ tags: ProjectTagRecord[] } | undefined>(
       queryKeys.projectTags.workspace,
@@ -190,9 +262,19 @@ export function WorkspaceRecordFocusPage({
     setLoadedNoteId(note.id);
   }, [loadedNoteId, note]);
 
+  useEffect(() => saveCoordinator.subscribeSaved((snapshot) => {
+    if (snapshot.scope === "workspace" && snapshot.recordId === recordId) {
+      editorControllerRef.current?.acknowledgeCommittedContent(snapshot.committedContent);
+    }
+  }), [saveCoordinator, recordId]);
+
   const submitCurrentRecord = useCallback(
-    (value?: RichEditorValue) => {
-      if (!draftReady || recordId === null) return false;
+    (value?: RichEditorValue, origin: "manual" | "editor_ai" = "manual") => {
+      if (isDiscarded() || resolvingConflictRef.current || !editingReady || recordId === null) return false;
+      const document = editorControllerRef.current?.getCommittedDocumentJson();
+      if (!document) return false;
+      const canonicalBody = canonical.capture(document, origin);
+      if (!canonicalBody) return false;
       const committedContent =
         value ?? editorControllerRef.current?.getCommittedValue() ?? content;
       // Keep the controlled prop in lockstep with the exact snapshot sent to
@@ -209,10 +291,11 @@ export function WorkspaceRecordFocusPage({
         tagIds: tagIdsValueRef.current,
         defaultCodeLanguage: codeLanguageValueRef.current,
         committedContent,
+        canonicalBody,
       });
       setPersistState("saving");
       return true;
-    }, [content, currentWorkspace?.rootPath, draftReady, recordId, saveCoordinator],
+    }, [content, currentWorkspace?.rootPath, editingReady, canonical.capture, recordId, saveCoordinator, isDiscarded],
   );
 
   useEffect(() => {
@@ -230,11 +313,57 @@ export function WorkspaceRecordFocusPage({
     const handleRequest = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceRecordFocusSaveRequestDetail>).detail;
       if (!detail || detail.recordId !== recordId) return;
-      detail.respond(draftReady ? submitCurrentRecord() : "not_needed");
+      if (canonicalRef.current.error && !canonicalRef.current.binding && hydratedRecordKey === null && (recordId === null
+        || !saveCoordinator.getLatestSnapshot(workspaceRecordSaveKey(recordId)))) {
+        detail.respond("not_needed");
+        return;
+      }
+      detail.respond(draftReady && !isDiscarded() ? submitCurrentRecord() : "not_needed");
     };
     window.addEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
     return () => window.removeEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
-  }, [draftReady, recordId, submitCurrentRecord, visible]);
+  }, [draftReady, recordId, submitCurrentRecord, visible, isDiscarded, saveCoordinator, hydratedRecordKey]);
+
+  useEffect(() => {
+    if (recordId === null) return;
+    return registerWorkspaceRecordCloseGuard({
+      workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "",
+      recordId,
+      prepare: () => prepareClose(async () => {
+        if (!draftReady) return;
+        const recordKey = workspaceRecordSaveKey(recordId);
+        const current = canonicalRef.current;
+        if (current.error && !current.binding && hydratedRecordKey === null
+          && !saveCoordinator.getLatestSnapshot(recordKey)) return;
+        const checkCloseState = () => {
+          const failure = saveCoordinator.getRecordStatus(recordKey).lastError;
+          if (isUnavailableRecordError(failure)) throw failure;
+          const latest = canonicalRef.current;
+          if (latest.error) throw latest.error;
+          if (latest.syncError) throw latest.syncError;
+          if (latest.incomingConflict || resolvingConflictRef.current) {
+            throw new Error("请先处理记录冲突，再关闭记录");
+          }
+        };
+        checkCloseState();
+        const editor = editorControllerRef.current;
+        if (!editingReady || !editor || editor.isBusy()) {
+          throw new Error("编辑器正在处理，请稍后再关闭");
+        }
+        if (editor.getPendingAiReviewCount() > 0) {
+          throw new Error("请先处理待确认的 AI 修改，再关闭记录");
+        }
+        const before = getDraftSignature();
+        if (!submitCurrentRecord()) throw new Error("未能保存当前记录，草稿已保留");
+        await saveCoordinator.flush(recordKey);
+        checkCloseState();
+        if (editor.isBusy() || editor.getPendingAiReviewCount() > 0 || getDraftSignature() !== before) {
+          throw new Error("记录仍在编辑，草稿已保留，请稍后再关闭");
+        }
+      }),
+    });
+  }, [recordId, saveCoordinator, currentWorkspace?.rootPath, prepareClose, draftReady,
+    canonical.error, canonical.syncError, hydratedRecordKey, editingReady, getDraftSignature, submitCurrentRecord]);
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
@@ -260,6 +389,18 @@ export function WorkspaceRecordFocusPage({
     }
     return handleSave(content);
   }, [content, draftReady, handleSave]);
+
+  const leaveEditorRef = useRef<() => void>(() => undefined);
+  leaveEditorRef.current = () => {
+    if (!editingReady || !submitCurrentRecord()) return;
+    void canonical.checkpoint("leave_editor").catch(() => setPersistState("error"));
+  };
+  const wasVisibleRef = useRef(visible);
+  useEffect(() => {
+    if (wasVisibleRef.current && !visible) leaveEditorRef.current();
+    wasVisibleRef.current = visible;
+  }, [visible]);
+  useEffect(() => () => leaveEditorRef.current(), [recordId]);
 
   const runExport = useCallback((request: RecordExportRequest) => {
     const exportRecord = createDesktopRecordExporter(async () => {
@@ -287,15 +428,13 @@ export function WorkspaceRecordFocusPage({
   };
 
   async function createWorkspaceRecordInFocus() {
-    const record = await projectMindApi.workspaceRecordUpsert({
-      markdown: "",
-      html: "<p></p>",
-      defaultCodeLanguage: null,
-      tagIds: [],
-    });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
-    navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
+    try {
+      const { record } = await createBlankCanonicalRecord(saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", { kind: "workspace" }, sidebarRecordCreation.current);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
+      sidebarRecordCreation.current.reset();
+      navigate(preserveRecordFilters(`/workspace/records/${record.id}`, searchParams));
+    } catch (error) { pushToast({ tone: "error", title: "新建记录失败", detail: String(error) }); }
   }
 
   async function renameWorkspaceSidebarRecord(nextRecordId: number, nextTitle: string) {
@@ -314,9 +453,7 @@ export function WorkspaceRecordFocusPage({
       return;
     }
 
-    await projectMindApi.workspaceRecordUpsert(
-      buildWorkspaceRecordRenameInput(record, nextTitle),
-    );
+    await renameCanonicalRecord(saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", { scope: { kind: "workspace" }, recordId: nextRecordId }, nextTitle);
     await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
   }
 
@@ -407,11 +544,36 @@ export function WorkspaceRecordFocusPage({
         <div ref={scrollRef} className="project-overview-focus__scroll">
           <div className="home-content home-note-content">
             <div className="grid gap-4">
+              {canonical.syncError ? <p role="alert" className="text-sm text-text-soft">同步记录失败，当前草稿已保留。请检查工作区连接。</p> : null}
+            {sourceNavigation.message ? <p role="status" className="text-sm text-text-soft">{sourceNavigation.message}</p> : null}
+            {canonical.incomingConflict && canonical.binding ? <RecordConflictActions visible={visible} key={`${canonical.recordKey}:${canonical.binding.generation}`} binding={canonical.binding}
+              target={{ scope: { kind: "workspace" }, recordId }} incoming={canonical.incomingConflict} workspaceRoot={saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? ""}
+              availableTags={availableTags} assetHandlers={workspaceAssetHandlers} pendingReviewCount={() => editorControllerRef.current?.getPendingAiReviewCount() ?? 0}
+              getDraft={() => {
+                const editor = editorControllerRef.current;
+                if (!editor) throw new Error("编辑器尚未就绪，草稿已保留");
+                return { title: titleValueRef.current, tagIds: [...tagIdsValueRef.current], document: editor.getCommittedDocumentJson(), html: editor.getCommittedValue().html, codeLanguage: codeLanguageValueRef.current };
+              }}
+              onReload={() => {
+                saveCoordinator.discard(workspaceRecordSaveKey(recordId));
+                resolvingConflictRef.current = true; canonical.retry();
+              }}
+              onSavedAs={(state) => {
+                saveCoordinator.discard(workspaceRecordSaveKey(recordId));
+                resolvingConflictRef.current = true; canonical.retry();
+                void queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+                navigate(preserveRecordFilters(`/workspace/records/${state.record.id}`, searchParams));
+              }} /> : null}
+            {canonical.error ? <div role="alert" className="text-sm text-text-soft">
+                <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
+                <button type="button" onClick={canonical.retry}>重新加载编辑器</button>
+              </div> : !editingReady ? <p role="status" className="text-sm text-text-soft">正在准备记录编辑器…</p> : null}
               <HomeRecordHeader onOpenHome={handleBack} identityKey={`workspace:${currentWorkspace?.rootPath}`} scopeName={currentWorkspace?.displayName || "我的工作区"} title={title}>
               <div className="flex min-w-0 items-center gap-2">
                 <TextField
                   value={title}
                   placeholder="记录标题"
+                  disabled={!editingReady || !visible}
                   onChange={(event) => {
                     setTitle(event.target.value);
                     titleValueRef.current = event.target.value;
@@ -424,6 +586,7 @@ export function WorkspaceRecordFocusPage({
                   className="min-w-0 flex-1 text-lg font-medium"
                 />
                 <RecordAiMetadataAction
+                binding={canonical.binding} onSubmitted={(requestId) => saveCoordinator.trackRequest(requestId)}
                   target={{ scope: "workspace", recordId }}
                   aiSettings={aiSettings}
                   availableTags={availableTags}
@@ -438,6 +601,7 @@ export function WorkspaceRecordFocusPage({
                     }
                   }}
                   onApplied={(value) => {
+                  if (!canonical.acknowledgeMetadata(value.expectedRevision,value.metadata)) return;
                     setTitle(value.title);
                     titleValueRef.current = value.title;
                     const nextTagIds = value.tags.map((tag) => tag.id);
@@ -448,6 +612,8 @@ export function WorkspaceRecordFocusPage({
                   }}
                   onOpenAiSettings={() => openSettings("ai-rewrite")}
                 />
+              <RecordHistoryAction key={canonical.recordKey} binding={canonical.binding} target={{ scope: { kind: "workspace" }, recordId }} disabled={!editingReady || !visible} assetHandlers={workspaceAssetHandlers}
+                onRestored={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage }); }} />
               <RecordExportAction
                 title={title}
                 getCommittedHtml={() => editorControllerRef.current?.getCommittedValue?.().html ?? content.html}
@@ -457,6 +623,7 @@ export function WorkspaceRecordFocusPage({
               </div>
               </HomeRecordHeader>
               <EntityTagEditor inputPlaceholder="新增标签"
+                mode={editingReady && visible ? "full" : "display"}
                 projectId={null}
                 availableTags={availableTags}
                 tags={availableTags.filter((tag) => tagIds.includes(tag.id))}
@@ -467,6 +634,8 @@ export function WorkspaceRecordFocusPage({
                 <VoiceRecordPanel
                   target={{ scope: "workspace", recordId }}
                   visible={visible}
+                  sourceTimeMs={sourceNavigation.error ? null : sourceNavigation.timeMs}
+                  sourceNavigationKey={sourceNavigation.key}
                   onTitleUpdated={(nextTitle) => {
                     setTitle(nextTitle);
                     titleValueRef.current = nextTitle;
@@ -480,8 +649,12 @@ export function WorkspaceRecordFocusPage({
                 />
               ) : null}
               <RichEditor
-                key={recordId}
+                key={canonical.loadIdentity ?? `${recordId}:loading`}
                 contentIdentity={`workspace-record:${recordId}`}
+                recordKey={canonical.recordKey}
+                recordClipboard={recordClipboard}
+                sourceBlockNavigation={sourceNavigation.navigation}
+                onSourceBlockResult={sourceNavigation.onSourceBlockResult}
                 html={content.html}
                 aiSettings={aiSettings}
                 defaultCodeLanguage={codeLanguage}
@@ -491,8 +664,8 @@ export function WorkspaceRecordFocusPage({
                 }}
                 variant="page"
                 showToolbar={false}
-                autoFocus={visible && !hasSavedPosition}
-                readOnly={!visible}
+                autoFocus={visible && !hasSavedPosition && !sourceNavigation.requested}
+                readOnly={!visible || !editingReady}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"
                 tagMentions={{
@@ -521,6 +694,8 @@ export function WorkspaceRecordFocusPage({
                 controllerRef={editorControllerRef}
                 onOpenAiSettings={() => openSettings("ai-rewrite")}
                 onSave={handleSave}
+                onBeforeAiCommit={() => submitCurrentRecord()}
+                onAiCommit={(value) => { submitCurrentRecord(value, "editor_ai"); }}
                 onPersistStateChange={setPersistState}
               />
             </div>
@@ -528,17 +703,6 @@ export function WorkspaceRecordFocusPage({
         </div>
       </div>
 
-      {workspacePageQuery.data ? (
-        <HomeWorkspaceRail>
-        <TodoModuleRail
-          scope={{ kind: "workspace" }}
-          enabled={visible}
-          availableTags={availableTags}
-          onOpenInternalReference={openInternalReference}
-          onOpenContactMention={openContactMention}
-        />
-        </HomeWorkspaceRail>
-      ) : null}
     </div>
   );
 }

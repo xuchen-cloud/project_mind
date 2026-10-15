@@ -141,6 +141,7 @@ const markdownSerializer = new MarkdownSerializer(
         buildInternalReferenceToken({
           refKind:
             node.attrs.refKind === "todo" ||
+            node.attrs.refKind === "workspace_record" ||
             node.attrs.refKind === "document"
               ? node.attrs.refKind
               : "note",
@@ -240,7 +241,11 @@ const markdownSerializer = new MarkdownSerializer(
 );
 
 export function serializeEditorMarkdown(editor: Editor) {
-  return markdownSerializer.serialize(editor.state.doc).trim();
+  return serializeRichTextDocumentMarkdown(editor.state.doc);
+}
+
+export function serializeRichTextDocumentMarkdown(document: ProseMirrorNode) {
+  return markdownSerializer.serialize(document).trim();
 }
 
 export function serializeRichTextNodesMarkdown(

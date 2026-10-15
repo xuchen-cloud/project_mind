@@ -1,0 +1,285 @@
+{
+  "issue": "#118/F03",
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "sdkVersion": "1.0.4",
+  "nativeVersion": "1.0.2",
+  "sdkLoadMs": 380.287875,
+  "licenseConfiguration": "No license configured or checks bypassed by this script",
+  "runs": [
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "noop",
+      "importMs": 3.147209000000032,
+      "formulaCalculation": "forced",
+      "stages": {
+        "exportMs": 2.132000000000005,
+        "reimportMs": 0.7839999999999918
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.noop.xlsx",
+        "bytes": 8210,
+        "sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c"
+      },
+      "reimportTargets": {
+        "A3": {
+          "v": "苹果",
+          "t": 1
+        },
+        "B3": {
+          "v": "10",
+          "t": 2,
+          "s": "R3"
+        },
+        "B5": {
+          "v": "30",
+          "t": 2,
+          "f": "=SUM(B3:B4)",
+          "ft": 0,
+          "s": "R3"
+        },
+        "B7": {
+          "v": "20",
+          "t": 2,
+          "f": "=B3*2",
+          "ft": 0,
+          "s": "R3"
+        }
+      },
+      "status": "exported_pending_independent_validation"
+    },
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "edited",
+      "importMs": 3.147209000000032,
+      "formulaCalculation": "forced",
+      "stages": {
+        "exportMs": 1.5597910000000184,
+        "reimportMs": 0.8193750000000364
+      },
+      "targets": {
+        "unitId": "uEjnY6qgUoBqRNovDR8",
+        "sheetId": "uni1",
+        "sheetName": "明细",
+        "edits": {
+          "A3": "香蕉（SDK编辑）",
+          "B3": 15,
+          "B5": "=SUM(B3:B4)+5"
+        }
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.edited.xlsx",
+        "bytes": 8221,
+        "sha256": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f"
+      },
+      "reimportTargets": {
+        "A3": {
+          "v": "香蕉（SDK编辑）",
+          "t": 1
+        },
+        "B3": {
+          "v": "15",
+          "t": 2,
+          "s": "R3"
+        },
+        "B5": {
+          "v": "40",
+          "t": 2,
+          "f": "=SUM(B3:B4)+5",
+          "ft": 0,
+          "s": "R3"
+        },
+        "B7": {
+          "v": "30",
+          "t": 2,
+          "f": "=B3*2",
+          "ft": 0,
+          "s": "R3"
+        }
+      },
+      "status": "exported_pending_independent_validation"
+    },
+    {
+      "kind": "simple",
+      "family": "aggregate",
+      "branch": "noop",
+      "importMs": 0.8429999999999609,
+      "formulaCalculation": "forced",
+      "stages": {
+        "exportMs": 1.0556660000000306,
+        "reimportMs": 0.7352080000000001
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.aggregate.noop.xlsx",
+        "bytes": 8210,
+        "sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c"
+      },
+      "reimportTargets": {
+        "A3": {
+          "v": "苹果",
+          "t": 1
+        },
+        "B3": {
+          "v": "10",
+          "t": 2,
+          "s": "R3"
+        },
+        "B5": {
+          "v": "30",
+          "t": 2,
+          "f": "=SUM(B3:B4)",
+          "ft": 0,
+          "s": "R3"
+        },
+        "B7": {
+          "v": "20",
+          "t": 2,
+          "f": "=B3*2",
+          "ft": 0,
+          "s": "R3"
+        }
+      },
+      "status": "exported_pending_independent_validation"
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "noop",
+      "importMs": 1.9218329999999924,
+      "formulaCalculation": "forced",
+      "stages": {
+        "exportMs": 2.1539579999999887,
+        "reimportMs": 1.2027500000000373
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.noop.xlsx",
+        "bytes": 11620,
+        "sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223"
+      },
+      "reimportTargets": {
+        "A3": {
+          "v": "苹果",
+          "t": 1
+        },
+        "B3": {
+          "v": "10",
+          "t": 2,
+          "s": "R3"
+        },
+        "B5": {
+          "v": "30",
+          "t": 2,
+          "f": "=SUM(B3:B4)",
+          "ft": 0,
+          "s": "R3"
+        },
+        "B7": {
+          "v": "20",
+          "t": 2,
+          "f": "=B3*2",
+          "ft": 0,
+          "s": "R3"
+        }
+      },
+      "status": "exported_pending_independent_validation"
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "edited",
+      "importMs": 1.9218329999999924,
+      "formulaCalculation": "forced",
+      "stages": {
+        "exportMs": 2.0402499999999577,
+        "reimportMs": 1.2660830000000374
+      },
+      "targets": {
+        "unitId": "A5W5VRpG0NrlOCTcv04",
+        "sheetId": "uni1",
+        "sheetName": "明细",
+        "edits": {
+          "A3": "香蕉（SDK编辑）",
+          "B3": 15,
+          "B5": "=SUM(B3:B4)+5"
+        }
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.edited.xlsx",
+        "bytes": 11642,
+        "sha256": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a"
+      },
+      "reimportTargets": {
+        "A3": {
+          "v": "香蕉（SDK编辑）",
+          "t": 1
+        },
+        "B3": {
+          "v": "15",
+          "t": 2,
+          "s": "R3"
+        },
+        "B5": {
+          "v": "40",
+          "t": 2,
+          "f": "=SUM(B3:B4)+5",
+          "ft": 0,
+          "s": "R3"
+        },
+        "B7": {
+          "v": "30",
+          "t": 2,
+          "f": "=B3*2",
+          "ft": 0,
+          "s": "R3"
+        }
+      },
+      "status": "exported_pending_independent_validation"
+    },
+    {
+      "kind": "complex",
+      "family": "aggregate",
+      "branch": "noop",
+      "importMs": 1.132791999999995,
+      "formulaCalculation": "forced",
+      "stages": {
+        "exportMs": 2.2244590000000244,
+        "reimportMs": 1.2713340000000244
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.aggregate.noop.xlsx",
+        "bytes": 11620,
+        "sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223"
+      },
+      "reimportTargets": {
+        "A3": {
+          "v": "苹果",
+          "t": 1
+        },
+        "B3": {
+          "v": "10",
+          "t": 2,
+          "s": "R3"
+        },
+        "B5": {
+          "v": "30",
+          "t": 2,
+          "f": "=SUM(B3:B4)",
+          "ft": 0,
+          "s": "R3"
+        },
+        "B7": {
+          "v": "20",
+          "t": 2,
+          "f": "=B3*2",
+          "ft": 0,
+          "s": "R3"
+        }
+      },
+      "status": "exported_pending_independent_validation"
+    }
+  ],
+  "totalMs": 413.794625
+}

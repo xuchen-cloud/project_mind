@@ -1,0 +1,826 @@
+{
+  "issue": "#118/F03",
+  "format": "docx",
+  "mode": "traditional",
+  "started": "2026-10-13T12:31:29.024Z",
+  "platform": {
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "versions": {
+    "@univerjs-pro/exchange-node": "1.0.4",
+    "@univerjs-pro/exchange-node-binding": "1.0.2",
+    "@univerjs/core": "1.0.4",
+    "@univerjs-pro/collaboration": "1.0.4"
+  },
+  "cases": [
+    {
+      "name": "simple",
+      "family": "aggregate-noop",
+      "source_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "timings_ms": {
+        "import": 32.37579200000005,
+        "export": 8.597374999999943,
+        "reimport": 8.011250000000018,
+        "independent_check": 174.24300000000005
+      },
+      "status": "failed",
+      "structure": {
+        "keys": [
+          "snapshot",
+          "sheetBlocks"
+        ],
+        "snapshot_keys": [
+          "unitID",
+          "type",
+          "rev",
+          "doc"
+        ],
+        "doc_keys": [
+          "unitID",
+          "rev",
+          "creator",
+          "name",
+          "resources",
+          "originalMeta"
+        ],
+        "sheetBlocks_count": 0
+      },
+      "output": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.aggregate-noop.docx",
+      "output_bytes": 21130,
+      "output_sha256": "dc8de197c3b691de7842400714f5a005a7b1bce4167b7ec1919451d9b73efef8",
+      "sdk_reopen": {
+        "passed": true,
+        "edited_paragraph": null,
+        "edited_cell": null
+      },
+      "independent_check_file": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.aggregate-noop.checks.json",
+      "assertions": [
+        {
+          "assertion": "paragraphs",
+          "passed": true
+        },
+        {
+          "assertion": "tables",
+          "passed": true
+        },
+        {
+          "assertion": "headings",
+          "passed": true
+        },
+        {
+          "assertion": "image_extents",
+          "passed": true
+        },
+        {
+          "assertion": "sections",
+          "passed": false
+        },
+        {
+          "assertion": "headers_footers",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_reference_counts",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_per_section",
+          "passed": true
+        },
+        {
+          "assertion": "explicit_bold_text",
+          "passed": true
+        },
+        {
+          "assertion": "page_break_count",
+          "passed": true
+        },
+        {
+          "assertion": "hyperlinks",
+          "passed": true
+        },
+        {
+          "assertion": "page_size_and_main_margins",
+          "passed": true
+        },
+        {
+          "assertion": "section_count_and_break_types",
+          "passed": true
+        },
+        {
+          "assertion": "media_bytes_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_pixels_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_size",
+          "passed": true
+        }
+      ],
+      "failed_assertions": [
+        "sections"
+      ]
+    },
+    {
+      "name": "simple",
+      "family": "unit-noop",
+      "source_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "timings_ms": {
+        "import": 8.469042000000059,
+        "export": 6.877707999999984,
+        "reimport": 8.095790999999963,
+        "independent_check": 68.25450000000001
+      },
+      "status": "failed",
+      "structure": {
+        "keys": [
+          "locale",
+          "body",
+          "lastModifiedBy",
+          "company",
+          "appVersion",
+          "createdTime",
+          "modifiedTime",
+          "documentStyle",
+          "settings",
+          "tableSource",
+          "footers",
+          "headers",
+          "lists",
+          "drawings",
+          "drawingsOrder",
+          "id",
+          "rev",
+          "title",
+          "resources"
+        ],
+        "body_keys": [
+          "dataStream",
+          "renderedPageBreaks",
+          "textRuns",
+          "paragraphs",
+          "tables",
+          "sectionBreaks",
+          "customBlocks",
+          "customRanges",
+          "customDecorations"
+        ],
+        "dataStream_length": 94,
+        "paragraph_count": 10,
+        "table_ranges": [
+          {
+            "startIndex": 48,
+            "endIndex": 80,
+            "tableId": "table-1"
+          }
+        ],
+        "section_breaks": [
+          {
+            "documentFlavor": 1,
+            "pageSize": {
+              "width": 816,
+              "height": 1056
+            },
+            "marginTop": 96,
+            "marginBottom": 96,
+            "marginLeft": 120,
+            "marginRight": 120,
+            "marginHeader": 48,
+            "marginFooter": 48,
+            "linePitch": 24,
+            "renderConfig": {},
+            "startIndex": 93,
+            "sectionId": "section_0"
+          }
+        ],
+        "table_source_keys": [
+          "table-1"
+        ],
+        "header_keys": [],
+        "footer_keys": [],
+        "drawing_keys": [
+          "1"
+        ]
+      },
+      "output": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-noop.docx",
+      "output_bytes": 21128,
+      "output_sha256": "73a32d38f0b0dd7be4083cf52e2ac2cc2b421b3381ba03d12fb86b46adc4a77d",
+      "sdk_reopen": {
+        "passed": true,
+        "edited_paragraph": null,
+        "edited_cell": null
+      },
+      "independent_check_file": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-noop.checks.json",
+      "assertions": [
+        {
+          "assertion": "paragraphs",
+          "passed": true
+        },
+        {
+          "assertion": "tables",
+          "passed": true
+        },
+        {
+          "assertion": "headings",
+          "passed": true
+        },
+        {
+          "assertion": "image_extents",
+          "passed": true
+        },
+        {
+          "assertion": "sections",
+          "passed": false
+        },
+        {
+          "assertion": "headers_footers",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_reference_counts",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_per_section",
+          "passed": true
+        },
+        {
+          "assertion": "explicit_bold_text",
+          "passed": true
+        },
+        {
+          "assertion": "page_break_count",
+          "passed": true
+        },
+        {
+          "assertion": "hyperlinks",
+          "passed": true
+        },
+        {
+          "assertion": "page_size_and_main_margins",
+          "passed": true
+        },
+        {
+          "assertion": "section_count_and_break_types",
+          "passed": true
+        },
+        {
+          "assertion": "media_bytes_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_pixels_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_size",
+          "passed": true
+        }
+      ],
+      "failed_assertions": [
+        "sections"
+      ]
+    },
+    {
+      "name": "simple",
+      "family": "unit-edited",
+      "source_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "timings_ms": {
+        "import": 8.585207999999966,
+        "export": 6.7107500000000755,
+        "reimport": 8.134833999999955,
+        "independent_check": 75.67166699999996
+      },
+      "status": "failed",
+      "edit_targets": [
+        {
+          "kind": "paragraph",
+          "path": "body.dataStream",
+          "start_utf16": 18,
+          "end_utf16": 31,
+          "before": "待修改中文段落：春风拂面。",
+          "after": "已修改中文段落：秋风拂面。",
+          "paragraph_id": "para_2",
+          "paragraph_end": 31
+        },
+        {
+          "kind": "table_cell",
+          "path": "body.dataStream",
+          "start_utf16": 71,
+          "end_utf16": 75,
+          "before": "待改单元",
+          "after": "已改单元",
+          "paragraph_id": "para_7",
+          "paragraph_end": 75,
+          "table_id": "table-1",
+          "row": 1,
+          "column": 1
+        }
+      ],
+      "output": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-edited.docx",
+      "output_bytes": 21128,
+      "output_sha256": "de93f391493438ee57bae4ce370798fa218262c8e3f7b874d1adba889c0580b2",
+      "sdk_reopen": {
+        "passed": true,
+        "edited_paragraph": true,
+        "edited_cell": true
+      },
+      "independent_check_file": "/private/tmp/project-mind-univer-validation-20261013/docx/simple.traditional.unit-edited.checks.json",
+      "assertions": [
+        {
+          "assertion": "paragraphs",
+          "passed": true
+        },
+        {
+          "assertion": "tables",
+          "passed": true
+        },
+        {
+          "assertion": "headings",
+          "passed": true
+        },
+        {
+          "assertion": "image_extents",
+          "passed": true
+        },
+        {
+          "assertion": "sections",
+          "passed": false
+        },
+        {
+          "assertion": "headers_footers",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_reference_counts",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_per_section",
+          "passed": true
+        },
+        {
+          "assertion": "explicit_bold_text",
+          "passed": true
+        },
+        {
+          "assertion": "page_break_count",
+          "passed": true
+        },
+        {
+          "assertion": "hyperlinks",
+          "passed": true
+        },
+        {
+          "assertion": "page_size_and_main_margins",
+          "passed": true
+        },
+        {
+          "assertion": "section_count_and_break_types",
+          "passed": true
+        },
+        {
+          "assertion": "media_bytes_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_pixels_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_size",
+          "passed": true
+        }
+      ],
+      "failed_assertions": [
+        "sections"
+      ]
+    },
+    {
+      "name": "complex",
+      "family": "aggregate-noop",
+      "source_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "timings_ms": {
+        "import": 8.90766599999995,
+        "export": 7.214958999999908,
+        "reimport": 9.094582999999943,
+        "independent_check": 68.94212500000003
+      },
+      "status": "failed",
+      "structure": {
+        "keys": [
+          "snapshot",
+          "sheetBlocks"
+        ],
+        "snapshot_keys": [
+          "unitID",
+          "type",
+          "rev",
+          "doc"
+        ],
+        "doc_keys": [
+          "unitID",
+          "rev",
+          "creator",
+          "name",
+          "resources",
+          "originalMeta"
+        ],
+        "sheetBlocks_count": 0
+      },
+      "output": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.aggregate-noop.docx",
+      "output_bytes": 23413,
+      "output_sha256": "0897cf1e4c8aea52a878b632ff1e1c1904bac52690677a6ff20a5bb0396f21fb",
+      "sdk_reopen": {
+        "passed": true,
+        "edited_paragraph": null,
+        "edited_cell": null
+      },
+      "independent_check_file": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.aggregate-noop.checks.json",
+      "assertions": [
+        {
+          "assertion": "paragraphs",
+          "passed": true
+        },
+        {
+          "assertion": "tables",
+          "passed": true
+        },
+        {
+          "assertion": "headings",
+          "passed": true
+        },
+        {
+          "assertion": "image_extents",
+          "passed": true
+        },
+        {
+          "assertion": "sections",
+          "passed": false
+        },
+        {
+          "assertion": "headers_footers",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_reference_counts",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_per_section",
+          "passed": true
+        },
+        {
+          "assertion": "explicit_bold_text",
+          "passed": true
+        },
+        {
+          "assertion": "page_break_count",
+          "passed": true
+        },
+        {
+          "assertion": "hyperlinks",
+          "passed": true
+        },
+        {
+          "assertion": "page_size_and_main_margins",
+          "passed": true
+        },
+        {
+          "assertion": "section_count_and_break_types",
+          "passed": true
+        },
+        {
+          "assertion": "media_bytes_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_pixels_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_size",
+          "passed": true
+        }
+      ],
+      "failed_assertions": [
+        "sections"
+      ]
+    },
+    {
+      "name": "complex",
+      "family": "unit-noop",
+      "source_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "timings_ms": {
+        "import": 8.763875000000098,
+        "export": 7.072041000000127,
+        "reimport": 8.018125000000055,
+        "independent_check": 67.60200000000009
+      },
+      "status": "failed",
+      "structure": {
+        "keys": [
+          "locale",
+          "body",
+          "lastModifiedBy",
+          "company",
+          "appVersion",
+          "createdTime",
+          "modifiedTime",
+          "documentStyle",
+          "settings",
+          "tableSource",
+          "footers",
+          "headers",
+          "lists",
+          "drawings",
+          "drawingsOrder",
+          "id",
+          "rev",
+          "title",
+          "resources"
+        ],
+        "body_keys": [
+          "dataStream",
+          "renderedPageBreaks",
+          "textRuns",
+          "paragraphs",
+          "tables",
+          "sectionBreaks",
+          "customBlocks",
+          "customRanges",
+          "customDecorations"
+        ],
+        "dataStream_length": 144,
+        "paragraph_count": 16,
+        "table_ranges": [
+          {
+            "startIndex": 48,
+            "endIndex": 80,
+            "tableId": "table-1"
+          }
+        ],
+        "section_breaks": [
+          {
+            "documentFlavor": 1,
+            "pageSize": {
+              "width": 793.9333333333334,
+              "height": 1122.2666666666667
+            },
+            "marginTop": 96,
+            "marginBottom": 96,
+            "marginLeft": 120,
+            "marginRight": 120,
+            "marginHeader": 48,
+            "marginFooter": 48,
+            "linePitch": 24,
+            "defaultHeaderId": "rId10",
+            "defaultFooterId": "rId11",
+            "renderConfig": {},
+            "startIndex": 120,
+            "sectionId": "section_0"
+          },
+          {
+            "documentFlavor": 1,
+            "pageSize": {
+              "width": 793.9333333333334,
+              "height": 1122.2666666666667
+            },
+            "marginTop": 96,
+            "marginBottom": 96,
+            "marginLeft": 120,
+            "marginRight": 120,
+            "marginHeader": 48,
+            "marginFooter": 48,
+            "linePitch": 24,
+            "defaultHeaderId": "rId13",
+            "defaultFooterId": "rId14",
+            "renderConfig": {},
+            "startIndex": 143,
+            "sectionId": "section_1"
+          }
+        ],
+        "table_source_keys": [
+          "table-1"
+        ],
+        "header_keys": [
+          "rId10",
+          "rId13"
+        ],
+        "footer_keys": [
+          "rId11",
+          "rId14"
+        ],
+        "drawing_keys": [
+          "1"
+        ]
+      },
+      "output": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-noop.docx",
+      "output_bytes": 23411,
+      "output_sha256": "6eb65d9bfb601d0c6be003914977125ca6c44ba3f88c238cb89146788c545404",
+      "sdk_reopen": {
+        "passed": true,
+        "edited_paragraph": null,
+        "edited_cell": null
+      },
+      "independent_check_file": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-noop.checks.json",
+      "assertions": [
+        {
+          "assertion": "paragraphs",
+          "passed": true
+        },
+        {
+          "assertion": "tables",
+          "passed": true
+        },
+        {
+          "assertion": "headings",
+          "passed": true
+        },
+        {
+          "assertion": "image_extents",
+          "passed": true
+        },
+        {
+          "assertion": "sections",
+          "passed": false
+        },
+        {
+          "assertion": "headers_footers",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_reference_counts",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_per_section",
+          "passed": true
+        },
+        {
+          "assertion": "explicit_bold_text",
+          "passed": true
+        },
+        {
+          "assertion": "page_break_count",
+          "passed": true
+        },
+        {
+          "assertion": "hyperlinks",
+          "passed": true
+        },
+        {
+          "assertion": "page_size_and_main_margins",
+          "passed": true
+        },
+        {
+          "assertion": "section_count_and_break_types",
+          "passed": true
+        },
+        {
+          "assertion": "media_bytes_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_pixels_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_size",
+          "passed": true
+        }
+      ],
+      "failed_assertions": [
+        "sections"
+      ]
+    },
+    {
+      "name": "complex",
+      "family": "unit-edited",
+      "source_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "timings_ms": {
+        "import": 10.470000000000027,
+        "export": 7.260833000000048,
+        "reimport": 7.9181670000000395,
+        "independent_check": 64.56041699999992
+      },
+      "status": "failed",
+      "edit_targets": [
+        {
+          "kind": "paragraph",
+          "path": "body.dataStream",
+          "start_utf16": 18,
+          "end_utf16": 31,
+          "before": "待修改中文段落：春风拂面。",
+          "after": "已修改中文段落：秋风拂面。",
+          "paragraph_id": "para_2",
+          "paragraph_end": 31
+        },
+        {
+          "kind": "table_cell",
+          "path": "body.dataStream",
+          "start_utf16": 71,
+          "end_utf16": 75,
+          "before": "待改单元",
+          "after": "已改单元",
+          "paragraph_id": "para_7",
+          "paragraph_end": 75,
+          "table_id": "table-1",
+          "row": 1,
+          "column": 1
+        }
+      ],
+      "output": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.docx",
+      "output_bytes": 23413,
+      "output_sha256": "dc51b2e6665b507e535010bfd90c8e34de815ff6cc33cf679e281ddfc3dcc86c",
+      "sdk_reopen": {
+        "passed": true,
+        "edited_paragraph": true,
+        "edited_cell": true
+      },
+      "independent_check_file": "/private/tmp/project-mind-univer-validation-20261013/docx/complex.traditional.unit-edited.checks.json",
+      "assertions": [
+        {
+          "assertion": "paragraphs",
+          "passed": true
+        },
+        {
+          "assertion": "tables",
+          "passed": true
+        },
+        {
+          "assertion": "headings",
+          "passed": true
+        },
+        {
+          "assertion": "image_extents",
+          "passed": true
+        },
+        {
+          "assertion": "sections",
+          "passed": false
+        },
+        {
+          "assertion": "headers_footers",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_reference_counts",
+          "passed": true
+        },
+        {
+          "assertion": "headers_footers_per_section",
+          "passed": true
+        },
+        {
+          "assertion": "explicit_bold_text",
+          "passed": true
+        },
+        {
+          "assertion": "page_break_count",
+          "passed": true
+        },
+        {
+          "assertion": "hyperlinks",
+          "passed": true
+        },
+        {
+          "assertion": "page_size_and_main_margins",
+          "passed": true
+        },
+        {
+          "assertion": "section_count_and_break_types",
+          "passed": true
+        },
+        {
+          "assertion": "media_bytes_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_pixels_sha256",
+          "passed": true
+        },
+        {
+          "assertion": "media_size",
+          "passed": true
+        }
+      ],
+      "failed_assertions": [
+        "sections"
+      ]
+    }
+  ],
+  "gui": "not-tested",
+  "license": "No runtime bypass; no credential provided or printed",
+  "module_import_ms": 480.705333,
+  "finished": "2026-10-13T12:31:30.230Z",
+  "maxRSS_bytes": 438059008,
+  "total_after_modules_ms": 1200.464875,
+  "status": "failed",
+  "independent_assertions_note": "Original sections assertion retained. Added page-size/main-margin and section-count/type assertions to distinguish field loss from geometry changes; reused existing candidates."
+}

@@ -189,7 +189,7 @@ impl Database {
             if result.start_ms < gap.cursor_ms || result.end_ms > end_ms {
                 return Err(anyhow!("recovered text escaped its interval"));
             }
-            self.voice_transcript_append_final(
+            self.voice_transcript_append_final_in_transaction(
                 &gap.session_id,
                 &format!("recovery:{}:{}:{index}", gap.id, gap.cursor_ms),
                 result.start_ms,

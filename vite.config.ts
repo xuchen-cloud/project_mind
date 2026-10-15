@@ -2,8 +2,16 @@ import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+import { dshUiAliases } from './packages/dsh-ui/vite-aliases.mjs';
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  define: { "import.meta.env.PROJECT_MIND_DEBUG_BUILD": process.env.TAURI_ENV_DEBUG === "true" },
+  resolve: { alias: dshUiAliases, dedupe: ['react', 'react-dom'] },
+  plugins: [
+    // Entrypoints own their HMR lifecycle; they are not component refresh boundaries.
+    react({ exclude: [/node_modules/, /\/src\/(?:voice-)?main\.tsx$/] }),
+    tailwindcss(),
+  ],
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
@@ -11,6 +19,14 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
+            // Keep the shared Todo rail stable when sidebar imports change.
+            if (id.includes("/src/todo/") || id.includes("/src/components/todo/")) {
+              return "todo";
+            }
+            // Shared static file artwork is reused by the host and lazy DSH UI.
+            if (/\/packages\/dsh-ui\/upstream\/client\/ui-primitives\/src\/(?:FileTypeIcon|CodeFileIcon|code-file-icon-artwork|code-file-types)/u.test(id)) {
+              return "file-icons";
+            }
             if (
               id.includes("/src/components/rich-editor/") &&
               !/(ImageAnnotationDialog|image-annotations|imageThumbnails)/u.test(id)
@@ -57,7 +73,13 @@ export default defineConfig({
   },
   server: {
     // File-provider backed worktrees can miss native filesystem events.
-    watch: { usePolling: true, interval: 300 },
+    watch: {
+      usePolling: true,
+      interval: 300,
+      // Backend staging and fixtures contain HTML/JS but are not browser inputs.
+      // Watching them reloads the main UI during native and runtime verification.
+      ignored: ["**/src-tauri/**", "**/packages/dsh-assistant/**", "**/*.test.*"],
+    },
     port: 1420,
     strictPort: true,
   },
@@ -68,7 +90,20 @@ export default defineConfig({
   test: {
     // Bound concurrent jsdom/editor/PDF work to avoid CPU-starvation timeouts.
     maxWorkers: 4,
-    exclude: [...configDefaults.exclude, "product-site/**"],
+    // Backend packages own their Node test runner and must not load jsdom.
+    exclude: [
+      ...configDefaults.exclude,
+      "product-site/**",
+      "packages/agent-host/**",
+      "packages/dsh-assistant/**",
+      "packages/dsh-ui/upstream/**",
+      // These files use node:test and file:// APIs, not Vitest/jsdom.
+      "scripts/desktop-runtime.test.mjs",
+      "scripts/stage-dsh-runtime.test.mjs",
+      "scripts/prepare-cli.test.mjs",
+      "packages/dsh-ui/vendor-integrity.test.mjs",
+      "packages/dsh-ui/preview/assets-integrity.test.mjs",
+    ],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,

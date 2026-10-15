@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build-windows-patch:
     runs-on: windows-latest
+    env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
     permissions:
       contents: write
     steps:
@@ -26,18 +28,25 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/agent-host/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - run: npm ci
+      - name: Install frontend and build dependencies
+        run: npm ci
       - name: Validate Windows patch version
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: node scripts/validate-windows-patch-version.mjs "$env:RELEASE_TAG"
-      - uses: tauri-apps/tauri-action@v1
+      # The release hook stages pinned win-x64 Node, the isolated host lockfile,
+      # Record + Source + Pi resources, and the mind CLI sidecar.
+      - name: Build complete desktop resources and installers
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -54,7 +63,7 @@ jobs:
           uploadUpdaterJson: false
           uploadUpdaterSignatures: true
           releaseAssetNamePattern: ProjectMind_[version]_[platform]_[arch][setup].[ext]
-          args: --target x86_64-pc-windows-msvc --bundles nsis
+          args: --config src-tauri/tauri.release.conf.json --target x86_64-pc-windows-msvc --bundles nsis
       - name: Publish Windows patch release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

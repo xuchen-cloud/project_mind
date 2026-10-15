@@ -1,0 +1,416 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "LICENSE",
+      "git_blob_sha1": "3017411926aa8731558e70c3d16f6ce0b6f68d5c",
+      "bytes": 11345
+    },
+    {
+      "path": "NOTICE",
+      "git_blob_sha1": "34d8590f9b07df119df295d6eb02194bfd75cdd5",
+      "bytes": 2489
+    },
+    {
+      "path": "packages/agent-core/package.json",
+      "git_blob_sha1": "a1d678658a4c462d62c5654de5c345e52c472915",
+      "bytes": 614
+    },
+    {
+      "path": "packages/agent-core/src/electron-transport.ts",
+      "git_blob_sha1": "4b0f073351c842431facfb477786f8733853717f",
+      "bytes": 6291
+    },
+    {
+      "path": "packages/agent-core/src/index.ts",
+      "git_blob_sha1": "34e0b20b3e7a991660058160773d106b679b2b97",
+      "bytes": 1188
+    },
+    {
+      "path": "packages/agent-core/src/knowledge-base-skill.ts",
+      "git_blob_sha1": "a18888c1580812c1123f114201c0801097d24cb8",
+      "bytes": 9056
+    },
+    {
+      "path": "packages/agent-core/src/loop.ts",
+      "git_blob_sha1": "7555adfc501b980491ffc6859bd07e4e7a9c2194",
+      "bytes": 56414
+    },
+    {
+      "path": "packages/agent-core/src/redact-core.ts",
+      "git_blob_sha1": "367cae89f74d29cc15fb78d481756a376546a41c",
+      "bytes": 7103
+    },
+    {
+      "path": "packages/agent-core/src/redact-range.ts",
+      "git_blob_sha1": "923f1bab049243fdcc943269185adcc9433de672",
+      "bytes": 8100
+    },
+    {
+      "path": "packages/agent-core/src/skill.ts",
+      "git_blob_sha1": "72b122c5c5c954c22fe55d573a341d4bc71c2f14",
+      "bytes": 3408
+    },
+    {
+      "path": "packages/agent-core/src/stream-text.ts",
+      "git_blob_sha1": "52d9d7da53d7c7c562936c43ff15a4c3dc35c586",
+      "bytes": 4872
+    },
+    {
+      "path": "packages/agent-core/src/types.ts",
+      "git_blob_sha1": "197002be9e6338fe64c0561aa502e9e2e68d9748",
+      "bytes": 4594
+    },
+    {
+      "path": "packages/pptx-engine/package.json",
+      "git_blob_sha1": "609158edb91f5143c3e5c2635f4e99d2ece96e8e",
+      "bytes": 935
+    },
+    {
+      "path": "packages/pptx-engine/src/align.ts",
+      "git_blob_sha1": "5b084b5b01fe08568275f041aef1c9a44b9cf83c",
+      "bytes": 4838
+    },
+    {
+      "path": "packages/pptx-engine/src/animation.ts",
+      "git_blob_sha1": "4b8555b6e02d4f631d6784ca604b29c0f437a40b",
+      "bytes": 50637
+    },
+    {
+      "path": "packages/pptx-engine/src/background-promote.ts",
+      "git_blob_sha1": "eb204ce9ebca49c9e19612e893c29e16b21ee484",
+      "bytes": 4852
+    },
+    {
+      "path": "packages/pptx-engine/src/blank.ts",
+      "git_blob_sha1": "239af8b834238d2085d4f80e4af083255c2b7dc0",
+      "bytes": 8870
+    },
+    {
+      "path": "packages/pptx-engine/src/builtin-layouts.ts",
+      "git_blob_sha1": "fc83c034c82fc7b9bf4d2710722131dd3c45502c",
+      "bytes": 9019
+    },
+    {
+      "path": "packages/pptx-engine/src/chart-insert.ts",
+      "git_blob_sha1": "a36199f1cf91bd383579c6da2509af9c3076592e",
+      "bytes": 19030
+    },
+    {
+      "path": "packages/pptx-engine/src/chart.ts",
+      "git_blob_sha1": "c23671e7ffde58434b81946094ab1e7140405ba3",
+      "bytes": 63740
+    },
+    {
+      "path": "packages/pptx-engine/src/chartex.ts",
+      "git_blob_sha1": "15c2291e6416c2510a1c282abf8fec81ac196b6f",
+      "bytes": 4951
+    },
+    {
+      "path": "packages/pptx-engine/src/color.ts",
+      "git_blob_sha1": "6b23bd13b2e03c133c2c1697152d0090ed9a88cc",
+      "bytes": 11322
+    },
+    {
+      "path": "packages/pptx-engine/src/comments.ts",
+      "git_blob_sha1": "5f46507826303b34e344c4c95f70bb8818081e19",
+      "bytes": 8848
+    },
+    {
+      "path": "packages/pptx-engine/src/custgeom.ts",
+      "git_blob_sha1": "0d4eb02305d5c66cfd4fc0eb1f796ea024825862",
+      "bytes": 14446
+    },
+    {
+      "path": "packages/pptx-engine/src/dgm-hier.ts",
+      "git_blob_sha1": "c6b4659739a0c3e73a10f6463f704c3ae7d90880",
+      "bytes": 10928
+    },
+    {
+      "path": "packages/pptx-engine/src/embedded-fonts.ts",
+      "git_blob_sha1": "3c4d76ff9e5327fb7217d59d143c731e857173f6",
+      "bytes": 14912
+    },
+    {
+      "path": "packages/pptx-engine/src/format-brush.ts",
+      "git_blob_sha1": "2010c7aae9b64ab8fcca669b8ea5d0c32d926d63",
+      "bytes": 4670
+    },
+    {
+      "path": "packages/pptx-engine/src/generate.ts",
+      "git_blob_sha1": "67cd44fb0e4bf15bf41be6229bb9a9839348fde2",
+      "bytes": 77351
+    },
+    {
+      "path": "packages/pptx-engine/src/headerfooter.ts",
+      "git_blob_sha1": "7964d01105dc4c8932176a7d00177c3986b1a714",
+      "bytes": 5980
+    },
+    {
+      "path": "packages/pptx-engine/src/hyperlink.ts",
+      "git_blob_sha1": "d992f9443fd674b34d22de620a7e5e6ab5fa704d",
+      "bytes": 13121
+    },
+    {
+      "path": "packages/pptx-engine/src/identity.ts",
+      "git_blob_sha1": "3ab7727232a94c90bf5f8144e9f2b8915b1bcd7c",
+      "bytes": 5891
+    },
+    {
+      "path": "packages/pptx-engine/src/index.ts",
+      "git_blob_sha1": "63b4703be0d2a3a4e7b081f12677bfc2e934672d",
+      "bytes": 182628
+    },
+    {
+      "path": "packages/pptx-engine/src/insert.ts",
+      "git_blob_sha1": "560aa4ed199e6bf664a10fdd267a4334dc364e92",
+      "bytes": 28441
+    },
+    {
+      "path": "packages/pptx-engine/src/layout.ts",
+      "git_blob_sha1": "f2e811951dab52909e1185d0f5ac40113d306a4f",
+      "bytes": 11294
+    },
+    {
+      "path": "packages/pptx-engine/src/master-edit.ts",
+      "git_blob_sha1": "e3db22524f1815a135ea77cdb24b4ae6024b07b5",
+      "bytes": 5125
+    },
+    {
+      "path": "packages/pptx-engine/src/media-insert.ts",
+      "git_blob_sha1": "ef2b48fe96844b8dcd18a60ca048a6632c34adbd",
+      "bytes": 11293
+    },
+    {
+      "path": "packages/pptx-engine/src/named-action.ts",
+      "git_blob_sha1": "09bba1571f99f4532d35e757befdc5015032d8d4",
+      "bytes": 848
+    },
+    {
+      "path": "packages/pptx-engine/src/notes.ts",
+      "git_blob_sha1": "b79e992fbd70ed3e7452e4e6e801caa0f7edd96d",
+      "bytes": 10724
+    },
+    {
+      "path": "packages/pptx-engine/src/parse.ts",
+      "git_blob_sha1": "1d0431677018a2d1fe5e9366d94fc543d4056f3c",
+      "bytes": 170846
+    },
+    {
+      "path": "packages/pptx-engine/src/placeholder.ts",
+      "git_blob_sha1": "865fdca3556c9c3761a587f2d82009cc2ba9d0d6",
+      "bytes": 31219
+    },
+    {
+      "path": "packages/pptx-engine/src/preset-shape-types.ts",
+      "git_blob_sha1": "cb92e8b8baf0753a0ccc8165dbd214417a9bc30b",
+      "bytes": 3739
+    },
+    {
+      "path": "packages/pptx-engine/src/redaction-xml.ts",
+      "git_blob_sha1": "2ef7be35bb89ef69361378f1dc204a7889b6f95f",
+      "bytes": 8583
+    },
+    {
+      "path": "packages/pptx-engine/src/resource-cleanup.ts",
+      "git_blob_sha1": "719bbb480af1c7ee8cf90788c4827a5911eae49c",
+      "bytes": 12176
+    },
+    {
+      "path": "packages/pptx-engine/src/scan.ts",
+      "git_blob_sha1": "1c7b119732b0ce6209e05c0e54ebf74e99f60bb7",
+      "bytes": 3987
+    },
+    {
+      "path": "packages/pptx-engine/src/sections.ts",
+      "git_blob_sha1": "42edf147311b1a2b9062acf1f20b474107a81274",
+      "bytes": 14355
+    },
+    {
+      "path": "packages/pptx-engine/src/slide-ids.ts",
+      "git_blob_sha1": "ce0a5026b9bd21fbc9b2e39e753eb4b3368d6a48",
+      "bytes": 1061
+    },
+    {
+      "path": "packages/pptx-engine/src/slide-transfer.ts",
+      "git_blob_sha1": "66884021bfeafd628c5206ebc2630fc6413e3fdb",
+      "bytes": 18584
+    },
+    {
+      "path": "packages/pptx-engine/src/smartart-layout.ts",
+      "git_blob_sha1": "fb4a871717d336f67117746874a651ab1ef78460",
+      "bytes": 5468
+    },
+    {
+      "path": "packages/pptx-engine/src/smartart.ts",
+      "git_blob_sha1": "f65a326a1121bd20838bef6bbd1f2a1adac42b59",
+      "bytes": 3208
+    },
+    {
+      "path": "packages/pptx-engine/src/table-edit.ts",
+      "git_blob_sha1": "9015c6d9a51e303587c298e8c6646828c2a65dc4",
+      "bytes": 18730
+    },
+    {
+      "path": "packages/pptx-engine/src/table-grid.ts",
+      "git_blob_sha1": "3e64e71c321a2566e4dd0ca012d9066dca5008b8",
+      "bytes": 923
+    },
+    {
+      "path": "packages/pptx-engine/src/table-style.ts",
+      "git_blob_sha1": "4af6567c246922c533518f3a97e3a29796665594",
+      "bytes": 27712
+    },
+    {
+      "path": "packages/pptx-engine/src/theme-apply.ts",
+      "git_blob_sha1": "912bf7597b824f7db0ba9ff427d130a986338b13",
+      "bytes": 8717
+    },
+    {
+      "path": "packages/pptx-engine/src/theme.ts",
+      "git_blob_sha1": "b2f41c985af33da978a7883f2a346410929c9db4",
+      "bytes": 11597
+    },
+    {
+      "path": "packages/pptx-engine/src/types.ts",
+      "git_blob_sha1": "d43eec6f465aa735f63e60bba9bd84f34a86e498",
+      "bytes": 33550
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/LICENSE",
+      "git_blob_sha1": "4201f40d931f476b0459e1bf0ec4c84b4e466bfe",
+      "bytes": 17184
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/README.md",
+      "git_blob_sha1": "44130c860bf4bdec44f058d185079612a57b6a6e",
+      "bytes": 1060
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/ctf.ts",
+      "git_blob_sha1": "3b81e985731efae2cd3b6dd58095d575b53be814",
+      "bytes": 20769
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/index.ts",
+      "git_blob_sha1": "05f5df47db73b37a18d55eda53f4073176c11713",
+      "bytes": 444
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/lzcomp.ts",
+      "git_blob_sha1": "309d83b71d859cd8fd963c85fe77bdafa5b95ee0",
+      "bytes": 10845
+    },
+    {
+      "path": "packages/pptx-engine/src/xml-utils.ts",
+      "git_blob_sha1": "0039efa09dd24ecbdf8d9efb3b82877cac5be6ac",
+      "bytes": 4477
+    },
+    {
+      "path": "packages/pptx-engine/src/zip.ts",
+      "git_blob_sha1": "5f479b49f2e12051b7864253526f48bf2c2f5323",
+      "bytes": 10565
+    },
+    {
+      "path": "packages/pptx-render/package.json",
+      "git_blob_sha1": "6347d5b22679c1a6a7185938a47cc8ba86d4c718",
+      "bytes": 865
+    },
+    {
+      "path": "packages/pptx-render/src/auto-num.ts",
+      "git_blob_sha1": "1f4d190f8a96cbba356425f8287b2238f648c435",
+      "bytes": 3118
+    },
+    {
+      "path": "packages/pptx-render/src/bidi-js.d.ts",
+      "git_blob_sha1": "9952af780e26202a9a9e588a9b447e6872c3e006",
+      "bytes": 285
+    },
+    {
+      "path": "packages/pptx-render/src/build-chart.ts",
+      "git_blob_sha1": "6c5be522c6cf7adfcad3e91eb5e3bc382090334d",
+      "bytes": 139155
+    },
+    {
+      "path": "packages/pptx-render/src/build-slide.ts",
+      "git_blob_sha1": "9b8238049cf0a6319dea04a5b4425a4d455c026d",
+      "bytes": 34893
+    },
+    {
+      "path": "packages/pptx-render/src/cell-bevel.ts",
+      "git_blob_sha1": "ef65dc767089bfce2c1a74cf95380fbb433c0c88",
+      "bytes": 4200
+    },
+    {
+      "path": "packages/pptx-render/src/coords.ts",
+      "git_blob_sha1": "1d7a73acc50bf92faba7a44c9dca4ab1060f0106",
+      "bytes": 4970
+    },
+    {
+      "path": "packages/pptx-render/src/fill.ts",
+      "git_blob_sha1": "94f8801bded785f6d5ef59748842d4cd181df6fb",
+      "bytes": 7504
+    },
+    {
+      "path": "packages/pptx-render/src/image-dpi.ts",
+      "git_blob_sha1": "1dcaa1edcfe05fcdb0c7716abc6502635d45b49e",
+      "bytes": 8437
+    },
+    {
+      "path": "packages/pptx-render/src/index.ts",
+      "git_blob_sha1": "1b568ec1b79ec00e5e1383940f9859f270ca1eb6",
+      "bytes": 1058
+    },
+    {
+      "path": "packages/pptx-render/src/metrics.ts",
+      "git_blob_sha1": "eb0e10c5f2d54b9e40e90eeaa2c8fba3659f7f06",
+      "bytes": 11278
+    },
+    {
+      "path": "packages/pptx-render/src/pattern-fills.ts",
+      "git_blob_sha1": "88aaa4cf8b570c762f57fe6f6a7672c6fc7f8268",
+      "bytes": 3855
+    },
+    {
+      "path": "packages/pptx-render/src/preset-geometry.ts",
+      "git_blob_sha1": "368846466bbf6fcea8d84b8628098a8d9a7eee2a",
+      "bytes": 52737
+    },
+    {
+      "path": "packages/pptx-render/src/render-tree.ts",
+      "git_blob_sha1": "b79080c157516e587fd8d9ec0d3ce270eddf4cfc",
+      "bytes": 24674
+    },
+    {
+      "path": "packages/pptx-render/src/scene3d.ts",
+      "git_blob_sha1": "63a0730a95334a3274d7f2502a645896221c85c4",
+      "bytes": 45449
+    },
+    {
+      "path": "packages/pptx-render/src/text-layout.ts",
+      "git_blob_sha1": "ecb7d33eaf69dd26ed470f54c42fc9440ea09464",
+      "bytes": 75722
+    },
+    {
+      "path": "packages/zip-gate/package.json",
+      "git_blob_sha1": "02ba2de51e24650b618652dc826aee087a64e083",
+      "bytes": 587
+    },
+    {
+      "path": "packages/zip-gate/src/byte-stream.ts",
+      "git_blob_sha1": "1dbb2c3936f237f5233712cb19c6334f21fa574e",
+      "bytes": 1950
+    },
+    {
+      "path": "packages/zip-gate/src/index.ts",
+      "git_blob_sha1": "857e68cb3ce0e07d27a059fc00971292b12e0f77",
+      "bytes": 10391
+    },
+    {
+      "path": "LICENSE-UNICODE.txt",
+      "git_blob_sha1": "72d44603a46c25412d038e633c6b05cc38c29726",
+      "bytes": 1995
+    }
+  ]
+}

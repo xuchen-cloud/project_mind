@@ -10,7 +10,9 @@ import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   requestProjectRecordFocusSave,
 } from "../../lib/record-focus-save";
-import { RecordSaveCoordinator } from "../../lib/record-save-coordinator";
+import { desktopApi } from "../../services/desktopApi";
+import { AgentApiError } from "../../services/agentApi";
+import { RecordSaveCoordinator, RecordSaveFailure } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
@@ -22,8 +24,16 @@ vi.mock("../../todo", () => ({
   ),
 }));
 
+vi.mock("../../services/desktopApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../services/desktopApi")>();
+  return { ...actual, desktopApi: { ...actual.desktopApi, confirm: vi.fn() } };
+});
+
 const richEditorMocks = vi.hoisted(() => ({
+  pendingReviews: 0,
+  busy: false,
   focus: vi.fn(),
+  sourceReveal: vi.fn((_blockId: string) => true),
 }));
 
 const noteImageAssetMocks = vi.hoisted(() => ({
@@ -38,13 +48,37 @@ const aiMetadataMocks = vi.hoisted(() => ({
   enqueueAndWait: vi.fn(),
 }));
 
+import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test/recordDocumentFixture";
+import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
+import type { RecordHeadChanged } from "../../lib/record-document-events";
+const headChanges = vi.hoisted(() => ({ listeners: new Set<(event: RecordHeadChanged) => void>() }));
+vi.mock("../../lib/record-document-events", () => ({ subscribeRecordHeadChanges: async (listener: (event: RecordHeadChanged) => void) => {
+  headChanges.listeners.add(listener);
+  return () => { headChanges.listeners.delete(listener); };
+} }));
+const recordMocks = vi.hoisted(() => ({
+  queryClient: null as QueryClient | null,
+  saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), metadataGet: vi.fn(), metadataApply: vi.fn(),
+}));
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tanstack/react-query")>();
+  return { ...original, QueryClientProvider: (props: React.ComponentProps<typeof original.QueryClientProvider>) => {
+    recordMocks.queryClient = props.client;
+    return <original.QueryClientProvider {...props} />;
+  } };
+});
+vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
+  editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, metadataGet: recordMocks.metadataGet, metadataApply: recordMocks.metadataApply, checkpoint: vi.fn(),
+  editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
+} }));
+
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
   projectPageGet: vi.fn(),
   projectTagSettingsGet: vi.fn(),
   projectTagUpsert: vi.fn(),
   projectRecordUpsert: vi.fn(),
-  projectRecordMetadataApply: vi.fn(),
   aiSettingsGet: vi.fn(),
 }));
 
@@ -99,6 +133,7 @@ vi.mock("../../state/ui-store", async (importOriginal) => ({
 vi.mock("../rich-editor/noteImageAssets", () => ({
   buildProjectNoteImageAssetHandlers: () => undefined,
   externalizeEmbeddedImageDataUrls: noteImageAssetMocks.externalizeEmbeddedImageDataUrls,
+  materializeEmbeddedRecordImages: vi.fn(),
 }));
 
 vi.mock("../rich-editor", () => ({
@@ -107,31 +142,47 @@ vi.mock("../rich-editor", () => ({
   normalizeRichEditorValue: (value: { html: string; text: string; markdown: string }) => value,
   RichEditor: ({
     html,
+    session,
+    onSessionReady,
     controllerRef,
     onSave,
     variant,
     showToolbar,
     autoFocus,
     readOnly,
+    sourceBlockNavigation,
+    onSourceBlockResult,
   }: {
     html?: string;
+    session?: { committedValue: { markdown: string } } | null;
+    onSessionReady?: () => void;
     onSave?: (value: { html: string; text: string; markdown: string }) => Promise<unknown>;
     variant?: string;
     showToolbar?: boolean;
     autoFocus?: boolean;
     readOnly?: boolean;
+    sourceBlockNavigation?: { blockId: string; key: string } | null;
+    onSourceBlockResult?: (located: boolean) => void;
     controllerRef?: {
       current: {
+        captureSession: () => object | null;
+        isBusy: () => boolean;
+        getPendingAiReviewCount: () => number;
+        acknowledgeCommittedContent: ReturnType<typeof vi.fn>;
         getValue: () => { html: string; text: string; markdown: string };
         getCommittedValue: () => { html: string; text: string; markdown: string };
+        getCommittedDocumentJson: () => ReturnType<typeof fixtureDocument>;
         focus: (position?: "start" | "end" | number) => void;
         save: () => Promise<unknown>;
       } | null;
     };
   }) => {
-    const [value, setValue] = useState(toPlainText(html ?? ""));
+    const [value, setValue] = useState(session?.committedValue.markdown ?? toPlainText(html ?? ""));
     const valueRef = useRef(value);
     valueRef.current = value;
+    useEffect(() => {
+      if (sourceBlockNavigation) onSourceBlockResult?.(richEditorMocks.sourceReveal(sourceBlockNavigation.blockId));
+    }, [sourceBlockNavigation?.key, onSourceBlockResult]);
 
     useEffect(() => {
       if (!controllerRef) {
@@ -139,8 +190,16 @@ vi.mock("../rich-editor", () => ({
       }
 
       controllerRef.current = {
+        captureSession: () => richEditorMocks.busy || richEditorMocks.pendingReviews ? null : ({
+          committedValue: buildMockRichValue(valueRef.current),
+          state: { doc: { toJSON: () => fixtureDocument(valueRef.current) } },
+        }),
+        isBusy: () => richEditorMocks.busy,
+        getPendingAiReviewCount: () => richEditorMocks.pendingReviews,
+        acknowledgeCommittedContent: vi.fn(),
         getValue: () => buildMockRichValue(valueRef.current),
         getCommittedValue: () => buildMockRichValue(valueRef.current.replace("[AI preview]", "")),
+        getCommittedDocumentJson: () => fixtureDocument(valueRef.current.replace("[AI preview]", "")),
         focus: richEditorMocks.focus,
         save: vi.fn(() => onSave?.(buildMockRichValue(valueRef.current.replace("[AI preview]", ""))) ?? Promise.resolve()),
       };
@@ -149,6 +208,7 @@ vi.mock("../rich-editor", () => ({
         controllerRef.current = null;
       };
     }, [controllerRef, onSave]);
+    useEffect(() => { onSessionReady?.(); }, [onSessionReady]);
 
     return (
       <textarea
@@ -323,16 +383,32 @@ function ResidentFocusVisibilityHarness() {
 
 describe("ProjectNoteFocusPage keyboard flow", () => {
   beforeEach(() => {
+    headChanges.listeners.clear();
+  richEditorMocks.pendingReviews = 0;
+  richEditorMocks.busy = false;
+    recordMocks.queryClient = null;
+    recordMocks.bodySave.mockReset();
+    recordMocks.editorGet.mockReset();
+    const findRecord = async (target: RecordTarget) => {
+      const cached = recordMocks.queryClient?.getQueryData<ProjectPageData>(queryKeys.projectPage(target.scope.kind === "project" ? target.scope.projectId : 1));
+      const page = cached ?? await apiMocks.projectPageGet.getMockImplementation()?.();
+      return page?.records.find((record: NoteRecord) => record.id === target.recordId) ?? { ...currentNote, id: target.recordId };
+    };
+    recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => fixtureEditorState(target, await findRecord(target)));
+    recordMocks.bodySave.mockImplementation(async (_binding, input: RecordBodySaveInput) => fixtureBodySave(input, await findRecord(input.target), recordMocks.saveProjectRecord));
     currentNote = { ...baseNote, tags: [] };
     recordExportMocks.sources.length = 0;
     richEditorMocks.focus.mockReset();
+    richEditorMocks.sourceReveal.mockReset().mockReturnValue(true);
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     apiMocks.projectsList.mockReset();
     apiMocks.projectPageGet.mockReset();
     apiMocks.projectTagSettingsGet.mockReset();
     apiMocks.projectTagUpsert.mockReset();
-    apiMocks.projectRecordUpsert.mockReset();
-    apiMocks.projectRecordMetadataApply.mockReset();
+    recordMocks.saveProjectRecord.mockReset();
+    recordMocks.metadataGet.mockReset();
+    recordMocks.metadataApply.mockReset();
+    recordMocks.metadataGet.mockImplementation(async (_binding,target) => (await recordMocks.editorGet(_binding,target)).metadata);
     apiMocks.aiSettingsGet.mockReset();
     aiMetadataMocks.enqueueAndWait.mockReset();
 
@@ -348,7 +424,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       createdAt: "",
       updatedAt: "",
     }));
-    apiMocks.projectRecordUpsert.mockImplementation(async (input: Partial<NoteRecord> & { tagIds?: number[] }) => {
+    recordMocks.saveProjectRecord.mockImplementation(async (input: Partial<NoteRecord> & { tagIds?: number[] }) => {
       currentNote = {
         ...currentNote,
         title: input.title,
@@ -358,21 +434,43 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       };
       return currentNote;
     });
-    apiMocks.projectRecordMetadataApply.mockImplementation(async (input: {
-      title: string;
-      tagIds: number[];
-      newTags: Array<{ label: string }>;
-    }) => {
-      currentNote = {
-        ...currentNote,
-        title: input.title,
-        tags: [
-          ...input.tagIds.map((id) => ({ id, label: `Tag ${id}`, colorKey: "blue" as const })),
-          ...input.newTags.map((tag, index) => ({ id: 30 + index, label: tag.label, colorKey: "teal" as const })),
-        ],
-      };
-      return currentNote;
+    recordMocks.metadataApply.mockImplementation(async (_binding,input) => {
+      const record = { ...currentNote, title: input.metadata.title, tags: [
+        ...input.metadata.tagIds.map((id: number) => ({ id,label: `Tag ${id}`,colorKey: "blue" as const })),
+        ...input.newTags.map((tag: { label: string },index: number) => ({ id: 30 + index,label: tag.label,colorKey: "teal" as const })),
+      ] };
+      currentNote = record;
+      return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("source navigation waits for canonical data and reports old revisions without revealing a block", async () => {
+    const id = "a".repeat(32);
+    const view = render(<ProjectNoteFocusPage />, undefined, `/projects/1/records/7?sourceBlock=${id}&sourceRevision=0`);
+    expect(await screen.findByText("引用版本已变化，无法在当前正文中准确定位来源。")).toBeInTheDocument();
+    expect(richEditorMocks.sourceReveal).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "正文编辑器" })).toHaveAttribute("data-auto-focus", "false");
+    expect(recordMocks.bodySave).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("source navigation reuses a resident record and reveals a second query anchor only when visible", async () => {
+    const first = "a".repeat(32); const second = "b".repeat(32);
+    function SourceHarness() {
+      const navigate = useNavigate(); const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(current => !current)}>切换来源页面可见性</button>
+        <button onClick={() => navigate(`/projects/1/records/7?sourceBlock=${second}&sourceRevision=1`)}>打开第二个来源块</button>
+        <ProjectNoteFocusPage visible={visible} /></>;
+    }
+    const view = render(<SourceHarness />, undefined, `/projects/1/records/7?sourceBlock=${first}&sourceRevision=1`);
+    await waitFor(() => expect(richEditorMocks.sourceReveal).toHaveBeenCalledWith(first));
+    fireEvent.click(screen.getByText("切换来源页面可见性"));
+    fireEvent.click(screen.getByText("打开第二个来源块"));
+    expect(richEditorMocks.sourceReveal).not.toHaveBeenCalledWith(second);
+    fireEvent.click(screen.getByText("切换来源页面可见性"));
+    await waitFor(() => expect(richEditorMocks.sourceReveal).toHaveBeenLastCalledWith(second));
+    expect(await screen.findByText("已定位引用段落。")).toBeInTheDocument();
+    view.unmount();
   });
 
   it.each([
@@ -457,25 +555,29 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         <ProjectNoteFocusPage visible={visible} />
       </>;
     }
-    const persist = vi.fn(async () => ({}));
+    const persist = vi.fn(async (snapshot) => ({ headRevision: snapshot.canonicalBody.baseRevision + 1 }));
     const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
     render(<RecordSaveCoordinatorProvider coordinator={coordinator}><VisibilityHarness /></RecordSaveCoordinatorProvider>, queryClient);
     const user = userEvent.setup();
 
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).not.toBeDisabled());
     await user.click(screen.getByRole("button", { name: "切换可见性" }));
+    await coordinator.flush();
+    const hiddenSaveCount = persist.mock.calls.length;
     let result;
     act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
-    expect(result).toBe("unhandled");
-    expect(persist).not.toHaveBeenCalled();
+    expect(result).toBe("submitted");
+    await coordinator.flush();
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 1);
 
     await user.click(screen.getByRole("button", { name: "切换可见性" }));
     act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
     expect(result).toBe("submitted");
     await coordinator.flush();
-    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist).toHaveBeenCalledTimes(hiddenSaveCount + 2);
   });
 
-  it.each([false, true])("hidden resident navigation save is unhandled with draft=%s", (hasDraft) => {
+  it.each([false, true])("hidden resident navigation save responds by identity with draft=%s", (hasDraft) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     if (hasDraft) queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     const persist = vi.fn(async () => ({}));
@@ -493,9 +595,192 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     let result;
     act(() => { result = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
 
-    expect(result).toBe("unhandled");
+    expect(result).toBe(hasDraft ? "failed" : "not_needed");
     expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
     expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("keeps two visible pages editable with independent source positions, focus and saves", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), { ...buildProjectPage(), records: [currentNote, { ...baseNote, id: 8, title: "Second", contentHtml: "<p>Other</p>" }] });
+    const persist = vi.fn(async (value) => ({ headRevision: value.canonicalBody.baseRevision + 1 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const guards = new Map<number, () => Promise<void>>();
+    const register = (id: number) => (guard: () => Promise<void>) => { guards.set(id, guard); return () => { guards.delete(id); }; };
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}>
+      <ProjectNoteFocusPage projectIdOverride={1} recordIdOverride={7} visible focused={false} embedded
+        searchParamsOverride={new URLSearchParams("sourceBlock=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")} registerCloseGuard={register(7)} />
+      <ProjectNoteFocusPage projectIdOverride={1} recordIdOverride={8} visible focused embedded
+        searchParamsOverride={new URLSearchParams("sourceBlock=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")} registerCloseGuard={register(8)} />
+    </RecordSaveCoordinatorProvider>, queryClient);
+    await waitFor(() => expect(screen.getAllByLabelText("正文编辑器").every((editor) => !editor.hasAttribute("readonly"))).toBe(true));
+    expect(screen.queryByLabelText("笔记待办")).not.toBeInTheDocument();
+    expect(richEditorMocks.sourceReveal).toHaveBeenCalledWith("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(richEditorMocks.sourceReveal).toHaveBeenCalledWith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    fireEvent.change(screen.getAllByLabelText("正文编辑器")[0], { target: { value: "Changed[AI preview]" } });
+    await act(async () => { await guards.get(7)!(); });
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ recordId: 7, committedContent: expect.objectContaining({ markdown: "Changed" }) }));
+    expect(persist.mock.calls.some(([snapshot]) => snapshot.recordId === 8)).toBe(false);
+  });
+
+  it.each(["save", "conflict", "review", "busy"])("preserves the editor and rejects explicit close on %s failure", async (failure) => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async () => {
+      if (failure === "conflict") throw new RecordSaveFailure("revision conflict", { retryable: false, code: "REVISION_CONFLICT" });
+      throw new Error("save failed");
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    fireEvent.change(editor, { target: { value: "Kept[AI preview]" } });
+    richEditorMocks.pendingReviews = failure === "review" ? 1 : 0;
+    richEditorMocks.busy = failure === "busy";
+    await act(async () => { await expect(guard()).rejects.toThrow(); });
+    expect(editor).toBeInTheDocument();
+    expect(editor).toHaveValue("Kept[AI preview]");
+    if (failure === "save" || failure === "conflict") expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("Kept");
+    else expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("confirms discarding a deleted Record before close and does not resubmit it on leave", async () => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async () => { throw new RecordSaveFailure("Record is missing", { retryable: false, code: "NOT_FOUND" }); });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "Deleted draft" } });
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false }));
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await act(async () => { await expect(guard()).rejects.toThrow(); });
+    expect(desktopApi.confirm).toHaveBeenCalledWith(expect.stringContaining("关闭会丢失"), expect.any(String));
+    expect(coordinator.getLatestSnapshot("project:1:7")).not.toBeNull();
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
+    act(() => { expect(requestProjectRecordFocusSave({ projectId: 1, recordId: 7 })).toBe("not_needed"); });
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "New draft after cancellation elsewhere" } });
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false);
+    await act(async () => { await expect(guard()).rejects.toThrow("已取消关闭"); });
+    expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("New draft after cancellation elsewhere");
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(true);
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    view.unmount();
+    await Promise.resolve();
+    expect(coordinator.getStatus().pendingCount).toBe(0);
+  });
+
+  it("closes only its own save queue even when another Record has a failed save", async () => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async (snapshot) => {
+      if (snapshot.recordId === 8) throw new Error("other Record failed");
+      return { headRevision: snapshot.canonicalBody.baseRevision + 1 };
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    coordinator.submit({ scope: "project", workspaceKey: "/tmp/workspace", projectId: 1, recordId: 8,
+      title: "Other", tagIds: [], defaultCodeLanguage: null, committedContent: buildMockRichValue("Other") });
+    await expect(coordinator.flush("project:1:8")).rejects.toThrow("other Record failed");
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    expect(coordinator.getRecordStatus("project:1:8").phase).toBe("error");
+    expect(coordinator.getRecordStatus("project:1:7").phase).toBe("idle");
+  });
+
+  it("retains the same editor and draft when its stable parent changes grid columns", async () => {
+    function Harness() {
+      const [column, setColumn] = useState(1);
+      return <><button onClick={() => setColumn(2)}>Move Record</button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+          <div key="record-7" style={{ gridColumn: column }}><ProjectNoteFocusPage embedded /></div>
+        </div></>;
+    }
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    fireEvent.change(editor, { target: { value: "Moved draft" } });
+    fireEvent.click(screen.getByText("Move Record"));
+    expect(screen.getByDisplayValue("Moved draft")).toBe(editor);
+    act(() => { expect(requestProjectRecordFocusSave({ projectId: 1, recordId: 7 })).toBe("submitted"); });
+    await waitFor(() => expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(expect.objectContaining({ noteId: 7, markdown: "Moved draft" })));
+  });
+
+  it("keeps a hidden page with pending AI review mounted and permits missing objects without a draft to close", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    const guards = new Map<number, () => Promise<void>>();
+    const register = (id: number) => (value: () => Promise<void>) => { guards.set(id, value); return () => undefined; };
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(false)}>Hide pending</button>
+        <ProjectNoteFocusPage embedded visible={visible} registerCloseGuard={register(7)} />
+        <ProjectNoteFocusPage embedded projectIdOverride={1} recordIdOverride={999} visible={false} registerCloseGuard={register(999)} />
+      </>;
+    }
+    render(<Harness />, queryClient);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    richEditorMocks.pendingReviews = 1;
+    fireEvent.change(editor, { target: { value: "Normal[AI preview]" } });
+    fireEvent.click(screen.getByText("Hide pending"));
+    await act(async () => { await expect(guards.get(7)!()).rejects.toThrow("AI"); });
+    expect(editor).toBeInTheDocument();
+    expect(editor).toHaveValue("Normal[AI preview]");
+    await expect(guards.get(999)!()).resolves.toBeUndefined();
+  });
+
+  it("pauses a safely saved hidden embedded editor and restores its draft on return", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: {
+      persist: vi.fn(async (value) => ({ headRevision: value.canonicalBody.baseRevision + 1 })),
+    } });
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(!visible)}>Toggle embedded</button>
+        <ProjectNoteFocusPage embedded visible={visible} /></>;
+    }
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><Harness /></RecordSaveCoordinatorProvider>, queryClient);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const scroll = screen.getByTestId("project-record-focus-scroll");
+    scroll.scrollTop = 184;
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "Suspended draft" } });
+    fireEvent.click(screen.getByText("Toggle embedded"));
+    await waitFor(() => expect(screen.queryByLabelText("正文编辑器")).not.toBeInTheDocument());
+    let outcome;
+    act(() => { outcome = requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+    expect(outcome).toBe("submitted");
+    scroll.scrollTop = 0;
+    fireEvent.click(screen.getByText("Toggle embedded"));
+    expect(await screen.findByDisplayValue("Suspended draft")).toBeInTheDocument();
+    expect(scroll.scrollTop).toBe(184);
+  });
+
+  it("accepts committed Agent content while a saved embedded editor is paused", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKeys.projectPage(1), buildProjectPage());
+    function Harness() {
+      const [visible, setVisible] = useState(true);
+      return <><button onClick={() => setVisible(value => !value)}>Toggle incoming</button><ProjectNoteFocusPage embedded visible={visible} /></>;
+    }
+    render(<Harness />, client);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.click(screen.getByText("Toggle incoming"));
+    await waitFor(() => expect(screen.queryByLabelText("正文编辑器")).not.toBeInTheDocument());
+    const target: RecordTarget = { scope: { kind: "project", projectId: 1 }, recordId: 7 };
+    const incoming = fixtureEditorState(target, { ...currentNote, contentMarkdown: "Agent committed", contentHtml: "<p>Agent committed</p>" });
+    incoming.head.headRevision = 9;
+    recordMocks.editorGet.mockResolvedValue(incoming);
+    await act(async () => {
+      for (const listener of headChanges.listeners) listener({ binding: { workspaceId: "fixture-workspace", generation: "open-1" }, target,
+        requestId: "agent-update", headRevision: 9, metadataRevision: null });
+    });
+    fireEvent.click(screen.getByText("Toggle incoming"));
+    expect(await screen.findByDisplayValue("Agent committed")).toBeInTheDocument();
+    expect(screen.queryByText(/记录已在其他位置更新/)).not.toBeInTheDocument();
   });
 
   it("hands a cold record from one static skeleton to ready content", async () => {
@@ -518,14 +803,14 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(view.container.querySelector("[data-focus-page-key]" )).toHaveAttribute("data-cold-entry", "true");
   });
 
-  it("renders a cached record synchronously without a cold entrance", () => {
+  it("renders a cached record synchronously without a cold entrance", async () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
 
     const view = render(<ProjectNoteFocusPage />, queryClient);
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /正在加载/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("正文");
     expect(view.container.querySelector("[data-focus-page-key]")).not.toHaveAttribute("data-cold-entry");
   });
@@ -547,6 +832,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       securityMode: "workspace",
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     });
     apiMocks.projectTagSettingsGet.mockResolvedValue({
@@ -568,13 +854,10 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
     await user.click(await screen.findByRole("button", { name: "AI 填写标题和标签" }));
 
-    await waitFor(() => expect(apiMocks.projectRecordMetadataApply).toHaveBeenCalledWith({
-      projectId: 1,
-      noteId: 7,
-      title: "访谈结论",
-      tagIds: [12],
-      newTags: [{ label: "可用性", colorKey: expect.any(String) }],
-    }));
+    await waitFor(() => expect(recordMocks.metadataApply).toHaveBeenCalledWith(expect.any(Object),{
+      metadata: { target: { scope: { kind: "project",projectId: 1 },recordId: 7 },title: "访谈结论",tagIds: [12],expectedRevision: expect.any(String) },
+      newTags: [{ label: "可用性",colorKey: expect.any(String) }],
+    },expect.any(String)));
     expect(aiMetadataMocks.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
       kind: "record_metadata",
       input: expect.objectContaining({ markdown: "正文" }),
@@ -604,17 +887,19 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
   it("awaits an in-flight save and exports ordinary edits without pending AI preview", async () => {
     const user = userEvent.setup();
     let finishSave: ((value: NoteRecord) => void) | undefined;
-    apiMocks.projectRecordUpsert.mockImplementationOnce(() => new Promise<NoteRecord>((resolve) => {
+    recordMocks.saveProjectRecord.mockImplementationOnce(() => new Promise<NoteRecord>((resolve) => {
       finishSave = resolve;
     }));
     render(<ProjectNoteFocusPage />);
 
-    const editor = await screen.findByLabelText("正文编辑器");
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
+    const editor = screen.getByLabelText("正文编辑器");
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
     await user.clear(editor);
     fireEvent.change(editor, { target: { value: "未保存普通编辑[AI preview]" } });
     await user.click(screen.getByRole("button", { name: "测试导出" }));
 
-    await waitFor(() => expect(apiMocks.projectRecordUpsert).toHaveBeenCalled());
+    await waitFor(() => expect(recordMocks.saveProjectRecord).toHaveBeenCalled());
     expect(recordExportMocks.sources).toHaveLength(0);
     finishSave?.({ ...currentNote, contentHtml: "<p>未保存普通编辑</p>" });
     await waitFor(() => expect(recordExportMocks.sources).toHaveLength(1));
@@ -630,24 +915,43 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "新标题");
     await user.keyboard("{Tab}");
 
     const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await waitFor(() => expect(tagInput).toHaveFocus());
-    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+    expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(
       expect.objectContaining({ noteId: 7, title: "新标题" }),
     );
-    expect(noteImageAssetMocks.externalizeEmbeddedImageDataUrls).toHaveBeenCalled();
+    expect(apiMocks.projectRecordUpsert).not.toHaveBeenCalled();
+    expect(recordMocks.bodySave).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ metadata: expect.objectContaining({ title: "新标题" }) }), expect.any(String));
   });
 
-  it("keeps the focus page height constrained so its content area can scroll", async () => {
+  it("does not steal body focus when title saving completes after the reader moved on", async () => {
+    let finish!: (record: NoteRecord) => void;
+    recordMocks.saveProjectRecord.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const user = userEvent.setup();
     render(<ProjectNoteFocusPage />);
+    const title = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(title).toBeEnabled());
+    await user.clear(title);
+    await user.type(title, "新标题");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(recordMocks.saveProjectRecord).toHaveBeenCalledOnce());
+    const body = screen.getByRole("textbox", { name: "正文编辑器" });
+    body.focus();
+    await act(async () => finish({ ...currentNote, title: "新标题" }));
+    expect(body).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "新增标签" })).not.toHaveFocus();
+  });
+
+  it.each([false, true])("keeps the focus page height constrained without a local Todo rail (embedded=%s)", async (embedded) => {
+    render(<ProjectNoteFocusPage embedded={embedded} />);
 
     const scroll = await screen.findByTestId("project-record-focus-scroll");
-    expect(screen.getByRole("complementary", { name: "笔记待办" })).toHaveAttribute("data-scope", "current-project");
-    expect(screen.getByRole("complementary", { name: "笔记待办" })).toHaveAttribute("data-enabled", "true");
+    expect(screen.queryByRole("complementary", { name: "笔记待办" })).not.toBeInTheDocument();
     expect(scroll).toHaveClass("project-overview-focus__scroll");
     expect(scroll.parentElement).toHaveClass(
       "project-overview-focus",
@@ -666,13 +970,14 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "回车标题");
     await user.keyboard("{Enter}");
 
     const tagInput = screen.getByRole("textbox", { name: "新增标签" });
     await waitFor(() => expect(tagInput).toHaveFocus());
-    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+    expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(
       expect.objectContaining({ noteId: 7, title: "回车标题" }),
     );
   });
@@ -699,6 +1004,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "直接加标签的标题");
 
@@ -707,7 +1013,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     await user.type(tagInput, "紧急{Enter}");
 
     await waitFor(() => {
-      expect(apiMocks.projectRecordUpsert).toHaveBeenLastCalledWith(
+      expect(recordMocks.saveProjectRecord).toHaveBeenLastCalledWith(
         expect.objectContaining({
           noteId: 7,
           title: "直接加标签的标题",
@@ -727,9 +1033,11 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
     const user = userEvent.setup();
     const title = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(title).toBeEnabled());
     await user.clear(title);
     await user.type(title, "最新标题");
     const editor = screen.getByLabelText("正文编辑器");
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
     await user.clear(editor);
     fireEvent.change(editor, {
       target: { value: "最后一个字符！[managed image][AI preview]" },
@@ -748,7 +1056,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     );
 
     await waitFor(() => {
-      expect(apiMocks.projectRecordUpsert).toHaveBeenCalledWith(
+      expect(recordMocks.saveProjectRecord).toHaveBeenCalledWith(
         expect.objectContaining({
           noteId: 7,
           title: "最新标题",
@@ -759,17 +1067,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         }),
       );
     });
-    expect(noteImageAssetMocks.externalizeEmbeddedImageDataUrls).toHaveBeenCalledWith(
-      expect.objectContaining({
-        markdown: "最后一个字符！[managed image]",
-        html: expect.stringContaining("data:image/png;base64,AA=="),
-      }),
-      undefined,
-    );
-    expect(
-      noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mock.calls[0]?.[0]?.markdown,
-    ).not.toContain("AI preview");
-    expect(apiMocks.projectRecordUpsert).toHaveBeenCalledTimes(2);
+    expect(recordMocks.bodySave.mock.calls.at(-1)?.[1].document).toEqual(fixtureDocument("最后一个字符！[managed image]"));
+    expect(apiMocks.projectRecordUpsert).not.toHaveBeenCalled();
+    expect(recordMocks.saveProjectRecord).toHaveBeenCalledTimes(2);
     expect(scroll.scrollTop).toBe(184);
   });
 
@@ -778,6 +1078,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const { queryClient } = render(<ProjectNoteFocusPage />);
 
     const titleInput = await screen.findByPlaceholderText("记录标题");
+    await waitFor(() => expect(titleInput).toBeEnabled());
     await user.clear(titleInput);
     await user.type(titleInput, "尚未离开的本地标题");
 
@@ -815,7 +1116,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
-      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+      adapter: { persist: vi.fn(async (value) => ({ updatedAt: "saved", headRevision: value.canonicalBody.baseRevision + 1 })) },
     });
 
     baseRender(
@@ -833,13 +1134,16 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("正文 A");
+    await waitFor(() => expect(screen.getByDisplayValue("正文 A")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByDisplayValue("正文 A");
+    await waitFor(() => expect(editorA).not.toHaveAttribute("readonly"));
     await user.clear(editorA);
     await user.type(editorA, "本地正文 A");
     expect(apiMocks.projectPageGet).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
-    const editorB = await screen.findByDisplayValue("正文 B");
+    await waitFor(() => expect(screen.getByDisplayValue("正文 B")).not.toHaveAttribute("readonly"));
+    const editorB = screen.getByDisplayValue("正文 B");
     expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
     expect(editorA).toHaveAttribute("readonly");
     expect(editorA).toHaveAttribute("data-auto-focus", "false");
@@ -910,7 +1214,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     });
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
-      adapter: { persist: vi.fn(async () => ({ updatedAt: "saved" })) },
+      adapter: { persist: vi.fn(async (value) => ({ updatedAt: "saved", headRevision: value.canonicalBody.baseRevision + 1 })) },
     });
 
     baseRender(
@@ -928,7 +1232,8 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("Project A 正文");
+    await waitFor(() => expect(screen.getByDisplayValue("Project A 正文")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByDisplayValue("Project A 正文");
     await user.click(screen.getByRole("button", { name: "打开 Project B Focus" }));
     await screen.findByDisplayValue("Project B 正文");
     await user.click(screen.getByRole("button", { name: "打开 Project A Focus" }));
@@ -976,7 +1281,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByDisplayValue("旧正文 A");
+    await waitFor(() => expect(screen.getByDisplayValue("旧正文 A")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByDisplayValue("旧正文 A");
+    await waitFor(() => expect(editorA).not.toHaveAttribute("readonly"));
     await user.clear(editorA);
     await user.type(editorA, "延迟保存的最新正文 A");
     await user.click(screen.getByRole("button", { name: "打开驻留记录 B" }));
@@ -1059,7 +1366,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       finishedTodos: [],
       projectDocuments: [],
     }));
-    apiMocks.projectRecordUpsert.mockImplementation(async (input: {
+    recordMocks.saveProjectRecord.mockImplementation(async (input: {
       noteId: number;
       title?: string;
       markdown: string;
@@ -1092,9 +1399,11 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    const editorA = await screen.findByRole("textbox", { name: "正文编辑器" });
+    await waitFor(() => expect(screen.getByLabelText("正文编辑器")).not.toHaveAttribute("readonly"));
+    const editorA = screen.getByLabelText("正文编辑器");
     const scrollA = screen.getByTestId("project-record-focus-scroll");
     scrollA.scrollTop = 160;
+    await waitFor(() => expect(editorA).not.toHaveAttribute("readonly"));
     await user.clear(editorA);
     await user.type(editorA, "修改后的正文 A");
     await user.click(screen.getByRole("button", { name: "打开记录 B" }));
@@ -1142,9 +1451,9 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByDisplayValue("正文 A")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByDisplayValue("正文 A")).not.toHaveAttribute("readonly"));
     await user.click(screen.getByRole("button", { name: "打开记录 B" }));
-    expect(await screen.findByDisplayValue("正文 B")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByDisplayValue("正文 B")).not.toHaveAttribute("readonly"));
     await waitFor(() => {
       expect(coordinator.getStatus()).toMatchObject({ phase: "error", failedCount: 1 });
     });

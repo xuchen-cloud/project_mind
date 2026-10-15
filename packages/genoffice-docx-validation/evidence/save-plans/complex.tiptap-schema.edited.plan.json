@@ -1,0 +1,71 @@
+{
+  "saveBlocks": [
+    {
+      "kind": "original",
+      "docxIndex": 0
+    },
+    {
+      "kind": "original",
+      "docxIndex": 1
+    },
+    {
+      "kind": "generated",
+      "block": {
+        "type": "paragraph",
+        "runs": [
+          {
+            "text": "已修改中文段落：秋风拂面。"
+          }
+        ],
+        "pPrChange": null,
+        "blockRevision": null
+      },
+      "docxIndex": 2
+    },
+    {
+      "kind": "original",
+      "docxIndex": 3
+    },
+    {
+      "kind": "xml",
+      "xml": "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/><w:tblW w:type=\"auto\" w:w=\"0\"/><w:tblLook w:firstColumn=\"1\" w:firstRow=\"1\" w:lastColumn=\"0\" w:lastRow=\"0\" w:noHBand=\"0\" w:noVBand=\"1\" w:val=\"04A0\"/></w:tblPr><w:tblGrid><w:gridCol w:w=\"4320\"/><w:gridCol w:w=\"4320\"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:type=\"dxa\" w:w=\"4320\"/></w:tcPr><w:p><w:r><w:t>姓名</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:type=\"dxa\" w:w=\"4320\"/></w:tcPr><w:p><w:r><w:t>状态</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:tcW w:type=\"dxa\" w:w=\"4320\"/></w:tcPr><w:p><w:r><w:t>张三</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:type=\"dxa\" w:w=\"4320\"/></w:tcPr><w:p><w:r><w:t xml:space=\"preserve\">已改单元</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+    },
+    {
+      "kind": "original",
+      "docxIndex": 5
+    },
+    {
+      "kind": "original",
+      "docxIndex": 6
+    },
+    {
+      "kind": "original",
+      "docxIndex": 7
+    },
+    {
+      "kind": "original",
+      "docxIndex": 8
+    },
+    {
+      "kind": "original",
+      "docxIndex": 9
+    },
+    {
+      "kind": "original",
+      "docxIndex": 10
+    },
+    {
+      "kind": "original",
+      "docxIndex": 11
+    },
+    {
+      "kind": "original",
+      "docxIndex": 12
+    }
+  ],
+  "chartPatches": [],
+  "saveBlockIndexByDocx": {},
+  "changedCount": 2,
+  "deletedCount": 0,
+  "totalOriginal": 13
+}

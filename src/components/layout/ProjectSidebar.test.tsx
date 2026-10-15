@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { queryKeys } from "../../lib/queryKeys";
+import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import type { DocumentRecord, ProjectTagRecord } from "../../lib/types";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
@@ -20,6 +22,7 @@ const desktopApiMocks = vi.hoisted(() => ({
 }));
 
 const projectMindApiMocks = vi.hoisted(() => ({
+  documentListVersions: vi.fn(async () => []),
   projectTagSettingsGet: vi.fn(async () => ({ tags: [] as ProjectTagRecord[] })),
   documentImport: vi.fn(async ({ projectId, sourcePath }: { projectId: number; sourcePath: string }) =>
     buildDocument({ projectId, name: sourcePath.split("/").pop() ?? "brief.pdf", baseName: sourcePath.split("/").pop() ?? "brief.pdf" }),
@@ -41,6 +44,7 @@ vi.mock("../../services/desktopApi", () => ({
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
     projectTagSettingsGet: projectMindApiMocks.projectTagSettingsGet,
+    documentListVersions: projectMindApiMocks.documentListVersions,
     documentImport: projectMindApiMocks.documentImport,
   },
 }));
@@ -53,11 +57,45 @@ function renderWithProviders(ui: React.ReactElement) {
     },
   });
 
+  queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 describe("ProjectSidebar", () => {
+  it("keeps the tree toggle and file import together in the title row in either presentation", async () => {
+    const view = renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId: null }}
+      fileHeaderActions={<button type="button">文件树展示</button>} fileContent={<div>文件树内容</div>}
+      project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={[]} onOpenProject={vi.fn()} />);
+    const add = screen.getByRole("button", { name: "导入文件" });
+    const toggle = screen.getByRole("button", { name: "文件树展示" });
+    expect(add.closest(".home-side__heading")).toContainElement(screen.getByRole("heading", { name: "文件" }));
+    expect(add.parentElement?.lastElementChild).toBe(add);
+    expect(add.parentElement).toContainElement(toggle);
+    fireEvent.click(add);
+    await waitFor(() => expect(desktopApiMocks.pickFiles).toHaveBeenCalledOnce());
+    expect(screen.getByText("文件树内容")).toBeVisible();
+    view.unmount();
+  });
+
+  it("uses the shared query and tag without a second search input and keeps file actions", async () => {
+    const documents = [
+      buildDocument({ id: 1, name: "交付.pdf", baseName: "交付.pdf", tags: [{ id: 7, label: "交付", colorKey: "blue" }] }),
+      buildDocument({ id: 2, name: "预算.pdf", baseName: "预算.pdf" }),
+    ];
+    const view = renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "交付", tagId: 7 }}
+      project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={documents} onOpenProject={vi.fn()} />);
+    expect(screen.queryByRole("textbox", { name: "搜索文件" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入文件" })).toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "项目文件列表" });
+    expect(list).toHaveTextContent("交付.pdf");
+    expect(list).not.toHaveTextContent("预算.pdf");
+    view.unmount();
+    renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId: null }}
+      project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={documents} onOpenProject={vi.fn()} />);
+    expect(screen.getByRole("region", { name: "项目文件列表" })).toHaveTextContent("预算.pdf");
+  });
   beforeEach(() => {
+    closeFilePreview();
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
@@ -65,6 +103,8 @@ describe("ProjectSidebar", () => {
     desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
+    projectMindApiMocks.documentListVersions.mockReset();
+    projectMindApiMocks.documentListVersions.mockResolvedValue([]);
     projectMindApiMocks.projectTagSettingsGet.mockReset();
     projectMindApiMocks.documentImport.mockReset();
 
@@ -88,6 +128,123 @@ describe("ProjectSidebar", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("places voice creation before text creation and invokes each independently", () => {
+    const onCreateVoiceRecord = vi.fn();
+    const onCreateRecord = vi.fn();
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      onOpenProject={vi.fn()} onCreateRecord={onCreateRecord} onCreateVoiceRecord={onCreateVoiceRecord} />);
+    const voice = screen.getByRole("button", { name: "新增语音记录" });
+    const text = screen.getByRole("button", { name: "新增记录" });
+    expect(voice).toHaveAttribute("title", "新增语音记录");
+    expect(voice.nextElementSibling).toBe(text);
+    expect(voice).toBeEnabled();
+    fireEvent.click(voice);
+    expect(onCreateVoiceRecord).toHaveBeenCalledOnce();
+    expect(onCreateRecord).not.toHaveBeenCalled();
+    fireEvent.click(text);
+    expect(onCreateRecord).toHaveBeenCalledOnce();
+    expect(onCreateVoiceRecord).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("tab", { name: "文件" }));
+    expect(screen.queryByRole("button", { name: "新增语音记录" })).not.toBeInTheDocument();
+  });
+
+  it("disables only voice creation while pending", () => {
+    const onCreateVoiceRecord = vi.fn();
+    const onCreateRecord = vi.fn();
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      onOpenProject={vi.fn()} onCreateRecord={onCreateRecord} onCreateVoiceRecord={onCreateVoiceRecord} creatingVoiceRecord />);
+    const voice = screen.getByRole("button", { name: "新增语音记录" });
+    expect(voice).toBeDisabled();
+    fireEvent.click(voice);
+    expect(onCreateVoiceRecord).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "新增记录" }));
+    expect(onCreateRecord).toHaveBeenCalledOnce();
+  });
+
+  it("hides voice creation when no callback is supplied", () => {
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project" }} onOpenProject={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "新增语音记录" })).not.toBeInTheDocument();
+  });
+
+  it("selects only the focused file and hides visible tags while preserving filtering and management", async () => {
+    const documents = [
+      buildDocument({ id: 41, name: "交付.pdf", baseName: "交付.pdf", tags: [{ id: 7, label: "交付", colorKey: "blue" }] }),
+      buildDocument({ id: 42, name: "预算.pdf", baseName: "预算.pdf" }),
+    ];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const component = (activeFileId: number | null, tagId: number | null = null) => <QueryClientProvider client={client}>
+      <ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId }} activeFileId={activeFileId}
+        project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={documents} onOpenProject={vi.fn()} />
+    </QueryClientProvider>;
+    const view = render(component(41));
+    const list = screen.getByRole("region", { name: "项目文件列表" });
+    const delivery = within(list).getByRole("button", { name: /^交付.pdf/ });
+    const budget = within(list).getByRole("button", { name: /^预算.pdf/ });
+    expect(delivery).toHaveClass("is-active");
+    expect(budget).not.toHaveClass("is-active");
+    expect(within(list).queryByText("交付", { exact: true })).toBeNull();
+    view.rerender(component(42));
+    expect(delivery).not.toHaveClass("is-active");
+    expect(budget).toHaveClass("is-active");
+    view.rerender(component(null, 7));
+    expect(within(list).queryByRole("button", { name: /^预算.pdf/ })).toBeNull();
+    expect(within(list).getByRole("button", { name: /^交付.pdf/ })).not.toHaveClass("is-active");
+    fireEvent.contextMenu(delivery);
+    expect(await screen.findByPlaceholderText("新增标签")).toBeInTheDocument();
+  });
+
+  it("portals the file menu outside transformed ancestors and clamps its measured dimensions", async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("aria-label") === "文件操作"
+        ? { width: 240, height: 210, left: 0, top: 0, right: 240, bottom: 210, x: 0, y: 0, toJSON() {} }
+        : originalRect.call(this);
+    });
+    try {
+      const view = renderWithProviders(<div style={{ transform: "translateX(120px)" }}><ProjectSidebar filesOnly resident
+        project={{ id: 1, name: "Alpha", rootPath: "/project" }} documents={[buildDocument({ id: 41 })]} onOpenProject={vi.fn()} /></div>);
+      fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }), { clientX: window.innerWidth - 10, clientY: window.innerHeight - 10 });
+      const menu = await screen.findByRole("menu", { name: "文件操作" });
+      expect(menu.parentElement).toBe(document.body);
+      expect(view.container).not.toContainElement(menu);
+      expect(menu).toHaveStyle({ left: `${window.innerWidth - 252}px`, top: `${window.innerHeight - 222}px` });
+      expect(await within(menu).findByPlaceholderText("新增标签")).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(menu).not.toBeInTheDocument();
+    } finally { rect.mockRestore(); }
+  });
+
+  it("chooses a sidebar file version without also opening the latest file", async () => {
+    const document = buildDocument({ id: 29, name: "brief.pdf", baseName: "brief.pdf", currentVersionNumber: 2, versionCount: 2 });
+    const versions = [2, 1].map(versionNumber => ({ id: versionNumber, documentId: 29, versionNumber, name: "brief.pdf", sourcePath: "/source", managedPath: "/managed", createdAt: "2026-10-15T10:00:00Z" }));
+    projectMindApiMocks.documentListVersions.mockResolvedValue(versions as never);
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/tmp/project" }} documents={[document]} onOpenProject={() => undefined} />);
+    expect(projectMindApiMocks.documentListVersions).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "选择 brief.pdf 的版本" }));
+    const menu = await screen.findByRole("menu");
+    const old = await within(menu).findByRole("menuitemradio", {name:"v1",exact:true});
+    expect(within(menu).getByRole("menuitem", {name:"查看历史与比较"})).toBeVisible();
+    expect(useFilePreviewStore.getState().request).toBeNull();
+    fireEvent.click(old);
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toMatchObject({ documentId:29, versionNumber:1 }));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+  });
+
+  it("opens an HTML file from the existing file rail without invoking the desktop opener", async () => {
+    const html = buildDocument({ id: 29, name: "report.htm", baseName: "report.htm", mimeType: "text/html" });
+    const onOpenDocument = vi.fn();
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/tmp/project" }} documents={[html]} onOpenProject={() => undefined} onOpenDocument={onOpenDocument} />);
+    fireEvent.click(screen.getByText("report.htm"));
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toEqual({ workspaceRoot: "/tmp/workspace", projectId: 1, documentId: 29, title: "report.htm" }));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+    expect(onOpenDocument).not.toHaveBeenCalled();
+    closeFilePreview();
+    screen.getByRole("button", { name: "report.htm", exact: true }).focus();
+    await userEvent.setup().keyboard("{Enter}");
+    await waitFor(() => expect(useFilePreviewStore.getState().request?.documentId).toBe(29));
+    expect(onOpenDocument).not.toHaveBeenCalled();
   });
 
   it("opens the project overview, navigates records, and toggles collapse", async () => {

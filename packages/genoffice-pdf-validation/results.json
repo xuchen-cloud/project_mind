@@ -1,0 +1,219 @@
+{
+  "issue": "#118 PDF original text runtime",
+  "sha": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "node": "v24.19.0",
+  "node_executable": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "platform": "darwin",
+  "arch": "arm64",
+  "gui": false,
+  "native_build": false,
+  "started": "2026-10-13T13:28:30.032Z",
+  "versions": {
+    "@embedpdf/pdfium": "2.15.1",
+    "harfbuzzjs": "0.10.3",
+    "pdf-lib": "1.17.1",
+    "esbuild": "0.25.12"
+  },
+  "runs": [
+    {
+      "name": "simple",
+      "target": {
+        "pageIndex": 0,
+        "rect": [
+          49,
+          716,
+          212.82600000000002,
+          737
+        ],
+        "oldText": "SIMPLE ORIGINAL TEXT",
+        "newText": "SIMPLE REPLACED TEXT",
+        "fontSize": 14
+      },
+      "font_override": false,
+      "status": "passed",
+      "timing_ms": {
+        "validate": 9.334582999999995,
+        "apply": 5.3218749999999915,
+        "verify": 0.9609589999999884,
+        "independent_pypdf": 76.47166600000001
+      },
+      "source_sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305",
+      "validation": [
+        {
+          "reason": null,
+          "bounds": [
+            50.68600082397461,
+            719.7479858398438,
+            211.62998962402344,
+            730.3179931640625
+          ],
+          "baseColor": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "skipped": [],
+      "output": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.pdf",
+      "output_bytes": 7736,
+      "output_sha256": "d5dd1bfc769791a144568c788bdf7e2bcc037a43d65fa16336d0dd4c403b6e7d",
+      "engine_verification": [],
+      "checks": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.core-edited.checks.json",
+      "independent_exit": 0,
+      "independent_status": "passed",
+      "failures": [],
+      "output_fonts": [
+        {
+          "base_font": "/Helvetica",
+          "subtype": "/Type1",
+          "embedded": []
+        }
+      ],
+      "source_unchanged": true
+    },
+    {
+      "name": "complex",
+      "target": {
+        "pageIndex": 0,
+        "rect": [
+          49,
+          716,
+          247,
+          737
+        ],
+        "oldText": "中文目标：山川日月保持原样。",
+        "newText": "中文目标：星辰日月保持原样。",
+        "fontSize": 14
+      },
+      "font_override": false,
+      "status": "passed",
+      "timing_ms": {
+        "validate": 2.920583000000022,
+        "apply": 148.524375,
+        "verify": 1.2208330000000274,
+        "independent_pypdf": 78.07383399999998
+      },
+      "source_sha256": "db97c42390689d88168781d4ec3cb6f6b093593203ee0dc6be18630aeda82fac",
+      "validation": [
+        {
+          "reason": null,
+          "bounds": [
+            51.83399963378906,
+            718.9500122070312,
+            237.2220001220703,
+            731.676025390625
+          ],
+          "baseColor": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "skipped": [],
+      "output": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.pdf",
+      "output_bytes": 62294,
+      "output_sha256": "1f8b909fad8093714abe428980ddd87caa1231bb145c23bda7672b12c76426be",
+      "engine_verification": [],
+      "checks": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.core-edited.checks.json",
+      "independent_exit": 0,
+      "independent_status": "passed",
+      "failures": [],
+      "output_fonts": [
+        {
+          "base_font": "/ArialUnicodeMS",
+          "subtype": "/Type0",
+          "embedded": [
+            {
+              "key": "/FontFile2",
+              "bytes": 21596,
+              "sha256": "79bd8f7a34c85050be2e56d54df86d2a9d6d08aedf1efc51782c0352f0fa9d43"
+            }
+          ]
+        },
+        {
+          "base_font": "/Helvetica",
+          "subtype": "/Type1",
+          "embedded": []
+        },
+        {
+          "base_font": "/AAAAAA+ArialUnicodeMS",
+          "subtype": "/TrueType",
+          "embedded": [
+            {
+              "key": "/FontFile2",
+              "bytes": 54528,
+              "sha256": "dff749fe7998c5e9bce83057b7e19b7037deee5c9304cde094ea9d92f999720f"
+            }
+          ]
+        }
+      ],
+      "default_fallback_font": {
+        "available": true,
+        "bytes": 23278008,
+        "sha256": "876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec",
+        "note": "Actual upstream default fallbackFontFor probe; no override injected. Candidate embedded fonts recorded separately."
+      },
+      "source_unchanged": true
+    }
+  ],
+  "warnings": [],
+  "not_verified": [
+    "Tauri/WebView GUI",
+    "File CAS",
+    "Complete save-pdf private verifyContentEdits integration",
+    "Universal lossless PDF editing"
+  ],
+  "wasm": [
+    {
+      "path": "/private/tmp/project-mind-genoffice-pdf-validation-20261013/node_modules/@embedpdf/pdfium/dist/pdfium.wasm",
+      "bytes": 4646932,
+      "sha256": "5e4cd023c3dad4a895b3571ca573d3fc51bac6de48360d95283134385b954eaa"
+    },
+    {
+      "path": "/private/tmp/project-mind-genoffice-pdf-validation-20261013/node_modules/harfbuzzjs/hb-subset.wasm",
+      "bytes": 634892,
+      "sha256": "3a5d246b0e4c0017084775e9f2c7fce96e45d09b1a354fd9e2e440c88fb9890d"
+    }
+  ],
+  "initialization": {
+    "status": "passed",
+    "timing_ms": 50.952166000000005,
+    "required_exports": {
+      "_FPDFText_SetText": "function",
+      "_FPDFPage_RemoveObject": "function",
+      "_FPDFPage_InsertObject": "function",
+      "_FPDFPage_GenerateContent": "function",
+      "_PDFiumExt_SaveAsCopy": "function"
+    }
+  },
+  "controlled_mismatch": {
+    "status": "passed",
+    "validation": [
+      {
+        "reason": "the edited text could not be located on the page"
+      }
+    ],
+    "skipped": [
+      {
+        "pageIndex": 0,
+        "oldText": "CONTROLLED MISSING SOURCE TEXT",
+        "reason": "the edited text could not be located on the page"
+      }
+    ],
+    "output": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.mismatch-candidate.pdf",
+    "sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305",
+    "source_unchanged": true,
+    "note": "Guard check only; skipped replacement is never counted as successful content editing."
+  },
+  "memory": {
+    "rss": 188301312,
+    "heapTotal": 30785536,
+    "heapUsed": 13011400,
+    "external": 141080101,
+    "arrayBuffers": 52002945
+  },
+  "finished": "2026-10-13T13:28:30.432Z",
+  "status": "limited"
+}

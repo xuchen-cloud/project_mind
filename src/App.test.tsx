@@ -1,8 +1,12 @@
+import { closeFilePreview, openFilePreview, useFilePreviewStore } from "./state/file-preview-store";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+
+const buildMode = vi.hoisted(() => ({ debug: true }));
+vi.mock("./lib/build-mode", () => ({ get isDebugBuild() { return buildMode.debug; } }));
 
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import {
@@ -10,14 +14,61 @@ import {
   WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   type ProjectRecordFocusSaveRequestDetail,
 } from "./lib/record-focus-save";
-import { RecordSaveCoordinator } from "./lib/record-save-coordinator";
+import { AgentApiError } from "./services/agentApi";
+import { RecordSaveCoordinator, RecordSaveFailure, projectRecordSaveKey } from "./lib/record-save-coordinator";
 import { queryKeys } from "./lib/queryKeys";
+import { fixtureEditorState } from "./test/recordDocumentFixture";
+import type { RecordTarget } from "./lib/record-document-types";
+import type { ProjectPageData, WorkspacePageData } from "./lib/types";
+import { fileDocumentApi } from "./services/fileDocumentApi";
+import { projectFileApi } from "./services/projectFileApi";
+import { openProjectFilePreview, useProjectFileNavigation } from "./lib/project-file-navigation";
+import { projectDirectoryApi } from "./services/projectDirectoryApi";
+import { dshAssistantApi } from "./services/dshAssistantApi";
+import { voiceApi } from "./services/voiceApi";
+import { useAgentPanelStore } from "./state/agent-panel-store";
+import { getContentLayout } from "./lib/project-content-layout";
+import { useProjectContentStore } from "./state/project-content-store";
+// Keep native reads, canonical editors, content tabs and the assistant panel real.
+// Separately bundled DSH renderers have their own suites; loading their global
+// stylesheet here makes jsdom role/visibility queries depend on test order.
+vi.mock("@project-mind/dsh-ui/adapters", () => ({
+  DshConversationHost: () => <div data-testid="dsh-conversation-host" />,
+  DshSettingsHost: () => <div data-testid="dsh-settings-host" />,
+  insertDshFileReference: vi.fn(),
+}));
+vi.mock("../packages/dsh-ui/preview", () => ({
+  DshFilePreview: ({ text }: { text?: string }) => <div>{text}</div>,
+}));
+vi.mock("./services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
+vi.mock("./services/projectFileApi", async importOriginal => ({
+  ...(await importOriginal<typeof import("./services/projectFileApi")>()),
+  projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), register: vi.fn() },
+}));
+vi.mock("./services/projectDirectoryApi", () => ({ projectDirectoryApi: { resolveReference: vi.fn(), list: vi.fn(async () => ({ entries: [] })), tree: vi.fn(async () => ({ entries: [] })) } }));
+const recordMocks = vi.hoisted(() => ({ editorGet: vi.fn(), checkpoint: vi.fn(), bindingGet: vi.fn(async () => ({ workspaceId: "fixture-workspace", generation: "open-1" })), create: vi.fn(async () => ({ record: { id: 99 } })) }));
+vi.mock("./services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("./services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
+vi.mock("./services/recordDocumentApi", () => ({ recordDocumentApi: { ...recordMocks, editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
+
+function configureCanonicalRecords(queryClient: QueryClient) {
+  recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => {
+    const page = target.scope.kind === "project"
+      ? queryClient.getQueryData<ProjectPageData>(queryKeys.projectPage(target.scope.projectId))
+      : queryClient.getQueryData<WorkspacePageData>(queryKeys.workspacePage);
+    const record = page?.records?.find((candidate) => candidate.id === target.recordId);
+    if (!record) throw new Error("Fixture Record is missing");
+    return fixtureEditorState(target, record);
+  });
+}
 
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
+    confirm: vi.fn(),
+    listenEvent: vi.fn(async () => () => undefined),
     command: vi.fn(async (name: string) => {
       if (name === "voice_availability_get") return { implemented: false, reason: "test" };
       if (name === "voice_settings_get") return { speechProfile: null, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4 };
+      if (name === "dsh_assistant_sessions") return [];
       return null;
     }),
     listSystemFontFamilies: vi.fn(async () => ["PingFang SC", "Segoe UI"]),
@@ -26,6 +77,7 @@ vi.mock("./services/desktopApi", () => ({
     isProjectWindow: vi.fn(() => false),
     getCurrentWindowLabel: vi.fn(() => "main"),
     prepareVoiceLeave: vi.fn(async () => true),
+    openVoiceCaptionWindow: vi.fn(async () => undefined),
     listenForCloseRequest: vi.fn(async () => () => undefined),
     listenForWorkspaceLifecycleFlush: vi.fn(async () => () => undefined),
     flushOtherWorkspaceWindows: vi.fn(async () => undefined),
@@ -74,7 +126,9 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceRecordUpsert: vi.fn(),
     workspaceRecordDelete: vi.fn(),
     workspaceOpen: vi.fn(),
+    workspaceCreate: vi.fn(),
     workspaceClose: vi.fn(),
+    projectSetArchive: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
       name,
@@ -143,6 +197,7 @@ vi.mock("./services/projectMindApi", () => ({
       execution: {
         maxConcurrency: 1,
       },
+      network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     })),
     projectPageGet: vi.fn(async () => ({
@@ -203,7 +258,7 @@ describe("workspaceSearchResultRoute", () => {
         projectId: null,
       }),
     ).toBeNull();
-    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe("/projects/3?focus=record-8");
+    expect(workspaceSearchResultRoute({ ...baseResult, kind: "note", id: 8 })).toBe("/projects/3/records/8");
     expect(
       workspaceSearchResultRoute({
         ...baseResult,
@@ -229,7 +284,29 @@ describe("workspaceSearchResultRoute", () => {
 });
 
 describe("WorkspaceLayout", () => {
+  afterEach(() => { buildMode.debug = true; vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("creates Workspace with native-generated DEV credentials or required release password ($label)", async ({ debug: dev }) => {
+    buildMode.debug = dev;
+    vi.mocked(projectMindApi.workspaceStatusGet).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" });
+    vi.mocked(projectMindApi.workspaceCreate).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [{ path: "workspace", element: <div /> }] }], { initialEntries: ["/"] });
+    render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "新建 Workspace" }));
+    fireEvent.change(screen.getByPlaceholderText("例如：/Users/alex/workspaces/customer-success"), { target: { value: " /tmp/new-workspace " } });
+    fireEvent.click(screen.getByRole("button", { name: "创建 Workspace" }));
+    if (!dev) {
+      expect(await screen.findByRole("alert")).toHaveTextContent("请输入 workspace 密码。");
+      expect(projectMindApi.workspaceCreate).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByPlaceholderText("用于加密保存的 AI API Key"), { target: { value: "original-secret" } });
+      fireEvent.click(screen.getByRole("button", { name: "创建 Workspace" }));
+    }
+    await waitFor(() => expect(projectMindApi.workspaceCreate).toHaveBeenCalledWith({ rootPath: "/tmp/new-workspace", password: dev ? "" : "original-secret" }));
+  });
   beforeEach(() => {
+    closeFilePreview();
+    useAgentPanelStore.getState().clearWorkspace();
+    useProjectContentStore.setState({ layouts: {} });
+    useProjectFileNavigation.setState({ request: null, revisions: {} });
     vi.resetAllMocks();
     vi.mocked(desktopApi.listenForCloseRequest).mockResolvedValue(() => undefined);
     vi.mocked(desktopApi.listenForWorkspaceLifecycleFlush).mockResolvedValue(
@@ -241,6 +318,113 @@ describe("WorkspaceLayout", () => {
     vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
     useUiStore.setState(createUiStoreState());
   });
+
+  it.each(["/workspace", "/workspace/records/999", "/projects/1", "/projects/1/records/999", "/projects/1?content=file-51"])("exposes the same floating and pinned right sidebar at %s", async (route) => {
+    const project = { id: 1, name: "Alpha", kind: "normal" as const, status: "active", rootPath: "/tmp/project-1", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([project]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({ project, records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(queryKeys.projects.all, [project]);
+    client.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    client.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    useUiStore.setState({ todoRailCollapsed: true });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [
+      { path: "workspace", element: <button>页面正文</button> },
+      { path: "workspace/records/:noteId", element: <button>页面正文</button> },
+      { path: "projects/:projectId", element: <button>页面正文</button> },
+      { path: "projects/:projectId/records/:noteId", element: <button>页面正文</button> },
+    ] }], { initialEntries: [route] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const toggle = await screen.findByRole("button", { name: "切换右侧栏" });
+    fireEvent.click(toggle);
+    const sidebar = screen.getByRole("region", { name: "右侧栏" });
+    expect(sidebar).toHaveAttribute("data-mode", "floating");
+    const pin = within(sidebar).getByRole("button", { name: "固定右侧栏" });
+    fireEvent.click(pin);
+    expect(sidebar).toHaveAttribute("data-mode", "pinned");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "页面正文" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(sidebar).queryByLabelText("待办范围") !== null).toBe(route.startsWith("/projects/"));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "取消固定右侧栏" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "页面正文" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("migrates legacy preview and assistant path entries into the real cached Project shell while preserving a pinned view", async () => {
+    await import("./components/document/ProjectFileContent");
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const timestamp = "2026-10-11T00:00:00Z";
+    const projects = [7, 8].map(id => ({ id, name: `Project ${id}`, kind: "normal" as const, status: "active",
+      rootPath: `/tmp/project-${id}`, quickNote: "", isArchived: false, createdAt: timestamp, updatedAt: timestamp, openTodoCount: 0 }));
+    const record = { id: 70, projectId: 7, title: "保留的记录", contentMarkdown: "canonical body", contentHtml: "<p>canonical body</p>",
+      defaultCodeLanguage: null, tags: [], createdAt: timestamp, updatedAt: timestamp };
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", displayName: "Test Workspace", createdAt: timestamp }, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" });
+    client.setQueryData(queryKeys.projects.all, projects);
+    for (const project of projects) {
+      client.setQueryData(queryKeys.projectPage(project.id), { project, records: project.id === 7 ? [record] : [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+      client.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+    }
+    client.setQueryData(queryKeys.aiSettings, null); configureCanonicalRecords(client);
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    const versions = [3, 2, 1].map(versionNumber => ({ id: `v${versionNumber}`, versionNumber, name: "context.txt", createdAt: timestamp, contentHash: `sha256:v${versionNumber}`, isCurrent: versionNumber === 3 }));
+    vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_binding, { object }) => ({ object, currentVersionNumber: 3, currentContentHash: "sha256:v3", versions, nextCursor: null }));
+    vi.mocked(projectFileApi.readBytes).mockImplementation(async (_binding, input) => {
+      const text = `retained version ${input.versionNumber}`;
+      return { object: input.object, versionNumber: input.versionNumber, contentHash: input.expectedContentHash, name: "context.txt", mime: "text/plain", byteLength: text.length, base64: btoa(text) };
+    });
+    vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_binding, input) => {
+      const text = `retained version ${input.versionNumber}`;
+      return { object: input.object, versionNumber: input.versionNumber, contentHash: input.expectedContentHash!, title: "context.txt", byteLength: text.length,
+        format: "text", text, startChar: 0, endChar: text.length, totalChars: text.length, nextCursor: null, complete: true };
+    });
+    vi.mocked(projectDirectoryApi.resolveReference).mockResolvedValue("notes/context.txt");
+    const object = { workspaceId: "fixture-workspace", scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "51" };
+    const identity = { object, name: "context.txt", relativePath: "notes/context.txt", state: "ready" as const, versionNumber: 3, contentHash: "sha256:v3", reason: null };
+    vi.mocked(projectFileApi.register).mockResolvedValue(identity); vi.mocked(projectFileApi.resolve).mockResolvedValue(identity);
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist: vi.fn(async snapshot => ({ updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 })) } });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
+      children: [{ path: "projects/:projectId", element: <p>legacy overview</p> }, { path: "projects/:projectId/records/:noteId", element: <p>legacy record</p> }] }], { initialEntries: ["/projects/7/records/70"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const recordPage = document.querySelector('[data-focus-page-key="7:70"]')!;
+    const projectShell = document.querySelector('[data-project-resident-id="7"]')!;
+    const request = { workspaceRoot: "/tmp/workspace", projectId: 7, documentId: 51, title: "context.txt", versionNumber: 2 };
+    act(() => openFilePreview(request));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /context.txt/ })).toBeVisible());
+    await waitFor(() => {
+      const preview = screen.getByRole("region", { name: "项目文件预览" });
+      expect(preview).toHaveTextContent("retained version 2");
+    }, { timeout: 5000 });
+    expect(screen.getByRole("button", { name: "文件查看版本" })).toHaveTextContent("v2");
+    expect(recordPage).not.toBeVisible(); expect(recordPage).toBeInTheDocument();
+    expect(document.querySelector('[data-project-resident-id="7"]')).toBe(projectShell);
+    const fileTab = screen.getByRole("tab", { name: /context.txt/ }); const pageId = fileTab.getAttribute("aria-controls");
+    expect(router.state.location.pathname).toBe("/projects/7"); expect(router.state.location.search).toContain("content=");
+    act(() => openFilePreview({ ...request, versionNumber: undefined }));
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toBeNull());
+    expect(screen.getByRole("button", { name: "文件查看版本" })).toHaveTextContent("v2");
+    act(() => openProjectFilePreview(7, "/tmp/project-7/notes/context.txt", 4));
+    await waitFor(() => expect(useProjectFileNavigation.getState().request).toBeNull());
+    expect(screen.getByRole("tab", { name: /context.txt/ })).toHaveAttribute("aria-controls", pageId!);
+    expect(projectFileApi.register).toHaveBeenCalledWith({ workspaceId: "fixture-workspace", generation: "open-1" }, 7, "notes/context.txt");
+    expect(screen.getByRole("button", { name: "文件查看版本" })).toHaveTextContent("v2");
+    expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: 7 }).tabs).toHaveLength(2);
+    await act(() => router.navigate("/projects/8"));
+    expect(projectShell).not.toBeVisible();
+    await act(() => router.navigate(`/projects/7?content=${encodeURIComponent(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: 7 }).tabs.find(tab => tab.object.kind === "file")!.id)}`));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /context.txt/ })).toBeVisible());
+    await waitFor(() => {
+      const preview = screen.getByRole("region", { name: "项目文件预览" });
+      expect(preview).toHaveTextContent("retained version 2");
+    }, { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: "关闭context.txt" }));
+    await waitFor(() => expect(recordPage).toBeVisible());
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+    expect(router.state.location.pathname).toBe("/projects/7/records/70");
+    expect(screen.queryByRole("region", { name: "项目文件预览" })).not.toBeInTheDocument();
+    expect(screen.queryByText("legacy record")).not.toBeInTheDocument();
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+  }, 15_000);
 
   it("keeps the top-bar search global while a Project is active", async () => {
     vi.mocked(projectMindApi.projectsList).mockResolvedValue([
@@ -513,6 +697,37 @@ describe("WorkspaceLayout", () => {
     expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
   });
 
+  it.each([["window", false], ["window", true], ["switch", false], ["switch", true]] as const)("handles deleted orphan Record drafts on %s with confirmation=%s", async (action, accepted) => {
+    let requestClose!: () => Promise<boolean>;
+    vi.mocked(desktopApi.listenForCloseRequest).mockImplementation(async (handler) => {
+      requestClose = handler; return () => undefined;
+    });
+    vi.mocked(desktopApi.confirm).mockResolvedValue(accepted);
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: {
+      persist: async () => { throw new RecordSaveFailure("Record is missing", { code: "NOT_FOUND", retryable: false }); },
+    } });
+    coordinator.submit({ scope: "workspace", workspaceKey: "/tmp/workspace", recordId: 7, title: "已删除的记录",
+      tagIds: [], defaultCodeLanguage: null, committedContent: { html: "<p>draft</p>", text: "draft", markdown: "draft" },
+      canonicalBody: { binding: { workspaceId: "fixture-workspace", generation: "open-1" }, requestId: "deleted-draft",
+        baseRevision: 1, document: { type: "doc", content: [{ type: "paragraph" }] }, editSessionId: null, origin: "manual" },
+    });
+    const router = createMemoryRouter([{ path: "*", element: <WorkspaceLayout recordSaveCoordinator={coordinator} /> }], { initialEntries: ["/"] });
+    render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+    await waitFor(() => expect(requestClose).toBeDefined());
+    if (action === "window") {
+      await act(async () => { expect(await requestClose()).toBe(accepted); });
+    } else {
+      vi.mocked(projectMindApi.workspaceClose).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" });
+      await act(async () => fireEvent.click(await screen.findByRole("button", { name: "切换 Workspace" })));
+      await waitFor(() => expect(desktopApi.confirm).toHaveBeenCalled());
+      if (accepted) await waitFor(() => expect(projectMindApi.workspaceClose).toHaveBeenCalledOnce());
+      else expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
+    }
+    expect(desktopApi.confirm).toHaveBeenCalledWith(expect.stringContaining("关闭会丢失"), "原始记录已删除");
+    expect(coordinator.getLatestSnapshot("workspace:7") === null).toBe(accepted);
+  });
+
   it("waits for pending Record saves before allowing a normal window close", async () => {
     let requestClose: (() => Promise<boolean>) | undefined;
     vi.mocked(desktopApi.listenForCloseRequest).mockImplementation(async (handler) => {
@@ -567,6 +782,36 @@ describe("WorkspaceLayout", () => {
     finishSave();
     await expect(closeResult).resolves.toBe(true);
     expect(desktopApi.flushOtherWorkspaceWindows).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["open", "restore"])("uses the project sidebar footer to search and %s an archived project", async (action) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const projects = [
+      { id: 1, name: "Active Project", kind: "normal" as const, status: "active", rootPath: "/tmp/active", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 },
+      { id: 2, name: "Archived Beta", kind: "normal" as const, status: "paused", rootPath: "/tmp/beta", quickNote: "", isArchived: true, createdAt: "", updatedAt: "", openTodoCount: 2 },
+    ];
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "Test Workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", createdAt: "" }, recentWorkspaces: [], aiSecretsUnlocked: true });
+    client.setQueryData(queryKeys.projects.all, projects);
+    client.setQueryData(queryKeys.aiSettings, null);
+    for (const project of projects) {
+      client.setQueryData(queryKeys.projectPage(project.id), { project, records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+      client.setQueryData(queryKeys.projectTags.project(project.id), { tags: [] });
+    }
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue(projects);
+    vi.mocked(projectMindApi.projectSetArchive).mockResolvedValue({ ...projects[1], isArchived: false });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout cacheProjectOverviewPages />, children: [{ path: "projects/:projectId", element: <div>project route</div> }] }], { initialEntries: ["/projects/1"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const archiveButton = await screen.findByRole("button", { name: "归档项目" });
+    expect(archiveButton.closest(".home-side__footer")).not.toBeNull();
+    fireEvent.click(archiveButton);
+    const dialog = await screen.findByRole("dialog", { name: "归档项目" });
+    fireEvent.change(within(dialog).getByRole("searchbox", { name: "搜索归档项目" }), { target: { value: "  BETA  " } });
+    expect(within(dialog).getByText("Archived Beta")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Active Project")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: action === "open" ? "打开" : "恢复" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/2"));
+    if (action === "restore") expect(projectMindApi.projectSetArchive).toHaveBeenCalledWith({ projectId: 2, isArchived: false }, expect.anything());
+    else expect(projectMindApi.projectSetArchive).not.toHaveBeenCalled();
   });
 
   it("opens settings as a dialog even when there are no projects", async () => {
@@ -966,6 +1211,52 @@ describe("WorkspaceLayout", () => {
     expect(screen.queryByRole("tablist", { name: "Projects" })).not.toBeInTheDocument();
   });
 
+  it.each(["success", "start failure", "window failure"])("creates a project voice record from the sidebar (%s)", async (outcome) => {
+    const project = { id: 1, name: "Alpha", kind: "normal" as const, status: "active", rootPath: "/tmp/project-1", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 };
+    const page = { project, records: [], projectDocuments: [], unfinishedTodos: [], finishedTodos: [] };
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([project]);
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValue(page);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(queryKeys.projects.all, [project]);
+    client.setQueryData(queryKeys.projectPage(1), page);
+    client.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    let completeStart!: () => void;
+    const start = vi.spyOn(voiceApi, "start").mockImplementation(() => new Promise((resolve, reject) => {
+      completeStart = () => outcome === "start failure" ? reject(new Error("麦克风权限未授予")) : resolve({ sessionId: "voice-1", revision: 1, phase: "recording", activeMs: 0, pauseReason: null, interimText: null, projectNoteId: 99, workspaceNoteId: null });
+    }));
+    vi.mocked(desktopApi.openVoiceCaptionWindow).mockImplementation(async () => {
+      if (outcome === "window failure") throw new Error("浮窗创建失败");
+    });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [
+      { path: "projects/:projectId", element: <div>project body</div> },
+      { path: "projects/:projectId/records/:noteId", element: <div>voice record body</div> },
+    ] }], { initialEntries: ["/projects/1"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    const mic = within(sidebar).getByRole("button", { name: "新增语音记录" });
+    fireEvent.click(mic);
+    expect(mic).toBeDisabled();
+    fireEvent.click(mic);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith({ target: { scope: "project", projectId: 1 }, requestId: expect.any(String) });
+    await act(async () => completeStart());
+    if (outcome === "start failure") {
+      expect(await screen.findByText("新增语音记录失败")).toBeInTheDocument();
+      expect(screen.getByText("Error: 麦克风权限未授予")).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/projects/1");
+      expect(desktopApi.openVoiceCaptionWindow).not.toHaveBeenCalled();
+      expect(mic).toBeEnabled();
+    } else {
+      await waitFor(() => expect(router.state.location.pathname).toBe("/projects/1/records/99"));
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.projectPage(1) });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["voice-playback"] });
+      expect(desktopApi.openVoiceCaptionWindow).toHaveBeenCalledTimes(1);
+      if (outcome === "window failure") expect(await screen.findByText("无法打开录音浮窗")).toBeInTheDocument();
+    }
+    expect(recordMocks.create).not.toHaveBeenCalled();
+  });
+
   it("creates a project record from the sidebar and opens its focus page", async () => {
     const user = userEvent.setup();
     const LocationDisplay = () => {
@@ -980,7 +1271,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         isArchived: false,
         createdAt: "",
         updatedAt: "",
@@ -994,7 +1285,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         summaryMarkdown: "",
         summaryHtml: "",
         isArchived: false,
@@ -1012,7 +1303,7 @@ describe("WorkspaceLayout", () => {
       [
         {
           path: "/",
-          element: <WorkspaceLayout />,
+          element: <WorkspaceLayout cacheProjectOverviewPages />,
           children: [
             {
               path: "projects/:projectId",
@@ -1038,24 +1329,33 @@ describe("WorkspaceLayout", () => {
       { initialEntries: ["/projects/1"] },
     );
 
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    recordMocks.editorGet.mockImplementation(async (_binding, target: RecordTarget) => fixtureEditorState(target, {
+      id: 99, projectId: 1, title: null, contentMarkdown: "", contentHtml: "<p></p>", defaultCodeLanguage: null, tags: [], createdAt: "now", updatedAt: "now",
+    }));
     render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
 
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
+    recordMocks.create.mockImplementationOnce(async () => {
+      const page = client.getQueryData<ProjectPageData>(queryKeys.projectPage(1))!;
+      const record = { id: 99, projectId: 1, title: null, contentMarkdown: "", contentHtml: "<p></p>", defaultCodeLanguage: null, tags: [], createdAt: "now", updatedAt: "now" };
+      vi.mocked(projectMindApi.projectPageGet).mockResolvedValue({ ...page, records: [record] });
+      return { record };
+    });
     await user.click(within(sidebar).getByRole("button", { name: "新增记录" }));
 
-    expect(projectMindApi.projectRecordUpsert).toHaveBeenCalledWith({
-      projectId: 1,
-      markdown: "",
-      html: "<p></p>",
-      tagIds: [],
-      defaultCodeLanguage: null,
-    });
-    expect(await screen.findByText("record focus route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/99");
+    await waitFor(() => expect(recordMocks.create).toHaveBeenCalledWith(expect.any(Object), {
+      scope: { kind: "project", projectId: 1 }, title: null, document: { type: "doc", content: [{ type: "paragraph" }] }, tagIds: [], codeLanguage: null,
+    }, expect.any(String)));
+    expect(projectMindApi.projectRecordUpsert).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    expect(screen.getByRole("tab", { name: "未命名记录" })).toHaveAttribute("aria-selected", "true");
+    expect(router.state.location.pathname).toBe("/projects/1/records/99");
+    expect(screen.queryByText("record focus route body")).not.toBeInTheDocument();
   });
 
   it("opens a project record focus page when a sidebar record is double clicked", async () => {
@@ -1071,7 +1371,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         isArchived: false,
         createdAt: "",
         updatedAt: "",
@@ -1085,7 +1385,7 @@ describe("WorkspaceLayout", () => {
         kind: "normal",
         status: "active",
         rootPath: "/tmp/alpha",
-        summary: "",
+        summary: "", quickNote: "", quickNoteMarkdown: "", quickNoteHtml: "<p></p>",
         summaryMarkdown: "",
         summaryHtml: "",
         isArchived: false,
@@ -1115,7 +1415,7 @@ describe("WorkspaceLayout", () => {
       [
         {
           path: "/",
-          element: <WorkspaceLayout />,
+          element: <WorkspaceLayout cacheProjectOverviewPages />,
           children: [
             {
               path: "projects/:projectId",
@@ -1141,17 +1441,21 @@ describe("WorkspaceLayout", () => {
       { initialEntries: ["/projects/1?recordQuery=kickoff"] },
     );
 
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    configureCanonicalRecords(client);
     render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
 
     const sidebar = await screen.findByLabelText("项目导航侧边栏");
-    fireEvent.doubleClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
+    await userEvent.setup().dblClick(within(sidebar).getByRole("button", { name: /Kickoff Review/ }));
 
-    expect(await screen.findByText("record focus route body")).toBeInTheDocument();
-    expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/7?recordQuery=kickoff");
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toHaveValue("Kickoff Review"));
+    expect(screen.getByRole("tab", { name: "Kickoff Review" })).toHaveAttribute("aria-selected", "true");
+    expect(router.state.location.pathname + router.state.location.search).toBe("/projects/1/records/7?recordQuery=kickoff");
+    expect(screen.queryByText("record focus route body")).not.toBeInTheDocument();
   });
 
   it("commits Record navigation before a delayed forced save resolves", async () => {
@@ -1273,7 +1577,7 @@ describe("WorkspaceLayout", () => {
       detail.respond(true);
     };
     window.addEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
-    const sidebar = await screen.findByLabelText("笔记导航侧边栏");
+    const sidebar = await screen.findByLabelText("项目导航侧边栏");
     fireEvent.click(within(sidebar).getByRole("button", { name: /Next Record/ }));
 
     expect(screen.getByTestId("location-display")).toHaveTextContent("/projects/1/records/8");
@@ -1304,7 +1608,8 @@ describe("WorkspaceLayout", () => {
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });
 
-  it("keeps a global two-entry Record Focus LRU through the production WorkspaceLayout routes", async () => {
+  it("keeps Project content Records resident independently of the Workspace Record LRU through production routes", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
     const timestamp = "2026-08-23T00:00:00.000Z";
     const project = (id: number, name: string) => ({
       id,
@@ -1395,7 +1700,13 @@ describe("WorkspaceLayout", () => {
     queryClient.setQueryData(queryKeys.projectTags.project(1), { tags: [] });
     queryClient.setQueryData(queryKeys.projectTags.project(2), { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
-    const persist = vi.fn(() => new Promise<{ updatedAt: string }>(() => undefined));
+    let finishWorkspaceSave!: () => void;
+    const workspaceSave = new Promise<void>(resolve => { finishWorkspaceSave = resolve; });
+    const persist = vi.fn(async (snapshot) => {
+      if (snapshot.scope === "workspace") await workspaceSave;
+      return { updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+    });
+    configureCanonicalRecords(queryClient);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
       adapter: { persist },
@@ -1424,27 +1735,47 @@ describe("WorkspaceLayout", () => {
       { initialEntries: ["/projects/1/records/7"] },
     );
 
-    render(
+    const view = render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
 
-    const fallback = document.querySelector("[data-record-focus-cached-fallback]");
-    expect(fallback).toHaveTextContent("Alpha A 正文");
-    expect(screen.queryByRole("status", { name: "正在打开记录" })).not.toBeInTheDocument();
-    await screen.findByPlaceholderText("记录标题");
+    onTestFinished(async () => {
+      // Release even on a failed assertion, then finish saves before resetting mocks.
+      await act(async () => { finishWorkspaceSave(); await coordinator.flush(); });
+      view.unmount();
+      router.dispose();
+      await queryClient.cancelQueries();
+      queryClient.clear();
+    });
+
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     const alphaA = document.querySelector('[data-focus-page-key="1:7"]');
     expect(alphaA).not.toBeNull();
     expect(alphaA?.closest('[data-project-resident-id="1"]')).not.toBeNull();
 
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"] input[placeholder="记录标题"]')).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "分栏" }));
+    const alphaB = document.querySelector('[data-focus-page-key="1:8"]')!;
+    expect(alphaA).toBeVisible(); expect(alphaB).toBeVisible();
+    expect(within(alphaA as HTMLElement).getByPlaceholderText("记录标题")).toBeEnabled();
+    expect(within(alphaB as HTMLElement).getByPlaceholderText("记录标题")).toBeEnabled();
+    expect(screen.getAllByRole("tablist", { name: /栏内容/ })).toHaveLength(2);
+    fireEvent.focus(within(alphaA as HTMLElement).getByPlaceholderText("记录标题"));
+    expect(screen.getByRole("tablist", { name: "左栏内容" }).closest(".project-content__pane-tabs")).toHaveAttribute("data-focused", "true");
+    expect(screen.getByRole("tablist", { name: "右栏内容" }).closest(".project-content__pane-tabs")).not.toHaveAttribute("data-focused");
+    fireEvent.click(screen.getByRole("button", { name: "合并分栏" }));
+    expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA);
+    expect(document.querySelector('[data-focus-page-key="1:8"]')).toBe(alphaB);
     await act(() => router.navigate("/projects/1/records/7"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:7"]')).toBe(alphaA));
 
     await act(() => router.navigate("/projects/2/records/17"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"]')).not.toBeNull());
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="2:17"] input[placeholder="记录标题"]')).toBeEnabled());
     expect(
       document.querySelector('[data-focus-page-key="2:17"]')?.closest('[data-project-resident-id="2"]'),
     ).not.toBeNull();
@@ -1456,6 +1787,7 @@ describe("WorkspaceLayout", () => {
     expect(
       document.querySelector('[data-focus-page-key="workspace:27"]')?.closest("[data-workspace-resident-shell]"),
     ).not.toBeNull();
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"] input[placeholder="记录标题"]')).toBeEnabled());
     await act(() => router.navigate("/workspace"));
     expect(router.state.location.pathname).toBe("/workspace");
     await waitFor(() => {
@@ -1463,18 +1795,22 @@ describe("WorkspaceLayout", () => {
         persist.mock.calls.filter(([snapshot]) => snapshot.scope === "workspace" && snapshot.recordId === 27),
       ).toHaveLength(1);
     });
+    await act(async () => { finishWorkspaceSave(); await coordinator.flush(); });
     await act(() => router.navigate("/workspace/records/27"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="workspace:27"]')).not.toBeNull());
 
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
-    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
-    expect(alphaA).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-project-resident-id] [data-content-object^="record:"]')).toHaveLength(3);
+    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(1);
+    expect(alphaA).toBeInTheDocument();
+    expect(alphaA).not.toBeVisible();
+    expect(screen.getByRole("tab", { name: "Alpha B" })).toHaveAttribute("aria-selected", "true");
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.workspacePageGet).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
-  it("keeps five unified Project shells resident and evicts only the LRU shell", async () => {
+  async function renderResidentProjectFixture(startWithRecord = false, saveFailure?: () => unknown) {
     const timestamp = "2026-08-23T00:00:00.000Z";
     const projects = Array.from({ length: 12 }, (_, index) => {
       const id = index + 1;
@@ -1535,10 +1871,15 @@ describe("WorkspaceLayout", () => {
     }
     queryClient.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
     queryClient.setQueryData(queryKeys.aiSettings, null);
+    configureCanonicalRecords(queryClient);
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
       adapter: {
-        persist: vi.fn(async () => ({ updatedAt: timestamp })),
+        persist: vi.fn(async (snapshot) => {
+          const failure = saveFailure?.();
+          if (failure) throw failure;
+          return { updatedAt: timestamp, headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+        }),
       },
     });
 
@@ -1549,6 +1890,7 @@ describe("WorkspaceLayout", () => {
           element: <WorkspaceLayout cacheProjectOverviewPages recordSaveCoordinator={coordinator} />,
           children: [
             { path: "projects/:projectId", element: <div>legacy route</div> },
+            { path: "workspace", element: <div>legacy Workspace route</div> },
             {
               path: "projects/:projectId/records/:noteId",
               element: <div>legacy Focus route</div>,
@@ -1556,17 +1898,127 @@ describe("WorkspaceLayout", () => {
           ],
         },
       ],
-      { initialEntries: ["/projects/1?view=record"] },
+      { initialEntries: [startWithRecord ? "/projects/7/records/70" : "/projects/1?view=record"] },
     );
-    render(
+    const view = render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(document.querySelector('[data-project-resident-id="1"]')).not.toBeNull());
-    const projectA = document.querySelector('[data-project-resident-id="1"]');
+    onTestFinished(async () => {
+      // Unmount observers before cancelling queries; no previous fixture may
+      // continue publishing into the next test's shared API mocks.
+      view.unmount();
+      router.dispose();
+      await queryClient.cancelQueries();
+      queryClient.clear();
+    });
 
+    const initialProjectId = startWithRecord ? 7 : 1;
+    await waitFor(() => expect(document.querySelector(`[data-project-resident-id="${initialProjectId}"]`)).not.toBeNull());
+    const projectA = document.querySelector(`[data-project-resident-id="${initialProjectId}"]`);
+
+    return { router, coordinator, projectA };
+  }
+
+  it("confirms and closes a deleted Record through the real content tab and navigation blocker", async () => {
+    let deleted = false;
+    const { router, coordinator } = await renderResidentProjectFixture(true, () => deleted
+      ? new RecordSaveFailure("Record is missing", { code: "NOT_FOUND", retryable: false }) : null);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    const originalGet = recordMocks.editorGet.getMockImplementation()!;
+    recordMocks.editorGet.mockImplementation(async (...args) => {
+      if (args[1].recordId === 70) throw new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false });
+      return originalGet(...args);
+    });
+    deleted = true;
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "关闭Record 7" }));
+    await screen.findByText("已取消关闭，当前记录内容已保留");
+    expect(router.state.location.pathname).toBe("/projects/7/records/70");
+    expect(coordinator.getLatestSnapshot("project:7:70")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "关闭Record 7" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "关闭Record 7" })).toBeNull());
+    expect(router.state.location.pathname).toBe("/projects/7");
+    await expect(coordinator.flush()).resolves.toBeUndefined();
+  });
+
+  it("opens the left pane Home when clicking the project name in the sidebar", async () => {
+    const { router } = await renderResidentProjectFixture(true);
+    const editor = await screen.findByPlaceholderText("记录标题");
+    const sidebar = screen.getByRole("complementary", { name: "项目导航侧边栏" });
+    await userEvent.click(within(sidebar).getByRole("button", { name: "Project 7", exact: true }));
+    expect(router.state.location.pathname).toBe("/projects/7");
+    expect(router.state.location.search).toContain("view=overview");
+    const home = await screen.findByRole("region", { name: "项目首页" });
+    expect(home).toBeVisible();
+    expect(home.closest(".project-content__grid")).not.toBeNull();
+    expect(editor).not.toBeVisible();
+    await userEvent.click(screen.getByRole("tab", { name: "Record 7" }));
+    await waitFor(() => expect(editor).toBeVisible());
+  });
+
+  it("restores interactive Project content after closing the assistant and after switching Projects", async () => {
+    const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
+    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockResolvedValue([]);
+    useAgentPanelStore.getState().clearWorkspace();
+    onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); useAgentPanelStore.getState().clearWorkspace(); });
+    const { router } = await renderResidentProjectFixture();
+    const launcher = await screen.findByRole("button", { name: "助手" });
+    await waitFor(() => expect(launcher).toBeEnabled());
+    await userEvent.click(launcher);
+    expect(useAgentPanelStore.getState().open).toBe(true);
+    const assistant = await screen.findByRole("heading", { name: "DSH 助手" });
+    const panel = within(assistant.closest(".agent-workspace-panel")! as HTMLElement);
+    const main = document.querySelector(".workspace-content-main")!;
+    await waitFor(() => expect(panel.getByRole("button", { name: "新建会话" })).toBeEnabled());
+    expect(main).toHaveAttribute("inert");
+    await userEvent.click(panel.getByRole("button", { name: "关闭助手" }));
+    expect(main).not.toHaveAttribute("inert");
+    expect(launcher).toBeEnabled();
+    await userEvent.click(launcher);
+    await act(() => router.navigate("/projects/2?view=overview"));
+    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
+    await waitFor(() => expect(sessions).toHaveBeenCalledWith(2));
+    await userEvent.click(panel.getByRole("button", { name: "关闭助手" }));
+    expect(main).not.toHaveAttribute("inert");
+    expect(document.querySelector('[data-project-resident-id="2"]')).toHaveAttribute("data-project-resident-active", "true");
+    const activeLauncher = within(document.querySelector('[data-project-resident-id="2"] .agent-launcher')! as HTMLElement);
+    expect(activeLauncher.getByRole("button", { name: "助手" })).toBeEnabled();
+  });
+
+  it("gives the expanded Workspace chat the content area and restores it after route changes and close/reopen", async () => {
+    const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
+    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockImplementation(async projectId => [{ id: "workspace-history", title: "工作区历史", running: projectId === null }]);
+    const select = vi.spyOn(dshAssistantApi, "selectSession").mockResolvedValue("workspace-history");
+    useAgentPanelStore.getState().clearWorkspace();
+    onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); select.mockRestore(); useAgentPanelStore.getState().clearWorkspace(); });
+    const { router } = await renderResidentProjectFixture();
+    await act(() => router.navigate("/workspace"));
+    act(() => useAgentPanelStore.getState().openPanel("/tmp/workspace", { kind: "workspace" }));
+    await screen.findByTestId("dsh-conversation-host");
+    expect(document.querySelector(".workspace-content-shell")).toHaveClass("workspace-content-shell--expanded");
+    expect(document.querySelector(".workspace-content-main")).toHaveAttribute("inert");
+    expect(select).toHaveBeenCalledWith("workspace-history", null);
+    act(() => useAgentPanelStore.getState().setRunBusy("/tmp/workspace", null, true));
+    await act(() => router.navigate("/projects/2?view=overview"));
+    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+    await act(() => router.navigate("/workspace"));
+    await screen.findByTestId("dsh-conversation-host");
+    expect(document.querySelector(".workspace-content-shell")).toHaveClass("workspace-content-shell--expanded");
+    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    expect(document.querySelector(".workspace-content-main")).not.toHaveAttribute("inert");
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+    await act(() => router.navigate("/projects/2?view=overview"));
+    await userEvent.click(screen.getByRole("button", { name: "助手" }));
+    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+  });
+
+  it("keeps five Project overviews resident while preserving all opened content shells", async () => {
+    const { router, projectA } = await renderResidentProjectFixture();
     for (const projectId of [2, 3, 4, 5]) {
       await act(() => router.navigate(`/projects/${projectId}`));
       await waitFor(() =>
@@ -1576,7 +2028,7 @@ describe("WorkspaceLayout", () => {
         ),
       );
     }
-    await waitFor(() => expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5));
+    await waitFor(() => expect(screen.getAllByTestId("project-overview-focus-page")).toHaveLength(5));
     expect(projectA).toHaveAttribute("aria-hidden", "true");
     expect(projectA).toHaveAttribute("inert");
 
@@ -1590,29 +2042,92 @@ describe("WorkspaceLayout", () => {
 
     await act(() => router.navigate("/projects/6"));
     await waitFor(() => {
-      expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
-      expect(document.querySelector('[data-project-resident-id="2"]')).toBeNull();
+      expect(screen.getAllByTestId("project-overview-focus-page")).toHaveLength(5);
+      expect(document.querySelector('[data-project-resident-id="2"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-project-resident-id="2"] [data-testid="project-overview-focus-page"]')).toBeNull();
     });
     expect(document.querySelector('[data-project-resident-id="1"]')).toBe(projectA);
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "关闭 Project 3" }));
+    // Keyboard focus reveals the close button without relying on jsdom hover CSS.
+    const closeProject = screen.getByRole("button", { name: "关闭 Project 3" });
+    act(() => closeProject.focus());
+    await userEvent.setup().keyboard("{Enter}");
     await waitFor(() => expect(document.querySelector('[data-project-resident-id="3"]')).toBeNull());
 
-    for (const projectId of [7, 8, 9, 10, 11, 12]) {
-      const recordId = projectId * 10;
-      await act(async () => {
-        await router.navigate(`/projects/${projectId}/records/${recordId}`);
-        await coordinator.flush();
-      });
-      await waitFor(() =>
-        expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`)).not.toBeNull(),
-      );
-    }
-    expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(5);
-    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(2);
     expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
     expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
   }, 15_000);
+
+  it("retains opened Project content shells and Record editors across six project switches without refetching", async () => {
+    const { router } = await renderResidentProjectFixture(true);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    act(() => useAgentPanelStore.getState().setRunBusy("/tmp/workspace", 7, true));
+    for (const projectId of [8, 9, 10, 11, 12]) {
+      const recordId = projectId * 10;
+      await act(() => router.navigate(`/projects/${projectId}/records/${recordId}`));
+      await waitFor(() =>
+        expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"]`)).not.toBeNull(),
+      );
+      await waitFor(() => expect(document.querySelector(`[data-focus-page-key="${projectId}:${recordId}"] input[placeholder="记录标题"]`)).toBeEnabled());
+    }
+    expect(document.querySelectorAll("[data-project-resident-id]")).toHaveLength(12);
+    expect(document.querySelectorAll('[data-project-resident-id] [data-content-object^="record:"]')).toHaveLength(6);
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeInTheDocument();
+    await act(() => router.navigate("/projects/7/records/70"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeVisible());
+    expect(within(document.querySelector('[data-project-resident-id="7"] .project-content__pane-tabs')! as HTMLElement).getByRole("tab", { name: "Record 7" })).toHaveAttribute("aria-selected", "true");
+    expect(projectMindApi.projectPageGet).not.toHaveBeenCalled();
+    expect(projectMindApi.projectTagSettingsGet).not.toHaveBeenCalled();
+    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "project", projectId: 7 });
+  }, 15_000);
+  it.each(["project", "workspace"] as const)("retains a hidden Record and its Project when the %s close guard fails, without blocking another Project", async target => {
+    const { router, coordinator, projectA } = await renderResidentProjectFixture(true);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    const recordPage = document.querySelector('[data-focus-page-key="7:70"]');
+    await act(() => router.navigate("/projects/8/records/80"));
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="8:80"] input[placeholder="记录标题"]')).toBeEnabled());
+    await coordinator.flush();
+    const flush = coordinator.flush.bind(coordinator);
+    vi.spyOn(coordinator, "flush").mockImplementation(async key => {
+      if (key === projectRecordSaveKey(7, 70)) throw new Error("Project 7 保存失败");
+      return flush(key);
+    });
+    fireEvent.click(screen.getByRole("button", { name: target === "project" ? "关闭 Project 7" : "切换 Workspace" }));
+    expect(await screen.findByText(target === "project" ? "项目内容尚不能关闭" : "切换 Workspace 失败")).toBeInTheDocument();
+    expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-project-resident-id="7"]')).toBe(projectA);
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+    expect(recordPage).not.toBeVisible();
+    expect(router.state.location.pathname).toBe("/projects/8/records/80");
+    expect(screen.getByRole("tab", { name: "Project 7" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭 Project 8" }));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "Project 8" })).not.toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: "Project 7" })).toBeInTheDocument();
+    expect(document.querySelector('[data-focus-page-key="7:70"]')).toBe(recordPage);
+  }, 15_000);
+
+  it.each(["project", "content"] as const)("keeps a newly selected Project when its earlier %s tab finishes closing", async target => {
+    const { router, coordinator } = await renderResidentProjectFixture(true);
+    await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"] input[placeholder="记录标题"]')).toBeEnabled());
+    let finish!: () => void;
+    const closing = new Promise<void>(resolve => { finish = resolve; });
+    const flush = coordinator.flush.bind(coordinator);
+    const pending = vi.spyOn(coordinator, "flush").mockImplementation(async key => {
+      if (key === projectRecordSaveKey(7, 70)) await closing;
+      return flush(key);
+    });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: target === "project" ? "关闭 Project 7" : "关闭Record 7" }));
+      await waitFor(() => expect(pending).toHaveBeenCalledWith(projectRecordSaveKey(7, 70)));
+      await act(() => router.navigate("/projects/8"));
+      await act(async () => { finish(); await closing; });
+      await waitFor(() => expect(document.querySelector('[data-focus-page-key="7:70"]')).toBeNull());
+      if (target === "project") expect(document.querySelector('[data-project-resident-id="7"]')).toBeNull();
+      expect(router.state.location.pathname).toBe("/projects/8");
+      expect(document.querySelector('[data-project-resident-id="8"]')).toHaveAttribute("data-project-resident-active", "true");
+    } finally { finish(); }
+  }, 15_000);
+
   it.each([
     ["/projects/1/records/999", "/workspace"],
     ["/workspace/records/999", "/projects/2"],
@@ -1650,7 +2165,9 @@ describe("WorkspaceLayout", () => {
     }], { initialEntries: [initialRoute] });
     render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
     await screen.findByText("记录未找到");
-    fireEvent.click(screen.getByRole("tab", { name: destination === "/workspace" ? "Workspace" : "Beta" }));
+    fireEvent.click(destination === "/workspace"
+      ? screen.getByRole("button", { name: /工作区首页$/ })
+      : screen.getByRole("tab", { name: "Beta" }));
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
     expect(router.state.location.pathname).toBe(destination);
     expect(persist).not.toHaveBeenCalled();

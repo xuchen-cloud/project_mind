@@ -1,0 +1,33 @@
+{
+  "scope": "#118/F03 validation archive",
+  "docx": {
+    "required_configuration": [
+      "UniverDocsCorePreset",
+      "UniverDocsDrawingPreset",
+      "traditional import"
+    ],
+    "historical_core_only_failure": "save dropped image; observed by main agent",
+    "corrected_configuration_archived": true,
+    "corrected_browser_result": "main agent owns targeted verification"
+  },
+  "xlsx": {
+    "historical_failures_retained": [
+      "keyboard A3 font change",
+      "Univer.ai metadata rewrite"
+    ]
+  },
+  "pptx": {
+    "watermark_allowed": false,
+    "watermark_observed": "Main agent reported obvious Slides Pro screenshot watermark",
+    "candidate_acceptance": "rejected",
+    "technical_failures_retained": [
+      "notes loss",
+      "chart mode rewrite",
+      "master/layout field loss"
+    ]
+  },
+  "all_formats": {
+    "historical_metadata_rewrite": "Univer.ai",
+    "main_file_integration": false
+  }
+}

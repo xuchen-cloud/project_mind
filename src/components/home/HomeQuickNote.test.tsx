@@ -23,7 +23,8 @@ it("autosaves only the draft and preserves it when publishing fails", async () =
   expect(replace).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "保存为记录" }));
   await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
-  expect(commit).toHaveBeenLastCalledWith(draft, { kind: "new" });
+  expect(commit).toHaveBeenLastCalledWith(draft, { kind: "new" }, { requestId: expect.any(String) });
+  expect(commit.mock.calls[0][2]).toEqual(commit.mock.calls[1][2]);
   expect(replace).toHaveBeenCalledWith("<p></p>");
 });
 

@@ -1,0 +1,464 @@
+{
+  "issue": "#118/F03",
+  "format": "docx",
+  "runtime": {
+    "python": "3.12.14",
+    "pypdf": "6.10.0",
+    "soffice": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+    "pdftotext": "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/poppler/poppler/bin/pdftotext"
+  },
+  "cases": [
+    {
+      "kind": "simple",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/fixtures/simple.original.docx",
+      "source_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "source_bytes": 37853,
+      "status": "reopened",
+      "conversion": {
+        "method": "reuse-exact-source-and-pdf-hash",
+        "returncode": 0,
+        "source_evidence": "/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "original_id": "sdk--docx-simple-original-b41ac08b4c1e",
+        "pdf_sha256": "eadaf50150b822bf6f45cc143b65f328ad093bb4689963a169edad7a566c2147"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-original/simple.original.pdf",
+      "pdf_sha256": "eadaf50150b822bf6f45cc143b65f328ad093bb4689963a169edad7a566c2147",
+      "pages": 1,
+      "page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "public-pm-noop",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/simple.public-pm.noop.docx",
+      "source_sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da",
+      "source_bytes": 37853,
+      "status": "reopened",
+      "conversion": {
+        "method": "reuse-exact-source-and-pdf-hash",
+        "returncode": 0,
+        "source_evidence": "/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "original_id": "sdk--docx-simple-original-b41ac08b4c1e",
+        "pdf_sha256": "eadaf50150b822bf6f45cc143b65f328ad093bb4689963a169edad7a566c2147"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-noop/simple.public-pm.noop.pdf",
+      "pdf_sha256": "eadaf50150b822bf6f45cc143b65f328ad093bb4689963a169edad7a566c2147",
+      "pages": 1,
+      "page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "public-pm-edited",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/simple.public-pm.edited.docx",
+      "source_sha256": "b683120a3310407098a0dd61eb43c4b1fa65bb1666b9c8abbfd604df8ae64417",
+      "source_bytes": 38651,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-edited/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-edited",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-edited/input/simple.public-pm.edited.docx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-edited/input/simple.public-pm.edited.docx as a Writer document -> /private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-edited/simple.public-pm.edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-public-pm-edited/simple.public-pm.edited.pdf",
+      "pdf_sha256": "16c8ebefddc817962457d05db81fd5d51ab23bdf70b65333c1a858a4b2fc0cf7",
+      "pages": 1,
+      "page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n已改单元\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "chromium",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/browser/output/chromium/simple.browser-edited.docx",
+      "source_sha256": "10c92b5af710de11b6ec798659a7fe6667c7789a45b4da248ee2efdc31de624a",
+      "source_bytes": 38650,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-chromium/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-chromium",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-chromium/input/simple.browser-edited.docx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-chromium/input/simple.browser-edited.docx as a Writer document -> /private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-chromium/simple.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-chromium/simple.browser-edited.pdf",
+      "pdf_sha256": "0eb63a292bb2b570d4cf2d3ad3198ba4b4b7ceec9700eedd781c26126c1bb318",
+      "pages": 1,
+      "page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n已改单元\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "simple",
+      "branch": "webkit",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/browser/output/webkit/simple.browser-edited.docx",
+      "source_sha256": "10c92b5af710de11b6ec798659a7fe6667c7789a45b4da248ee2efdc31de624a",
+      "source_bytes": 38650,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-webkit/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-webkit",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-webkit/input/simple.browser-edited.docx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-webkit/input/simple.browser-edited.docx as a Writer document -> /private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-webkit/simple.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/simple-webkit/simple.browser-edited.pdf",
+      "pdf_sha256": "e10fa7ae308a8395edb69ee770054353b899c23fd9b72992bceeb2f5a291bf95",
+      "pages": 1,
+      "page_sizes": [
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "text": "中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n已改单元\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "original",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/fixtures/complex.original.docx",
+      "source_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "source_bytes": 40331,
+      "status": "reopened",
+      "conversion": {
+        "method": "reuse-exact-source-and-pdf-hash",
+        "returncode": 0,
+        "source_evidence": "/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "original_id": "sdk--docx-complex-original-7b9750877adf",
+        "pdf_sha256": "8d3475655b549ef83befc90b63fa52577de885a4104a5a96182092db668e2b2e"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-original/complex.original.pdf",
+      "pdf_sha256": "8d3475655b549ef83befc90b63fa52577de885a4104a5a96182092db668e2b2e",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n待改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "public-pm-noop",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/complex.public-pm.noop.docx",
+      "source_sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09",
+      "source_bytes": 40331,
+      "status": "reopened",
+      "conversion": {
+        "method": "reuse-exact-source-and-pdf-hash",
+        "returncode": 0,
+        "source_evidence": "/tmp/project-mind-univer-validation-20261013/scratch/external/results.json",
+        "original_id": "sdk--docx-complex-original-7b9750877adf",
+        "pdf_sha256": "8d3475655b549ef83befc90b63fa52577de885a4104a5a96182092db668e2b2e"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-noop/complex.public-pm.noop.pdf",
+      "pdf_sha256": "8d3475655b549ef83befc90b63fa52577de885a4104a5a96182092db668e2b2e",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n待改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "public-pm-edited",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/complex.public-pm.edited.docx",
+      "source_sha256": "c449cc78825d6fa6ea388a7f2ae8b28f574020ad8e2060814a0412caf5bfd2dc",
+      "source_bytes": 41127,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-edited/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-edited",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-edited/input/complex.public-pm.edited.docx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-edited/input/complex.public-pm.edited.docx as a Writer document -> /private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-edited/complex.public-pm.edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-public-pm-edited/complex.public-pm.edited.pdf",
+      "pdf_sha256": "7f014ba6fa101ab48243b75db4b17cb9d9c82023f19c1634add4eaae1c364fae",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n已改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "chromium",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/browser/output/chromium/complex.browser-edited.docx",
+      "source_sha256": "3e31b94b2070897ea761295a652ad3cfcd78496d78b3af95a84894d5b93285de",
+      "source_bytes": 41126,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-chromium/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-chromium",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-chromium/input/complex.browser-edited.docx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-chromium/input/complex.browser-edited.docx as a Writer document -> /private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-chromium/complex.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-chromium/complex.browser-edited.pdf",
+      "pdf_sha256": "9dcf6d6bc6fe0de0cec4918b6caf0ccf6605c834c96b58dadde9d87dace48001",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n已改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "text_exit": 0
+    },
+    {
+      "kind": "complex",
+      "branch": "webkit",
+      "source": "/private/tmp/project-mind-genoffice-docx-validation-20261013/browser/output/webkit/complex.browser-edited.docx",
+      "source_sha256": "3e31b94b2070897ea761295a652ad3cfcd78496d78b3af95a84894d5b93285de",
+      "source_bytes": 41126,
+      "status": "reopened",
+      "conversion": {
+        "method": "actual-headless-conversion",
+        "command": [
+          "/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+          "-env:UserInstallation=file:///private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-webkit/profile",
+          "--headless",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--norestore",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-webkit",
+          "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-webkit/input/complex.browser-edited.docx"
+        ],
+        "returncode": 0,
+        "stdout": "convert /private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-webkit/input/complex.browser-edited.docx as a Writer document -> /private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-webkit/complex.browser-edited.pdf using filter : writer_pdf_Export\n",
+        "stderr": "Fontconfig warning: no <cachedir> elements found. Check configuration.\nFontconfig warning: adding <cachedir>/@.__________________________________________________OOO/var/cache/fontconfig</cachedir>\nFontconfig warning: adding <cachedir prefix=\"xdg\">fontconfig</cachedir>\n"
+      },
+      "source_unchanged": true,
+      "pdf": "/private/tmp/project-mind-genoffice-docx-validation-20261013/external/complex-webkit/complex.browser-edited.pdf",
+      "pdf_sha256": "0bea263390ac19e57bd4293099aea28fd71a66573603fd19af8ba1faaaf1ec71",
+      "pages": 3,
+      "page_sizes": [
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ],
+        [
+          595.303937007874,
+          841.889763779528
+        ]
+      ],
+      "text": "第一页页眉：保留中文抬头\n\n中文文档往返验证\n第一节 基础内容\n已修改中文段落：秋风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n第一页页脚：保留中文页脚\n\n状态\n已改单元\n\n\f第一页页眉：保留中文抬头\n分页后内容：第二页保留。\n未修改链接：示例链接\n\n第一页页脚：保留中文页脚\n\n\f第二节页眉：独立抬头\n\n第二节 分节内容\n分节后内容：第三页保留。\n\n第二节页脚：独立页脚\n\n\f",
+      "text_exit": 0
+    }
+  ],
+  "comparisons": [
+    {
+      "kind": "simple",
+      "branch": "public-pm-noop",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "public-pm-edited",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "chromium",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "simple",
+      "branch": "webkit",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "public-pm-noop",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "public-pm-edited",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "chromium",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    },
+    {
+      "kind": "complex",
+      "branch": "webkit",
+      "same_page_count": true,
+      "same_page_sizes": true,
+      "expected_text_equal_ignoring_whitespace": true
+    }
+  ],
+  "limits": [
+    "External PDF reopen is not pixel fidelity or Microsoft Office acceptance.",
+    "Prior exact-hash original evidence has Chinese rendering limitations; extractable text does not prove appearance.",
+    "XLSX external calculation may repair stale caches; inspect XLSX caches independently.",
+    "No Tauri, Windows, File CAS or DSH business submission verified."
+  ]
+}

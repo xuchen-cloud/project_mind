@@ -174,7 +174,20 @@ export function collectMotionViolations(file, content) {
         rule.name === "no-layout-transition" && cssRules(content).some((entry) =>
           entry.selector === ".entity-tag-chip--reveal input" &&
           (match.index ?? 0) >= entry.index && (match.index ?? 0) < entry.end);
-      if (!accordion && !tagReveal) add(rule.name, match.index ?? 0);
+      // The narrow PPTX inspector is an accordion: real height must change so
+      // the canvas follows continuously. Limit this exception to its exact
+      // tokenized max-height declaration and require the reduced-motion override.
+      const pptxInspector = file.replaceAll("\\", "/").endsWith("/components/office/PptxEditor.tsx") &&
+        rule.name === "no-layout-transition" && match[0] === "transition:max-height" && cssRules(content).some((entry) =>
+          entry.selector === ".pptx-editor__inspector" &&
+          (match.index ?? 0) >= entry.index && (match.index ?? 0) < entry.end &&
+          /(?:^|;)\s*transition:max-height var\(--duration-standard\) var\(--ease-out\);/u.test(entry.body) &&
+          includesIndex(atRuleRanges(content, /@container\s*\(\s*max-width\s*:\s*800px\s*\)/gu), entry.index)) &&
+        cssRules(content).some((entry) =>
+          splitSelectors(entry.selector).includes(".pptx-editor__inspector") &&
+          /\btransition\s*:\s*none\b/u.test(entry.body) &&
+          includesIndex(atRuleRanges(content, /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/gu), entry.index));
+      if (!accordion && !tagReveal && !pptxInspector) add(rule.name, match.index ?? 0);
     }
   }
 

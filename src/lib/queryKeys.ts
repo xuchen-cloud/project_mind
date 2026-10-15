@@ -1,5 +1,6 @@
 export const queryKeys = {
   workspaceScoped: [
+    ["agent"],
     ["projects"],
     ["project-page"],
     ["search"],
@@ -11,12 +12,17 @@ export const queryKeys = {
     ["project-tag-settings"],
     ["contacts"],
     ["documentVersions"],
+    ["project-content-binding"],
+    ["project-directory"],
   ] as const,
   workspaceStatus: ["workspace-status"] as const,
+  searchAll: ["search"] as const,
   projects: {
     all: ["projects", "all"] as const,
   },
+  projectDirectory: (rootPath: string, projectId: number, relativePath: string, revision: number) => ["project-directory", rootPath, projectId, relativePath, revision] as const,
   projectPage: (projectId: number | null) => ["project-page", projectId] as const,
+  projectContentBinding: (workspaceRoot: string) => ["project-content-binding", workspaceRoot] as const,
   workspacePage: ["workspace-page"] as const,
   todoViews: {
     all: ["todo-views"] as const,

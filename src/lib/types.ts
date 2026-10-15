@@ -41,6 +41,7 @@ export type TodoPriority =
 export interface TodoProgressRecord {
   id: number;
   todoId: number;
+  todoRevision: number;
   content: string;
   progressDate: string;
   dueDate?: string | null;
@@ -52,6 +53,7 @@ export interface TodoProgressRecord {
 
 export interface TodoRecord {
   id: number;
+  revision: number;
   scope: TodoScope;
   projectId: number | null;
   projectName?: string | null;
@@ -90,7 +92,7 @@ export interface DocumentRecord {
   isStarred: boolean;
   currentVersionNumber: number;
   versionCount: number;
-  health: "normal" | "missing";
+  health: "normal" | "missing" | "changed" | "unavailable";
   tags: DocumentTagRecord[];
   createdAt: string;
   updatedAt: string;
@@ -277,7 +279,7 @@ export interface WorkspacePageData {
   finishedTodos: TodoRecord[];
 }
 
-export type InternalReferenceKind = "note" | "todo" | "document";
+export type InternalReferenceKind = "note" | "workspace_record" | "todo" | "document";
 export type InternalReferenceScope = "project" | "workspace";
 
 export interface InternalReferenceContext {
@@ -521,6 +523,7 @@ export type TodoCreateInput =
 
 export interface TodoUpdateContentInput {
   todoId: number;
+  expectedRevision: number;
   content: string;
   dueDate?: string | null;
   tagIds?: number[];
@@ -528,6 +531,7 @@ export interface TodoUpdateContentInput {
 
 export interface TodoUpdateTagsInput {
   todoId: number;
+  expectedRevision: number;
   tagIds?: number[];
 }
 
@@ -543,16 +547,19 @@ export type TodoTagUpdateHandler = (
 
 export interface TodoUpdateStatusInput {
   todoId: number;
+  expectedRevision: number;
   status: TodoStatus;
 }
 
 export interface TodoUpdatePriorityInput {
   todoId: number;
+  expectedRevision: number;
   priority: TodoPriority;
 }
 
 export interface TodoAddProgressInput {
   todoId: number;
+  expectedRevision: number;
   content: string;
   progressDate: string;
   dueDate?: string | null;
@@ -560,6 +567,7 @@ export interface TodoAddProgressInput {
 
 export interface TodoUpdateProgressInput {
   progressId: number;
+  expectedRevision: number;
   content: string;
   progressDate: string;
   dueDate?: string | null;
@@ -568,10 +576,12 @@ export interface TodoUpdateProgressInput {
 
 export interface TodoDeleteProgressInput {
   progressId: number;
+  expectedRevision: number;
 }
 
 export interface TodoDeleteInput {
   todoId: number;
+  expectedRevision: number;
 }
 
 export interface DocumentImportInput {
@@ -634,9 +644,33 @@ export interface DocumentListVersionsInput {
   documentId: number;
 }
 
-export interface DocumentAddVersionInput {
+export interface DocumentVersionPrepareInput {
   documentId: number;
-  sourcePath?: string;
+  projectId: number;
+  managedPath: string;
+  expectedVersionNumber: number;
+  sourcePath?: string | null;
+}
+
+export interface DocumentVersionIntent extends DocumentVersionPrepareInput {
+  expectedContentHash: string;
+  registeredContentHash: string | null;
+  newContentHash: string;
+}
+
+export interface PreparedDocumentVersion {
+  binding: import("./agent-types").AgentWorkspaceBinding;
+  intent: DocumentVersionIntent;
+}
+
+export interface DocumentAddVersionInput extends PreparedDocumentVersion {
+  requestId: string;
+  registerCurrentBytes: boolean;
+}
+
+export interface DocumentVersionCommitResult {
+  receipt: { documentId: number; versionNumber: number; contentHash: string; noChange: boolean };
+  versionPath: string | null;
 }
 
 export interface DocumentDeleteInput {
@@ -694,6 +728,22 @@ export interface AiCapabilityBindingRecord {
   updatedAt: string;
 }
 
+export type AiProxyMode = "system" | "custom" | "direct";
+
+export interface AiNetworkSettings {
+  mode: AiProxyMode;
+  proxyUrl?: string | null;
+  username?: string | null;
+  hasStoredPassword: boolean;
+}
+
+export interface AiNetworkSettingsUpsertInput {
+  mode: AiProxyMode;
+  proxyUrl?: string | null;
+  username?: string | null;
+  password?: string | null;
+}
+
 export interface AiSettingsSnapshot {
   profiles: AiProviderProfileRecord[];
   bindings: AiCapabilityBindingRecord[];
@@ -702,6 +752,7 @@ export interface AiSettingsSnapshot {
   securityMode: string;
   aiSecretsUnlocked: boolean;
   execution: AiExecutionSettings;
+  network: AiNetworkSettings;
   editorSkills: AiEditorSkillRecord[];
 }
 

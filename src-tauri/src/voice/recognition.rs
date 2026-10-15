@@ -2,8 +2,6 @@
 //!
 //! The segmenter consumes decisions from a real VAD adapter. It never guesses
 //! speech from amplitude and never changes the original source tracks.
-// TODO: replace the current WebRTC VAD adapter with the fixed FSMN-VAD ONNX package.
-// TODO: add bounded cloud reconnect and gap backfill from saved audio.
 
 use std::collections::VecDeque;
 

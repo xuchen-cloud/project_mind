@@ -1,0 +1,389 @@
+{
+  "runs": [
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "noop",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "sheet_order",
+          "passed": true
+        },
+        {
+          "name": "明细.hidden",
+          "passed": true
+        },
+        {
+          "name": "说明.hidden",
+          "passed": true
+        },
+        {
+          "name": "明细[2,0].value",
+          "expected": "苹果",
+          "actual": "苹果",
+          "passed": true
+        },
+        {
+          "name": "明细[2,1].value",
+          "expected": 10,
+          "actual": 10.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].value",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].value",
+          "expected": 20,
+          "actual": 20.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].formula",
+          "expected": "=SUM(B3:B4)",
+          "actual": "=SUM(B3:B4)",
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].formula",
+          "expected": "=B3*2",
+          "actual": "=B3*2",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.cache",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "edited",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "sheet_order",
+          "passed": true
+        },
+        {
+          "name": "明细.hidden",
+          "passed": true
+        },
+        {
+          "name": "说明.hidden",
+          "passed": true
+        },
+        {
+          "name": "明细[2,0].value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "passed": true
+        },
+        {
+          "name": "明细[2,1].value",
+          "expected": 15,
+          "actual": 15.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].value",
+          "expected": 40,
+          "actual": 40.0,
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].value",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].formula",
+          "expected": "=SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].formula",
+          "expected": "=B3*2",
+          "actual": "=B3*2",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.cache",
+          "expected": 40,
+          "actual": 40.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "family": "aggregate",
+      "branch": "noop",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "sheet_order",
+          "passed": true
+        },
+        {
+          "name": "明细.hidden",
+          "passed": true
+        },
+        {
+          "name": "说明.hidden",
+          "passed": true
+        },
+        {
+          "name": "明细[2,0].value",
+          "expected": "苹果",
+          "actual": "苹果",
+          "passed": true
+        },
+        {
+          "name": "明细[2,1].value",
+          "expected": 10,
+          "actual": 10.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].value",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].value",
+          "expected": 20,
+          "actual": 20.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].formula",
+          "expected": "=SUM(B3:B4)",
+          "actual": "=SUM(B3:B4)",
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].formula",
+          "expected": "=B3*2",
+          "actual": "=B3*2",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.cache",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "noop",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "sheet_order",
+          "passed": true
+        },
+        {
+          "name": "明细.hidden",
+          "passed": true
+        },
+        {
+          "name": "说明.hidden",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.hidden",
+          "passed": true
+        },
+        {
+          "name": "明细[2,0].value",
+          "expected": "苹果",
+          "actual": "苹果",
+          "passed": true
+        },
+        {
+          "name": "明细[2,1].value",
+          "expected": 10,
+          "actual": 10.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].value",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].value",
+          "expected": 20,
+          "actual": 20.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].formula",
+          "expected": "=SUM(B3:B4)",
+          "actual": "=SUM(B3:B4)",
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].formula",
+          "expected": "=B3*2",
+          "actual": "=B3*2",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.cache",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "edited",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "sheet_order",
+          "passed": true
+        },
+        {
+          "name": "明细.hidden",
+          "passed": true
+        },
+        {
+          "name": "说明.hidden",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.hidden",
+          "passed": true
+        },
+        {
+          "name": "明细[2,0].value",
+          "expected": "香蕉（SDK编辑）",
+          "actual": "香蕉（SDK编辑）",
+          "passed": true
+        },
+        {
+          "name": "明细[2,1].value",
+          "expected": 15,
+          "actual": 15.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].value",
+          "expected": 40,
+          "actual": 40.0,
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].value",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].formula",
+          "expected": "=SUM(B3:B4)+5",
+          "actual": "=SUM(B3:B4)+5",
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].formula",
+          "expected": "=B3*2",
+          "actual": "=B3*2",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.cache",
+          "expected": 40,
+          "actual": 40.0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "family": "aggregate",
+      "branch": "noop",
+      "status": "passed",
+      "checks": [
+        {
+          "name": "sheet_order",
+          "passed": true
+        },
+        {
+          "name": "明细.hidden",
+          "passed": true
+        },
+        {
+          "name": "说明.hidden",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.hidden",
+          "passed": true
+        },
+        {
+          "name": "明细[2,0].value",
+          "expected": "苹果",
+          "actual": "苹果",
+          "passed": true
+        },
+        {
+          "name": "明细[2,1].value",
+          "expected": 10,
+          "actual": 10.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].value",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].value",
+          "expected": 20,
+          "actual": 20.0,
+          "passed": true
+        },
+        {
+          "name": "明细[4,1].formula",
+          "expected": "=SUM(B3:B4)",
+          "actual": "=SUM(B3:B4)",
+          "passed": true
+        },
+        {
+          "name": "明细[6,1].formula",
+          "expected": "=B3*2",
+          "actual": "=B3*2",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.cache",
+          "expected": 30,
+          "actual": 30.0,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "ms": 2.199208000092767
+}

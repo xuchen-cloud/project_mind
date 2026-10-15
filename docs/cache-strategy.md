@@ -1,25 +1,21 @@
 # Project Mind Cache Strategy
 
 状态：正式基线  
-更新时间：2026-09-28
+更新时间：2026-10-14
 
 ## 目标
 
-项目页签应具有浏览器式切换体验，同时保证内存、后台查询和编辑器实例数量有明确上限。
+项目页签应具有浏览器式切换体验。Overview 驻留数量有上限，内容页签的编辑现场随打开/关闭管理；后台查询、任务与保存按实际生命周期释放。
 
 ## Project 驻留层
 
-每个最近访问的 Project 由一个统一的 resident shell 承载。shell 保留该 Project 的 Overview 页面实例、最近 Project 路由，以及仍命中全局 Focus LRU 的 Record Focus 页面。Project 分为三种状态：
+每个已打开 Project 有一个内容 shell，保存项目布局、已访问的内容页及编辑现场。Project Overview 单独使用 LRU，最多保留 5 个实例：1 个 Active、4 个 Warm。访问第六个项目时淘汰最久未访问的 Overview，不卸载其仍打开的内容页签或 Record 编辑器。Cold Project 仍可保留已打开内容，返回概览时使用 Query 缓存/预取重新创建 Overview。
 
-- `Active`：当前可见项目，完整运行。
-- `Warm`：最近访问的四个 Project，保留 React 页面和可驻留编辑现场，但页面不可交互并暂停页面级查询。
-- `Cold`：更早的已打开页签，不保留页面实例；React Query 数据、已保存内容、最近路由和持久化 UI 偏好仍然保留。
+关闭 Project 会先协调保存，再释放整个内容 shell；关闭单个内容页签只释放对应页面，不删除 Record、File 或 Session。会话任务属于原生 Project/Session runtime，隐藏或关闭其展示不等于停止任务。
 
-驻留列表使用 LRU 顺序。每次访问或返回 Project 都将它移动到列表末尾，最多保留 5 个 Project：1 个 Active 加 4 个 Warm。访问第 6 个 Project 时只卸载最久未访问的 shell；关闭页签会立即移除对应 shell，并释放其中的页面和 Focus 实例，不等待 LRU 淘汰。
+Workspace 首页首次打开后作为 Pinned 单例保留，不进入 Project Overview LRU。Workspace Record Focus 使用独立 shell 和最多两个实例的 Focus LRU；Project Record 内容页签不占用该名额。
 
-Workspace Overview 是独立的全局单例，首次打开后作为 `Pinned` 页面常驻内存。它与 Workspace Record Focus 位于独立的 Workspace shell，不进入 Project LRU，不会因 Project 切换、超过 Warm 上限或数据缓存 GC 而卸载。只有关闭/切换整个 Workspace，或显式禁用页面缓存时才释放。
-
-Warm shell 使用不可见布局、`aria-hidden` 与 `inert`。shell 内的 Overview 和 Focus 都必须收到 `visible=false`：页面级 Query、Todo 加载、autofocus、焦点恢复和页面交互随之暂停；Warm Project 的页签 hover/focus 不重复预取已有驻留数据。
+不可见页面使用隐藏布局、`aria-hidden` 与 `inert`，收到 `visible=false`/`focused=false`，暂停页面查询、autofocus 和交互。DSH 展示可卸载订阅，原生任务与会话状态仍保留；Project 切换后重新绑定实际 Session。
 
 ## 数据缓存层
 
@@ -46,15 +42,15 @@ React Query 是持久业务数据的前端唯一内存缓存：
 
 ## Record Focus 驻留
 
-Project Record Focus 与 Workspace Record Focus 共用一个 Workspace 范围、独立于 Project LRU 的全局 Focus LRU，最多保留两个富文本编辑器实例：当前 Active Focus 与最近一个 Warm Focus。Project Focus 渲染在所属 Project resident shell 内，Workspace Focus 渲染在独立 Workspace shell 内。打开第三个 Focus 时只释放最久未使用的编辑器实例；所属 Project shell 被淘汰或关闭时也会释放其中的 Focus 实例。Query 数据、最近路由、滚动恢复信息以及待保存/失败快照继续由各自缓存保留。
+Workspace Record Focus 最多保留两个富文本编辑器实例。Project Record 由内容页签按稳定 Record ID 保留已访问实例，独立于 Overview LRU；移栏和项目切换保留编辑器、草稿、选区与撤销历史。关闭页签时先执行保存协调，失败保留页面和快照，不能无声丢弃。
 
-Record Focus 草稿在组件首次构造时按以下顺序选择来源：
+Record Focus 的页面元数据与草稿在组件首次构造时按以下顺序选择来源：
 
 1. 后台保存协调器中最新的待保存或失败 Committed Content 快照。
 2. React Query 中已有的 `project-page` 或 `workspace-page` 数据。
-3. 仅在前两者都不能提供目标 Record 时请求后端。
+3. 前两者都不能提供目标 Record 时请求页面数据。
 
-命中前两种来源时首帧直接显示 Record，不经过 effect 复制缓存导致的 loading。页面实例一旦拥有本地草稿，后台 Query 更新不得覆盖 Active 或 Warm 编辑现场。
+命中前两种来源时首帧显示缓存的页面元数据，避免重复请求整页。canonical 正文和编辑基线仍由 `useCanonicalRecordEditor` 调用原生 `editorGet` 获取；工作区绑定、head revision 和编辑注册就绪后才允许编辑。同 generation 的待保存 canonical 快照可恢复草稿与 base revision，HTML 投影缓存不能替代权威正文。已驻留页面保留加载状态和编辑器；后台 Query 更新不得覆盖其编辑现场。
 
 Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级查询，并将编辑器切换为不可编辑状态；它不获取焦点、不自动聚焦，也不响应 Active 页面交互。重新成为 Active 时复用同一编辑器实例，以保留光标、选区、撤销历史和滚动位置。
 
@@ -77,12 +73,12 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 
 - Warm 项目切换应直接复用页面实例，不发起阻塞式数据请求。
 - Cold 项目在预取命中时应先渲染缓存，再按明确动作刷新。
-- 无论访问多少 Project，resident Project shell 不得超过 5 个，Record Focus 编辑器不得超过 2 个。
+- Project Overview 不得超过 5 个，Workspace Record Focus 不得超过 2 个；Project 内容 shell 与编辑器数量随实际打开的内容页签变化，关闭后释放。
 - Workspace Overview 首次打开后必须始终保持挂载，且不占用 5 个 Project 驻留名额。
 - 隐藏页面必须设置 `aria-hidden` 与 `inert`，并暂停页面级查询。
 
 ## 平台验证状态
 
-自动化门禁覆盖 A → B → C → D → E → A、访问第六个 Project、LRU 重排、关闭页签、Project / Workspace Focus 跨壳复用、请求次数以及 5/2 实例上限。
+自动化门禁覆盖 Project Overview 的五实例 LRU、Workspace Focus 两实例上限、跨六个 Project 保留已打开内容和 Record、移栏不重建编辑器、关闭/保存协调及请求次数。原 5/2 组合不再表示所有 Project 内容编辑器的总上限。
 
 macOS WebKit 与 Windows WebView2 的真实切换、长历史和内存采样仍未完成，由 [Issue #56](https://github.com/xuchen-cloud/project_mind/issues/56) 跟踪；统一验收清单见[未完成事项](remaining-work.md)。

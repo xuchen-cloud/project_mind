@@ -55,6 +55,28 @@ fn failed(operation: &'static str, error: impl std::fmt::Display) -> VoiceError 
     }
 }
 
+/// Final segments may be persisted while draining the live runtime, even if a
+/// later phase transition fails. Publish captured commits after both locks drop.
+fn with_voice_db<T>(state: &AppState, workspace: &crate::WorkspaceRuntime, operation: &'static str,
+    action: impl FnOnce(&mut super::runtime::VoiceRuntime, &mut crate::db::Database) -> anyhow::Result<T>) -> VoiceResult<T> {
+    let request_id = format!("voice:{:032x}", rand::random::<u128>());
+    let (result, changes) = {
+        let mut voice = lock_mutex(&state.voice_runtime);
+        let current = lock_mutex(&state.current_workspace);
+        if !current.as_ref().is_some_and(|current| current.agent_binding == workspace.agent_binding) {
+            return Err(failed(operation, "Workspace changed before the command acquired storage"));
+        }
+        let mut db = lock_mutex(&workspace.db);
+        crate::committed_changes::capture_native_committed(&workspace.agent_binding, &mut db, &request_id, |db| action(&mut voice, db))
+            .map_err(|error| failed(operation, error))?
+    };
+    if let Some(changes) = changes {
+        use crate::committed_changes::CommittedChangePublisher;
+        state.publish_committed(changes);
+    }
+    result.map_err(|error| failed(operation, error))
+}
+
 #[tauri::command]
 pub(crate) async fn voice_model_status_get() -> VoiceResult<ModelPackageStatus> {
     let cache = crate::default_app_data_dir().map_err(|error| failed("model_status", error))?;
@@ -145,16 +167,9 @@ pub(crate) fn voice_start(
     workspace
         .voice_recovery_interrupt
         .store(true, std::sync::atomic::Ordering::Release);
-    let mut voice = lock_mutex(&state.voice_runtime);
-    let mut db = lock_mutex(&workspace.db);
-    voice
-        .start(
-            &mut db,
-            &workspace.paths.root_path,
-            &input.target,
-            &input.request_id,
-        )
-        .map_err(|error| failed("start", error))
+    with_voice_db(&state, &workspace, "start", |voice, db| {
+        voice.start(db, &workspace.paths.root_path, &input.target, &input.request_id)
+    })
 }
 
 #[tauri::command]
@@ -165,11 +180,9 @@ pub(crate) fn voice_pause(
     let workspace = state
         .current_workspace()
         .map_err(|error| failed("pause", error))?;
-    let mut voice = lock_mutex(&state.voice_runtime);
-    let mut db = lock_mutex(&workspace.db);
-    voice
-        .pause(&mut db, &input.session_id, input.expected_revision)
-        .map_err(|error| failed("pause", error))
+    with_voice_db(&state, &workspace, "pause", |voice, db| {
+        voice.pause(db, &input.session_id, input.expected_revision)
+    })
 }
 
 #[tauri::command]
@@ -183,16 +196,9 @@ pub(crate) fn voice_resume(
     workspace
         .voice_recovery_interrupt
         .store(true, std::sync::atomic::Ordering::Release);
-    let mut voice = lock_mutex(&state.voice_runtime);
-    let mut db = lock_mutex(&workspace.db);
-    voice
-        .resume(
-            &mut db,
-            &workspace.paths.root_path,
-            &input.session_id,
-            input.expected_revision,
-        )
-        .map_err(|error| failed("resume", error))
+    with_voice_db(&state, &workspace, "resume", |voice, db| {
+        voice.resume(db, &workspace.paths.root_path, &input.session_id, input.expected_revision)
+    })
 }
 
 #[tauri::command]
@@ -203,24 +209,13 @@ pub(crate) fn voice_end(
     let workspace = state
         .current_workspace()
         .map_err(|error| failed("end", error))?;
-    let mut voice = lock_mutex(&state.voice_runtime);
-    let mut db = lock_mutex(&workspace.db);
-    let result = voice
-        .end(&mut db, &input.session_id, input.expected_revision)
-        .map_err(|error| failed("end", error))?;
-    if db
-        .voice_settings_get()
-        .map_err(|error| failed("end", error))?
-        .text_profile_id
-        .is_some()
-    {
-        let queued = db
-            .voice_minutes_enqueue(&input.session_id, "final")
-            .map_err(|error| failed("end", error))?;
-        if queued {
-            workspace.kick_voice_minutes();
-        }
-    }
+    let (result, queued) = with_voice_db(&state, &workspace, "end", |voice, db| {
+        let result = voice.end(db, &input.session_id, input.expected_revision)?;
+        let queued = db.voice_settings_get()?.text_profile_id.is_some()
+            && db.voice_minutes_enqueue(&input.session_id, "final")?;
+        Ok((result, queued))
+    })?;
+    if queued { workspace.kick_voice_minutes(); }
     Ok(result)
 }
 
@@ -231,31 +226,18 @@ pub(crate) fn voice_snapshot_get(
     let workspace = state
         .current_workspace()
         .map_err(|error| failed("snapshot_get", error))?;
-    let mut voice = lock_mutex(&state.voice_runtime);
-    let mut db = lock_mutex(&workspace.db);
-    let result = voice
-        .snapshot(&mut db, &workspace.paths.root_path)
-        .map_err(|error| failed("snapshot_get", error))?;
-    if let Some(snapshot) = &result {
-        if snapshot.active_ms >= 15 * 60 * 1_000
-            && snapshot.phase == "recording"
-            && db
-                .voice_settings_get()
-                .map_err(|error| failed("snapshot_get", error))?
-                .text_profile_id
-                .is_some()
-        {
-            let bucket = snapshot.active_ms / (15 * 60 * 1_000);
-            db.voice_minutes_enqueue(&snapshot.session_id, &format!("auto:{bucket}"))
-                .map_err(|error| failed("snapshot_get", error))?;
+    let (result, pending) = with_voice_db(&state, &workspace, "snapshot_get", |voice, db| {
+        let result = voice.snapshot(db, &workspace.paths.root_path)?;
+        if let Some(snapshot) = &result {
+            if snapshot.active_ms >= 15 * 60 * 1_000 && snapshot.phase == "recording"
+                && db.voice_settings_get()?.text_profile_id.is_some() {
+                let bucket = snapshot.active_ms / (15 * 60 * 1_000);
+                db.voice_minutes_enqueue(&snapshot.session_id, &format!("auto:{bucket}"))?;
+            }
         }
-    }
-    if db
-        .voice_minutes_has_pending()
-        .map_err(|error| failed("snapshot_get", error))?
-    {
-        workspace.kick_voice_minutes();
-    }
+        Ok((result, db.voice_minutes_has_pending()?))
+    })?;
+    if pending { workspace.kick_voice_minutes(); }
     Ok(result)
 }
 

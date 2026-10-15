@@ -1,0 +1,69 @@
+/* Shared by the project and content strips. Controls never change tab geometry. */
+.compact-tab {
+  --tab-max-width: 148px;
+  --tab-min-width: 96px;
+  position: relative; display: flex; align-items: center; flex: 0 0 auto;
+  width: var(--tab-min-width); min-width: var(--tab-min-width); max-width: var(--tab-standard-width, var(--tab-max-width)); height: 30px;
+  padding: 0 2px 0 6px; border: 0; border-radius: var(--radius-8); box-sizing: border-box;
+  background: transparent; color: var(--color-text-muted); font-size: 12px;
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.compact-tab:hover, .compact-tab:focus-within { background: var(--color-bg-hover); color: var(--color-text); }
+.compact-tab[data-selected] { background: var(--color-bg-muted); color: var(--color-text); }
+.project-content__tab.compact-tab::before {
+  content: ""; position: absolute; left: -2px; top: 8px; bottom: 8px; width: 1px;
+  background: var(--color-border-strong); pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.project-content__tab:first-of-type::before, .project-content__tab[data-selected]::before,
+.project-content__tab:hover::before, .project-content__tab:focus-within::before,
+.project-content__tab[data-selected] + .project-content__tab::before,
+.project-content__tab:hover + .project-content__tab::before, .project-content__tab:focus-within + .project-content__tab::before { opacity: 0; }
+.compact-tab__body { position: relative; display: flex; align-items: center; width: 100%; min-width: 0; height: 100%; }
+.compact-tab__trigger {
+  display: flex; align-items: center; flex: 1 1 auto; gap: 4px; min-width: 0; height: 100%;
+  padding: 0 22px 0 0; text-align: left; border-radius: var(--radius-6); cursor: inherit; touch-action: none;
+}
+.compact-tab__trigger > svg, .compact-tab__trigger > .workspace-topbar__tab-icon { flex: 0 0 auto; }
+.compact-tab__label { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: clip; }
+/* Clipped labels can use the hidden close-button lane until it is revealed. */
+.compact-tab__label[data-clipped] { margin-right: -22px; mask-image: linear-gradient(to right, black calc(100% - 12px), transparent); }
+.compact-tab:hover .compact-tab__label[data-clipped],
+.compact-tab:focus-within .compact-tab__label[data-clipped],
+.compact-tab[data-selected] .compact-tab__label[data-clipped] {
+  mask-image: linear-gradient(to right, black calc(100% - 34px), transparent calc(100% - 22px));
+}
+.compact-tab__close {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 20px; height: 22px; padding: 0; margin: 0;
+  border-radius: var(--radius-4); color: var(--color-text-soft); opacity: 0; pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+.compact-tab:hover .compact-tab__close, .compact-tab:focus-within .compact-tab__close,
+.compact-tab[data-selected] .compact-tab__close { opacity: .8; pointer-events: auto; }
+.compact-tab__close:hover { opacity: 1; color: var(--color-text); background: var(--color-bg-active); }
+.compact-tab:focus-visible, .compact-tab__trigger:focus-visible, .compact-tab__close:focus-visible { outline: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .compact-tab, .compact-tab::before, .compact-tab__close { transition: none; }
+}
+
+.workspace-topbar__tab-frame { position: relative; flex: 1; min-width: 0; height: 100%; --tab-strip-bg: var(--home-topbar, var(--color-bg)); }
+.workspace-topbar { column-gap: 6px; padding-right: 6px; }
+.workspace-topbar__actions { gap: 4px; }
+.workspace-topbar__tab-frame::before, .workspace-topbar__tab-frame::after {
+  content: ""; position: absolute; top: 0; bottom: 8px; width: min(16px, 35%); z-index: 2; pointer-events: none;
+}
+.workspace-topbar__tab-frame::before { left: 0; opacity: var(--tab-fade-left); background: linear-gradient(to right, var(--tab-strip-bg), transparent); }
+.workspace-topbar__tab-frame::after { right: 0; opacity: var(--tab-fade-right); background: linear-gradient(to left, var(--tab-strip-bg), transparent); }
+.workspace-topbar__tab-scroll { height: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.workspace-topbar__tab-scroll::-webkit-scrollbar { display: none; }
+.workspace-topbar__tablist { position: relative; isolation: isolate; display: flex; align-items: center; gap: 2px; width: max-content; min-width: 100%; height: 100%; padding: 0 4px; }
+.workspace-topbar__tab-icon { display: inline-flex; flex: 0 0 16px; width: 16px; align-items: center; justify-content: center; }
+.workspace-topbar__tab--workspace { flex: 0 0 30px; width: 30px; min-width: 30px; max-width: 30px; justify-content: center; padding: 0; }
+.workspace-topbar__indicator { display: none; }
+
+/* Hover uses ::before; keep the separator independent of the curved active tab. */
+.workspace-topbar__tab[role="presentation"]:not([data-selected]) + .workspace-topbar__tab[role="presentation"]:not([data-selected])::after {
+  content: ""; position: absolute; left: -2px; top: 50%; width: 1px; height: 14px;
+  transform: translateY(-50%); background: var(--color-border-strong); pointer-events: none;
+}

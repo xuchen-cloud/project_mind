@@ -1,0 +1,2847 @@
+{
+  "issue": "#118/F03",
+  "sdk": {
+    "issue": "#118/F03",
+    "node": "v24.19.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "sdkVersion": "1.0.4",
+    "nativeVersion": "1.0.2",
+    "sdkLoadMs": 380.287875,
+    "licenseConfiguration": "No license configured or checks bypassed by this script",
+    "runs": [
+      {
+        "kind": "simple",
+        "family": "unit",
+        "branch": "noop",
+        "importMs": 3.147209000000032,
+        "formulaCalculation": "forced",
+        "stages": {
+          "exportMs": 2.132000000000005,
+          "reimportMs": 0.7839999999999918
+        },
+        "output": {
+          "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.noop.xlsx",
+          "bytes": 8210,
+          "sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c"
+        },
+        "reimportTargets": {
+          "A3": {
+            "v": "苹果",
+            "t": 1
+          },
+          "B3": {
+            "v": "10",
+            "t": 2,
+            "s": "R3"
+          },
+          "B5": {
+            "v": "30",
+            "t": 2,
+            "f": "=SUM(B3:B4)",
+            "ft": 0,
+            "s": "R3"
+          },
+          "B7": {
+            "v": "20",
+            "t": 2,
+            "f": "=B3*2",
+            "ft": 0,
+            "s": "R3"
+          }
+        },
+        "status": "exported_pending_independent_validation"
+      },
+      {
+        "kind": "simple",
+        "family": "unit",
+        "branch": "edited",
+        "importMs": 3.147209000000032,
+        "formulaCalculation": "forced",
+        "stages": {
+          "exportMs": 1.5597910000000184,
+          "reimportMs": 0.8193750000000364
+        },
+        "targets": {
+          "unitId": "uEjnY6qgUoBqRNovDR8",
+          "sheetId": "uni1",
+          "sheetName": "明细",
+          "edits": {
+            "A3": "香蕉（SDK编辑）",
+            "B3": 15,
+            "B5": "=SUM(B3:B4)+5"
+          }
+        },
+        "output": {
+          "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.edited.xlsx",
+          "bytes": 8221,
+          "sha256": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f"
+        },
+        "reimportTargets": {
+          "A3": {
+            "v": "香蕉（SDK编辑）",
+            "t": 1
+          },
+          "B3": {
+            "v": "15",
+            "t": 2,
+            "s": "R3"
+          },
+          "B5": {
+            "v": "40",
+            "t": 2,
+            "f": "=SUM(B3:B4)+5",
+            "ft": 0,
+            "s": "R3"
+          },
+          "B7": {
+            "v": "30",
+            "t": 2,
+            "f": "=B3*2",
+            "ft": 0,
+            "s": "R3"
+          }
+        },
+        "status": "exported_pending_independent_validation"
+      },
+      {
+        "kind": "simple",
+        "family": "aggregate",
+        "branch": "noop",
+        "importMs": 0.8429999999999609,
+        "formulaCalculation": "forced",
+        "stages": {
+          "exportMs": 1.0556660000000306,
+          "reimportMs": 0.7352080000000001
+        },
+        "output": {
+          "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.aggregate.noop.xlsx",
+          "bytes": 8210,
+          "sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c"
+        },
+        "reimportTargets": {
+          "A3": {
+            "v": "苹果",
+            "t": 1
+          },
+          "B3": {
+            "v": "10",
+            "t": 2,
+            "s": "R3"
+          },
+          "B5": {
+            "v": "30",
+            "t": 2,
+            "f": "=SUM(B3:B4)",
+            "ft": 0,
+            "s": "R3"
+          },
+          "B7": {
+            "v": "20",
+            "t": 2,
+            "f": "=B3*2",
+            "ft": 0,
+            "s": "R3"
+          }
+        },
+        "status": "exported_pending_independent_validation"
+      },
+      {
+        "kind": "complex",
+        "family": "unit",
+        "branch": "noop",
+        "importMs": 1.9218329999999924,
+        "formulaCalculation": "forced",
+        "stages": {
+          "exportMs": 2.1539579999999887,
+          "reimportMs": 1.2027500000000373
+        },
+        "output": {
+          "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.noop.xlsx",
+          "bytes": 11620,
+          "sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223"
+        },
+        "reimportTargets": {
+          "A3": {
+            "v": "苹果",
+            "t": 1
+          },
+          "B3": {
+            "v": "10",
+            "t": 2,
+            "s": "R3"
+          },
+          "B5": {
+            "v": "30",
+            "t": 2,
+            "f": "=SUM(B3:B4)",
+            "ft": 0,
+            "s": "R3"
+          },
+          "B7": {
+            "v": "20",
+            "t": 2,
+            "f": "=B3*2",
+            "ft": 0,
+            "s": "R3"
+          }
+        },
+        "status": "exported_pending_independent_validation"
+      },
+      {
+        "kind": "complex",
+        "family": "unit",
+        "branch": "edited",
+        "importMs": 1.9218329999999924,
+        "formulaCalculation": "forced",
+        "stages": {
+          "exportMs": 2.0402499999999577,
+          "reimportMs": 1.2660830000000374
+        },
+        "targets": {
+          "unitId": "A5W5VRpG0NrlOCTcv04",
+          "sheetId": "uni1",
+          "sheetName": "明细",
+          "edits": {
+            "A3": "香蕉（SDK编辑）",
+            "B3": 15,
+            "B5": "=SUM(B3:B4)+5"
+          }
+        },
+        "output": {
+          "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.edited.xlsx",
+          "bytes": 11642,
+          "sha256": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a"
+        },
+        "reimportTargets": {
+          "A3": {
+            "v": "香蕉（SDK编辑）",
+            "t": 1
+          },
+          "B3": {
+            "v": "15",
+            "t": 2,
+            "s": "R3"
+          },
+          "B5": {
+            "v": "40",
+            "t": 2,
+            "f": "=SUM(B3:B4)+5",
+            "ft": 0,
+            "s": "R3"
+          },
+          "B7": {
+            "v": "30",
+            "t": 2,
+            "f": "=B3*2",
+            "ft": 0,
+            "s": "R3"
+          }
+        },
+        "status": "exported_pending_independent_validation"
+      },
+      {
+        "kind": "complex",
+        "family": "aggregate",
+        "branch": "noop",
+        "importMs": 1.132791999999995,
+        "formulaCalculation": "forced",
+        "stages": {
+          "exportMs": 2.2244590000000244,
+          "reimportMs": 1.2713340000000244
+        },
+        "output": {
+          "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.aggregate.noop.xlsx",
+          "bytes": 11620,
+          "sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223"
+        },
+        "reimportTargets": {
+          "A3": {
+            "v": "苹果",
+            "t": 1
+          },
+          "B3": {
+            "v": "10",
+            "t": 2,
+            "s": "R3"
+          },
+          "B5": {
+            "v": "30",
+            "t": 2,
+            "f": "=SUM(B3:B4)",
+            "ft": 0,
+            "s": "R3"
+          },
+          "B7": {
+            "v": "20",
+            "t": 2,
+            "f": "=B3*2",
+            "ft": 0,
+            "s": "R3"
+          }
+        },
+        "status": "exported_pending_independent_validation"
+      }
+    ],
+    "totalMs": 413.794625
+  },
+  "independent_validator": "openpyxl 3.1.5 + lxml ZIP/XML",
+  "original_checksums_unchanged": {
+    "simple": true,
+    "complex": true
+  },
+  "comparison_ms": 92.923,
+  "archival_selection": {
+    "source": "/tmp/project-mind-univer-validation-20261013/xlsx/results.json",
+    "omitted": "Repeated expected/actual OOXML, chart inventories; every assertion name/category/passed and strict status retained."
+  },
+  "runs": [
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "noop",
+      "status": "limited",
+      "input": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.original.xlsx",
+        "sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46"
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.noop.xlsx",
+        "sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c"
+      },
+      "assertions": 70,
+      "passed_assertions": 66,
+      "failed_assertions": 4,
+      "zip_parts": {
+        "deleted": [],
+        "added": [
+          "xl/calcChain.xml",
+          "xl/sharedStrings.xml"
+        ],
+        "changed": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/app.xml",
+          "docProps/core.xml",
+          "xl/_rels/workbook.xml.rels",
+          "xl/styles.xml",
+          "xl/workbook.xml",
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml"
+        ]
+      },
+      "warnings": [],
+      "checks": [
+        {
+          "name": "sheet_order",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!B2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!C2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "说明.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.style",
+          "category": "style",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "family": "unit",
+      "branch": "edited",
+      "status": "limited",
+      "input": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.original.xlsx",
+        "sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46"
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.unit.edited.xlsx",
+        "sha256": "2f92e856ac41fbc5642e8795a66cebe9bc00e94df7df533e21902a13ea261c7f"
+      },
+      "assertions": 70,
+      "passed_assertions": 66,
+      "failed_assertions": 4,
+      "zip_parts": {
+        "deleted": [],
+        "added": [
+          "xl/calcChain.xml",
+          "xl/sharedStrings.xml"
+        ],
+        "changed": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/app.xml",
+          "docProps/core.xml",
+          "xl/_rels/workbook.xml.rels",
+          "xl/styles.xml",
+          "xl/workbook.xml",
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml"
+        ]
+      },
+      "warnings": [],
+      "checks": [
+        {
+          "name": "sheet_order",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!B2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!C2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "说明.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.style",
+          "category": "style",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "simple",
+      "family": "aggregate",
+      "branch": "noop",
+      "status": "limited",
+      "input": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.original.xlsx",
+        "sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46"
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/simple.aggregate.noop.xlsx",
+        "sha256": "ca067e8719bfc2601d438d91fdf9038b89e25a302c75bc9f0d7aa2ae1800023c"
+      },
+      "assertions": 70,
+      "passed_assertions": 66,
+      "failed_assertions": 4,
+      "zip_parts": {
+        "deleted": [],
+        "added": [
+          "xl/calcChain.xml",
+          "xl/sharedStrings.xml"
+        ],
+        "changed": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/app.xml",
+          "docProps/core.xml",
+          "xl/_rels/workbook.xml.rels",
+          "xl/styles.xml",
+          "xl/workbook.xml",
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml"
+        ]
+      },
+      "warnings": [],
+      "checks": [
+        {
+          "name": "sheet_order",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!B2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!C2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "说明.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.style",
+          "category": "style",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "noop",
+      "status": "failed",
+      "input": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.original.xlsx",
+        "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2"
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.noop.xlsx",
+        "sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223"
+      },
+      "assertions": 84,
+      "passed_assertions": 77,
+      "failed_assertions": 7,
+      "zip_parts": {
+        "deleted": [],
+        "added": [
+          "xl/calcChain.xml",
+          "xl/sharedStrings.xml"
+        ],
+        "changed": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/app.xml",
+          "docProps/core.xml",
+          "xl/_rels/workbook.xml.rels",
+          "xl/charts/chart1.xml",
+          "xl/styles.xml",
+          "xl/workbook.xml",
+          "xl/worksheets/_rels/sheet1.xml.rels",
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml",
+          "xl/worksheets/sheet3.xml"
+        ]
+      },
+      "warnings": [],
+      "checks": [
+        {
+          "name": "sheet_order",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting",
+          "category": "preservation",
+          "passed": false
+        },
+        {
+          "name": "明细.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "category": "preservation",
+          "passed": false
+        },
+        {
+          "name": "明细.charts",
+          "category": "content",
+          "passed": false
+        },
+        {
+          "name": "明细.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!B2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!C2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "说明.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.style",
+          "category": "style",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "family": "unit",
+      "branch": "edited",
+      "status": "failed",
+      "input": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.original.xlsx",
+        "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2"
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.unit.edited.xlsx",
+        "sha256": "9f956d2073a41623ac633b66643df84f29b23a3014759fa48fa1f5d11b4a532a"
+      },
+      "assertions": 84,
+      "passed_assertions": 77,
+      "failed_assertions": 7,
+      "zip_parts": {
+        "deleted": [],
+        "added": [
+          "xl/calcChain.xml",
+          "xl/sharedStrings.xml"
+        ],
+        "changed": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/app.xml",
+          "docProps/core.xml",
+          "xl/_rels/workbook.xml.rels",
+          "xl/charts/chart1.xml",
+          "xl/styles.xml",
+          "xl/workbook.xml",
+          "xl/worksheets/_rels/sheet1.xml.rels",
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml",
+          "xl/worksheets/sheet3.xml"
+        ]
+      },
+      "warnings": [],
+      "checks": [
+        {
+          "name": "sheet_order",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting",
+          "category": "preservation",
+          "passed": false
+        },
+        {
+          "name": "明细.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "category": "preservation",
+          "passed": false
+        },
+        {
+          "name": "明细.charts",
+          "category": "content",
+          "passed": false
+        },
+        {
+          "name": "明细.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!B2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!C2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "说明.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.style",
+          "category": "style",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "kind": "complex",
+      "family": "aggregate",
+      "branch": "noop",
+      "status": "failed",
+      "input": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.original.xlsx",
+        "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2"
+      },
+      "output": {
+        "file": "/private/tmp/project-mind-univer-validation-20261013/xlsx/complex.aggregate.noop.xlsx",
+        "sha256": "f2244224de11f813f6877d647c80c64de32dfb21bd87824cdaa505b074e1a223"
+      },
+      "assertions": 84,
+      "passed_assertions": 77,
+      "failed_assertions": 7,
+      "zip_parts": {
+        "deleted": [],
+        "added": [
+          "xl/calcChain.xml",
+          "xl/sharedStrings.xml"
+        ],
+        "changed": [
+          "[Content_Types].xml",
+          "_rels/.rels",
+          "docProps/app.xml",
+          "docProps/core.xml",
+          "xl/_rels/workbook.xml.rels",
+          "xl/charts/chart1.xml",
+          "xl/styles.xml",
+          "xl/workbook.xml",
+          "xl/worksheets/_rels/sheet1.xml.rels",
+          "xl/worksheets/sheet1.xml",
+          "xl/worksheets/sheet2.xml",
+          "xl/worksheets/sheet3.xml"
+        ]
+      },
+      "warnings": [],
+      "checks": [
+        {
+          "name": "sheet_order",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "明细.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.conditional_formatting",
+          "category": "preservation",
+          "passed": false
+        },
+        {
+          "name": "明细.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "明细.data_validation",
+          "category": "preservation",
+          "passed": false
+        },
+        {
+          "name": "明细.charts",
+          "category": "content",
+          "passed": false
+        },
+        {
+          "name": "明细.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "明细!A1.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!B2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!C2.style",
+          "category": "style",
+          "passed": false
+        },
+        {
+          "name": "明细!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!C4.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B5.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B7.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B8.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!A9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "明细!B9.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.formula_cache",
+          "category": "calculation",
+          "passed": true
+        },
+        {
+          "name": "说明.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "说明.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "说明!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B2.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!A3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "说明!B3.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.value_or_formula",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.unexpected_nonempty_cells",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.state",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.merges",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.freeze",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.dimensions",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.conditional_formatting",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.cf_differential_styles",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.data_validation",
+          "category": "preservation",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.charts",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据.images",
+          "category": "content",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!A1.style",
+          "category": "style",
+          "passed": true
+        },
+        {
+          "name": "隐藏数据!B1.style",
+          "category": "style",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

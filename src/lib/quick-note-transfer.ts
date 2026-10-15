@@ -2,12 +2,15 @@ export type QuickNoteTransferTarget =
   | { kind: "new" }
   | { kind: "append"; recordId: number };
 
+export interface QuickNoteTransferContext { requestId: string }
+
 export interface QuickNoteTransferAdapter<Value, Record> {
   readCommitted: () => Value;
   isEmpty: (value: Value) => boolean;
   persist: (value: Value) => Promise<Value>;
+  beforeTransfer?: (context: QuickNoteTransferContext) => Promise<void>;
   /** Writes the Record and clears the persisted QuickNote in one transaction. */
-  commit: (value: Value, target: QuickNoteTransferTarget) => Promise<Record>;
+  commit: (value: Value, target: QuickNoteTransferTarget, context: QuickNoteTransferContext) => Promise<Record>;
   clearLocal: () => void;
   setBusy: (busy: boolean) => void;
 }
@@ -16,14 +19,17 @@ export class QuickNoteTransferSession<Value, Record> {
   private tail: Promise<unknown> = Promise.resolve();
   private transferPromise: Promise<Record> | null = null;
   private epoch = 0;
+  private attempt: { valueKey: string; targetKey: string; context: QuickNoteTransferContext; persisted?: { value: Value } } | null = null;
 
   constructor(private readonly adapter: QuickNoteTransferAdapter<Value, Record>) {}
 
   save(value: Value): Promise<unknown> {
     const epoch = this.epoch;
-    const operation = this.tail.then(() =>
-      epoch === this.epoch ? this.adapter.persist(value) : undefined,
-    );
+    const valueKey = JSON.stringify(value);
+    const operation = this.tail.then(() => {
+      if (epoch !== this.epoch || (this.attempt?.persisted && this.attempt.valueKey === valueKey)) return;
+      return this.adapter.persist(value);
+    });
     this.tail = operation.catch(() => undefined);
     return operation;
   }
@@ -40,10 +46,23 @@ export class QuickNoteTransferSession<Value, Record> {
       return Promise.reject(new Error("QuickNote is empty"));
     }
 
+    const valueKey = JSON.stringify(snapshot);
+    const targetKey = JSON.stringify(target);
+    if (!this.attempt || this.attempt.valueKey !== valueKey || this.attempt.targetKey !== targetKey) {
+      this.attempt = { valueKey, targetKey, context: { requestId: crypto.randomUUID() } };
+    }
+    const attempt = this.attempt;
+
     const operation = this.tail.then(async () => {
-      const persisted = await this.adapter.persist(snapshot);
-      const record = await this.adapter.commit(persisted, target);
+      if (!attempt.persisted) {
+        await this.adapter.beforeTransfer?.(attempt.context);
+        attempt.persisted = { value: await this.adapter.persist(snapshot) };
+      }
+      // Invalidate autosaves captured before the attempted atomic transfer,
+      // even when its response is lost after storage has already committed.
       this.epoch += 1;
+      const record = await this.adapter.commit(attempt.persisted.value, target, attempt.context);
+      this.attempt = null;
       this.adapter.clearLocal();
       return record;
     });

@@ -17,7 +17,7 @@
 .todo-rail .todo-rail__header h2 {
   font-size:var(--type-label-size); line-height:20px; font-weight:600; color:var(--color-text-secondary);
 }
-.todo-rail .todo-rail__header-actions button { background:transparent; border:0; box-shadow:none; color:var(--color-text-tertiary); }
+.todo-rail .todo-rail__header-actions button { width:24px; height:24px; padding:0; background:transparent; border:0; box-shadow:none; color:var(--color-text-tertiary); }
 .todo-rail .todo-rail__list-scroll { padding-top:0; }
 .todo-rail .todo-list,
 .todo-rail .todo-list__collection { gap:8px; }

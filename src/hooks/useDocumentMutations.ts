@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { commitDocumentVersion } from "../services/documentVersionAction";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
 import { queryKeys } from "../lib/queryKeys";
@@ -62,17 +63,19 @@ export function useDocumentMutations() {
   });
 
   const documentAddVersionMutation = useMutation({
-    mutationFn: projectMindApi.documentAddVersion,
-    onSuccess: async (document) => {
+    mutationFn: commitDocumentVersion,
+    onSuccess: async (result, input) => {
+      if (!result) return;
+      const { receipt } = result;
       setStatus({
         tone: "success",
         label: "Versioned",
-        message: `文件 ${document.baseName} 已创建 v${document.currentVersionNumber} 并打开`,
+        message: receipt.noChange ? `文件内容未变化，保留 v${receipt.versionNumber}` : `文件已登记 v${receipt.versionNumber}`,
       });
       await Promise.all([
-        refreshAll(queryClient, document.projectId),
-        queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.project(document.projectId) }),
-        queryClient.invalidateQueries({ queryKey: ["documentVersions", document.id] }),
+        refreshAll(queryClient, input.projectId),
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.project(input.projectId) }),
+        queryClient.invalidateQueries({ queryKey: ["documentVersions", receipt.documentId] }),
       ]);
     },
     onError: (error) => {

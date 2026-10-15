@@ -1,0 +1,45 @@
+{
+  "record_versions": 26,
+  "current_files": 24,
+  "new_conversions": 2,
+  "prior_conversions_reused": 24,
+  "latest_current_source_hashes_match": true,
+  "pdfs_readable": 26,
+  "original_simple_docx_pages": 1,
+  "original_simple_docx_image_counts": [
+    1
+  ],
+  "new_docx": [
+    {
+      "engine": "chromium",
+      "sha256": "7b4b0ee2d3b3ca97cc38890c5b5997605578047800fc5ebfc66b1cde696ff4c1",
+      "bytes": 20160,
+      "returncode": 0,
+      "elapsed_ms": 953.783250000015,
+      "pdf_pages": 1,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-chromium-docx-simple-browser-edited-7b4b0ee2d3b3/pdf/docx.browser-edited.pdf",
+      "pdf_sha256": "553788b21b45b81ea9bec71f1b3cca468e8204d9d7781ed8a5f2eb4a34e3018e",
+      "pdf_image_counts": [
+        1
+      ],
+      "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "source_unchanged": true
+    },
+    {
+      "engine": "webkit",
+      "sha256": "c70e728760d0b7aaa38b888948287ee2e825600bd3f890fd34943d20cd7ab780",
+      "bytes": 20160,
+      "returncode": 0,
+      "elapsed_ms": 581.621415999507,
+      "pdf_pages": 1,
+      "pdf": "/private/tmp/project-mind-univer-validation-20261013/scratch/external/cases/browser-webkit-docx-simple-browser-edited-c70e728760d0/pdf/docx.browser-edited.pdf",
+      "pdf_sha256": "1894b298c13d1ff9672a860c8d42acd53b71d8e7066c41aed61a6de5a4050e0b",
+      "pdf_image_counts": [
+        1
+      ],
+      "text": "浏览器编辑：中文文档往返验证\n第一节 基础内容\n待修改中文段落：春风拂面。\n未修改段落：山川日月保持原样。\n姓名\n张三\n\n图片后未修改段落。\n\n状态\n待改单元\n\n\f",
+      "source_unchanged": true
+    }
+  ],
+  "directory": "/private/tmp/project-mind-univer-validation-20261013/scratch/external"
+}

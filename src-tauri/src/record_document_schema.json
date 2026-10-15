@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "name": "paragraph",
+      "attrs": {
+        "blockId": null
+      },
+      "content": "inline*",
+      "group": "block"
+    },
+    {
+      "name": "internalReference",
+      "attrs": {
+        "refKind": "note",
+        "refId": null,
+        "sourceRef": null,
+        "label": "未命名引用"
+      },
+      "group": "inline"
+    },
+    {
+      "name": "contactMention",
+      "attrs": {
+        "contactId": null,
+        "label": "未命名联系人"
+      },
+      "group": "inline"
+    },
+    {
+      "name": "tagMention",
+      "attrs": {
+        "tagId": null,
+        "label": "未命名标签",
+        "colorKey": "slate"
+      },
+      "group": "inline"
+    },
+    {
+      "name": "blockquote",
+      "attrs": {
+        "blockId": null
+      },
+      "content": "block+",
+      "group": "block"
+    },
+    {
+      "name": "bulletList",
+      "attrs": {
+        "blockId": null
+      },
+      "content": "listItem+",
+      "group": "block list"
+    },
+    {
+      "name": "codeBlock",
+      "attrs": {
+        "languageExplicit": false,
+        "blockId": null,
+        "language": null
+      },
+      "content": "text*",
+      "group": "block"
+    },
+    {
+      "name": "doc",
+      "attrs": {},
+      "content": "block+"
+    },
+    {
+      "name": "hardBreak",
+      "attrs": {},
+      "group": "inline"
+    },
+    {
+      "name": "heading",
+      "attrs": {
+        "blockId": null,
+        "level": 1
+      },
+      "content": "inline*",
+      "group": "block"
+    },
+    {
+      "name": "horizontalRule",
+      "attrs": {
+        "blockId": null
+      },
+      "group": "block"
+    },
+    {
+      "name": "listItem",
+      "attrs": {
+        "blockId": null
+      },
+      "content": "paragraph block*"
+    },
+    {
+      "name": "orderedList",
+      "attrs": {
+        "blockId": null,
+        "start": 1,
+        "type": null
+      },
+      "content": "listItem+",
+      "group": "block list"
+    },
+    {
+      "name": "text",
+      "attrs": {},
+      "group": "inline"
+    },
+    {
+      "name": "taskList",
+      "attrs": {
+        "blockId": null
+      },
+      "content": "taskItem+",
+      "group": "block list"
+    },
+    {
+      "name": "taskItem",
+      "attrs": {
+        "blockId": null,
+        "checked": false
+      },
+      "content": "paragraph block*"
+    },
+    {
+      "name": "table",
+      "attrs": {
+        "blockId": null,
+        "style": null
+      },
+      "content": "tableRow+",
+      "group": "block"
+    },
+    {
+      "name": "tableRow",
+      "attrs": {
+        "blockId": null
+      },
+      "content": "(tableCell | tableHeader)*"
+    },
+    {
+      "name": "tableHeader",
+      "attrs": {
+        "blockId": null,
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": null
+      },
+      "content": "block+"
+    },
+    {
+      "name": "tableCell",
+      "attrs": {
+        "blockId": null,
+        "colspan": 1,
+        "rowspan": 1,
+        "colwidth": null
+      },
+      "content": "block+"
+    },
+    {
+      "name": "image",
+      "attrs": {
+        "blockId": null,
+        "src": null,
+        "alt": null,
+        "title": null,
+        "width": null,
+        "height": null,
+        "path": null,
+        "mimeType": null,
+        "documentId": null,
+        "annotationState": null
+      },
+      "group": "block"
+    },
+    {
+      "name": "attachment",
+      "attrs": {
+        "blockId": null,
+        "title": "未命名文件",
+        "href": null,
+        "path": null,
+        "mimeType": null,
+        "documentId": null,
+        "isStarred": false,
+        "meta": null
+      },
+      "group": "block"
+    }
+  ],
+  "marks": [
+    {
+      "name": "link",
+      "attrs": {
+        "href": null,
+        "target": "_blank",
+        "rel": "noopener noreferrer nofollow",
+        "class": "rich-editor__link",
+        "title": null
+      }
+    },
+    {
+      "name": "bold",
+      "attrs": {}
+    },
+    {
+      "name": "code",
+      "attrs": {}
+    },
+    {
+      "name": "italic",
+      "attrs": {}
+    },
+    {
+      "name": "strike",
+      "attrs": {}
+    },
+    {
+      "name": "underline",
+      "attrs": {}
+    },
+    {
+      "name": "highlight",
+      "attrs": {}
+    }
+  ]
+}

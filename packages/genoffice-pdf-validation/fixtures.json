@@ -1,0 +1,246 @@
+{
+  "simple": {
+    "target": {
+      "pageIndex": 0,
+      "rect": [
+        49,
+        716,
+        212.82600000000002,
+        737
+      ],
+      "oldText": "SIMPLE ORIGINAL TEXT",
+      "newText": "SIMPLE REPLACED TEXT",
+      "fontSize": 14
+    },
+    "source": {
+      "path": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/simple.original.pdf",
+      "sha256": "78c4cec264850169452048e7e266a01b93edeb10595f6c528f175b3073848305",
+      "bytes": 8210,
+      "page_count": 2,
+      "pages": [
+        {
+          "size": [
+            612.0,
+            792.0
+          ],
+          "text": "SIMPLE ORIGINAL TEXT\nUNEDITED PAGE-1 PARAGRAPH\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n",
+          "images": [
+            {
+              "size": [
+                80,
+                40
+              ],
+              "sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+            }
+          ],
+          "links": [
+            {
+              "subtype": "/Link",
+              "rect": [
+                50.0,
+                460.0,
+                240.0,
+                480.0
+              ],
+              "uri": "https://example.com/pdf-validation"
+            }
+          ],
+          "widgets": [
+            {
+              "subtype": "/Widget",
+              "rect": [
+                50.0,
+                390.0,
+                250.0,
+                414.0
+              ],
+              "name": "customer",
+              "value": "Alice",
+              "state": "None"
+            },
+            {
+              "subtype": "/Widget",
+              "rect": [
+                300.0,
+                390.0,
+                320.0,
+                410.0
+              ],
+              "name": "approved",
+              "value": "/Off",
+              "state": "/Off"
+            }
+          ],
+          "fonts": [
+            {
+              "base_font": "/Helvetica",
+              "subtype": "/Type1",
+              "embedded": []
+            }
+          ]
+        },
+        {
+          "size": [
+            612.0,
+            792.0
+          ],
+          "text": "PAGE-2 UNEDITED CONTENT\n",
+          "images": [],
+          "links": [],
+          "widgets": [],
+          "fonts": [
+            {
+              "base_font": "/Helvetica",
+              "subtype": "/Type1",
+              "embedded": []
+            }
+          ]
+        }
+      ],
+      "fields": {
+        "customer": {
+          "type": "/Tx",
+          "value": "Alice"
+        },
+        "approved": {
+          "type": "/Btn",
+          "value": "/Off"
+        }
+      },
+      "outline_count": 1
+    }
+  },
+  "complex": {
+    "target": {
+      "pageIndex": 0,
+      "rect": [
+        49,
+        716,
+        247.0,
+        737
+      ],
+      "oldText": "中文目标：山川日月保持原样。",
+      "newText": "中文目标：星辰日月保持原样。",
+      "fontSize": 14
+    },
+    "source": {
+      "path": "/Users/xuchen/project_mind/packages/genoffice-pdf-validation/complex.original.pdf",
+      "sha256": "db97c42390689d88168781d4ec3cb6f6b093593203ee0dc6be18630aeda82fac",
+      "bytes": 47218,
+      "page_count": 2,
+      "pages": [
+        {
+          "size": [
+            612.0,
+            792.0
+          ],
+          "text": "中文目标：山川日月保持原样。\nUNEDITED PAGE-1 PARAGRAPH\nFONT REUSE ALPHABET ABCDEFGHIJKLMNOPQRSTUVWXYZ\n未改中文段落：风雨天地仍然保留。\n",
+          "images": [
+            {
+              "size": [
+                80,
+                40
+              ],
+              "sha256": "1ed33f285790bb6ad184e676545fcfd241b8b55894979c3fd0a1e8b3374a27a7"
+            }
+          ],
+          "links": [
+            {
+              "subtype": "/Link",
+              "rect": [
+                50.0,
+                460.0,
+                240.0,
+                480.0
+              ],
+              "uri": "https://example.com/pdf-validation"
+            }
+          ],
+          "widgets": [
+            {
+              "subtype": "/Widget",
+              "rect": [
+                50.0,
+                390.0,
+                250.0,
+                414.0
+              ],
+              "name": "customer",
+              "value": "Alice",
+              "state": "None"
+            },
+            {
+              "subtype": "/Widget",
+              "rect": [
+                300.0,
+                390.0,
+                320.0,
+                410.0
+              ],
+              "name": "approved",
+              "value": "/Off",
+              "state": "/Off"
+            }
+          ],
+          "fonts": [
+            {
+              "base_font": "/Helvetica",
+              "subtype": "/Type1",
+              "embedded": []
+            },
+            {
+              "base_font": "/AAAAAA+ArialUnicodeMS",
+              "subtype": "/TrueType",
+              "embedded": [
+                {
+                  "key": "/FontFile2",
+                  "bytes": 54528,
+                  "sha256": "dff749fe7998c5e9bce83057b7e19b7037deee5c9304cde094ea9d92f999720f"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "size": [
+            612.0,
+            792.0
+          ],
+          "text": "PAGE-2 UNEDITED CONTENT\n第二页中文原文完整保留。\n",
+          "images": [],
+          "links": [],
+          "widgets": [],
+          "fonts": [
+            {
+              "base_font": "/Helvetica",
+              "subtype": "/Type1",
+              "embedded": []
+            },
+            {
+              "base_font": "/AAAAAA+ArialUnicodeMS",
+              "subtype": "/TrueType",
+              "embedded": [
+                {
+                  "key": "/FontFile2",
+                  "bytes": 54528,
+                  "sha256": "dff749fe7998c5e9bce83057b7e19b7037deee5c9304cde094ea9d92f999720f"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "fields": {
+        "customer": {
+          "type": "/Tx",
+          "value": "Alice"
+        },
+        "approved": {
+          "type": "/Btn",
+          "value": "/Off"
+        }
+      },
+      "outline_count": 1
+    }
+  }
+}

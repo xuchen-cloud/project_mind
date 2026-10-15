@@ -1,4 +1,5 @@
 import { desktopApi } from "./desktopApi";
+import { callAgentCommand } from "./agentApi";
 import type {
   AiCapabilityBindingRecord,
   AiCapabilityBindingUpsertInput,
@@ -9,6 +10,8 @@ import type {
   AiExecutionSettings,
   AiJobEnqueueInput,
   AiJobSnapshot,
+  AiNetworkSettings,
+  AiNetworkSettingsUpsertInput,
   AiProfileTestInput,
   AiProfileTestResult,
   AiProviderProfileDeleteInput,
@@ -20,6 +23,9 @@ import type {
   ContactSearchInput,
   ContactUpsertInput,
   DocumentAddVersionInput,
+  DocumentVersionPrepareInput,
+  PreparedDocumentVersion,
+  DocumentVersionCommitResult,
   DocumentDeleteInput,
   DocumentImportClipboardImageInput,
   DocumentImportClipboardNoteImageInput,
@@ -201,12 +207,16 @@ export const projectMindApi = {
     desktopApi.command<DocumentVersionRecord[]>("document_list_versions", {
       input,
     }),
+  documentVersionPrepare: (input: DocumentVersionPrepareInput, requestId = crypto.randomUUID()) =>
+    callAgentCommand<PreparedDocumentVersion>("document_version_prepare", requestId, { input, requestId }),
   documentAddVersion: (input: DocumentAddVersionInput) =>
-    desktopApi.command<DocumentRecord>("document_add_version", { input }),
+    callAgentCommand<DocumentVersionCommitResult>("document_add_version", input.requestId, { input }),
   documentDelete: (input: DocumentDeleteInput) =>
     desktopApi.command<DocumentRecord>("document_delete", { input }),
   aiSettingsGet: () =>
     desktopApi.command<AiSettingsSnapshot>("ai_settings_get"),
+  aiNetworkSettingsUpsert: (input: AiNetworkSettingsUpsertInput) =>
+    desktopApi.command<AiNetworkSettings>("ai_network_settings_upsert", { input }),
   richTextStyleGet: () =>
     desktopApi.command<RichTextStyleSettings>("rich_text_style_get"),
   richTextStyleUpsert: (input: RichTextStyleUpsertInput) =>

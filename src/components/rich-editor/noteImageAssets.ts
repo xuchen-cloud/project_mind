@@ -3,6 +3,7 @@ import { resolveRichTextImageSrc } from "../../lib/richTextAssets";
 import { fileHref } from "../../lib/formatters";
 import type { DocumentRecord } from "../../lib/types";
 import type { RichEditorAsset, RichEditorAssetHandlers, RichEditorValue } from "./types";
+import type { JSONContent } from "@tiptap/core";
 
 export function buildProjectNoteImageAssetHandlers(
   projectId: number,
@@ -81,6 +82,26 @@ export function buildWorkspaceNoteImageAssetHandlers(): RichEditorAssetHandlers 
       return mapWorkspaceNoteImageAsset(asset);
     },
   };
+}
+
+/** Mutates an owned save draft. Completed imports remain on the draft if a
+ * later image fails, so retrying that task does not import them a second time. */
+export async function materializeEmbeddedRecordImages(document: JSONContent, assetHandlers: RichEditorAssetHandlers) {
+  const visit = async (node: JSONContent) => {
+    if (node.type === "image" && typeof node.attrs?.src === "string" && /^data:image\//i.test(node.attrs.src)) {
+      if (!assetHandlers.insertPastedImage) throw new Error("当前范围无法保存嵌入图片");
+      const file = dataUrlImageToFile(node.attrs.src, node.attrs.title || node.attrs.alt || "embedded-image");
+      if (!file) throw new Error("无法读取嵌入图片");
+      const asset = await assetHandlers.insertPastedImage(file);
+      if (!asset.path) throw new Error("图片尚未写入工作区");
+      node.attrs = { ...node.attrs, path: asset.path, src: null,
+        mimeType: asset.mimeType ?? file.type, documentId: asset.documentId ?? null,
+        alt: node.attrs.alt ?? asset.title, title: node.attrs.title ?? asset.title,
+      };
+    }
+    for (const child of node.content ?? []) await visit(child);
+  };
+  await visit(document);
 }
 
 export async function externalizeEmbeddedImageDataUrls(

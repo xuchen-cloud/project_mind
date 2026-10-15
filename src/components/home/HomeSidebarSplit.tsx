@@ -23,7 +23,7 @@ export function HomeSidebarSplit({ storageKey, upper, lower }: {
     try { localStorage.setItem(storageKey, String(next)); } catch { /* Layout remains usable without storage. */ }
   }
   function stop() { drag.current = null; setDragging(false); }
-  return <div ref={container} className="home-side__scroll home-side__split" style={{ gridTemplateRows: `minmax(96px, ${ratio}fr) 16px minmax(64px, ${100 - ratio}fr)` }}>
+  return <div ref={container} className="home-side__scroll home-side__split" style={{ gridTemplateRows: `minmax(96px, ${ratio}fr) 16px minmax(var(--home-sidebar-lower-min-height, 64px), ${100 - ratio}fr)` }}>
     <section className="home-side__section">{upper}</section>
     <div role="separator" aria-label="调整列表区域比例" aria-orientation="horizontal" aria-valuemin={20} aria-valuemax={80} aria-valuenow={Math.round(ratio)} tabIndex={0}
       className="home-side__split-handle" data-resizing={dragging || undefined}

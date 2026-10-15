@@ -1,0 +1,279 @@
+{
+  "status": "passed",
+  "source": {
+    "path": "/Users/xuchen/project_mind/packages/pdf-validation/simple.original.pdf",
+    "bytes": 7392,
+    "sha256": "4ade196ca0dc73b88ca5a93f4ba1d6333992dacf9b49e6899475db78d9cb4c31",
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n",
+        "content_sha256": "25499c7bfd9e12404ac5df6428006c054aac468b9d2b8ff280aa3ea3acd7040d",
+        "nonwidget_annotations": [],
+        "images": []
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n",
+        "content_sha256": "705c5a3267f2fd8111f986d7000ebf28fcace280eea2ae0df2f52303a63f0104",
+        "nonwidget_annotations": [],
+        "images": []
+      }
+    ],
+    "page_count": 2,
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Alice"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Off"
+      }
+    },
+    "widgets": [
+      {
+        "name": "customer",
+        "appearance_present": true,
+        "appearance_state": "None",
+        "appearance_text": [
+          "Alice"
+        ],
+        "appearance_states": []
+      },
+      {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Off",
+        "appearance_text": [],
+        "appearance_states": [
+          "/Off",
+          "/Yes"
+        ]
+      }
+    ],
+    "outline_count": 0
+  },
+  "candidate": {
+    "path": "/Users/xuchen/project_mind/packages/pdf-validation/simple.pdfjs-form.pdf",
+    "bytes": 8560,
+    "sha256": "949a8132e614410b81942fd3a435f95549addebde0b68f35a55401939350612f",
+    "pages": [
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n",
+        "content_sha256": "25499c7bfd9e12404ac5df6428006c054aac468b9d2b8ff280aa3ea3acd7040d",
+        "nonwidget_annotations": [],
+        "images": []
+      },
+      {
+        "size": [
+          612.0,
+          792.0
+        ],
+        "text": "PAGE-2 UNEDITED CONTENT\n",
+        "content_sha256": "705c5a3267f2fd8111f986d7000ebf28fcace280eea2ae0df2f52303a63f0104",
+        "nonwidget_annotations": [],
+        "images": []
+      }
+    ],
+    "page_count": 2,
+    "fields": {
+      "customer": {
+        "type": "/Tx",
+        "value": "Bob"
+      },
+      "approved": {
+        "type": "/Btn",
+        "value": "/Yes"
+      }
+    },
+    "widgets": [
+      {
+        "name": "customer",
+        "appearance_present": true,
+        "appearance_state": "None",
+        "appearance_text": [
+          "Bob"
+        ],
+        "appearance_states": []
+      },
+      {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Yes",
+        "appearance_text": [],
+        "appearance_states": [
+          "/Off",
+          "/Yes"
+        ]
+      }
+    ],
+    "outline_count": 0
+  },
+  "checks": [
+    {
+      "assertion": "page_count",
+      "passed": true,
+      "expected": 2,
+      "actual": 2
+    },
+    {
+      "assertion": "outline_count",
+      "passed": true,
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "assertion": "unchanged_size",
+      "passed": true,
+      "expected": [
+        [
+          612.0,
+          792.0
+        ],
+        [
+          612.0,
+          792.0
+        ]
+      ],
+      "actual": [
+        [
+          612.0,
+          792.0
+        ],
+        [
+          612.0,
+          792.0
+        ]
+      ]
+    },
+    {
+      "assertion": "unchanged_text",
+      "passed": true,
+      "expected": [
+        "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n",
+        "PAGE-2 UNEDITED CONTENT\n"
+      ],
+      "actual": [
+        "ORIGINAL BODY MUST REMAIN\nUnedited paragraph and page sequence: PAGE-1\n",
+        "PAGE-2 UNEDITED CONTENT\n"
+      ]
+    },
+    {
+      "assertion": "unchanged_content_sha256",
+      "passed": true,
+      "expected": [
+        "25499c7bfd9e12404ac5df6428006c054aac468b9d2b8ff280aa3ea3acd7040d",
+        "705c5a3267f2fd8111f986d7000ebf28fcace280eea2ae0df2f52303a63f0104"
+      ],
+      "actual": [
+        "25499c7bfd9e12404ac5df6428006c054aac468b9d2b8ff280aa3ea3acd7040d",
+        "705c5a3267f2fd8111f986d7000ebf28fcace280eea2ae0df2f52303a63f0104"
+      ]
+    },
+    {
+      "assertion": "unchanged_nonwidget_annotations",
+      "passed": true,
+      "expected": [
+        [],
+        []
+      ],
+      "actual": [
+        [],
+        []
+      ]
+    },
+    {
+      "assertion": "unchanged_images",
+      "passed": true,
+      "expected": [
+        [],
+        []
+      ],
+      "actual": [
+        [],
+        []
+      ]
+    },
+    {
+      "assertion": "customer_value",
+      "passed": true,
+      "expected": "Bob",
+      "actual": {
+        "type": "/Tx",
+        "value": "Bob"
+      }
+    },
+    {
+      "assertion": "approved_value",
+      "passed": true,
+      "expected": "/Yes",
+      "actual": {
+        "type": "/Btn",
+        "value": "/Yes"
+      }
+    },
+    {
+      "assertion": "widgets_have_appearances",
+      "passed": true,
+      "actual": [
+        {
+          "name": "customer",
+          "appearance_present": true,
+          "appearance_state": "None",
+          "appearance_text": [
+            "Bob"
+          ],
+          "appearance_states": []
+        },
+        {
+          "name": "approved",
+          "appearance_present": true,
+          "appearance_state": "/Yes",
+          "appearance_text": [],
+          "appearance_states": [
+            "/Off",
+            "/Yes"
+          ]
+        }
+      ]
+    },
+    {
+      "assertion": "customer_appearance_contains_Bob",
+      "passed": true,
+      "actual": [
+        "Bob"
+      ]
+    },
+    {
+      "assertion": "approved_appearance_selects_Yes",
+      "passed": true,
+      "actual": {
+        "name": "approved",
+        "appearance_present": true,
+        "appearance_state": "/Yes",
+        "appearance_text": [],
+        "appearance_states": [
+          "/Off",
+          "/Yes"
+        ]
+      }
+    }
+  ],
+  "not_verified": [
+    "GUI edit",
+    "visual field appearance/fonts",
+    "Tauri WebView",
+    "CAS/business save"
+  ]
+}

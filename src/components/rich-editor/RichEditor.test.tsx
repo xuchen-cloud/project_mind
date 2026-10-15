@@ -1,3 +1,5 @@
+import { agentApi } from "../../services/agentApi";
+import { projectFileApi } from "../../services/projectFileApi";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Copy } from "lucide-react";
@@ -13,6 +15,151 @@ import { useFeedbackStore } from "../../state/feedback-store";
 import appStyles from "../../styles/app.css?raw";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
+
+it("restores a paused canonical Record's undo history and selection into a new editor", async () => {
+  const user = userEvent.setup();
+  const controllerRef = { current: null as RichEditorController | null };
+  const recordKey = "workspace-a/project:1:7";
+  const identity = "project-record:1:7";
+  const html = `<p data-block-id="${"e".repeat(32)}">Existing</p>`;
+  const first = render(<RichEditor variant="bare" contentIdentity={identity} recordKey={recordKey}
+    controllerRef={controllerRef} defaultHtml={html} />);
+  const oldSurface = await getEditorSurface(first.container);
+  await waitFor(() => expect(controllerRef.current).not.toBeNull());
+  act(() => controllerRef.current!.focus("end"));
+  await waitFor(() => expect(document.activeElement).toBe(oldSurface));
+  await user.keyboard("X");
+  const saved = controllerRef.current!.getCommittedValue();
+  act(() => controllerRef.current!.acknowledgeCommittedContent(saved));
+  const session = controllerRef.current!.captureSession()!;
+  expect(session.state.doc.textContent).toBe("ExistingX");
+  const selection = session.state.selection.toJSON();
+  first.unmount();
+  const second = render(<RichEditor variant="bare" contentIdentity={identity} recordKey={recordKey}
+    controllerRef={controllerRef} defaultHtml={saved.html} session={session} />);
+  const surface = await getEditorSurface(second.container);
+  await waitFor(() => expect(surface).toHaveTextContent("ExistingX"));
+  await waitFor(() => expect(controllerRef.current!.captureSession()!.state.selection.toJSON()).toEqual(selection));
+  expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(false);
+  act(() => controllerRef.current!.focus());
+  await waitFor(() => expect(document.activeElement).toBe(surface));
+  fireEvent.keyDown(surface, { key: "z", code: "KeyZ", ctrlKey: true });
+  await waitFor(() => expect(controllerRef.current!.getCommittedValue().markdown).toBe("Existing"));
+  await user.keyboard("Y");
+  expect(controllerRef.current!.getCommittedValue().markdown).toBe("ExistingY");
+  expect(controllerRef.current!.getCommittedDocumentJson().content?.[0]?.attrs?.blockId).toBe("e".repeat(32));
+});
+
+it("saves only the editor receiving the keyboard event with two editable pages", async () => {
+  const saveA = vi.fn(async (_value: import("./types").RichEditorValue) => true); const saveB = vi.fn(async (_value: import("./types").RichEditorValue) => true);
+  const { container } = render(<><RichEditor variant="bare" defaultHtml="<p>A</p>" onSave={saveA} />
+    <RichEditor variant="bare" defaultHtml="<p>B</p>" onSave={saveB} /></>);
+  await waitFor(() => expect(container.querySelectorAll(".tiptap")).toHaveLength(2));
+  const surfaces = container.querySelectorAll(".tiptap");
+  fireEvent.keyDown(surfaces[1], { key: "s", metaKey: true });
+  await waitFor(() => expect(saveB).toHaveBeenCalledTimes(1));
+  expect(saveB.mock.calls[0][0].markdown).toBe("B");
+  expect(saveA).not.toHaveBeenCalled();
+});
+
+it("reveals source blocks by stable identity without writing or dirtying the editor", async () => {
+  const controllerRef = { current: null as RichEditorController | null };
+  const onChange = vi.fn();
+  const firstId = "a".repeat(32); const secondId = "b".repeat(32);
+  const html = `<p data-block-id="${firstId}">same</p><p data-block-id="${secondId}">same</p>`;
+  const { container, rerender } = render(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/7"
+    controllerRef={controllerRef} onChange={onChange} defaultHtml={html} />);
+  await getEditorSurface(container);
+  await waitFor(() => expect(controllerRef.current).not.toBeNull());
+  const first = container.querySelector<HTMLElement>(`[data-block-id="${firstId}"]`)!;
+  const second = container.querySelector<HTMLElement>(`[data-block-id="${secondId}"]`)!;
+  Object.defineProperty(first, "scrollIntoView", { configurable: true, value: vi.fn() });
+  Object.defineProperty(second, "scrollIntoView", { configurable: true, value: vi.fn() });
+  const documentBefore = controllerRef.current!.getDocumentJson();
+  onChange.mockClear();
+  expect(controllerRef.current!.revealBlock(secondId)).toBe(true);
+  expect(second.scrollIntoView).toHaveBeenCalledTimes(1);
+  expect(first.scrollIntoView).not.toHaveBeenCalled();
+  expect(controllerRef.current!.revealBlock("c".repeat(32))).toBe(false);
+  const onResult = vi.fn();
+  rerender(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/7" controllerRef={controllerRef}
+    onChange={onChange} defaultHtml={html} sourceBlockNavigation={{ blockId: firstId, key: "new-query" }} onSourceBlockResult={onResult} />);
+  await waitFor(() => expect(first.scrollIntoView).toHaveBeenCalledTimes(1));
+  expect(onResult).toHaveBeenLastCalledWith(true);
+  expect(controllerRef.current!.getDocumentJson()).toEqual(documentBefore);
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it("keeps canonical block anchors when the Record editor commits ordinary text changes", async () => {
+  const controllerRef = { current: null as RichEditorController | null };
+  const user = userEvent.setup();
+  const id = "e".repeat(32);
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/7" controllerRef={controllerRef} defaultHtml={`<p data-block-id="${id}">Existing</p>`} />);
+  const surface = await getEditorSurface(container);
+  await waitFor(() => expect(controllerRef.current?.getCommittedDocumentJson().content?.[0]?.attrs?.blockId).toBe(id));
+  controllerRef.current!.focus("end");
+  await waitFor(() => expect(document.activeElement).toBe(surface));
+  await user.keyboard("X");
+  expect(controllerRef.current!.getCommittedDocumentJson().content?.[0]?.attrs?.blockId).toBe(id);
+  expect(controllerRef.current!.getCommittedValue().markdown).toBe("ExistingX");
+});
+
+it("passes Record cut metadata through the editor's existing clipboard handling", async () => {
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace-a/workspace/record/8" defaultHtml={`<p data-block-id="${"d".repeat(32)}">Move me</p>`} />);
+  const surface = await getEditorSurface(container);
+  fireEvent.focus(surface);
+  const text = surface.querySelector("p")!.firstChild!;
+  selectTextRange(text, 0, text, text.textContent!.length);
+  fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+  await screen.findByRole("menu", { name: "文本操作" });
+  const values = new Map<string, string>();
+  fireEvent.cut(surface, { clipboardData: { clearData: () => values.clear(), setData: (key: string, value: string) => values.set(key, value) } });
+  expect(values.get("text/html")).toContain("Move me");
+  expect(values.get("application/x-project-mind-record-cut")).toContain("workspace-a/workspace/record/8");
+});
+
+it("keeps selected Record content when a menu cut cannot write the clipboard", async () => {
+  const user = userEvent.setup();
+  const registerCut = vi.fn(async () => undefined);
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace/record/7" recordClipboard={{ registerCut, claimCut: vi.fn(async () => false) }} defaultHtml="<p>Keep this draft</p>" />);
+  const writeText = vi.fn(async () => { throw new Error("clipboard unavailable"); });
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const surface = await getEditorSurface(container);
+  const text = surface.querySelector("p")!.firstChild!;
+  fireEvent.focus(surface);
+  selectTextRange(text, 0, text, text.textContent!.length);
+  fireEvent.contextMenu(surface, { clientX: 24, clientY: 24 });
+  const menu = await screen.findByRole("menu", { name: "文本操作" });
+  vi.mocked(document.execCommand).mockReturnValueOnce(false);
+  await user.click(within(menu).getByRole("button", { name: "剪切" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+  expect(surface.textContent).toContain("Keep this draft");
+  expect(registerCut).not.toHaveBeenCalled();
+});
+
+it("receives a clean foreign Record update while keeping the caret and refuses to overwrite a draft", async () => {
+  const controllerRef = { current: null as RichEditorController | null };
+  const user = userEvent.setup();
+  const first = `<p data-block-id="${"1".repeat(32)}">Existing</p>`;
+  const second = `<p data-block-id="${"2".repeat(32)}">Incoming</p>`;
+  const { container } = render(<RichEditor variant="bare" recordKey="workspace/record/7" controllerRef={controllerRef} defaultHtml={first} />);
+  const surface = await getEditorSurface(container);
+  await waitFor(() => expect(controllerRef.current).toBeTruthy());
+  act(() => { controllerRef.current!.focus(3); });
+  const selection = window.getSelection();
+  const caretOffset = selection?.anchorOffset;
+  act(() => { expect(controllerRef.current!.applyIncomingContent(first + second)).toBe(true); });
+  expect(controllerRef.current!.getCommittedValue().markdown).toContain("Incoming");
+  expect(window.getSelection()?.anchorOffset).toBe(caretOffset);
+  await waitFor(() => expect(document.activeElement).toBe(surface));
+  await user.keyboard("X");
+  expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(true);
+  act(() => { expect(controllerRef.current!.applyIncomingContent(first)).toBe(false); });
+  expect(controllerRef.current!.getCommittedValue().markdown).toContain("X");
+  const saved = controllerRef.current!.getCommittedValue();
+  act(() => { controllerRef.current!.acknowledgeCommittedContent(saved); });
+  expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(false);
+});
 
 const intersectionObservers: Array<{
   callback: IntersectionObserverCallback;
@@ -631,6 +778,7 @@ describe("RichEditor images", () => {
         hasUsableDefault: false, hasUsableImageDefault: true,
         securityMode: "workspace_password_encrypted" as const,
         aiSecretsUnlocked: true, execution: { maxConcurrency: 1 },
+        network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       },
     };
     const rendered = render(<RichEditor {...props} html={'<p><img src="asset:///tmp/answer.png" data-path="/tmp/answer.png" data-mime-type="image/png"></p><p>nearby</p>'} />);
@@ -1158,6 +1306,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1344,6 +1493,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1425,6 +1575,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "explain-image",
             name: "图片问答",
@@ -1520,6 +1671,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1600,6 +1752,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 2 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "extract-image-text",
             name: "文字提取",
@@ -1697,6 +1850,7 @@ describe("RichEditor images", () => {
       securityMode: "workspace_password_encrypted" as const,
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [],
     };
     const { container, rerender } = render(
@@ -1836,6 +1990,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -1904,6 +2059,7 @@ describe("RichEditor images", () => {
       securityMode: "workspace_password_encrypted" as const,
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [{
         id: "extract-image-text",
         name: "文字提取",
@@ -2018,6 +2174,7 @@ describe("RichEditor images", () => {
       securityMode: "workspace_password_encrypted" as const,
       aiSecretsUnlocked: true,
       execution: { maxConcurrency: 1 },
+      network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
       editorSkills: [{
         id: "explain-image",
         name: "图片问答",
@@ -2145,6 +2302,7 @@ describe("RichEditor images", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "explain-image-race",
             name: "图片问答",
@@ -2941,6 +3099,14 @@ describe("RichEditor internal references", () => {
   it("opens the picker on fullwidth 【【 and still inserts the normalized internal reference token", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
+    const binding = { workspaceId: "w1", generation: "g1" };
+    const object = { workspaceId: "w1", scope: { kind: "project" as const, projectId: 1 }, kind: "file" as const, id: "51" };
+    const contentHash = `sha256:${"a".repeat(64)}`;
+    const statusSpy = vi.spyOn(agentApi, "statusGet").mockResolvedValue({ binding } as Awaited<ReturnType<typeof agentApi.statusGet>>);
+    const resolveSpy = vi.spyOn(projectFileApi, "resolve").mockResolvedValue({ object, relativePath: "project-brief.pdf", name: "project-brief.pdf",
+      versionNumber: 2, contentHash, state: "ready", reason: null });
+    const readSpy = vi.spyOn(projectFileApi, "readBytes").mockResolvedValue({ object, versionNumber: 2, contentHash,
+      name: "project-brief.pdf", mime: "application/pdf", byteLength: 3, base64: "b2xk" });
     const searchSpy = vi.spyOn(projectMindApi, "internalReferenceSearch").mockResolvedValue([
       {
         kind: "document",
@@ -2974,11 +3140,15 @@ describe("RichEditor internal references", () => {
       const latestValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
 
       expect(latestValue?.html).toContain('data-type="internal-reference"');
+      expect(latestValue?.html).toContain("data-source-ref");
       expect(latestValue?.markdown).toContain("[[document:51|project-brief.pdf]]");
       expect(latestValue?.markdown).not.toContain("【【");
     });
 
     searchSpy.mockRestore();
+    statusSpy.mockRestore();
+    resolveSpy.mockRestore();
+    readSpy.mockRestore();
   });
 
   it("marks unresolved internal references as broken when clicking them", async () => {
@@ -4238,6 +4408,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "polish",
@@ -4297,6 +4468,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: false,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "translate",
@@ -4365,6 +4537,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4413,6 +4586,12 @@ describe("RichEditor context menus", () => {
   it("applies automatic AI edits and keeps an optional answer available", async () => {
     const user = userEvent.setup();
     const controllerRef = { current: null as RichEditorController | null };
+    const boundaries: string[] = [];
+    const beforeAiCommit = vi.fn(() => {
+      boundaries.push(JSON.stringify(controllerRef.current?.getCommittedDocumentJson()));
+      return true;
+    });
+    const aiCommit = vi.fn(() => { boundaries.push(JSON.stringify(controllerRef.current?.getCommittedDocumentJson())); });
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
@@ -4433,6 +4612,8 @@ describe("RichEditor context menus", () => {
     const { container } = render(
       <RichEditor
         controllerRef={controllerRef}
+        onBeforeAiCommit={beforeAiCommit}
+        onAiCommit={aiCommit}
         variant="bare"
         defaultHtml="<p>hello world with a much longer opening paragraph</p><p>second paragraph</p><p>last paragraph</p>"
         aiSettings={{
@@ -4442,6 +4623,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4510,6 +4692,7 @@ describe("RichEditor context menus", () => {
       expect(screen.getByText("改写说明")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "复制回答" })).toBeInTheDocument();
     });
+    expect(controllerRef.current?.captureSession()).toBeNull();
     const committedBeforeAcceptance = controllerRef.current?.getCommittedValue();
     expect(committedBeforeAcceptance?.markdown).toContain(
       "hello world with a much longer opening paragraph",
@@ -4517,12 +4700,22 @@ describe("RichEditor context menus", () => {
     expect(committedBeforeAcceptance?.markdown).not.toContain("better world");
     expect(committedBeforeAcceptance?.markdown).not.toContain("改写说明");
     expect(Object.isFrozen(committedBeforeAcceptance)).toBe(true);
+    const committedDocument = controllerRef.current?.getCommittedDocumentJson();
+    expect(JSON.stringify(committedDocument)).toContain("hello world with a much longer opening paragraph");
+    expect(JSON.stringify(committedDocument)).not.toContain("better world");
+    expect(JSON.stringify(committedDocument)).not.toContain("改写说明");
+    expect(JSON.stringify(controllerRef.current?.getDocumentJson())).toContain("better world");
 
     await user.click(screen.getByRole("button", { name: "接受" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "插入" })).toBeInTheDocument();
       expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
     });
+    expect(JSON.stringify(controllerRef.current?.getCommittedDocumentJson())).toContain("better world");
+    expect(beforeAiCommit).toHaveBeenCalledTimes(1);
+    expect(aiCommit).toHaveBeenCalledTimes(1);
+    expect(boundaries[0]).toContain("hello world with a much longer opening paragraph");
+    expect(boundaries[1]).toContain("better world");
 
     await user.click(screen.getByRole("button", { name: "插入" }));
     await waitFor(() => {
@@ -4535,6 +4728,11 @@ describe("RichEditor context menus", () => {
         "last paragraph",
       ]);
     });
+
+    expect(beforeAiCommit).toHaveBeenCalledTimes(2);
+    expect(aiCommit).toHaveBeenCalledTimes(2);
+    expect(boundaries[2]).not.toContain("改写说明");
+    expect(boundaries[3]).toContain("改写说明");
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();
@@ -4554,6 +4752,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4617,6 +4816,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [],
         }}
       />,
@@ -4700,6 +4900,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "polish",
@@ -4828,6 +5029,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "polish-incomplete-stream",
             name: "润色",
@@ -4936,6 +5138,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "polish",
@@ -5058,6 +5261,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [
             {
               id: "explain",
@@ -5161,6 +5365,7 @@ describe("RichEditor context menus", () => {
           securityMode: "workspace_password_encrypted",
           aiSecretsUnlocked: true,
           execution: { maxConcurrency: 1 },
+          network: { mode: "system" as const, proxyUrl: null, username: null, hasStoredPassword: false },
           editorSkills: [{
             id: "explain-incomplete-stream",
             name: "解释",
@@ -5776,7 +5981,7 @@ describe("RichEditor focus and blur persistence", () => {
     const onSave = vi.fn(async (value: unknown) => value);
     const onBlurPersisted = vi.fn();
     const { container } = render(
-      <RichEditor variant="bare" autoFocus autosave onSave={onSave} onBlurPersisted={onBlurPersisted} />,
+      <RichEditor variant="bare" autoFocus autosave={{ onChange: false, onBlur: true }} onSave={onSave} onBlurPersisted={onBlurPersisted} />,
     );
 
     const surface = await waitFor(() => {
@@ -5786,6 +5991,7 @@ describe("RichEditor focus and blur persistence", () => {
       return nextSurface as HTMLElement;
     });
 
+    await waitFor(() => expect(surface).toHaveFocus());
     await user.type(surface, "Blur saves this");
     fireEvent.blur(surface);
 
@@ -6138,5 +6344,84 @@ describe("RichEditor focus and blur persistence", () => {
     });
     expect(screen.queryByLabelText("替换为")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "替换" })).not.toBeInTheDocument();
+  });
+});
+
+describe("RichEditor fixed File references", () => {
+  const binding = { workspaceId: "w1", generation: "g1" };
+  const object = { workspaceId: "w1", scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "51" };
+  const hash = `sha256:${"a".repeat(64)}`;
+  const reference = { kind: "document" as const, id: 51, label: "材料.txt", scope: "project" as const, projectId: 7, subtitle: "材料", updatedAt: "" };
+  afterEach(() => vi.restoreAllMocks());
+  async function choose(props: Partial<React.ComponentProps<typeof RichEditor>> = {}) {
+    const user = userEvent.setup();
+    vi.spyOn(projectMindApi, "internalReferenceSearch").mockResolvedValue([reference]);
+    vi.spyOn(agentApi, "statusGet").mockResolvedValue({ binding } as Awaited<ReturnType<typeof agentApi.statusGet>>);
+    vi.spyOn(projectFileApi, "resolve").mockResolvedValue({ object, relativePath: "材料.txt", name: "材料.txt", versionNumber: 2,
+      contentHash: hash, state: "ready", reason: null });
+    const controllerRef = { current: null as RichEditorController | null };
+    const renderEditor = (identity = "record-a") => <RichEditor variant="bare" contentIdentity={identity} recordKey="w1:project:7:8"
+      controllerRef={controllerRef} internalReferences={{ context: { scope: "project", projectId: 7 } }} {...props} />;
+    const rendered = render(renderEditor());
+    const surface = await getEditorSurface(rendered.container);
+    await user.click(surface);
+    await user.keyboard("[[[[");
+    await screen.findByRole("option", { name: /材料.txt/ });
+    await user.keyboard("{Enter}");
+    return { ...rendered, user, surface, controllerRef, renderEditor };
+  }
+  function resultBytes() { return { object, versionNumber: 2, contentHash: hash, name: "材料.txt", mime: "text/plain", byteLength: 3, base64: "b2xk" }; }
+  it("reads actual version/hash bytes before adding canonical metadata", async () => {
+    let finish!: (value: ReturnType<typeof resultBytes>) => void;
+    vi.spyOn(projectFileApi, "readBytes").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const { controllerRef } = await choose();
+    await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledWith(binding, { object, versionNumber: 2, expectedContentHash: hash }));
+    expect(controllerRef.current!.getCommittedValue().html).not.toContain("data-source-ref");
+    await act(async () => finish(resultBytes()));
+    await waitFor(() => expect(controllerRef.current!.getCommittedValue().html).toContain("data-source-ref"));
+    const node = controllerRef.current!.getCommittedDocumentJson().content![0].content!.find(node => node.type === "internalReference")!;
+    expect(node.attrs!.sourceRef).toEqual({ object, revision: hash, fileVersion: 2, recordVersion: null, blockId: null,
+      locator: null, title: "材料.txt", excerpt: "" });
+  });
+  it("keeps later typing when a fixed File read completes late", async () => {
+    let finish!: (value: ReturnType<typeof resultBytes>) => void;
+    vi.spyOn(projectFileApi, "readBytes").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const { user, controllerRef } = await choose();
+    await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalled());
+    await user.keyboard("later input");
+    await act(async () => finish(resultBytes()));
+    await waitFor(() => expect(useFeedbackStore.getState().toasts.at(-1)?.title).toBe("插入文件引用失败"));
+    expect(controllerRef.current!.getCommittedValue().markdown).toContain("later input");
+    expect(controllerRef.current!.getCommittedValue().html).not.toContain("data-source-ref");
+  });
+  it("does not retarget delayed bytes after editor identity changes", async () => {
+    let finish!: (value: ReturnType<typeof resultBytes>) => void;
+    vi.spyOn(projectFileApi, "readBytes").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const { rerender, renderEditor, controllerRef } = await choose();
+    await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalled());
+    rerender(renderEditor("record-b"));
+    await act(async () => finish(resultBytes()));
+    await waitFor(() => expect(useFeedbackStore.getState().toasts.at(-1)?.title).toBe("插入文件引用失败"));
+    expect(controllerRef.current!.getCommittedValue().html).not.toContain("data-source-ref");
+  });
+  it("reports read budgets and leaves the typed trigger without a fake fixed ref", async () => {
+    vi.spyOn(projectFileApi, "readBytes").mockRejectedValue(new Error("File exceeds its existing preview byte budget"));
+    const { controllerRef } = await choose();
+    await waitFor(() => expect(useFeedbackStore.getState().toasts.at(-1)?.detail).toContain("budget"));
+    expect(controllerRef.current!.getCommittedValue().html).toContain("[[");
+    expect(controllerRef.current!.getCommittedValue().html).not.toContain("data-source-ref");
+  });
+  it("does not attach any File evidence just by rendering or saving ordinary editor text", async () => {
+    const read = vi.spyOn(projectFileApi, "readBytes");
+    const resolve = vi.spyOn(projectFileApi, "resolve");
+    const controllerRef = { current: null as RichEditorController | null };
+    const save = vi.fn(async () => true);
+    const { container } = render(<RichEditor variant="bare" defaultHtml="<p>材料.txt</p>" controllerRef={controllerRef} onSave={save}
+      internalReferences={{ context: { scope: "project", projectId: 7 } }} />);
+    const surface = await getEditorSurface(container);
+    fireEvent.keyDown(surface, { key: "s", metaKey: true });
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(read).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
   });
 });
