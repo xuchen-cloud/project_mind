@@ -1024,11 +1024,11 @@ export function ProjectSidebar({
                     const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
 
                     return (
-                      <button
+                      <div
                         key={document.id}
-                        type="button"
+                        role="button"
                         className={cn(
-                          "group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          "project-sidebar__file-row group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
                           isEditing ? "" : "context-menu-no-select",
                           document.health === "missing"
                             ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
@@ -1036,6 +1036,8 @@ export function ProjectSidebar({
                               ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
                               : "border-transparent hover:border-border hover:bg-bg",
                         )}
+                        data-health={document.health}
+                        data-context-open={isContextOpen || undefined}
                         tabIndex={0}
                         aria-label={buildDocumentAriaLabel(document.baseName, tags)}
                         onClick={(event) => handleDocumentClick(document, event)}
@@ -1103,7 +1105,7 @@ export function ProjectSidebar({
                           </span>
                         </span>
                         <TagPreview tags={tags} fullWidth />
-                      </button>
+                      </div>
                     );
                   })
                 ) : (
