@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -57,7 +57,37 @@ describe("WorkspaceTopBar", () => {
     expect(props.onSearchInput).toHaveBeenCalledWith("a");
     rerender(<WorkspaceTopBar {...props} homePanels={{ ...props.homePanels, leftOpen: !leftOpen, rightOpen: !rightOpen, leftWidth: 320, rightWidth: 400 }} />);
     expect(search).toHaveFocus();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Workspace 工作区首页" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("places the named Workspace home in the left toolbar and keeps Project tabs keyboard reachable", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkspace = vi.fn(), onOpenProject = vi.fn();
+    const projects = ["Alpha", "Beta"].map((name, index) => ({ id: index + 1, name, kind: "normal" as const, status: "active" as const, rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 }));
+    const props = {
+      homePanels: { leftWidth: 280, workspaceName: "产品研发", leftOpen: true, rightOpen: true, toggleLeft: vi.fn(), toggleRight: vi.fn() },
+      projects, activeProjectId: null, workspaceActive: true,
+      searchInput: "", onSearchInput: vi.fn(), searchResults: [], searching: false,
+      onOpenProject, onOpenWorkspace, onSwitchWorkspace: vi.fn(), onOpenSettings: vi.fn(), onSearchSelect: vi.fn(),
+    };
+    const { rerender } = render(<WorkspaceTopBar {...props} />);
+    const home = screen.getByRole("button", { name: "产品研发 工作区首页" });
+    expect(home.closest(".workspace-topbar__navigation")).toBeInTheDocument();
+    expect(home).toHaveTextContent("产品研发");
+    expect(home).toHaveAttribute("title", "产品研发 · 工作区首页");
+    expect(home.querySelector("svg")).toBeInTheDocument();
+    const projectTabs = screen.getByRole("tablist");
+    expect(projectTabs).not.toContainElement(home);
+    expect(within(projectTabs).getAllByRole("tab")).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: "Alpha" })).toHaveAttribute("tabindex", "0");
+    await user.click(home);
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
+    act(() => screen.getByRole("tab", { name: "Alpha" }).focus());
+    await user.keyboard("{ArrowRight}");
+    expect(onOpenProject).toHaveBeenCalledWith(2);
+    rerender(<WorkspaceTopBar {...props} workspaceActive={false} activeProjectId={2} />);
+    expect(home).not.toHaveAttribute("aria-current");
+    expect(home).toBeEnabled();
   });
 
   it("scrolls width-bounded project tabs with continuous edge masks and keeps close separate from activation", () => {

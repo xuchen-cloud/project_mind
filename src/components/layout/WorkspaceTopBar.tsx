@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   X,
   FolderKanban,
+  Folder,
   ExternalLink,
   LoaderCircle,
   PanelLeft,
@@ -305,6 +306,11 @@ export function WorkspaceTopBar({
     <header data-tauri-drag-region style={homePanels?.leftOpen ? { "--home-navigation-width": `${homePanels.leftWidth}px` } as CSSProperties : undefined} data-home-left-open={homePanels?.leftOpen || undefined} data-home-right-open={homePanels?.rightOpen || undefined} className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
       {homePanels ? <div data-tauri-drag-region className="workspace-topbar__navigation">
         <IconButton type="button" aria-label="切换左侧栏" aria-expanded={homePanels.leftOpen} onClick={homePanels.toggleLeft}><PanelLeft size={16} /></IconButton>
+        {showWorkspace ? <button type="button" className="workspace-topbar__workspace-home"
+          aria-label={`${homePanels.workspaceName} 工作区首页`} title={`${homePanels.workspaceName} · 工作区首页`}
+          aria-current={workspaceActive ? "page" : undefined} onClick={onOpenWorkspace}>
+          <Folder size={14} aria-hidden="true" /><span>{homePanels.workspaceName}</span>
+        </button> : null}
         {!homePanels.leftOpen ? <>
           <IconButton type="button" aria-label="切换 Workspace" title="切换工作区" onClick={onSwitchWorkspace}><ArrowLeftRight size={14} /></IconButton>
           <IconButton type="button" aria-label="设置" onClick={onOpenSettings}><Settings size={13} /></IconButton>
@@ -317,10 +323,10 @@ export function WorkspaceTopBar({
           ref={tabListRef}
           className="workspace-topbar__tablist"
           role="tablist"
-          aria-label="Workspace 与项目"
+          aria-label={homePanels ? "项目" : "Workspace 与项目"}
         >
           <span ref={indicatorRef} className="workspace-topbar__indicator" aria-hidden="true" />
-          {showWorkspace ? (
+          {showWorkspace && !homePanels ? (
             <button
               type="button"
               className={[
@@ -378,7 +384,7 @@ export function WorkspaceTopBar({
                 aria-selected={project.id === activeProjectId}
                 tabIndex={
                   project.id === activeProjectId ||
-                  (!showWorkspace && activeProjectId === null && project === projects[0])
+                  ((!showWorkspace || homePanels !== undefined) && (workspaceActive || activeProjectId === null) && project === projects[0])
                     ? 0
                     : -1
                 }

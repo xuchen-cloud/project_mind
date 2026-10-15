@@ -1953,7 +1953,9 @@ describe("WorkspaceLayout", () => {
     }], { initialEntries: [initialRoute] });
     render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
     await screen.findByText("记录未找到");
-    fireEvent.click(screen.getByRole("tab", { name: destination === "/workspace" ? "Workspace" : "Beta" }));
+    fireEvent.click(destination === "/workspace"
+      ? screen.getByRole("button", { name: /工作区首页$/ })
+      : screen.getByRole("tab", { name: "Beta" }));
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
     expect(router.state.location.pathname).toBe(destination);
     expect(persist).not.toHaveBeenCalled();
