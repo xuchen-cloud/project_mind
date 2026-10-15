@@ -35,6 +35,14 @@ npm --prefix packages/dsh-assistant ci --no-audit --no-fund
 
 发布时 desktop prepare 将运行资产及 production dependencies 放入 `resources/dsh-assistant`，复用桌面已有的固定版本 Node 资源。发布应用不要求用户另行安装 Node 或 npm。
 
+### Skills
+
+主应用「设置 → Skills」统一显示 DSH 发现的技能，可打开说明文件和目录。选择 Project 时使用其真实工作目录与助手数据目录；Workspace 视图使用当前工作区目录。读取列表无需配置模型或发起模型请求。
+
+发现与同名优先级复用官方 `dsh-skill` / `dsh-skill-filesystem`：项目 `.dsh/skills`、项目 `.agents/skills`、助手数据目录中的 `skills`、用户 `.agents/skills`，以及本包的 `skills/` 内置目录。项目根目录按 DSH 的 Git 根目录规则确定；设置展示合并后的有效技能，修改外部文件后可刷新列表。
+
+`skills/project-mind-cli/SKILL.md` 是给 Agent 使用的 Mind CLI 内置 Skill。整个 `skills/` 目录随桌面资源默认打包并参与资源清单校验，运行时助手使用同一内置目录。本机用户安装的技能从其原目录发现。
+
 ### 独立调试入口
 
 `npm run start:dsh` / `npm run dev:dsh` 仅保留为开发调试入口，不是正常应用使用路径。它们默认监听 `127.0.0.1:3081` 并打开浏览器，使用独立配置；终端按 Ctrl+C 关闭服务，关闭浏览器标签页不会关闭 Node。

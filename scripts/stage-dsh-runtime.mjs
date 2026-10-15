@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { DESKTOP_RUNTIME_TARGETS } from './desktop-runtime-target.mjs';
 import { checksum, packageNoticeAssets } from './record-worker-notices.mjs';
 
-const sourceNames = ['scripts', 'config', 'vendor', 'package.json', 'package-lock.json', 'upstream.json'];
+const sourceNames = ['scripts', 'config', 'vendor', 'skills', 'package.json', 'package-lock.json', 'upstream.json'];
 const manifestName = 'dsh-distribution.json';
 const browserIndex = 'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html';
 const excluded = new Set(['.upstream', '.downloads', '.acceptance']);
@@ -199,7 +199,7 @@ async function inventory(directory) {
 }
 
 async function validateAssets(directory, target) {
-  for (const name of ['scripts/runtime.mjs', 'scripts/isolation.mjs', 'config/desktop.patch.yml', 'package.json', 'package-lock.json', 'upstream.json', browserIndex,
+  for (const name of ['skills/project-mind-cli/SKILL.md', 'scripts/runtime.mjs', 'scripts/skills.mjs', 'scripts/isolation.mjs', 'config/desktop.patch.yml', 'package.json', 'package-lock.json', 'upstream.json', browserIndex,
     'node_modules/dsh-desktop-client-ui/package.json']) await regularFile(path.join(directory, name));
   const lock = JSON.parse(await readFile(path.join(directory, 'package-lock.json')));
   for (const location of Object.keys(lock.packages).filter(name => name.includes('node_modules/'))) {

@@ -13,6 +13,7 @@ export type SettingsSection =
   | "ai-models"
   | "agent"
   | "dsh-assistant"
+  | "skills"
   | "ai-rewrite"
   | "external-connections"
   | "rich-text";

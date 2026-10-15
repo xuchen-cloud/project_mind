@@ -1,0 +1,11 @@
+.skills-scroll {
+  --home-sidebar: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  max-height: min(48dvh, 28rem);
+  min-height: 0;
+}
+
+.skills-scroll--directories {
+  max-height: 12rem;
+}

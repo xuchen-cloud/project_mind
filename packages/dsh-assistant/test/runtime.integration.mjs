@@ -632,6 +632,29 @@ test('independent Node DSH: upstream UI, streaming, stop/recovery and durable hi
   assert.ok(provider.requests[6].roles.includes('assistant'));
 });
 
+test('embedded assistant advertises the bundled CLI Skill without a model request', { timeout: 45000 }, async t => {
+  const temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-dsh-skills-')));
+  const provider = await startLocalProvider();
+  const project = { id: 149, name: 'Skills fixture', directory: path.join(temporary, 'project') };
+  await mkdir(project.directory);
+  let runtime;
+  t.after(async () => {
+    try { await runtime?.stop(); }
+    finally { await provider.close(); await rm(temporary, { recursive: true, force: true }); }
+  });
+  runtime = await launch(path.join(temporary, 'data'), undefined, {
+    name: 'Skills fixture', baseUrl: provider.url, modelId: 'local-test-model',
+    apiKey: 'local-integration-key', supportsImage: false,
+  }, project);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  const catalog = await runtime.rpc('skills/list', { sessionId });
+  const cli = catalog.skills.find(skill => skill.name === 'project-mind-cli');
+  assert.ok(cli, 'the actual assistant Session must discover its bundled CLI Skill');
+  assert.equal(cli.modelInvocable, true);
+  assert.equal(cli.path, path.join(root, 'skills/project-mind-cli/SKILL.md'));
+  assert.equal(provider.requests.length, 0);
+});
+
 test('embedded runtime uses the piped main AI model, hides separate Models settings, preserves history and shuts down via stdin', async t => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'mind-dsh-embedded-'));
   const provider = await startLocalProvider();

@@ -6,6 +6,10 @@ import {
   Settings2,
   Sparkles,
   StretchHorizontal,
+  BookOpen,
+  Mic,
+  Bot,
+  MessagesSquare,
 } from "lucide-react";
 import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -15,8 +19,10 @@ import { useUiStore } from "../../state/ui-store";
 import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
-import { AiChatIcon, VoiceRecordIcon } from "../icons/ContentTypeIcon";
 
+const SkillsPanel = lazy(() =>
+  import("./SkillsPanel").then((module) => ({ default: module.SkillsPanel })),
+);
 const AiSettingsPanel = lazy(() =>
   import("./AiSettingsPanel").then((module) => ({ default: module.AiSettingsPanel })),
 );
@@ -73,15 +79,16 @@ const SETTINGS_SECTIONS: Array<{
   {
     value: "voice",
     label: "语音记录",
-    icon: VoiceRecordIcon,
+    icon: Mic,
   },
   {
     value: "ai-models",
     label: "AI 模型配置",
     icon: Settings2,
   },
-  { value: "agent", label: "助手", icon: AiChatIcon },
-  { value: "dsh-assistant", label: "DSH 助手", icon: AiChatIcon },
+  { value: "skills", label: "Skills", icon: BookOpen },
+  { value: "agent", label: "助手", icon: Bot },
+  { value: "dsh-assistant", label: "DSH 助手", icon: MessagesSquare },
   {
     value: "ai-rewrite",
     label: "AI 技能",
@@ -110,6 +117,8 @@ export function SettingsDialog({
 
   const activePanel = (() => {
     switch (activeSection) {
+      case "skills":
+        return <Suspense fallback={<SettingsPanelFallback />}><SkillsPanel open={open} /></Suspense>;
       case "dsh-assistant":
         return <Suspense fallback={<SettingsPanelFallback />}><DshSettingsPanel open={open} /></Suspense>;
       case "agent":
@@ -247,6 +256,7 @@ export function SettingsRouteBridge() {
 }
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
+  if (section === "skills") return "skills";
   if (section === "dsh-assistant") return "dsh-assistant";
   if (section === "agent") return "agent";
   if (section === "updates") {
