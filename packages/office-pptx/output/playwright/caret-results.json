@@ -1,0 +1,36 @@
+[
+  {
+    "browser": "chromium",
+    "caret": true,
+    "backwardRange": true,
+    "pendingNativeReceipt": true,
+    "sameOverlayDom": true,
+    "hostFileSave": true,
+    "internalFileSave": true,
+    "ackBeforeSaveCallbackSettles": true,
+    "noHostFocusTheft": true,
+    "internalSaveErrorSettles": true,
+    "secondNativeSave": true,
+    "crossSaveUndo": true,
+    "readOnlyDropsOverlay": true,
+    "externalDropsOverlay": true,
+    "errors": []
+  },
+  {
+    "browser": "webkit",
+    "caret": true,
+    "backwardRange": true,
+    "pendingNativeReceipt": true,
+    "sameOverlayDom": true,
+    "hostFileSave": true,
+    "internalFileSave": true,
+    "ackBeforeSaveCallbackSettles": true,
+    "noHostFocusTheft": true,
+    "internalSaveErrorSettles": true,
+    "secondNativeSave": true,
+    "crossSaveUndo": true,
+    "readOnlyDropsOverlay": true,
+    "externalDropsOverlay": true,
+    "errors": []
+  }
+]

@@ -11,7 +11,7 @@ use crate::{
     db::Database,
     file_office::{FileOfficeEditInput, FileOfficeInput, FileOfficeService},
     file_version_service::{BoundFileCommitStore, FileCommitHost},
-    office_worker::{AppOfficeUtility, OfficeUtility},
+    office_worker::{AppOfficeUtility, OfficePayload, OfficeUtility},
     source_service::BoundSourceStore,
     AppState,
 };
@@ -379,7 +379,7 @@ impl OfficeUtility for SessionUtility<'_, '_> {
         method: &str,
         format: &str,
         base64: &str,
-        edits: Option<&[Value]>,
+        payload: OfficePayload<'_>,
     ) -> AgentResult<Value> {
         self.store.session_owned_async().await?;
         let wait_revocation = async {
@@ -389,7 +389,7 @@ impl OfficeUtility for SessionUtility<'_, '_> {
             AgentError::new(ErrorCode::WorkspaceChanged, "DSH runtime was revoked")
         };
         let result = tokio::select! {
-            result=self.worker.request(id,method,format,base64,edits)=>result?,
+            result=self.worker.request(id,method,format,base64,payload)=>result?,
             error=wait_revocation=>return Err(error),
         };
         self.store.session_owned_async().await?;

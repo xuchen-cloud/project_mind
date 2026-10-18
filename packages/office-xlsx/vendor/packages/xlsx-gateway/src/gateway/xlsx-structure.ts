@@ -356,6 +356,18 @@ function toRef(range: CellArea): string {
 }
 
 function applyMergeOp(xml: string, op: Extract<StructuralOp, { range: CellArea }>): string {
+  if (op.kind === 'merge-cells') {
+    const grow = (ref: string): string => {
+      const parts = ref.split(':')
+      const oldEnd = parseA1(parts[parts.length - 1]!)
+      return `${parts[0]}:${columnToLetters(Math.max(oldEnd?.column ?? 0, op.range.endColumn))}${Math.max(oldEnd?.row ?? 0, op.range.endRow) + 1}`
+    }
+    if (/<dimension\b/.test(xml)) xml = xml.replace(/(<dimension\b[^>]*\bref=")([^"]+)(")/, (_all, a: string, ref: string, z: string) => `${a}${grow(ref)}${z}`)
+    else {
+      const dimension = `<dimension ref="${grow('A1')}"/>`
+      xml = xml.includes('</sheetPr>') ? xml.replace('</sheetPr>', `</sheetPr>${dimension}`) : xml.replace(/(<worksheet\b[^>]*>)/, `$1${dimension}`)
+    }
+  }
   const ref = toRef(op.range)
   if (op.kind === 'unmerge-cells') {
     const without = xml.replace(new RegExp(`<mergeCell\\b[^>]*\\bref="${ref}"[^>]*/>`), '')
@@ -1838,12 +1850,13 @@ function columnToLetters(column: number): string {
 }
 
 function decodeEntities(input: string): string {
-  return input
-    .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'")
-    .replaceAll('&gt;', '>')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&amp;', '&')
+  const named: Record<string,string> = {quot: '"', apos: "'", gt: '>', lt: '<', amp: '&'}
+  return input.replace(/&(?:#x([0-9A-Fa-f]+)|#([0-9]+)|(quot|apos|lt|gt|amp));/g,
+    (match, hex: string | undefined, dec: string | undefined, name: string | undefined) => {
+      if (name !== undefined) return named[name] ?? match
+      const code = hex !== undefined ? Number.parseInt(hex, 16) : Number(dec)
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match
+    })
 }
 
 function escapeXmlText(input: string): string {

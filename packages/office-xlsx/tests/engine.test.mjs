@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, writeFile, mkdir, mkdtemp, readdir, rm, chmod, cp } from 'node:fs/promises'
 import JSZip from 'jszip'
+import {z} from 'zod'
 import { inspect, edit, loadRange } from '../dist/engine.mjs'
 
 const bytes = await readFile(new URL('./fixtures/simple.original.xlsx', import.meta.url))
@@ -9,6 +10,27 @@ const at = (model, name, row, column) => {
   const sheet = model.sheets.find((sheet) => sheet.name === name)
   return model.ranges[sheet.id].cells.find((cell) => cell.row === row && cell.column === column)
 }
+
+test('identical XLSX bytes inspect to deeply equal snapshots with a required UUID gateway key',async()=>{
+  const first=await inspect(bytes),second=await inspect(new Uint8Array(bytes))
+  z.string().uuid().parse(first.rendererData.file.sessionId)
+  assert.deepEqual(second,first,'native runtime session IDs must not leak into the byte snapshot')
+})
+
+test('a saved XLSX reinspects to a stable snapshot and a different source identity',async()=>{
+  const original=await inspect(bytes)
+  const saved=await edit(bytes,[
+    {sheetId:'sheet-1',row:2,column:0,kind:'string',value:'香蕉（原生保存）'},
+    {sheetId:'sheet-1',row:2,column:1,kind:'number',value:15},
+    {sheetId:'sheet-1',row:4,column:1,kind:'formula',formula:'=SUM(B3:B4)+5'},
+  ])
+  const savedModel=await inspect(saved),reopened=await inspect(new Uint8Array(saved))
+  assert.deepEqual(reopened,savedModel,'the saved model must describe the same reopened bytes')
+  assert.notEqual(reopened.rendererData.file.sessionId,original.rendererData.file.sessionId,'changed source bytes get a new snapshot identity')
+  assert.equal(at(reopened,'明细',4,1).value,40)
+  assert.equal(at(reopened,'说明',2,1).value,40)
+})
+
 test('saving typed edits recalculates dependencies and a sheet with no user edit', async () => {
   const saved = await edit(bytes, [
     { sheetId: 'sheet-1', row: 2, column: 0, kind: 'string', value: '香蕉（SDK编辑）' },
@@ -99,7 +121,7 @@ test('inspect and explicit load enforce bounded ranges', async () => {
 
 test('blank rows and columns are editable and survive consecutive saves', async () => {
   const initial = await inspect(bytes)
-  assert.deepEqual(initial.ranges['sheet-1'].area, { startRow: 0, endRow: 99, startColumn: 0, endColumn: 25 })
+  assert.deepEqual(initial.ranges['sheet-1'].area, { startRow: 0, endRow: 999, startColumn: 0, endColumn: 25 })
   const first = await edit(bytes, [{ sheetId: 'sheet-1', row: 19, column: 3, kind: 'number', value: 7 }])
   const second = await edit(first, [
     { sheetId: 'sheet-1', row: 20, column: 3, kind: 'number', value: 3 },

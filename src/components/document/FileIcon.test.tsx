@@ -193,7 +193,8 @@ describe("FileIcon", () => {
         "--dsw-static-red-600": "rgb(236, 19, 19)",
       };
       for (const [token, value] of Object.entries(palette)) {
-        expect(css.getPropertyValue(token).trim()).toBe(value);
+        // CSSOM versions differ in optional whitespace after RGB commas.
+        expect(css.getPropertyValue(token).trim().replace(/,\s*/gu, ",")).toBe(value.replace(/,\s*/gu, ","));
       }
     } finally {
       style.remove();

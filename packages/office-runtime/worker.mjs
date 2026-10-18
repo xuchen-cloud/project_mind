@@ -13,8 +13,11 @@ export async function handleOfficeRequest(request) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Invalid Office request identity');
   }
   const { method, data } = request;
-  if (!['office.inspect', 'office.edit'].includes(method) || !data || typeof data !== 'object' || Array.isArray(data)
-      || Object.keys(data).some(key => !['format', 'base64', 'edits'].includes(key)) || !formats.has(data.format)
+  const recalculate = method === 'office.recalculate';
+  const allowed = recalculate ? ['format', 'base64', 'recalculation'] : ['format', 'base64', 'edits'];
+  if (!['office.inspect', 'office.edit', 'office.recalculate'].includes(method) || !data || typeof data !== 'object' || Array.isArray(data)
+      || Object.keys(data).some(key => !allowed.includes(key)) || !formats.has(data.format)
+      || (recalculate && data.format !== 'xlsx')
       || typeof data.base64 !== 'string') {
     return failure(requestId, 'INVALID_ARGUMENT', 'Expected a supported Office format and fixed source bytes');
   }
@@ -33,10 +36,33 @@ export async function handleOfficeRequest(request) {
   if (method === 'office.inspect' && data.edits !== undefined) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Inspection does not accept edits');
   }
+  if (recalculate) {
+    const input = data.recalculation;
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+        || Object.keys(input).some(key => !['edits','reads'].includes(key))
+        || !Array.isArray(input.edits) || !Array.isArray(input.reads)) {
+      return failure(requestId, 'INVALID_ARGUMENT', 'Expected recalculation edits and reads only');
+    }
+    if (input.edits.length > 10000 || input.reads.length > 200) {
+      return failure(requestId, 'BUDGET_EXCEEDED', 'Recalculation exceeds 10000 edits or 200 reads');
+    }
+    let cells = 0;
+    for (const read of input.reads) {
+      const r = read?.range;
+      if (r && [r.startRow,r.endRow,r.startColumn,r.endColumn].every(Number.isSafeInteger)
+          && r.endRow >= r.startRow && r.endColumn >= r.startColumn) {
+        cells += (r.endRow-r.startRow+1)*(r.endColumn-r.startColumn+1);
+      }
+    }
+    if (cells > 100000) return failure(requestId, 'BUDGET_EXCEEDED', 'Recalculation exceeds 100000 read cells');
+  }
   try {
     const engine = await import(`./${data.format}-engine.mjs`);
     const context = { binaryPath: fileURLToPath(new URL(process.platform === 'win32' ? './xlsx-sidecar.exe' : './xlsx-sidecar', import.meta.url)), tempRoot: process.cwd() };
     if (method === 'office.inspect') return { requestId, ok: true, data: { model: await engine.inspect(bytes, context) } };
+    // engine.recalculate reuses workbookRecalcRequestSchema for strict nested
+    // fields, coordinates and input lengths before opening the source bytes.
+    if (recalculate) return { requestId, ok: true, data: await engine.recalculate(bytes, data.recalculation, context) };
     const candidate = await engine.edit(bytes, data.edits, context);
     if (!(candidate instanceof Uint8Array) || candidate.byteLength > MAX_BYTES) {
       return failure(requestId, 'BUDGET_EXCEEDED', 'Office candidate exceeds 100 MiB');
@@ -44,7 +70,7 @@ export async function handleOfficeRequest(request) {
     return { requestId, ok: true, data: { base64: Buffer.from(candidate).toString('base64'), model: await engine.inspect(candidate, context) } };
   } catch (error) {
     const known = new Set(['INVALID_ARGUMENT', 'INVALID_PATCH', 'BUDGET_EXCEEDED', 'SOURCE_NOT_READY', 'RUNTIME_UNAVAILABLE']);
-    return failure(requestId, known.has(error?.code) ? error.code : method === 'office.edit' ? 'INVALID_PATCH' : 'SOURCE_NOT_READY',
+    return failure(requestId, known.has(error?.code) ? error.code : error?.name === 'ZodError' ? 'INVALID_ARGUMENT' : method === 'office.edit' ? 'INVALID_PATCH' : 'SOURCE_NOT_READY',
       typeof error?.message === 'string' ? error.message.slice(0, 2048) : 'Office conversion failed');
   }
 }

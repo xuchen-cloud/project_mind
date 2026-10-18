@@ -4,6 +4,8 @@ import tailwindcss from "@tailwindcss/vite";
 
 import { dshUiAliases } from './packages/dsh-ui/vite-aliases.mjs';
 
+const lazyMarkdownDependencies = new Set<string>();
+
 export default defineConfig({
   define: { "import.meta.env.PROJECT_MIND_DEBUG_BUILD": process.env.TAURI_ENV_DEBUG === "true" },
   resolve: { alias: dshUiAliases, dedupe: ['react', 'react-dom'] },
@@ -11,6 +13,28 @@ export default defineConfig({
     // Entrypoints own their HMR lifecycle; they are not component refresh boundaries.
     react({ exclude: [/node_modules/, /\/src\/(?:voice-)?main\.tsx$/] }),
     tailwindcss(),
+    {
+      name: 'markdown-lazy-dependencies',
+      apply: 'build',
+      buildEnd() {
+        lazyMarkdownDependencies.clear();
+        const closure = new Set<string>();
+        const visit = (id: string, target: Set<string>) => {
+          if (target.has(id)) return;
+          target.add(id);
+          for (const dependency of this.getModuleInfo(id)?.importedIds ?? []) visit(dependency, target);
+        };
+        for (const id of this.getModuleIds()) {
+          if (/\/node_modules\/(?:@codemirror\/|@lezer\/|mermaid\/|@mermaid-js\/|wavedrom\/)/u.test(id)) visit(id, closure);
+        }
+        const shared = new Set<string>();
+        for (const id of closure) {
+          if (this.getModuleInfo(id)?.importers.some(importer => !closure.has(importer) &&
+            !/\/(?:src\/components\/markdown|packages\/markdown-editor)\//u.test(importer))) visit(id, shared);
+        }
+        for (const id of closure) if (!shared.has(id)) lazyMarkdownDependencies.add(id);
+      },
+    },
   ],
   build: {
     chunkSizeWarningLimit: 900,
@@ -18,6 +42,9 @@ export default defineConfig({
       input: { main: "index.html", voice: "voice.html" },
       output: {
         manualChunks(id) {
+          // Keep diagram/code editor dependencies in their actual lazy graphs;
+          // shared dependencies still use the host's normal vendor chunks.
+          if (lazyMarkdownDependencies.has(id)) return undefined;
           if (!id.includes("node_modules")) {
             // Keep the shared Todo rail stable when sidebar imports change.
             if (id.includes("/src/todo/") || id.includes("/src/components/todo/")) {
@@ -97,6 +124,12 @@ export default defineConfig({
       "packages/agent-host/**",
       "packages/dsh-assistant/**",
       "packages/dsh-ui/upstream/**",
+      // Format packages own their runners, browser adapters and vendored tests.
+      "packages/office-docx/**",
+      "packages/office-html2docx/**",
+      "packages/office-pptx/**",
+      "packages/office-xlsx/**",
+      "packages/markdown-editor/**",
       // These files use node:test and file:// APIs, not Vitest/jsdom.
       "scripts/desktop-runtime.test.mjs",
       "scripts/stage-dsh-runtime.test.mjs",

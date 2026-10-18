@@ -8,7 +8,7 @@ use crate::{
     committed_changes::{CommittedChangePublisher, CommittedChanges},
     db::Database,
     file_version_service::{BoundFileCommitStore, FileCommitHost},
-    office_worker::OfficeUtility,
+    office_worker::{OfficePayload, OfficeUtility},
     source_service::BoundSourceStore,
     workspace::{create_workspace, WorkspacePaths},
     workspace_commit_fence::WorkspaceCommitFence,
@@ -56,7 +56,7 @@ impl OfficeUtility for Engine {
         method: &str,
         format: &str,
         base64: &str,
-        edits: Option<&[Value]>,
+        payload: OfficePayload<'_>,
     ) -> AgentResult<Value> {
         assert_eq!(format, "docx");
         let original = STANDARD.decode(base64).unwrap();
@@ -64,7 +64,10 @@ impl OfficeUtility for Engine {
         if method == "office.inspect" {
             return Ok(json!({"model":{"text":"first document"}}));
         }
-        assert_eq!(edits.unwrap(), &[json!({"text":"second document"})]);
+        let OfficePayload::Edit(edits) = payload else {
+            panic!("expected edit payload")
+        };
+        assert_eq!(edits, &[json!({"text":"second document"})]);
         Ok(json!({"model":{"text":"second document"},"base64":STANDARD.encode(b"second document")}))
     }
 }
@@ -132,6 +135,283 @@ fn fixture_bytes(name: &str, bytes: &[u8]) -> Fixture {
     }
 }
 
+fn recalculation_input(f: &Fixture) -> FileOfficeRecalculateInput {
+    serde_json::from_value(json!({
+        "object":f.input.object,"versionNumber":1,"expectedContentHash":f.input.expected_content_hash,
+        "recalculation":{"edits":[{"sheetId":"sheet-1","row":0,"column":1,"input":"=SUM(A1:A2)"}],
+            "reads":[{"sheetId":"sheet-1","range":{"startRow":0,"endRow":0,"startColumn":1,"endColumn":1}}]}
+    })).unwrap()
+}
+struct RecalcEngine;
+impl OfficeUtility for RecalcEngine {
+    async fn request(
+        &self,
+        id: &str,
+        method: &str,
+        format: &str,
+        base64: &str,
+        payload: OfficePayload<'_>,
+    ) -> AgentResult<Value> {
+        assert!(!id.is_empty());
+        assert_eq!(method, "office.recalculate");
+        assert_eq!(format, "xlsx");
+        assert_eq!(STANDARD.decode(base64).unwrap(), b"first workbook");
+        let OfficePayload::Recalculate(input) = payload else {
+            panic!("expected read-only calculation payload")
+        };
+        assert_eq!(input.edits[0].input, "=SUM(A1:A2)");
+        Ok(
+            json!({"cells":[{"sheetId":"sheet-1","row":0,"column":1,"formatted":"42","number":42,"isFormula":true}]}),
+        )
+    }
+}
+#[tokio::test]
+async fn office_recalculate_is_read_only_and_accepts_a_read_only_gui_grant() {
+    let f = fixture_bytes("workbook.xlsx", b"first workbook");
+    let input = recalculation_input(&f);
+    let request = gui_request(
+        &f.store,
+        &f.store.binding,
+        "read-recalc",
+        &input.object,
+        false,
+    )
+    .unwrap();
+    assert_eq!(request.scope_grant.operations, ["source.read"]);
+    let result = FileOfficeService::new(&f.store, &RecalcEngine)
+        .recalculate(&request, &input)
+        .await
+        .unwrap();
+    assert_eq!(result.cells[0].number, Some(42.0));
+    assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+    let connection = rusqlite::Connection::open(&f.store.paths.db_path).unwrap();
+    let versions: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM document_versions WHERE document_id=?1",
+            [&input.object.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(versions, 1);
+    let file = f
+        .store
+        .with_current(|_, db| {
+            db.project_file_resolve(&input.object)
+                .map_err(|e| AgentError::new(ErrorCode::IoFailed, e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(file.version_number, 1);
+    assert_eq!(
+        file.content_hash.as_deref(),
+        Some(input.expected_content_hash.as_str())
+    );
+}
+
+#[tokio::test]
+async fn office_recalculate_checks_actual_owner_binding_hash_format_and_value_budget() {
+    let f = fixture_bytes("workbook.xlsx", b"first workbook");
+    let input = recalculation_input(&f);
+    let service = FileOfficeService::new(&f.store, &RecalcEngine);
+    let mut forged = input.clone();
+    forged.object.scope = crate::agent::models::Scope::Project { project_id: 9999 };
+    assert_eq!(
+        service
+            .recalculate(&f.request, &forged)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeDenied
+    );
+    let mut stale = f.request.clone();
+    stale.binding.generation = "previous".into();
+    assert_eq!(
+        service.recalculate(&stale, &input).await.unwrap_err().code,
+        ErrorCode::WorkspaceChanged
+    );
+    let mut denied = f.request.clone();
+    denied.scope_grant.operations.clear();
+    assert_eq!(
+        service.recalculate(&denied, &input).await.unwrap_err().code,
+        ErrorCode::ScopeDenied
+    );
+    let mut changed = input.clone();
+    changed.expected_content_hash = format!("sha256:{}", "f".repeat(64));
+    assert_eq!(
+        service
+            .recalculate(&f.request, &changed)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::SourceChanged
+    );
+    let mut over = input.clone();
+    over.recalculation.edits[0].input = "😀".repeat(16384);
+    assert_eq!(
+        service
+            .recalculate(&f.request, &over)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::BudgetExceeded
+    );
+    let doc = fixture();
+    assert_eq!(
+        FileOfficeService::new(&doc.store, &RecalcEngine)
+            .recalculate(&doc.request, &recalculation_input(&doc))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidArgument
+    );
+}
+
+enum RecalcMutation {
+    Hash,
+    VersionGone,
+    Owner(i64),
+}
+struct RecalcChangedBaseline {
+    database: PathBuf,
+    root: PathBuf,
+    file_id: String,
+    mutation: RecalcMutation,
+}
+impl OfficeUtility for RecalcChangedBaseline {
+    async fn request(
+        &self,
+        id: &str,
+        method: &str,
+        format: &str,
+        bytes: &str,
+        payload: OfficePayload<'_>,
+    ) -> AgentResult<Value> {
+        let result = RecalcEngine
+            .request(id, method, format, bytes, payload)
+            .await?;
+        let connection = rusqlite::Connection::open(&self.database).unwrap();
+        match self.mutation {
+            RecalcMutation::Hash => {
+                let reference:String=connection.query_row("SELECT managed_path FROM document_versions WHERE document_id=?1 AND version_number=1",[&self.file_id],|row|row.get(0)).unwrap();
+                let snapshot = self
+                    .root
+                    .join(reference.strip_prefix("workspace:").unwrap());
+                std::fs::write(snapshot, b"tampered retained workbook").unwrap();
+            }
+            RecalcMutation::VersionGone => {
+                connection
+                    .execute(
+                        "DELETE FROM document_versions WHERE document_id=?1",
+                        [&self.file_id],
+                    )
+                    .unwrap();
+            }
+            RecalcMutation::Owner(project) => {
+                connection
+                    .execute(
+                        "UPDATE documents SET project_id=?1 WHERE id=?2",
+                        rusqlite::params![project, self.file_id],
+                    )
+                    .unwrap();
+            }
+        }
+        Ok(result)
+    }
+}
+#[tokio::test]
+async fn office_recalculate_rechecks_fixed_version_hash_after_async_computation() {
+    for variant in 0..3 {
+        let f = fixture_bytes("workbook.xlsx", b"first workbook");
+        let input = recalculation_input(&f);
+        let (mutation, expected) = match variant {
+            0 => (RecalcMutation::Hash, ErrorCode::SourceChanged),
+            1 => (RecalcMutation::VersionGone, ErrorCode::SourceNotReady),
+            _ => {
+                let project = f
+                    .store
+                    .db
+                    .lock()
+                    .unwrap()
+                    .project_create(crate::models::ProjectCreateInput {
+                        name: "Another owner".into(),
+                        summary: None,
+                        status: None,
+                    })
+                    .unwrap();
+                (RecalcMutation::Owner(project.id), ErrorCode::ScopeDenied)
+            }
+        };
+        let worker = RecalcChangedBaseline {
+            database: f.store.paths.db_path.clone(),
+            root: f.store.paths.root_path.clone(),
+            file_id: input.object.id.clone(),
+            mutation,
+        };
+        assert_eq!(
+            FileOfficeService::new(&f.store, &worker)
+                .recalculate(&f.request, &input)
+                .await
+                .unwrap_err()
+                .code,
+            expected
+        );
+        assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+    }
+}
+
+struct RecalcRevoked<'a>(&'a Store, std::sync::atomic::AtomicBool);
+impl BoundSourceStore for RecalcRevoked<'_> {
+    fn with_current<T>(
+        &self,
+        f: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        self.0.with_current(|binding, db| {
+            let mut binding = binding.clone();
+            if self.1.load(std::sync::atomic::Ordering::SeqCst) {
+                binding.generation = "reopened".into();
+            }
+            f(&binding, db)
+        })
+    }
+}
+impl CommittedChangePublisher for RecalcRevoked<'_> {
+    fn publish_committed(&self, _: CommittedChanges) {}
+}
+impl BoundFileCommitStore for RecalcRevoked<'_> {
+    fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<FileCommitHost> {
+        self.0.gui_commit_host(binding)
+    }
+}
+impl OfficeUtility for RecalcRevoked<'_> {
+    async fn request(
+        &self,
+        id: &str,
+        method: &str,
+        format: &str,
+        bytes: &str,
+        payload: OfficePayload<'_>,
+    ) -> AgentResult<Value> {
+        let result = RecalcEngine
+            .request(id, method, format, bytes, payload)
+            .await?;
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(result)
+    }
+}
+#[tokio::test]
+async fn office_recalculate_rechecks_workspace_generation_after_async_computation() {
+    let f = fixture_bytes("workbook.xlsx", b"first workbook");
+    let host = RecalcRevoked(&f.store, std::sync::atomic::AtomicBool::new(false));
+    assert_eq!(
+        FileOfficeService::new(&host, &host)
+            .recalculate(&f.request, &recalculation_input(&f))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::WorkspaceChanged
+    );
+    assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+}
+
 #[tokio::test]
 async fn office_gui_save_commits_real_file_version_and_history_keeps_old_bytes() {
     let f = fixture();
@@ -178,9 +458,9 @@ impl OfficeUtility for ChangedDisk {
         method: &str,
         format: &str,
         base64: &str,
-        edits: Option<&[Value]>,
+        payload: OfficePayload<'_>,
     ) -> AgentResult<Value> {
-        let result = Engine.request(id, method, format, base64, edits).await?;
+        let result = Engine.request(id, method, format, base64, payload).await?;
         std::fs::write(&self.0, b"external document").unwrap();
         Ok(result)
     }
@@ -353,6 +633,53 @@ async fn office_real_format(
         .inspect(&f.request, &f.input.baseline())
         .await
         .unwrap();
+    if format == "xlsx" {
+        let imported = crate::editor_workbook_import::inspect_imported(
+            "main", worker,
+            serde_json::from_value(json!({"base64": STANDARD.encode(&bytes)})).unwrap(),
+        ).await.unwrap();
+        assert_eq!(imported["format"], "xlsx");
+        assert_eq!(imported["sheets"], original.model["sheets"]);
+        assert!(imported["rendererData"]["file"].is_object());
+        assert_eq!(std::fs::read(root.join(relative)).unwrap(), bytes);
+        // The existing real-format opt-in also exercises the data-only IronCalc route.
+        let calculation: FileOfficeRecalculateInput = serde_json::from_value(json!({
+            "object":f.input.object,"versionNumber":1,"expectedContentHash":f.input.expected_content_hash,
+            "recalculation":{"edits":[
+                {"sheetId":"sheet-1","row":2,"column":1,"input":"15"},
+                {"sheetId":"sheet-1","row":4,"column":1,"input":"=SUM(B3:B4)+5"}
+            ],"reads":[
+                {"sheetId":"sheet-1","range":{"startRow":4,"endRow":4,"startColumn":1,"endColumn":1}},
+                {"sheetId":"sheet-2","range":{"startRow":2,"endRow":2,"startColumn":1,"endColumn":1}}
+            ]}
+        })).unwrap();
+        let calculated = service.recalculate(&f.request, &calculation).await.unwrap();
+        for (sheet, row) in [("sheet-1", 4), ("sheet-2", 2)] {
+            let cell = calculated
+                .cells
+                .iter()
+                .find(|cell| cell.sheet_id == sheet && cell.row == row && cell.column == 1)
+                .unwrap();
+            assert_eq!(
+                cell.number,
+                Some(40.0),
+                "{sheet}: native read-only IronCalc result"
+            );
+        }
+        assert_eq!(
+            std::fs::read(&f.path).unwrap(),
+            bytes,
+            "Recalculation must not save the File"
+        );
+        let current = f
+            .store
+            .with_current(|_, db| {
+                db.project_file_resolve(&f.input.object)
+                    .map_err(|e| AgentError::new(ErrorCode::IoFailed, e.to_string()))
+            })
+            .unwrap();
+        assert_eq!(current.version_number, 1);
+    }
     let old = f.input.baseline();
     f.input.edits = match format {
         "docx" => {
@@ -546,7 +873,9 @@ fn crash_office(f: &Fixture, phase: u8) {
         assert_eq!(
             output.status.signal(),
             Some(9),
-            "phase {phase}: {}",
+            "phase {phase}: status {}\nstdout: {}\nstderr: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
     }

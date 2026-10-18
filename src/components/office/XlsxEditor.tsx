@@ -24,6 +24,9 @@ export function XlsxEditor(props: XlsxEditorProps) {
     void mounting.current.catch((cause: unknown) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
     return () => { disposed = true; editor.current?.dispose(); editor.current = null }
   }, [])
+  useEffect(() => {
+    const node=host.current; const failed=(event:Event)=>setError(String((event as CustomEvent).detail)); node?.addEventListener('office-error',failed); return()=>node?.removeEventListener('office-error',failed)
+  }, [])
   useEffect(() => props.registerBeforeSave?.(async () => {
     const mounted = await mounting.current
     if (!mounted) throw new Error('Excel 编辑器尚未加载')
@@ -32,7 +35,7 @@ export function XlsxEditor(props: XlsxEditorProps) {
   useEffect(() => {
     try { editor.current?.update(props) }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
-  }, [props.model, props.edits, props.onChange, props.readOnly, props.onPendingChange])
+  }, [props.model, props.edits, props.onChange, props.readOnly, props.onPendingChange, props.onSaveRequest, props.onExport, props.onPrint, props.onRenderPdf, props.onRecalculate, props.onInspectImportedWorkbook, props.onCaptureScreenSources, props.onCaptureScreenSource])
   return <div ref={host} className="office-xlsx-editor h-full min-h-0 w-full" aria-label="Excel 工作表">
     {error && <div role="alert" className="office-xlsx-status">{error}</div>}
   </div>

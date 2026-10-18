@@ -11,7 +11,7 @@ use crate::{
         MAX_CONTENT,
     },
     file_version_service::{BoundFileCommitStore, FileVersionCommitResult},
-    office_worker::OfficeUtility,
+    office_worker::{OfficePayload, OfficeRecalculation, OfficeRecalculationResult, OfficeUtility},
     source_service::BoundSourceStore,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -45,6 +45,23 @@ pub(crate) struct FileOfficeEditInput {
 }
 impl FileOfficeEditInput {
     pub(crate) fn baseline(&self) -> FileOfficeInput {
+        FileOfficeInput {
+            object: self.object.clone(),
+            version_number: self.version_number,
+            expected_content_hash: self.expected_content_hash.clone(),
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FileOfficeRecalculateInput {
+    pub object: ObjectRef,
+    pub version_number: u32,
+    pub expected_content_hash: String,
+    pub recalculation: OfficeRecalculation,
+}
+impl FileOfficeRecalculateInput {
+    fn baseline(&self) -> FileOfficeInput {
         FileOfficeInput {
             object: self.object.clone(),
             version_number: self.version_number,
@@ -170,6 +187,53 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
     pub(crate) fn new(store: &'a S, worker: &'a W) -> Self {
         Self { store, worker }
     }
+    pub(crate) async fn recalculate(
+        &self,
+        request: &RequestContext,
+        input: &FileOfficeRecalculateInput,
+    ) -> AgentResult<OfficeRecalculationResult> {
+        input.recalculation.validate()?;
+        let baseline = input.baseline();
+        let bytes = self.read(request, &baseline)?;
+        if format(&bytes.name)? != "xlsx" {
+            return Err(error(
+                ErrorCode::InvalidArgument,
+                "Recalculation requires an XLSX File",
+            ));
+        }
+        let result = self
+            .worker
+            .request(
+                &request.request_id,
+                "office.recalculate",
+                "xlsx",
+                &bytes.base64,
+                OfficePayload::Recalculate(&input.recalculation),
+            )
+            .await?;
+        // As for inspection, re-authorize and verify the exact retained baseline.
+        self.read(request, &baseline)?;
+        let result: OfficeRecalculationResult = serde_json::from_value(result).map_err(|_| {
+            error(
+                ErrorCode::RuntimeIncompatible,
+                "Invalid Office recalculation result",
+            )
+        })?;
+        if result.cells.len() > 100_000
+            || result.cells.iter().any(|cell| {
+                cell.sheet_id.is_empty()
+                    || cell.row > 1_048_575
+                    || cell.column > 16_383
+                    || cell.number.is_some_and(|n| !n.is_finite())
+            })
+        {
+            return Err(error(
+                ErrorCode::RuntimeIncompatible,
+                "Invalid Office recalculation cells",
+            ));
+        }
+        Ok(result)
+    }
     fn read(
         &self,
         request: &RequestContext,
@@ -233,7 +297,7 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
                 "office.inspect",
                 &format,
                 &bytes.base64,
-                None,
+                OfficePayload::Inspect,
             )
             .await?;
         // Async work releases storage: recheck binding, owner, policy and bytes.
@@ -279,7 +343,7 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
                 "office.edit",
                 &format,
                 &original.base64,
-                Some(&input.edits),
+                OfficePayload::Edit(&input.edits),
             )
             .await?;
         self.latest(request, &baseline)?;

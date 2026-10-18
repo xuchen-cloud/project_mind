@@ -1,0 +1,15 @@
+/* The complete upstream editing surface lives inside an isolated iframe. */
+html,body,#root {margin:0;min-width:0;width:100%;height:100%;overflow:hidden}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+:root {--surface:var(--color-bg);--surface-subtle:var(--color-bg-subtle);--chrome-bg:var(--color-bg);--border:var(--color-border);--text:var(--color-text-primary);--text-primary:var(--color-text-primary);--text-secondary:var(--color-text-secondary);--text-tertiary:var(--color-text-secondary);--accent:var(--color-accent);--accent-dark:var(--color-accent);--accent-soft:color-mix(in srgb,var(--color-accent) 10%,var(--color-bg));--gs-font-sans:var(--font-ui);--ribbon-hover:var(--color-bg-subtle);--ribbon-active:var(--color-bg-subtle);--sheets-statusbar-bg:var(--color-bg-subtle)}
+[data-office-scroll-mask="true"] {mask-image:linear-gradient(to right,rgba(0,0,0,var(--office-mask-left)) 0,#000 min(16px,35%),#000 calc(100% - min(16px,35%)),rgba(0,0,0,var(--office-mask-right)) 100%),linear-gradient(to bottom,rgba(0,0,0,var(--office-mask-top)) 0,#000 min(24px,35%),#000 calc(100% - min(24px,35%)),rgba(0,0,0,var(--office-mask-bottom)) 100%);mask-composite:intersect}
+
+/* The host owns window chrome; the full tab row scrolls as one non-shrinking rail. */
+.ribbon-tabs{min-width:0;overflow-x:auto;overflow-y:hidden;padding-inline:10px;-webkit-app-region:no-drag;scrollbar-width:thin}
+.ribbon-tabs>button,.ribbon-tabs>.autosave-toggle{flex:0 0 auto}
+.ribbon-tabs .qa-btn.office-output-action{width:auto;min-width:max-content;padding-inline:10px;white-space:nowrap;font-size:12px;line-height:28px}
+.ribbon-tabs .qa-sep{margin-inline:8px}
+.ribbon-tabs .workbook-status{flex:0 1 360px;min-width:0}
+@media(max-width:760px){.ribbon-tabs .workbook-status{display:none}}
+.office-output-action:focus-visible{outline:2px solid var(--color-accent);outline-offset:-2px}.office-output-dialog{max-width:420px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-bg);color:var(--color-text-primary);font:14px var(--font-ui);padding:24px}.office-output-dialog::backdrop{background:#0004}.office-output-dialog h2{font-size:16px;margin:0 0 12px}.office-output-dialog p{line-height:1.6;margin:0 0 20px}.office-output-dialog button{padding:6px 12px;border:1px solid var(--color-border);border-radius:5px;background:var(--color-bg-subtle);color:var(--color-text-primary)}

@@ -1,3 +1,7 @@
+import {changedParts,CANDIDATE_MAX_BYTES,CANDIDATE_ZIP_LIMITS} from './parity-candidate';
+import {assertZipInflatesWithinLimits} from './vendor/packages/zip-gate/src';
+import {sameArchive} from './parity-history';
+import { createParitySession } from './parity-session';
 import { openPptx, elementSpid, type OpenedPptx, type SlideElement, type TextElement } from '@genoffice/pptx-engine';
 import { buildRenderSlide } from '@genoffice/pptx-render';
 import JSZip from 'jszip';
@@ -13,7 +17,7 @@ function nonVisualId(el: SlideElement): string | null {
 }
 
 export async function inspect(bytes: Uint8Array): Promise<PptxModel> {
-  return modelOf(await openValidated(bytes));
+  return { ...modelOf(await openValidated(bytes)), sourceBase64: Buffer.from(bytes).toString('base64') };
 }
 
 async function openValidated(bytes: Uint8Array): Promise<OpenedPptx> {
@@ -60,7 +64,7 @@ function modelOf(opened: OpenedPptx): PptxModel {
     slide.decorations?.forEach((el, i) => decorate(el, `slide-${slideIndex}:decoration-${i}`));
   });
   const renderSlides = slides.map((slide, i) => buildRenderSlide(slide, opened.deck.size, { fitWidthPx: 960, slideNo: i + 1, media: ref => media[ref] }));
-  return { format: 'pptx', originalHash: opened.deck.originalHash, size: opened.deck.size, slides, renderSlides, media, textElements, pictureElements, limitations: ['仅编辑已有普通文字片段及顶层图片位置；动态字段、数学公式、组合、表格和图表保持原件。', '字体使用系统回退与估算度量；部分高级效果及 EMF/WMF 图片预览不支持。'] };
+  return { format: 'pptx', originalHash: opened.deck.originalHash, size: opened.deck.size, slides, renderSlides, media, textElements, pictureElements, limitations: ['完整上游 renderer 与 ops 编辑会话；未修改部件沿用原件。二进制 .ppt 不受上游引擎支持。', '字体依赖系统回退与估算度量；导入图表编辑采用上游图表模板，可能丢失未建模的格式。'] };
 }
 
 function textUnsupported(el: TextElement, grouped: boolean): string | undefined {
@@ -78,8 +82,38 @@ function imageUnsupported(el: SlideElement): string | undefined {
 export async function edit(bytes: Uint8Array, edits: PptxEdit[]): Promise<Uint8Array> {
   validateEdits(edits);
   const opened = await openValidated(bytes);
+  const candidate=edits[0];
+  if(candidate?.kind==='candidate'){
+    if(candidate.sourceHash!==opened.deck.originalHash)throw new Error('PPTX candidate source baseline mismatch');
+    const result=new Uint8Array(Buffer.from(candidate.base64,'base64'));
+    if(!result.length||result.length>CANDIDATE_MAX_BYTES||Buffer.from(result).toString('base64')!==candidate.base64)throw new Error('Invalid or over-budget PPTX candidate bytes');
+    await assertZipInflatesWithinLimits(result,CANDIDATE_ZIP_LIMITS);
+    const final=await openValidated(result),actual=changedParts(opened,final);
+    if(JSON.stringify(actual)!==JSON.stringify([...candidate.changedParts].sort()))throw new Error('PPTX candidate changed-parts manifest mismatch');
+    // Every omitted part was compared byte-for-byte above. Native CAS still owns the final write.
+    return result;
+  }
+  if (edits.some(e => e.kind === 'command')) {
+    if (edits.some(e => e.kind !== 'command')) throw new Error('Cannot mix legacy and command edit sessions');
+    // Browser has already confirmed imported-chart template replacement before journaling.
+    let session = createParitySession(opened,{confirmChart:async()=>true});
+    for (const [index,e] of edits.entries()) if (e.kind === 'command') {
+      if(e.name==='slides:rebase-history'){
+        if(index!==0)throw new Error('History checkpoint must be first');
+        const checkpoint=e.args[0] as unknown as {sourceBase64:string;commands:PptxEdit[]};
+        if(!checkpoint||typeof checkpoint.sourceBase64!=='string')throw new Error('Invalid history checkpoint');
+        validateEdits(checkpoint.commands);
+        session=createParitySession(await openValidated(new Uint8Array(Buffer.from(checkpoint.sourceBase64,'base64'))),{confirmChart:async()=>true});
+        for(const prior of checkpoint.commands){if(prior.kind!=='command'||prior.name==='slides:rebase-history')throw new Error('Invalid history checkpoint command');await session.invoke(prior.name,prior.args)}
+        // A checkpoint is an acknowledgment of this exact native baseline, never a file replacement.
+        if(!sameArchive(await openValidated(await session.save()),opened))throw new Error('History checkpoint differs from current original');
+      }else await session.invoke(e.name,e.args);
+    }
+    return session.save();
+  }
   const pending = new Map<SlideElement, string>();
   for (const e of edits) {
+    if (e.kind === 'command'||e.kind==='candidate') continue;
     const slide = opened.deck.slides[e.slideIndex];
     if (!slide) throw new Error('Slide not found');
     const el = slide.elements.find(el => nonVisualId(el) === e.cNvPrId);

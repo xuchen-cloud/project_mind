@@ -1,5 +1,6 @@
 //! Office-only process boundary. Business paths and credentials never cross.
 use crate::agent::errors::{AgentError, AgentResult, ErrorCode};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -15,6 +16,109 @@ const FRAME_LIMIT: usize = 180 * 1024 * 1024;
 const NODE_GUARD: &str = "data:text/javascript,if(process.versions.node!==%2724.21.0%27)throw%20new%20Error(%27Unsupported%20Office%20runtime%27)";
 static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OfficeRecalculation {
+    pub edits: Vec<RecalcEdit>,
+    pub reads: Vec<RecalcRead>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecalcEdit {
+    pub sheet_id: String,
+    pub row: u32,
+    pub column: u32,
+    pub input: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecalcRead {
+    pub sheet_id: String,
+    pub range: RecalcRange,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecalcRange {
+    pub start_row: u32,
+    pub end_row: u32,
+    pub start_column: u32,
+    pub end_column: u32,
+}
+impl OfficeRecalculation {
+    pub(crate) fn validate(&self) -> AgentResult<()> {
+        if self.edits.len() > 10_000 || self.reads.len() > 200 {
+            return Err(failure(
+                ErrorCode::BudgetExceeded,
+                "Recalculation exceeds 10000 edits or 200 reads",
+            ));
+        }
+        for edit in &self.edits {
+            if edit.sheet_id.is_empty() || edit.row > 1_048_575 || edit.column > 16_383 {
+                return Err(failure(
+                    ErrorCode::InvalidArgument,
+                    "Invalid recalculation edit coordinate",
+                ));
+            }
+            if edit.input.encode_utf16().count() > 32_767 {
+                return Err(failure(
+                    ErrorCode::BudgetExceeded,
+                    "Recalculation input exceeds 32767 UTF-16 units",
+                ));
+            }
+        }
+        let mut cells = 0_u64;
+        for read in &self.reads {
+            let r = &read.range;
+            if read.sheet_id.is_empty()
+                || r.start_row > r.end_row
+                || r.start_column > r.end_column
+                || r.end_row > 1_048_575
+                || r.end_column > 16_383
+            {
+                return Err(failure(
+                    ErrorCode::InvalidArgument,
+                    "Invalid recalculation read range",
+                ));
+            }
+            cells += u64::from(r.end_row - r.start_row + 1)
+                * u64::from(r.end_column - r.start_column + 1);
+        }
+        if cells > 100_000 {
+            return Err(failure(
+                ErrorCode::BudgetExceeded,
+                "Recalculation exceeds 100000 read cells",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OfficeRecalculationResult {
+    pub cells: Vec<RecalcCell>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RecalcCell {
+    pub sheet_id: String,
+    pub row: u32,
+    pub column: u32,
+    pub formatted: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    pub is_formula: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum OfficePayload<'a> {
+    Inspect,
+    Edit(&'a [Value]),
+    Recalculate(&'a OfficeRecalculation),
+}
+
 pub(crate) trait OfficeUtility {
     fn request(
         &self,
@@ -22,7 +126,7 @@ pub(crate) trait OfficeUtility {
         method: &str,
         format: &str,
         base64: &str,
-        edits: Option<&[Value]>,
+        payload: OfficePayload<'_>,
     ) -> impl std::future::Future<Output = AgentResult<Value>> + Send;
 }
 #[derive(Clone)]
@@ -154,14 +258,19 @@ impl OfficeUtility for OfficeWorker {
         method: &str,
         format: &str,
         base64: &str,
-        edits: Option<&[Value]>,
+        payload: OfficePayload<'_>,
     ) -> AgentResult<Value> {
         use base64::{engine::general_purpose::STANDARD, Engine};
         if request_id.is_empty()
             || request_id.len() > 128
-            || !matches!(method, "office.inspect" | "office.edit")
+            || !matches!(
+                (method, payload),
+                ("office.inspect", OfficePayload::Inspect)
+                    | ("office.edit", OfficePayload::Edit(_))
+                    | ("office.recalculate", OfficePayload::Recalculate(_))
+            )
             || !matches!(format, "docx" | "xlsx" | "pptx")
-            || (method == "office.edit" && edits.is_none())
+            || (method == "office.recalculate" && format != "xlsx")
         {
             return Err(failure(
                 ErrorCode::InvalidArgument,
@@ -185,10 +294,22 @@ impl OfficeUtility for OfficeWorker {
                 "Office bytes exceed 100 MiB",
             ));
         }
+        if bytes.is_empty() || STANDARD.encode(&bytes) != base64 {
+            return Err(failure(
+                ErrorCode::InvalidArgument,
+                "Office source must be nonempty canonical base64",
+            ));
+        }
         drop(bytes);
         let mut data = json!({"format":format,"base64":base64});
-        if let Some(edits) = edits {
-            data["edits"] = json!(edits);
+        match payload {
+            OfficePayload::Inspect => {}
+            OfficePayload::Edit(edits) => {
+                data["edits"] = json!(edits);
+            }
+            OfficePayload::Recalculate(recalculation) => {
+                data["recalculation"] = json!(recalculation);
+            }
         }
         let mut frame =
             serde_json::to_vec(&json!({"requestId":request_id,"method":method,"data":data}))
@@ -291,7 +412,7 @@ impl OfficeUtility for OfficeWorker {
                     "Office worker exited unsuccessfully",
                 ));
             }
-            decode_response(request_id, &bytes)
+            decode_response(request_id, method, &bytes)
         })
         .await;
         match result {
@@ -308,7 +429,7 @@ impl OfficeUtility for OfficeWorker {
         }
     }
 }
-fn decode_response(request_id: &str, bytes: &[u8]) -> AgentResult<Value> {
+fn decode_response(request_id: &str, method: &str, bytes: &[u8]) -> AgentResult<Value> {
     let incompatible = || {
         failure(
             ErrorCode::RuntimeIncompatible,
@@ -320,7 +441,14 @@ fn decode_response(request_id: &str, bytes: &[u8]) -> AgentResult<Value> {
         return Err(incompatible());
     }
     match frame["ok"].as_bool() {
-        Some(true) if frame["data"].is_object() && frame["data"]["model"].is_object() => {
+        Some(true)
+            if frame["data"].is_object()
+                && (if method == "office.recalculate" {
+                    frame["data"]["cells"].is_array()
+                } else {
+                    frame["data"]["model"].is_object()
+                }) =>
+        {
             Ok(frame["data"].clone())
         }
         Some(false) => {
@@ -342,7 +470,7 @@ impl OfficeUtility for AppOfficeUtility {
         method: &str,
         format: &str,
         bytes: &str,
-        edits: Option<&[Value]>,
+        payload: OfficePayload<'_>,
     ) -> AgentResult<Value> {
         let app = self.0.clone();
         let worker = tokio::task::spawn_blocking(move || OfficeWorker::for_app(&app))
@@ -353,18 +481,142 @@ impl OfficeUtility for AppOfficeUtility {
                     "Cannot prepare Office worker",
                 )
             })??;
-        worker.request(id, method, format, bytes, edits).await
+        worker.request(id, method, format, bytes, payload).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn calculation() -> OfficeRecalculation {
+        serde_json::from_value(json!({"edits":[{"sheetId":"s","row":0,"column":0,"input":"=1+1"}],
+            "reads":[{"sheetId":"s","range":{"startRow":0,"endRow":0,"startColumn":0,"endColumn":0}}]})).unwrap()
+    }
+    #[test]
+    fn office_recalculate_value_and_aggregate_budgets_are_enforced() {
+        let mut input = calculation();
+        input.edits[0].input = format!("{}a", "😀".repeat(16383));
+        input.validate().unwrap();
+        input.edits[0].input.push('a');
+        assert_eq!(
+            input.validate().unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        let mut input = calculation();
+        input.edits = vec![input.edits[0].clone(); 10000];
+        input.validate().unwrap();
+        input.edits.push(input.edits[0].clone());
+        assert_eq!(
+            input.validate().unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        let mut input = calculation();
+        input.reads[0].range.end_row = 499;
+        input.reads = vec![input.reads[0].clone(); 200];
+        input.validate().unwrap();
+        input.reads[0].range.end_row = 500;
+        assert_eq!(
+            input.validate().unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        input.reads[0].range.end_row = 499;
+        input.reads.push(input.reads[0].clone());
+        assert_eq!(
+            input.validate().unwrap_err().code,
+            ErrorCode::BudgetExceeded
+        );
+        for value in [
+            json!({"edits":[{"sheetId":"","row":0,"column":0,"input":""}],"reads":[]}),
+            json!({"edits":[{"sheetId":"s","row":1048576,"column":0,"input":""}],"reads":[]}),
+            json!({"edits":[{"sheetId":"s","row":0,"column":16384,"input":""}],"reads":[]}),
+            json!({"edits":[],"reads":[{"sheetId":"s","range":{"startRow":1,"endRow":0,"startColumn":0,"endColumn":0}}]}),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<OfficeRecalculation>(value)
+                    .unwrap()
+                    .validate()
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+    }
+    #[tokio::test]
+    async fn office_recalculate_native_protocol_rejects_operation_confusion_and_noncanonical_source(
+    ) {
+        let worker = OfficeWorker {
+            node: PathBuf::new(),
+            entry: PathBuf::new(),
+            distribution: PathBuf::new(),
+            timeout: Duration::ZERO,
+        };
+        let input = calculation();
+        for (method, format, payload) in [
+            ("office.inspect", "xlsx", OfficePayload::Recalculate(&input)),
+            ("office.edit", "xlsx", OfficePayload::Recalculate(&input)),
+            (
+                "office.recalculate",
+                "docx",
+                OfficePayload::Recalculate(&input),
+            ),
+            ("office.recalculate", "xlsx", OfficePayload::Edit(&[])),
+            ("office.recalc", "xlsx", OfficePayload::Recalculate(&input)),
+        ] {
+            assert_eq!(
+                worker
+                    .request("r", method, format, "YWJj", payload)
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        for bytes in ["", "YQ=", "Y Q==", "YR=="] {
+            assert_eq!(
+                worker
+                    .request(
+                        "r",
+                        "office.recalculate",
+                        "xlsx",
+                        bytes,
+                        OfficePayload::Recalculate(&input)
+                    )
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+    }
+    #[test]
+    fn office_recalculate_protocol_accepts_only_the_cells_response_kind() {
+        assert_eq!(
+            decode_response(
+                "r",
+                "office.recalculate",
+                br#"{"requestId":"r","ok":true,"data":{"cells":[]}}"#
+            )
+            .unwrap(),
+            json!({"cells":[]})
+        );
+        for bytes in [
+            br#"{"requestId":"r","ok":true,"data":{"model":{}}}"#.as_slice(),
+            br#"{"requestId":"wrong","ok":true,"data":{"cells":[]}}"#,
+        ] {
+            assert_eq!(
+                decode_response("r", "office.recalculate", bytes)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::RuntimeIncompatible
+            );
+        }
+    }
     #[test]
     fn office_protocol_binds_response_identity_and_preserves_structured_errors() {
         assert_eq!(
             decode_response(
                 "one",
+                "office.inspect",
                 r#"{"requestId":"one","ok":true,"data":{"model":{"text":"中文"}}}"#.as_bytes()
             )
             .unwrap()["model"]["text"],
@@ -376,11 +628,13 @@ mod tests {
             b"{}\n{}\n",
         ] {
             assert_eq!(
-                decode_response("one", bytes).unwrap_err().code,
+                decode_response("one", "office.inspect", bytes)
+                    .unwrap_err()
+                    .code,
                 ErrorCode::RuntimeIncompatible
             );
         }
-        let error = decode_response("one", br#"{"requestId":"one","ok":false,"error":{"code":"INVALID_PATCH","message":"Unknown paragraph"}}"#).unwrap_err();
+        let error = decode_response("one", "office.inspect", br#"{"requestId":"one","ok":false,"error":{"code":"INVALID_PATCH","message":"Unknown paragraph"}}"#).unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidPatch);
         assert_eq!(error.message, "Unknown paragraph");
     }
@@ -425,7 +679,7 @@ process.stdout.write(JSON.stringify({{requestId:request.requestId,ok:true,data:{
                 "office.edit",
                 "xlsx",
                 "YWJj",
-                Some(&[json!({"cell":"A1","value":"中文"})]),
+                OfficePayload::Edit(&[json!({"cell":"A1","value":"中文"})]),
             )
             .await
             .unwrap();
@@ -443,7 +697,13 @@ process.stdout.write(JSON.stringify({{requestId:request.requestId,ok:true,data:{
         std::fs::write(&entry, "setInterval(()=>{},1000)").unwrap();
         worker.timeout = Duration::from_millis(250);
         assert!(worker
-            .request("timeout", "office.inspect", "docx", "YWJj", None)
+            .request(
+                "timeout",
+                "office.inspect",
+                "docx",
+                "YWJj",
+                OfficePayload::Inspect
+            )
             .await
             .unwrap_err()
             .message

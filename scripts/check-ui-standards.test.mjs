@@ -1,26 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 
 import { collectMotionViolations } from "./ui-standards-motion-rules.mjs";
 
 describe("UI motion standards", () => {
-  it("limits the PPTX accordion exception to its narrow tokenized height transition with reduced motion", () => {
-    const file = "src/components/office/PptxEditor.tsx";
-    const source = readFileSync(file, "utf8");
-    const layoutViolations = (path, content) => collectMotionViolations(path, content)
-      .filter((violation) => violation.rule === "no-layout-transition");
-
-    expect(layoutViolations(file, source)).toEqual([]);
-    for (const [path, content] of [
-      ["src/components/office/OtherEditor.tsx", source],
-      [file, source.replaceAll(".pptx-editor__inspector", ".other-inspector")],
-      [file, source.replace("@container(max-width:800px)", "@container(max-width:1200px)")],
-      [file, source.replace("transition:max-height var(--duration-standard) var(--ease-out)", "transition:height var(--duration-standard) var(--ease-out)")],
-      [file, source.replace("transition:max-height var(--duration-standard) var(--ease-out)", "transition:max-height var(--duration-standard) var(--ease-out),padding var(--duration-standard) var(--ease-out)")],
-      [file, source.replace("transition:max-height var(--duration-standard) var(--ease-out);", "transition:max-height var(--duration-standard) var(--ease-out); transition-property:width;")],
-      [file, source.replace("@media(prefers-reduced-motion:reduce)", "@media(print)")],
-    ]) {
-      expect(layoutViolations(path, content)).not.toEqual([]);
+  it("rejects the retired PPTX inspector layout transition exception", () => {
+    const source = `
+@container(max-width:800px) {
+  .pptx-editor__inspector { transition:max-height var(--duration-standard) var(--ease-out); }
+}
+@media(prefers-reduced-motion:reduce) { .pptx-editor__inspector { transition:none; } }
+`;
+    for (const file of ["src/components/office/PptxEditor.tsx", "src/components/office/OtherEditor.tsx"]) {
+      expect(collectMotionViolations(file, source)).toContainEqual(
+        expect.objectContaining({rule: "no-layout-transition"}),
+      );
     }
   });
 

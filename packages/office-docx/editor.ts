@@ -82,7 +82,7 @@ export function mountEditor(element: HTMLElement, initial: EditorOptions): Edito
         if (!transaction.docChanged || suppress) return true;
         if (options.readOnly || options.model.readOnly) return false;
         try { assertContentEdit(baseline, transaction.doc.toJSON() as PmJSON); return true; }
-        catch { options.onError?.('当前仅支持已有段落和表格单元格的文字编辑，图片与复杂内容保持原样。'); return false; }
+        catch { options.onError?.('此操作无法保留原件数据，请撤销后重试。'); return false; }
       },
     })],
   });
@@ -122,3 +122,5 @@ export function mountEditor(element: HTMLElement, initial: EditorOptions): Edito
     redo() { if (!options.readOnly && !options.model.readOnly) editor.commands.redo(); },
   };
 }
+
+export {mountFullEditor} from './full-editor';

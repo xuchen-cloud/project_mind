@@ -1,0 +1,22 @@
+[
+  {
+    "browser": "chromium",
+    "staleChangeIgnored": true,
+    "staleInitializedIgnored": true,
+    "reorderedInitIgnored": true,
+    "twoExternalReplacements": true,
+    "oldPdfRejected": true,
+    "lateNativeOutputIgnored": true,
+    "errors": []
+  },
+  {
+    "browser": "webkit",
+    "staleChangeIgnored": true,
+    "staleInitializedIgnored": true,
+    "reorderedInitIgnored": true,
+    "twoExternalReplacements": true,
+    "oldPdfRejected": true,
+    "lateNativeOutputIgnored": true,
+    "errors": []
+  }
+]

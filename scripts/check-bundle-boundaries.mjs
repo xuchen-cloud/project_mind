@@ -8,16 +8,16 @@ const preloadHrefs = [...html.matchAll(/rel="modulepreload"[^>]+href="([^"]+)"/g
   (match) => match[1] ?? "",
 );
 const forbiddenPreloads = preloadHrefs.filter((href) =>
-  /(canvas|konva|ImageAnnotationDialog)/iu.test(href),
+  /(canvas|konva|ImageAnnotationDialog|MarkdownEditor|DocxEditor|PptxEditor|XlsxEditor|mermaid|wavedrom|SettingsDialog)/iu.test(href),
 );
 
 if (forbiddenPreloads.length > 0) {
   console.error(
-    `Heavy image annotation code must remain lazy, but was preloaded: ${forbiddenPreloads.join(", ")}`,
+    `Heavy editors and dialogs must remain lazy, but were preloaded: ${forbiddenPreloads.join(", ")}`,
   );
   process.exitCode = 1;
 } else {
-  console.log("Bundle boundary check passed: image annotation code is lazy.");
+  console.log("Bundle boundary check passed: image annotation, file editors and settings are lazy.");
 }
 
 if (!mainScriptHref) {

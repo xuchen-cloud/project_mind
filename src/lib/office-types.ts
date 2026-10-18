@@ -5,3 +5,5 @@ export type OfficeModel = DocxModel | XlsxModel | PptxModel;
 export type OfficeEdit = DocxEdit | XlsxEdit | PptxEdit;
 export type OfficeFormat = OfficeModel['format'];
 export type {DocxEdit, XlsxEdit, PptxEdit};
+
+export type {FaceVerticalMetrics} from '../../packages/office-docx/editor-types';

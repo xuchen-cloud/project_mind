@@ -1,0 +1,12 @@
+/** The host conversion receipt expands HTML for display; saving keeps its original OOXML part. */
+import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';import {writeFile} from 'node:fs/promises';import JSZip from 'jszip';
+import {altChunkHtml,convertedAltChunkFixture} from './fixtures/alt-chunk.mjs';
+const {chromium}=await import(pathToFileURL(process.env.OFFICE_PLAYWRIGHT_MODULE).href),b=await chromium.launch({headless:true,channel:'chrome'});
+try{
+ const p=await b.newPage({viewport:{width:1440,height:1000}});await p.goto(process.env.OFFICE_ACCEPTANCE_URL);await p.getByRole('alert').filter({hasText:/altChunk.*未连接/}).waitFor({timeout:5000});
+ const bytes=Array.from(await convertedAltChunkFixture());await p.addInitScript(value=>{window.convertedHtml=[];window.convertAltChunk=async html=>{window.convertedHtml.push(html);return new Uint8Array(value);};},bytes);
+ await p.goto(process.env.OFFICE_ACCEPTANCE_URL+'/?nativeAltChunk');const f=p.frameLocator('iframe'),body=f.locator('.tiptap.doc-page');await body.waitFor();await body.getByText('HTML 导入片段：格式与原件保留',{exact:true}).waitFor({timeout:5000});assert.deepEqual(await p.evaluate(()=>window.convertedHtml),[altChunkHtml]);
+ const original=await JSZip.loadAsync(await(await p.request.get(process.env.OFFICE_ACCEPTANCE_URL+'/bytes')).body());const paragraph=body.locator('p[data-idx="2"]');await paragraph.click();await p.keyboard.press('End');await p.keyboard.insertText('另段编辑不替换导入片段');const model=await p.evaluate(()=>window.officeDocxHarness.save()),saved=await JSZip.loadAsync(Buffer.from(model.sourceBase64,'base64'));
+ assert.ok(model.nodes.some(n=>n.text.includes('另段编辑不替换导入片段')));assert.equal(await saved.file('word/altChunk1.html').async('string'),altChunkHtml);assert.match(await saved.file('word/document.xml').async('string'),/<w:altChunk r:id="rAltChunk"\s*\/>/);assert.deepEqual(await saved.file('word/_rels/document.xml.rels').async('uint8array'),await original.file('word/_rels/document.xml.rels').async('uint8array'));
+ await p.reload();await body.waitFor();await body.getByText('HTML 导入片段：格式与原件保留',{exact:true}).waitFor();const result={browser:b.version(),missingConverterVisible:true,callbackRealDocxDisplay:true,otherParagraphEditSaved:true,originalHtmlAndRelationshipRetained:true};console.log(JSON.stringify(result));await writeFile(new URL('output/browser/alt-chunk-results.json',import.meta.url),JSON.stringify(result,null,2));
+}finally{await b.close();}

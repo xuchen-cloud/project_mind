@@ -30,3 +30,9 @@ function verifyBlob(bytes, file) {
   const hash = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
   if (hash !== file.git_blob_sha1) throw new Error(`Upstream blob mismatch: ${file.path}`)
 }
+
+const fork = JSON.parse(await readFile(join(root, 'fork-source-lock.json'), 'utf8'))
+for (const file of fork.files) {
+  const bytes = await readFile(join(root, file.local))
+  if (createHash('sha256').update(bytes).digest('hex') !== file.sha256) throw new Error(`Fork source mismatch: ${file.path}`)
+}

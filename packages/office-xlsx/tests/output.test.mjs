@@ -1,0 +1,23 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import {readFile} from 'node:fs/promises'
+import {createServer} from 'node:http'
+import {chromium} from '@playwright/test'
+import {inspect} from '../dist/engine.mjs'
+
+test('CSV export awaits the host byte callback and respects cancellation without anchor downloads',async()=>{
+ const model=await inspect(await readFile(new URL('./fixtures/simple.original.xlsx',import.meta.url)))
+ const bundle=await readFile(new URL('../dist/browser.mjs',import.meta.url)),css=await readFile(new URL('../dist/browser.css',import.meta.url))
+ const html=`<!doctype html><meta charset="utf-8"><style>body{margin:0}#editor{height:100vh}</style><link rel="stylesheet" href="/browser.css"><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.exports=[];window.props={model:${JSON.stringify(model)},edits:[],readOnly:false,onChange(edits){window.props.edits=edits},onExport:async file=>{window.exports.push({name:file.name,mime:file.mime,text:new TextDecoder().decode(file.bytes),isBytes:file.bytes instanceof Uint8Array});return new Promise(resolve=>window.finishExport=resolve)}};window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true</script>`
+ const server=createServer((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}})
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true})
+ try{const page=await browser.newPage({viewport:{width:1200,height:800}}),downloads=[];page.on('download',d=>downloads.push(d.suggestedFilename()));await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.ready)
+ const frame=page.frameLocator('iframe[title="Excel 完整编辑器"]')
+ const run=async()=>{await frame.getByRole('button',{name:'导出 CSV',exact:true}).click();const warning=frame.getByRole('dialog',{name:'导出 CSV',exact:true});await warning.getByRole('button',{name:'继续导出',exact:true}).click()}
+ await run();await page.waitForFunction(()=>window.exports.length===1)
+ const exported=await page.evaluate(()=>window.exports[0]);assert.equal(exported.mime,'text/csv;charset=utf-8');assert.ok(exported.name.endsWith('.csv'));assert.equal(exported.isBytes,true);assert.match(exported.text,/苹果/);assert.match(exported.text,/梨子/)
+ assert.equal(await frame.locator('.workbook-status').filter({hasText:'CSV 导出已取消'}).count(),0,'awaits the real host reply')
+ await page.evaluate(()=>window.finishExport(false));await frame.locator('.workbook-status').filter({hasText:'CSV 导出已取消'}).waitFor()
+ await run();await page.waitForFunction(()=>window.exports.length===2);await page.evaluate(()=>window.finishExport(true));await frame.locator('.workbook-status').filter({hasText:'已导出'}).waitFor();assert.deepEqual(downloads,[])
+ }finally{await browser.close();await new Promise(r=>server.close(r))}
+})

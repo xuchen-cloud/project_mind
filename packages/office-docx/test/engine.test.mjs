@@ -65,12 +65,11 @@ test('stable text edits survive two save/reopen cycles and preserve every other 
   }
 });
 
-test('document edits cannot discard images, duplicate original anchors or silently change protected content', async () => {
+test('document edits reject unknown original identities and opaque payload mutation', async () => {
   const bytes = await fixture('complex');
   const model = await inspect(bytes);
   for (const change of [
-    doc => { doc.content = doc.content.filter(n => n.type !== 'docProtected'); },
-    doc => { doc.content[2].attrs.docxIndex = doc.content[3].attrs.docxIndex; },
+    doc => { doc.content[2].attrs.docxIndex = 99999; },
     doc => { doc.content.find(n => n.type === 'docProtected').attrs.imageDataUrl = null; },
     doc => { doc.content.find(n => n.type === 'docProtected').attrs.chartDisplay = { partPath: 'word/charts/chart1.xml', series: [], categories: [] }; },
   ]) {
@@ -137,7 +136,7 @@ async function chartFixture() {
   return zip.generateAsync({ type: 'uint8array' });
 }
 
-test('an actual OOXML chart stays intact during text edits and every unsupported chart mutation is rejected', async () => {
+test('an actual OOXML chart stays intact during text edits and rejects unsupported series structure', async () => {
   const bytes = await chartFixture();
   const model = await inspect(bytes);
   const chart = model.document.content.find(n => n.attrs?.chartDisplay);
@@ -147,7 +146,6 @@ test('an actual OOXML chart stays intact during text edits and every unsupported
   const original = await JSZip.loadAsync(bytes);
   assert.deepEqual(await saved.file('word/charts/chart1.xml').async('uint8array'), await original.file('word/charts/chart1.xml').async('uint8array'));
   for (const mutate of [
-    display => { display.series[0].values[0] = 99; },
     display => { display.series.push(structuredClone(display.series[0])); },
     display => { display.partPath = 'word/charts/other.xml'; },
   ]) {
@@ -164,4 +162,11 @@ test('source editing restrictions are exposed and enforced by the engine', async
   assert.equal((await inspect(bytes)).readOnly, true);
   assert.deepEqual(await edit(bytes, []), bytes);
   await assert.rejects(edit(bytes, [{ type: 'text', nodeId: 'docx:2', text: '不能修改的中文' }]), { code: 'READ_ONLY' });
+});
+
+test('Word chart values save through the upstream chart part patch and reopen as real values', async()=>{
+ const bytes=await chartFixture();const model=await inspect(bytes);const document=structuredClone(model.document);
+ document.content.find(n=>n.attrs?.chartDisplay).attrs.chartDisplay.series[0].values[0]=99;
+ const saved=await edit(bytes,[{type:'document',document}]);
+ assert.equal((await inspect(saved)).document.content.find(n=>n.attrs?.chartDisplay).attrs.chartDisplay.series[0].values[0],99);
 });

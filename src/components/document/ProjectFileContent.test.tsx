@@ -507,8 +507,10 @@ it('releases image bodies and Blob resources when hidden instead of retaining no
 it('restores Markdown source mode from the shell without rereading bytes when the mode changes', async () => {
   relatedFixture('# Markdown', 'sample.md', 'text/markdown', 'markdown'); const client = new QueryClient(); const changed = vi.fn();
   const wrap = (mode: boolean) => <QueryClientProvider client={client}><ProjectFileContent {...input} initialSourceMode={mode} onViewChange={changed} /></QueryClientProvider>;
-  const rendered = render(wrap(true)); await screen.findByText('# Markdown');
-  expect(rendered.container.querySelector('[data-textpreview-line]')).not.toBeNull();
+  const rendered = render(wrap(true));
+  const sourceEditor = await screen.findByRole('textbox', {name:'Markdown 源码'});
+  expect(sourceEditor).toHaveTextContent('# Markdown');
+  expect(sourceEditor).toHaveAttribute('contenteditable', 'true');
   rendered.rerender(wrap(false)); await screen.findByRole('heading', {name:'Markdown'});
   fireEvent.click(screen.getByRole('button', {name:'源码 / 行定位'}));
   expect(changed).toHaveBeenLastCalledWith({sourceMode:true});

@@ -1,10 +1,15 @@
-/** Public JSON contract. Coordinates are zero based. Edits change content only. */
-export type Edit = { sheetId: string; row: number; column: number } & (
+import type { GatewayChanges } from './gateway-contract'
+import type { ScreenSourcesResult, ScreenCaptureRequest, ScreenCaptureResult } from './generated/desktop-api'
+export type { GatewayChanges } from './gateway-contract'
+export type { ScreenSourcesResult, ScreenCaptureRequest, ScreenCaptureResult } from './generated/desktop-api'
+/** Public JSON contract. Coordinates are zero based. */
+export type ContentEdit = { sheetId: string; row: number; column: number } & (
   | { kind: 'blank' }
   | { kind: 'string'; value: string }
   | { kind: 'number'; value: number }
   | { kind: 'formula'; formula: string }
 )
+export type Edit = ContentEdit | { kind: 'gateway'; changes: GatewayChanges; snapshot?: Record<string, unknown> }
 export interface Context { binaryPath?: string; tempRoot?: string }
 export type Scalar = string | number | boolean | null
 export interface Area { startRow: number; endRow: number; startColumn: number; endColumn: number }
@@ -40,13 +45,33 @@ export interface Range {
 }
 export interface Model {
   format: 'xlsx'; name: string; activeSheetId: string
-  styles: Style[]; sheets: Sheet[]; ranges: Record<string, Range>
+  styles: Style[]; dxfStyles?: Style[]; sheets: Sheet[]; ranges: Record<string, Range>
   visuals: unknown[]; definedNames: { name: string; formula: string; sheetIndex?: number }[]
   date1904: boolean
+  /** Validated source data for the complete upstream renderer; contains no file capabilities. */
+  rendererData?: { file: Record<string, unknown>; formulas: Record<string, unknown>; outlines: Record<string, unknown>; media: Record<string, unknown>; pivots: Record<string, unknown> }
 }
+export interface RecalculateRequest {
+  edits: {sheetId: string; row: number; column: number; input: string}[]
+  reads: {sheetId: string; range: Area}[]
+}
+export interface RecalculateResult {
+  cells: {sheetId: string; row: number; column: number; formatted: string; number?: number; isError?: boolean; isFormula: boolean}[]
+}
+export interface ExportFile { name: string; mime: string; bytes: Uint8Array }
+export interface PrintDocument { html: string; title?: string; pageSize?: { widthPt: number; heightPt: number } }
 export interface EditorProps {
   model: Model; edits: Edit[]; onChange: (edits: Edit[]) => void; readOnly: boolean
   onPendingChange?: (pending: boolean) => void
+  onSaveRequest?: () => void | Promise<void>
+  onExport?: (file: ExportFile) => Promise<boolean>
+  onPrint?: (document: PrintDocument) => Promise<void>
+  onRenderPdf?: (document: PrintDocument) => Promise<Uint8Array>
+  onRecalculate?: (request: RecalculateRequest) => Promise<RecalculateResult>
+  /** Inspect only user-selected XLSX bytes; never creates or writes a File. */
+  onInspectImportedWorkbook?: (bytes: Uint8Array) => Promise<Model>
+  onCaptureScreenSources?: () => Promise<ScreenSourcesResult>
+  onCaptureScreenSource?: (request: ScreenCaptureRequest) => Promise<ScreenCaptureResult | null>
 }
 export interface MountedEditor {
   readonly ready: Promise<void>

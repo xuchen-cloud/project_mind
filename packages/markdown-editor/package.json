@@ -1,0 +1,23 @@
+{
+  "name": "@project-mind/markdown-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "../../node_modules/.bin/vitest run --config vitest.config.ts",
+    "typecheck": "../../node_modules/.bin/tsc --noEmit -p tsconfig.json",
+    "verify:vendor": "node sync-upstream.mjs --check && node build-exports.mjs --check",
+    "build:exports": "node build-exports.mjs"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.3.4",
+    "html-to-image": "1.11.13",
+    "jszip": "3.10.1",
+    "pdf-lib": "1.17.1",
+    "utif2": "4.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

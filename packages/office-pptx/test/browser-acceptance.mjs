@@ -1,89 +1,47 @@
-/** Opt-in headless acceptance using the real UI fixture/save host. */
+/** Opt-in, headless only: actual upstream Canvas operations + native byte save seam. */
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-if (!process.env.OFFICE_PLAYWRIGHT_MODULE || !process.env.OFFICE_ACCEPTANCE_URL) throw Error('Set OFFICE_PLAYWRIGHT_MODULE and OFFICE_ACCEPTANCE_URL');
-const playwright = await import(pathToFileURL(resolve(process.env.OFFICE_PLAYWRIGHT_MODULE)).href);
-const out = resolve(import.meta.dirname, '../output/playwright');
-await mkdir(out, { recursive: true });
-const results = [];
-for (const name of ['chromium', 'webkit']) {
-  const browser = await playwright[name].launch({ headless: true, ...(name === 'chromium' ? { channel: 'chrome' } : {}) });
-  try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    page.setDefaultTimeout(10000);
-    const errors = [];
-    console.log(`${name}: loading`);
-    page.on('pageerror', e => errors.push(String(e)));
-    await page.goto(process.env.OFFICE_ACCEPTANCE_URL);
-    const canvas = page.locator('.pptx-editor__canvas').first();
-    await canvas.waitFor(); console.log(`${name}: canvas ready`);
-    assert.equal(await page.locator('.pptx-editor__inspector').count(), 0);
-    assert.equal(await page.locator('.pptx-editor__canvas').count(), 3);
-    const spacing = await page.evaluate(() => { const pages = [...document.querySelectorAll('.pptx-editor__canvas')].map(n => n.getBoundingClientRect()); const number = document.querySelector('.pptx-editor__page-number').getBoundingClientRect(); return { gap: pages[1].top - pages[0].bottom, numberRight: number.right, slideLeft: pages[0].left }; });
-    assert.ok(spacing.gap >= 7 && spacing.gap <= 9, 'Pages have a compact 8px vertical gap');
-    assert.ok(spacing.numberRight < spacing.slideLeft, 'Page number sits before the slide without a header row');
-    const target = canvas.locator('[data-source-id="slide-0:shape-5"]');
-    await target.click(); console.log(`${name}: selected text`);
-    const input = page.getByRole('textbox', { name: '第 1 段第 1 片段', exact: true });
-    await input.fill(`${name} 原位中文编辑`);
-    await page.waitForFunction(() => window.officePptxHarness.edits().length === 1);
-    console.log(`${name}: first edit`);
-    const box = await input.boundingBox(), slideBox = await canvas.boundingBox();
-    assert.ok(box.x >= slideBox.x && box.y >= slideBox.y && box.x + box.width <= slideBox.x + slideBox.width + 1, 'Input belongs inside slide');
-    await page.getByRole('button', { name: '撤销', exact: true }).click();
-    await page.waitForFunction(() => window.officePptxHarness.edits().length === 0);
-    await page.getByRole('button', { name: '重做', exact: true }).click();
-    await page.waitForFunction(() => window.officePptxHarness.edits().length === 1);
-    await page.evaluate(() => window.officePptxHarness.setReadOnly(true));
-    await page.waitForFunction(() => !document.querySelector('.pptx-editor__canvas textarea:not([readonly])'));
-    assert.equal(await page.getByRole('button', { name: '撤销', exact: true }).isDisabled(), true);
-    await page.evaluate(() => window.officePptxHarness.save());
-    await page.evaluate(() => window.officePptxHarness.setReadOnly(false));
-    await page.reload(); await canvas.waitFor();
-    assert.ok((await target.textContent()).includes(`${name} 原位中文编辑`));
-    await target.click();
-    await page.getByRole('textbox', { name: '第 1 段第 1 片段', exact: true }).fill(`${name} 第二轮保存`);
-    await page.evaluate(() => window.officePptxHarness.save());
-    console.log(`${name}: saved twice`);
-    await page.getByRole('combobox', { name: '幻灯片缩放' }).selectOption('150');
-    await page.waitForFunction(() => document.querySelector('.pptx-editor__canvas').getBoundingClientRect().width > 1400);
-    const region = page.getByRole('region', { name: '幻灯片画布' });
-    assert.equal(await region.evaluate(n => n.scrollWidth > n.clientWidth), true);
-    await page.getByRole('combobox', { name: '幻灯片缩放' }).selectOption('fit');
-    await page.getByRole('button', { name: '第 3 页', exact: true }).click();
-    await page.getByText('幻灯片 3 / 3', { exact: true }).waitFor();
-    await page.getByRole('combobox', { name: '幻灯片缩放' }).selectOption('150');
-    await page.getByText('幻灯片 3 / 3', { exact: true }).waitFor();
-    await page.getByRole('combobox', { name: '幻灯片缩放' }).selectOption('fit');
-    await page.getByRole('button', { name: '上一页', exact: true }).click();
-    await page.getByText('幻灯片 2 / 3', { exact: true }).waitFor();
-    await region.evaluate(n => { n.scrollTop = n.scrollHeight; });
-    await page.getByText('幻灯片 3 / 3', { exact: true }).waitFor();
-    await region.evaluate(n => { n.scrollTop = 0; });
-    await page.getByText('幻灯片 1 / 3', { exact: true }).waitFor();
-    await page.getByRole('button', { name: '收起幻灯片列表' }).click();
-    await page.setViewportSize({ width: 480, height: 700 });
-    await page.waitForFunction(() => document.querySelector('.pptx-editor__thumbnails').getBoundingClientRect().width < 2);
-    await page.waitForFunction(() => { const n = document.querySelector('.pptx-editor__viewport'); return n.scrollWidth <= n.clientWidth; });
-    const ratio = await canvas.evaluate(n => { const r = n.querySelector('svg').getBoundingClientRect(); return r.width / r.height; });
-    assert.ok(Math.abs(ratio - 16 / 9) < .01);
-    await page.getByRole('button', { name: '下一页', exact: true }).click();
-    await page.getByText('幻灯片 2 / 3', { exact: true }).waitFor();
-    await page.getByRole('button', { name: '上一页', exact: true }).click();
-    await target.click();
-    await page.getByRole('textbox', { name: '第 1 段第 1 片段', exact: true }).fill(`${name} 窄窗口缩放输入`);
-    await page.waitForFunction(() => { const n = document.querySelector('.pptx-editor__canvas textarea'); return n && n.scrollTop === 0 && n.scrollHeight <= n.clientHeight + 2; });
-    await page.screenshot({ path: resolve(out, `pptx-${name}-inline-narrow.png`) });
-    await page.keyboard.press('Escape');
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByRole('button', { name: '展开幻灯片列表' }).click();
-    await page.waitForFunction(() => Math.abs(document.querySelector('.pptx-editor__thumbnails').getBoundingClientRect().width - 156) < 1);
-    await page.screenshot({ path: resolve(out, `pptx-${name}-continuous-wide.png`) });
-    assert.deepEqual(errors, []);
-    results.push({ browser: name, inlineChinese: true, savedTwice: true, undoRedo: true, readOnly: true, collapse: true, scrollPageTracking: true, zoom: true, fixedAspect: true, errors });
-  } finally { await browser.close(); }
+import {mkdir,writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+if(!process.env.OFFICE_PLAYWRIGHT_MODULE||!process.env.OFFICE_ACCEPTANCE_URL)throw Error('Set OFFICE_PLAYWRIGHT_MODULE and OFFICE_ACCEPTANCE_URL');
+const playwright=await import(pathToFileURL(resolve(process.env.OFFICE_PLAYWRIGHT_MODULE)).href),url=process.env.OFFICE_ACCEPTANCE_URL;
+const out=resolve(import.meta.dirname,'../output/playwright');await mkdir(out,{recursive:true});const results=[];
+for(const name of (process.env.OFFICE_BROWSERS?.split(',')??['chromium','webkit'])){
+ const browser=await playwright[name].launch({headless:true,...(name==='chromium'?{channel:'chrome'}:{})});
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));await page.request.get(`${url}/reset`);await page.goto(url);await page.locator('iframe').waitFor();const frame=page.frames().find(f=>f.parentFrame());await frame.waitForSelector('.stage-rel');
+  const render=()=>frame.evaluate(async()=>await window.slidesApi.getRenderSlides());
+  const until=async(check,message)=>{const end=Date.now()+10000;while(Date.now()<end){if(await check())return;await frame.evaluate(()=>new Promise(requestAnimationFrame))}assert.fail(message)};
+  const point=async(id,rx=.1,ry=.4)=>{await frame.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));const offset=await page.locator('iframe').boundingBox();const local=await frame.evaluate(async({id,rx,ry})=>{const slide=(await window.slidesApi.getRenderSlides())[0],node=slide.nodes.find(n=>n.sourceId===id);const r=document.querySelector('.stage-rel').getBoundingClientRect(),z=r.width/slide.widthPx;return {x:r.x+(node.box.x+node.box.w*rx)*z,y:r.y+(node.box.y+node.box.h*ry)*z}}, {id,rx,ry});return {x:local.x+offset.x,y:local.y+offset.y}};
+  const text=async()=>((await render())[0].nodes.find(n=>n.sourceId==='e_5').text.lines.flatMap(l=>l.runs.map(r=>r.text)).join(''));
+  assert.equal(await frame.locator('.ai-dock').isVisible(),false);assert.equal(await frame.getByRole('button',{name:'Genspark AI',exact:true}).isVisible(),false);
+  let pt=await point('e_5');await page.mouse.dblclick(pt.x,pt.y);const input=frame.locator('.slide-text-editor');await input.waitFor();await input.fill(`${name} 中文直接编辑\n第二段`);await input.dispatchEvent('compositionstart');await assert.rejects(page.evaluate(()=>window.officePptxHarness.flush()),/中文输入/);assert.equal(await page.evaluate(()=>window.officePptxHarness.pending()),true);await input.dispatchEvent('compositionend');
+  await input.press('Meta+a');await frame.getByRole('button',{name:'加粗',exact:true}).click();
+  const first=await frame.evaluate(()=>window.slidesApi.save());assert.equal(first.ok,true);await page.waitForFunction(()=>window.officePptxHarness.edits().length===0);let model=await(await page.request.get(`${url}/model`)).json();assert.equal(model.textElements.find(e=>e.slideIndex===0&&e.cNvPrId==='5').text,`${name} 中文直接编辑\n第二段`);assert.equal(model.textElements.find(e=>e.slideIndex===0&&e.cNvPrId==='5').originalRichText.paragraphs[0].runs[0].bold,true);assert.equal(await frame.getByRole('button',{name:'撤销',exact:true}).isEnabled(),true);
+  await frame.getByRole('button',{name:'撤销',exact:true}).click();await frame.getByRole('button',{name:'恢复',exact:true}).click();assert.ok((await text()).includes(`${name} 中文直接编辑`));
+  // Same session after native acknowledgment; direct editing remains available without stale target IDs.
+  pt=await point('e_5');await page.mouse.dblclick(pt.x,pt.y);await input.waitFor();await input.fill(`${name} 第二次保存`);await input.press('End');await input.press('!');await page.evaluate(()=>window.officePptxHarness.save());model=await(await page.request.get(`${url}/model`)).json();assert.equal(model.textElements.find(e=>e.slideIndex===0&&e.cNvPrId==='5').text,`${name} 第二次保存!`);
+  // Canvas drag + transformer resize, keyboard nudge, then native save/reinspect.
+  let picture=model.pictureElements.find(e=>e.slideIndex===0&&e.cNvPrId==='7');pt=await point('e_7',.5,.5);await page.mouse.move(pt.x,pt.y);await page.mouse.down();await page.mouse.move(pt.x+40,pt.y+20,{steps:8});await page.mouse.up();await page.waitForFunction(()=>window.officePptxHarness.edits().length>0).catch(async e=>{await page.screenshot({path:resolve(out,`pptx-${name}-drag-failed.png`)});console.log('drag failed',JSON.stringify({pt,render:await render()}));throw e});await page.evaluate(()=>window.officePptxHarness.flush());pt=await point('e_7',.5,.5);await page.mouse.click(pt.x,pt.y);await frame.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));pt=await point('e_7',1,1);await page.mouse.move(pt.x,pt.y);await page.mouse.down();await page.mouse.move(pt.x+50,pt.y+30,{steps:8});await page.mouse.up();await frame.locator('.stage-rel').click({position:{x:5,y:5}});pt=await point('e_7',.5,.5);await page.mouse.click(pt.x,pt.y);await page.keyboard.press('ArrowRight');await page.evaluate(()=>window.officePptxHarness.save());model=await(await page.request.get(`${url}/model`)).json();const moved=model.pictureElements.find(e=>e.slideIndex===0&&e.cNvPrId==='7');assert.ok(moved.transform.offset.x>picture.transform.offset.x);assert.ok(moved.transform.offset.cx>picture.transform.offset.cx);
+  // More than the worker's 256-edit budget: real keyboard operations produce one bounded byte candidate.
+  pt=await point('e_7',.5,.5);await page.mouse.click(pt.x,pt.y);const startX=(await render())[0].nodes.find(n=>n.sourceId==='e_7').box.x;
+  for(let i=0;i<300;i++){await page.keyboard.press('ArrowRight');await frame.evaluate(()=>window.slidesApi.getRenderSlides());}
+  await page.evaluate(()=>window.officePptxHarness.flush());const batch=await page.evaluate(()=>window.officePptxHarness.edits());assert.equal(batch.length,1);assert.equal(batch[0].kind,'candidate');const endX=(await render())[0].nodes.find(n=>n.sourceId==='e_7').box.x;assert.ok(Math.abs(endX-startX-300*9.6)<.02,'300 actual nudge operations applied');
+  await page.evaluate(()=>window.officePptxHarness.save());await frame.getByRole('button',{name:'撤销',exact:true}).click();await page.evaluate(()=>window.officePptxHarness.save());const undoX=(await render())[0].nodes.find(n=>n.sourceId==='e_7').box.x;assert.ok(undoX<endX&&Math.abs(endX-undoX-9.6)<.02,'undo survives candidate save acknowledgment');
+  // Internal save reports native failure instead of acknowledging it.
+  await page.evaluate(()=>window.officePptxHarness.failNextSave());const failed=await frame.evaluate(()=>window.slidesApi.save());assert.equal(failed.ok,false);assert.match(failed.error,/CAS conflict/);
+  await page.evaluate(()=>window.officePptxHarness.setReadOnly(true));await frame.waitForFunction(()=>document.body.dataset.readOnly==='true');await assert.rejects(frame.evaluate(()=>window.slidesApi.addBlankSlide({sourceIndex:0,fitWidthPx:960})),/read only/);await page.evaluate(()=>window.officePptxHarness.setReadOnly(false));await frame.waitForFunction(()=>document.body.dataset.readOnly==='false');
+  // Real app attributes and font, not OS matchMedia.
+  await page.evaluate(()=>{document.documentElement.dataset.theme='dark';document.documentElement.style.setProperty('--color-bg','#202322');document.body.style.fontFamily='Georgia, serif'});await frame.waitForFunction(()=>document.documentElement.dataset.theme==='dark'&&getComputedStyle(document.body).fontFamily.includes('Georgia'));
+  await page.evaluate(()=>{document.documentElement.dataset.theme='light';document.documentElement.style.removeProperty('--color-bg');document.body.style.fontFamily=''});
+  // External historical bytes discard old history rather than being mistaken for normal save ack.
+  await page.evaluate(()=>window.officePptxHarness.external());await until(async()=>(await text())==='项目进展正常','External historical source must replace saved text');await page.waitForFunction(()=>window.officePptxHarness.edits().length===0);await frame.waitForFunction(()=>document.querySelector('button[aria-label="撤销"]')?.disabled);assert.equal(await frame.getByRole('button',{name:'撤销',exact:true}).isEnabled(),false);assert.ok((await text()).includes('项目进展正常'),JSON.stringify({externalText:await text()}));
+  // Slide management by keyboard, including scroll-mask continuity after content and size changes.
+  await frame.locator('.thumb').first().click();await page.keyboard.press('Meta+c');await frame.getByText('已复制幻灯片，可在其他文件中粘贴',{exact:false}).waitFor();await page.keyboard.press('Meta+v');await frame.waitForFunction(()=>document.querySelectorAll('.thumb').length===4);await page.evaluate(()=>window.officePptxHarness.save());assert.equal((await(await page.request.get(`${url}/model`)).json()).slides.length,4);
+  await page.setViewportSize({width:820,height:380});await frame.waitForFunction(()=>{const e=document.querySelector('.slide-list');return e.scrollHeight>e.clientHeight&&Number(e.dataset.fadeBottom)>0});const list=frame.locator('.slide-list');await list.evaluate(e=>{e.scrollTop=16});await frame.waitForFunction(()=>Number(document.querySelector('.slide-list').dataset.fadeTop)>0&&Number(document.querySelector('.slide-list').dataset.fadeTop)<1);await list.evaluate(e=>{e.scrollTop=e.scrollHeight});await frame.waitForFunction(()=>document.querySelector('.slide-list').dataset.fadeBottom==='0');
+  await page.screenshot({path:resolve(out,`pptx-${name}-compact.png`)});const stageLeft=await frame.locator('.stage-col').evaluate(e=>e.getBoundingClientRect().left);assert.ok(stageLeft<180,'No unused AI sidebar column at compact host width');
+  await page.setViewportSize({width:1440,height:900});await page.screenshot({path:resolve(out,`pptx-${name}-wide.png`)});assert.deepEqual(errors,[]);results.push({browser:name,realCanvas:true,chineseIme:true,toolbarBold:true,twoNativeSaves:true,crossSaveHistory:true,dragResizeKeyboard:true,saveFailure:true,readOnly:true,actualHostThemeFont:true,externalHistoryReset:true,longSession300:true,slideDuplicate:true,continuousMasks:true,compactLayout:true,errors});console.log(`${name}: passed`);
+ }finally{await browser.close()}
 }
-await writeFile(resolve(out, 'acceptance-results.json'), JSON.stringify(results, null, 2) + '\n');
-console.log(JSON.stringify(results));
+for(const result of results)await writeFile(resolve(out,`acceptance-${result.browser}.json`),JSON.stringify(result,null,2)+'\n');
+await writeFile(resolve(out,'acceptance-results.json'),JSON.stringify(results,null,2)+'\n');console.log(JSON.stringify(results));

@@ -1,106 +1,139 @@
 # Office PPTX
 
-Production format adapter for #118. `inspect` and `edit` consume bytes only; they
-never write business files, upload or save a File version. The host owns CAS,
-saving, lazy component loading and rebase. Production has no dependency on a
-validation harness, temporary directory or workspace absolute path.
+PPTX editor implementation for child #191 / parent #118. The embedded editor reuses
+GenOffice's pinned slides renderer, Canvas/Konva interactions and document ops.
+`inspect` and `edit` consume and return bytes. The host owns File versions, CAS,
+saving, historical replacement, native export dialogs and native printing.
 
-## Build and deployment
+## Reproducible build
 
 ```sh
 npm --prefix packages/office-pptx ci --ignore-scripts --no-audit --no-fund
 npm --prefix packages/office-pptx run build
 ```
 
-All 82 required public core sources are vendored **unmodified** at GenOffice
-`d32d1711f1bf985430757b8c6b3fbddd3831d946`. Every build verifies Git blob SHA-1 and
-length using `source-lock.json`. No fetch is required for a normal build. The
-optional `npm run sources:fetch` restores the exact pinned files, with integrity
-verification. `package-lock.json` locks the package's own npm closure.
+`source-lock.json` pins 501 unmodified original files to
+`genspark-ai/genoffice@d32d1711f1bf985430757b8c6b3fbddd3831d946`, with byte lengths
+and Git blob SHA-1. `fork-source-lock.json` pins four inspected Web adaptation
+files from `Nothing1024/dsh-genoffice-engine@86e288908456be5d3b3cccc97e79708e4adf1bc4`.
+The actual browser image/media pickers are extracted from that fork. Its old ops
+session and arbitrary-path relay are not used. `sources:fetch` restores exact
+verified sources; normal builds need no network. Package npm dependencies have
+their own lockfile.
 
-Copy the complete `dist` to `office-dist/pptx/`. The host's top-level
-`pptx-engine.mjs` can re-export `./pptx/engine.mjs`:
+`generate-parity.mjs` extracts the pinned preload API, 97 actual document handlers,
+required helpers, font sfnt/TTC helpers and browser pickers. Build transforms are
+explicit in `parity-build.mjs`: deterministic IDs/timestamps for command replay;
+the existing File menu is available on every platform; native-host-owned Open /
+Save As are hidden; export cancellation has accurate feedback. Vendor bytes stay
+unchanged. Original Apache/Unicode, EMF, UI font and OFL notices are retained;
+bundled dependency licenses are collected into `dist/THIRD-PARTY-NOTICES.txt`.
 
-- `dist/engine.mjs`: self-contained Node ESM, only Node builtin imports, no
-  accompanying runtime resources. Includes GenOffice parsing/render geometry and
-  the guarded ZIP loader. Node 24+ is the intended runtime.
-- `dist/browser.mjs`: browser ESM containing actual `pptx-render` layout and the
-  thin React SVG adapter; only `react` and `react/jsx-runtime` stay external so
-  Vite can reuse the host React instance. No root aliases are needed.
-- `dist/THIRD-PARTY-NOTICES.txt`: original Apache/Unicode/MPL notices and all
-  bundled npm runtime attributions. Source `LICENSE`, `NOTICE`, vendor MTX
-  license and the pinned Nodable MIT license are retained in this package.
-- `dist/*.d.mts`: declarations import only this package's public DTOs and React
-  types. Public `types.ts` never imports SDK types or source implementations.
+Outputs:
 
-## Contract
+- `dist/engine.mjs`: portable Node ESM with only Node builtin imports. Copy the
+  complete dist into `office-dist/pptx/`; the host shim may re-export engine.mjs.
+- `dist/browser.mjs`: includes the self-contained isolated upstream renderer HTML,
+  plus the older RenderTree SVG adapter retained for compatibility. The actual
+  `PptxEditor` uses the full renderer. Host React remains external.
+- `dist/*.d.mts`: public declarations use package DTOs and React types.
+
+No production code depends on a workspace absolute path or validation harness.
+
+## Byte contract and long sessions
 
 ```ts
 inspect(bytes: Uint8Array): Promise<PptxModel>
 edit(bytes: Uint8Array, edits: PptxEdit[]): Promise<Uint8Array>
 ```
 
-`PptxModel` contains `format: 'pptx'`, slide size/order, original hash, complete
-serializable slide payloads, `renderSlides`, data URL media, `textElements`, and
-`pictureElements`. Render payloads are opaque to the host; the browser layer
-owns their SDK interpretation. All exported element/render IDs are stable.
+Models include source bytes (`sourceBase64`), source SHA-256, slide geometry,
+render payloads, media and stable OOXML cNvPr aliases. The renderer opens actual
+bytes and executes the original editing operations. Each debounce / before-save
+flush produces zero edits, or **one bounded candidate**:
 
-Edits use zero-based `slideIndex` plus the original numeric **string** `cNvPrId`.
-Text edits additionally address the existing zero-based paragraph and run:
-
-```json
-[
-  {"kind":"text","slideIndex":0,"cNvPrId":"5","paragraphIndex":0,"runIndex":0,"text":"中文修改"},
-  {"kind":"move-image","slideIndex":0,"cNvPrId":"7","x":960120,"y":2560320}
-]
+```ts
+{kind: 'candidate', sourceHash, base64, changedParts}
 ```
 
-Image coordinates are absolute EMU. Multiple targets, multiple paragraphs and
-repeated edits to the same target are applied in order. The last edit to a run or
-picture position wins. Reopen returned bytes before editing the new baseline.
-No process-local `sp_*`/`pic_*` ID is stored or accepted.
+Native acceptance verifies the exact current source hash, canonical base64,
+100 MiB compressed output, <=10,000 ZIP parts, <=100 MiB per part, <=256 MiB total
+inflation, valid UTF-8/XML, and the exact actual changed / added / removed parts.
+Every part omitted from the manifest must remain byte-identical. File/CAS still
+decides whether that candidate is written. A long session does not hide an
+unbounded command log inside another edit to evade the worker's 256-edit cap.
 
-Plain text changes only the original `<a:t>` payload, preserving `<a:rPr>`,
-paragraph/body properties, extensions and inheritance. Position edits only
-replace the original picture `<a:off x/y>` attributes. All other actual ZIP part
-bytes remain unchanged, including notes, masters, themes, chart XML, embedded
-workbooks and media. Empty edit lists return the original bytes unchanged.
+Normal save acknowledgment rebases candidate comparison to the new native source
+while retaining the upstream bounded 100-step undo/redo history and selection.
+A genuinely different model/history replacement remounts the editor session.
+Shape text saves checkpoint the original extraction/editText operation while
+keeping the same live contentEditable DOM and directional native selection.
+Pending native I/O freezes input; a matching receipt retains caret, continued
+input and undo. A host pointer/keyboard action cancels focus restoration; true
+readOnly or a different historical source closes the old overlay. Table-cell
+text and notes keep upstream commit-and-exit behavior.
 
-The input boundary rejects non-byte input, invalid edit object/field types,
-invalid Unicode/XML characters, malformed UTF-8/XML and out-of-range image
-coordinates. Source XML encodings other than UTF-8 are explicitly unsupported.
-Fields, math, structural text changes/newlines, grouped objects, table/chart
-edits and images lacking an original position reject without flattening.
+Every init, request and response carries a non-secret epoch. Model/external-edit
+replacement invalidates old host callbacks and queued renderer work; pending
+outputs reject and late completions cannot enter the new File. Matching native
+acknowledgement explicitly settles old internal save requests even when its
+model update precedes the host save Promise completion.
 
-## React integration and design
+The native API also supports bounded original `kind:'command'` operations and
+legacy exact-run text / picture-position patches. Legacy constraints describe
+those patches only, not the full editor. Old verified history checkpoints cannot
+nest and their total command budget remains 256.
 
-Lazy import the named `PptxEditor` from
-`src/components/office/PptxEditor.tsx`; it re-exports `PptxModel`/`PptxEdit`.
-Props: `{model, edits, onChange, readOnly}`. Edits stay relative to the model's
-baseline. The host replaces `model` and clears `edits` after successful save;
-the component resets local selection/undo history for that new model. During
-saving or historical viewing, pass `readOnly=true`. No component persistence.
+## Host integration
 
-The frontend-design reference in `docs/design/office-editor-direction-20261013.md`
-governs the shell: actual app color/font tokens, 28px controls, small undo/redo
-toolbar, 156px slide thumbnails, proportional document canvas and 226px object
-inspector. The inspector becomes collapsible in narrow containers. Original
-document colors/fonts are never replaced with host theme tokens. Bounded regions
-reuse `HomeSidebarList` and its continuous, resize-aware fades.
+Lazy import `PptxEditor` from `src/components/office/PptxEditor.tsx`.
 
-GenOffice core exposes **RenderTree**, not a native React editor or shell theme
-API. The package's ReactSvgSlide is a thin draw adapter over that actual tree,
-covering shapes, pictures, groups, tables, chart primitives and unsupported-object
-chips. `buildRenderSlide` exposes `fitWidthPx`, `metrics`, `media` and `slideNo`;
-font metrics can be customized inside the package. Shell tokens and selection
-stroke are customizable independently; they are never written to OOXML.
+```ts
+{
+  model, edits, onChange, readOnly,
+  registerBeforeSave?: (flush: () => Promise<void>) => () => void,
+  onPendingChange?: (pending: boolean) => void,
+  onSaveRequest?: () => void | Promise<void>,
+  onExport?: (file: {name: string; mime: string; bytes: Uint8Array}) => Promise<boolean>,
+  onPrint?: (document: {html: string; title?: string; pageSize?: {widthPt: number; heightPt: number}}) => Promise<void>,
+  onRenderPdf?: (document: {html: string; title?: string; pageSize?: {widthPt: number; heightPt: number}}) => Promise<Uint8Array>
+}
+```
 
-Preview uses heuristic font metrics/system fonts. Advanced 3D/WordArt/shadows,
-complex pattern/gradient/image effects and EMF/WMF decoding are not full-fidelity
-rendered. The original bytes are preserved. This package does not claim pixel
-equivalence to PowerPoint or delivery of the host File/CAS integration.
+Before saving, await the registered flush. It commits upstream active text/notes
+and the operation queue; it rejects during IME composition. Pass readOnly while
+saving or viewing historical content. On success replace model with the native
+re-inspected result and clear edits. Internal save requests finish only with their
+own host result, including void callbacks, rejection and missing integration.
 
-## Verification
+Export waits for `onExport`: true means written, false means canceled. Only an
+unhosted browser falls back to an anchor download. File-menu exports execute the
+original renderer export actions: PNG slides are delivered as a zip. With
+`onRenderPdf`, PDF uses the pinned upstream page HTML builder: exact vector SVG
+pages, inline data fonts/images, original page dimensions and link overlays.
+The returned native PDF bytes go unchanged to `onExport`. Without a render
+callback, standalone PDF uses 2x raster pages and hyperlink annotations.
+Both callbacks receive explicit physical `pageSize` in points (72 points/inch).
+PDF and full-slide print use the current deck's EMU dimensions divided by 12700,
+including custom sizes; fitted Canvas pixels never replace the source geometry.
+The same dimensions govern the HTML. Handouts/notes retain the pinned A4 template
+paper and orientation. Native hosts must apply the payload to their paper rectangle.
+
+Print uses upstream print-only HTML for full pages, 2/3/6-up handouts and notes.
+Slide images are data PNGs with slide fonts already rendered; CSS is inline and
+notes use system fonts. No scripts, editor controls, blob URLs or external network
+resources are required. `onPrint` is awaited. Only standalone browsing uses the
+hidden print iframe's `contentWindow.print()`. Desktop print-panel verification
+belongs to the native host; a browser pass does not prove WKWebView printing.
+
+The isolated document follows actual host data-theme / .dark, computed app font
+and color tokens. Document colors are not overwritten. Bounded scroll regions
+have resize/content-aware continuous edge masks; reduced-motion is respected.
+Duplicate AI/App-management chrome is removed. Browser-selected fonts use the
+pinned sfnt parser, FontFace and a webview IndexedDB store; no mirror means no
+download-only font actions, matching upstream's policy.
+
+## Verification and current gaps
 
 ```sh
 npm --prefix packages/office-pptx test
@@ -108,20 +141,42 @@ npm --prefix packages/office-pptx run test:ui
 npm --prefix packages/office-pptx run check
 ```
 
-Tests use two real, generated PPTX fixtures with checked source hashes; verify
-two successive save/reopen cycles, multiple pages/targets, multi-run/multi-paragraph
-rich text, image moves, preservation of unedited actual parts, explicit rejection
-and bundle relocation. UI tests use real inspection/render output, Chinese input,
-readOnly, rebase, undo/redo and continuous bounded scroll fades.
-
-For a headless component screenshot (no Tauri), prepare the real model and serve
-the isolated harness, using the existing host style dependencies:
+Headless browser acceptance (no Tauri or visible window):
 
 ```sh
-cd packages/office-pptx
-node test/ui/prepare.mjs
-node_modules/.bin/vite --config test/ui/vite.config.mjs
+node packages/office-pptx/node_modules/vite/bin/vite.js \
+  --config packages/office-pptx/test/ui/vite.config.mjs --host 127.0.0.1 --port 5189
+OFFICE_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+OFFICE_ACCEPTANCE_URL=http://127.0.0.1:5189 \
+node packages/office-pptx/test/browser-acceptance.mjs
+# Same environment for test/browser-resources.mjs, test/browser-layout.mjs,
+# test/browser-fonts.mjs, test/browser-caret.mjs and test/browser-protocol.mjs.
+# Run these sequentially:
+# they intentionally share the fixture's real byte save/reinspect boundary.
 ```
 
-Actual screenshot evidence is under `output/playwright/`; it exercises this
-component rather than the full app or the illustrative design reference.
+See `docs/implementation/genoffice-parity-ppt.md` for the current matrix, exact
+commands/results and outstanding acceptance. All upstream editing controls are
+backed by real ops; mapped controls alone are not evidence of full acceptance.
+Filled imported slides retain their real empty placeholder nodes and hide their
+editor hint text, keeping content unobscured. Existing placeholders remain
+selectable/editable; new empty layout slides retain prompts; actual placeholder
+text remains visible and saved. The fixture really contains empty title/subtitle
+shapes; this is an interaction adjustment, not a parser adding/removing shapes.
+Ribbon scroll fades use a sibling overlay so fixed dropdowns remain visible and
+clickable outside the scrollport; narrow nested layout menus have real pointer
+regression coverage in both Chromium and WebKit.
+
+Authorized local fonts now supply the pinned `OpentypeMetrics` with parsed real
+advances, ascenders, descenders and hhea leading. IndexedDB reload waits for both
+metrics parsing and FontFace loading before the first layout; local installation
+rebuilds layouts without a document edit or history entry. Exports wait for font
+work and fetch fresh layouts before SVG/PNG rendering. Missing faces/glyphs retain
+the upstream heuristic fallback. No OS font paths are read by this adapter.
+
+Remaining differences include standalone raster PDF, no cross-monitor audience window,
+no native system/Office-private font discovery, missing-font heuristic fallback,
+full upstream platform shaping/substitution not ported, and binary
+`.ppt` being unsupported upstream. Browser system clipboard access depends on
+webview permission; internal editable object/slide clipboard remains available.
+These are recorded gaps, not a declaration that #191 is fully complete.

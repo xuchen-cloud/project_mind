@@ -475,6 +475,59 @@ describe("desktopApi", () => {
     });
   });
 
+  it("prints the format document through the isolated native host", async () => {
+    const input = { html: "<p>文档正文</p>", title: "项目材料", pageSize: {widthPt: 595.28, heightPt: 841.89} };
+    tauriMocks.invokeMock.mockResolvedValueOnce(undefined);
+    await expect(desktopApi.printEditorHtml(input)).resolves.toBeUndefined();
+    expect(tauriMocks.invokeMock).toHaveBeenCalledExactlyOnceWith("desktop_print_editor_html", { input });
+  });
+
+  it("renders PDF through the isolated native host without accepting a file path", async () => {
+    const input = { html: "<p>文档正文</p>", title: "项目材料", pageSize: {widthPt: 720, heightPt: 405} };
+    tauriMocks.invokeMock.mockResolvedValueOnce("JVBERg==");
+    await expect(desktopApi.renderEditorPdf(input)).resolves.toBe("JVBERg==");
+    expect(tauriMocks.invokeMock).toHaveBeenCalledExactlyOnceWith("desktop_render_editor_pdf", { input });
+  });
+
+  it("reads exact installed-font metrics and preserves a missing family", async () => {
+    const metrics = { unitsPerEm: 2048, hheaAscender: 1900, hheaDescender: -500, hheaLineGap: 0,
+      typoAscender: 1600, typoDescender: -400, typoLineGap: 200,
+      winAscent: 2000, winDescent: 600, useTypoMetrics: true };
+    tauriMocks.invokeMock.mockResolvedValueOnce(metrics).mockResolvedValueOnce(null);
+    await expect(desktopApi.editorFontMetrics("Arial")).resolves.toEqual(metrics);
+    await expect(desktopApi.editorFontMetrics("Missing family")).resolves.toBeNull();
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(1, "desktop_editor_font_metrics", { family: "Arial" });
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(2, "desktop_editor_font_metrics", { family: "Missing family" });
+  });
+
+  it("inspects selected workbook bytes through the read-only native import boundary", async () => {
+    const input = {base64: "UEsDBA=="};
+    const model = {format: "xlsx", name: "selected.xlsx"};
+    tauriMocks.invokeMock.mockResolvedValueOnce(model);
+    await expect(desktopApi.inspectImportedWorkbook(input)).resolves.toBe(model);
+    expect(tauriMocks.invokeMock).toHaveBeenCalledExactlyOnceWith("desktop_inspect_imported_workbook", {input});
+  });
+
+  it("lists screenshot choices only on request and captures the selected opaque choice", async () => {
+    const sources = {status: "ok", sources: [{id: "opaque-choice", name: "窗口", kind: "window", thumbnail: "data:image/png;base64,AA=="}]};
+    const image = {mediaType: "image/png", base64: "iVBORw==", width: 320, height: 180};
+    expect(tauriMocks.invokeMock).not.toHaveBeenCalled();
+    tauriMocks.invokeMock.mockResolvedValueOnce(sources).mockResolvedValueOnce(image).mockResolvedValueOnce(null);
+    await expect(desktopApi.editorCaptureSources()).resolves.toBe(sources);
+    await expect(desktopApi.editorCaptureSource({id: "opaque-choice"})).resolves.toBe(image);
+    await expect(desktopApi.editorCaptureSource({id: "vanished-choice"})).resolves.toBeNull();
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(1, "desktop_editor_capture_sources");
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(2, "desktop_editor_capture_source", {input: {id: "opaque-choice"}});
+    expect(tauriMocks.invokeMock).toHaveBeenNthCalledWith(3, "desktop_editor_capture_source", {input: {id: "vanished-choice"}});
+  });
+
+  it("preserves screenshot permission denial and native failures", async () => {
+    const denied = {status: "denied", sources: []};
+    tauriMocks.invokeMock.mockResolvedValueOnce(denied).mockRejectedValueOnce("窗口已关闭");
+    await expect(desktopApi.editorCaptureSources()).resolves.toBe(denied);
+    await expect(desktopApi.editorCaptureSource({id: "opaque-choice"})).rejects.toBe("窗口已关闭");
+  });
+
   it("creates a new project window when none exists", async () => {
     tauriMocks.getByLabelMock.mockResolvedValueOnce(null);
     const originalLocation = window.location;
@@ -607,4 +660,16 @@ describe("desktopApi", () => {
     tauriMocks.getCurrentWebviewWindowMock.mockReturnValueOnce({ label: "main", listen: vi.fn(async () => () => {}) });
     expect(desktopApi.isProjectWindow()).toBe(false);
   });
+});
+
+
+it('maps Word remote image reads to a fixed File command and preserves native failures', async () => {
+  const input = {binding: {workspaceId: 'w', generation: 'g'}, document: {object: {workspaceId: 'w', scope: {kind: 'project' as const, projectId: 7}, kind: 'file' as const, id: '42'}, versionNumber: 2, expectedContentHash: 'sha256:source'}, url: 'https://images.example.test/a.png'};
+  const result = {mime: 'image/png' as const, base64: 'aW1hZ2U='};
+  tauriMocks.invokeMock.mockResolvedValueOnce(result);
+  await expect(desktopApi.fetchEditorRemoteImage(input)).resolves.toBe(result);
+  expect(tauriMocks.invokeMock).toHaveBeenLastCalledWith('desktop_fetch_editor_remote_image', {input});
+  const failure = {code: 'blocked_target', message: '图片地址不是公开网络地址'};
+  tauriMocks.invokeMock.mockRejectedValueOnce(failure);
+  await expect(desktopApi.fetchEditorRemoteImage(input)).rejects.toBe(failure);
 });

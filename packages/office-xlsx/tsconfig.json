@@ -3,7 +3,7 @@
     "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"], "strict": true, "skipLibCheck": true,
     "esModuleInterop": true, "noEmit": true, "jsx": "react-jsx",
-    "paths": { "@genoffice/zip-gate": ["./vendor/packages/zip-gate/src/index.ts"] }
+    "paths": { "@genoffice/xlsx-gateway/*": ["./vendor/packages/xlsx-gateway/src/*"], "@genoffice/zip-gate": ["./vendor/packages/zip-gate/src/index.ts"] }
   },
-  "include": ["types.ts", "engine.ts", "sidecar.ts", "browser.ts", "../../src/components/office/XlsxEditor.tsx"]
+  "include": ["types.ts", "engine.ts", "sidecar.ts", "browser.ts", "frame-browser.ts", "../../src/components/office/XlsxEditor.tsx"]
 }

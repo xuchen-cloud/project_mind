@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const sections = ['Office XLSX third-party notices\n\nGenOffice d32d1711f1bf985430757b8c6b3fbddd3831d946\nhttps://github.com/genspark-ai/genoffice\nLocal changes: patches.json (planner cache sheets, typed native recalc, UTF-8, temp-root boundary and private temporary candidate promotion).',
   await readFile(join(root, 'LICENSE'), 'utf8'), await readFile(join(root, 'NOTICE'), 'utf8')]
+sections.push('Browser adaptation reference: Nothing1024/dsh-genoffice-engine@86e288908456be5d3b3cccc97e79708e4adf1bc4; see fork-source-lock.json. Local File bridge; relay not included.', await readFile(join(root,'fork-research/LICENSE'),'utf8'))
+sections.push('Bundled Carlito fonts (original upstream files, SIL OFL 1.1)', await readFile(join(root,'vendor/apps/docs/src/renderer/fonts/LICENSE-OFL.txt'),'utf8'))
 const lock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'))
 for (const [path, entry] of Object.entries(lock.packages).sort(([a], [b]) => a.localeCompare(b))) {
   if (!path || entry.dev) continue

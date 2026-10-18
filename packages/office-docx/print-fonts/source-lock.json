@@ -1,0 +1,49 @@
+{
+  "upstreamCommit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "fonttools": "4.60.1",
+  "brotli": "1.1.0",
+  "zopfli": "0.2.3.post1",
+  "maxCurveErrorEm": 0.0005,
+  "files": [
+    {
+      "source": "apps/docs/src/renderer/fonts/NotoSerifCJKsc-Regular-subset.woff2",
+      "sourceSha256": "1b60526f07128255e4a3bfe315b7764a6c89612154bb40804b0d480a374cae43",
+      "file": "NotoSerifCJKsc-Regular-subset.woff2",
+      "sha256": "41b8b2f1accff96ac239bef098730aee00525329661063617465036cc48e5f1f",
+      "bytes": 2934800,
+      "glyphs": 14012
+    },
+    {
+      "source": "apps/docs/src/renderer/fonts/NotoSansCJKsc-Regular-subset.woff2",
+      "sourceSha256": "e527a37d1025cd0e03dc42667582cbfdfc8ea35699dae51b722de5f91e58b0d8",
+      "file": "NotoSansCJKsc-Regular-subset.woff2",
+      "sha256": "10af53b2b3e04be9b20dac1b3c1d82e15a357c48d500f53a691bd4ae3ef40a07",
+      "bytes": 2199632,
+      "glyphs": 14311
+    },
+    {
+      "source": "apps/docs/src/renderer/fonts/GenOfficeSansKR-Regular-subset.woff2",
+      "sourceSha256": "f99d21b62616a24d25d1a2ba5e5e7fc68008b4bafc2a9a0c5d5abe05e48ffe61",
+      "file": "GenOfficeSansKR-Regular-subset.woff2",
+      "sha256": "7ecc37d7ceb822a61ce6d8a24768485845671bc61d817cc62bcedf1309fbaa23",
+      "bytes": 309168,
+      "glyphs": 5281
+    },
+    {
+      "source": "apps/docs/src/renderer/fonts/GenOfficeSerifKR-Regular-subset.woff2",
+      "sourceSha256": "ef34d00ded53b3ca655cf6faeaa554c76715b0ee19421c06e12949e5e7d57d8f",
+      "file": "GenOfficeSerifKR-Regular-subset.woff2",
+      "sha256": "0818706e7a91cd024b82e89a82b7f8dbf6d55c8eade0fa1a7d2b0f2869de918c",
+      "bytes": 617540,
+      "glyphs": 5281
+    },
+    {
+      "source": "apps/docs/src/renderer/fonts/GenOfficeCheLatinKR.woff2",
+      "sourceSha256": "06d44399fdb8a13855414d64e92f404d941fb453fe4f333a704ca1e4e5128610",
+      "file": "GenOfficeCheLatinKR.woff2",
+      "sha256": "754cc5434e86a65d153e1120ec16f3d4bb8fc2272011979dea4eef65ea01a309",
+      "bytes": 9288,
+      "glyphs": 129
+    }
+  ]
+}

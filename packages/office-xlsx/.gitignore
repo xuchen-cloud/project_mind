@@ -3,3 +3,5 @@ native/xlsx-sidecar.exe
 tests/output/
 *.log
 tests/fixtures/__pycache__/
+
+generated/renderer-resource.ts

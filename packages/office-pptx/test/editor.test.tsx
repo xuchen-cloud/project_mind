@@ -1,162 +1,105 @@
-import { readFile } from 'node:fs/promises';
-import React, { useState } from 'react';
-import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { PptxEditor, type PptxModel, type PptxEdit } from '../../../src/components/office/PptxEditor';
-import { inspect, edit } from '../dist/engine.mjs';
+import React from 'react';
+import {afterEach,expect,test,vi} from 'vitest';
+import {act,cleanup,render,screen} from '@testing-library/react';
+import {PDFDocument} from 'pdf-lib';
+import {PptxEditor,type PptxModel,type PptxEdit} from '../../../src/components/office/PptxEditor';
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const bytes = new Uint8Array(await readFile(`${process.cwd()}/test/fixtures/complex.pptx`));
-const model: PptxModel = await inspect(bytes);
-const selectText = (text: string) => {
-  const node = [...document.querySelectorAll('svg[aria-label="第 1 页预览"] [data-source-id]')].find(node => node.textContent?.includes(text));
-  if (!node) throw Error(`Missing canvas text: ${text}`);
-  fireEvent.click(node);
-};
-
-test('actual render tree shows Chinese, pictures, table and chart SVG, and edits the existing run', () => {
-  let received: PptxEdit[] = [];
-  function Host() {
-    const [edits, change] = useState<PptxEdit[]>([]);
-    return <PptxEditor model={model} edits={edits} onChange={e => { received = e; change(e); }} readOnly={false} />;
-  }
-  const { container } = render(<Host />);
-  expect(container.querySelector('svg[aria-label="第 1 页预览"] image')).not.toBeNull();
-  selectText('项目进展正常');
-  const input = screen.getByRole('textbox', { name: '第 1 段第 1 片段' });
-  fireEvent.compositionStart(input);
-  fireEvent.change(input, { target: { value: '中文输入进行中' } });
-  fireEvent.compositionEnd(input, { data: '中文输入进行中' });
-  expect(received).toEqual([{ kind: 'text', slideIndex: 0, cNvPrId: '5', paragraphIndex: 0, runIndex: 0, text: '中文输入进行中' }]);
-  expect(container.querySelector('svg[aria-label="第 1 页预览"]')?.textContent).toContain('中文输入进行中');
-  expect(container.querySelector('.pptx-editor__inspector')).toBeNull();
-  const toggle = screen.getByRole('button', { name: '收起幻灯片列表' });
-  fireEvent.click(toggle);
-  expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  expect(screen.queryByRole('region', { name: '选择幻灯片' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '展开幻灯片列表' }));
-  expect(screen.getByRole('region', { name: '选择幻灯片' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '第 2 页' }));
-  expect(container.querySelector('svg[aria-label="第 2 页预览"] [data-node-type="table"]')).not.toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '第 3 页' }));
-  expect(container.querySelector('svg[aria-label="第 3 页预览"] [data-node-type="chart"]')).not.toBeNull();
+afterEach(()=>{cleanup();document.documentElement.removeAttribute('data-theme');document.documentElement.classList.remove('dark');vi.restoreAllMocks()});
+const model={format:'pptx',sourceBase64:'test'} as PptxModel;
+const PlatformChannel=window.MessageChannel;
+function setup(extra:Record<string,unknown>={}){
+ const change=vi.fn(),pending=vi.fn();let beforeSave:()=>Promise<void>=async()=>{};
+ const props={model,edits:[] as PptxEdit[],onChange:change,readOnly:false,onPendingChange:pending,registerBeforeSave:(callback:()=>Promise<void>)=>{beforeSave=callback;return ()=>{}},...extra};
+ const ui=render(<PptxEditor {...props}/>),frame=screen.getByTitle('PPTX 幻灯片编辑画布') as HTMLIFrameElement;
+ let post!:ReturnType<typeof vi.spyOn>;vi.spyOn(window,'MessageChannel').mockImplementation(function(){const connection=new PlatformChannel();post=vi.spyOn(connection.port1,'postMessage').mockImplementation(()=>{});return connection});
+ const epoch=()=>post?.mock.calls.findLast(c=>c[0].type==='init')?.[0].epoch??0;
+ const message=(data:object,source:MessageEventSource|null=frame.contentWindow)=>act(()=>window.dispatchEvent(new MessageEvent('message',{source,data:{source:'project-mind-pptx',epoch:epoch(),...data}})));
+ message({type:'ready'});message({type:'initialized'});
+ return {...ui,props,frame,post,message,change,pending,epoch,flush:()=>beforeSave()};
+}
+test('host accepts editor changes and pending only from its own frame; readOnly crosses the bridge',()=>{
+ const ctx=setup();const edits=[{kind:'command',name:'slides:edit-text',args:[]}] as PptxEdit[];
+ ctx.message({type:'change',edits},window);expect(ctx.change).not.toHaveBeenCalled();ctx.message({type:'change',edits});expect(ctx.change).toHaveBeenCalledWith(edits);
+ ctx.message({type:'pending',pending:true});expect(ctx.pending).toHaveBeenLastCalledWith(true);
+ ctx.rerender(<PptxEditor {...ctx.props} readOnly/>);expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'readonly',readOnly:true}));
+});
+test('beforeSave waits for the renderer, propagates IME rejection and succeeds after commit',async()=>{
+ const ctx=setup();let save!:Promise<void>;act(()=>{save=ctx.flush()});let request=ctx.post.mock.calls.at(-1)![0] as {requestId:number};const failure=expect(save).rejects.toThrow('输入');ctx.message({type:'flushed',requestId:request.requestId,error:'请完成输入'});await failure;
+ act(()=>{save=ctx.flush()});request=ctx.post.mock.calls.at(-1)![0] as {requestId:number};ctx.message({type:'flushed',requestId:request.requestId});await save;
+});
+test('model replacement re-initializes through the frame boundary, and flush cannot race initialization',async()=>{
+ const ctx=setup();ctx.rerender(<PptxEditor {...ctx.props} model={{...model,sourceBase64:'new'}} edits={[]}/>);
+ expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'init',model:expect.objectContaining({sourceBase64:'new'})}));const saved=ctx.flush();ctx.message({type:'initialized'});await act(async()=>{});const req=ctx.post.mock.calls.at(-1)![0] as {requestId:number};ctx.message({type:'flushed',requestId:req.requestId});await saved;
+});
+test('real app theme and computed font synchronize independently of OS preference',async()=>{
+ const ctx=setup();document.documentElement.dataset.theme='dark';document.body.style.fontFamily='Test Host Font';await act(async()=>{});
+ expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'theme',theme:'dark',tokens:expect.objectContaining({'--pm-font':expect.stringContaining('Test Host Font')})}));document.body.style.fontFamily='';
+});
+test('save button awaits host persistence result and closing rejects outstanding flush',async()=>{
+ let rejectSave!:(e:Error)=>void;const onSaveRequest=vi.fn(()=>new Promise<void>((_,reject)=>{rejectSave=reject}));const ctx=setup({onSaveRequest});ctx.message({type:'save-request',requestId:12});expect(onSaveRequest).toHaveBeenCalledOnce();await act(async()=>rejectSave(new Error('CAS conflict')));expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'save-finished',requestId:12,error:'CAS conflict'}));const pending=ctx.flush();const failure=expect(pending).rejects.toThrow('关闭');ctx.unmount();await failure;expect(ctx.pending).toHaveBeenLastCalledWith(false);
 });
 
-test('picture controls generate stable moves and saving/readOnly prevents edits', () => {
-  let received: PptxEdit[] = [];
-  const onChange = (e: PptxEdit[]) => { received = e; };
-  const { rerender } = render(<PptxEditor model={model} edits={[]} onChange={onChange} readOnly={false} />);
-  fireEvent.click(document.querySelector('svg[aria-label="第 1 页预览"] [data-source-id="slide-0:shape-7"]')!);
-  fireEvent.click(screen.getByRole('button', { name: '图片右移' }));
-  expect(received).toEqual([{ kind: 'move-image', slideIndex: 0, cNvPrId: '7', x: 960120, y: 2560320 }]);
-  rerender(<PptxEditor model={model} edits={received} onChange={onChange} readOnly />);
-  expect(screen.getByRole('button', { name: '图片右移' }).hasAttribute('disabled')).toBe(true);
-  selectText('项目进展正常');
-  expect(screen.queryByRole('textbox', { name: '第 1 段第 1 片段' })).toBeNull();
+test('internal save commands finish for void callbacks and missing integrations',async()=>{
+ const ctx=setup({onSaveRequest:()=>{}});ctx.message({type:'save-request',requestId:21});await act(async()=>{});expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'save-finished',requestId:21}));ctx.unmount();
+ const missing=setup();missing.message({type:'save-request',requestId:22});expect(missing.post).toHaveBeenCalledWith(expect.objectContaining({type:'save-finished',requestId:22,error:expect.stringContaining('尚未接入')}));
 });
 
-test('new committed model becomes the baseline, with the host clearing edits', async () => {
-  const pending: PptxEdit[] = [{ kind: 'text', slideIndex: 0, cNvPrId: '5', paragraphIndex: 0, runIndex: 0, text: '第一次提交' }];
-  const committed: PptxModel = await inspect(await edit(bytes, pending));
-  let result: PptxEdit[] = [];
-  const { rerender } = render(<PptxEditor model={model} edits={pending} onChange={e => { result = e; }} readOnly={false} />);
-  rerender(<PptxEditor model={committed} edits={[]} onChange={e => { result = e; }} readOnly={false} />);
-  selectText('第一次提交');
-  fireEvent.change(screen.getByRole('textbox', { name: '第 1 段第 1 片段' }), { target: { value: '第二次提交' } });
-  expect(result).toEqual([{ ...pending[0], text: '第二次提交' }]);
-  rerender(<PptxEditor model={committed} edits={result} onChange={e => { result = e; }} readOnly={false} />);
-  fireEvent.change(screen.getByRole('textbox', { name: '第 1 段第 1 片段' }), { target: { value: '第一次提交' } });
-  expect(result).toEqual([]);
+test('native export receives actual bytes, awaits write/cancel and returns errors to the renderer',async()=>{
+ let resolve!:(ok:boolean)=>void;const onExport=vi.fn(()=>new Promise<boolean>(r=>{resolve=r}));const ctx=setup({onExport});const file={name:'slides.pdf',mime:'application/pdf',bytes:new Uint8Array([37,80,68,70])};ctx.message({type:'export-request',requestId:41,file});await act(async()=>{});expect(onExport).toHaveBeenCalledWith(file);expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:'export-finished',requestId:41}));await act(async()=>resolve(false));expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'export-finished',requestId:41,ok:false}));ctx.message({type:'export-request',requestId:42,file});await act(async()=>{});await act(async()=>resolve(true));expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'export-finished',requestId:42,ok:true}));ctx.unmount();
+ const broken=setup({onExport:async()=>{throw new Error('write failed')}});broken.message({type:'export-request',requestId:43,file});await act(async()=>{});expect(broken.post).toHaveBeenCalledWith(expect.objectContaining({type:'export-finished',requestId:43,error:'write failed'}));
 });
 
-test('undo and redo restore controlled edits and are frozen while saving', () => {
-  let received: PptxEdit[] = [];
-  function Host({ readOnly = false }: { readOnly?: boolean }) {
-    const [edits, change] = useState<PptxEdit[]>([]);
-    return <PptxEditor model={model} edits={edits} onChange={e => { received = e; change(e); }} readOnly={readOnly} />;
-  }
-  const { rerender } = render(<Host />);
-  selectText('项目进展正常');
-  fireEvent.change(screen.getByRole('textbox', { name: '第 1 段第 1 片段' }), { target: { value: '可以撤销' } });
-  fireEvent.click(screen.getByRole('button', { name: '撤销' }));
-  expect(received).toEqual([]);
-  fireEvent.click(screen.getByRole('button', { name: '重做' }));
-  expect(received[0]).toMatchObject({ text: '可以撤销' });
-  rerender(<Host readOnly />);
-  expect(screen.getByRole('button', { name: '撤销' }).hasAttribute('disabled')).toBe(true);
+test('native print waits for the host and reports failure with the same request id',async()=>{
+ let reject!:(e:Error)=>void;const onPrint=vi.fn(()=>new Promise<void>((_,r)=>{reject=r}));const ctx=setup({onPrint});const document={html:'<!doctype html><p>打印内容</p>',title:'演示文稿',pageSize:{widthPt:960,heightPt:540}};ctx.message({type:'print-request',requestId:51,document});await act(async()=>{});expect(onPrint).toHaveBeenCalledWith(document);expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:'print-finished',requestId:51}));await act(async()=>reject(new Error('print failed')));expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'print-finished',requestId:51,error:'print failed'}));
 });
 
-test('page list fades follow scroll distance in both directions and update after resizing', () => {
-  const callbacks: (() => void)[] = [];
-  vi.stubGlobal('ResizeObserver', class {
-    constructor(callback: () => void) { callbacks.push(callback); }
-    observe() {}
-    disconnect() {}
-  });
-  render(<PptxEditor model={model} edits={[]} onChange={() => {}} readOnly />);
-  const region = screen.getByRole('region', { name: '选择幻灯片' });
-  const frame = region.parentElement!;
-  let height = 300, viewport = 100;
-  Object.defineProperties(region, { scrollHeight: { get: () => height }, clientHeight: { get: () => viewport } });
-  const fade = (side: string) => frame.style.getPropertyValue(`--scroll-fade-${side}-opacity`);
-  fireEvent.scroll(region, { target: { scrollTop: 0 } });
-  expect([fade('top'), fade('bottom')]).toEqual(['0', '1']);
-  fireEvent.scroll(region, { target: { scrollTop: 32 } });
-  expect([fade('top'), fade('bottom')]).toEqual(['0.5', '1']);
-  fireEvent.scroll(region, { target: { scrollTop: 200 } });
-  expect([fade('top'), fade('bottom')]).toEqual(['1', '0']);
-  fireEvent.scroll(region, { target: { scrollTop: 168 } });
-  expect([fade('top'), fade('bottom')]).toEqual(['1', '0.5']);
-  height = 124;
-  fireEvent.scroll(region, { target: { scrollTop: 0 } });
-  expect([fade('top'), fade('bottom')]).toEqual(['0', '1']);
-  viewport = 150;
-  // Content and viewport observers use the same baseline measurement.
-  fireEvent.scroll(region);
-  expect([fade('top'), fade('bottom')]).toEqual(['0', '0']);
-  expect(callbacks.length).toBeGreaterThanOrEqual(2);
+test('native PDF waits for the host and correlates valid returned bytes and rendering failures',async()=>{
+ const fixture=await PDFDocument.create();fixture.addPage([960,540]);const bytes=await fixture.save();
+ let resolve!:(bytes:Uint8Array)=>void;const onRenderPdf=vi.fn(()=>new Promise<Uint8Array>(r=>{resolve=r}));const ctx=setup({onRenderPdf});const document={html:'<!doctype html><style>@page{size:13.333in 7.5in}</style><svg><text>选中页</text></svg>',title:'selected.pdf',pageSize:{widthPt:960,heightPt:540}};
+ ctx.message({type:'render-pdf-request',requestId:61,document});await act(async()=>{});expect(onRenderPdf).toHaveBeenCalledWith(document);expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:'render-pdf-finished',requestId:61}));await act(async()=>resolve(bytes));expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'render-pdf-finished',requestId:61,bytes}));ctx.unmount();
+ const failed=setup({onRenderPdf:async()=>{throw new Error('PDF native failed')}});failed.message({type:'render-pdf-request',requestId:62,document});await act(async()=>{});expect(failed.post).toHaveBeenCalledWith(expect.objectContaining({type:'render-pdf-finished',requestId:62,error:'PDF native failed'}));
 });
 
-
-test('all slides share a scroll viewport; zoom and navigation remain available with thumbnails collapsed', () => {
-  const { container } = render(<PptxEditor model={model} edits={[]} onChange={() => {}} readOnly={false} />);
-  const viewport = screen.getByRole('region', { name: '幻灯片画布' });
-  expect(viewport.querySelectorAll('.pptx-editor__canvas').length).toBe(model.slides.length);
-  fireEvent.click(screen.getByRole('button', { name: '放大' }));
-  expect(screen.getByRole('combobox', { name: '幻灯片缩放' }).getAttribute('data-mode')).toBe('manual');
-  fireEvent.change(screen.getByRole('combobox', { name: '幻灯片缩放' }), { target: { value: '150' } });
-  expect((container.querySelector('.pptx-editor__canvas') as HTMLElement).style.width).toBe('1440px');
-  fireEvent.click(screen.getByRole('button', { name: '收起幻灯片列表' }));
-  fireEvent.click(screen.getByRole('button', { name: '下一页' }));
-  expect(screen.getByText(`幻灯片 2 / ${model.slides.length}`)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '上一页' }));
-  expect(screen.getByText(`幻灯片 1 / ${model.slides.length}`)).toBeTruthy();
-  fireEvent.change(screen.getByRole('combobox', { name: '幻灯片缩放' }), { target: { value: 'fit' } });
-  expect(screen.getByRole('combobox', { name: '幻灯片缩放' }).getAttribute('data-mode')).toBe('fit');
+test('old model messages cannot change the new File or release its initialization barrier',async()=>{
+ const ctx=setup(),old=ctx.epoch();
+ ctx.rerender(<PptxEditor {...ctx.props} model={{...model,sourceBase64:'replacement'}} edits={[]}/>);
+ ctx.change.mockClear();ctx.message({type:'change',epoch:old,edits:[{kind:'command',name:'slides:edit-text',args:[]}]});
+ expect(ctx.change).not.toHaveBeenCalled();
+ const count=()=>ctx.post.mock.calls.filter(c=>c[0].type==='flush').length;
+ const before=count();const waiting=ctx.flush();ctx.message({type:'initialized',epoch:old});await act(async()=>{});expect(count()).toBe(before);
+ ctx.message({type:'initialized'});await act(async()=>{});expect(count()).toBe(before+1);
+ const req=ctx.post.mock.calls.at(-1)![0];ctx.message({type:'flushed',requestId:req.requestId});await waiting;
 });
 
-test('canvas fades track both axes and rejected multiline paste leaves the committed run intact', () => {
-  function Host() {
-    const [edits, change] = useState<PptxEdit[]>([]);
-    return <PptxEditor model={model} edits={edits} onChange={change} readOnly={false} />;
-  }
-  const { container } = render(<Host />);
-  const region = screen.getByRole('region', { name: '幻灯片画布' });
-  Object.defineProperties(region, { scrollHeight: { value: 400 }, clientHeight: { value: 100 }, scrollWidth: { value: 300 }, clientWidth: { value: 100 } });
-  const frame = region.parentElement!;
-  const fade = (side: string) => frame.style.getPropertyValue(`--pptx-fade-${side}`);
-  fireEvent.scroll(region, { target: { scrollTop: 0, scrollLeft: 0 } });
-  expect([fade('top'), fade('bottom'), fade('left'), fade('right')]).toEqual(['0', '1', '0', '1']);
-  fireEvent.scroll(region, { target: { scrollTop: 32, scrollLeft: 32 } });
-  expect([fade('top'), fade('left')]).toEqual(['0.5', '0.5']);
-  fireEvent.scroll(region, { target: { scrollTop: 300, scrollLeft: 200 } });
-  expect([fade('bottom'), fade('right')]).toEqual(['0', '0']);
-  selectText('项目进展正常');
-  const input = screen.getByRole('textbox', { name: '第 1 段第 1 片段' });
-  fireEvent.change(input, { target: { value: '第一行\n第二行' } });
-  expect(screen.getByRole('alert').textContent).toContain('暂不支持');
-  expect((input as HTMLTextAreaElement).value).toBe('项目进展正常');
-  expect(container.querySelector('svg[aria-label="第 1 页预览"]')?.textContent).toContain('项目进展正常');
-  fireEvent.keyDown(input, { key: 'Escape' });
-  expect(screen.queryByRole('textbox', { name: '第 1 段第 1 片段' })).toBeNull();
+test.each(['export','print','render-pdf'] as const)('late %s result cannot enter the replacement context',async kind=>{
+ let finish!:(value:any)=>void;
+ const handler=vi.fn(()=>new Promise<any>(r=>{finish=r}));
+ const prop=kind==='export'?'onExport':kind==='print'?'onPrint':'onRenderPdf';
+ const ctx=setup({[prop]:handler});const old=ctx.epoch();
+ ctx.message({type:kind+'-request',requestId:301,file:{name:'old.png',mime:'image/png',bytes:new Uint8Array([1])},document:{html:'<p>old</p>'}});
+ await act(async()=>{});expect(handler).toHaveBeenCalledOnce();
+ ctx.rerender(<PptxEditor {...ctx.props} model={{...model,sourceBase64:'new context'}} edits={[]}/>);
+ ctx.message({type:'initialized'});await act(async()=>finish(kind==='export'?true:kind==='print'?undefined:new Uint8Array([37,80,68,70])));
+ expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:kind+'-finished',requestId:301}));
+ ctx.message({type:kind+'-request',epoch:old,requestId:302});await act(async()=>{});expect(handler).toHaveBeenCalledOnce();
+});
+
+test.each(['export','print','render-pdf'] as const)('%s received before replacement cannot call either File callback in a microtask',async kind=>{
+ const previous=vi.fn(),next=vi.fn();
+ const prop=kind==='export'?'onExport':kind==='print'?'onPrint':'onRenderPdf';
+ const ctx=setup({[prop]:previous});
+ ctx.message({type:kind+'-request',requestId:401,file:{name:'old'},document:{html:'old'}});
+ ctx.rerender(<PptxEditor {...ctx.props} model={{...model,sourceBase64:'replacement'}} edits={[]} {...{[prop]:next}}/>);
+ await act(async()=>{});expect(previous).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
+ expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:kind+'-finished',requestId:401}));
+});
+
+test('unmount drops native output completion and replacement rejects an outstanding flush',async()=>{
+ let finish!:(value:boolean)=>void;
+ const ctx=setup({onExport:()=>new Promise<boolean>(r=>{finish=r})});
+ ctx.message({type:'export-request',requestId:501,file:{name:'old'}});await act(async()=>{});
+ const pending=ctx.flush(),failed=expect(pending).rejects.toThrow('替换');
+ ctx.rerender(<PptxEditor {...ctx.props} model={{...model,sourceBase64:'replacement'}} edits={[]}/>);await failed;
+ ctx.unmount();await act(async()=>finish(true));
+ expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:'export-finished',requestId:501}));
 });

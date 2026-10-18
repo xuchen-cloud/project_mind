@@ -1,0 +1,27 @@
+{
+  "repository": "https://github.com/Nothing1024/dsh-genoffice-engine",
+  "commit": "86e288908456be5d3b3cccc97e79708e4adf1bc4",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "vite.web.config.ts",
+      "bytes": 2918,
+      "sha256": "e9b4b4b42dcfdea114996a304bec119f31fccfffcb3f430e32df1d3682d3bf43"
+    },
+    {
+      "path": "web-bridge.ts",
+      "bytes": 83889,
+      "sha256": "b46e34de1985af57a8e8ae1a7b70f3d36a32b1fd5ca636fe1e2073f59ff0727b"
+    },
+    {
+      "path": "web-node-shims.ts",
+      "bytes": 12456,
+      "sha256": "fb4720d46471cea64609bc85ce272a4433ae4646e0c1a5d8f62a974cfb1be694"
+    },
+    {
+      "path": "web-slides-session.ts",
+      "bytes": 29425,
+      "sha256": "0ab6fa209589b4d70c592635afaeb20c773896eca470e2e1d0f737212a2ceff9"
+    }
+  ]
+}
