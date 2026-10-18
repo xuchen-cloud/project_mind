@@ -19,6 +19,12 @@ import {
 } from "./routes/record-focus-modules";
 import { PageLoadingSkeleton } from "./ui/components";
 
+// Opt-in native acceptance observes the real App's Workspace close path.
+if (import.meta.env.OFFICE_PERFORMANCE) {
+  const config = (window as Window & {__OFFICE_PERFORMANCE__?: {page?: string; workspaceRoot: string; reportUrl: string}}).__OFFICE_PERFORMANCE__;
+  if (config?.page === 'app') void import('../scripts/office-performance/app-workspace-race').then(module => module.installAppWorkspaceRace(config));
+}
+
 const ProjectNoteFocusPage = lazy(loadProjectNoteFocusPageModule);
 const WorkspaceRecordFocusPage = lazy(loadWorkspaceRecordFocusPageModule);
 const SettingsRouteBridge = lazy(() =>

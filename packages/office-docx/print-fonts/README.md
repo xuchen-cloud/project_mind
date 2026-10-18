@@ -13,3 +13,5 @@ packages/office-docx/test/output/font-tools/bin/python packages/office-docx/prep
 ```
 
 Original OFL notices and license are preserved in LICENSE-OFL.txt and the output THIRD-PARTY-NOTICES. Native PDF extraction and visual acceptance are tracked in the Word implementation document; constructing these assets alone is not evidence of a native PDF fix.
+
+External renderer builds copy these verified bytes to `dist/print-fonts/` and emit `dist/print-fonts.json`, mapping each hashed screen-font asset to its print derivative. `renderer-resources.json` includes all pairs. The external renderer fetches the mapping only during output and fetches only faces selected by the existing loaded-family/weight/unicode/character filter. Opening or previewing the editor does not decode or fetch print-only fonts. The self-contained legacy bundle retains its Blob mapping for compatibility.

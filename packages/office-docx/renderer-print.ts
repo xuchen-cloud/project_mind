@@ -1,3 +1,16 @@
+// Loaded only for output. Legacy srcdoc supplies its existing Blob URL map.
+let printFontMapping:Promise<Map<string,string>>|undefined;
+async function printFonts():Promise<Map<string,string>>{
+  const legacy=(window as any).__projectMindWordPrintFonts as Map<string,string>|undefined;
+  if(legacy)return legacy;
+  return printFontMapping??=(async()=>{
+    const mappingUrl=new URL('./print-fonts.json',import.meta.url);
+    const response=await fetch(mappingUrl);
+    if(!response.ok)throw Error(`打印字体映射无法加载：${response.status}`);
+    const paths=await response.json() as Record<string,string>;
+    return new Map(Object.entries(paths).map(([screen,print])=>[new URL(screen,mappingUrl).href,new URL(print,mappingUrl).href]));
+  })();
+}
 /** Preserve upstream's selected, measured print sheets; no application controls. */
 export async function buildPrintDocument(title:string):Promise<{html:string;title:string;pageSize:{widthPt:number;heightPt:number}}>{
   const preview=document.querySelector<HTMLElement>('.pagination-preview');
@@ -10,9 +23,10 @@ export async function buildPrintDocument(title:string):Promise<{html:string;titl
     for(const font of getComputedStyle(element).fontFamily.split(','))usedFonts.add(font.trim().replace(/^['"]|['"]$/g,'').toLowerCase());
     for(const child of element.childNodes)if(child.nodeType===Node.TEXT_NODE)for(const character of child.textContent??'')characters.add(character.codePointAt(0)!);
   }
+  const fontMapping=await printFonts();
   const resources=new Map<string,Promise<string>>();
   const embed=(url:string,font=false):Promise<string>=>{
-    if(font)url=(window as any).__projectMindWordPrintFonts?.get(url)??url;
+    if(font)url=fontMapping.get(url)??url;
     if(url.startsWith('data:')||url.startsWith('#'))return Promise.resolve(url);
     const key=(font?'font:':'image:')+url;
     if(!resources.has(key))resources.set(key,(async()=>{
@@ -30,10 +44,10 @@ export async function buildPrintDocument(title:string):Promise<{html:string;titl
     })());
     return resources.get(key)!;
   };
-  const inlineCss=async(css:string,font=false)=>{
+  const inlineCss=async(css:string,font=false,baseUrl=document.baseURI)=>{
     if(/@import\b/i.test(css))throw Error('打印样式包含未内嵌的 @import。');
     const urls=[...css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/g)];
-    for(const match of urls){const url=(match[1]??match[2]??match[3]).trim();css=css.replace(match[0],`url("${await embed(url,font)}")`);}
+    for(const match of urls){const raw=(match[1]??match[2]??match[3]).trim();const url=raw.startsWith('#')?raw:new URL(raw,baseUrl).href;css=css.replace(match[0],`url("${await embed(url,font)}")`);}
     return css;
   };
   const styles:string[]=[];
@@ -61,11 +75,11 @@ export async function buildPrintDocument(title:string):Promise<{html:string;titl
         // expand a small document into tens of MiB of duplicated font data.
         if(!loadedFonts.some(face=>familyName(face.family)===familyName(descriptor.fontFamily)&&weight(face.weight)===weight(descriptor.fontWeight)&&face.style===(descriptor.fontStyle||'normal')&&range(face.unicodeRange)===range(descriptor.getPropertyValue('unicode-range')||'U+0-10FFFF')))continue;
         const urls=[...descriptor.getPropertyValue('src').matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/g)];
-        if(urls.some(match=>(window as any).__projectMindWordPrintFonts?.has((match[1]??match[2]??match[3]).trim()))){
+        if(urls.some(match=>fontMapping.has(new URL((match[1]??match[2]??match[3]).trim(),sheet.href??document.baseURI).href))){
           (Number(weight(descriptor.fontWeight))>=600?printBoldFamilies:printRegularFamilies).add(familyName(descriptor.fontFamily));
         }
       }
-      styles.push(await inlineCss(rule.cssText,font));
+      styles.push(await inlineCss(rule.cssText,font,sheet.href??document.baseURI));
     }
   }
   const container=document.createElement('div');container.className='pagination-preview';

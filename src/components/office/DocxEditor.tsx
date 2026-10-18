@@ -1,6 +1,7 @@
 import {EditorLoading} from "../document/EditorLoading";
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import '../../../packages/office-docx/dist/editor-shell.css';
+import rendererUrl from '../../../packages/office-docx/dist/renderer.html?office-resource';
 import type {RegisterEditorOutput} from '../../lib/editor-output';
 import type {DocxModel,Edit} from '../../../packages/office-docx/types';
 import type {EditorController,EditorOptions,FaceVerticalMetrics,EditorRemoteImage} from '../../../packages/office-docx/editor-types';
@@ -38,9 +39,9 @@ export function DocxEditor(props:DocxEditorProps){
   function options():EditorOptions{return{...latest.current,onError:setError,onSaveRequest:latest.current.onSaveRequest?()=>latest.current.onSaveRequest?.():undefined,onChange:edits=>{setError(null);latest.current.onChange(edits);}};}
   useEffect(()=>{
     let active=true;
-    mounting.current=import('../../../packages/office-docx/dist/editor.mjs').then(runtime=>{
+    mounting.current=import('../../../packages/office-docx/dist/full-editor.mjs').then(runtime=>{
       if(!active||!host.current)return null;
-      const mounted=controller.current=runtime.mountFullEditor(host.current,options());
+      const mounted=controller.current=runtime.mountFullEditor(host.current,options(),rendererUrl);
       observeReady(mounted);return mounted;
     });
     void mounting.current.catch(reason=>{if(active)setError(reason instanceof Error?reason.message:String(reason));});

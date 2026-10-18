@@ -123,4 +123,4 @@ export function mountEditor(element: HTMLElement, initial: EditorOptions): Legac
   };
 }
 
-export {mountFullEditor} from './full-editor';
+export {mountFullEditor} from './full-editor-legacy';

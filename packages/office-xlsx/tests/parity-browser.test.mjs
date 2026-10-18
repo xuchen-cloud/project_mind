@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
@@ -12,7 +13,7 @@ test('native toolbar formats a real selection and the XLSX saves and reopens',as
  const appCss=await readFile(new URL('../../../src/styles/app.css',import.meta.url),'utf8')
  const tokens=appCss.match(/:root\s*\{[\s\S]*?\n\}/)[0]
  const html=`<!doctype html><html><head><meta charset="utf-8"><style>${tokens} body{margin:0}#editor{height:100vh}</style><link rel="stylesheet" href="/browser.css"></head><body><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.props={model:${JSON.stringify(model)},edits:[],readOnly:false,onPendingChange(p){window.pending=p},onChange(edits){window.props={...window.props,edits};window.editor.update(window.props)}};window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true</script></body></html>`
- const server=createServer((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}})
+ const server=createServer(withRendererResources((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}}))
  await new Promise(r=>server.listen(0,'127.0.0.1',r))
  const browser=await chromium.launch({headless:true})
  try{

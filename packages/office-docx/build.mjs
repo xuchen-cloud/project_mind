@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises';
 import { resolve, basename } from 'node:path';
 import {createHash} from 'node:crypto';
 import './prepare-source.mjs';
@@ -48,6 +48,8 @@ for(const output of Object.keys(renderer.metafile.outputs).filter(path=>/\.(woff
 // source/hash checked assets with identical cmap/GID and advance metrics.
 const printFontLock=JSON.parse(await readFile(resolve(root,'print-fonts/source-lock.json'),'utf8'));
 const printFonts={};
+const printFontPaths={};
+await mkdir(resolve(root,'dist/print-fonts'),{recursive:true});
 for(const row of printFontLock.files){
   const source=await readFile(resolve(root,'upstream',row.source));
   const derived=await readFile(resolve(root,'print-fonts',row.file));
@@ -56,14 +58,22 @@ for(const row of printFontLock.files){
   const fontOutput=Object.keys(fonts).find(name=>basename(name).startsWith(prefix));
   if(!fontOutput)throw Error(`Missing screen font for print mapping: ${row.file}`);
   printFonts[fontOutput]=derived.toString('base64');
+  const printPath='print-fonts/'+row.file;
+  await copyFile(resolve(root,'print-fonts',row.file),resolve(root,'dist',printPath));
+  printFontPaths[fontOutput]=printPath;
 }
 const fontBootstrap='let css='+JSON.stringify(rendererCss)+';const fonts='+JSON.stringify(fonts)+';const printFonts='+JSON.stringify(printFonts)+';window.__projectMindWordPrintFonts=new Map();for(const [name,data]of Object.entries(fonts)){const blob=data=>URL.createObjectURL(new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))]));const url=blob(data);css=css.split(name).join(url);if(printFonts[name])window.__projectMindWordPrintFonts.set(url,blob(printFonts[name]));}const style=document.createElement("style");style.textContent=css;document.head.append(style);';
 const rendererHtml='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><div id="root"></div><script type="module">'+(fontBootstrap+rendererCode).replace(/<\/script/gi,'<\\/script')+'</script></html>';
-await writeFile(resolve(root,'dist/renderer.html'),rendererHtml);
+await writeFile(resolve(root,'dist/renderer.html'),'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="./renderer.css"></head><body><div id="root"></div><script type="module" src="./renderer.mjs"></script></body></html>\n');
+await writeFile(resolve(root,'dist/print-fonts.json'),JSON.stringify(printFontPaths,null,2)+'\n');
+const rendererFiles=[...Object.keys(renderer.metafile.outputs).map(file=>file.replace(/^dist\//,'')),'renderer.html','print-fonts.json',...Object.values(printFontPaths)].sort();
+await writeFile(resolve(root,'dist/renderer-resources.json'),JSON.stringify({entry:'renderer.html',files:rendererFiles},null,2)+'\n');
 await writeFile(resolve(root,'dist/renderer-resource.mjs'),'export const rendererHtml='+JSON.stringify(rendererHtml)+';\n');
 const editorBuild=await build({absWorkingDir:root,entryPoints:['editor.ts'],outfile:'dist/editor.mjs',platform:'browser',bundle:true,format:'esm',target:'es2022',alias,treeShaking:true,metafile:true,jsx:'automatic',logLevel:'warning',legalComments:'eof',loader:{'.css':'empty'},inject:['css-escape.ts'],define:{'process.env.NODE_ENV':'"production"','CSS.escape':'cssEscape'}});
 await writeFile(resolve(root,'dist/editor.meta.json'),JSON.stringify(editorBuild.metafile,null,2));
 for(const input of Object.keys(editorBuild.metafile.inputs)) inputs.add(input);
+const fullEditorBuild=await build({absWorkingDir:root,entryPoints:['full-editor.ts'],outfile:'dist/full-editor.mjs',platform:'browser',bundle:true,format:'esm',target:'es2022',treeShaking:true,metafile:true,logLevel:'warning',legalComments:'eof'});
+await writeFile(resolve(root,'dist/full-editor.meta.json'),JSON.stringify(fullEditorBuild.metafile,null,2));
 const program = ts.createProgram([resolve(root, 'types.ts'), resolve(root, 'editor-types.ts')], {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Node10,
   strict: true, skipLibCheck: true, declaration: true, emitDeclarationOnly: true, outDir: resolve(root, 'dist'),
@@ -74,6 +84,7 @@ if (diagnostics.length) throw Error(ts.formatDiagnosticsWithColorAndContext(diag
 }));
 program.emit();
 await writeFile(resolve(root, 'dist/editor.d.mts'), 'export { mountEditor, mountFullEditor } from "./editor-types";\n');
+await writeFile(resolve(root, 'dist/full-editor.d.mts'), 'export { mountFullEditor } from "./editor-types";\n');
 await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, edit, DocxError } from "./types";\n');
 await writeFile(resolve(root, 'dist/editor-shell.css'), await readFile(resolve(root, 'editor-shell.css')));
 // Keep original SDK document rules and discard its unrelated app/ribbon chrome.
@@ -93,6 +104,6 @@ const lockedPaths = new Set(sourceLock.files.map(row => `upstream/${row.path}`))
 for (const input of inputs) if (input.startsWith('upstream/') && !lockedPaths.has(input)) throw Error(`Unpinned source input: ${input}`);
 await writeNotices(root, inputs, sourceLock);
 await writeFile(resolve(root, 'dist/runtime-manifest.json'), JSON.stringify({
-  engine: 'engine.mjs', editor: 'editor.mjs', engineAssets: [], browserAssets: ['editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
+  engine: 'engine.mjs', editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
   notices: 'THIRD-PARTY-NOTICES.txt', sourceCommit: sourceLock.commit,
 }, null, 2) + '\n');

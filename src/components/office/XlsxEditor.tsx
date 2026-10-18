@@ -2,6 +2,7 @@ import { EditorLoading } from "../document/EditorLoading"
 import { useEffect, useRef, useState } from 'react'
 import type { EditorProps, MountedEditor } from '../../../packages/office-xlsx/types'
 import '../../../packages/office-xlsx/dist/browser.css'
+import rendererUrl from '../../../packages/office-xlsx/dist/renderer.html?office-resource'
 import type {RegisterEditorOutput} from '../../lib/editor-output'
 
 export type { Model, Edit } from '../../../packages/office-xlsx/types'
@@ -32,7 +33,7 @@ export function XlsxEditor(props: XlsxEditorProps) {
     let disposed = false
     mounting.current = import('../../../packages/office-xlsx/dist/browser.mjs').then(({ mount }) => {
       if (disposed || !host.current) throw new Error('Excel 编辑器已关闭')
-      const mounted = editor.current = mount(host.current, latest.current)
+      const mounted = editor.current = mount(host.current, latest.current, rendererUrl)
       observeReady(mounted)
       return mounted
     })

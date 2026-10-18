@@ -40,4 +40,4 @@ export interface EditorController {
 export type LegacyEditorController = Omit<EditorController, 'output' | 'ready'>;
 export declare function mountEditor(element: HTMLElement, options: EditorOptions): LegacyEditorController;
 
-export declare function mountFullEditor(element: HTMLElement, options: EditorOptions): EditorController;
+export declare function mountFullEditor(element: HTMLElement, options: EditorOptions, rendererUrl?: string | URL): EditorController;

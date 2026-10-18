@@ -42,6 +42,9 @@ for(const kind of (process.env.OFFICE_BROWSER?[process.env.OFFICE_BROWSER]:['chr
   }
   assert.equal(await body.getAttribute('contenteditable'),'false','presentation mode enforces read-only even without a separate lock');
   assert.equal(await f.locator('.pm-preview-state').isVisible(),true);
+  // Closing preview rebuilds the upstream canvas gap decorations asynchronously.
+  // Wait for the same two real boundaries asserted below before sampling geometry.
+  await body.locator('.page-gap').nth(1).waitFor({state:'attached'});
   phase('initial');const initial=await metrics();assert.equal(initial.pageTotal,'3');assert.ok(initial.gaps.length>=2,'real full-renderer pagination, not a plain reading document');
   const text=await body.innerText();await body.locator('p[data-idx="3"]').click();await page.keyboard.type('MUST_NOT_EDIT');assert.equal(await body.innerText(),text);assert.deepEqual(await page.evaluate(()=>window.presentation.edits()),[]);
   phase('initial edit');await mode('edit');phase('initial edit metrics');sameLayout(await metrics(),initial,'preview and editor share paper dimensions, page breaks, fonts and zoom');

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Native ProjectFileContent performance</title>
+    <style>
+      html,body,#root{margin:0;width:100%;height:100%;overflow:hidden}
+      #native-controls{box-sizing:border-box;height:34px;display:flex;align-items:center;gap:6px;padding:3px 8px;font:12px system-ui;background:#f4f4f2;border-bottom:1px solid #ccc}
+      #native-controls[hidden]{display:none}
+      #native-control-status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      #native-controls button,#native-controls select{font:inherit}
+    </style>
+  </head>
+  <body>
+    <nav id="native-controls" aria-label="原生验收控制" hidden>
+      <select id="native-sample" aria-label="样本"><option value="simple">simple</option><option value="complex">complex</option><option value="large">large</option></select>
+      <button type="button" data-action="open">打开</button>
+      <button type="button" data-action="close">关闭</button>
+      <button type="button" data-action="preview">预览 / 源码</button>
+      <button type="button" data-action="edit">编辑 / 富文本</button>
+      <button type="button" data-action="state">状态</button>
+      <select id="native-width" aria-label="验收内容宽度"><option value="980">980px</option><option value="640">640px</option><option value="490">490px</option></select>
+      <span id="native-control-status" role="status">验收运行中</span>
+    </nav>
+    <div id="root"></div>
+    <script type="module" src="./native-page.tsx"></script>
+  </body>
+</html>

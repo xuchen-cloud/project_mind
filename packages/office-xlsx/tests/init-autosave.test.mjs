@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
@@ -10,7 +11,7 @@ for(const [name,browserType]of[['chromium',chromium],['webkit',webkit]])test(`${
  const source=await readFile(new URL('./fixtures/complex.original.xlsx',import.meta.url)),model=await inspect(source)
  const bundle=await readFile(new URL('../dist/browser.mjs',import.meta.url)),css=await readFile(new URL('../dist/browser.css',import.meta.url))
  const html=`<!doctype html><meta charset="utf-8"><style>body{margin:0}#editor{height:100vh}</style><link rel="stylesheet" href="/browser.css"><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.events=[];window.props={model:${JSON.stringify(model)},edits:[],readOnly:false,presentationMode:'preview',onChange(edits){window.props.edits=edits;window.events.push({type:'change',edits});window.editor.update(window.props)},onPendingChange(value){window.events.push({type:'pending',value})},onSaveRequest:async()=>{window.events.push({type:'saveRequest'});await window.saveOriginalFile(window.props.edits)}};window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true</script>`
- const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/browser.mjs'?'text/javascript':req.url==='/browser.css'?'text/css':'text/html');res.end(req.url==='/browser.mjs'?bundle:req.url==='/browser.css'?css:html)})
+ const server=createServer(withRendererResources((req,res)=>{res.setHeader('Content-Type',req.url==='/browser.mjs'?'text/javascript':req.url==='/browser.css'?'text/css':'text/html');res.end(req.url==='/browser.mjs'?bundle:req.url==='/browser.css'?css:html)}))
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const browser=await browserType.launch({headless:true})
  const evidence=process.env.XLSX_EVIDENCE_DIR
  try{

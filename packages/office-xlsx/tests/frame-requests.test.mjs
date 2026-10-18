@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
@@ -8,7 +9,7 @@ import {inspect} from '../dist/engine.mjs'
 test('accepted frame requests and beforeSave commits become inert when the workbook is replaced or disposed',async()=>{
  const model=await inspect(await readFile(new URL('./fixtures/simple.original.xlsx',import.meta.url))),bundle=await readFile(new URL('../dist/browser.mjs',import.meta.url)),css=await readFile(new URL('../dist/browser.css',import.meta.url))
  const html=`<!doctype html><meta charset="utf-8"><style>body{margin:0}#editor{height:100vh}</style><link rel="stylesheet" href="/browser.css"><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.invoked=[];window.makeProps=(owner,model)=>({model,edits:[],readOnly:false,onChange(){},...Object.fromEntries(['onSaveRequest','onRecalculate','onInspectImportedWorkbook','onCaptureScreenSources','onCaptureScreenSource','onExport','onRenderPdf','onPrint'].map(name=>[name,async()=>{window.invoked.push(owner+':'+name)}]))});window.props=window.makeProps('old',${JSON.stringify(model)});window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true</script>`
- const server=createServer((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}})
+ const server=createServer(withRendererResources((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}}))
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true})
  try{const page=await browser.newPage();await page.addInitScript(()=>{const NativeChannel=window.MessageChannel;window.channels=[];window.MessageChannel=class extends NativeChannel{constructor(){super();window.channels.push(this)}}});await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.ready)
  // Deliver requests on the actual dedicated MessagePort, then change File
@@ -35,7 +36,7 @@ test('accepted frame requests and beforeSave commits become inert when the workb
 test('beforeSave and the original ready reject when replaced or disposed before the first iframe is ready',async()=>{
  const model=await inspect(await readFile(new URL('./fixtures/simple.original.xlsx',import.meta.url))),bundle=await readFile(new URL('../dist/browser.mjs',import.meta.url)),css=await readFile(new URL('../dist/browser.css',import.meta.url))
  const html=`<!doctype html><link rel="stylesheet" href="/browser.css"><div id="editor" style="height:100vh"></div><script type="module">import{mount}from'/browser.mjs';window.mountEditor=mount;window.props={model:${JSON.stringify(model)},edits:[],readOnly:false,onChange(){}};window.loaded=true</script>`
- const server=createServer((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}})
+ const server=createServer(withRendererResources((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}}))
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true})
  try{const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.loaded)
  for(const action of ['replace','dispose']){

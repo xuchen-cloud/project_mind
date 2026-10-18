@@ -261,6 +261,8 @@ impl OfficeUtility for OfficeWorker {
         payload: OfficePayload<'_>,
     ) -> AgentResult<Value> {
         use base64::{engine::general_purpose::STANDARD, Engine};
+        #[cfg(feature = "office-performance")]
+        let performance_start = std::time::Instant::now();
         if request_id.is_empty()
             || request_id.len() > 128
             || !matches!(
@@ -325,6 +327,8 @@ impl OfficeUtility for OfficeWorker {
             .await
             .map_err(|_| failure(ErrorCode::EditorBusy, "Office utility is busy"))?
             .map_err(|_| failure(ErrorCode::RuntimeUnavailable, "Office utility stopped"))?;
+        #[cfg(feature = "office-performance")]
+        eprintln!("[office-performance] {request_id} worker-slot {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
         let temporary = tempfile::tempdir().map_err(|_| {
             failure(
                 ErrorCode::IoFailed,
@@ -370,6 +374,8 @@ impl OfficeUtility for OfficeWorker {
             )
         })?;
         let _tree = crate::office_process::ProcessTree::attach(&child)?;
+        #[cfg(feature = "office-performance")]
+        eprintln!("[office-performance] {request_id} worker-spawn {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
         let mut input = child
             .stdin
             .take()
@@ -395,6 +401,8 @@ impl OfficeUtility for OfficeWorker {
             };
             let (_, bytes) = tokio::try_join!(send, receive)
                 .map_err(|_| failure(ErrorCode::IoFailed, "Office pipe failed"))?;
+            #[cfg(feature = "office-performance")]
+            eprintln!("[office-performance] {request_id} worker-response {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
             if bytes.len() > FRAME_LIMIT {
                 return Err(failure(
                     ErrorCode::BudgetExceeded,
@@ -412,7 +420,10 @@ impl OfficeUtility for OfficeWorker {
                     "Office worker exited unsuccessfully",
                 ));
             }
-            decode_response(request_id, method, &bytes)
+            let decoded = decode_response(request_id, method, &bytes);
+            #[cfg(feature = "office-performance")]
+            eprintln!("[office-performance] {request_id} worker-decode {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
+            decoded
         })
         .await;
         match result {

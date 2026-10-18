@@ -1,0 +1,54 @@
+{
+  "base": "b5dd7317f7d200a32537bba1ca996ea1e46af91f",
+  "qualification": "Executed checks and reused freeze scopes; not full suite or Spec pass. Root TS log intentionally empty on successful check. Format package browser evidence remains in package test/output and coordinating report.",
+  "logs": [
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-final-shipping-build.log",
+      "sha256": "3bd58af85f00b3a6051c1b704c3cb30c0ba41c2d2f159a8621721b24fd158161",
+      "command": "node scripts/office-performance/build-host-graph.mjs",
+      "result": "passed; retained renderer restored"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-final-shipping-graph.log",
+      "sha256": "f03a6af1f28d76df89a5464b991ef55837dce5825be15f35d3eef8bfa0498ac0",
+      "command": "node --test scripts/office-performance/host-bundle-boundary.test.mjs",
+      "result": "6/6 passed"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-final-shipping-budget.log",
+      "sha256": "b4f16c22a6e5bfec6dc336fe582f1512bbbdc6187cde161f87cb7b2c84b3f90e",
+      "command": "node scripts/check-bundle-boundaries.mjs",
+      "result": "passed; main 249/250KiB; same shipping host graph"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-final-root-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": "node node_modules/typescript/bin/tsc --noEmit",
+      "result": "passed; final product source and restored renderer freeze"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-normal-cargo-check.log",
+      "sha256": "bd4df60a30d4b0eb06908dd9e511aa34ebe082fee7cadc045b3f400163d9fcff",
+      "command": "cargo check --manifest-path src-tauri/Cargo.toml --lib --no-default-features",
+      "result": "passed; 37 existing warnings"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-final2-measurement-native-retry.log",
+      "sha256": "d1e5ad02b55ddca345e543e00c0c2a674a659d76e14f1458b9e6827a33bafc53",
+      "command": "tauri build --features office-performance --no-bundle --config $MEASUREMENT_CONFIG",
+      "result": "passed; retained Native Verified; earlier no-space attempt retained separately"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-actions-measurement-native.log",
+      "sha256": "fb28e689f702f5069f693e8609b1b8fd0305f2cd4195f11420be477f71f52c16",
+      "command": "tauri build --features office-performance --no-bundle --config $MEASUREMENT_CONFIG",
+      "result": "passed; rejected XLSX experiment; PPT identical retained product"
+    },
+    {
+      "source": "$OFFICE_PERF_EVIDENCE/final-verification/office-final-acceptance-harness-tests.log",
+      "sha256": "3c0298f97d2321674b2ee018b257a106fd1e4abf15fa38d6e4d8a99fab0ac278",
+      "command": "node --test scripts/office-performance/{native-acceptance-flow,native-canvas-proof,native-history,native-pptx-mutation,native-races,native-visual-proof,app-workspace-race}.test.mjs scripts/office-performance/evidence/acceptance-summary.test.mjs",
+      "result": "86/86 passed"
+    }
+  ]
+}

@@ -28,3 +28,5 @@ src-tauri/target-office/
 
 # Local browser acceptance artifacts
 /output/playwright/
+scripts/office-performance/output/
+scripts/office-performance/.measurement.lock

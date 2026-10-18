@@ -1,6 +1,6 @@
 import {EditorLoading} from "../document/EditorLoading";
 import {useEffect,useRef,useState} from 'react';
-import {parityHtml} from '../../../packages/office-pptx/dist/browser.mjs';
+import rendererUrl from '../../../packages/office-pptx/dist/renderer.html?office-resource';
 import type {PptxEdit,PptxModel,PptxOutputDocument} from '../../../packages/office-pptx/types';
 import {samePptxEdits} from '../../../packages/office-pptx/parity-edits';
 import './PptxEditor.css';
@@ -55,6 +55,11 @@ export function PptxEditor(props:PptxEditorProps){
   const receive=(e:MessageEvent)=>{
    if(e.source!==frame.current?.contentWindow||e.data?.source!=='project-mind-pptx')return;
    const m=e.data;
+   if(m.type==='resource-error'){
+    setError(m.message);latest.current.onPendingChange?.(false);
+    initialization.current.forEach(r=>r.reject(new Error(m.message)));initialization.current.clear();
+    return;
+   }
    if(m.type!=='ready'&&m.epoch!==epoch.current)return;
    const requestEpoch=m.epoch,port=channel.current,origin=frame.current?.contentWindow;
    const valid=()=>mounted.current&&epoch.current===requestEpoch&&channel.current===port&&frame.current?.contentWindow===origin;
@@ -110,5 +115,5 @@ export function PptxEditor(props:PptxEditorProps){
   if(!initialized.current)await new Promise<void>((resolve,reject)=>initialization.current.add({resolve,reject}));
   await new Promise<void>((resolve,reject)=>{const requestId=++seq.current;requests.current.set(requestId,{resolve,reject});post({type:'output',requestId,command})});
  }),[props.registerOutput]);
- return <div className="pptx-editor editor-loading-boundary" aria-label="PowerPoint 编辑器">{error&&<div className="pptx-editor__notice" role="alert">{error}</div>}<iframe ref={frame} onLoad={requestReady} allow="clipboard-read; clipboard-write" allowFullScreen title="PPTX 幻灯片编辑画布" srcDoc={parityHtml} className="pptx-editor__frame"/>{renderedEpoch!==epoch.current&&!error?<EditorLoading format="pptx" stage="render" overlay/>:null}</div>;
+ return <div className="pptx-editor editor-loading-boundary" aria-label="PowerPoint 编辑器">{error&&<div className="pptx-editor__notice" role="alert">{error}</div>}<iframe ref={frame} onLoad={requestReady} allow="clipboard-read; clipboard-write" allowFullScreen title="PPTX 幻灯片编辑画布" src={rendererUrl} className="pptx-editor__frame"/>{renderedEpoch!==epoch.current&&!error?<EditorLoading format="pptx" stage="render" overlay/>:null}</div>;
 }

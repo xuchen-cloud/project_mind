@@ -28,16 +28,22 @@ node packages/office-docx/prepare-source.mjs --verify-only
 | 产物 | 用途 |
 | --- | --- |
 | `engine.mjs` | 内存inspect/edit；npm库已打包，只依赖Node内建模块 |
-| `editor.mjs` | legacy mountEditor + 完整mountFullEditor；自包含renderer、CSS、字体和parse worker，约39MiB（含屏幕字体和打印专用派生字体） |
+| `full-editor.mjs` | 轻量完整编辑器宿主；默认加载相邻 `renderer.html`，可通过第三参数传入同源 URL |
+| `renderer.html` / `renderer.mjs` / `renderer.css` | 外部完整 renderer；HTML 仅引用 CSS 和模块脚本，屏幕字体保留原 CSS/assets 加载方式 |
+| `renderer-resources.json` | `{entry:"renderer.html",files:[相对路径]}`，完整资源闭包供宿主原样 staging；不含 engine、legacy bundle 或构建元信息 |
+| `print-fonts.json` / `print-fonts/` | 屏幕字体到打印派生字体的路径映射及原字节；输出请求时才读取映射和所需字体 |
+| `editor.mjs` | 兼容 legacy mountEditor 与自包含 mountFullEditor；约39MiB，主产品使用 slim 入口 |
 | `editor-shell.css` | React宿主section/iframe尺寸及错误样式 |
 | `editor-document.css` | 保留给legacy mountEditor；完整iframe内部已包含文档样式 |
 | `runtime-manifest.json` | 引擎资源/sidecar及编辑器CSS清单 |
 | `*.d.ts` / `*.d.mts` | 公共API与类型 |
 | `THIRD-PARTY-NOTICES.txt` | 固定来源和依赖许可证 |
 
-`DocxEditor.tsx` 相对动态导入`dist/editor.mjs`并挂载完整renderer，Vite可解析；无需根Tiptap升级或额外静态资源路由。完整上游字体为Blob URL，iframe销毁时浏览器释放其文档资源。
+完整入口为 `dist/full-editor.mjs`：`mountFullEditor(element, options, rendererUrl?)`。不传第三参数时加载 `new URL('./renderer.html', import.meta.url)`，直接将 package dist 放在同源静态服务器即可使用。主产品 wrapper 通过 `?office-resource` 获取 staging 后的 HTML URL 并传入第三参数；staging 必须将 `renderer-resources.json` 中全部文件原样输出到同一目录，保留相对路径。该宿主模块不引用 renderer HTML 字符串、React 或字体数据。parent 在 iframe 导航前同步设置 frame options；保存 ack、只读、替换、销毁和等待输出共用 legacy 的生命周期实现。
 
-完整 renderer 的 `EditorOptions.presentationMode?: 'preview' | 'edit'` 默认 edit；preview 强制只读，保留分页计数和缩放，隐藏整个编辑 Ribbon；文件输出统一由宿主第一行图标菜单调用，不渲染第二行。`DocxEditor` 透传该属性并纳入 update 依赖。切换复用同一 iframe/live editor，不切换上游 readMode，不重设文档宽度、zoom、fit 选择或 undo 历史。底部缩放对话框属于只读可用的 view dialog。预览与编辑均消费完整 `editor.mjs`；本轮废弃的独立轻量 preview 入口、声明、测试与 legacy 拆分已删除，旧 mountEditor 行为保持原实现，返回 LegacyEditorController（不包含完整 renderer 的 output）。
+打印/PDF/图片输出沿用 `buildPrintDocument` 的已加载字体、字重、unicode-range 和使用字符筛选；外链 CSS URL 按其 `stylesheet.href` 解析。只有输出需要时读取 `print-fonts.json`、获取对应派生字体并生成自包含 HTML。失败沿用可见错误和原生回执路径，不回退到错误的屏幕字体。legacy 自包含入口继续使用其原 Blob URL 字体映射。
+
+完整 renderer 的 `EditorOptions.presentationMode?: 'preview' | 'edit'` 默认 edit；preview 强制只读，保留分页计数和缩放，隐藏整个编辑 Ribbon；文件输出统一由宿主第一行图标菜单调用，不渲染第二行。`DocxEditor` 透传该属性并纳入 update 依赖。切换复用同一 iframe/live editor，不切换上游 readMode，不重设文档宽度、zoom、fit 选择或 undo 历史。底部缩放对话框属于只读可用的 view dialog。预览与编辑均使用同一完整外部 renderer；slim 仅拆出宿主与静态资源，不另建预览渲染器。旧 mountEditor 行为保持原实现，返回 LegacyEditorController（不包含完整 renderer 的 output）。
 
 ## 内存格式 API
 
@@ -130,14 +136,14 @@ node packages/office-docx/test/browser-parity.mjs
 
 ### 本轮真实验证与冻结
 
-固定 Node：/Users/xuchen/project_mind/src-tauri/resources/agent-host/node；命令均在 /Users/xuchen/project_mind 执行。
+固定 Node 24：在仓库根目录设置 `NODE_BIN="${NODE_BIN:-src-tauri/resources/agent-host/node}"`；下列命令均在仓库根目录执行。
 
-- `src-tauri/resources/agent-host/node packages/office-docx/build.mjs` 成功，505固定上游来源校验通过；本轮只构建本包一次。
-- `src-tauri/resources/agent-host/node packages/office-docx/test/browser-server.mjs` 提供 headless 测试宿主（最终 http://127.0.0.1:53787）；环境统一为 OFFICE_ACCEPTANCE_URL、OFFICE_PLAYWRIGHT_MODULE=/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs、OFFICE_WEBKIT_EXECUTABLE=/Users/xuchen/Library/Caches/ms-playwright/webkit-2368/pw_run.sh。
-- `.../node packages/office-docx/test/browser-output-layout.mjs`：Chromium155/WebKit26.5，1440/640/490均通过；无File/AI/QAT保存/autosave/前导分隔线，Clipboard/QAT两按钮保留，状态栏28px/12px/24px、page/zoom固定、信息横向滚动及连续边缘渐变/反向归零、真实输出preview、字体popover有效。最初测试把上游redo中文误写为“重做”，实际为“恢复”，已按固定上游文案修正测试，无产品失败。
-- `.../node packages/office-docx/test/browser-presentation.mjs`：两浏览器通过同iframe/document/live editor、三页正文、两态手动40%和整页fit保持、实际QAT undo/redo、独立readOnly锁、490px两态、preview无第二行；分页几何最大偏移均0。新output在ready前调用preview会等待；HTML原生回执未到保持pending，销毁后及时reject，晚回执不能改为成功。errors=[]。
-- `.../node packages/office-docx/test/browser-readonly-output.mjs`：两浏览器经真实宿主registerOutput/controller.output调用HTML/PDF/PNG ZIP/第2页打印均通过；原件字节相同，edits=[]、pending=false、正文与编辑控件锁定，随后可解锁编辑。
-- `.../node packages/office-docx/test/browser-native-export.mjs`：Chromium通过真实HTML/原PNG字节、await receipt、取消与失败可见、无anchor fallback。
+- `"$NODE_BIN" packages/office-docx/build.mjs` 成功，505固定上游来源校验通过；本轮只构建本包一次。
+- `"$NODE_BIN" packages/office-docx/test/browser-server.mjs` 提供 headless 测试宿主（最终 http://127.0.0.1:53787）；环境统一为 `OFFICE_ACCEPTANCE_URL`、`OFFICE_PLAYWRIGHT_MODULE`、`OFFICE_WEBKIT_EXECUTABLE`，分别指向当前测试宿主、已安装 Playwright 模块及 WebKit 启动器，由运行环境提供路径。
+- `"$NODE_BIN" packages/office-docx/test/browser-output-layout.mjs`：Chromium155/WebKit26.5，1440/640/490均通过；无File/AI/QAT保存/autosave/前导分隔线，Clipboard/QAT两按钮保留，状态栏28px/12px/24px、page/zoom固定、信息横向滚动及连续边缘渐变/反向归零、真实输出preview、字体popover有效。最初测试把上游redo中文误写为“重做”，实际为“恢复”，已按固定上游文案修正测试，无产品失败。
+- `"$NODE_BIN" packages/office-docx/test/browser-presentation.mjs`：两浏览器通过同iframe/document/live editor、三页正文、两态手动40%和整页fit保持、实际QAT undo/redo、独立readOnly锁、490px两态、preview无第二行；分页几何最大偏移均0。新output在ready前调用preview会等待；HTML原生回执未到保持pending，销毁后及时reject，晚回执不能改为成功。errors=[]。
+- `"$NODE_BIN" packages/office-docx/test/browser-readonly-output.mjs`：两浏览器经真实宿主registerOutput/controller.output调用HTML/PDF/PNG ZIP/第2页打印均通过；原件字节相同，edits=[]、pending=false、正文与编辑控件锁定，随后可解锁编辑。
+- `"$NODE_BIN" packages/office-docx/test/browser-native-export.mjs`：Chromium通过真实HTML/原PNG字节、await receipt、取消与失败可见、无anchor fallback。
 - `git diff --check -- packages/office-docx` 通过。产物meta无file-menu.tsx，适配CSS无死菜单选择器；未跑root build/stage、Cargo、native GUI、全测或提交/发布。
 
 证据：test/output/browser/output-layout-{chromium,webkit}-results.json 与各尺寸PNG、presentation-{chromium,webkit}-results.json 与490PNG、readonly-output-results.json、native-export-results.json。系统菜单/打印面板及HMR稳定reload由主集中验收，本包不把fixture回执声明为真实系统打印成功。
@@ -146,3 +152,15 @@ node packages/office-docx/test/browser-parity.mjs
 
 - 当前共享 chrome 构建 dist/editor.mjs SHA256：`7d68fcbc1e0c7f6e10c179034fdfd898c960650c9408d54624017e0db938f088`
 - 当前共享 chrome 构建 dist/renderer-resource.mjs SHA256：`39c08c0a439dbe9e68db39c840fb267a8b3f6450d0d9ae6aaf2a0af4f57136c7`
+
+## External renderer 本包验收
+
+工作包：Word 首开性能，复用 #191/#118 的完整 renderer；依赖现有固定 upstream 与打印派生字体。交付为 slim 入口、可搬移资源 manifest、按需打印字体加载。本包不修改根 wrapper/Vite staging，不改变格式引擎、字体字节或原生实现，不以浏览器数据代替 Tauri 性能结论。
+
+命令在仓库根目录执行，使用上述 `NODE_BIN` 设置；以下记录验证范围，不代表本次文档整理重新运行验证。
+
+- `"$NODE_BIN" packages/office-docx/build.mjs`：只构建本包，验证固定来源、字体 provenance 和许可证。
+- `"$NODE_BIN" --test packages/office-docx/test/build.test.mjs packages/office-docx/test/editor.test.mjs`：slim 依赖边界、manifest/CSS 资源闭包、全部屏幕字体原字节、5 对打印字体哈希、legacy 编辑和独立 worker 搬移。
+- 显式启动 `test/browser-server.mjs` 后，设置既有 `OFFICE_ACCEPTANCE_URL`、`OFFICE_PLAYWRIGHT_MODULE`、`OFFICE_WEBKIT_EXECUTABLE`，运行 `browser-external-renderer.mjs`、`browser-presentation.mjs`、`browser-lifecycle.mjs`、`browser-receipt.mjs`、`browser-native-print.mjs` 和 `browser-readonly-output.mjs`。全部为 headless 浏览器；native 回调使用测试宿主，不启动原生窗口。
+- browser server 将 `?office-resource` 映射到 `/word-renderer/renderer.html`，仅服务 manifest 中的 renderer 文件；`/standalone` 使用未打包的 `full-editor.mjs` 验证默认相邻 URL。源码 lifecycle/presentation harness 显式传同源静态 URL。
+- preview 关闭后，上游异步重建 canvas 分页 decorations；presentation 验收先等待原有两条真实边界，再执行原几何/缩放/实例断言。

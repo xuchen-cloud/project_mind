@@ -5,5 +5,5 @@
     "esModuleInterop": true, "noEmit": true, "jsx": "react-jsx",
     "paths": { "@genoffice/xlsx-gateway/*": ["./vendor/packages/xlsx-gateway/src/*"], "@genoffice/zip-gate": ["./vendor/packages/zip-gate/src/index.ts"] }
   },
-  "include": ["types.ts", "engine.ts", "sidecar.ts", "browser.ts", "frame-browser.ts", "../../src/components/office/XlsxEditor.tsx"]
+  "include": ["types.ts", "engine.ts", "sidecar.ts", "browser.ts", "frame-browser.ts", "post-paint.ts", "initial-calculation.ts", "../../src/components/office/XlsxEditor.tsx", "../../src/vite-env.d.ts"]
 }

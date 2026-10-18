@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -9,7 +10,7 @@ for (const [name, browserType] of [['chromium', chromium], ['webkit', webkit]]) 
   const source = await readFile(new URL('./fixtures/complex.original.xlsx', import.meta.url)), model = await inspect(source)
   const bundle = await readFile(new URL('../dist/browser.mjs', import.meta.url)), css = await readFile(new URL('../dist/browser.css', import.meta.url))
   const html = `<!doctype html><meta charset="utf-8"><style>body{margin:0}#editor{height:100vh;--color-bg:#faf9f6;--color-bg-subtle:#f3f2ef;--color-border:#d6d4cf;--color-text-primary:#292d2c;--color-accent:#197a70;--font-ui:sans-serif}</style><link rel="stylesheet" href="/browser.css"><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.changes=[];window.exports=[];window.props={model:${JSON.stringify(model)},edits:[],presentationMode:'preview',readOnly:false,onChange(edits){window.props.edits=edits;window.changes.push(edits)},onPendingChange(p){window.pending=p},onExport:async file=>{window.exports.push(file.bytes);return true}};window.editor=mount(document.getElementById('editor'),window.props);window.initialReady=window.editor.ready;window.originalFrame=document.querySelector('iframe');await window.editor.ready;window.ready=true</script>`
-  const server = createServer((req, res) => { res.setHeader('Content-Type', req.url === '/browser.mjs' ? 'text/javascript;charset=utf-8' : req.url === '/browser.css' ? 'text/css;charset=utf-8' : 'text/html;charset=utf-8'); res.end(req.url === '/browser.mjs' ? bundle : req.url === '/browser.css' ? css : html) })
+  const server = createServer(withRendererResources((req, res) => { res.setHeader('Content-Type', req.url === '/browser.mjs' ? 'text/javascript;charset=utf-8' : req.url === '/browser.css' ? 'text/css;charset=utf-8' : 'text/html;charset=utf-8'); res.end(req.url === '/browser.mjs' ? bundle : req.url === '/browser.css' ? css : html) }))
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const browser = await browserType.launch({ headless: true })
   try {

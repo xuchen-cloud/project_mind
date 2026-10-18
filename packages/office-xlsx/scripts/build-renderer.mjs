@@ -1,10 +1,23 @@
 import ts from 'typescript';
+import {adaptLocaleStrings,adaptLocaleProvider,adaptLocaleBootstrap} from './locale-adapter.mjs';
+import {adaptFormulaStreamHold,adaptPreloadCompletion,adaptLoadedVisualScroll} from './initialization-adapter.mjs';
 import {replaceStatusZoom,markEditorChrome} from '../../editor-chrome/build-adapter.mjs';
-import{build}from'esbuild';import{readFile,writeFile}from'node:fs/promises';import{resolve,dirname}from'node:path';import{existsSync}from'node:fs';import{disposedAutoHeightPatch}from'./patch-univer.mjs';
+import{build}from'esbuild';import{readFile,writeFile,mkdir,rm}from'node:fs/promises';import{resolve,dirname}from'node:path';import{existsSync}from'node:fs';import{disposedAutoHeightPatch}from'./patch-univer.mjs';
 const root=resolve(import.meta.dirname,'..')
 export async function buildRenderer(){
- const result=await build({absWorkingDir:root,entryPoints:['renderer-entry.ts'],outfile:'frame.js',bundle:true,platform:'browser',format:'iife',target:'es2022',jsx:'automatic',write:false,minify:true,metafile:true,define:{'process.env.NODE_ENV':'"production"','import.meta.hot':'undefined','import.meta.env.DEV':'false'},loader:{'.ttf':'dataurl','.woff':'dataurl','.woff2':'dataurl','.svg':'dataurl','.png':'dataurl','.jpg':'dataurl'},plugins:[disposedAutoHeightPatch,{name:'fixed-renderer-bridge',setup(b){
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/App\.tsx$/},async a=>{let source=await readFile(a.path,'utf8');const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream bridge point changed: '+from);source=source.replace(from,to)};
+ await rm(resolve(root,'dist/renderer'),{recursive:true,force:true});await mkdir(resolve(root,'dist/renderer'),{recursive:true});
+ const result=await build({absWorkingDir:root,entryPoints:['renderer-entry.ts'],outdir:'dist/renderer',entryNames:'[name]-[hash]',chunkNames:'chunks/[name]-[hash]',assetNames:'assets/[name]-[hash]',outExtension:{'.js':'.mjs'},bundle:true,splitting:true,platform:'browser',format:'esm',target:'es2022',jsx:'automatic',write:true,minify:true,metafile:true,define:{'process.env.NODE_ENV':'"production"','import.meta.hot':'undefined','import.meta.env.DEV':'false'},loader:{'.ttf':'file','.woff':'file','.woff2':'file','.svg':'file','.png':'file','.jpg':'file'},plugins:[disposedAutoHeightPatch,{name:'fixed-renderer-bridge',setup(b){
+ b.onLoad({filter:/apps\/sheets\/src\/renderer\/(formula-stream-hold|univer-sync)\.ts$/},async a=>({contents:(a.path.endsWith('formula-stream-hold.ts')?adaptFormulaStreamHold:adaptPreloadCompletion)(await readFile(a.path,'utf8')),loader:'ts',resolveDir:dirname(a.path)}))
+ b.onLoad({filter:/apps\/sheets\/src\/renderer\/i18n\/(strings\.ts|locale\.tsx)$/},async a=>({contents:(a.path.endsWith('strings.ts')?adaptLocaleStrings:adaptLocaleProvider)(await readFile(a.path,'utf8')),loader:a.path.endsWith('.tsx')?'tsx':'ts',resolveDir:dirname(a.path)}))
+ b.onLoad({filter:/apps\/sheets\/src\/renderer\/main\.tsx$/},async a=>{
+ let source=adaptLocaleBootstrap(await readFile(a.path,'utf8'));
+ const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream initialization point changed: '+from);source=source.replace(from,to)};
+ replace('  const loads: Promise<unknown>[] = [registerCellFontAliases()]', "  performance.mark('office-xlsx:font-load-start');\n  const loads: Promise<unknown>[] = [registerCellFontAliases()]");
+ replace('  await Promise.race([Promise.all(loads), new Promise((resolve) => setTimeout(resolve, 3000))])', "  const result=await Promise.race([Promise.all(loads).then(()=> 'loaded'), new Promise<string>((resolve) => setTimeout(()=>resolve('timeout'), 3000))]);performance.mark('office-xlsx:font-load-'+result);performance.mark('office-xlsx:font-load-end')");
+ replace('  ReactDOM.createRoot(root!).render(', "  performance.mark('office-xlsx:react-render');\n  ReactDOM.createRoot(root!).render(");
+ return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}
+ })
+ b.onLoad({filter:/apps\/sheets\/src\/renderer\/App\.tsx$/},async a=>{let source=adaptLoadedVisualScroll(await readFile(a.path,'utf8'));const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream bridge point changed: '+from);source=source.replace(from,to)};
  replace('const [pendingEdits, setPendingEdits] = useState(0)', 'const [pendingEdits, setPendingEditsState] = useState(0);const setPendingEdits = useCallback((value: Parameters<typeof setPendingEditsState>[0])=>{setPendingEditsState(value);queueMicrotask(()=>window.__projectMindSheetsHost.edited())},[])');
  replace('univerRef.current = runtime','univerRef.current = runtime; window.__projectMindSheetsHost.attach(runtime)');
  replace('return handleSaveImpl(saveContext(), mode, quiet, explicitTarget)',"return mode === 'recovery' ? handleSaveImpl(saveContext(), mode, quiet, explicitTarget) : window.__projectMindSheetsHost.requestSave()");
@@ -93,13 +106,36 @@ export async function buildRenderer(){
  }
  return{contents:source,loader:'ts',resolveDir:dirname(a.path)}
  })
+ // File-loader strings are relative to the output module, whereas FontFace/img
+ // URLs resolve against renderer.html. Preserve the output module as their base.
+ b.onResolve({filter:/\.(?:ttf|woff2?|svg|png|jpg)(?:\?url)?$/},a=>{
+  if(a.namespace==='asset-url')return{path:a.path,namespace:'file'};
+  if(a.kind!=='import-statement')return;
+  let path=a.path.replace(/\?url$/,'');
+  if(path.startsWith('@genoffice/')){const[pkg,...rest]=path.slice(11).split('/');path=resolve(root,'vendor/packages',pkg,'src',...rest)}else path=resolve(a.resolveDir,path);
+  return{path,namespace:'asset-url'}
+ });
+ b.onLoad({filter:/.*/,namespace:'asset-url'},a=>({contents:'import asset from '+JSON.stringify(a.path)+';export default new URL(asset,import.meta.url).href',loader:'js'}));
  b.onResolve({filter:/^@genoffice\//},args=>{const[pkg,...rest]=args.path.slice(11).split('/');let path=resolve(root,'vendor/packages',pkg,'src',rest.join('/').replace(/\?url$/,'')||'index.ts');if(!existsSync(path))for(const ext of ['.ts','.tsx','/index.ts'])if(existsSync(path+ext)){path+=ext;break}return{path}})
  b.onResolve({filter:/^node:/},()=>({path:resolve(root,'fork-research/web-node-shims.ts')}))
  b.onResolve({filter:/\?raw$/},a=>({path:resolve(a.resolveDir,a.path.slice(0,-4)),namespace:'raw'}));b.onLoad({filter:/.*/,namespace:'raw'},async a=>({contents:'export default '+JSON.stringify(await readFile(a.path,'utf8')),loader:'js'}))
  }}]})
  const manifest=JSON.parse(await readFile(resolve(root,'upstream.json'),'utf8'));const pinned=new Set(manifest.files.map(f=>f.destination));for(const input of Object.keys(result.metafile.inputs))if(input.startsWith('vendor/')&&!pinned.has(input))throw Error('Unpinned renderer input: '+input)
- const js=result.outputFiles.find(f=>f.path.endsWith('.js')).text,css=(result.outputFiles.find(f=>f.path.endsWith('.css'))?.text??'')+'\n'+await readFile(resolve(root,'renderer.css'),'utf8')+'\n'+await readFile(resolve(root,'../editor-chrome/status-bar.css'),'utf8')+'\n'+await readFile(resolve(root,'../editor-chrome/editor-chrome.css'),'utf8')
- const html='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>'+css+'</style><div id="root"></div><script>'+js.replace(/<\/script/gi,'<\\/script')+'</script></html>'
- await writeFile(resolve(root,'dist/renderer.html'),html);await writeFile(resolve(root,'generated/renderer-resource.ts'),'// Generated self-contained complete upstream renderer.\nexport const rendererHtml='+JSON.stringify(html)+'\n');await writeFile(resolve(root,'dist/renderer-meta.json'),JSON.stringify(result.metafile,null,2)+'\n')
+ const entry=Object.entries(result.metafile.outputs).find(([,value])=>value.entryPoint==='renderer-entry.ts');
+ if(!entry)throw Error('Missing renderer entry output');
+ const relativeOutput=path=>path.replace(/^dist\//,'');
+ const mainImports=entry[1].imports.filter(item=>item.kind==='dynamic-import'&&result.metafile.outputs[item.path]?.entryPoint==='vendor/apps/sheets/src/renderer/main.tsx');
+ if(mainImports.length!==1)throw Error('Expected exactly one renderer entry dynamic main chunk');
+ const mainPreload='<link rel="modulepreload" href="./'+relativeOutput(mainImports[0].path)+'">';
+ const shellCss=(await Promise.all(['renderer.css','../editor-chrome/status-bar.css','../editor-chrome/editor-chrome.css'].map(path=>readFile(resolve(root,path),'utf8')))).join('\n');
+ await writeFile(resolve(root,'dist/renderer/host.css'),shellCss);
+ const css=entry[1].cssBundle;
+ const reportResourceError="addEventListener('error',event=>{const target=event.target;if(target instanceof HTMLScriptElement||target instanceof HTMLLinkElement)parent.postMessage({officeXlsx:true,type:'error',value:'Excel renderer resource failed: '+(target.src||target.href)},'*')},true);";
+ const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><script>'+reportResourceError+'</script>'+mainPreload+(css?'<link rel="stylesheet" href="./'+relativeOutput(css)+'">':'')+'<link rel="stylesheet" href="./renderer/host.css"></head><body><div id="root"></div><script type="module" src="./'+relativeOutput(entry[0])+'"></script></body></html>';
+ await writeFile(resolve(root,'dist/renderer.html'),html);
+ await writeFile(resolve(root,'dist/renderer-resources.json'),JSON.stringify({entry:'renderer.html',files:['renderer.html','renderer/host.css',...Object.keys(result.metafile.outputs).map(relativeOutput)].sort()},null,2)+'\n');
+ await writeFile(resolve(root,'dist/renderer-meta.json'),JSON.stringify(result.metafile,null,2)+'\n');
+ // Retire the old ignored generated artifact so a stale source import cannot conceal the resource contract.
+ await rm(resolve(root,'generated/renderer-resource.ts'),{force:true});
 }
 if(process.argv[1]===new URL(import.meta.url).pathname)await buildRenderer()
