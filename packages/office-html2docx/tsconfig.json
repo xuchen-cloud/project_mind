@@ -1,0 +1,4 @@
+{
+  "compilerOptions": {"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","lib":["ES2022","DOM","DOM.Iterable"],"types":[],"strict":true,"skipLibCheck":true,"noEmit":true},
+  "include":["src/**/*.ts","types.ts","upstream/packages/html2docx/src/raw.d.ts"]
+}

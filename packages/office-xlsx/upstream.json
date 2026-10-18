@@ -676,6 +676,2866 @@
       "path": "tsconfig.base.json",
       "destination": "vendor/tsconfig.base.json",
       "git_blob_sha1": "fa90ac9303f35b65068f3323024d6b3b64e19002"
+    },
+    {
+      "path": "apps/sheets/src/renderer/edit-journal.ts",
+      "destination": "vendor/apps/sheets/src/renderer/edit-journal.ts",
+      "git_blob_sha1": "517c29fca457c438c52f734d10162a5b21da5b74"
+    },
+    {
+      "path": "apps/sheets/src/shared/desktop-api.ts",
+      "destination": "vendor/apps/sheets/src/shared/desktop-api.ts",
+      "git_blob_sha1": "47c55abacfe88232d9779f692dd5865b3f950ad9"
+    },
+    {
+      "path": "apps/sheets/src/shared/ipc-channels.ts",
+      "destination": "vendor/apps/sheets/src/shared/ipc-channels.ts",
+      "git_blob_sha1": "69b7497f6a964c1a4a76307034f8afbeb9f419c6"
+    },
+    {
+      "path": "apps/sheets/src/main/sheets-main.ts",
+      "destination": "vendor/apps/sheets/src/main/sheets-main.ts",
+      "git_blob_sha1": "0ef787d6862676eae17d44b406e91d0831ec5ec7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/selection-format.ts",
+      "destination": "vendor/apps/sheets/src/renderer/selection-format.ts",
+      "git_blob_sha1": "a4067ec43efcc9c4db09af0c6779f169401879ed"
+    },
+    {
+      "path": "apps/sheets/src/renderer/shared-formula-journal.ts",
+      "destination": "vendor/apps/sheets/src/renderer/shared-formula-journal.ts",
+      "git_blob_sha1": "249f6c65307e219a9935b5203acc9d55bdef2f8a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-protection.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-protection.ts",
+      "git_blob_sha1": "1ba3015543eff0b628359c037520e06539d0cc0a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/app-constants.ts",
+      "destination": "vendor/apps/sheets/src/renderer/app-constants.ts",
+      "git_blob_sha1": "c1f497311b1c0eaa40a3af34925faaae49cfd1f9"
+    },
+    {
+      "path": "apps/sheets/src/renderer/univer-sync.ts",
+      "destination": "vendor/apps/sheets/src/renderer/univer-sync.ts",
+      "git_blob_sha1": "c4ebc4c7fe4498d04e71689c28bcdd0392e3643b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/grid-growth.ts",
+      "git_blob_sha1": "66c68bf60f7e69fe15297f787ba0d34b95f62858",
+      "destination": "vendor/apps/sheets/src/renderer/grid-growth.ts"
+    },
+    {
+      "path": "apps/sheets/src/renderer/AdvancedFilterDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/AdvancedFilterDialog.tsx",
+      "git_blob_sha1": "4d522bcf1f2405463bf7801ce74e32dbcce7dc26"
+    },
+    {
+      "path": "apps/sheets/src/renderer/AllowEditRangesDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/AllowEditRangesDialog.tsx",
+      "git_blob_sha1": "b49c45d3ddc608e8018100a5b9738645f4544483"
+    },
+    {
+      "path": "apps/sheets/src/renderer/App.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/App.tsx",
+      "git_blob_sha1": "f88edd07e303479be1a82ec08e863030e5b32a7c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ChartPanels.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ChartPanels.tsx",
+      "git_blob_sha1": "69daec78b1231b45a826fcd3c24090fc3e53cd17"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ColorDropdown.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ColorDropdown.tsx",
+      "git_blob_sha1": "b59c038ada4785bcd428409e451979c8400cce6f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ConsolidateDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ConsolidateDialog.tsx",
+      "git_blob_sha1": "1146818c3cf234069f408496522ffeecc7acf33f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/EquationDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/EquationDialog.tsx",
+      "git_blob_sha1": "67cdfb319168cff10dfbb680ea57a09ce3a24ebe"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ExcelShell.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ExcelShell.tsx",
+      "git_blob_sha1": "6eefd41f05033d2d9ee10bb992d803d57151b183"
+    },
+    {
+      "path": "apps/sheets/src/renderer/FillSeriesDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/FillSeriesDialog.tsx",
+      "git_blob_sha1": "a08817a2b89b1a1a6b56012e1a7c1afce1b3e202"
+    },
+    {
+      "path": "apps/sheets/src/renderer/FindReplacePanel.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/FindReplacePanel.tsx",
+      "git_blob_sha1": "0e035c764788e1561bfd2184ac663c8c21f90bc7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/FormatCellsDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/FormatCellsDialog.tsx",
+      "git_blob_sha1": "cc417ee960c2c4dad56873ed4c6beb9ed3a0dd51"
+    },
+    {
+      "path": "apps/sheets/src/renderer/FunctionArgumentsDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/FunctionArgumentsDialog.tsx",
+      "git_blob_sha1": "1c34d0d0932809550aa033bf7847cf4afca4feb7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/GoToDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/GoToDialog.tsx",
+      "git_blob_sha1": "98e452e9f1068cf9709793133e100ffbfdd62ce8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/GoalSeekDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/GoalSeekDialog.tsx",
+      "git_blob_sha1": "5f22b577bbbc57362cddada368acadaabbab9d20"
+    },
+    {
+      "path": "apps/sheets/src/renderer/HeaderFooterDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/HeaderFooterDialog.tsx",
+      "git_blob_sha1": "3b7d4a85021b268b12dc158d55b4ea175440de79"
+    },
+    {
+      "path": "apps/sheets/src/renderer/IconsDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/IconsDialog.tsx",
+      "git_blob_sha1": "096e86354574cc3a1ecdfe7d17be24a3eae55a55"
+    },
+    {
+      "path": "apps/sheets/src/renderer/InsertDeleteCellsDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/InsertDeleteCellsDialog.tsx",
+      "git_blob_sha1": "689b69d5b8255b59132d5728ca01b5f630a47f3c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/InsertFunctionDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/InsertFunctionDialog.tsx",
+      "git_blob_sha1": "186627e027f1046f6c34d28f442a2160d866c97b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/InsertFunctionFlow.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/InsertFunctionFlow.tsx",
+      "git_blob_sha1": "e5da1d19f2710a98b69d9cb26e807ffa0aad5277"
+    },
+    {
+      "path": "apps/sheets/src/renderer/NameManagerDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/NameManagerDialog.tsx",
+      "git_blob_sha1": "61e9aae7d179a9304ccac718937e93ee082f6f8c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/PasteSpecialDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/PasteSpecialDialog.tsx",
+      "git_blob_sha1": "2261f7896005041756f2e938c6800663aadb1814"
+    },
+    {
+      "path": "apps/sheets/src/renderer/PivotDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/PivotDialog.tsx",
+      "git_blob_sha1": "cb49998b7797c24b4a306ad5709f3a10a9de20a9"
+    },
+    {
+      "path": "apps/sheets/src/renderer/PivotFieldPane.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/PivotFieldPane.tsx",
+      "git_blob_sha1": "29540b44c773e8a233265a7b0e0c2fe617e92816"
+    },
+    {
+      "path": "apps/sheets/src/renderer/PrintDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/PrintDialog.tsx",
+      "git_blob_sha1": "da9f66ef6afc63f369d4cb29dd120bcdafab5bfc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ProtectSheetDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ProtectSheetDialog.tsx",
+      "git_blob_sha1": "bf49c008db7c464df6b0d7d36ceba17b0bc59b75"
+    },
+    {
+      "path": "apps/sheets/src/renderer/RecommendedChartsDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/RecommendedChartsDialog.tsx",
+      "git_blob_sha1": "cceb4e9e048705e98546dce19810145f835c2619"
+    },
+    {
+      "path": "apps/sheets/src/renderer/RecoveryDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/RecoveryDialog.tsx",
+      "git_blob_sha1": "cde4ee858da8b7ceece5d602fdaa7eb272363d03"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ScreenshotDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ScreenshotDialog.tsx",
+      "git_blob_sha1": "28e34aee6cbc8223d971587899d7b461aa1687da"
+    },
+    {
+      "path": "apps/sheets/src/renderer/SheetTabContextMenu.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/SheetTabContextMenu.tsx",
+      "git_blob_sha1": "65517560861aac4a49fa05b8a1e4a618b09be36e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/SlicerPanel.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/SlicerPanel.tsx",
+      "git_blob_sha1": "4898ecf51e80956549f13658c4b4e7dda04cf7d1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/SubtotalDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/SubtotalDialog.tsx",
+      "git_blob_sha1": "f230aa86223d53a67a4891c77c1cc77e3ebdfab2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/SymbolDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/SymbolDialog.tsx",
+      "git_blob_sha1": "c2fd608aa92054c92441cc9f32fa4de3f257661b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ThreadedCommentsPane.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ThreadedCommentsPane.tsx",
+      "git_blob_sha1": "50029339570daa15de335ac02e84e63c10522bf5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/TimelinePanel.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/TimelinePanel.tsx",
+      "git_blob_sha1": "690aa4b364ecc852668d003300df012c80c76b7f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/VisualDeleteButton.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/VisualDeleteButton.tsx",
+      "git_blob_sha1": "7d3fdf9633e50eca2e2a5b900245d69139c72f28"
+    },
+    {
+      "path": "apps/sheets/src/renderer/VisualDialogs.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/VisualDialogs.tsx",
+      "git_blob_sha1": "1224157400145ad22159d46b655ecf9d7c2052fa"
+    },
+    {
+      "path": "apps/sheets/src/renderer/WatchWindowPanel.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/WatchWindowPanel.tsx",
+      "git_blob_sha1": "5dd89464f134f9aa46ec5a534755e989bb588bd9"
+    },
+    {
+      "path": "apps/sheets/src/renderer/WorkbookVisuals.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/WorkbookVisuals.tsx",
+      "git_blob_sha1": "0e55b70da57d2f402265413a7bbbbd2273d33b52"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ZoomDialog.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ZoomDialog.tsx",
+      "git_blob_sha1": "36b51710db65a9e6bcb8ff115e1864890b6b346e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/AiChatPanel.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ai/AiChatPanel.tsx",
+      "git_blob_sha1": "19fbe9fa8487e8beedf2f7f853c341c1a86ddcfd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/AiSelectionAsk.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ai/AiSelectionAsk.tsx",
+      "git_blob_sha1": "a00a444c7a3fccc979b4bd133ab6dc4b2efcb42c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/aggregate-range.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/aggregate-range.ts",
+      "git_blob_sha1": "9da0efbb81e885036221adcf7bfe3f74798131ca"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/aggregate.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/aggregate.ts",
+      "git_blob_sha1": "b2396d005bfac672b4c2b7aecd2594fbd808eab4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/create-document.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/create-document.ts",
+      "git_blob_sha1": "e2484a6a17fa0e65a7596c056488580d6acc16bb"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/files-skill.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/files-skill.ts",
+      "git_blob_sha1": "19b469a927ae5ebf15fffd8d9e2e35b4b1288977"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/formula-audit.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/formula-audit.ts",
+      "git_blob_sha1": "e54d4b8a5aca2eb869e2da4bf9d072d6720f8851"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/guides.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/guides.ts",
+      "git_blob_sha1": "79f9f3d2f0158cd0b00a7dc9b43e51255a954dff"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/image-skill.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/image-skill.ts",
+      "git_blob_sha1": "daafff95644b0aee57f41ace651a2b1098a103c9"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/merge-skill.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/merge-skill.ts",
+      "git_blob_sha1": "0d89e727189515d502830d6e659fa94c0fabe400"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/base.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/base.md",
+      "git_blob_sha1": "2295b91861392f36729180ccb292ac24e3f31c8f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/charts.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/charts.md",
+      "git_blob_sha1": "5e8f41b1218706f20a1544401a9a4fa81f11c6df"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/data-attribution.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/data-attribution.md",
+      "git_blob_sha1": "3adeaf9b994e705cb0a9ff1f58cb13cd7992b5a8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/data.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/data.md",
+      "git_blob_sha1": "fc012c56a2ff40e4334ec7d441af2c7d1a2a87ab"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/financial-formatting.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/financial-formatting.md",
+      "git_blob_sha1": "4917d53cc44f908e63b8a08db64b6bda227aff6a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/formatting.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/formatting.md",
+      "git_blob_sha1": "8575c6b2a8eb9221607c7f681d8e5507007056ef"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/layout.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/layout.md",
+      "git_blob_sha1": "ef46d219bd1a10bdabb4ac3021e3ceb20f890709"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/pivot.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/pivot.md",
+      "git_blob_sha1": "eb7fa989e576fe905c00a454ca5ead83994faf63"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/shape-image.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/shape-image.md",
+      "git_blob_sha1": "a2e582237d0417307a15b085fb7386c862243c33"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/structure.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/structure.md",
+      "git_blob_sha1": "303171639abba8b01b463dba3b068a07a88b9e93"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/table.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/table.md",
+      "git_blob_sha1": "4d26350306b23d3d5141b5b8ad058a250135a8a8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/prompts/guides/writing.md",
+      "destination": "vendor/apps/sheets/src/renderer/ai/prompts/guides/writing.md",
+      "git_blob_sha1": "c3799e3dd168c2bf8c555b0658235394d8550b06"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/response-verify.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/response-verify.ts",
+      "git_blob_sha1": "5935258bf4dd2d15ff36f5820c8a8797c2f680a6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/retry-prune.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/retry-prune.ts",
+      "git_blob_sha1": "fa6e5db2b9429008577691f447e43ad43cd77c6e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/search-skill.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/search-skill.ts",
+      "git_blob_sha1": "008f61a94be85e15a568487173e31d5516359fb5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/selection-ask.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/selection-ask.ts",
+      "git_blob_sha1": "25dfe0e582c39a2e936b0971dcf23d7e515b6d7b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/selection-scope.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/selection-scope.ts",
+      "git_blob_sha1": "f4ebcab9c87cf6569ef93ec3aa2bdc811d50f93a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/sheet-nav.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/sheet-nav.ts",
+      "git_blob_sha1": "60b27e117db2a5722e4fb0f54eec4e5d8ebf13a8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/tools.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/tools.ts",
+      "git_blob_sha1": "c553e02f7a812983842d76e46d867627082e240f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/transport.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/transport.ts",
+      "git_blob_sha1": "a72131b974d047414068933ad9bd65a04f129272"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/workbook-readers.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/workbook-readers.ts",
+      "git_blob_sha1": "aa1c59f739510d72b0aa4bdf8eccb096961b39fc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/workbook-search.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/workbook-search.ts",
+      "git_blob_sha1": "5ad4d5183f037085cc563eb12465372921e35a23"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ai/workbook-skill.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ai/workbook-skill.ts",
+      "git_blob_sha1": "0052720e8dd22c79e25737af934f1852e2777d07"
+    },
+    {
+      "path": "apps/sheets/src/renderer/arrow-collapse-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/arrow-collapse-fix.ts",
+      "git_blob_sha1": "315f2f22ab8199642bf810d2879f76dfe5cb79b4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/app-icon.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/app-icon.png",
+      "git_blob_sha1": "69e0a67bb06199cfe27624d8078c7c47926a7929"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/attach-icon.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/attach-icon.png",
+      "git_blob_sha1": "cadd601f5943a7b00ea0f2d10ea22834668d007e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-document.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-document.png",
+      "git_blob_sha1": "74a266e2388548f87a1590a99049f182c54498b8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-excel.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-excel.png",
+      "git_blob_sha1": "fbcc3a9eafc967a8c10583c25b66c8dfd5a4023b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-general.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-general.png",
+      "git_blob_sha1": "8b9d8c7ca76f0d99a6d9aa64595006426c16ae96"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-image.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-image.png",
+      "git_blob_sha1": "883789d0569ad210918997464d5126cae2392e1f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-pdf.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-pdf.png",
+      "git_blob_sha1": "f2a2c3de9452dbd5b2a3aa273f7b5b356fa2ee74"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-ppt.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-ppt.png",
+      "git_blob_sha1": "9d53b9e4ab4bacbdda623d3e1bee60b15bec56b1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-video.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-video.png",
+      "git_blob_sha1": "e8c2b88fef5ef1f44d21c275968bd31f6fc7e379"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-voice.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-voice.png",
+      "git_blob_sha1": "69fa917743b46a808dd49f7245e6a4604ce3e322"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/file-word.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/file-word.png",
+      "git_blob_sha1": "4a7d62f9a8382887a2f2d4194ee3ea7cdecea0b2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/send-enter-off.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/send-enter-off.png",
+      "git_blob_sha1": "8009f0b0e52e40501d5ad797a2e4a84624c14ca7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/send-enter-on.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/send-enter-on.png",
+      "git_blob_sha1": "83de4da09d01f8ab4194c98a90a5ef5ecb3dc2c5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/assets/send-stop.png",
+      "destination": "vendor/apps/sheets/src/renderer/assets/send-stop.png",
+      "git_blob_sha1": "a2e625ddee04a59e0124783ced9a69362797784c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/autofit-line-pitch.ts",
+      "destination": "vendor/apps/sheets/src/renderer/autofit-line-pitch.ts",
+      "git_blob_sha1": "e242ef18c1bce49758a57047ddd49b824b1d5700"
+    },
+    {
+      "path": "apps/sheets/src/renderer/autofit-multi-row.ts",
+      "destination": "vendor/apps/sheets/src/renderer/autofit-multi-row.ts",
+      "git_blob_sha1": "41c7310fe14e3895fcecc901241e4751f55dcfde"
+    },
+    {
+      "path": "apps/sheets/src/renderer/autofit-selection.ts",
+      "destination": "vendor/apps/sheets/src/renderer/autofit-selection.ts",
+      "git_blob_sha1": "f7b6f0a0618d442d21d4d1e7ba560aeb3b424eb9"
+    },
+    {
+      "path": "apps/sheets/src/renderer/autofit-wrap-budget.ts",
+      "destination": "vendor/apps/sheets/src/renderer/autofit-wrap-budget.ts",
+      "git_blob_sha1": "b79ff173ad84f13a61b828824c845b51b8b211ee"
+    },
+    {
+      "path": "apps/sheets/src/renderer/border-overflow-exclusion.ts",
+      "destination": "vendor/apps/sheets/src/renderer/border-overflow-exclusion.ts",
+      "git_blob_sha1": "53905cd600c2aedcc27ee11910979dbcf1103ad3"
+    },
+    {
+      "path": "apps/sheets/src/renderer/bulk-fill-undo.ts",
+      "destination": "vendor/apps/sheets/src/renderer/bulk-fill-undo.ts",
+      "git_blob_sha1": "2463dbfaac1cae09cba88f37c4c85541b7eb4728"
+    },
+    {
+      "path": "apps/sheets/src/renderer/calc-options.ts",
+      "destination": "vendor/apps/sheets/src/renderer/calc-options.ts",
+      "git_blob_sha1": "5c76c65093e1868412c00cb325fa512510ee8067"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cell-clip-anchor-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cell-clip-anchor-fix.ts",
+      "git_blob_sha1": "163e4b2f7274b5e073b558776eebfb68239502fb"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cell-context-menu.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cell-context-menu.ts",
+      "git_blob_sha1": "06f31cfbd832a6de671d3cc0c65088960dbdea0f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cell-font-fallback.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cell-font-fallback.ts",
+      "git_blob_sha1": "84ab6e8d78d3e31fb2547b2c63ae255f85da694a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cell-function.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cell-function.ts",
+      "git_blob_sha1": "44d695c4f16d85c02147fbe1dcd7b9d2698d5607"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cell-warning.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cell-warning.ts",
+      "git_blob_sha1": "b4dcaabd595edeb156d108e70637effbc3ecf449"
+    },
+    {
+      "path": "apps/sheets/src/renderer/center-continuous.ts",
+      "destination": "vendor/apps/sheets/src/renderer/center-continuous.ts",
+      "git_blob_sha1": "bc1489bfdf6c20cea2c67401b95a6441a2d05d1a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cf-duplicate-key.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cf-duplicate-key.ts",
+      "git_blob_sha1": "9e8eda61a1633d439c795cc2dde4fd160f4e838d"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cf-empty-fast-path.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cf-empty-fast-path.ts",
+      "git_blob_sha1": "49b0f93b429d0b209ca8ed7199da9f5b1521e644"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cf-formula-fold.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cf-formula-fold.ts",
+      "git_blob_sha1": "8247e145664710721b43d164707ba6ea592adb16"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cf-thresholds.ts",
+      "destination": "vendor/apps/sheets/src/renderer/cf-thresholds.ts",
+      "git_blob_sha1": "1dd9e56498df872f99a7d6c8a1e502d6e9208fd5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/chart-category-vector.ts",
+      "destination": "vendor/apps/sheets/src/renderer/chart-category-vector.ts",
+      "git_blob_sha1": "ea64a14f0e98d3870c850adf0a971528fb135897"
+    },
+    {
+      "path": "apps/sheets/src/renderer/chart-sync-pending.ts",
+      "destination": "vendor/apps/sheets/src/renderer/chart-sync-pending.ts",
+      "git_blob_sha1": "cb0b38ee41579cb8047695b27316334fe38a3234"
+    },
+    {
+      "path": "apps/sheets/src/renderer/chart-text-scale.ts",
+      "destination": "vendor/apps/sheets/src/renderer/chart-text-scale.ts",
+      "git_blob_sha1": "f469cbc146bc59effbf2e7ba0284fe41f79aea14"
+    },
+    {
+      "path": "apps/sheets/src/renderer/clear-selection-keyboard.ts",
+      "destination": "vendor/apps/sheets/src/renderer/clear-selection-keyboard.ts",
+      "git_blob_sha1": "53e0446352686f49cd1f7fe7e8d696f617b587b1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/clipboard-anchor-tile.ts",
+      "destination": "vendor/apps/sheets/src/renderer/clipboard-anchor-tile.ts",
+      "git_blob_sha1": "ada9260c211b717579953472581fd62296f21a60"
+    },
+    {
+      "path": "apps/sheets/src/renderer/clipboard-tsv.ts",
+      "destination": "vendor/apps/sheets/src/renderer/clipboard-tsv.ts",
+      "git_blob_sha1": "035bd083eb30d7ef128e9e1ab07d13ab1f391183"
+    },
+    {
+      "path": "apps/sheets/src/renderer/consolidate.ts",
+      "destination": "vendor/apps/sheets/src/renderer/consolidate.ts",
+      "git_blob_sha1": "f43ab230736b21d592b204569293deef4450a6dc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/context-submenu-reopen-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/context-submenu-reopen-fix.ts",
+      "git_blob_sha1": "2ba64c9dbf4d669ac2108d9580c89facc65bc3f7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/control.ts",
+      "destination": "vendor/apps/sheets/src/renderer/control.ts",
+      "git_blob_sha1": "3049f2ac885f3b07403956db1f09b119da0b4d18"
+    },
+    {
+      "path": "apps/sheets/src/renderer/copy-materialize.ts",
+      "destination": "vendor/apps/sheets/src/renderer/copy-materialize.ts",
+      "git_blob_sha1": "dd3f61ac98059962f023d1b52251d449497f281a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/create-univer.ts",
+      "destination": "vendor/apps/sheets/src/renderer/create-univer.ts",
+      "git_blob_sha1": "66ff7fda74e97fc6eb0c93cb7bcabd956f7d366e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/criteria-compare-cache.ts",
+      "destination": "vendor/apps/sheets/src/renderer/criteria-compare-cache.ts",
+      "git_blob_sha1": "84ab42ea9dca9af2aa28ce4a6c7959fd9da4e1e1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/cross-highlight.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/cross-highlight.tsx",
+      "git_blob_sha1": "8ed8d27f44c1d8930f0c62df86d1e0528b9f4510"
+    },
+    {
+      "path": "apps/sheets/src/renderer/csv-export.ts",
+      "destination": "vendor/apps/sheets/src/renderer/csv-export.ts",
+      "git_blob_sha1": "a228b4d29b0462f35b00bc1d3bc91035c1ffaa62"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ctrl-drag-fill.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ctrl-drag-fill.ts",
+      "git_blob_sha1": "c2c997055d1ac16ed8735dd6df442ccbd7945bd6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/data-tools-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/data-tools-actions.ts",
+      "git_blob_sha1": "e6ae4f90c0d9abafe214a5874223499d2aadf845"
+    },
+    {
+      "path": "apps/sheets/src/renderer/data-validation-arrow.ts",
+      "destination": "vendor/apps/sheets/src/renderer/data-validation-arrow.ts",
+      "git_blob_sha1": "6d1b95ad59e7dccd43cb9e0c1b6978a3583bd609"
+    },
+    {
+      "path": "apps/sheets/src/renderer/data-validation-dropdown.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/data-validation-dropdown.tsx",
+      "git_blob_sha1": "a1260496ec7134af46a24a3d5023a8cc802e36e5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/data-validation-marker.ts",
+      "destination": "vendor/apps/sheets/src/renderer/data-validation-marker.ts",
+      "git_blob_sha1": "130e7adeaf99c42b88486b9c379c7704affb8852"
+    },
+    {
+      "path": "apps/sheets/src/renderer/dedupe.ts",
+      "destination": "vendor/apps/sheets/src/renderer/dedupe.ts",
+      "git_blob_sha1": "cf051cd6643d28d196bd5a3f2c4813822b38fc5c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/editor-word-jump.ts",
+      "destination": "vendor/apps/sheets/src/renderer/editor-word-jump.ts",
+      "git_blob_sha1": "3ad8a11d4c1460b1fb47982708d597060094504c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/env.d.ts",
+      "destination": "vendor/apps/sheets/src/renderer/env.d.ts",
+      "git_blob_sha1": "54ab82be1779f159996395b3ffedd41588fbf69a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/error-checking.ts",
+      "destination": "vendor/apps/sheets/src/renderer/error-checking.ts",
+      "git_blob_sha1": "c43e447cf5f25bbbe3a94ffe6f1ae22bf8d0b5e1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/error-value-align.ts",
+      "destination": "vendor/apps/sheets/src/renderer/error-value-align.ts",
+      "git_blob_sha1": "2d45b824608a754cdfe576465889aa73637ddf68"
+    },
+    {
+      "path": "apps/sheets/src/renderer/excel-format-shortcuts.ts",
+      "destination": "vendor/apps/sheets/src/renderer/excel-format-shortcuts.ts",
+      "git_blob_sha1": "65ca544d5722f64f07c02e82735eeeaa9468b040"
+    },
+    {
+      "path": "apps/sheets/src/renderer/excel-jump-nav.ts",
+      "destination": "vendor/apps/sheets/src/renderer/excel-jump-nav.ts",
+      "git_blob_sha1": "0b4ea71ccc32ff6e6a3130ab8f928ff80b0ae55d"
+    },
+    {
+      "path": "apps/sheets/src/renderer/excel-shortcuts.ts",
+      "destination": "vendor/apps/sheets/src/renderer/excel-shortcuts.ts",
+      "git_blob_sha1": "12fdae6a1e19542c7f3ad50c19e6a943062a3b2d"
+    },
+    {
+      "path": "apps/sheets/src/renderer/file-tables.ts",
+      "destination": "vendor/apps/sheets/src/renderer/file-tables.ts",
+      "git_blob_sha1": "8809b8938f5337ee76994fb922772e7f5a7249be"
+    },
+    {
+      "path": "apps/sheets/src/renderer/fill-series-apply.ts",
+      "destination": "vendor/apps/sheets/src/renderer/fill-series-apply.ts",
+      "git_blob_sha1": "2c4d9a0b0e4c64e7cdbef132bb53b9c2addd5c88"
+    },
+    {
+      "path": "apps/sheets/src/renderer/fill-series.ts",
+      "destination": "vendor/apps/sheets/src/renderer/fill-series.ts",
+      "git_blob_sha1": "6f8bbe809d185e42d00d315fc98e3ff9b34be422"
+    },
+    {
+      "path": "apps/sheets/src/renderer/filter-button-excel-style.ts",
+      "destination": "vendor/apps/sheets/src/renderer/filter-button-excel-style.ts",
+      "git_blob_sha1": "f55f3d3ed8f941cbd6e4302bf33a8ba3f0524510"
+    },
+    {
+      "path": "apps/sheets/src/renderer/filter-range-outline.ts",
+      "destination": "vendor/apps/sheets/src/renderer/filter-range-outline.ts",
+      "git_blob_sha1": "e9740dce82217bd9e1e2c7d9731259babcec0fe2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/filtered-copy.ts",
+      "destination": "vendor/apps/sheets/src/renderer/filtered-copy.ts",
+      "git_blob_sha1": "2ecb41f4a3cd3e77f4917312331357e8849b8d54"
+    },
+    {
+      "path": "apps/sheets/src/renderer/find-replace-session.ts",
+      "destination": "vendor/apps/sheets/src/renderer/find-replace-session.ts",
+      "git_blob_sha1": "3a4ee084c79d92678da4361e0d2a13c12d0489d5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/font-size-ladder.ts",
+      "destination": "vendor/apps/sheets/src/renderer/font-size-ladder.ts",
+      "git_blob_sha1": "2c25c201204a761b0d0b04e79240ccb188740349"
+    },
+    {
+      "path": "apps/sheets/src/renderer/format-cells.ts",
+      "destination": "vendor/apps/sheets/src/renderer/format-cells.ts",
+      "git_blob_sha1": "9da81d5335b78f7a623dbbe7330cf6e212b2aab5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/format-painter.ts",
+      "destination": "vendor/apps/sheets/src/renderer/format-painter.ts",
+      "git_blob_sha1": "1d6542114f5a6013168aa08861532fd883934427"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-bar-autosize.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-bar-autosize.ts",
+      "git_blob_sha1": "906c1a480d839b300967bd653323f1f347b69126"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-cached-fallback.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-cached-fallback.ts",
+      "git_blob_sha1": "0b497e0375cf2e78068e5ce8654900eae44d45bd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-closure.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-closure.ts",
+      "git_blob_sha1": "1631257b6c6a7bf69676073ec7b3f6982410e35e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-cost.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-cost.ts",
+      "git_blob_sha1": "75cae85d67c634987c0a20eb5f9ee34de37569b1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-functions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-functions.ts",
+      "git_blob_sha1": "f267bb4f001828f3e76f1519ce6a23e3d21ddb4d"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-lexer-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-lexer-fix.ts",
+      "git_blob_sha1": "988a85a89d9e26b94c2d2761a211578f73d098c5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-newline-display.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-newline-display.ts",
+      "git_blob_sha1": "4541e8aa3026e5fa35ee58ab7d35c5ce7dbbbe15"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-null-result.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-null-result.ts",
+      "git_blob_sha1": "0de9edc490af0c84bb6979c3482af46a13e3c2cc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-stream-hold.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-stream-hold.ts",
+      "git_blob_sha1": "9fac09bfb7f43219e74ab647cc5136bc9c009f19"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-values.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-values.ts",
+      "git_blob_sha1": "b3b28ae80addbb0e2847c7f82e15eb47a3a62e2e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/formula-view.ts",
+      "destination": "vendor/apps/sheets/src/renderer/formula-view.ts",
+      "git_blob_sha1": "5b606743b1eb5a93a29ebaa1c5791e935368cf9b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/full-load.ts",
+      "destination": "vendor/apps/sheets/src/renderer/full-load.ts",
+      "git_blob_sha1": "2db8f6845edc42d9a539009be74d8ed8581432bf"
+    },
+    {
+      "path": "apps/sheets/src/renderer/function-arguments-runtime.ts",
+      "destination": "vendor/apps/sheets/src/renderer/function-arguments-runtime.ts",
+      "git_blob_sha1": "2d391a98875cbea70f78a04fbb2e697afd923fce"
+    },
+    {
+      "path": "apps/sheets/src/renderer/function-arguments.ts",
+      "destination": "vendor/apps/sheets/src/renderer/function-arguments.ts",
+      "git_blob_sha1": "1d982db15f65962598d89fb8c14cabc8964cd5df"
+    },
+    {
+      "path": "apps/sheets/src/renderer/function-catalog.ts",
+      "destination": "vendor/apps/sheets/src/renderer/function-catalog.ts",
+      "git_blob_sha1": "3a7c66e2c402fc1d5641d0c164c41ce93e2626ea"
+    },
+    {
+      "path": "apps/sheets/src/renderer/function-registry-probe.ts",
+      "destination": "vendor/apps/sheets/src/renderer/function-registry-probe.ts",
+      "git_blob_sha1": "f719a20e1f8cbbc223b5f835d2783f02ca2089cf"
+    },
+    {
+      "path": "apps/sheets/src/renderer/global-shortcuts.ts",
+      "destination": "vendor/apps/sheets/src/renderer/global-shortcuts.ts",
+      "git_blob_sha1": "0e6724e8146d0147665e835a4e7183cb56cde9f8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/goal-seek.ts",
+      "destination": "vendor/apps/sheets/src/renderer/goal-seek.ts",
+      "git_blob_sha1": "49ff34017054f85f4c5febaa84f8a62fabd9d9cd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/goto.ts",
+      "destination": "vendor/apps/sheets/src/renderer/goto.ts",
+      "git_blob_sha1": "b36412289aaf66d5ff5d488e8306965b5497e1b0"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/ar.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/ar.ts",
+      "git_blob_sha1": "bb772aed3880ce579ffbd1fae7d4ef9fdabe7543"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/cs.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/cs.ts",
+      "git_blob_sha1": "d685a10673ecb6fa0d596706b07db52240154a2b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/de.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/de.ts",
+      "git_blob_sha1": "08f6ba754894f5abd05ad57e671394242f0284a7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/en.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/en.ts",
+      "git_blob_sha1": "3ceb380d0c319fcb8567bfa7b47f59e82a2e14e4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/es.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/es.ts",
+      "git_blob_sha1": "360b84083176928478a2216e5e026d13981f5f32"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/fr.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/fr.ts",
+      "git_blob_sha1": "e756cf1210d51534902485b5e2f30c133c8564ef"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/he.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/he.ts",
+      "git_blob_sha1": "55a497328c7dc62558ff624ac03839e61a70e3df"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/hi.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/hi.ts",
+      "git_blob_sha1": "ff846c683051b0174b93f600363c92cdc3ec5729"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/id.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/id.ts",
+      "git_blob_sha1": "e1559667524c0a684b0e0b834df28ee1d5170393"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/it.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/it.ts",
+      "git_blob_sha1": "41a11c45085c7ffcbbd2b15958fe909272b7a4a8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/ja.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/ja.ts",
+      "git_blob_sha1": "61261b6191bb1c85277ae14ed7c07d123c74c52f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/ko.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/ko.ts",
+      "git_blob_sha1": "b4144d1e7e27af78f8460053a6533b5f9d7f0456"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/ms.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/ms.ts",
+      "git_blob_sha1": "7c9b69bd541182a890707d4237cbc15f660e0354"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/nl.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/nl.ts",
+      "git_blob_sha1": "0dad0a7c8ee14e013fdac40af82ee85a6b433bd4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/pl.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/pl.ts",
+      "git_blob_sha1": "10fb6a2c7bf571ef86627527bc0773e6f8398bb5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/pt.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/pt.ts",
+      "git_blob_sha1": "8f0304172223f06636a48b447467db676ecf04b2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/ru.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/ru.ts",
+      "git_blob_sha1": "215056bcab901294ceb42953f017b844f5a87710"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/th.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/th.ts",
+      "git_blob_sha1": "fc191185c6ddb50e705eb1eab07d0bccdad091ab"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/vi.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/vi.ts",
+      "git_blob_sha1": "0e3937acc2a36841fd210d91ad0565661248cbec"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/zh-TW.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/zh-TW.ts",
+      "git_blob_sha1": "4cc88ca23ae995f1e98f326305828f09e3691631"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/ai/zh.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/ai/zh.ts",
+      "git_blob_sha1": "16e85d05d85f81a13aaec462352f03a486dc4ec0"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/ar.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/ar.ts",
+      "git_blob_sha1": "41d523690e5f07ad2459dbb32654c5f2903b5bff"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/cs.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/cs.ts",
+      "git_blob_sha1": "eb9459f57b141bcf7f36bbcede613eef1e2c2c26"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/de.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/de.ts",
+      "git_blob_sha1": "0c84abdf456a85a57f7435f5318b9c3d1acbd3eb"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/en.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/en.ts",
+      "git_blob_sha1": "c29120ff8dbdc5cd33f98114327360cda6821cf1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/es.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/es.ts",
+      "git_blob_sha1": "f69081b52608e495ae4760834631846bb44b16dc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/fr.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/fr.ts",
+      "git_blob_sha1": "57e74993dce5bfeb8657da5ff965293545039b99"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/he.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/he.ts",
+      "git_blob_sha1": "a95099743a19db6423fb8364f85960b44c4727b5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/hi.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/hi.ts",
+      "git_blob_sha1": "a3d6d6714ac383adab0dbd2cb44a74f4b8d1d355"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/id.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/id.ts",
+      "git_blob_sha1": "2d61699379a38749908552347d50f61642fbd8ad"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/it.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/it.ts",
+      "git_blob_sha1": "f331b2c3a35aed656765fbda3216cbdb91751657"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/ja.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/ja.ts",
+      "git_blob_sha1": "9e7db3304fab96a2a38f41303fe9aac255d2cd57"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/ko.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/ko.ts",
+      "git_blob_sha1": "efdad3c9628b73d5ee7b7002e3b9b81f51c8ead6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/ms.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/ms.ts",
+      "git_blob_sha1": "b32c292a3333855ac7bca140a7ec13120c065316"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/nl.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/nl.ts",
+      "git_blob_sha1": "dbed8a801d4d1a2625ac9ed41168701e1ed4cff3"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/pl.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/pl.ts",
+      "git_blob_sha1": "815155a824ee1bd94e964bd84c042ed80651181d"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/pt.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/pt.ts",
+      "git_blob_sha1": "7d804cd258426d048249726e8e8065264d5f2b0c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/ru.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/ru.ts",
+      "git_blob_sha1": "83642e054f7ce1ddb2429b028bb0ed3fc03789f8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/th.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/th.ts",
+      "git_blob_sha1": "4c8b27f68fff3756127c9caea989aa512d5636f2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/vi.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/vi.ts",
+      "git_blob_sha1": "d79a8cafbea264522f0ecd2911c361432b96fe0b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/zh-TW.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/zh-TW.ts",
+      "git_blob_sha1": "ab000f04b97234829969f4253c800b162f651543"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/app/zh.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/app/zh.ts",
+      "git_blob_sha1": "b78b8148b9921fd5eb7b6b5e0619137defddbb3b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/ar.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/ar.ts",
+      "git_blob_sha1": "b329c6d1884050b0dd4a4197af6d12b5b5eea131"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/cs.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/cs.ts",
+      "git_blob_sha1": "f5fe30685cf5b0e6c58e1689c1858275e8c0953a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/de.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/de.ts",
+      "git_blob_sha1": "76be6c6dc6431c7589ea41f79baac1d7805fabb3"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/en.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/en.ts",
+      "git_blob_sha1": "02c5c56777d2d1feb30c73a375d5d0d6bf08087c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/es.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/es.ts",
+      "git_blob_sha1": "52cdf840f6726f29b496e5c558fb885a66537a2f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/fr.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/fr.ts",
+      "git_blob_sha1": "06fab431804ce12e3d62f058fb61350a8db41cbe"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/he.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/he.ts",
+      "git_blob_sha1": "c5657cd9a8e5322dba1554e753e9686a5289122f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/hi.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/hi.ts",
+      "git_blob_sha1": "062358abf967de0cd932644444815839733d9889"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/id.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/id.ts",
+      "git_blob_sha1": "b16fca24e81cc5631375dc7b4a92fe3caf21a723"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/it.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/it.ts",
+      "git_blob_sha1": "154bc24c6da3385359ed71593d49d18ddba2c4cc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/ja.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/ja.ts",
+      "git_blob_sha1": "fcbbf79ddc059a07a75b907afdbd11a37a35309a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/ko.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/ko.ts",
+      "git_blob_sha1": "97d1d9a151248c5fabb2659a0d5f08bef321ae5e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/ms.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/ms.ts",
+      "git_blob_sha1": "0a236e7e0ce9f0cdb1d9a777d978a8a16993a590"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/nl.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/nl.ts",
+      "git_blob_sha1": "dd2e0544ec6ca62ac87f6ff2ddf557753d4864c1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/pl.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/pl.ts",
+      "git_blob_sha1": "e592f1575d3060def27c8260892989e68982fbf3"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/pt.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/pt.ts",
+      "git_blob_sha1": "6d2e2ba164d611070df3b4a641a27d0a12924707"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/ru.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/ru.ts",
+      "git_blob_sha1": "34297053898baed66b5c32265ff09b53326fd6c8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/th.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/th.ts",
+      "git_blob_sha1": "3018d98057ce7e998624a4f3c69baef3ce4903a8"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/vi.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/vi.ts",
+      "git_blob_sha1": "c45a0814786c81c7510706f577a576c0fa9db73a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/zh-TW.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/zh-TW.ts",
+      "git_blob_sha1": "0d638bd44c34072ced4770211e991bb582089d33"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/dialogs/zh.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/dialogs/zh.ts",
+      "git_blob_sha1": "4478ad7f1e28585f40340801b338a6538b5b9771"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/locale.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/locale.tsx",
+      "git_blob_sha1": "c534fdc444626eaac63abf95eeca006e4647864c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/strings-ai.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/strings-ai.ts",
+      "git_blob_sha1": "0174a2427de1044c6703e07f166e1ec303882fd0"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/strings-app.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/strings-app.ts",
+      "git_blob_sha1": "13ab9d2fdf329afd25e357cc75908d595d9186b5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/strings-dialogs.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/strings-dialogs.ts",
+      "git_blob_sha1": "3dd569847bf366e91601bb1d2f660a32f4ba0455"
+    },
+    {
+      "path": "apps/sheets/src/renderer/i18n/strings.ts",
+      "destination": "vendor/apps/sheets/src/renderer/i18n/strings.ts",
+      "git_blob_sha1": "5ed8575c82aef89723569653bc6e7bc0e5328aa4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/icon-catalog.ts",
+      "destination": "vendor/apps/sheets/src/renderer/icon-catalog.ts",
+      "git_blob_sha1": "d78575e44ab539311d531b091bf82e5e6030e070"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ifs-empty-set.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ifs-empty-set.ts",
+      "git_blob_sha1": "7be485c922ed6c7c14979993a1d6c08bce84f8f2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/index.html",
+      "destination": "vendor/apps/sheets/src/renderer/index.html",
+      "git_blob_sha1": "65bec678c067934dc48303d3c037b1289acae8f1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/insert-delete-cells.ts",
+      "destination": "vendor/apps/sheets/src/renderer/insert-delete-cells.ts",
+      "git_blob_sha1": "69428b86603d93c2c718b6afaa0bd3f0f99885f6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/large-filter-state.ts",
+      "destination": "vendor/apps/sheets/src/renderer/large-filter-state.ts",
+      "git_blob_sha1": "a2e146c970994ddce4237fdc76d9cccc541a3630"
+    },
+    {
+      "path": "apps/sheets/src/renderer/large-filter.ts",
+      "destination": "vendor/apps/sheets/src/renderer/large-filter.ts",
+      "git_blob_sha1": "aaa7501194300a16311eae8504424c23449f360e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/lazy-find.ts",
+      "destination": "vendor/apps/sheets/src/renderer/lazy-find.ts",
+      "git_blob_sha1": "8ee1bf5c4d2223e45947e1d15f1830332c81af99"
+    },
+    {
+      "path": "apps/sheets/src/renderer/lazy-plan.ts",
+      "destination": "vendor/apps/sheets/src/renderer/lazy-plan.ts",
+      "git_blob_sha1": "90faa2130ddc26882c4b7735f9d623e5d29cd6de"
+    },
+    {
+      "path": "apps/sheets/src/renderer/load-budget.ts",
+      "destination": "vendor/apps/sheets/src/renderer/load-budget.ts",
+      "git_blob_sha1": "df6968fb76479081ff67f9dbff73e1e1ed6cf7a9"
+    },
+    {
+      "path": "apps/sheets/src/renderer/load-perf-patches.ts",
+      "destination": "vendor/apps/sheets/src/renderer/load-perf-patches.ts",
+      "git_blob_sha1": "3cdb5cef87d147b1beff12ce3c3e23010b5346b1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/long-text-render.ts",
+      "destination": "vendor/apps/sheets/src/renderer/long-text-render.ts",
+      "git_blob_sha1": "d0b2067fd6db9798c75f40b41c216714b2dce1b2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/main.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/main.tsx",
+      "git_blob_sha1": "f689fb5307350b94ad22558422989f98830bc76f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/mcp-bridge.ts",
+      "destination": "vendor/apps/sheets/src/renderer/mcp-bridge.ts",
+      "git_blob_sha1": "e69062796a42ee31c43ef7838563411c58e3fe42"
+    },
+    {
+      "path": "apps/sheets/src/renderer/mcp-sheet-refs.ts",
+      "destination": "vendor/apps/sheets/src/renderer/mcp-sheet-refs.ts",
+      "git_blob_sha1": "02d78caad011c1b13be0ce800b7169e81d287780"
+    },
+    {
+      "path": "apps/sheets/src/renderer/menu-input-enter.ts",
+      "destination": "vendor/apps/sheets/src/renderer/menu-input-enter.ts",
+      "git_blob_sha1": "1d0319ae825a9058a619011a212bd4a14739ff80"
+    },
+    {
+      "path": "apps/sheets/src/renderer/merge-border-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/merge-border-fix.ts",
+      "git_blob_sha1": "2524ae524da84d8d13c50602684d9622030f250c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/merge-workbooks.ts",
+      "destination": "vendor/apps/sheets/src/renderer/merge-workbooks.ts",
+      "git_blob_sha1": "5becf7bdba7bd416493e377a3458fe2f895de322"
+    },
+    {
+      "path": "apps/sheets/src/renderer/modal-dialog.ts",
+      "destination": "vendor/apps/sheets/src/renderer/modal-dialog.ts",
+      "git_blob_sha1": "cdf8dcc76ff8845f451ce8bb00e444ac93d15fcd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/number-as-text-alert.ts",
+      "destination": "vendor/apps/sheets/src/renderer/number-as-text-alert.ts",
+      "git_blob_sha1": "93b045f90e9c86d7f0fa255e5ae3708a1dbf867f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/number-format.ts",
+      "destination": "vendor/apps/sheets/src/renderer/number-format.ts",
+      "git_blob_sha1": "df37a01c1122df7b74cd6351c732b959b07e70ff"
+    },
+    {
+      "path": "apps/sheets/src/renderer/numfmt-dialog.ts",
+      "destination": "vendor/apps/sheets/src/renderer/numfmt-dialog.ts",
+      "git_blob_sha1": "029474f4a2f593b8ba8d1ff072d2a79b40ab3ce0"
+    },
+    {
+      "path": "apps/sheets/src/renderer/numfmt-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/numfmt-fix.ts",
+      "git_blob_sha1": "415a707f1d0be131196809d461c93fad74bef059"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ole-visual.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ole-visual.ts",
+      "git_blob_sha1": "196a55526c5ef52e73a609ad7e0d00d7d2375d7a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/op-executor.ts",
+      "destination": "vendor/apps/sheets/src/renderer/op-executor.ts",
+      "git_blob_sha1": "aaf6b61b7893958237a88786bc40afb6b8c6efe4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/outline-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/outline-actions.ts",
+      "git_blob_sha1": "0096682d0b00104180498bf9bb2abdcddd36455c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/outline-gutter.ts",
+      "destination": "vendor/apps/sheets/src/renderer/outline-gutter.ts",
+      "git_blob_sha1": "6798ac42e40058fb8268bbd61f3ef0651e5566e2"
+    },
+    {
+      "path": "apps/sheets/src/renderer/outline-model.ts",
+      "destination": "vendor/apps/sheets/src/renderer/outline-model.ts",
+      "git_blob_sha1": "18186bf0c77818f236eeb1ca6aad6919f192973c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/page-break-preview.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/page-break-preview.tsx",
+      "git_blob_sha1": "9210aa2b91c91ce8a390545d66524dc3447b908f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/page-layout-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/page-layout-actions.ts",
+      "git_blob_sha1": "f2e3ebfcc8cec8e1486e5c0de50caacb491f9900"
+    },
+    {
+      "path": "apps/sheets/src/renderer/paste-special.ts",
+      "destination": "vendor/apps/sheets/src/renderer/paste-special.ts",
+      "git_blob_sha1": "01a2061bdb48aaff0a9045698c919d3ed589ef57"
+    },
+    {
+      "path": "apps/sheets/src/renderer/pick-from-list.ts",
+      "destination": "vendor/apps/sheets/src/renderer/pick-from-list.ts",
+      "git_blob_sha1": "a33b92c786d9941a8e4ae546f422a32686e5ce38"
+    },
+    {
+      "path": "apps/sheets/src/renderer/picture-paste.ts",
+      "destination": "vendor/apps/sheets/src/renderer/picture-paste.ts",
+      "git_blob_sha1": "131d83a6013e75c69e72ca6db55d8e1cfc3d744c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/pivot-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/pivot-actions.ts",
+      "git_blob_sha1": "18366ae3832616087abc4fd95de829fee68e0ae6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/pivot-field-model.ts",
+      "destination": "vendor/apps/sheets/src/renderer/pivot-field-model.ts",
+      "git_blob_sha1": "fb6a07dc085b3ea21c4f9af2bc506d3015149c7f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/pivot-source.ts",
+      "destination": "vendor/apps/sheets/src/renderer/pivot-source.ts",
+      "git_blob_sha1": "ab7bfda4d6c6086b616232afa49a23632d67e408"
+    },
+    {
+      "path": "apps/sheets/src/renderer/plan-operations.ts",
+      "destination": "vendor/apps/sheets/src/renderer/plan-operations.ts",
+      "git_blob_sha1": "58a344fdc7cb196ccb65c8ec4db1bff6b4443175"
+    },
+    {
+      "path": "apps/sheets/src/renderer/print-hf-codes.ts",
+      "destination": "vendor/apps/sheets/src/renderer/print-hf-codes.ts",
+      "git_blob_sha1": "d55e27d538ed7488d4c4181fdcd93d388064d2bf"
+    },
+    {
+      "path": "apps/sheets/src/renderer/print-html.ts",
+      "destination": "vendor/apps/sheets/src/renderer/print-html.ts",
+      "git_blob_sha1": "8d360ab57010dabfca65a42e730c7557020e3ec4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/print-paginate.ts",
+      "destination": "vendor/apps/sheets/src/renderer/print-paginate.ts",
+      "git_blob_sha1": "30b237565c4d357a3a47ff58c9321f44a17acc95"
+    },
+    {
+      "path": "apps/sheets/src/renderer/print-scale.ts",
+      "destination": "vendor/apps/sheets/src/renderer/print-scale.ts",
+      "git_blob_sha1": "84aa4dab96a628807faa43cd2df2f15314e3af39"
+    },
+    {
+      "path": "apps/sheets/src/renderer/print-settings.ts",
+      "destination": "vendor/apps/sheets/src/renderer/print-settings.ts",
+      "git_blob_sha1": "8a71cbd2e6873e85a209c3263699a6d72fe8e898"
+    },
+    {
+      "path": "apps/sheets/src/renderer/print-visuals.ts",
+      "destination": "vendor/apps/sheets/src/renderer/print-visuals.ts",
+      "git_blob_sha1": "78d34957ecfefcb871c81959715c7169d8622b2f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/protected-ranges.ts",
+      "destination": "vendor/apps/sheets/src/renderer/protected-ranges.ts",
+      "git_blob_sha1": "b87058f129c348a0c57f8c77614af5196f9de055"
+    },
+    {
+      "path": "apps/sheets/src/renderer/rate-function.ts",
+      "destination": "vendor/apps/sheets/src/renderer/rate-function.ts",
+      "git_blob_sha1": "4cf9b7ab84c0fc54fb18b7d3984364ee5a5e1f34"
+    },
+    {
+      "path": "apps/sheets/src/renderer/reorder-gate.ts",
+      "destination": "vendor/apps/sheets/src/renderer/reorder-gate.ts",
+      "git_blob_sha1": "4c9f0f330886d7b1f352ab8fad73c4e5f48b0610"
+    },
+    {
+      "path": "apps/sheets/src/renderer/replace-autosearch.ts",
+      "destination": "vendor/apps/sheets/src/renderer/replace-autosearch.ts",
+      "git_blob_sha1": "eef5e0ba53dff45ec43020591ff3f00cfae10c81"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ribbon-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/ribbon-actions.ts",
+      "git_blob_sha1": "2d7bf579c6c4a6a574dcbdbd41da66e113ea1fcd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/ribbon-icons.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/ribbon-icons.tsx",
+      "git_blob_sha1": "d363b32ca8ec6e2f9cb64c2c21012ca50b166431"
+    },
+    {
+      "path": "apps/sheets/src/renderer/rich-text-bidi-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/rich-text-bidi-fix.ts",
+      "git_blob_sha1": "8b33f7d50c45b996470faa6d68dfd667753810ca"
+    },
+    {
+      "path": "apps/sheets/src/renderer/rtl-grid-mirror.ts",
+      "destination": "vendor/apps/sheets/src/renderer/rtl-grid-mirror.ts",
+      "git_blob_sha1": "72d2f3b85b20f0fd980ae7c13839ebe12e5d7a96"
+    },
+    {
+      "path": "apps/sheets/src/renderer/rtl-text-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/rtl-text-fix.ts",
+      "git_blob_sha1": "b373fafb57a8316040e5e82cf482d3e8676a2643"
+    },
+    {
+      "path": "apps/sheets/src/renderer/save-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/save-actions.ts",
+      "git_blob_sha1": "c2fd34a93744d5a48c7c7425c9091826bc1ffea4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/save-edits-staging.ts",
+      "destination": "vendor/apps/sheets/src/renderer/save-edits-staging.ts",
+      "git_blob_sha1": "3479d9a214586c3a4fee869e6c9caf4dd83cb491"
+    },
+    {
+      "path": "apps/sheets/src/renderer/save-scheduler.ts",
+      "destination": "vendor/apps/sheets/src/renderer/save-scheduler.ts",
+      "git_blob_sha1": "3dbb788c7fc5c861b238803e2e54fac06629871b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/selection-wrap-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/selection-wrap-fix.ts",
+      "git_blob_sha1": "341677fe6599c9031a3c1932f760316ff9af1e7b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/shape-draw.ts",
+      "destination": "vendor/apps/sheets/src/renderer/shape-draw.ts",
+      "git_blob_sha1": "fdf86758f4614ad9178ffa3c64821ad03d920b1b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/shape-text-bullets.ts",
+      "destination": "vendor/apps/sheets/src/renderer/shape-text-bullets.ts",
+      "git_blob_sha1": "bc56d0ec66281f865b28f98e17ca7d81e20377ab"
+    },
+    {
+      "path": "apps/sheets/src/renderer/shape-text-scale.ts",
+      "destination": "vendor/apps/sheets/src/renderer/shape-text-scale.ts",
+      "git_blob_sha1": "3e22d6662b739c5c5c1062d2daa32550d462a8f6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/shared-formula-index.ts",
+      "destination": "vendor/apps/sheets/src/renderer/shared-formula-index.ts",
+      "git_blob_sha1": "1560f7a053f3863896cf381a1988c2bc6dc86201"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-context-menu.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-context-menu.ts",
+      "git_blob_sha1": "ccbd49565b6876848cb928db0d7400e7f2bb4dfd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-focus.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-focus.ts",
+      "git_blob_sha1": "7c849dbadb477b1937b6512139c3b0b71bb05448"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-rename-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-rename-fix.ts",
+      "git_blob_sha1": "359ea5814bf4ef71a9255bae5d5a9d2c8b8fa7db"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-rtl-view.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-rtl-view.ts",
+      "git_blob_sha1": "ccfe90a748e47cfef3ffac067265dba85bc82656"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-tab-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-tab-actions.ts",
+      "git_blob_sha1": "6118c075f174cca2668d508f9ce20c608bb3c67f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sheet-tab-menu.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sheet-tab-menu.ts",
+      "git_blob_sha1": "7b243a6bcd833a2abc92b2c0580d21fd5a1c4073"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sidecar-find.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sidecar-find.ts",
+      "git_blob_sha1": "879dba75d8f82fc12933616266846b5413721133"
+    },
+    {
+      "path": "apps/sheets/src/renderer/sparse-find.ts",
+      "destination": "vendor/apps/sheets/src/renderer/sparse-find.ts",
+      "git_blob_sha1": "b6ef6c6817c7db74a3780abe0eadfb00803c48b5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/status-bar-stats.ts",
+      "destination": "vendor/apps/sheets/src/renderer/status-bar-stats.ts",
+      "git_blob_sha1": "0ec6b41c518344d8b43cb217bf1a5dfeb66371f3"
+    },
+    {
+      "path": "apps/sheets/src/renderer/statusbar-file-stats.ts",
+      "destination": "vendor/apps/sheets/src/renderer/statusbar-file-stats.ts",
+      "git_blob_sha1": "c6e34620e065cf98665ed517a0174ec058b8db10"
+    },
+    {
+      "path": "apps/sheets/src/renderer/styles.css",
+      "destination": "vendor/apps/sheets/src/renderer/styles.css",
+      "git_blob_sha1": "7911aaf67d92113a32a79398b10ae79a430736fc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/system-fonts.ts",
+      "destination": "vendor/apps/sheets/src/renderer/system-fonts.ts",
+      "git_blob_sha1": "a505c7ad99723fd5c1a3594e2ebc6bf531940df6"
+    },
+    {
+      "path": "apps/sheets/src/renderer/table-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/table-actions.ts",
+      "git_blob_sha1": "cd7f374d5a57aeed12016fff1bf33417e037a455"
+    },
+    {
+      "path": "apps/sheets/src/renderer/table-design-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/table-design-actions.ts",
+      "git_blob_sha1": "6ec67b3bdfa1e4e367d368c4a4ec3c3fcfd05724"
+    },
+    {
+      "path": "apps/sheets/src/renderer/table-design.ts",
+      "destination": "vendor/apps/sheets/src/renderer/table-design.ts",
+      "git_blob_sha1": "8e8f569435aa8acd298a85f7a3795fc4db4dfecd"
+    },
+    {
+      "path": "apps/sheets/src/renderer/table-styles.ts",
+      "destination": "vendor/apps/sheets/src/renderer/table-styles.ts",
+      "git_blob_sha1": "46699583a3ebac002772f7b8e4c3d576b51bf500"
+    },
+    {
+      "path": "apps/sheets/src/renderer/themes.ts",
+      "destination": "vendor/apps/sheets/src/renderer/themes.ts",
+      "git_blob_sha1": "c076fb98b8e49f74b047ecd27827aee31f8b131f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/thick-border-fix.ts",
+      "destination": "vendor/apps/sheets/src/renderer/thick-border-fix.ts",
+      "git_blob_sha1": "bd0bad32454c30a9ed41f6097ae078a7a88c7817"
+    },
+    {
+      "path": "apps/sheets/src/renderer/threaded-comment-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/threaded-comment-actions.ts",
+      "git_blob_sha1": "31e4f5918e1dd03d85ea2b5605517b12d062bd9a"
+    },
+    {
+      "path": "apps/sheets/src/renderer/threaded-comment-marker.ts",
+      "destination": "vendor/apps/sheets/src/renderer/threaded-comment-marker.ts",
+      "git_blob_sha1": "44bef486cc0ee838ffd0fe38cea936ca5af35227"
+    },
+    {
+      "path": "apps/sheets/src/renderer/threaded-comments.ts",
+      "destination": "vendor/apps/sheets/src/renderer/threaded-comments.ts",
+      "git_blob_sha1": "458583d4b9da08ee971ef28f71e5b8300c3fa6a4"
+    },
+    {
+      "path": "apps/sheets/src/renderer/toast-bus.ts",
+      "destination": "vendor/apps/sheets/src/renderer/toast-bus.ts",
+      "git_blob_sha1": "8106d1bf56f889809b122503fb1624c714e7f867"
+    },
+    {
+      "path": "apps/sheets/src/renderer/toast.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/toast.tsx",
+      "git_blob_sha1": "ee02f59ce7f0aefa1f21bc376aa8ad837c38c221"
+    },
+    {
+      "path": "apps/sheets/src/renderer/trace-arrows.tsx",
+      "destination": "vendor/apps/sheets/src/renderer/trace-arrows.tsx",
+      "git_blob_sha1": "4b3b46b2b7d0512d0bbe31e01132f8b6a6cda978"
+    },
+    {
+      "path": "apps/sheets/src/renderer/undo-carry.ts",
+      "destination": "vendor/apps/sheets/src/renderer/undo-carry.ts",
+      "git_blob_sha1": "20f27d4d2e3a066e8ef4b5c26aef0ecc004a8abc"
+    },
+    {
+      "path": "apps/sheets/src/renderer/univer-locales.ts",
+      "destination": "vendor/apps/sheets/src/renderer/univer-locales.ts",
+      "git_blob_sha1": "cd0859cf0d783939a21c7eb7080c1504298b5066"
+    },
+    {
+      "path": "apps/sheets/src/renderer/univer-rule-detail.ts",
+      "destination": "vendor/apps/sheets/src/renderer/univer-rule-detail.ts",
+      "git_blob_sha1": "38e4f84fcfd57f486b29baee8b77ee09f769bb5c"
+    },
+    {
+      "path": "apps/sheets/src/renderer/univer-state.ts",
+      "destination": "vendor/apps/sheets/src/renderer/univer-state.ts",
+      "git_blob_sha1": "af7dba482fc5d7ed24533a43988be04fed83dd4e"
+    },
+    {
+      "path": "apps/sheets/src/renderer/very-hidden-sheets.ts",
+      "destination": "vendor/apps/sheets/src/renderer/very-hidden-sheets.ts",
+      "git_blob_sha1": "42144031c367faa973403012fef1df600a722eef"
+    },
+    {
+      "path": "apps/sheets/src/renderer/view-transform.ts",
+      "destination": "vendor/apps/sheets/src/renderer/view-transform.ts",
+      "git_blob_sha1": "17df2d23b8606639545fe4139ba140eed3ad3b90"
+    },
+    {
+      "path": "apps/sheets/src/renderer/visual-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/visual-actions.ts",
+      "git_blob_sha1": "f0d6c3ef08b889888e33a490ffbc7dc25b0f6239"
+    },
+    {
+      "path": "apps/sheets/src/renderer/visual-arrange-actions.ts",
+      "destination": "vendor/apps/sheets/src/renderer/visual-arrange-actions.ts",
+      "git_blob_sha1": "2942522ed9bd2db9eda45ccee2889b932c2a52a1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/visual-arrange.ts",
+      "destination": "vendor/apps/sheets/src/renderer/visual-arrange.ts",
+      "git_blob_sha1": "72706c7f6d3a8ade403d9f7632685c9ae4e111ba"
+    },
+    {
+      "path": "apps/sheets/src/renderer/visual-delete-button.ts",
+      "destination": "vendor/apps/sheets/src/renderer/visual-delete-button.ts",
+      "git_blob_sha1": "ec47b52e43680b3c9171422b5270f5180b2703da"
+    },
+    {
+      "path": "apps/sheets/src/renderer/visual-edit-sync.ts",
+      "destination": "vendor/apps/sheets/src/renderer/visual-edit-sync.ts",
+      "git_blob_sha1": "58c8633b5125e8d3842737442f7b6e8b03b1d70f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/visual-geometry.ts",
+      "destination": "vendor/apps/sheets/src/renderer/visual-geometry.ts",
+      "git_blob_sha1": "11a75123f8b6709c2ae89af66fadb2f97ca63e9f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/wheel-zoom.ts",
+      "destination": "vendor/apps/sheets/src/renderer/wheel-zoom.ts",
+      "git_blob_sha1": "6b66b948c11b3e1befd1860286c0f9ba3b24928f"
+    },
+    {
+      "path": "apps/sheets/src/renderer/workbook-ops.ts",
+      "destination": "vendor/apps/sheets/src/renderer/workbook-ops.ts",
+      "git_blob_sha1": "a6e420d4749004d2badf98535a7acc02342bd139"
+    },
+    {
+      "path": "apps/sheets/src/renderer/wrap-row-height-batch.ts",
+      "destination": "vendor/apps/sheets/src/renderer/wrap-row-height-batch.ts",
+      "git_blob_sha1": "cbb6a326e734ff41ac280317f463c39333c55010"
+    },
+    {
+      "path": "apps/sheets/src/renderer/zoom-range.ts",
+      "destination": "vendor/apps/sheets/src/renderer/zoom-range.ts",
+      "git_blob_sha1": "641e12121aed97dcf031da4ae71baeaab2d8f07a"
+    },
+    {
+      "path": "packages/ui/src/AiComposer.tsx",
+      "destination": "vendor/packages/ui/src/AiComposer.tsx",
+      "git_blob_sha1": "2bf8f97a54f9f67f84c5b4c6e9ce90d534be2303"
+    },
+    {
+      "path": "packages/ui/src/AiModelPicker.tsx",
+      "destination": "vendor/packages/ui/src/AiModelPicker.tsx",
+      "git_blob_sha1": "b95a6b5d9fda67bc0a6c3d287bcccbeedc63f9ca"
+    },
+    {
+      "path": "packages/ui/src/AiPanelSideButton.tsx",
+      "destination": "vendor/packages/ui/src/AiPanelSideButton.tsx",
+      "git_blob_sha1": "672a3a767edf584c677c832dac6f61634301adc2"
+    },
+    {
+      "path": "packages/ui/src/AiQueueStrip.tsx",
+      "destination": "vendor/packages/ui/src/AiQueueStrip.tsx",
+      "git_blob_sha1": "f01988bfe9e8bec027911c9424cadbc39bcfae39"
+    },
+    {
+      "path": "packages/ui/src/AiScopeQuote.tsx",
+      "destination": "vendor/packages/ui/src/AiScopeQuote.tsx",
+      "git_blob_sha1": "936b1d31d7348a6c2712d621629218a194f35187"
+    },
+    {
+      "path": "packages/ui/src/AiTypingIndicator.tsx",
+      "destination": "vendor/packages/ui/src/AiTypingIndicator.tsx",
+      "git_blob_sha1": "7f5f539658d379e390ca932767412259706e8b1b"
+    },
+    {
+      "path": "packages/ui/src/AiUsageChip.tsx",
+      "destination": "vendor/packages/ui/src/AiUsageChip.tsx",
+      "git_blob_sha1": "87aa529f8a5debd347d120bb7451dafc95195cf3"
+    },
+    {
+      "path": "packages/ui/src/Markdown.tsx",
+      "destination": "vendor/packages/ui/src/Markdown.tsx",
+      "git_blob_sha1": "eb23fe1c3910b6c43c60718d601892ec1ba347b3"
+    },
+    {
+      "path": "packages/ui/src/ai-model-picker-options.ts",
+      "destination": "vendor/packages/ui/src/ai-model-picker-options.ts",
+      "git_blob_sha1": "2342567a357db8a898f36ba3300c517596c27337"
+    },
+    {
+      "path": "packages/ui/src/ai-model-picker.css",
+      "destination": "vendor/packages/ui/src/ai-model-picker.css",
+      "git_blob_sha1": "a123d299e3048ad759865c49a55107968c33ab3c"
+    },
+    {
+      "path": "packages/ui/src/ai-panel-prefs-store.ts",
+      "destination": "vendor/packages/ui/src/ai-panel-prefs-store.ts",
+      "git_blob_sha1": "4e336e56ec2401dbf548ac6a445f20a58e4c0bc6"
+    },
+    {
+      "path": "packages/ui/src/ai-panel-prefs.css",
+      "destination": "vendor/packages/ui/src/ai-panel-prefs.css",
+      "git_blob_sha1": "291c2db3063df4b430a61838e45c46a248652407"
+    },
+    {
+      "path": "packages/ui/src/ai-panel-prefs.ts",
+      "destination": "vendor/packages/ui/src/ai-panel-prefs.ts",
+      "git_blob_sha1": "9bed88e817414674455821ecaebc260f65624739"
+    },
+    {
+      "path": "packages/ui/src/ai-queue-strip.css",
+      "destination": "vendor/packages/ui/src/ai-queue-strip.css",
+      "git_blob_sha1": "81a194f9c7dde61729754627a42599adb35b5cbe"
+    },
+    {
+      "path": "packages/ui/src/ai-scope-quote.css",
+      "destination": "vendor/packages/ui/src/ai-scope-quote.css",
+      "git_blob_sha1": "334ff00c1ec426633e7c8d27fcccd013e09db713"
+    },
+    {
+      "path": "packages/ui/src/ai-usage.css",
+      "destination": "vendor/packages/ui/src/ai-usage.css",
+      "git_blob_sha1": "cd8f7972ce23c7356bc0eef4f2ba8c1fd618eb46"
+    },
+    {
+      "path": "packages/ui/src/auto-save-pref.ts",
+      "destination": "vendor/packages/ui/src/auto-save-pref.ts",
+      "git_blob_sha1": "77991093152988f19a52eab91df126ed8cc17204"
+    },
+    {
+      "path": "packages/ui/src/chat-run-queue.ts",
+      "destination": "vendor/packages/ui/src/chat-run-queue.ts",
+      "git_blob_sha1": "5d6f14c6450221be8a1cbcb3304fd5f8c2ea32f2"
+    },
+    {
+      "path": "packages/ui/src/color-picker.css",
+      "destination": "vendor/packages/ui/src/color-picker.css",
+      "git_blob_sha1": "15090783dbf8ca7c9052ef03353fb4f544cc85b1"
+    },
+    {
+      "path": "packages/ui/src/color-picker.tsx",
+      "destination": "vendor/packages/ui/src/color-picker.tsx",
+      "git_blob_sha1": "5fc115f3f0a6d40b1e0c781192d646b4db16e1b2"
+    },
+    {
+      "path": "packages/ui/src/cutout.ts",
+      "destination": "vendor/packages/ui/src/cutout.ts",
+      "git_blob_sha1": "a189e52a395f68af0c9df80cbcaffc29fd52381d"
+    },
+    {
+      "path": "packages/ui/src/dropdown.css",
+      "destination": "vendor/packages/ui/src/dropdown.css",
+      "git_blob_sha1": "55cf368724b21477a03b93b99fbe20b541ea9969"
+    },
+    {
+      "path": "packages/ui/src/dropdown.tsx",
+      "destination": "vendor/packages/ui/src/dropdown.tsx",
+      "git_blob_sha1": "a6152e9f4cec5f8f220ebe2dc32168b0262f42d9"
+    },
+    {
+      "path": "packages/ui/src/env.d.ts",
+      "destination": "vendor/packages/ui/src/env.d.ts",
+      "git_blob_sha1": "cf8209f78c8d704080e7e8e9b55e07c3cc5e39a7"
+    },
+    {
+      "path": "packages/ui/src/file-nav.ts",
+      "destination": "vendor/packages/ui/src/file-nav.ts",
+      "git_blob_sha1": "379df5e952d8302836498f5d32ac229bdcb9ec98"
+    },
+    {
+      "path": "packages/ui/src/find-panel.css",
+      "destination": "vendor/packages/ui/src/find-panel.css",
+      "git_blob_sha1": "6a74eda2552b8b3b693a235e531779cae3f03d78"
+    },
+    {
+      "path": "packages/ui/src/find-panel.tsx",
+      "destination": "vendor/packages/ui/src/find-panel.tsx",
+      "git_blob_sha1": "b59f6105123a1b80ef507cf3194e428d5e3c543b"
+    },
+    {
+      "path": "packages/ui/src/find-text.ts",
+      "destination": "vendor/packages/ui/src/find-text.ts",
+      "git_blob_sha1": "3022b89971c05f55890b89a81ef34b1e9e533d84"
+    },
+    {
+      "path": "packages/ui/src/font-list.ts",
+      "destination": "vendor/packages/ui/src/font-list.ts",
+      "git_blob_sha1": "f73a4b3b4740547cc203faf7026e75c20c2fb9b4"
+    },
+    {
+      "path": "packages/ui/src/fonts/Carlito-Bold.ttf",
+      "destination": "vendor/packages/ui/src/fonts/Carlito-Bold.ttf",
+      "git_blob_sha1": "0d2e3a7a35598e08c9be31d984ba4a702dec8dcd"
+    },
+    {
+      "path": "packages/ui/src/fonts/Carlito-BoldItalic.ttf",
+      "destination": "vendor/packages/ui/src/fonts/Carlito-BoldItalic.ttf",
+      "git_blob_sha1": "1877ead855f62e50848ca51c3ae531ff0a492cfb"
+    },
+    {
+      "path": "packages/ui/src/fonts/Carlito-Italic.ttf",
+      "destination": "vendor/packages/ui/src/fonts/Carlito-Italic.ttf",
+      "git_blob_sha1": "44becb926424ea7044813b495c90796f3e3a7ae5"
+    },
+    {
+      "path": "packages/ui/src/fonts/Carlito-Regular.ttf",
+      "destination": "vendor/packages/ui/src/fonts/Carlito-Regular.ttf",
+      "git_blob_sha1": "82d3b3f5c4b326940aafa5bc4c34d9a8a05107f8"
+    },
+    {
+      "path": "packages/ui/src/icons.tsx",
+      "destination": "vendor/packages/ui/src/icons.tsx",
+      "git_blob_sha1": "a79128713afab14627ca6f36dd7ed42467b5a048"
+    },
+    {
+      "path": "packages/ui/src/image-dialogs.css",
+      "destination": "vendor/packages/ui/src/image-dialogs.css",
+      "git_blob_sha1": "b2b63d0f1473c3ae7ff424358edf428b71974bdb"
+    },
+    {
+      "path": "packages/ui/src/image-dialogs.tsx",
+      "destination": "vendor/packages/ui/src/image-dialogs.tsx",
+      "git_blob_sha1": "5befedd4394dafaa9d273d3c61e7d45521f6e4d9"
+    },
+    {
+      "path": "packages/ui/src/image-viewer-focus.ts",
+      "destination": "vendor/packages/ui/src/image-viewer-focus.ts",
+      "git_blob_sha1": "dd732f661cae91002504c9ac474bda62b7e7305e"
+    },
+    {
+      "path": "packages/ui/src/image-viewer.css",
+      "destination": "vendor/packages/ui/src/image-viewer.css",
+      "git_blob_sha1": "ad2a812d6b8ab7243750e06bfe522efd335aac6c"
+    },
+    {
+      "path": "packages/ui/src/image-viewer.tsx",
+      "destination": "vendor/packages/ui/src/image-viewer.tsx",
+      "git_blob_sha1": "33702672c9da97c7c7bbc16827677ebf9d940b16"
+    },
+    {
+      "path": "packages/ui/src/index.ts",
+      "destination": "vendor/packages/ui/src/index.ts",
+      "git_blob_sha1": "9bbf1129d81389718da59e6c1b0e84c95d54cee4"
+    },
+    {
+      "path": "packages/ui/src/markdown.css",
+      "destination": "vendor/packages/ui/src/markdown.css",
+      "git_blob_sha1": "22436ebba198bd946c6eb7d8736df6af7415c9b9"
+    },
+    {
+      "path": "packages/ui/src/modal-keys.ts",
+      "destination": "vendor/packages/ui/src/modal-keys.ts",
+      "git_blob_sha1": "ca52358aa0890c532269f00502da7eec309d33cb"
+    },
+    {
+      "path": "packages/ui/src/popover-dismiss.ts",
+      "destination": "vendor/packages/ui/src/popover-dismiss.ts",
+      "git_blob_sha1": "7d21b1ab30f5a90f759b169b5b249449baa50ee8"
+    },
+    {
+      "path": "packages/ui/src/provider-logos.tsx",
+      "destination": "vendor/packages/ui/src/provider-logos.tsx",
+      "git_blob_sha1": "2acbc8bb51b96b07c66458ba11ac92c169498f03"
+    },
+    {
+      "path": "packages/ui/src/ribbon-collapse.css",
+      "destination": "vendor/packages/ui/src/ribbon-collapse.css",
+      "git_blob_sha1": "cb6e758ac3754254ddb747b923b7718a5486c097"
+    },
+    {
+      "path": "packages/ui/src/ribbon-collapse.tsx",
+      "destination": "vendor/packages/ui/src/ribbon-collapse.tsx",
+      "git_blob_sha1": "dbd57f8bc1db140af3cd7a7f6e9e2c430438a819"
+    },
+    {
+      "path": "packages/ui/src/screentip.css",
+      "destination": "vendor/packages/ui/src/screentip.css",
+      "git_blob_sha1": "fa556229ae57c80bf86da6f6bd9dfec5cac245d1"
+    },
+    {
+      "path": "packages/ui/src/screentip.ts",
+      "destination": "vendor/packages/ui/src/screentip.ts",
+      "git_blob_sha1": "c01c82dc2533a5a51673da20dedb2bba1f7f774d"
+    },
+    {
+      "path": "packages/ui/src/shape-gallery.tsx",
+      "destination": "vendor/packages/ui/src/shape-gallery.tsx",
+      "git_blob_sha1": "5983009d01d71e870ab517ccf469966d23d32450"
+    },
+    {
+      "path": "packages/ui/src/strings-ai-model-picker.ts",
+      "destination": "vendor/packages/ui/src/strings-ai-model-picker.ts",
+      "git_blob_sha1": "d00a9324f5f0e7c5274c036f879df9f3b5291c3e"
+    },
+    {
+      "path": "packages/ui/src/strings-ai-panel-side.ts",
+      "destination": "vendor/packages/ui/src/strings-ai-panel-side.ts",
+      "git_blob_sha1": "4a6501f6142f237a58dfc6fdfd9885e284840a74"
+    },
+    {
+      "path": "packages/ui/src/strings-ai-queue.ts",
+      "destination": "vendor/packages/ui/src/strings-ai-queue.ts",
+      "git_blob_sha1": "723dbcefd4591f49bb90dd8c1a5678fd12a91e4a"
+    },
+    {
+      "path": "packages/ui/src/strings-ai-usage.ts",
+      "destination": "vendor/packages/ui/src/strings-ai-usage.ts",
+      "git_blob_sha1": "5b0a625cd09523402c5b1a586ea3953ab573e990"
+    },
+    {
+      "path": "packages/ui/src/strings-crop-edges.ts",
+      "destination": "vendor/packages/ui/src/strings-crop-edges.ts",
+      "git_blob_sha1": "4bced0aabb954164d1c7e4909adf4bd7c95b9eb5"
+    },
+    {
+      "path": "packages/ui/src/strings-image-viewer.ts",
+      "destination": "vendor/packages/ui/src/strings-image-viewer.ts",
+      "git_blob_sha1": "ac6027d7cdd4f291d947eb5a82a77d0076319309"
+    },
+    {
+      "path": "packages/ui/src/symbol-fonts.ts",
+      "destination": "vendor/packages/ui/src/symbol-fonts.ts",
+      "git_blob_sha1": "a14794ee5f325df753767b335ee8283af0c33c24"
+    },
+    {
+      "path": "packages/ui/src/tokens.css",
+      "destination": "vendor/packages/ui/src/tokens.css",
+      "git_blob_sha1": "15f39961360aadf25145602c69bd8b49f286de28"
+    },
+    {
+      "path": "packages/ui/src/use-redact-label.ts",
+      "destination": "vendor/packages/ui/src/use-redact-label.ts",
+      "git_blob_sha1": "e54f59982bbe59fd9ae05db25bf2bee1752ec1b2"
+    },
+    {
+      "path": "packages/ui/src/wheel-zoom.ts",
+      "destination": "vendor/packages/ui/src/wheel-zoom.ts",
+      "git_blob_sha1": "de49d3f6417760645cf77a3c95403139e1579cdf"
+    },
+    {
+      "path": "packages/ui/src/wordart-presets.ts",
+      "destination": "vendor/packages/ui/src/wordart-presets.ts",
+      "git_blob_sha1": "3c8d26b443b6a6f0d7d5ac511ea221beec01a354"
+    },
+    {
+      "path": "packages/i18n/src/font-names.ts",
+      "destination": "vendor/packages/i18n/src/font-names.ts",
+      "git_blob_sha1": "2e2de3a9ae86447999c24b7eadb85fe27bfd8b1a"
+    },
+    {
+      "path": "packages/i18n/src/index.ts",
+      "destination": "vendor/packages/i18n/src/index.ts",
+      "git_blob_sha1": "cacf047acfde9f76a3d430c171c2d71c02d87c17"
+    },
+    {
+      "path": "packages/agent-core/src/electron-transport.ts",
+      "destination": "vendor/packages/agent-core/src/electron-transport.ts",
+      "git_blob_sha1": "4b0f073351c842431facfb477786f8733853717f"
+    },
+    {
+      "path": "packages/agent-core/src/index.ts",
+      "destination": "vendor/packages/agent-core/src/index.ts",
+      "git_blob_sha1": "34e0b20b3e7a991660058160773d106b679b2b97"
+    },
+    {
+      "path": "packages/agent-core/src/knowledge-base-skill.ts",
+      "destination": "vendor/packages/agent-core/src/knowledge-base-skill.ts",
+      "git_blob_sha1": "a18888c1580812c1123f114201c0801097d24cb8"
+    },
+    {
+      "path": "packages/agent-core/src/loop.ts",
+      "destination": "vendor/packages/agent-core/src/loop.ts",
+      "git_blob_sha1": "7555adfc501b980491ffc6859bd07e4e7a9c2194"
+    },
+    {
+      "path": "packages/agent-core/src/redact-core.ts",
+      "destination": "vendor/packages/agent-core/src/redact-core.ts",
+      "git_blob_sha1": "367cae89f74d29cc15fb78d481756a376546a41c"
+    },
+    {
+      "path": "packages/agent-core/src/redact-range.ts",
+      "destination": "vendor/packages/agent-core/src/redact-range.ts",
+      "git_blob_sha1": "923f1bab049243fdcc943269185adcc9433de672"
+    },
+    {
+      "path": "packages/agent-core/src/skill.ts",
+      "destination": "vendor/packages/agent-core/src/skill.ts",
+      "git_blob_sha1": "72b122c5c5c954c22fe55d573a341d4bc71c2f14"
+    },
+    {
+      "path": "packages/agent-core/src/stream-text.ts",
+      "destination": "vendor/packages/agent-core/src/stream-text.ts",
+      "git_blob_sha1": "52d9d7da53d7c7c562936c43ff15a4c3dc35c586"
+    },
+    {
+      "path": "packages/agent-core/src/types.ts",
+      "destination": "vendor/packages/agent-core/src/types.ts",
+      "git_blob_sha1": "197002be9e6338fe64c0561aa502e9e2e68d9748"
+    },
+    {
+      "path": "packages/ai-provider/src/ai-settings-guard.ts",
+      "destination": "vendor/packages/ai-provider/src/ai-settings-guard.ts",
+      "git_blob_sha1": "9c07cb1372eb8f308fae01be85722ee4628f3684"
+    },
+    {
+      "path": "packages/ai-provider/src/browser.ts",
+      "destination": "vendor/packages/ai-provider/src/browser.ts",
+      "git_blob_sha1": "26e98a57dc29405d371b16a94b7111da70e0f706"
+    },
+    {
+      "path": "packages/ai-provider/src/chat.ts",
+      "destination": "vendor/packages/ai-provider/src/chat.ts",
+      "git_blob_sha1": "8da32048e42a7b4dd9c2fe2a54ba86f15427e3e3"
+    },
+    {
+      "path": "packages/ai-provider/src/codex-app-server.ts",
+      "destination": "vendor/packages/ai-provider/src/codex-app-server.ts",
+      "git_blob_sha1": "3f63e845f52661bb26b8c334f4dbe04fac5f3acf"
+    },
+    {
+      "path": "packages/ai-provider/src/custom-endpoints.ts",
+      "destination": "vendor/packages/ai-provider/src/custom-endpoints.ts",
+      "git_blob_sha1": "9b6fc38141b1920acf0c45e4088d3f1512c384eb"
+    },
+    {
+      "path": "packages/ai-provider/src/custom-models.ts",
+      "destination": "vendor/packages/ai-provider/src/custom-models.ts",
+      "git_blob_sha1": "de8880fbbb5c7c4e886345b366f622340f7ec7a3"
+    },
+    {
+      "path": "packages/ai-provider/src/fetch.ts",
+      "destination": "vendor/packages/ai-provider/src/fetch.ts",
+      "git_blob_sha1": "9840c76d3215287ab1e13396da17c5de18a9e8e0"
+    },
+    {
+      "path": "packages/ai-provider/src/http-error.ts",
+      "destination": "vendor/packages/ai-provider/src/http-error.ts",
+      "git_blob_sha1": "47ba58031b243da7202213e8bdc72a508a8d2563"
+    },
+    {
+      "path": "packages/ai-provider/src/index.ts",
+      "destination": "vendor/packages/ai-provider/src/index.ts",
+      "git_blob_sha1": "f5cef4eda4aff6b1475c6ff0f609a1c415956aa9"
+    },
+    {
+      "path": "packages/ai-provider/src/media-protocols.ts",
+      "destination": "vendor/packages/ai-provider/src/media-protocols.ts",
+      "git_blob_sha1": "8f8d89cb30ee994f1904fca036267ed47a7c2e82"
+    },
+    {
+      "path": "packages/ai-provider/src/media.ts",
+      "destination": "vendor/packages/ai-provider/src/media.ts",
+      "git_blob_sha1": "87c415c39d4d96dbdd9b95d43462db5ab6afbf24"
+    },
+    {
+      "path": "packages/ai-provider/src/network-error.ts",
+      "destination": "vendor/packages/ai-provider/src/network-error.ts",
+      "git_blob_sha1": "abed2bcac19def923d6881d945106ea1ad4779ca"
+    },
+    {
+      "path": "packages/ai-provider/src/output-cap.ts",
+      "destination": "vendor/packages/ai-provider/src/output-cap.ts",
+      "git_blob_sha1": "66e73b597278c3fca13a7f5febc070ac128f8df7"
+    },
+    {
+      "path": "packages/ai-provider/src/overload-error.ts",
+      "destination": "vendor/packages/ai-provider/src/overload-error.ts",
+      "git_blob_sha1": "563ac8a272275729e8b5604b2227ab7733b5a19f"
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/anthropic.ts",
+      "destination": "vendor/packages/ai-provider/src/protocols/anthropic.ts",
+      "git_blob_sha1": "cbc6d1dc62785c3bd4537cdb075b673acce658d8"
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/gemini-schema.ts",
+      "destination": "vendor/packages/ai-provider/src/protocols/gemini-schema.ts",
+      "git_blob_sha1": "bd9e11ca3001f1d6c7f7255accae588ac1671a46"
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/gemini.ts",
+      "destination": "vendor/packages/ai-provider/src/protocols/gemini.ts",
+      "git_blob_sha1": "40684c8af457fd4893074771dad48776bbcf5c0c"
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/openai-compatible.ts",
+      "destination": "vendor/packages/ai-provider/src/protocols/openai-compatible.ts",
+      "git_blob_sha1": "626f7bc0b4fc10ad693bc4b80edc1b9f9f8c1b39"
+    },
+    {
+      "path": "packages/ai-provider/src/protocols/shared.ts",
+      "destination": "vendor/packages/ai-provider/src/protocols/shared.ts",
+      "git_blob_sha1": "cf1fd4a7d48e6b299026315204431be3afb4c374"
+    },
+    {
+      "path": "packages/ai-provider/src/providers.ts",
+      "destination": "vendor/packages/ai-provider/src/providers.ts",
+      "git_blob_sha1": "874427be412e10e244964e5eadd4ad82f0f46273"
+    },
+    {
+      "path": "packages/ai-provider/src/registry.ts",
+      "destination": "vendor/packages/ai-provider/src/registry.ts",
+      "git_blob_sha1": "dbbbcf1a278ab6792f7b3b913517a8a906c834d4"
+    },
+    {
+      "path": "packages/ai-provider/src/search-settings.ts",
+      "destination": "vendor/packages/ai-provider/src/search-settings.ts",
+      "git_blob_sha1": "12c884ccb0076611ee433e3d86dc270423fe27d7"
+    },
+    {
+      "path": "packages/ai-provider/src/stream.ts",
+      "destination": "vendor/packages/ai-provider/src/stream.ts",
+      "git_blob_sha1": "799ad24575af18c1a75b50bbfe1a768672719e5e"
+    },
+    {
+      "path": "packages/ai-provider/src/types.ts",
+      "destination": "vendor/packages/ai-provider/src/types.ts",
+      "git_blob_sha1": "0532a4e28b3ab9dec1225c84a7661ded2682001d"
+    },
+    {
+      "path": "packages/ai-provider/src/watchdog.ts",
+      "destination": "vendor/packages/ai-provider/src/watchdog.ts",
+      "git_blob_sha1": "a3876b75c193b8d03de694b210140ae742f6f2a8"
+    },
+    {
+      "path": "packages/ai-search/src/genoffice-auth.ts",
+      "destination": "vendor/packages/ai-search/src/genoffice-auth.ts",
+      "git_blob_sha1": "04e207866f5bc1dbfce508f7e2f0fd0bc1a0a658"
+    },
+    {
+      "path": "packages/ai-search/src/gsk.ts",
+      "destination": "vendor/packages/ai-search/src/gsk.ts",
+      "git_blob_sha1": "5a1f1a0ee655cd28e841c58d71a0a9862efae635"
+    },
+    {
+      "path": "packages/ai-search/src/index.ts",
+      "destination": "vendor/packages/ai-search/src/index.ts",
+      "git_blob_sha1": "d19c7874a7e119363e4515d2fcf4485db1389a13"
+    },
+    {
+      "path": "packages/ai-search/src/media-tools.ts",
+      "destination": "vendor/packages/ai-search/src/media-tools.ts",
+      "git_blob_sha1": "19c1b1b23a974edbfba488a3ce95d0b2fce0d70c"
+    },
+    {
+      "path": "packages/ai-search/src/parallel-mcp.ts",
+      "destination": "vendor/packages/ai-search/src/parallel-mcp.ts",
+      "git_blob_sha1": "dc94d7f33e61f77255b209d075073b614e616b9d"
+    },
+    {
+      "path": "packages/ai-search/src/search-tools.ts",
+      "destination": "vendor/packages/ai-search/src/search-tools.ts",
+      "git_blob_sha1": "9c21b242d66a54629091451efedee673505f9010"
+    },
+    {
+      "path": "packages/ai-search/src/shared.ts",
+      "destination": "vendor/packages/ai-search/src/shared.ts",
+      "git_blob_sha1": "bb573f58416e65b5fc27de3d4e8ac891a64771ba"
+    },
+    {
+      "path": "packages/docx-engine/src/alt-chunk.ts",
+      "destination": "vendor/packages/docx-engine/src/alt-chunk.ts",
+      "git_blob_sha1": "b810480e6c6b841705d2371936263c987a68ffb9"
+    },
+    {
+      "path": "packages/docx-engine/src/blank.ts",
+      "destination": "vendor/packages/docx-engine/src/blank.ts",
+      "git_blob_sha1": "eec2be5ee8d66b85b55b3485dfc09e75b05a3427"
+    },
+    {
+      "path": "packages/docx-engine/src/chart.ts",
+      "destination": "vendor/packages/docx-engine/src/chart.ts",
+      "git_blob_sha1": "297bff281f7d7719579d173b6c035e7ef15f7a8e"
+    },
+    {
+      "path": "packages/docx-engine/src/checkbox-control.ts",
+      "destination": "vendor/packages/docx-engine/src/checkbox-control.ts",
+      "git_blob_sha1": "8b973fd29b18e7cf41394e3ce0979b3a8c4fd71e"
+    },
+    {
+      "path": "packages/docx-engine/src/eq-field.ts",
+      "destination": "vendor/packages/docx-engine/src/eq-field.ts",
+      "git_blob_sha1": "5e0de55040b5f1a186ee38e6098b8e479bc74b23"
+    },
+    {
+      "path": "packages/docx-engine/src/field-balance.ts",
+      "destination": "vendor/packages/docx-engine/src/field-balance.ts",
+      "git_blob_sha1": "e5d3304b2430da4f62b4e151cf7de2cfcbc6d911"
+    },
+    {
+      "path": "packages/docx-engine/src/font-settings.ts",
+      "destination": "vendor/packages/docx-engine/src/font-settings.ts",
+      "git_blob_sha1": "8e71423e11fe4a66bece5bb47008858490485f5a"
+    },
+    {
+      "path": "packages/docx-engine/src/font-table.ts",
+      "destination": "vendor/packages/docx-engine/src/font-table.ts",
+      "git_blob_sha1": "44e7f6bd85e8fa877a086f6b670fbcdddaec8f4b"
+    },
+    {
+      "path": "packages/docx-engine/src/generate.ts",
+      "destination": "vendor/packages/docx-engine/src/generate.ts",
+      "git_blob_sha1": "c81da948be09fc09837a4dc4c5e1a996d233ebe8"
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "destination": "vendor/packages/docx-engine/src/index.ts",
+      "git_blob_sha1": "5a085d3b9bda51806eebbc00d5e1d7c23af1dbd1"
+    },
+    {
+      "path": "packages/docx-engine/src/ink.ts",
+      "destination": "vendor/packages/docx-engine/src/ink.ts",
+      "git_blob_sha1": "d907459fcdf24fe5f6970a1b0a4e1eec60677f77"
+    },
+    {
+      "path": "packages/docx-engine/src/lazy-media.ts",
+      "destination": "vendor/packages/docx-engine/src/lazy-media.ts",
+      "git_blob_sha1": "16cb06fd8a36750a25404cc0feaa9d863765f8f4"
+    },
+    {
+      "path": "packages/docx-engine/src/list-markers.ts",
+      "destination": "vendor/packages/docx-engine/src/list-markers.ts",
+      "git_blob_sha1": "7ce0fff7ccb83129b2cfbfeefadf28333de0201e"
+    },
+    {
+      "path": "packages/docx-engine/src/math.ts",
+      "destination": "vendor/packages/docx-engine/src/math.ts",
+      "git_blob_sha1": "c8d10d5a1a317c078536339498f1a928b38b0231"
+    },
+    {
+      "path": "packages/docx-engine/src/metafile.ts",
+      "destination": "vendor/packages/docx-engine/src/metafile.ts",
+      "git_blob_sha1": "6c52e2516b11922a8d568d50870fe1fffa4675bb"
+    },
+    {
+      "path": "packages/docx-engine/src/notes.ts",
+      "destination": "vendor/packages/docx-engine/src/notes.ts",
+      "git_blob_sha1": "d8943c5fac5d2b2fc4aa5523118977009d03a952"
+    },
+    {
+      "path": "packages/docx-engine/src/ooxml-normalize.ts",
+      "destination": "vendor/packages/docx-engine/src/ooxml-normalize.ts",
+      "git_blob_sha1": "6aa1e2c3dc12beea985897315fde1e6587d3ebc2"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-block-passes.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-block-passes.ts",
+      "git_blob_sha1": "a9cdf97fc3c9bc1948aaf622d65be6d3dacb53c3"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-drawing-geometry.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-drawing-geometry.ts",
+      "git_blob_sha1": "4d48aed03bf0dde96ff3ccd8a9ac930c4c2b3b39"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-fields.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-fields.ts",
+      "git_blob_sha1": "2a2cb258ccb9d81f21772223a73a7fe528fc5fd3"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-package.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-package.ts",
+      "git_blob_sha1": "923a9e2eeb1a0a17c8c5128e620ce4576abc08d0"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-props.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-props.ts",
+      "git_blob_sha1": "63cbb5273ac28cc20dc084ad2fdd08009e88b5b0"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-sdt.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-sdt.ts",
+      "git_blob_sha1": "851882b949d90b0cb1b0a794e5777d7dc863e6a8"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-styles.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-styles.ts",
+      "git_blob_sha1": "5b163db72f21e6e599ff5ae7a0fa2adc5022cdc5"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-vml.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-vml.ts",
+      "git_blob_sha1": "2da786512fb74ca88f602b02aa6b89dfac826d23"
+    },
+    {
+      "path": "packages/docx-engine/src/parse-xml-text.ts",
+      "destination": "vendor/packages/docx-engine/src/parse-xml-text.ts",
+      "git_blob_sha1": "24c750609ccf9868f38b66b31159ec130d087620"
+    },
+    {
+      "path": "packages/docx-engine/src/parse.ts",
+      "destination": "vendor/packages/docx-engine/src/parse.ts",
+      "git_blob_sha1": "cc51e23e61a4cca3b94041469401799ebd1be901"
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "destination": "vendor/packages/docx-engine/src/patch.ts",
+      "git_blob_sha1": "ad34960b868808b451e378f6976989939f29806b"
+    },
+    {
+      "path": "packages/docx-engine/src/protection.ts",
+      "destination": "vendor/packages/docx-engine/src/protection.ts",
+      "git_blob_sha1": "03286f496bb0c8213ef7896ce7c79917a2cb72b5"
+    },
+    {
+      "path": "packages/docx-engine/src/resource-cleanup.ts",
+      "destination": "vendor/packages/docx-engine/src/resource-cleanup.ts",
+      "git_blob_sha1": "3eef4844c57c9367355d1f4aeb7e23f32900f39d"
+    },
+    {
+      "path": "packages/docx-engine/src/scan.ts",
+      "destination": "vendor/packages/docx-engine/src/scan.ts",
+      "git_blob_sha1": "7b6ea5ab46286f29240c83e6cf6604cf27f92813"
+    },
+    {
+      "path": "packages/docx-engine/src/section.ts",
+      "destination": "vendor/packages/docx-engine/src/section.ts",
+      "git_blob_sha1": "ba11cc22513e5d9bae73bbbb40dd30aa6eda36c2"
+    },
+    {
+      "path": "packages/docx-engine/src/sources.ts",
+      "destination": "vendor/packages/docx-engine/src/sources.ts",
+      "git_blob_sha1": "77cf66d427ee6b9f4f30a7929725131130d7fcc9"
+    },
+    {
+      "path": "packages/docx-engine/src/style-upsert.ts",
+      "destination": "vendor/packages/docx-engine/src/style-upsert.ts",
+      "git_blob_sha1": "1f70523a2f710c06a41802819de4ad51c383d1d4"
+    },
+    {
+      "path": "packages/docx-engine/src/symbol-fonts.ts",
+      "destination": "vendor/packages/docx-engine/src/symbol-fonts.ts",
+      "git_blob_sha1": "3cb19098d11de73233621386d1379598efb46d15"
+    },
+    {
+      "path": "packages/docx-engine/src/text-patch.ts",
+      "destination": "vendor/packages/docx-engine/src/text-patch.ts",
+      "git_blob_sha1": "d77638d71ae51407c86162983c787ccb9e3bd0fb"
+    },
+    {
+      "path": "packages/docx-engine/src/theme.ts",
+      "destination": "vendor/packages/docx-engine/src/theme.ts",
+      "git_blob_sha1": "b37bff80927bdd29c1f96011a103b8bf5797e0b2"
+    },
+    {
+      "path": "packages/docx-engine/src/tiff.ts",
+      "destination": "vendor/packages/docx-engine/src/tiff.ts",
+      "git_blob_sha1": "7052986a3f4f2f3e9ff0d833b9d13fd84936e0e5"
+    },
+    {
+      "path": "packages/docx-engine/src/types.ts",
+      "destination": "vendor/packages/docx-engine/src/types.ts",
+      "git_blob_sha1": "3075563f7a4ff1f2a6c2404307803d133bd82b73"
+    },
+    {
+      "path": "packages/docx-engine/src/vendor/emf-converter/LICENSE",
+      "destination": "vendor/packages/docx-engine/src/vendor/emf-converter/LICENSE",
+      "git_blob_sha1": "401a9a4766c76d99688ea57a2886951f2dd686d4"
+    },
+    {
+      "path": "packages/docx-engine/src/vendor/emf-converter/index.d.mts",
+      "destination": "vendor/packages/docx-engine/src/vendor/emf-converter/index.d.mts",
+      "git_blob_sha1": "a5b8822b48f7ee86d3cea5c8f3892ffdfc76fd4d"
+    },
+    {
+      "path": "packages/docx-engine/src/vendor/emf-converter/index.mjs",
+      "destination": "vendor/packages/docx-engine/src/vendor/emf-converter/index.mjs",
+      "git_blob_sha1": "94c7bdbe11a64060bcb7a53ce3507e466629470f"
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "destination": "vendor/packages/docx-engine/src/watermark.ts",
+      "git_blob_sha1": "155ec8aa1cec60e00f3346e3d7793c3c3c0e968d"
+    },
+    {
+      "path": "packages/docx-engine/src/xml-utils.ts",
+      "destination": "vendor/packages/docx-engine/src/xml-utils.ts",
+      "git_blob_sha1": "fccb9e829ac42c3de5e275634d729687e54fe7ba"
+    },
+    {
+      "path": "packages/docx-engine/src/zip-load.ts",
+      "destination": "vendor/packages/docx-engine/src/zip-load.ts",
+      "git_blob_sha1": "5158f2a6667d0c4711dee24602d47da392973bb9"
+    },
+    {
+      "path": "packages/docx-engine/src/zip-splice.ts",
+      "destination": "vendor/packages/docx-engine/src/zip-splice.ts",
+      "git_blob_sha1": "6d15d11f8aaa61168bab13065c693a28ef40b21d"
+    },
+    {
+      "path": "packages/docx-engine/src/zotero-doc-props.ts",
+      "destination": "vendor/packages/docx-engine/src/zotero-doc-props.ts",
+      "git_blob_sha1": "104f2885c041aa3ac6977f17cc951ddea9c09d74"
+    },
+    {
+      "path": "packages/file-parse/src/doc.ts",
+      "destination": "vendor/packages/file-parse/src/doc.ts",
+      "git_blob_sha1": "e3d8c6c99184b0a236d56cb4c1fa41810cc92515"
+    },
+    {
+      "path": "packages/file-parse/src/docx.ts",
+      "destination": "vendor/packages/file-parse/src/docx.ts",
+      "git_blob_sha1": "45571279854b834a1cb96354018a92c05bb20c04"
+    },
+    {
+      "path": "packages/file-parse/src/index.ts",
+      "destination": "vendor/packages/file-parse/src/index.ts",
+      "git_blob_sha1": "6aee6bf19ca43989c29f8117388f072c8f727e68"
+    },
+    {
+      "path": "packages/file-parse/src/opc.ts",
+      "destination": "vendor/packages/file-parse/src/opc.ts",
+      "git_blob_sha1": "aab4c22eb2967482e1ec12fe37a2cd1b09b27005"
+    },
+    {
+      "path": "packages/file-parse/src/parse.ts",
+      "destination": "vendor/packages/file-parse/src/parse.ts",
+      "git_blob_sha1": "cc5542b3a9819c1ced7da79acaef87fda917f816"
+    },
+    {
+      "path": "packages/file-parse/src/pdf.ts",
+      "destination": "vendor/packages/file-parse/src/pdf.ts",
+      "git_blob_sha1": "d4b0ad155d3ca0c4892c30ce42f7a0d7e8644055"
+    },
+    {
+      "path": "packages/file-parse/src/ppt.ts",
+      "destination": "vendor/packages/file-parse/src/ppt.ts",
+      "git_blob_sha1": "e8b197aec19a97157d933aef7d919755bccb0e7b"
+    },
+    {
+      "path": "packages/file-parse/src/pptx.ts",
+      "destination": "vendor/packages/file-parse/src/pptx.ts",
+      "git_blob_sha1": "a329dfef45913cf43fef56b641802101a54bc137"
+    },
+    {
+      "path": "packages/file-parse/src/vendor.ts",
+      "destination": "vendor/packages/file-parse/src/vendor.ts",
+      "git_blob_sha1": "9a2eb3c8426bc91d2ac66288f0a12bdb86b25766"
+    },
+    {
+      "path": "packages/file-parse/src/xlsx-dates.ts",
+      "destination": "vendor/packages/file-parse/src/xlsx-dates.ts",
+      "git_blob_sha1": "bc2286547d6a3d4b35bbf190208de796c7ce3e7c"
+    },
+    {
+      "path": "packages/file-parse/src/xlsx.ts",
+      "destination": "vendor/packages/file-parse/src/xlsx.ts",
+      "git_blob_sha1": "39755397262e0ec74df5daa5810da8d0df06d44e"
+    },
+    {
+      "path": "packages/pptx-render/src/auto-num.ts",
+      "destination": "vendor/packages/pptx-render/src/auto-num.ts",
+      "git_blob_sha1": "1f4d190f8a96cbba356425f8287b2238f648c435"
+    },
+    {
+      "path": "packages/pptx-render/src/bidi-js.d.ts",
+      "destination": "vendor/packages/pptx-render/src/bidi-js.d.ts",
+      "git_blob_sha1": "9952af780e26202a9a9e588a9b447e6872c3e006"
+    },
+    {
+      "path": "packages/pptx-render/src/build-chart.ts",
+      "destination": "vendor/packages/pptx-render/src/build-chart.ts",
+      "git_blob_sha1": "6c5be522c6cf7adfcad3e91eb5e3bc382090334d"
+    },
+    {
+      "path": "packages/pptx-render/src/build-slide.ts",
+      "destination": "vendor/packages/pptx-render/src/build-slide.ts",
+      "git_blob_sha1": "9b8238049cf0a6319dea04a5b4425a4d455c026d"
+    },
+    {
+      "path": "packages/pptx-render/src/cell-bevel.ts",
+      "destination": "vendor/packages/pptx-render/src/cell-bevel.ts",
+      "git_blob_sha1": "ef65dc767089bfce2c1a74cf95380fbb433c0c88"
+    },
+    {
+      "path": "packages/pptx-render/src/coords.ts",
+      "destination": "vendor/packages/pptx-render/src/coords.ts",
+      "git_blob_sha1": "1d7a73acc50bf92faba7a44c9dca4ab1060f0106"
+    },
+    {
+      "path": "packages/pptx-render/src/fill.ts",
+      "destination": "vendor/packages/pptx-render/src/fill.ts",
+      "git_blob_sha1": "94f8801bded785f6d5ef59748842d4cd181df6fb"
+    },
+    {
+      "path": "packages/pptx-render/src/image-dpi.ts",
+      "destination": "vendor/packages/pptx-render/src/image-dpi.ts",
+      "git_blob_sha1": "1dcaa1edcfe05fcdb0c7716abc6502635d45b49e"
+    },
+    {
+      "path": "packages/pptx-render/src/index.ts",
+      "destination": "vendor/packages/pptx-render/src/index.ts",
+      "git_blob_sha1": "1b568ec1b79ec00e5e1383940f9859f270ca1eb6"
+    },
+    {
+      "path": "packages/pptx-render/src/metrics.ts",
+      "destination": "vendor/packages/pptx-render/src/metrics.ts",
+      "git_blob_sha1": "eb0e10c5f2d54b9e40e90eeaa2c8fba3659f7f06"
+    },
+    {
+      "path": "packages/pptx-render/src/pattern-fills.ts",
+      "destination": "vendor/packages/pptx-render/src/pattern-fills.ts",
+      "git_blob_sha1": "88aaa4cf8b570c762f57fe6f6a7672c6fc7f8268"
+    },
+    {
+      "path": "packages/pptx-render/src/preset-geometry.ts",
+      "destination": "vendor/packages/pptx-render/src/preset-geometry.ts",
+      "git_blob_sha1": "368846466bbf6fcea8d84b8628098a8d9a7eee2a"
+    },
+    {
+      "path": "packages/pptx-render/src/render-tree.ts",
+      "destination": "vendor/packages/pptx-render/src/render-tree.ts",
+      "git_blob_sha1": "b79080c157516e587fd8d9ec0d3ce270eddf4cfc"
+    },
+    {
+      "path": "packages/pptx-render/src/scene3d.ts",
+      "destination": "vendor/packages/pptx-render/src/scene3d.ts",
+      "git_blob_sha1": "63a0730a95334a3274d7f2502a645896221c85c4"
+    },
+    {
+      "path": "packages/pptx-render/src/text-layout.ts",
+      "destination": "vendor/packages/pptx-render/src/text-layout.ts",
+      "git_blob_sha1": "ecb7d33eaf69dd26ed470f54c42fc9440ea09464"
+    },
+    {
+      "path": "packages/pptx-engine/src/align.ts",
+      "destination": "vendor/packages/pptx-engine/src/align.ts",
+      "git_blob_sha1": "5b084b5b01fe08568275f041aef1c9a44b9cf83c"
+    },
+    {
+      "path": "packages/pptx-engine/src/animation.ts",
+      "destination": "vendor/packages/pptx-engine/src/animation.ts",
+      "git_blob_sha1": "4b8555b6e02d4f631d6784ca604b29c0f437a40b"
+    },
+    {
+      "path": "packages/pptx-engine/src/background-promote.ts",
+      "destination": "vendor/packages/pptx-engine/src/background-promote.ts",
+      "git_blob_sha1": "eb204ce9ebca49c9e19612e893c29e16b21ee484"
+    },
+    {
+      "path": "packages/pptx-engine/src/blank.ts",
+      "destination": "vendor/packages/pptx-engine/src/blank.ts",
+      "git_blob_sha1": "239af8b834238d2085d4f80e4af083255c2b7dc0"
+    },
+    {
+      "path": "packages/pptx-engine/src/builtin-layouts.ts",
+      "destination": "vendor/packages/pptx-engine/src/builtin-layouts.ts",
+      "git_blob_sha1": "fc83c034c82fc7b9bf4d2710722131dd3c45502c"
+    },
+    {
+      "path": "packages/pptx-engine/src/chart-insert.ts",
+      "destination": "vendor/packages/pptx-engine/src/chart-insert.ts",
+      "git_blob_sha1": "a36199f1cf91bd383579c6da2509af9c3076592e"
+    },
+    {
+      "path": "packages/pptx-engine/src/chart.ts",
+      "destination": "vendor/packages/pptx-engine/src/chart.ts",
+      "git_blob_sha1": "c23671e7ffde58434b81946094ab1e7140405ba3"
+    },
+    {
+      "path": "packages/pptx-engine/src/chartex.ts",
+      "destination": "vendor/packages/pptx-engine/src/chartex.ts",
+      "git_blob_sha1": "15c2291e6416c2510a1c282abf8fec81ac196b6f"
+    },
+    {
+      "path": "packages/pptx-engine/src/color.ts",
+      "destination": "vendor/packages/pptx-engine/src/color.ts",
+      "git_blob_sha1": "6b23bd13b2e03c133c2c1697152d0090ed9a88cc"
+    },
+    {
+      "path": "packages/pptx-engine/src/comments.ts",
+      "destination": "vendor/packages/pptx-engine/src/comments.ts",
+      "git_blob_sha1": "5f46507826303b34e344c4c95f70bb8818081e19"
+    },
+    {
+      "path": "packages/pptx-engine/src/custgeom.ts",
+      "destination": "vendor/packages/pptx-engine/src/custgeom.ts",
+      "git_blob_sha1": "0d4eb02305d5c66cfd4fc0eb1f796ea024825862"
+    },
+    {
+      "path": "packages/pptx-engine/src/dgm-hier.ts",
+      "destination": "vendor/packages/pptx-engine/src/dgm-hier.ts",
+      "git_blob_sha1": "c6b4659739a0c3e73a10f6463f704c3ae7d90880"
+    },
+    {
+      "path": "packages/pptx-engine/src/embedded-fonts.ts",
+      "destination": "vendor/packages/pptx-engine/src/embedded-fonts.ts",
+      "git_blob_sha1": "3c4d76ff9e5327fb7217d59d143c731e857173f6"
+    },
+    {
+      "path": "packages/pptx-engine/src/format-brush.ts",
+      "destination": "vendor/packages/pptx-engine/src/format-brush.ts",
+      "git_blob_sha1": "2010c7aae9b64ab8fcca669b8ea5d0c32d926d63"
+    },
+    {
+      "path": "packages/pptx-engine/src/generate.ts",
+      "destination": "vendor/packages/pptx-engine/src/generate.ts",
+      "git_blob_sha1": "67cd44fb0e4bf15bf41be6229bb9a9839348fde2"
+    },
+    {
+      "path": "packages/pptx-engine/src/headerfooter.ts",
+      "destination": "vendor/packages/pptx-engine/src/headerfooter.ts",
+      "git_blob_sha1": "7964d01105dc4c8932176a7d00177c3986b1a714"
+    },
+    {
+      "path": "packages/pptx-engine/src/hyperlink.ts",
+      "destination": "vendor/packages/pptx-engine/src/hyperlink.ts",
+      "git_blob_sha1": "d992f9443fd674b34d22de620a7e5e6ab5fa704d"
+    },
+    {
+      "path": "packages/pptx-engine/src/identity.ts",
+      "destination": "vendor/packages/pptx-engine/src/identity.ts",
+      "git_blob_sha1": "3ab7727232a94c90bf5f8144e9f2b8915b1bcd7c"
+    },
+    {
+      "path": "packages/pptx-engine/src/index.ts",
+      "destination": "vendor/packages/pptx-engine/src/index.ts",
+      "git_blob_sha1": "63b4703be0d2a3a4e7b081f12677bfc2e934672d"
+    },
+    {
+      "path": "packages/pptx-engine/src/insert.ts",
+      "destination": "vendor/packages/pptx-engine/src/insert.ts",
+      "git_blob_sha1": "560aa4ed199e6bf664a10fdd267a4334dc364e92"
+    },
+    {
+      "path": "packages/pptx-engine/src/layout.ts",
+      "destination": "vendor/packages/pptx-engine/src/layout.ts",
+      "git_blob_sha1": "f2e811951dab52909e1185d0f5ac40113d306a4f"
+    },
+    {
+      "path": "packages/pptx-engine/src/master-edit.ts",
+      "destination": "vendor/packages/pptx-engine/src/master-edit.ts",
+      "git_blob_sha1": "e3db22524f1815a135ea77cdb24b4ae6024b07b5"
+    },
+    {
+      "path": "packages/pptx-engine/src/media-insert.ts",
+      "destination": "vendor/packages/pptx-engine/src/media-insert.ts",
+      "git_blob_sha1": "ef2b48fe96844b8dcd18a60ca048a6632c34adbd"
+    },
+    {
+      "path": "packages/pptx-engine/src/named-action.ts",
+      "destination": "vendor/packages/pptx-engine/src/named-action.ts",
+      "git_blob_sha1": "09bba1571f99f4532d35e757befdc5015032d8d4"
+    },
+    {
+      "path": "packages/pptx-engine/src/notes.ts",
+      "destination": "vendor/packages/pptx-engine/src/notes.ts",
+      "git_blob_sha1": "b79e992fbd70ed3e7452e4e6e801caa0f7edd96d"
+    },
+    {
+      "path": "packages/pptx-engine/src/parse.ts",
+      "destination": "vendor/packages/pptx-engine/src/parse.ts",
+      "git_blob_sha1": "1d0431677018a2d1fe5e9366d94fc543d4056f3c"
+    },
+    {
+      "path": "packages/pptx-engine/src/placeholder.ts",
+      "destination": "vendor/packages/pptx-engine/src/placeholder.ts",
+      "git_blob_sha1": "865fdca3556c9c3761a587f2d82009cc2ba9d0d6"
+    },
+    {
+      "path": "packages/pptx-engine/src/preset-shape-types.ts",
+      "destination": "vendor/packages/pptx-engine/src/preset-shape-types.ts",
+      "git_blob_sha1": "cb92e8b8baf0753a0ccc8165dbd214417a9bc30b"
+    },
+    {
+      "path": "packages/pptx-engine/src/redaction-xml.ts",
+      "destination": "vendor/packages/pptx-engine/src/redaction-xml.ts",
+      "git_blob_sha1": "2ef7be35bb89ef69361378f1dc204a7889b6f95f"
+    },
+    {
+      "path": "packages/pptx-engine/src/resource-cleanup.ts",
+      "destination": "vendor/packages/pptx-engine/src/resource-cleanup.ts",
+      "git_blob_sha1": "719bbb480af1c7ee8cf90788c4827a5911eae49c"
+    },
+    {
+      "path": "packages/pptx-engine/src/scan.ts",
+      "destination": "vendor/packages/pptx-engine/src/scan.ts",
+      "git_blob_sha1": "1c7b119732b0ce6209e05c0e54ebf74e99f60bb7"
+    },
+    {
+      "path": "packages/pptx-engine/src/sections.ts",
+      "destination": "vendor/packages/pptx-engine/src/sections.ts",
+      "git_blob_sha1": "42edf147311b1a2b9062acf1f20b474107a81274"
+    },
+    {
+      "path": "packages/pptx-engine/src/slide-ids.ts",
+      "destination": "vendor/packages/pptx-engine/src/slide-ids.ts",
+      "git_blob_sha1": "ce0a5026b9bd21fbc9b2e39e753eb4b3368d6a48"
+    },
+    {
+      "path": "packages/pptx-engine/src/slide-transfer.ts",
+      "destination": "vendor/packages/pptx-engine/src/slide-transfer.ts",
+      "git_blob_sha1": "66884021bfeafd628c5206ebc2630fc6413e3fdb"
+    },
+    {
+      "path": "packages/pptx-engine/src/smartart-layout.ts",
+      "destination": "vendor/packages/pptx-engine/src/smartart-layout.ts",
+      "git_blob_sha1": "fb4a871717d336f67117746874a651ab1ef78460"
+    },
+    {
+      "path": "packages/pptx-engine/src/smartart.ts",
+      "destination": "vendor/packages/pptx-engine/src/smartart.ts",
+      "git_blob_sha1": "f65a326a1121bd20838bef6bbd1f2a1adac42b59"
+    },
+    {
+      "path": "packages/pptx-engine/src/table-edit.ts",
+      "destination": "vendor/packages/pptx-engine/src/table-edit.ts",
+      "git_blob_sha1": "9015c6d9a51e303587c298e8c6646828c2a65dc4"
+    },
+    {
+      "path": "packages/pptx-engine/src/table-grid.ts",
+      "destination": "vendor/packages/pptx-engine/src/table-grid.ts",
+      "git_blob_sha1": "3e64e71c321a2566e4dd0ca012d9066dca5008b8"
+    },
+    {
+      "path": "packages/pptx-engine/src/table-style.ts",
+      "destination": "vendor/packages/pptx-engine/src/table-style.ts",
+      "git_blob_sha1": "4af6567c246922c533518f3a97e3a29796665594"
+    },
+    {
+      "path": "packages/pptx-engine/src/theme-apply.ts",
+      "destination": "vendor/packages/pptx-engine/src/theme-apply.ts",
+      "git_blob_sha1": "912bf7597b824f7db0ba9ff427d130a986338b13"
+    },
+    {
+      "path": "packages/pptx-engine/src/theme.ts",
+      "destination": "vendor/packages/pptx-engine/src/theme.ts",
+      "git_blob_sha1": "b2f41c985af33da978a7883f2a346410929c9db4"
+    },
+    {
+      "path": "packages/pptx-engine/src/types.ts",
+      "destination": "vendor/packages/pptx-engine/src/types.ts",
+      "git_blob_sha1": "d43eec6f465aa735f63e60bba9bd84f34a86e498"
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/LICENSE",
+      "destination": "vendor/packages/pptx-engine/src/vendor/mtx/LICENSE",
+      "git_blob_sha1": "4201f40d931f476b0459e1bf0ec4c84b4e466bfe"
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/ctf.ts",
+      "destination": "vendor/packages/pptx-engine/src/vendor/mtx/ctf.ts",
+      "git_blob_sha1": "3b81e985731efae2cd3b6dd58095d575b53be814"
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/index.ts",
+      "destination": "vendor/packages/pptx-engine/src/vendor/mtx/index.ts",
+      "git_blob_sha1": "05f5df47db73b37a18d55eda53f4073176c11713"
+    },
+    {
+      "path": "packages/pptx-engine/src/vendor/mtx/lzcomp.ts",
+      "destination": "vendor/packages/pptx-engine/src/vendor/mtx/lzcomp.ts",
+      "git_blob_sha1": "309d83b71d859cd8fd963c85fe77bdafa5b95ee0"
+    },
+    {
+      "path": "packages/pptx-engine/src/xml-utils.ts",
+      "destination": "vendor/packages/pptx-engine/src/xml-utils.ts",
+      "git_blob_sha1": "0039efa09dd24ecbdf8d9efb3b82877cac5be6ac"
+    },
+    {
+      "path": "packages/pptx-engine/src/zip.ts",
+      "destination": "vendor/packages/pptx-engine/src/zip.ts",
+      "git_blob_sha1": "5f479b49f2e12051b7864253526f48bf2c2f5323"
+    },
+    {
+      "path": "packages/font-metrics/src/advance.ts",
+      "destination": "vendor/packages/font-metrics/src/advance.ts",
+      "git_blob_sha1": "7fe992acd786729d0040fc1f6aff34f31e80ecc2"
+    },
+    {
+      "path": "packages/font-metrics/src/font-locate.ts",
+      "destination": "vendor/packages/font-metrics/src/font-locate.ts",
+      "git_blob_sha1": "465e8b294c57230c6f0ba52fbe9e3969f54143dd"
+    },
+    {
+      "path": "packages/font-metrics/src/index.ts",
+      "destination": "vendor/packages/font-metrics/src/index.ts",
+      "git_blob_sha1": "6a485de9106d41902d06734d1be83d14c1891755"
+    },
+    {
+      "path": "packages/font-metrics/src/metrics.ts",
+      "destination": "vendor/packages/font-metrics/src/metrics.ts",
+      "git_blob_sha1": "7458218e71fa37bad255218f139709940b197300"
+    },
+    {
+      "path": "packages/font-metrics/src/sfnt.ts",
+      "destination": "vendor/packages/font-metrics/src/sfnt.ts",
+      "git_blob_sha1": "7bda3c3992fb34b0c3d312f36c9fb13d906936f6"
+    },
+    {
+      "path": "packages/electron-utils/src/headless-export.ts",
+      "destination": "vendor/packages/electron-utils/src/headless-export.ts",
+      "git_blob_sha1": "b7a95d7d2947219201dc3009a50a4e277c34936f"
+    },
+    {
+      "path": "packages/electron-utils/src/safe-external-url.ts",
+      "destination": "vendor/packages/electron-utils/src/safe-external-url.ts",
+      "git_blob_sha1": "94061d9687fd75c729d43ea0e567129fa903d53e"
+    },
+    {
+      "path": "apps/sheets/src/ai/deterministic-planner.ts",
+      "destination": "vendor/apps/sheets/src/ai/deterministic-planner.ts",
+      "git_blob_sha1": "456bedd15d5b61af170f6f88278ac560ffbdbd66"
+    },
+    {
+      "path": "apps/sheets/src/ai/privacy-policy.ts",
+      "destination": "vendor/apps/sheets/src/ai/privacy-policy.ts",
+      "git_blob_sha1": "4d2098227ae6999591947fbdb06de83dcfabe0db"
+    },
+    {
+      "path": "apps/docs/src/renderer/fonts/LICENSE-OFL.txt",
+      "destination": "vendor/apps/docs/src/renderer/fonts/LICENSE-OFL.txt",
+      "git_blob_sha1": "0700f5a8343170acbdc1d8e0f5dacf12d918c40d"
+    },
+    {
+      "path": "apps/docs/src/renderer/fonts/README.md",
+      "destination": "vendor/apps/docs/src/renderer/fonts/README.md",
+      "git_blob_sha1": "831175da67080bdbb48c67d2c9e6d36ffde6f9b2"
     }
   ]
 }

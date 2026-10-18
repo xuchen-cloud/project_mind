@@ -7,9 +7,10 @@ import type { PptxModel, PptxEdit, PptxRenderSlide, PptxTextElement } from './ty
 /** Rebuild real GenOffice layout for pending edits; never mutates the baseline. */
 export function previewSlides(model: PptxModel, edits: PptxEdit[]): PptxRenderSlide[] {
   if (!edits.length) return model.renderSlides;
-  const editedSlides = new Set(edits.map(e => e.slideIndex));
+  const legacy = edits.filter(e => e.kind !== 'command'&&e.kind!=='candidate');
+  const editedSlides = new Set(legacy.map(e => e.slideIndex));
   const slides = model.slides.map((slide, i) => editedSlides.has(i) ? structuredClone(slide) : slide) as Slide[];
-  for (const e of edits) {
+  for (const e of legacy) {
     const el = slides[e.slideIndex]?.elements.find(el => el.id === `slide-${e.slideIndex}:shape-${e.cNvPrId}`);
     if (!el) throw new Error('Preview target is missing from the baseline');
     if (e.kind === 'text' && (el.type === 'text' || el.type === 'shape') && el.text) el.text.paragraphs[e.paragraphIndex].runs[e.runIndex].text = e.text;
@@ -197,3 +198,5 @@ export function ReactSvgSlide({ slide: payload, label, onSelect, selectedId, ...
     {slide.nodes.map(n => <Node key={n.id} node={n} prefix={prefix} onSelect={onSelect} selectedId={selectedId} {...editing} />)}
   </svg>;
 }
+
+export { parityHtml } from './parity-html';

@@ -20,6 +20,8 @@ export interface TextNode {
 export interface DocxModel {
   format: 'docx';
   baselineHash: string;
+  /** Original DOCX bytes for the complete browser renderer. */
+  sourceBase64?: string;
   document: PmJSON;
   /** Original GenOffice styles.xml rendering rules; display only, scoped by editor. */
   documentCss: string;
@@ -35,6 +37,7 @@ export interface DocxModel {
 }
 export type Model = DocxModel;
 export type Edit =
+  | { type: 'snapshot'; baselineHash: string; base64: string }
   | { type: 'document'; document: PmJSON }
   | { type: 'text'; nodeId: string; text: string; expectedText?: string };
 export type DocxEdit = Edit;

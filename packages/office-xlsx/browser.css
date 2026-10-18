@@ -46,3 +46,17 @@
   color: var(--color-text-secondary);
   font-size: 12px;
 }
+
+/* Mask only SDK lists. Fixed controls and grid scrollbars retain their hit areas. */
+.office-xlsx-canvas [data-office-scroll-mask="true"] {
+  mask-image: linear-gradient(to right, rgba(0,0,0,var(--office-mask-left)) 0, #000 min(16px,35%), #000 calc(100% - min(16px,35%)), rgba(0,0,0,var(--office-mask-right)) 100%), linear-gradient(to bottom, rgba(0,0,0,var(--office-mask-top)) 0, #000 min(24px,35%), #000 calc(100% - min(24px,35%)), rgba(0,0,0,var(--office-mask-bottom)) 100%);
+  mask-composite: intersect;
+}
+@media (prefers-reduced-motion: reduce) {
+  .office-xlsx-canvas *, .office-xlsx-canvas *::before, .office-xlsx-canvas *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.office-xlsx-frame{display:block;width:100%;height:100%;border:0;background:var(--color-bg);}

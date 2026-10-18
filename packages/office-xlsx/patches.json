@@ -189,5 +189,46 @@
         "insert": ")"
       }
     ]
+  },
+  {
+    "destination": "vendor/packages/xlsx-gateway/src/gateway/xlsx-structure.ts",
+    "reason": "#191 real XLSX regressions: decode numeric XML entities once in structural formula rewrites and include blank merged regions in worksheet dimensions.",
+    "sha256": "ef9082c40e4539dc06267d9cf627ebef1ae54b9d51bd25edf467986957dff830",
+    "changes": [
+      {
+        "at": 14272,
+        "remove": "",
+        "insert": "  if (op.kind === 'merge-cells') {\n    const grow = (ref: string): string => {\n      const parts = ref.split(':')\n      const oldEnd = parseA1(parts[parts.length - 1]!)\n      return `${parts[0]}:${columnToLetters(Math.max(oldEnd?.column ?? 0, op.range.endColumn))}${Math.max(oldEnd?.row ?? 0, op.range.endRow) + 1}`\n    }\n    if (/<dimension\\b/.test(xml)) xml = xml.replace(/(<dimension\\b[^>]*\\bref=\")([^\"]+)(\")/, (_all, a: string, ref: string, z: string) => `${a}${grow(ref)}${z}`)\n    else {\n      const dimension = `<dimension ref=\"${grow('A1')}\"/>`\n      xml = xml.includes('</sheetPr>') ? xml.replace('</sheetPr>', `</sheetPr>${dimension}`) : xml.replace(/(<worksheet\\b[^>]*>)/, `$1${dimension}`)\n    }\n  }\n"
+      },
+      {
+        "at": 71688,
+        "remove": "  return input\n    .replaceAll('&quot;', '\"')\n    .replaceAll('&apos;', \"'\")\n    .replaceAll('&gt;', '>')\n    .replaceAll('&lt;', '<')\n    .replaceAll('&amp;', '&')\n",
+        "insert": "  const named: Record<string,string> = {quot: '\"', apos: \"'\", gt: '>', lt: '<', amp: '&'}\n  return input.replace(/&(?:#x([0-9A-Fa-f]+)|#([0-9]+)|(quot|apos|lt|gt|amp));/g,\n    (match, hex: string | undefined, dec: string | undefined, name: string | undefined) => {\n      if (name !== undefined) return named[name] ?? match\n      const code = hex !== undefined ? Number.parseInt(hex, 16) : Number(dec)\n      return code <= 0x10ffff ? String.fromCodePoint(code) : match\n    })\n"
+      }
+    ]
+  },
+  {
+    "destination": "vendor/packages/xlsx-gateway/src/gateway/xlsx-styles.ts",
+    "reason": "#191 actual imported sheet style/save regression: explicit Arial inherited xf0 minor scheme and reopened as Calibri; clear only theme binding for explicit fontFamily edits.",
+    "sha256": "eb9d3d59fe0581efda5cd17bc0e5ef46afafaa9daa69420c4238cf1495934ba2",
+    "changes": [
+      {
+        "at": 10403,
+        "remove": "",
+        "insert": "    // A changed family must not inherit the base theme-font binding.\n    const baseName = readAttribute(/<name\\b[^>]*>/.exec(inner)?.[0] ?? '', 'val')\n    if (baseName !== escapeXmlAttribute(delta.fontFamily)) override(/<scheme\\b[^>]*\\/?>/g, '')\n"
+      }
+    ]
+  },
+  {
+    "destination": "vendor/apps/sheets/src/renderer/print-html.ts",
+    "reason": "Default print range includes the real pixel bounds of oneCellAnchor/absoluteAnchor drawings; explicit print areas retain cropping",
+    "sha256": "ddc72c5f369866e6fe5cba218b70c70972e1315cc6289c2f8ef886650659cd5a",
+    "changes": [
+      {
+        "at": 31258,
+        "remove": "return {\n    startRow: 0,\n    startColumn: 0,\n    endRow: Math.max(worksheet.getLastRow(), 0, ...visuals.map((visual) => visual.toRow)),\n    endColumn: Math.max(worksheet.getLastColumn(), 0, ...visuals.map((visual) => visual.toColumn",
+        "insert": "const sheet = worksheet.getSheet?.()\n  // oneCellAnchor/absoluteAnchor encode the far edge in an offset, so their\n  // to marker can still be the from cell. Include the actual frame, walking\n  // the same visible column/row sizes the print layout uses. Explicit print\n  // areas and Print Selection bypass usedArea and keep their intended clip.\n  const endIndex = (start: number, span: number, size: (index: number) => number, last: number): number => {\n    let index = start\n    while (index < last) {\n      span -= size(index)\n      if (span <= 0) break\n      index += 1\n    }\n    return index\n  }\n  const columnWidth = (column: number): number =>\n    sheet && !sheet.getColVisible(column) ? 0 : finitePt(worksheet.getColumnWidth(column), 64)\n  const rowHeight = (row: number): number =>\n    sheet && !sheet.getRowVisible(row) ? 0 : finitePt(worksheet.getRowHeight(row), 20)\n  return {\n    startRow: 0,\n    startColumn: 0,\n    endRow: Math.max(worksheet.getLastRow(), 0, ...visuals.map((visual) =>\n      Math.max(visual.toRow, endIndex(visual.fromRow,\n        finitePt(visual.offsetYPx, 0) + finitePt(visual.heightPx, 1), rowHeight, 1_048_575)))),\n    endColumn: Math.max(worksheet.getLastColumn(), 0, ...visuals.map((visual) =>\n      Math.max(visual.toColumn, endIndex(visual.fromColumn,\n        finitePt(visual.offsetXPx, 0) + finitePt(visual.widthPx, 1), columnWidth, 16_383))"
+      }
+    ]
   }
 ]

@@ -1,0 +1,161 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 11345,
+      "git_blob_sha1": "3017411926aa8731558e70c3d16f6ce0b6f68d5c"
+    },
+    {
+      "path": "NOTICE",
+      "bytes": 2489,
+      "git_blob_sha1": "34d8590f9b07df119df295d6eb02194bfd75cdd5"
+    },
+    {
+      "path": "packages/html2docx/ARCHITECTURE.md",
+      "bytes": 36480,
+      "git_blob_sha1": "8f8abbea7cc1932d96269f620e6ccd3a4a9e004b"
+    },
+    {
+      "path": "packages/html2docx/README.md",
+      "bytes": 1905,
+      "git_blob_sha1": "63053dd12da137448c66419de20eccf4c7994126"
+    },
+    {
+      "path": "packages/html2docx/package.json",
+      "bytes": 658,
+      "git_blob_sha1": "32a8125023455c7d85ebf3791d27512ea369676e"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/classifier.js",
+      "bytes": 50106,
+      "git_blob_sha1": "5a1d98def589edd016dc0cde5584dce53825c8a1"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/decorators.js",
+      "bytes": 9569,
+      "git_blob_sha1": "2cc12b7581b6951fb2f5143df458596b7549b514"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/layouts-controls.js",
+      "bytes": 44702,
+      "git_blob_sha1": "54bd16a78ae401c95260754d69c75523ef800866"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/paragraphs-document.js",
+      "bytes": 12340,
+      "git_blob_sha1": "50eb9db1af8be6641b714080ef7228ad873e0d54"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/runs-screenshots.js",
+      "bytes": 31486,
+      "git_blob_sha1": "7d24c527864f9b9d604ea50017f0dc2625f8edca"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/styles.js",
+      "bytes": 18408,
+      "git_blob_sha1": "ddbf64ef394e1122ac412b4a3b854b985fa4c2f0"
+    },
+    {
+      "path": "packages/html2docx/src/browser/core/tables-lists.js",
+      "bytes": 22715,
+      "git_blob_sha1": "35de319e8a945de418afa21d01494c123fd621f0"
+    },
+    {
+      "path": "packages/html2docx/src/browser/forms-media.js",
+      "bytes": 6633,
+      "git_blob_sha1": "0be591acd4e98348ef9bba99c71c005de15f775d"
+    },
+    {
+      "path": "packages/html2docx/src/browser/pages.js",
+      "bytes": 35697,
+      "git_blob_sha1": "fe5b16a32cb447e1f2d5bbca516b2d85324e169e"
+    },
+    {
+      "path": "packages/html2docx/src/browser/table.js",
+      "bytes": 12750,
+      "git_blob_sha1": "f3f45639e8a6890db5e56f325676acff2ee82176"
+    },
+    {
+      "path": "packages/html2docx/src/browser/visual-effects.js",
+      "bytes": 2624,
+      "git_blob_sha1": "8a09eb37105cd45cef7284cb54f673602219ccc0"
+    },
+    {
+      "path": "packages/html2docx/src/convert.ts",
+      "bytes": 26016,
+      "git_blob_sha1": "20a94c08e8c04b078350a68bd0462b3e1723e487"
+    },
+    {
+      "path": "packages/html2docx/src/driver.ts",
+      "bytes": 1831,
+      "git_blob_sha1": "06e69cfe806a0b917a7a204d66e429283d715b51"
+    },
+    {
+      "path": "packages/html2docx/src/extract.ts",
+      "bytes": 1747,
+      "git_blob_sha1": "8f48b4856225b2ad74b85605b0350df444051220"
+    },
+    {
+      "path": "packages/html2docx/src/generate.ts",
+      "bytes": 1240,
+      "git_blob_sha1": "9fee437556b9049352c2798ab72a4f33b1c7f376"
+    },
+    {
+      "path": "packages/html2docx/src/generate/bookmarks.ts",
+      "bytes": 3712,
+      "git_blob_sha1": "46dfae33898d5f67a6b555bac53c7e4018d123fd"
+    },
+    {
+      "path": "packages/html2docx/src/generate/content-controls.ts",
+      "bytes": 2078,
+      "git_blob_sha1": "614ee52c64a9e9c36655424f9804c7cbc15d2b73"
+    },
+    {
+      "path": "packages/html2docx/src/generate/document-meta.ts",
+      "bytes": 2409,
+      "git_blob_sha1": "f66b36c7217033c5fb42a510945e632959e856f8"
+    },
+    {
+      "path": "packages/html2docx/src/generate/fonts.ts",
+      "bytes": 2714,
+      "git_blob_sha1": "8b411dd71f346c054827bf92d75ca09dea036b3d"
+    },
+    {
+      "path": "packages/html2docx/src/generate/numbering.ts",
+      "bytes": 2384,
+      "git_blob_sha1": "08eb37a63a63940f668488e3113781c5a958353d"
+    },
+    {
+      "path": "packages/html2docx/src/generate/page-settings.ts",
+      "bytes": 11231,
+      "git_blob_sha1": "527037fd882054124e5b8f5e722bebb39d86e659"
+    },
+    {
+      "path": "packages/html2docx/src/generate/render-context.ts",
+      "bytes": 3254,
+      "git_blob_sha1": "04e551de060b4830313799c22e9bc26e40a730d1"
+    },
+    {
+      "path": "packages/html2docx/src/generate/renderer.ts",
+      "bytes": 27661,
+      "git_blob_sha1": "c6c7dc828d5ec3a4298f85b0e165b328e8a511e2"
+    },
+    {
+      "path": "packages/html2docx/src/generate/table-renderers.ts",
+      "bytes": 48006,
+      "git_blob_sha1": "a7a3d1babe5d4a3ebd1a3f86ca34bfc8feaecc33"
+    },
+    {
+      "path": "packages/html2docx/src/generate/word-utils.ts",
+      "bytes": 13741,
+      "git_blob_sha1": "fbbfe5178b94d0bbaa573529bc77f3ca23323a0a"
+    },
+    {
+      "path": "packages/html2docx/src/raw.d.ts",
+      "bytes": 74,
+      "git_blob_sha1": "7054905428a0195e18cadcacd44f452312efb113"
+    }
+  ]
+}

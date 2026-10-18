@@ -1,4 +1,4 @@
-import { defaultMarkdownParser } from "@tiptap/pm/markdown";
+import { defaultMarkdownParser } from "prosemirror-markdown";
 import {
   buildInternalReferenceHtml,
   splitInternalReferenceText,

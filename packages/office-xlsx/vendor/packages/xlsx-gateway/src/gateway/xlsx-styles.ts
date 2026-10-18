@@ -265,6 +265,9 @@ function buildFont(baseFontXml: string, delta: WorkbookStyleEdit): string {
     )
   }
   if (delta.fontFamily !== undefined) {
+    // A changed family must not inherit the base theme-font binding.
+    const baseName = readAttribute(/<name\b[^>]*>/.exec(inner)?.[0] ?? '', 'val')
+    if (baseName !== escapeXmlAttribute(delta.fontFamily)) override(/<scheme\b[^>]*\/?>/g, '')
     override(/<name\b[^>]*\/?>/g, `<name val="${escapeXmlAttribute(delta.fontFamily)}"/>`)
   }
   const content = `${added.join('')}${inner}`

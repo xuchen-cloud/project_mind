@@ -3,7 +3,7 @@ import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   MarkdownSerializer,
   type MarkdownSerializerState,
-} from "@tiptap/pm/markdown";
+} from "prosemirror-markdown";
 
 import {
   EMPTY_RICH_TEXT_HTML,

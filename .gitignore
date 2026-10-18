@@ -25,3 +25,6 @@ packages/agent-host/office-dist/
 src-tauri/resources/office-editor/
 src-tauri/resources/.office-editor-*/
 src-tauri/target-office/
+
+# Local browser acceptance artifacts
+/output/playwright/

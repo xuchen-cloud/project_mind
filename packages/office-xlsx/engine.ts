@@ -3,15 +3,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import JSZip from 'jszip'
+import { createHash } from 'node:crypto'
+import { workbookFileSchema, workbookMediaResultSchema, workbookFormulaCellsResultSchema, workbookRowOutlineResultSchema, workbookPivotDefinitionSchema,workbookRecalcRequestSchema,workbookRecalcResultSchema } from './generated/desktop-api'
+import { parsePivotDefinition } from './vendor/packages/xlsx-gateway/src/gateway/xlsx-pivot'
 import { Sidecar } from './sidecar'
+import { gatewayChangesSchema, saveRequest } from './gateway-contract'
+import { writeWorkbookTo } from './generated/save-workbook'
 import { saveWorkbookViaSidecar } from './vendor/packages/xlsx-gateway/src/gateway/xlsx-package-io'
 import type { CellEdit, SheetFormulaValues } from './vendor/packages/xlsx-gateway/src/gateway/xlsx-gateway'
-import type { Area, Context, Edit, Model, Range, Sheet, Style } from './types'
+import type { Area, Context, Edit, Model, Range, Sheet, Style, RecalculateRequest, RecalculateResult } from './types'
 
-export type { Model, Edit, Context } from './types'
+export type { Model, Edit, Context,RecalculateRequest,RecalculateResult } from './types'
 const LIMIT_BYTES = 64 * 1024 * 1024
-const MAX_RECALC_CELLS = 20_000
-export const INITIAL_ROWS = 100
+const MAX_RECALC_CELLS = 2_000_000
+export const INITIAL_ROWS = 1000
 export const INITIAL_COLUMNS = 26
 export const MAX_RANGE_CELLS = 100_000
 const row = z.number().int().min(0).max(1_048_575)
@@ -23,7 +29,8 @@ const editsSchema = z.array(z.discriminatedUnion('kind', [
   z.object({ ...coordinate, kind: z.literal('string'), value: text }).strict(),
   z.object({ ...coordinate, kind: z.literal('number'), value: z.number().finite() }).strict(),
   z.object({ ...coordinate, kind: z.literal('formula'), formula: text.refine((v) => v.startsWith('=') && v.length > 1, 'Formula must start with =') }).strict(),
-])).max(10_000)
+  z.object({ kind: z.literal('gateway'), changes: gatewayChangesSchema, snapshot: z.record(z.string(),z.unknown()).optional() }).strict(),
+])).max(1_000_000)
 const contextSchema = z.object({ binaryPath: z.string().min(1).refine(isUnicode).optional(), tempRoot: z.string().min(1).refine(isUnicode).optional() }).strict()
 const areaSchema = z.object({ startRow: row, endRow: row, startColumn: column, endColumn: column }).strict()
   .refine((r) => r.startRow <= r.endRow && r.startColumn <= r.endColumn, 'Reversed range')
@@ -47,7 +54,7 @@ const sheetSchema = z.object({ id: nativeText.min(1), name: nativeText, hidden: 
   freeze: z.object({ frozenRows: z.number().int().nonnegative(), frozenColumns: z.number().int().nonnegative() }).passthrough().nullable(),
   showGridLines: z.boolean(), tabColor: nativeText.nullable() }).passthrough()
 const metadataSchema = z.object({ sessionId: nativeText.min(1), name: nativeText, activeTab: z.number().int().nonnegative(),
-  sheets: z.array(sheetSchema).min(1).max(32), styles: z.array(styleSchema), visuals: z.array(z.unknown()),
+  sheets: z.array(sheetSchema).min(1).max(1000), styles: z.array(styleSchema), visuals: z.array(z.unknown()),
   definedNames: z.array(z.object({ name: nativeText, formula: nativeText, sheetIndex: z.number().int().nonnegative().optional() }).passthrough()),
   date1904: z.boolean().optional() }).passthrough()
 const rangeSchema = z.object({ cells: z.array(cellSchema), rows: z.array(z.object({ row, height: z.number().finite().optional(), hidden: z.boolean(),
@@ -62,7 +69,15 @@ function isUnicode(value: string) {
   return !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)
 }
 function areaSize(area: Area) { return (area.endRow - area.startRow + 1) * (area.endColumn - area.startColumn + 1) }
-type Metadata = Pick<Model, 'name' | 'styles' | 'sheets' | 'visuals' | 'definedNames'> & { sessionId: string; activeTab: number; date1904?: boolean }
+/** Content-derived UUIDv8 for the renderer's in-memory snapshot, never a native session capability. */
+function snapshotIdentity(sha256: string): string {
+  const uuid = Buffer.from(sha256.slice(0, 32), 'hex')
+  uuid[6] = (uuid[6] & 0x0f) | 0x80
+  uuid[8] = (uuid[8] & 0x3f) | 0x80
+  const hex = uuid.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+type Metadata = Pick<Model, 'name' | 'styles' | 'sheets' | 'visuals' | 'definedNames'> & { dxfStyles?: Style[]; sessionId: string; activeTab: number; date1904?: boolean }
 async function withWorkbook<T>(bytes: Uint8Array, context: Context | undefined,
   run: (client: Sidecar, path: string, dir: string, metadata: Metadata) => Promise<T>): Promise<T> {
   if (!(bytes instanceof Uint8Array) || bytes.length > LIMIT_BYTES || bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
@@ -94,13 +109,50 @@ async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string,
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
-/** Initial A1:Z100 only. The host can explicitly load additional bounded ranges. */
+/** Preload the used workbook in bounded native reads, matching upstream's
+ * two-million-cell formula budget. The canvas also exposes blank working space. */
 export async function inspect(bytes: Uint8Array, context?: Context): Promise<Model> {
   return withWorkbook(bytes, context, async (client, _path, _dir, metadata) => {
     const ranges: Record<string, Range> = {}
-    for (const sheet of metadata.sheets) ranges[sheet.id] = await loadedRange(client, metadata, sheet.id,
-      { startRow: 0, endRow: INITIAL_ROWS - 1, startColumn: 0, endColumn: INITIAL_COLUMNS - 1 })
-    return { format: 'xlsx', name: metadata.name, styles: metadata.styles, sheets: metadata.sheets,
+    if (metadata.sheets.reduce((n, s) => n + s.rowCount * s.columnCount, 0) > MAX_RECALC_CELLS)
+      throw new Error('Workbook used area exceeds the 2000000-cell editor budget')
+    for (const sheet of metadata.sheets) {
+      const chunks: Range[] = []
+      const rowsPerRead = Math.max(1, Math.floor(MAX_RANGE_CELLS / sheet.columnCount))
+      for (let startRow = 0; startRow < sheet.rowCount; startRow += rowsPerRead) {
+        chunks.push(await loadedRange(client, metadata, sheet.id, { startRow,
+          endRow: Math.min(sheet.rowCount - 1, startRow + rowsPerRead - 1), startColumn: 0, endColumn: sheet.columnCount - 1 }))
+      }
+      const first = chunks[0]
+      ranges[sheet.id] = { ...first,
+        area: { startRow: 0, endRow: Math.max(INITIAL_ROWS, sheet.rowCount) - 1,
+          startColumn: 0, endColumn: Math.max(INITIAL_COLUMNS, sheet.columnCount) - 1 },
+        cells: chunks.flatMap(chunk => chunk.cells), rows: chunks.flatMap(chunk => chunk.rows),
+        merges: [...new Map(chunks.flatMap(chunk => chunk.merges).map(range => [JSON.stringify(range),range])).values()] }
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    const file = workbookFileSchema.parse({ ...metadata, sessionId: snapshotIdentity(sha256), sha256, fileBytes: bytes.length, readOnly: false })
+    // Data belongs to this inspected snapshot. The iframe never receives paths or a native capability.
+    delete file.path
+    const formulas: Record<string, unknown> = {}, outlines: Record<string, unknown> = {}, media: Record<string, unknown> = {}, pivots: Record<string, unknown> = {}
+    for (const sheet of file.sheets) {
+      formulas[sheet.id] = workbookFormulaCellsResultSchema.parse(await client.request({ command:'read_formula_cells',sessionId:metadata.sessionId,sheetId:sheet.id }))
+      outlines[sheet.id] = workbookRowOutlineResultSchema.parse(await client.request({ command:'read_row_outline',sessionId:metadata.sessionId,sheetId:sheet.id }))
+    }
+    const mediaIds = new Set(file.visuals.filter(visual=>visual.mediaPath||visual.fillMediaPath).map(visual=>visual.id))
+    for (const sheet of file.sheets) for (const image of sheet.cellImages) mediaIds.add(image.id)
+    for (const range of Object.values(ranges)) for (const image of (range.pageSetup as {headerFooterPictures?:{id:string}[]}|undefined)?.headerFooterPictures??[]) mediaIds.add(image.id)
+    for (const visualId of mediaIds) media[visualId] = workbookMediaResultSchema.parse(await client.request({ command:'read_media',sessionId:metadata.sessionId,visualId }))
+    const pivotRefs = file.sheets.flatMap(sheet => sheet.pivotTables).filter(pivot => pivot.cachePath)
+    if (pivotRefs.length) {
+      const zip = await JSZip.loadAsync(bytes)
+      for (const pivot of pivotRefs) {
+        const definition = zip.file(pivot.path), cache = zip.file(pivot.cachePath!)
+        if (!definition || !cache) throw new Error('Missing source pivot definition/cache')
+        pivots[pivot.path] = workbookPivotDefinitionSchema.parse(parsePivotDefinition(await definition.async('string'), await cache.async('string')))
+      }
+    }
+    return { format: 'xlsx', name: metadata.name, rendererData: {file, formulas, outlines, media, pivots}, styles: metadata.styles, dxfStyles: metadata.dxfStyles??[], sheets: metadata.sheets,
       activeSheetId: metadata.sheets[metadata.activeTab]?.id ?? metadata.sheets[0].id, ranges,
       visuals: metadata.visuals, definedNames: metadata.definedNames, date1904: metadata.date1904 ?? false }
   })
@@ -113,9 +165,81 @@ export async function loadRange(bytes: Uint8Array, sheetId: string, area: Area, 
     return loadedRange(client, metadata, sheetId, bounded)
   })
 }
+/** Keep the upstream native per-request 20k read budget while honoring the public whole-workbook budget. */
+async function nativeRecalculate(client:Sidecar,request:{path:string;edits:unknown[];reads:{sheet:string;range:Area}[]}):Promise<z.infer<typeof recalcSchema>>{
+ const cells:z.infer<typeof recalcSchema>['cells']=[]
+ let pending:{sheet:string;range:Area}[]=[],size=0,cached=false
+ const flush=async()=>{if(!pending.length)return;const result=recalcSchema.parse(await client.recalcCells({...request,reads:pending}));cells.push(...result.cells);cached=result.cached;pending=[];size=0}
+ for(const read of request.reads){const width=read.range.endColumn-read.range.startColumn+1,rows=Math.max(1,Math.floor(20000/width));for(let row=read.range.startRow;row<=read.range.endRow;row+=rows){const range={...read.range,startRow:row,endRow:Math.min(read.range.endRow,row+rows-1)},count=areaSize(range);if(size+count>20000)await flush();pending.push({sheet:read.sheet,range});size+=count}}
+ await flush();return{cells,cached}
+}
+/** Read-only native computation against host-owned bytes. Inputs never contain paths or session capabilities. */
+export async function recalculate(bytes:Uint8Array,input:RecalculateRequest,context?:Context):Promise<RecalculateResult>{
+ const schema=z.object({edits:workbookRecalcRequestSchema.shape.edits,reads:workbookRecalcRequestSchema.shape.reads}).strict()
+ const request=schema.parse(input)
+ if(request.reads.reduce((total,read)=>total+areaSize(read.range),0)>MAX_RANGE_CELLS)throw Error('Recalc read exceeds 100000 cells')
+ for(const {range}of request.reads)if(range.startRow>range.endRow||range.startColumn>range.endColumn)throw Error('Range boundaries are reversed')
+ for(const change of request.edits)if(!isUnicode(change.input))throw Error('Invalid Unicode input')
+ return withWorkbook(bytes,context,async(client,path,_dir,metadata)=>{
+  const names=new Map(metadata.sheets.map(sheet=>[sheet.id,sheet.name])),ids=new Map(metadata.sheets.map(sheet=>[sheet.name,sheet.id]))
+  const sheetName=(id:string)=>{const name=names.get(id);if(name===undefined)throw Error('Unknown sheet');return name}
+  const result=await nativeRecalculate(client,{path,edits:request.edits.map(({sheetId,...edit})=>({...edit,sheet:sheetName(sheetId)})),reads:request.reads.map(({sheetId,range})=>({sheet:sheetName(sheetId),range}))})
+  return workbookRecalcResultSchema.parse({cells:result.cells.map(({sheet,...cell})=>{const sheetId=ids.get(sheet);if(!sheetId)throw Error('Unknown result sheet');return{sheetId,...cell}})})
+ })
+}
 /** Typed content changes, original styles and unrelated parts retained. */
 export async function edit(bytes: Uint8Array, edits: Edit[], context?: Context): Promise<Uint8Array> {
-  const checked = editsSchema.parse(edits)
+  const all = editsSchema.parse(edits)
+  const gateway = all.filter((e) => e.kind === 'gateway')
+  if (gateway.length) {
+    if (gateway.length !== 1 || all.length !== 1) throw new Error('Gateway journal must be one complete operation set')
+    const request = saveRequest(gateway[0].changes)
+    // Upstream's two-phase format save, entirely inside the candidate. Native File CAS sees one final byte set.
+    const hasShifts = request.structuralOps.length > 0 || request.sheetOps.some(op => op.kind !== 'set-sheet-tab-color')
+    const heldPivots = hasShifts ? request.pivotAdditions : []
+    const heldTables = request.structuralOps.length ? request.tableAdditions : []
+    const heldTableEdits = request.structuralOps.length ? (request.tableEdits??[]).filter(edit => edit.area !== undefined) : []
+    const heldNames = hasShifts ? request.definedNamesState : null
+    if (heldPivots.length || heldTables.length || heldTableEdits.length || heldNames !== null) {
+      // Native IDs are assigned from the saved tab order. Resolve by final names
+      // across this private byte boundary, including newly added/renamed sheets.
+      const names = await withWorkbook(bytes,context,async(_client,_path,_dir,metadata)=>new Map(metadata.sheets.map(sheet=>[sheet.id,sheet.name])))
+      for(const op of request.sheetOps){
+        if(op.kind==='add-sheet'||op.kind==='duplicate-sheet')names.set(op.sheetId,op.name)
+        else if(op.kind==='rename-sheet')names.set(op.sheetId,op.newName)
+        else if(op.kind==='remove-sheet')names.delete(op.sheetId)
+      }
+      const first = await edit(bytes,[{kind:'gateway',changes:{...gateway[0].changes,
+        tableAdditions:heldTables.length?[]:request.tableAdditions,tableEdits:(request.tableEdits??[]).filter(edit=>!heldTableEdits.includes(edit)),
+        pivotAdditions:heldPivots.length?[]:request.pivotAdditions,definedNamesState:null}}],context)
+      const ids = await withWorkbook(first,context,async(_client,_path,_dir,metadata)=>new Map(metadata.sheets.map(sheet=>[sheet.name,sheet.id])))
+      const remap=(id:string)=>{const name=names.get(id),savedId=name===undefined?undefined:ids.get(name);if(!savedId)throw Error('Unknown staged worksheet');return savedId}
+      return edit(first,[{kind:'gateway',changes:{
+        tableAdditions:heldTables.map(table=>({...table,sheetId:remap(table.sheetId)})),
+        tableEdits:heldTableEdits.map(edit=>({...edit,sheetId:remap(edit.sheetId)})),
+        pivotAdditions:heldPivots.map(pivot=>({...pivot,sheetId:remap(pivot.sheetId),sourceSheetId:remap(pivot.sourceSheetId)})),
+        definedNamesState:heldNames,
+      }}],context)
+    }
+    return withWorkbook(bytes, context, async (client, sourcePath, dir, metadata) => {
+      const additions = new Set(request.sheetOps.filter(op => op.kind === 'add-sheet' || op.kind === 'duplicate-sheet').map(op => op.sheetId))
+      const changed = new Set([...request.edits.map(e => e.sheetId), ...request.structuralOps.map(e => e.sheetId)])
+      for (const id of changed) {
+        if (additions.has(id)) continue
+        if (!metadata.sheets.some(sheet => sheet.id === id)) throw new Error('Unknown sheet')
+        // The complete renderer's protection guard journals verified protection intent,
+        // allowed unlocked-cell edits and allowed structural operations together.
+      }
+      const targetPath = join(dir, 'result.xlsx')
+      await writeWorkbookTo(client, {snapshotPath:sourcePath, sheetNames:new Map(metadata.sheets.map(s=>[s.id,s.name]))}, request, targetPath)
+      const candidate = new Uint8Array(await readFile(targetPath))
+      if (!request.formulaValues.length && (request.edits.some(e=>e.writeValue) || request.structuralOps.some(op=>/insert|remove|move/.test(op.kind)) || request.sheetOps.length)) {
+        return recalculateCandidate(candidate, context)
+      }
+      return candidate
+    })
+  }
+  const checked = all.filter((e) => e.kind !== 'gateway')
   if (checked.length === 0) { contextSchema.parse(context ?? {}); return withWorkbook(bytes, context, async () => new Uint8Array(bytes)) }
   return withWorkbook(bytes, context, async (client, sourcePath, dir, metadata) => {
     const seen = new Set<string>()
@@ -140,7 +264,7 @@ export async function edit(bytes: Uint8Array, edits: Edit[], context?: Context):
       startColumn: 0, endColumn: Math.max(sheet.columnCount - 1, ...checked.filter((e) => e.sheetId === sheet.id).map((e) => e.column)),
     } }))
     if (reads.reduce((n, read) => n + areaSize(read.range), 0) > MAX_RECALC_CELLS) {
-      throw new Error('Basic formula save exceeds the 20000-cell workbook budget')
+      throw new Error('Formula save exceeds the 2000000-cell workbook budget')
     }
     const expected = new Set<string>()
     for (const sheet of metadata.sheets) {
@@ -155,10 +279,10 @@ export async function edit(bytes: Uint8Array, edits: Edit[], context?: Context):
       if (change.kind === 'formula') expected.add(cellKey)
       else expected.delete(cellKey)
     }
-    const recalc = recalcSchema.parse(await client.recalcCells({ path: sourcePath,
+    const recalc = await nativeRecalculate(client,{ path: sourcePath,
       edits: checked.map((change) => ({ sheet: metadata.sheets.find((s) => s.id === change.sheetId)!.name,
         row: change.row, column: change.column, kind: change.kind,
-        input: change.kind === 'blank' ? '' : change.kind === 'formula' ? change.formula : String(change.value) })), reads }))
+        input: change.kind === 'blank' ? '' : change.kind === 'formula' ? change.formula : String(change.value) })), reads })
     for (const cell of recalc.cells) if (cell.isFormula) expected.delete(`${cell.sheet}:${cell.row}:${cell.column}`)
     if (expected.size) throw new Error(`Unsupported formula not recalculated: ${[...expected][0]}; candidate not saved`)
     const formulaValues: SheetFormulaValues[] = []
@@ -173,6 +297,36 @@ export async function edit(bytes: Uint8Array, edits: Edit[], context?: Context):
     }
     const targetPath = join(dir, 'result.xlsx')
     await saveWorkbookViaSidecar({ client, sourcePath, targetPath, edits: wire, formulaValues, tempRoot: dir, temporaryCandidate: true })
+    return new Uint8Array(await readFile(targetPath))
+  })
+}
+
+/** Compute against the already transformed candidate, never pre-shift coordinates. */
+async function recalculateCandidate(bytes: Uint8Array, context?: Context): Promise<Uint8Array> {
+  return withWorkbook(bytes, context, async (client, sourcePath, dir, metadata) => {
+    const reads=metadata.sheets.map(sheet=>({sheet:sheet.name,range:{startRow:0,endRow:sheet.rowCount-1,startColumn:0,endColumn:sheet.columnCount-1}}))
+    if(reads.reduce((n,r)=>n+areaSize(r.range),0)>MAX_RECALC_CELLS)throw new Error('Formula save exceeds the 2000000-cell workbook budget')
+    const expected=new Set<string>()
+    for(const sheet of metadata.sheets){
+      await loadedRange(client,metadata,sheet.id,{startRow:0,endRow:0,startColumn:0,endColumn:0})
+      const inventory=formulasSchema.parse(await client.request({command:'read_formula_cells',sessionId:metadata.sessionId,sheetId:sheet.id}))
+      if(!inventory.indexingComplete||inventory.truncated)throw new Error('Incomplete formula inventory; candidate not saved')
+      for(const cell of inventory.cells)expected.add(`${sheet.name}:${cell.row}:${cell.column}`)
+    }
+    if(!expected.size)return bytes
+    const result=await nativeRecalculate(client,{path:sourcePath,edits:[],reads})
+    const formulaValues: SheetFormulaValues[]=[]
+    for(const sheet of metadata.sheets){
+      const cells=result.cells.filter(c=>c.sheet===sheet.name&&c.isFormula).map(c=>{
+        expected.delete(`${c.sheet}:${c.row}:${c.column}`)
+        if(c.isError||c.number===undefined)throw new Error(`Unsupported formula result at ${c.sheet}:${c.row},${c.column}: ${c.formatted}; candidate not saved`)
+        return {row:c.row,column:c.column,value:c.number}
+      })
+      if(cells.length)formulaValues.push({sheetName:sheet.name,cells})
+    }
+    if(expected.size)throw new Error(`Unsupported formula not recalculated: ${[...expected][0]}; candidate not saved`)
+    const targetPath=join(dir,'calculated.xlsx')
+    await saveWorkbookViaSidecar({client,sourcePath,targetPath,edits:[],formulaValues,tempRoot:dir,temporaryCandidate:true})
     return new Uint8Array(await readFile(targetPath))
   })
 }

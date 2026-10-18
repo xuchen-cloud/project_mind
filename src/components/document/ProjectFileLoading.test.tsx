@@ -1,0 +1,45 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { expect, it, vi } from 'vitest';
+import { ProjectFileContent } from './ProjectFileContent';
+import { projectFileApi } from '../../services/projectFileApi';
+import { fileDocumentApi } from '../../services/fileDocumentApi';
+import { recordDocumentApi } from '../../services/recordDocumentApi';
+import { officeFileApi } from '../../services/officeFileApi';
+import { officePreviewCache } from '../../lib/office-preview-cache';
+const runtime=vi.hoisted(()=>({mount:vi.fn()}));
+vi.mock('../../../packages/office-docx/dist/editor.mjs',()=>({mountFullEditor:runtime.mount}));
+vi.mock('../../services/fileDocumentApi',()=>({fileDocumentApi:{versionsList:vi.fn()}}));
+vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:vi.fn()}}));
+vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn(),applications:vi.fn(),openWith:vi.fn(),openLocal:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
+vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:vi.fn(),save:vi.fn()}}));
+function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>{resolve=done;});return {promise,resolve};}
+it('shows only the active loading owner, then retains ready content through background version refresh',async()=>{
+ officePreviewCache.clear();
+ const binding={workspaceId:'w',generation:'g'};
+ const object={workspaceId:'w',scope:{kind:'project' as const,projectId:2},kind:'file' as const,id:'7'};
+ const resolved={object,relativePath:'sample.docx',name:'sample.docx',versionNumber:2,contentHash:'hash2',state:'ready' as const,reason:null};
+ const resolve=deferred<typeof resolved>();const inspected=deferred<Awaited<ReturnType<typeof officeFileApi.inspect>>>();const ready=deferred<void>();
+ vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
+ vi.mocked(projectFileApi.resolve).mockReturnValue(resolve.promise);vi.mocked(projectFileApi.applications).mockResolvedValue([]);
+ vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{id:'2',versionNumber:2,name:'sample.docx',createdAt:'2026-10-18',contentHash:'hash2',isCurrent:true}],nextCursor:null});
+ vi.mocked(officeFileApi.inspect).mockReturnValue(inspected.promise);
+ runtime.mount.mockImplementation((host:HTMLElement)=>{
+  const content=document.createElement('div');content.textContent='实际就绪正文';host.append(content);
+  return {ready:ready.promise,update:vi.fn(),destroy:vi.fn()};
+ });
+ const client=new QueryClient();const view=render(<QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} fileName="sample.docx" visible focused/></QueryClientProvider>);
+ const loading=()=>screen.queryAllByRole('status',{name:'文件加载状态'});
+ expect(loading()).toHaveLength(1);expect(loading()[0]).toHaveTextContent('正在读取所选文件版本');
+ await act(async()=>resolve.resolve(resolved));
+ await waitFor(()=>expect(loading()[0]).toHaveTextContent('正在解析文档内容'));expect(loading()).toHaveLength(1);
+ await act(async()=>inspected.resolve({model:{format:'docx',name:'sample.docx'}} as never));
+ await waitFor(()=>expect(runtime.mount).toHaveBeenCalledOnce());expect(loading()).toHaveLength(1);expect(loading()[0]).toHaveTextContent('正在准备文档画布');
+ await act(async()=>ready.resolve());expect(loading()).toHaveLength(0);expect(screen.getByText('实际就绪正文')).toBeVisible();
+ const refreshed=deferred<typeof resolved>();vi.mocked(projectFileApi.resolve).mockReturnValueOnce(refreshed.promise);
+ fireEvent.click(screen.getByRole('button',{name:'刷新',exact:true}));
+ await waitFor(()=>expect(screen.getByText('正在读取固定版本…')).toBeInTheDocument());
+ expect(loading()).toHaveLength(0);expect(screen.getByText('实际就绪正文')).toBeVisible();
+ await act(async()=>refreshed.resolve(resolved));await waitFor(()=>expect(screen.queryByText('正在读取固定版本…')).not.toBeInTheDocument());
+ expect(loading()).toHaveLength(0);expect(runtime.mount).toHaveBeenCalledOnce();view.unmount();
+});

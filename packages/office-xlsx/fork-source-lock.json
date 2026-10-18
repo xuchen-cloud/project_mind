@@ -1,0 +1,42 @@
+{
+  "repository": "https://github.com/Nothing1024/dsh-genoffice-engine",
+  "commit": "86e288908456be5d3b3cccc97e79708e4adf1bc4",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "apps/sheets/src/renderer/web-bridge.ts",
+      "local": "fork-research/web-bridge.ts",
+      "sha256": "e9e14f0b0b31c97402037ed13d31491f524ba2e62afdd41c014fc96617bb9be7"
+    },
+    {
+      "path": "apps/sheets/src/renderer/web-node-shims.ts",
+      "local": "fork-research/web-node-shims.ts",
+      "sha256": "b98000e168617fba0aa87cd31dd7643b6e6b1960426d9684c0198f4f4735947b"
+    },
+    {
+      "path": "apps/sheets/src/renderer/control.ts",
+      "local": "fork-research/control.ts",
+      "sha256": "cd4e9748f5f82644a79e6c5bfe96016306af12aab127376ff8f6066cf6ebd7b1"
+    },
+    {
+      "path": "apps/sheets/src/renderer/web-xlsx.ts",
+      "local": "fork-research/web-xlsx.ts",
+      "sha256": "1c4039afca1a2ebb6056073e8979e532e68544589a3927d2e2a7843c944a46f5"
+    },
+    {
+      "path": "apps/sheets/src/renderer/web-xlsx-media.ts",
+      "local": "fork-research/web-xlsx-media.ts",
+      "sha256": "ed45eab214f8a6355f5cd042cda9e4f474315cadfdf00cebe81d5004d20431ad"
+    },
+    {
+      "path": "apps/sheets/vite.web.config.ts",
+      "local": "fork-research/vite.web.config.ts",
+      "sha256": "2e058d6e59c844316977fd452f79383f096386d4e8ecdf8dc4e6368d994ec3ca"
+    },
+    {
+      "path": "LICENSE",
+      "local": "fork-research/LICENSE",
+      "sha256": "68e32334df324ef4fc79fad3a26487e5abac36055a484bb6c8d7ecf9d8350885"
+    }
+  ]
+}

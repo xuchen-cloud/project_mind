@@ -87,7 +87,6 @@ import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
 import { rememberProjectRecord } from "./components/home/project-record-history";
-import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
 import { clearAllTodoComposerDrafts } from "./components/todo/todo-draft-storage";
@@ -95,13 +94,16 @@ import {
   CreateWorkspaceDialog,
   UnlockWorkspaceSecretsDialog,
 } from "./components/workspace/WorkspaceDialogs";
-import { Button, EmptyState } from "./ui/components";
+import { Button, Dialog, EmptyState } from "./ui/components";
 import {
   RecordFocusResidencyProvider,
   RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
 
 const HomeProjectSidebar = lazy(() => import("./components/home/HomeProjectSidebar").then(module => ({ default: module.HomeProjectSidebar })));
+const SettingsDialog = lazy(() =>
+  import("./components/settings/SettingsDialog").then(module => ({ default: module.SettingsDialog })),
+);
 
 function toProjectSidebarRecords(
   records: NoteRecord[],
@@ -296,6 +298,10 @@ export function WorkspaceLayout({
     todoRailWidthPx,
     setTodoRailCollapsed,
   } = useUiStore();
+  const [settingsRequested, setSettingsRequested] = useState(settingsOpen);
+  useEffect(() => {
+    if (settingsOpen) setSettingsRequested(true);
+  }, [settingsOpen]);
   const { toasts, dismissToast, pushToast, setStatus } = useFeedbackStore();
 
   useEffect(() => {
@@ -1712,13 +1718,21 @@ export function WorkspaceLayout({
         onRestoreProject={projectId => archiveMutation.mutate({ projectId, isArchived: false })}
       />
 
-      <SettingsDialog
-        open={settingsOpen}
-        activeSection={settingsSection}
-        onSectionChange={setSettingsSection}
-        onUnlockAiSecrets={requestUnlockAiSecrets}
-        onClose={closeSettings}
-      />
+      {settingsOpen || settingsRequested ? (
+        <Suspense fallback={
+          <Dialog open={settingsOpen} title="设置" onClose={closeSettings}>
+            <p role="status">正在加载设置…</p>
+          </Dialog>
+        }>
+          <SettingsDialog
+            open={settingsOpen}
+            activeSection={settingsSection}
+            onSectionChange={setSettingsSection}
+            onUnlockAiSecrets={requestUnlockAiSecrets}
+            onClose={closeSettings}
+          />
+        </Suspense>
+      ) : null}
 
       <VoiceFloatingPanel
         target={activeProjectId === null ? { scope: "workspace" } : { scope: "project", projectId: activeProjectId }}

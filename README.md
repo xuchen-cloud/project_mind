@@ -31,7 +31,7 @@ ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当�
 
 ## 运行方式
 
-需要本地可用的 `Node.js`、`Rust` 和 Tauri 桌面依赖。
+需要本地可用的 `Node.js`、`Rust` 和 Tauri 桌面依赖。开发与测试建议使用 Node.js 24.21 或更新的 24.x（测试 DOM 依赖要求至少 24.15；22.x 至少 22.22.2）。
 
 ```bash
 npm install
@@ -51,6 +51,8 @@ npm run dev
 ```bash
 npm run build
 ```
+
+构建会按各包 lock 安装 Word、PPT、Excel、Markdown 的局部依赖，并校验固定上游源码。首次仅启动开发服务器前，先运行 `npm run build:office` 生成编辑器资源。Windows 构建使用 Windows 的 Node 与 XLSX sidecar，PDF/打印接入 WebView2；macOS 使用 WKWebView。
 
 前端单元测试：
 

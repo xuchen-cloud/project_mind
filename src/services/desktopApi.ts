@@ -8,6 +8,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { getErrorMessage } from "../lib/errors";
 import type { VoiceSessionSnapshot, VoiceSettings } from "../lib/voice-types";
+import type { FaceVerticalMetrics } from "../lib/office-types";
+import type { EditorRemoteImage, FetchEditorRemoteImageInput } from "../lib/editor-remote-image-types";
 import { getWorkspaceWindowMinWidth } from "../hooks/useWorkspaceWindowSizeConstraints";
 import {
   focusProjectWindow,
@@ -73,6 +75,9 @@ function projectWindowShowsTodoRail(route: string) {
 }
 
 export const desktopApi = {
+  fetchEditorRemoteImage(input: FetchEditorRemoteImageInput) {
+    return invoke<EditorRemoteImage>('desktop_fetch_editor_remote_image', {input});
+  },
   listenEvent<T>(event: string, onPayload: (payload: T) => void) {
     return listen<T>(event, ({ payload }) => onPayload(payload));
   },
@@ -391,6 +396,18 @@ export const desktopApi = {
     return invoke<string>("desktop_read_file_as_data_url", { path, mimeType });
   },
 
+  inspectImportedWorkbook(input: {base64: string}) {
+    return invoke<import('../../packages/office-xlsx/types').Model>("desktop_inspect_imported_workbook", {input});
+  },
+
+  editorCaptureSources() {
+    return invoke<import('../../packages/office-xlsx/types').ScreenSourcesResult>("desktop_editor_capture_sources");
+  },
+
+  editorCaptureSource(input: {id: string}) {
+    return invoke<import('../../packages/office-xlsx/types').ScreenCaptureResult | null>("desktop_editor_capture_source", {input});
+  },
+
   resolveExportImage(input: { source?: string; path?: string; mimeType?: string; requestId?: string }) {
     return invoke<{
       dataBase64: string;
@@ -411,6 +428,18 @@ export const desktopApi = {
 
   writeExportFile(input: { targetPath: string; dataBase64: string; overwrite?: boolean; requestId?: string }) {
     return invoke<string>("desktop_write_export_file", { input });
+  },
+
+  printEditorHtml(input: import('./editorPrint').EditorPrintInput) {
+    return invoke<void>("desktop_print_editor_html", { input });
+  },
+
+  renderEditorPdf(input: import('./editorPrint').EditorPrintInput) {
+    return invoke<string>("desktop_render_editor_pdf", { input });
+  },
+
+  editorFontMetrics(family: string) {
+    return invoke<FaceVerticalMetrics | null>("desktop_editor_font_metrics", { family });
   },
 
   cancelExportWrite(requestId: string) {

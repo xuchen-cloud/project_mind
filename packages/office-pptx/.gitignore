@@ -2,3 +2,12 @@ node_modules/
 dist/
 test/ui/model.json
 .playwright-cli/
+output/*
+!output/playwright/
+output/playwright/*
+!output/playwright/caret-results.json
+!output/playwright/protocol-results.json
+!output/playwright/slideshow-results.json
+!output/playwright/pptx-chromium-caret-saved.png
+!output/playwright/pptx-webkit-caret-saved.png
+parity-html.ts

@@ -1,4 +1,6 @@
 /** Public JSON DTOs are independent of SDK code and the host's TS target. */
+export interface PptxPageSize { widthPt: number; heightPt: number }
+export interface PptxOutputDocument { html: string; title?: string; pageSize?: PptxPageSize }
 export interface PptxTextRun {
   text: string;
   bold?: boolean;
@@ -31,14 +33,21 @@ export interface PptxRenderSlide {
 
 /** Indexes are zero based; cNvPrId is the original OOXML shape ID. */
 export interface PptxTarget { slideIndex: number; cNvPrId: string }
+export type PptxJson = null | boolean | number | string | PptxJson[] | { [key: string]: PptxJson };
+/** Pinned upstream editing IPC, replayed through its original ops and patch saver. */
+export interface PptxCommand { kind: 'command'; name: string; args: PptxJson[] }
+/** A bounded, upstream-generated package candidate tied to the exact native source. */
+export interface PptxCandidateEdit {kind:'candidate';sourceHash:string;base64:string;changedParts:string[]}
 export type PptxEdit =
+  | PptxCandidateEdit
+  | PptxCommand
   | (PptxTarget & { kind: 'text'; paragraphIndex: number; runIndex: number; text: string })
   | (PptxTarget & { kind: 'move-image'; x: number; y: number });
 
 export interface PptxTextElement extends PptxTarget {
   text: string;
   originalRichText: PptxTextBody;
-  /** Structural edits, fields, math and grouped objects are explicitly read only. */
+  /** Compatibility run-patch support; the full editor uses upstream ops instead. */
   editable: boolean;
   unsupportedReason?: string;
 }
@@ -50,6 +59,8 @@ export interface PptxPictureElement extends PptxTarget {
 export interface PptxModel {
   format: 'pptx';
   originalHash: string;
+  /** Baseline bytes for the isolated browser editing session. Host retains CAS authority. */
+  sourceBase64?: string;
   size: { cx: number; cy: number };
   /** IDs in the exported deck and render tree are stable, never parse-time IDs. */
   slides: PptxSlideModel[];

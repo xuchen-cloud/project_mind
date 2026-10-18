@@ -1,0 +1,24 @@
+[
+  {
+    "browser": "chromium",
+    "staleChangeIgnored": true,
+    "staleInitializedIgnored": true,
+    "reorderedInitIgnored": true,
+    "twoExternalReplacements": true,
+    "oldHostOutputRejected": true,
+    "staleOutputAckSuppressed": true,
+    "lateNativeOutputIgnored": true,
+    "errors": []
+  },
+  {
+    "browser": "webkit",
+    "staleChangeIgnored": true,
+    "staleInitializedIgnored": true,
+    "reorderedInitIgnored": true,
+    "twoExternalReplacements": true,
+    "oldHostOutputRejected": true,
+    "staleOutputAckSuppressed": true,
+    "lateNativeOutputIgnored": true,
+    "errors": []
+  }
+]

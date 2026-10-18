@@ -1,0 +1,33 @@
+{
+  "name": "@project-mind/office-html2docx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "prepare:source": "node prepare-source.mjs",
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "buffer": "6.0.3",
+    "crc-32": "1.2.2",
+    "docx": "9.7.1",
+    "dompurify": "3.4.11",
+    "fflate": "0.8.2",
+    "html-to-image": "1.11.13"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "jszip": "3.10.1",
+    "playwright-core": "1.61.1",
+    "typescript": "5.9.3"
+  }
+}

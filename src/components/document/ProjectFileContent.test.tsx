@@ -8,9 +8,13 @@ import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { projectFileApi } from "../../services/projectFileApi";
 import { ProjectFileContent } from "./ProjectFileContent";
 import { officeFileApi } from "../../services/officeFileApi";
+import { officePreviewCache } from "../../lib/office-preview-cache";
 import { desktopApi } from "../../services/desktopApi";
 import { agentApi, AgentApiError } from "../../services/agentApi";
 vi.mock("../../services/officeFileApi", () => ({ officeFileApi: { inspect: vi.fn(), save: vi.fn() } }));
+// The editor components are mocked; their runtime preloads must not compile unused vendor bundles.
+vi.mock("../../../packages/office-docx/dist/editor.mjs", () => ({}));
+vi.mock("../../../packages/office-xlsx/dist/browser.mjs", () => ({}));
 vi.mock("../office/DocxEditor", () => ({ DocxEditor: (props: { edits: { text: string }[]; onChange: (edits: unknown[]) => void; readOnly: boolean }) => <input aria-label="Office 正文" disabled={props.readOnly} value={props.edits[0]?.text ?? "原文"} onChange={event => props.onChange([{ type: "text", nodeId: "p0", text: event.target.value }])} /> }));
 vi.mock("../office/XlsxEditor", () => ({ XlsxEditor: (props: { registerBeforeSave: (commit: () => Promise<void>) => () => void; onPendingChange: (pending: boolean) => void; onChange: (edits: unknown[]) => void }) => {
   const pending = useRef<string | null>(null);
@@ -43,6 +47,7 @@ function view(props = input) {
   return { ...render(wrap(props)), wrap, client };
 }
 beforeEach(() => {
+  officePreviewCache.clear();
   vi.resetAllMocks();
   vi.spyOn(desktopApi, "confirm").mockResolvedValue(false);
   vi.spyOn(agentApi, "statusGet").mockResolvedValue({ binding } as Awaited<ReturnType<typeof agentApi.statusGet>>);
@@ -65,7 +70,11 @@ async function editedOffice(format: 'docx' | 'xlsx' = 'docx') {
   let guard!: () => Promise<void>;
   const registerCloseGuard = (next: () => Promise<void>) => { guard = next; return () => {}; };
   const rendered = view({ ...input, registerCloseGuard } as typeof input);
+  const edit = await screen.findByRole("button", { name: "编辑", exact: true });
+  await waitFor(() => expect(edit).not.toBeDisabled());
+  fireEvent.click(edit);
   const editor = await screen.findByRole("textbox", { name: "Office 正文" });
+  await waitFor(() => expect(editor).not.toBeDisabled());
   fireEvent.change(editor, { target: { value: "未保存草稿" } });
   return { ...rendered, editor, close: () => guard(), hide: () => rendered.rerender(rendered.wrap({ ...input, visible: false, registerCloseGuard } as typeof input)) };
 }
@@ -184,7 +193,7 @@ it('keeps the Office draft after declining close and permits a later confirmed r
   const rendered = await editedOffice();
   await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
   expect(rendered.editor).toHaveValue('未保存草稿');
-  expect(screen.getByRole('status')).toHaveTextContent('未保存');
+  expect(screen.getByRole('status')).toHaveTextContent('保存失败');
   vi.mocked(desktopApi.confirm).mockResolvedValue(true);
   await act(() => rendered.close());
   expect(desktopApi.confirm).toHaveBeenCalledTimes(2);
@@ -375,6 +384,8 @@ function relatedFixture(rootText: string, rootName: string, rootMime: string, fo
 it('loads current Markdown relative and reference images only through bound same-Project File resolution', async () => {
   relatedFixture('# Picture\n\n![direct](images/a.png)\n\n![ref][asset]\n\n[asset]: images/a.png', 'sample.md', 'text/markdown', 'markdown');
   const rendered = view();
+  // This integration loads the real lazy rich renderer; resource assertions start after it mounts.
+  await screen.findByRole("heading",{name:"Picture",exact:true},{timeout:5000});
   await waitFor(() => expect(rendered.container.querySelectorAll('img[src^="data:image/png"]')).toHaveLength(2));
   expect(projectFileApi.resolveRelated).toHaveBeenCalledOnce();
   expect(projectFileApi.resolveRelated).toHaveBeenCalledWith(binding, object, 'images/a.png');
@@ -385,7 +396,7 @@ it('does not mix current images into historical Markdown when dependent snapshot
   const rendered = view({ ...input, versionNumber: 1 } as typeof input);
   await screen.findByText(/历史版本未保留关联资源快照/);
   expect(projectFileApi.resolveRelated).not.toHaveBeenCalled();
-  expect(rendered.container.querySelector('img')).toBeNull();
+  expect(rendered.container.querySelector('img[src]')).toBeNull();
 });
 it('loads static HTML current image and stylesheet before fixed DSH sanitization in an opaque sandbox', async () => {
   relatedFixture('<link rel="stylesheet" href="style.css"><h1 onclick="attack()">Preview</h1><img src="a.png"><a href="https://example.com">link</a><script>attack()</script>', 'sample.html', 'text/html', 'html');
@@ -418,7 +429,7 @@ it('ignores late current-image resolution when switching the same File to fixed 
   await screen.findByText(/历史版本未保留关联资源快照/);
   await act(async () => complete({ object: { ...object, id: '8' }, versionNumber: 3, contentHash: 'asset3', state: 'ready', reason: null }));
   expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2);
-  expect(rendered.container.querySelector('img')).toBeNull();
+  expect(rendered.container.querySelector('img[src]')).toBeNull();
 });
 it('reconciles latest before reading the actual registered head, while fixed versions skip live reconciliation', async () => {
   vi.mocked(projectFileApi.resolve).mockImplementation(async () => {
@@ -719,11 +730,14 @@ it('releases image bodies and Blob resources when hidden instead of retaining no
 it('restores Markdown source mode from the shell without rereading bytes when the mode changes', async () => {
   relatedFixture('# Markdown', 'sample.md', 'text/markdown', 'markdown'); const client = new QueryClient(); const changed = vi.fn();
   const wrap = (mode: boolean) => <QueryClientProvider client={client}><ProjectFileContent {...input} initialSourceMode={mode} onViewChange={changed} /></QueryClientProvider>;
-  const rendered = render(wrap(true)); await screen.findByText('# Markdown');
-  expect(rendered.container.querySelector('[data-textpreview-line]')).not.toBeNull();
+  const rendered = render(wrap(true));
+  const sourceEditor = await screen.findByRole('textbox', {name:'Markdown 源码'});
+  expect(sourceEditor).toHaveTextContent('# Markdown');
+  expect(sourceEditor).toHaveAttribute('contenteditable', 'true');
   rendered.rerender(wrap(false)); await screen.findByRole('heading', {name:'Markdown'});
-  fireEvent.click(screen.getByRole('button', {name:'源码 / 行定位'}));
-  expect(changed).toHaveBeenLastCalledWith({sourceMode:true});
+  expect(rendered.container.querySelector('.project-file-content__toolbar button[aria-label="源码 / 行定位"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name:'源码',exact:true}));
+  expect(changed).toHaveBeenLastCalledWith({mode:'source',sourceMode:true});
   expect(projectFileApi.readBytes).toHaveBeenCalledOnce();
 });
 

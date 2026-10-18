@@ -40,6 +40,13 @@ mod file_document_commands;
 mod file_version_service;
 mod file_version_restore;
 mod file_text_patch;
+mod file_text;
+mod file_text_commands;
+mod editor_print;
+mod editor_font_metrics;
+mod editor_workbook_import;
+mod editor_capture;
+mod editor_remote_image;
 mod file_content;
 mod file_source_read;
 mod file_read_commands;
@@ -1615,7 +1622,16 @@ pub fn run() {
             file_read_commands::file_versions_get,
             file_read_commands::file_version_restore,
             file_office_commands::file_office_inspect,
+            file_office_commands::file_office_recalculate,
             file_office_commands::file_office_save,
+            file_text_commands::file_text_save,
+            editor_print::desktop_print_editor_html,
+            editor_print::desktop_render_editor_pdf,
+            editor_font_metrics::desktop_editor_font_metrics,
+            editor_workbook_import::desktop_inspect_imported_workbook,
+            editor_capture::desktop_editor_capture_sources,
+            editor_capture::desktop_editor_capture_source,
+            editor_remote_image::desktop_fetch_editor_remote_image,
             agent::output_commands::agent_output_commit,
             agent::output_commands::agent_operation_list,
             agent::output_commands::agent_operation_get,

@@ -68,5 +68,24 @@ for (const [format, fixture] of [
   if (format === 'docx') assert.ok(reopened.model.nodes.some(node => node.text === edits[0].text));
   if (format === 'pptx') assert.ok(reopened.model.textElements.some(node => node.text === edits[0].text));
   if (format === 'xlsx') assert.equal(reopened.model.ranges['sheet-1'].cells.find(cell => cell.row === 2 && cell.column === 1).value, 15);
+  if (format === 'xlsx') {
+    // The complete renderer sends one gateway journal, unlike the scalar edit
+    // shortcut above. Both paths must work under the production private grant.
+    const gateway = await request('office.edit', 'xlsx', base64, [{ kind: 'gateway', changes: { edits: [
+      { sheetId: 'sheet-1', row: 2, column: 1, writeValue: true, value: 15 },
+      { sheetId: 'sheet-1', row: 4, column: 1, writeValue: true, value: 40, formula: '=SUM(B3:B4)+5' },
+    ], formulaValues: [
+      { sheetId: 'sheet-1', row: 4, column: 1, value: 40 },
+      { sheetId: 'sheet-1', row: 6, column: 1, value: 30 },
+      { sheetId: 'sheet-2', row: 2, column: 1, value: 40 },
+    ] } }]);
+    const fresh = await request('office.inspect', 'xlsx', gateway.base64);
+    assert.deepEqual(fresh.model, gateway.model);
+    const formula = fresh.model.ranges['sheet-1'].cells.find(cell => cell.row === 4 && cell.column === 1);
+    assert.equal(formula.formula, '=SUM(B3:B4)+5');
+    assert.equal(formula.value, 40);
+    assert.deepEqual(fresh.model.visuals, model.visuals);
+    console.log('xlsx: packaged permission worker renderer gateway save/reopen passed');
+  }
   console.log(`${format}: packaged permission worker edit/reopen passed`);
 }

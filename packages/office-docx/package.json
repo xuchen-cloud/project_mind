@@ -12,9 +12,14 @@
     "@tiptap/core": "3.31.0",
     "@tiptap/extensions": "3.31.0",
     "@tiptap/pm": "3.31.0",
+    "@tiptap/react": "3.31.0",
     "css.escape": "1.5.1",
     "fast-xml-parser": "5.3.4",
     "jszip": "3.10.1",
+    "marked": "17.0.6",
+    "opentype.js": "2.0.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.2.108",
     "react": "19.2.0",
     "utif2": "4.1.0"
   },
@@ -28,6 +33,10 @@
       "import": "./dist/editor.mjs"
     },
     "./types": "./types.ts"
+  },
+  "overrides": {
+    "@tiptap/extension-bubble-menu": "3.31.0",
+    "@tiptap/extension-floating-menu": "3.31.0"
   },
   "devDependencies": {
     "esbuild": "0.25.12",

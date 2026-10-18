@@ -1,0 +1,18 @@
+import {requestOutput} from './output-command.mjs';
+/** Public onExport receipt writes actual bytes, cancels and propagates failures. */
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+const {chromium}=await import(pathToFileURL(process.env.OFFICE_PLAYWRIGHT_MODULE).href),b=await chromium.launch({headless:true,channel:'chrome'});
+try{
+ const page=await b.newPage({acceptDownloads:true}),downloads=[];page.on('download',d=>downloads.push(d));await page.goto(process.env.OFFICE_ACCEPTANCE_URL+'/?nativeExport');const f=page.frameLocator('iframe');await f.locator('.tiptap.doc-page').waitFor();
+ await page.evaluate(()=>{window.realExport=window.officeDocxHarness.export;window.officeDocxHarness.export=file=>{window.exportFile=file;return new Promise((resolve,reject)=>{window.releaseExport=resolve;window.rejectExport=reject;});};});
+ await requestOutput(page,'导出 HTML');await page.waitForFunction(()=>!!window.releaseExport,undefined,{timeout:4000});assert.equal(downloads.length,0);assert.match(await f.locator('.status-msg').innerText(),/正在导出|导出 HTML/);
+ await page.evaluate(async()=>{await window.realExport(window.exportFile);window.releaseExport(true);});await page.waitForFunction(()=>document.querySelector('iframe').contentDocument.querySelector('.status-msg').textContent.includes('已导出 HTML'));
+ const file=await page.evaluate(()=>({name:window.exportFile.name,mime:window.exportFile.mime}));assert.equal(file.mime,'text/html');assert.match(await readFile(new URL('output/browser/'+file.name,import.meta.url),'utf8'),/中文文档往返验证/);
+ // Image context action uses the same public native byte boundary.
+ await page.evaluate(()=>{window.releaseExport=null;});await f.locator('.tiptap.doc-page img.doc-protected-img').first().click({button:'right'});await f.getByRole('button',{name:/图片另存为/}).click();await page.waitForFunction(()=>!!window.releaseExport);const picture=await page.evaluate(()=>({name:window.exportFile.name,mime:window.exportFile.mime,bytes:Array.from(window.exportFile.bytes)}));assert.equal(picture.mime,'image/png');const model=await(await page.request.get(process.env.OFFICE_ACCEPTANCE_URL+'/model')).json();assert.deepEqual(Buffer.from(picture.bytes),Buffer.from(model.assets[0].dataUrl.split(',')[1],'base64'));await page.evaluate(async()=>{await window.realExport(window.exportFile);window.releaseExport(true);});assert.deepEqual(await readFile(new URL('output/browser/'+picture.name,import.meta.url)),Buffer.from(picture.bytes));
+ await page.evaluate(()=>{window.releaseExport=null;});await requestOutput(page,'导出 HTML');await page.waitForFunction(()=>!!window.releaseExport);await page.evaluate(()=>window.releaseExport(false));await page.waitForFunction(()=>document.querySelector('iframe').contentDocument.querySelector('.status-msg').textContent.includes('已取消'));
+ await page.evaluate(()=>{window.releaseExport=null;});await requestOutput(page,'导出 HTML');await page.waitForFunction(()=>!!window.releaseExport);await page.evaluate(()=>window.rejectExport(Error('Native export disk failure')));await page.getByRole('alert').filter({hasText:'Native export disk failure'}).waitFor();assert.equal(downloads.length,0);
+ const result={browser:b.version(),nativeByteWrite:true,nativeImageBytes:true,awaitsReceipt:true,cancel:true,failure:true,noAnchorFallback:true};console.log(JSON.stringify(result));await writeFile(new URL('output/browser/native-export-results.json',import.meta.url),JSON.stringify(result,null,2));
+}finally{await b.close();}

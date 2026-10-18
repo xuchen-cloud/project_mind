@@ -1,0 +1,22 @@
+[
+  {
+    "browser": "chromium",
+    "presenterControlsAbsent": true,
+    "normalFromBeginning": true,
+    "nextPrevious": true,
+    "normalFromCurrent": true,
+    "escapeReturnsToEditor": true,
+    "sameIframe": true,
+    "errors": []
+  },
+  {
+    "browser": "webkit",
+    "presenterControlsAbsent": true,
+    "normalFromBeginning": true,
+    "nextPrevious": true,
+    "normalFromCurrent": true,
+    "escapeReturnsToEditor": true,
+    "sameIframe": true,
+    "errors": []
+  }
+]

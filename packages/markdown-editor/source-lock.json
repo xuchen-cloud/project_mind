@@ -1,0 +1,430 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "68e32334df324ef4fc79fad3a26487e5abac36055a484bb6c8d7ecf9d8350885"
+    },
+    {
+      "path": "NOTICE",
+      "sha256": "26fa7a458f2463af07f96af3d4b26b3cc3b4de688340838e3c9b3b958d390882"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/extensions.ts",
+      "sha256": "df879aa407adc36202a7e77660ad977088f98a58385f3e0062989c191d585eda"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/looseLists.ts",
+      "sha256": "4acfa2ef051755b2556d4274d38d70006c37e65a966bdfcbdb2af2e13a68e02c"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/markdownEscape.ts",
+      "sha256": "7b93a234a6313c2eed02a0d56572c1e3964ee6d236edc15b9c4b49ef43d52259"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/markdownStyleRenderers.ts",
+      "sha256": "910b0d494615f85ee2d3ede625b683b3ad01479efeec04e3dcc32f8e4d38118d"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/boundedTokenizers.ts",
+      "sha256": "3adabc054bfe65c98c0a01d40c8566c4209d78c0e0d851a2d659a19c2e439993"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/inlineTokens.ts",
+      "sha256": "6200f6610f9e545afd10375f562588103f09463f4e55ffe2bc121ffd0b74e181"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/blockDragHandle.ts",
+      "sha256": "8404e63e4e757ba25b6b9749200727037972b9e07a28535c42588f321e3f98dd"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/blockKeymap.ts",
+      "sha256": "dc1496ca52031ec68c5d6f5c8cefb1194caf54fbb43944dfab4bb2c824f5440b"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/ops.ts",
+      "sha256": "e8a583a5a3ef96d3cb6ba65121c113df6b8b046448a12b97428df8c77714f03f"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/redact.ts",
+      "sha256": "d695f7ebc66fd85f36c8fbada8a4e20709c06142fb592acb259e91a9709a1b8c"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/Redaction.ts",
+      "sha256": "b35920ffea27a006f478b894498a5f6ccc639037184bd8cdf1fdd9955038d506"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/inactiveSelection.ts",
+      "sha256": "0f312cff6afdacfb7cb421e64f1bb86b7b93c44e9d162603d478069f92c95548"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/searchHighlight.ts",
+      "sha256": "556b309baa02338aa4b0df39e926509a0d9c7f5f50aac735abd164b16c1e4972"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/math.ts",
+      "sha256": "9820c31be0c86d1a9b0eb12387db12262b3c04ec119fa393d2aee50815882e80"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/mathSyntax.ts",
+      "sha256": "2a991604f8e41aab5f34ddc8ad748206e49606a9f764c4e273382850bba60593"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/mathEdit.ts",
+      "sha256": "d24a9894101537f560f06a8e755ade2f351c7a0c92606b011239cffb0e95e4a1"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/mermaid.ts",
+      "sha256": "50df076fb06afc5d4238a0d722ba9f5a54cec0a792635d7feca4a4e9fea93a14"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/wavedrom.ts",
+      "sha256": "d43185e974a809260045115b4157271a92de92ff7dead4f4ce40b9c98730739b"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/diagrams.ts",
+      "sha256": "d32eefdbc8459f55588b497bddb26ed97ccb62d600740143b1a4c620f15bf73a"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/slashCommand.ts",
+      "sha256": "5338102a51d61e807135e7d2527380e58b414716ef1b1243e899fb2da2efb40d"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/outline.ts",
+      "sha256": "fb76ddbdba4ca94845f224c4d99d1fe071b3425bae7749d51860a264845173e0"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/findTarget.ts",
+      "sha256": "b4c018b208b3b11d6c76fafc223575ce5cb965c12507a8afdcc176e798916f85"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/aiHighlight.ts",
+      "sha256": "17bf43efc2efc972c6a1320f5396f639b47c2e42d8f9bccf0cb12920e9426bc0"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/aiQueueAnchors.ts",
+      "sha256": "23b5ad59c86d6e93d14c9d2008ac1a0fceade71836a7bffa4682ad4f1fcd137d"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/CodeBlockView.tsx",
+      "sha256": "432e2c4892616b55bcae99e5a4b37f9c32a69ab8f7c31a16c6d7be8fb97d3bd0"
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/SlashMenu.tsx",
+      "sha256": "6fcfdd53a4fa41dbee55f25ee3baf1a5348c9ac3607f697396d4877feceb2bdb"
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/TableMenu.tsx",
+      "sha256": "ca55886f78a3f3dafe891d8bf14c2572987d1d822d8b2df43cdfd99f9dbff273"
+    },
+    {
+      "path": "apps/markdown/src/renderer/components/icons.tsx",
+      "sha256": "36534a7bc5acf26ae8e3722a1bde7e329cef94eacb712ecc8ea5b123dbb67868"
+    },
+    {
+      "path": "apps/markdown/src/renderer/i18n/strings.ts",
+      "sha256": "11101e407e5e36a6f43c5fd8a62e398d9d044f60d85213337cc5ab5327269dcd"
+    },
+    {
+      "path": "apps/markdown/src/renderer/source/plain-find.ts",
+      "sha256": "1697ba70b796f5970006a352c73013c5ccdbdefa264eced43387060d15e5ac07"
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/sourceSplice.ts",
+      "sha256": "da22c044c885c8b4725e47673fc2a80798387ce5bcd6fbbf1aa4a9c0ff5808f9"
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/markdownStyle.ts",
+      "sha256": "1d395366e74dc2ade6b2c879a75a26297b05c87b2a8c1b4886869ac928c8b598"
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/docText.ts",
+      "sha256": "00b5e3cae5a3c7e05f83aeeb67f3e235ded8a2c52151b16c61902cb243803ad0"
+    },
+    {
+      "path": "apps/markdown/src/renderer/markdown/roundtripSerializer.ts",
+      "sha256": "1992468830e82ce89709b52f03e1abbffc131d0e3ec74f8ee2f923a9bb742d1d"
+    },
+    {
+      "path": "apps/markdown/src/renderer/types/wavedrom.d.ts",
+      "sha256": "5f5e4b25818716c930c60bcee2af0bcfc840e6333885199070a18255d0c8bf94"
+    },
+    {
+      "path": "packages/agent-core/src/redact-core.ts",
+      "sha256": "5e8d8c4cda6137ff6dfe8c0c5c67b28b4929559973cca0077094d2d81a941a3a"
+    },
+    {
+      "path": "packages/agent-core/src/redact-range.ts",
+      "sha256": "f7d0fbb396f61c1456f4e7164febbff9b7bf7377e6d94de2154cf51085a51177"
+    },
+    {
+      "path": "packages/ui/src/find-text.ts",
+      "sha256": "f8e9fe09a74a1806be1e109e482a2ad2835d488e800e46b0459e7048c99831e2"
+    },
+    {
+      "path": "apps/markdown/src/renderer/editor/localImage.ts",
+      "sha256": "3895bb4fe31f5ecbd9150ca9b916566c02444efd7c4f8957321b756ab55fdebf",
+      "referenceOnly": true
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/exportImage.ts",
+      "sha256": "4e934e675f8eb318a4f7bd808d17de2b0cbbb6ddbfc4746d64be362d0c8bac69"
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/printHtml.ts",
+      "sha256": "373404bf390d1dc5a5f7b0bddfb9faf8597991daca597c7bff73a673384d89cb"
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/imageExport.ts",
+      "sha256": "b2ef8747882026846606c6cc8b04a25ad1c92c877cdd97653fdf2c8515367b4d",
+      "referenceOnly": true
+    },
+    {
+      "path": "apps/markdown/src/shared/export-image-mime.ts",
+      "sha256": "1266f6814512818975bab4b70239da326a504be4b99fed924a966f307619f069",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/types.ts",
+      "sha256": "2d3193b5b41a93c7f43a21f24c3369655e270e37b3e67bdec8182b6a01b08d3f",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/xml-utils.ts",
+      "sha256": "838c23df106ac27b998349335fe3fc0e7baae849b326dc28c080ff05afb72bbe",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/symbol-fonts.ts",
+      "sha256": "33b9d82f8306085e22239aa954de91a3869a8d42bfaf04eb7d9611f2c9f49c23",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/list-markers.ts",
+      "sha256": "16bef1952b6df9c4e603882a36b650c2089754eefcfcceaeee32447fac1d76ed",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/theme.ts",
+      "sha256": "2d85d42863b98f9c3bf3ea9a3429e07b0bf21178cdc3c0e29c77fbfc2f011ae5",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-xml-text.ts",
+      "sha256": "26c15e711ea3e06d11c3266e9b64384446a97ef1697c23e903812cb2071fce80",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-package.ts",
+      "sha256": "6c0c28e3fb498822fa4055bdf1dab7b0ebad3cd412c6b55f289a468f18e0af8f",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/font-table.ts",
+      "sha256": "eb495deb5707fab9065cbc1b6670bfea5ded0686ec812ac9d48e27fcde29bca5",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/checkbox-control.ts",
+      "sha256": "b85f06cb856396f9a99566bde52f424c010d380f45bf54a28b4a27a93b94deb5",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/lazy-media.ts",
+      "sha256": "1960a444e7a3cc1e9d860a9bf21e6a088b3e38cd9080617a3202a131208c4c15",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/pptx-engine/src/custgeom.ts",
+      "sha256": "cc535d90fa7ac3b959d54261b88511d961841793fa7b85770c55455ad0485b6f",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/chart.ts",
+      "sha256": "2e9b988d97537294e2481d8c77312cd65d314db4397c94ebb0c07de0dc9e6792",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/ink.ts",
+      "sha256": "32ba744fc40d45567fe372f5bd0eb4a858bfafc269738588391a69eaa1be4a17",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/zip-gate/src/byte-stream.ts",
+      "sha256": "6904c15a55a602308168d084f1ebb6f3aa0d924286ddb366c3fd0a637eec16f8",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/zip-gate/src/index.ts",
+      "sha256": "2ea37fc1a9c556499317fa5fa401ca09fd874ee4c3e2fed12018a1c0a279c048",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/vendor/emf-converter/index.mjs",
+      "sha256": "3ee6e9270c408f5cb93a8c57be206ad4122eafa8910dd2b0d8dcd778465b3064",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/metafile.ts",
+      "sha256": "33c8a24830f9fd4bbcde80bc57a496d775f77f23cba4606256822f1d3c39ceec",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/tiff.ts",
+      "sha256": "b1ad467493e56337948abc6109dc68c591bb0d12f5cad5a15e650e71ff366f21",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/math.ts",
+      "sha256": "9cd76c6e685d944a1e08ed6887c7b42c29325775857dc5d2a7434295c936914e",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/generate.ts",
+      "sha256": "e66cb2ef3424600d1efa0e43a570d3cc72c9546c544b683026b173e32272749d",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/text-patch.ts",
+      "sha256": "76dd463040080c6fead49d3cfaea66ead177b7b5a9179da62668297e82ee8a56",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/notes.ts",
+      "sha256": "56495fe4a02045dc373d496b41d0f990f2347bcf2ef5e744b273d912cdc8a648",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/scan.ts",
+      "sha256": "87e942b401a738ddf56d346a956b431639cc4a362ffb9619c85d0ef33b706643",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/section.ts",
+      "sha256": "e2d34882b7dffdcabd2003524781cff375cc10d8d7ac27303fe6c345f289432a",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/sources.ts",
+      "sha256": "839d62b2e2b2bf53b1ab264cd91f136c64632d52be7393861959f7496c77b0f6",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/zotero-doc-props.ts",
+      "sha256": "007b8bfd10eb51ba979891b9959320dfe03a0070ea1287561d0c5760b77156c6",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/ooxml-normalize.ts",
+      "sha256": "870694f768bb319e7b447cecdf4b175ff94bc0d7e46fbd592e7cb4a2e7764858",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/zip-load.ts",
+      "sha256": "9d51d3898ac6b0e11f85a6b4bc0f5056a996cb13c5bf52c62ca5200cec7891bf",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/alt-chunk.ts",
+      "sha256": "79584a93901a5b18671082210933eaa1fc4b1fc5e28b2fe6ed023ae648d6ad13",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-vml.ts",
+      "sha256": "46de8522dc7c71b26d98154e901b18cf8eb5037d57d9f10870b669eecce0f229",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/watermark.ts",
+      "sha256": "3863eef33b4bb04968f77f7420f5d5669a5d2955acb6b125b3e50d65338cabe2",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-block-passes.ts",
+      "sha256": "b32d256a567fdb99d5565f01d730dc06af4854561930bd67de7d98090259e890",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/eq-field.ts",
+      "sha256": "4d40a3283385b6b44a5fe16293878cc89379e3d4ab79fbc507522b7288740d9e",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-fields.ts",
+      "sha256": "b2010bfdd26d13732e0a9fe76061c10b84e338aaa96f7d7b1c984bf3eb0e6ee0",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-drawing-geometry.ts",
+      "sha256": "780e30523ca05fef89a5c2ad1f9f3d06ff459b0168eff0f5b4f192c95603858a",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-props.ts",
+      "sha256": "743291f1d1bb2f073e07627be4f218026d6501628f0e788eb36acd9fc4b0b1e9",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-sdt.ts",
+      "sha256": "78f63e9582d5e42823c960a02e4d1f6c45e4f75a58695dbac4357ceb8368f808",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse-styles.ts",
+      "sha256": "9c1eb8a3ab7d11de04362de32c3690aa8be0f4d88a76326c72c2be162172f818",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/parse.ts",
+      "sha256": "e3c41d0757d8a6502ef446ff2d1c407209d95a8de36ef91db4a85087b1718ceb",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/resource-cleanup.ts",
+      "sha256": "fed5699eb7e0a7e9271ebbb6273480ffdcb7335e179676cfcd6125701ec9d61c",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/blank.ts",
+      "sha256": "cc06bd422b92771a3973baa6328c414ebddc1219cbc1002ea608fd8d8a87c5a2",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/field-balance.ts",
+      "sha256": "46e53410ff29d0e3bfcfcdb433119a46ade697d0464a2e429a85c0a652a4c05b",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/style-upsert.ts",
+      "sha256": "5f564f9e100018f84f7cecd8f1993e7df16851aa42406d81079aafa314580992",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/patch.ts",
+      "sha256": "66a92ab331608f26aae139d97e8ef55ce6412a9b19e0793eeabfd06a59fb278b",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/protection.ts",
+      "sha256": "c71feb3647c7e41f3cbf3217d123a650fdd4986631bb52357a7d9d4580f16fee",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/font-settings.ts",
+      "sha256": "5e4d20e8425aa1ffb5b4632735f089686abb08e6ea67b8399967e4853a6b454a",
+      "referenceOnly": true
+    },
+    {
+      "path": "packages/docx-engine/src/index.ts",
+      "sha256": "c6e70380dee1ab64f52677b9b8e6fef569489dd91cdc15791a81ba1577b7f83d",
+      "referenceOnly": true
+    },
+    {
+      "path": "apps/markdown/src/renderer/export/docxExport.ts",
+      "sha256": "afa9035d01d7a806b14b4188089d89674c84ac3ebb1da183d883b3e77fffeaa7",
+      "referenceOnly": true
+    }
+  ]
+}

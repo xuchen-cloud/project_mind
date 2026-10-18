@@ -98,21 +98,23 @@ function equal(a: unknown, b: unknown): boolean {
   const left = Object.entries(a), right = Object.entries(b);
   return left.length === right.length && left.every(([key, value]) => Object.hasOwn(b, key) && equal(value, (b as Record<string, unknown>)[key]));
 }
-/** Content-only scope: retain original anchors, structure and opaque display attrs. */
+/** Preserve source identity and opaque payloads while allowing upstream structural edits. */
 export function assertContentEdit(baseline: PmJSON, document: PmJSON): void {
-  function walk(original: PmNode, edited: PmNode) {
-    const attrs = (node: PmNode) => Object.fromEntries(Object.entries(node.attrs ?? {}).filter(([k]) => k !== 'caretMarks'));
-    if (!edited || original.type !== edited.type || !equal(attrs(original), attrs(edited)))
-      throw new DocxError('UNSUPPORTED_EDIT', 'Only existing paragraph and table-cell text can be edited; retain original anchors and attributes');
-    if (isTextNode(original)) {
-      if (!isTextNode(edited)) throw new DocxError('UNSUPPORTED_EDIT', 'Inline images, fields and other complex content are preserved');
-      return;
+  const originals = new Map(baseline.content.filter(n => typeof n.attrs?.docxIndex === 'number').map(n => [n.attrs!.docxIndex, n]));
+  for (const node of document.content) {
+    const index = node.attrs?.docxIndex;
+    if (index == null) continue;
+    const original = originals.get(index);
+    if (!original) throw new DocxError('UNSUPPORTED_EDIT', 'Unknown original block identity');
+    if (node.type === 'docProtected' && original.type === 'docProtected') {
+      for (const key of ['blockType', 'imageDataUrl', 'genXml', 'genImage', 'genChart'])
+        if (!equal(node.attrs?.[key], original.attrs?.[key]))
+          throw new DocxError('UNSUPPORTED_EDIT', `Use the upstream editing payload for ${key}`);
+      const chart = node.attrs?.chartDisplay as any, previousChart = original.attrs?.chartDisplay as any;
+      if (chart && previousChart && (chart.partPath !== previousChart.partPath || chart.series.length !== previousChart.series.length || chart.categories.length !== previousChart.categories.length || chart.series.some((series: any, i: number) => series.values.length !== previousChart.series[i].values.length)))
+        throw new DocxError('UNSUPPORTED_EDIT', 'The upstream chart supports existing series and categories');
+      if (!original.attrs?.chartDisplay && node.attrs?.chartDisplay)
+        throw new DocxError('UNSUPPORTED_EDIT', 'Cannot attach a chart to a different original block');
     }
-    if (original.type === 'doc' || original.type === 'docTable' || original.type === 'docTableRow' || original.type === 'docTableCell' || original.type === 'docTableHeader') {
-      const a = original.content ?? [], b = edited.content ?? [];
-      if (a.length !== b.length) throw new DocxError('UNSUPPORTED_EDIT', 'Adding or removing document structure is not supported');
-      a.forEach((node, i) => walk(node, b[i]));
-    } else if (!equal(original, edited)) throw new DocxError('UNSUPPORTED_EDIT', 'Images, charts and other complex blocks cannot be edited');
   }
-  walk(baseline, document);
 }

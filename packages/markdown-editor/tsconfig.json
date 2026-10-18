@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "target":"ES2022", "lib":["ES2022","DOM","DOM.Iterable"], "moduleResolution": "Bundler", "allowImportingTsExtensions": true, "types": ["vite/client", "vitest/globals", "node"] },
+  "include": ["src", "tests", "../../src/components/markdown", "../../src/types/pdfkit-standalone.d.ts"],
+  "exclude": []
+}

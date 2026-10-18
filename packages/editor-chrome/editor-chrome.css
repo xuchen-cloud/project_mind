@@ -1,0 +1,40 @@
+/* Layout and paint shared by marked Office chrome; complex groups stay upstream. */
+:root {--editor-toolbar-height:80px;--editor-toolbar-padding:6px 8px 1px;--editor-control-radius:3px;--editor-menu-radius:5px;--editor-menu-shadow:0 4px 18px #0002;--editor-chrome-fade-block-size:24px;}
+:is(.pm-editor-ribbon,.pm-editor-header) {color:var(--editor-chrome-text);font-family:var(--editor-chrome-font);}
+:is(.pm-editor-ribbon .ribbon-tabs,.pm-editor-header>.ribbon-tabs) {display:flex;align-items:center;min-width:0;gap:2px;padding:5px 8px 0;-webkit-app-region:no-drag;scrollbar-width:thin;}
+:is(.pm-editor-ribbon .ribbon-tabs .ribbon-tab,.pm-editor-header>.ribbon-tabs>button:not(.qa-btn)) {position:relative;box-sizing:border-box;flex:none;height:28px;min-height:28px;padding:5px 8px;border-bottom:0;white-space:nowrap;color:var(--editor-chrome-text);font:400 13px/18px var(--editor-chrome-font);}
+:is(.pm-editor-ribbon .ribbon-tabs .ribbon-tab,.pm-editor-header>.ribbon-tabs>button:not(.qa-btn)):hover {background:var(--editor-chrome-hover);color:var(--editor-chrome-text);}
+:is(.pm-editor-ribbon .ribbon-tabs .ribbon-tab,.pm-editor-header>.ribbon-tabs>button:not(.qa-btn)):is(.active,.on) {font-weight:600;color:var(--editor-chrome-accent);}
+:is(.pm-editor-ribbon .ribbon-tabs .ribbon-tab,.pm-editor-header>.ribbon-tabs>button:not(.qa-btn)):is(.active,.on)::after {content:'';position:absolute;inset:auto 8px 0;height:2px;border-radius:1px;background:var(--editor-chrome-accent);}
+:is(.pm-editor-ribbon .ribbon-body,.pm-editor-ribbon[data-ribbon-body]) {box-sizing:border-box;display:flex;align-items:stretch;min-width:0;height:var(--editor-toolbar-height);padding:var(--editor-toolbar-padding);background:var(--editor-chrome-bg);color:var(--editor-chrome-text);font:400 12px/18px var(--editor-chrome-font);overflow-x:scroll;overflow-y:hidden;}
+.pm-editor-ribbon .ribbon-group {flex-shrink:0;}
+.pm-editor-ribbon :is(.ribbon-group-label,.rb-group-label) {white-space:nowrap;color:var(--editor-chrome-muted);}
+.pm-editor-ribbon :is(.rb-btn,.rb-small,.rb-big,.ribbon-tool),.pm-editor-header .qa-btn,.pm-editor-ribbon .qa-btn {border-radius:var(--editor-control-radius);font-family:var(--editor-chrome-font);}
+:is(.pm-editor-ribbon,.pm-editor-header) .qa-btn {box-sizing:border-box;width:24px;min-width:24px;height:24px;padding:0;color:var(--editor-chrome-muted);}
+:is(.pm-editor-ribbon,.pm-editor-header) :is(.qa-btn,.rb-btn,.rb-small):hover {background:var(--editor-chrome-hover);}
+:is(.pm-editor-ribbon,.pm-editor-header) button:focus-visible {outline:2px solid var(--editor-chrome-accent);outline-offset:-2px;}
+.pm-editor-ribbon :is(input[type=text],input[type=number],select) {border-color:var(--editor-chrome-border);border-radius:var(--editor-control-radius);font-family:var(--editor-chrome-font);}
+.pm-editor-ribbon :is(.ribbon-sep,.rb-sep) {border-color:var(--editor-chrome-border);background-color:var(--editor-chrome-border);}
+.pm-editor-ribbon[data-ribbon-body]>.ribbon-group::after {background:var(--editor-chrome-border);}
+:is(.pm-editor-ribbon,.pm-editor-header) .qa-sep {background:var(--editor-chrome-border);}
+.pm-editor-ribbon :is([data-rb-panel],.rb-drop,.rb-menu,.layout-menu,.spacing-menu,.menu-select-drop),.pm-editor-header .menu-select-drop {border-color:var(--editor-chrome-border);border-radius:var(--editor-menu-radius);background:var(--editor-chrome-bg);color:var(--editor-chrome-text);box-shadow:var(--editor-menu-shadow);font-family:var(--editor-chrome-font);}
+.pm-editor-ribbon :is(.rb-menu>button,.layout-menu>button,.menu-select-option):hover {background:var(--editor-chrome-hover);}
+:is(.pm-editor-ribbon .ribbon-body,.pm-editor-ribbon[data-ribbon-body])::-webkit-scrollbar {height:5px;}
+:is(.pm-editor-ribbon .ribbon-body,.pm-editor-ribbon[data-ribbon-body])::-webkit-scrollbar-track {background:transparent;}
+:is(.pm-editor-ribbon .ribbon-body,.pm-editor-ribbon[data-ribbon-body])::-webkit-scrollbar-thumb {border-radius:3px;background:var(--editor-chrome-border);}
+.pm-editor-status :is(.status-btn,.status-view-btn,.view-btn,.status-notes-btn,.status-play-btn) {box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;min-height:24px;margin:0;border:0;border-radius:var(--editor-control-radius);font:inherit;color:inherit;white-space:nowrap;}
+.pm-editor-status :is(.status-btn,.status-view-btn,.view-btn,.status-notes-btn,.status-play-btn):hover {background:var(--editor-chrome-hover);}
+
+.pm-editor-status :is(.status-view-btn,.view-btn,.status-play-btn) {width:24px;padding:0;}
+.pm-editor-status button:focus-visible {outline:2px solid var(--editor-chrome-accent);outline-offset:-2px;}
+
+/* One-row toolbars share Office paint/spacing without the ribbon height. */
+:root {--editor-tool-size:28px;--editor-tool-icon-size:16px;--editor-tool-gap:4px;--editor-tool-padding:4px 6px;}
+.pm-editor-toolbar {box-sizing:border-box;display:flex;align-items:center;min-width:0;min-height:36px;gap:var(--editor-tool-gap);padding:4px 8px;border-bottom:1px solid var(--editor-chrome-border);background:var(--editor-chrome-bg);color:var(--editor-chrome-text);font:400 12px/18px var(--editor-chrome-font);white-space:nowrap;}
+.pm-editor-tool,.pm-editor-mode {appearance:none;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;gap:var(--editor-tool-gap);min-width:var(--editor-tool-size);height:var(--editor-tool-size);margin:0;padding:var(--editor-tool-padding);border:0;border-radius:var(--editor-control-radius);background:transparent;color:inherit;font:inherit;white-space:nowrap;cursor:pointer;}
+:is(.pm-editor-tool,.pm-editor-mode,.pm-editor-ribbon .rb-btn,.pm-editor-ribbon .rb-small,.pm-editor-ribbon .qa-btn,.pm-editor-header .qa-btn):not(:disabled):hover {background:var(--editor-chrome-hover);color:var(--editor-chrome-text);}
+:is(.pm-editor-tool,.pm-editor-mode):is([aria-pressed=true],[aria-selected=true],.active) {background:var(--editor-chrome-hover);color:var(--editor-chrome-accent);}
+:is(.pm-editor-tool,.pm-editor-mode):focus-visible {outline:2px solid var(--editor-chrome-accent);outline-offset:-2px;}
+:is(.pm-editor-tool,.pm-editor-mode):disabled {opacity:.45;cursor:default;}
+:is(.pm-editor-tool,.pm-editor-mode) svg,:is(.pm-editor-ribbon,.pm-editor-header) :is(.rb-btn,.rb-small,.qa-btn) svg {flex:none;width:var(--editor-tool-icon-size);height:var(--editor-tool-icon-size);}
+.pm-editor-separator {box-sizing:border-box;display:block;flex:none;align-self:center;width:1px;height:18px;margin:0 var(--editor-tool-gap);padding:0;border:0;background:var(--editor-chrome-border);}

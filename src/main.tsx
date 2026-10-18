@@ -10,7 +10,6 @@ import { Navigate, RouterProvider, createHashRouter, useParams } from "react-rou
 
 import { WorkspaceLayout } from "./App";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
-import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { createProjectMindQueryClient } from "./lib/queryClient";
 import { renderReactRoot } from "./lib/react-root";
@@ -22,6 +21,9 @@ import { PageLoadingSkeleton } from "./ui/components";
 
 const ProjectNoteFocusPage = lazy(loadProjectNoteFocusPageModule);
 const WorkspaceRecordFocusPage = lazy(loadWorkspaceRecordFocusPageModule);
+const SettingsRouteBridge = lazy(() =>
+  import("./components/settings/SettingsDialog").then(module => ({ default: module.SettingsRouteBridge })),
+);
 
 function RouteFallback() {
   return <PageLoadingSkeleton variant="record" label="正在打开记录" />;
@@ -53,7 +55,7 @@ const router = createHashRouter([
       },
       {
         path: "settings/:section",
-        element: <SettingsRouteBridge />,
+        element: <Suspense fallback={null}><SettingsRouteBridge /></Suspense>,
       },
     ],
   },

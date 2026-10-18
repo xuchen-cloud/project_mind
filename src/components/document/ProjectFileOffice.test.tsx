@@ -1,3 +1,4 @@
+import {officePreviewCache} from '../../lib/office-preview-cache';
 import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {beforeEach,expect,it,vi} from 'vitest';
@@ -18,7 +19,7 @@ const binding={workspaceId:'w',generation:'g'};
 const object={workspaceId:'w',scope:{kind:'project' as const,projectId:2},kind:'file' as const,id:'7'};
 let current:number;
 function resolved(){return{object,relativePath:'sample.docx',name:'sample.docx',versionNumber:current,contentHash:`hash${current}`,state:'ready' as const,reason:null};}
-beforeEach(()=>{
+beforeEach(()=>{officePreviewCache.clear();
   vi.resetAllMocks();current=2;
   vi.mocked(projectFileApi.applications).mockResolvedValue([]);
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
@@ -28,13 +29,13 @@ beforeEach(()=>{
   vi.mocked(officeFileApi.inspect).mockImplementation(async(_,input)=>({model:{format:'docx',nodes:[{id:'p0',text:input.versionNumber===2?'原文':'保留草稿'}]}} as never));
   vi.mocked(officeFileApi.save).mockImplementation(async()=>{current=3;return{model:{format:'docx',nodes:[{id:'p0',text:'保留草稿'}]},commit:{receipt:{documentId:7,versionNumber:3,contentHash:'hash3',noChange:false},versionPath:null}} as never;});
 });
-function mount(){
+async function mount(){
  const client=new QueryClient();let close:()=>Promise<void>=async()=>{};
  const wrap=(visible=true)=><QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible={visible} focused registerCloseGuard={guard=>{close=guard;return()=>{};}}/></QueryClientProvider>;
- const view=render(wrap());return{...view,client,wrap,close:()=>close()};
+ const view=render(wrap());{const edit=await screen.findByRole('button',{name:'编辑',exact:true});await waitFor(()=>expect(edit).not.toBeDisabled());fireEvent.click(edit);}return{...view,client,wrap,close:()=>close()};
 }
 it('revalidates a clean Office tab against an externally registered version',async()=>{
- const view=mount();await screen.findByText('原文');
+ const view=await mount();await screen.findByText('原文');
  current=3;
  vi.mocked(officeFileApi.inspect).mockResolvedValueOnce({model:{format:'docx',nodes:[{id:'p0',text:'外部保存的内容'}]}} as never);
  fireEvent.click(screen.getByRole('button',{name:'刷新',exact:true}));
@@ -44,7 +45,7 @@ it('revalidates a clean Office tab against an externally registered version',asy
  expect(officeFileApi.save).not.toHaveBeenCalled();view.unmount();
 });
 it('keeps an unsaved Office draft and its baseline when an external version arrives',async()=>{
- const view=mount();await screen.findByText('原文');
+ const view=await mount();await screen.findByText('原文');
  fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
  current=3;
  // The native change notification invalidates this cache entry after resolve.
@@ -61,16 +62,17 @@ it('keeps an unsaved Office draft and its baseline when an external version arri
  expect(officeFileApi.inspect).toHaveBeenCalledOnce();view.unmount();
 });
 it('closing a hidden edited Office tab commits its fixed baseline; reopening reads the new File version',async()=>{
- const view=mount();await screen.findByText('原文');fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
+ const view=await mount();await screen.findByText('原文');fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
  expect(projectFileApi.readBytes).not.toHaveBeenCalled();
  view.rerender(view.wrap(false));expect(screen.getByText('保留草稿')).toBeInTheDocument();
  await act(()=>view.close());
  expect(officeFileApi.save).toHaveBeenCalledWith(binding,expect.objectContaining({object,versionNumber:2,expectedContentHash:'hash2'}),expect.any(String));
- view.unmount();const reopened=mount();await screen.findByText('保留草稿');
- expect(officeFileApi.inspect).toHaveBeenLastCalledWith(binding,{object,versionNumber:3,expectedContentHash:'hash3'});reopened.unmount();
+ view.unmount();const reopened=await mount();await screen.findByText('保留草稿');
+ expect(officeFileApi.inspect).toHaveBeenCalledTimes(1);
+ expect(screen.getByRole('button',{name:'文件查看版本'})).toHaveTextContent('v3');reopened.unmount();
 });
 it('a draft created during asynchronous tab revalidation survives the incoming clean baseline',async()=>{
- const view=mount();await screen.findByText('原文');view.rerender(view.wrap(false));
+ const view=await mount();await screen.findByText('原文');view.rerender(view.wrap(false));
  let finish!:(value:ReturnType<typeof resolved>)=>void;
  vi.mocked(projectFileApi.resolve).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
  view.rerender(view.wrap());await waitFor(()=>expect(finish).toBeTypeOf('function'));
@@ -81,7 +83,7 @@ it('a draft created during asynchronous tab revalidation survives the incoming c
 });
 it.each(['default','selected'])('flushes Office edits before %s external open',async mode=>{
  vi.mocked(projectFileApi.applications).mockResolvedValue([{id:'viewer',name:'Viewer',icon:null,isDefault:true}]);
- const view=mount();await screen.findByText('原文');
+ const view=await mount();await screen.findByText('原文');
  fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
  let finish!:()=>void;
  vi.mocked(officeFileApi.save).mockImplementationOnce(()=>new Promise(resolve=>{finish=()=>{current=3;resolve({model:{format:'docx',nodes:[{id:'p0',text:'保留草稿'}]},commit:{receipt:{documentId:7,versionNumber:3,contentHash:'hash3',noChange:false},versionPath:null}} as never);};}));
@@ -99,7 +101,7 @@ it.each(['default','selected'])('flushes Office edits before %s external open',a
 });
 it('keeps the latest Office draft when saving before a version switch fails',async()=>{
  vi.mocked(fileDocumentApi.versionsList).mockResolvedValueOnce({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{id:'2',versionNumber:2,name:'sample.docx',createdAt:'2026-10-13',contentHash:'hash2',isCurrent:true},{id:'1',versionNumber:1,name:'sample.docx',createdAt:'2026-10-12',contentHash:'hash1',isCurrent:false}],nextCursor:null});
- const view=mount();await screen.findByText('原文');
+ const view=await mount();await screen.findByText('原文');
  fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
  vi.mocked(officeFileApi.save).mockRejectedValueOnce(new Error('保存冲突'));
  fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));

@@ -3,7 +3,7 @@ use super::super::AssistantContext;
 use crate::{
     agent::models::Scope,
     file_version_service::FileCommitHost,
-    office_worker::OfficeUtility,
+    office_worker::{OfficePayload, OfficeUtility},
     workspace::{create_workspace, WorkspacePaths},
     workspace_commit_fence::WorkspaceCommitFence,
 };
@@ -45,7 +45,7 @@ impl OfficeUtility for TestEngine {
         method: &str,
         _: &str,
         base64: &str,
-        _: Option<&[Value]>,
+        _: OfficePayload<'_>,
     ) -> AgentResult<Value> {
         assert!(!id.is_empty());
         let bytes = STANDARD.decode(base64).unwrap();

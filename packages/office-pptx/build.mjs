@@ -1,4 +1,7 @@
 import './sources.mjs';
+import './generate-parity.mjs';
+import { buildParityFrame } from './build-parity-frame.mjs';
+import { parityPlugins } from './parity-build.mjs';
 import { build } from 'esbuild';
 import { mkdir, readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
 import { builtinModules } from 'node:module';
@@ -7,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
 await mkdir(`${root}/dist`, { recursive: true });
+const frameMeta=await buildParityFrame();
 const dependencyRoots = new Set();
+for(const path of Object.keys(frameMeta.inputs))if(path.startsWith('node_modules/'))dependencyRoots.add(path.split('/').slice(0,path.split('/')[1].startsWith('@')?3:2).join('/'));
 for (const [entry, platform, external] of [
   ['engine', 'node', []],
   ['browser', 'browser', ['react', 'react/jsx-runtime']],
@@ -15,6 +20,7 @@ for (const [entry, platform, external] of [
   const result = await build({
     absWorkingDir: root, entryPoints: [`${entry}.${entry === 'browser' ? 'tsx' : 'ts'}`],
     outfile: `dist/${entry}.mjs`, bundle: true, platform, format: 'esm',
+    plugins: parityPlugins(root,{browser:platform==='browser'}),
     target: 'es2021', jsx: 'automatic', external, metafile: true, legalComments: 'inline',
     ...(platform === 'node' ? { banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" } } : {}),
   });
@@ -31,8 +37,12 @@ const sources = [
   'vendor/LICENSE', 'vendor/NOTICE', 'vendor/LICENSE-UNICODE.txt',
   'vendor/packages/pptx-engine/src/vendor/mtx/LICENSE',
   'licenses/nodable-LICENSE',
+  'vendor/packages/docx-engine/src/vendor/emf-converter/LICENSE',
+  'vendor/apps/docs/src/renderer/fonts/LICENSE-OFL.txt',
+  'vendor/packages/ui/src/fonts/README.md',
+  'fork-source-lock.json',
 ];
-const notices = ['GenOffice core: https://github.com/genspark-ai/genoffice\nRevision: d32d1711f1bf985430757b8c6b3fbddd3831d946\nProject Mind adapter: local modifications are separate from unmodified vendor sources.'];
+const notices = ['Browser picker adaptation: Nothing1024/dsh-genoffice-engine@86e288908456be5d3b3cccc97e79708e4adf1bc4 (Apache-2.0). The relay is not used; native CAS remains authoritative.','GenOffice core: https://github.com/genspark-ai/genoffice\nRevision: d32d1711f1bf985430757b8c6b3fbddd3831d946\nProject Mind adapter: local modifications are separate from unmodified vendor sources.'];
 for (const path of sources) notices.push(`${path}\n${await readFile(`${root}/${path}`, 'utf8')}`);
 for (const dependency of [...dependencyRoots].sort()) {
   const pkg = JSON.parse(await readFile(`${root}/${dependency}/package.json`, 'utf8'));
