@@ -1,0 +1,29 @@
+{
+  "workPackage": {
+    "issue": 191,
+    "request": "Worker performance evidence for #191, parent #118. Fixtures originate from #118/F03.",
+    "dependencies": "Existing staged office-dist and production Node 24.21.0; no build or UI.",
+    "delivery": "Six existing real fixtures, at least five fresh processes per fixture per pass, raw JSON and median/max/p95, byte counts and runtime memory.",
+    "nonGoals": "Product optimization, fixture generation, full builds, Tauri/application end-to-end measurements, publishing or review agents.",
+    "acceptance": "All inspect calls succeed; production staged worker and artifact hashes match; complete raw records and summaries saved to the requested output.",
+    "verification": "Node syntax check, execute benchmark, assert sample counts and statistics, diff check."
+  },
+  "fixtures": [
+    { "id": "docx-simple", "format": "docx", "path": "packages/office-validation/docx/simple.original.docx", "sha256": "b41ac08b4c1eae689a25280fdbb9a772d8ff9b242979ab2f76d81ea330fbb8da" },
+    { "id": "docx-complex", "format": "docx", "path": "packages/office-validation/docx/complex.original.docx", "sha256": "7b9750877adf72cd9817edf8582979a6877f3bc67f4cc0267dcb7e2041067f09" },
+    { "id": "pptx-simple", "format": "pptx", "path": "packages/office-validation/pptx/simple.original.pptx", "sha256": "0ba04d437657fec81a5c0ebcbd896bac03fddb3498c07ef8f035db24a4fe769d" },
+    { "id": "pptx-complex", "format": "pptx", "path": "packages/office-validation/pptx/complex.original.pptx", "sha256": "dd650366d8e764a6b088df6cd531b0747c1ad01a99f23abe8d5f361dfbe3f891" },
+    { "id": "xlsx-simple", "format": "xlsx", "path": "packages/office-validation/xlsx/simple.original.xlsx", "sha256": "4db4acbc91829621907faed84e7d1d79b05e85a7b0acd6dd5d6b96331943aa46" },
+    { "id": "xlsx-complex", "format": "xlsx", "path": "packages/office-validation/xlsx/complex.original.xlsx", "sha256": "33966ea8ccc5fa0bab13d2cd345bfd969d5673794f11b5b454d4e78725dac8b2" }
+  ],
+  "evidence": [
+    { "path": "src-tauri/src/office_worker.rs", "lines": [16, 304, 305, 342, 359], "finding": "Production validates canonical base64, serializes a frame, spawns a permission-restricted Node process with version guard and empty PATH; benchmark excludes Rust costs and uses the same Node arguments." },
+    { "path": "packages/agent-host/src/office-worker-entry.mjs", "lines": [7, 14, 19, 24, 28, 29], "finding": "Buffers stdin through EOF, concatenates, UTF-8 decodes and JSON parses, imports runtime, JSON stringifies response and writes one frame." },
+    { "path": "packages/office-runtime/worker.mjs", "lines": [28, 29, 60, 62], "finding": "Base64 decode then canonical re-encode precedes dynamic engine import and inspect. Diagnostic measures actual base64 calls and engine import/inspect; these are instrumented costs." },
+    { "path": "packages/office-docx/engine.ts", "lines": [15, 16, 20, 24, 32], "finding": "DOCX open applies ZIP budget gate, separately loads ZIP and decodes XML/rels for UTF-8 validation, then parseDocx; inspect returns full sourceBase64 as well as model. Not all validation passes are redundant; only total inspect is timed here." },
+    { "path": "packages/office-pptx/engine.ts", "lines": [19, 20, 26, 29, 43, 47, 66], "finding": "PPTX validates opened XML, clones slides, builds renderSlides and serializes media plus full sourceBase64; payload measurements quantify model amplification, not renderer time." },
+    { "path": "packages/office-xlsx/engine.ts", "lines": [87, 88, 91, 92, 94, 114, 123, 141, 142], "finding": "XLSX starts native sidecar, writes source bytes to private temp file, opens workbook, performs bounded per-sheet range/formula/outline/media requests, then stops sidecar and removes temp data. Diagnostic records actual command round trips and sampled sidecar RSS; no cumulative child peak is inferred." },
+    { "path": "packages/office-xlsx/sidecar.ts", "lines": [18, 31, 66, 70, 71], "finding": "Native sidecar introduces a second JSON line protocol inside worker inspect; diagnostic records parse/stringify counts and command round trips including native work." },
+    { "path": "src-tauri/src/file_office.rs", "lines": [237, 291, 304], "finding": "App inspect reads through project_file_read_office_source before worker and again after async completion for ownership/policy/source revalidation. Excluded from this worker benchmark; post-await integrity check is a required constraint, not an optimization recommendation." }
+  ]
+}

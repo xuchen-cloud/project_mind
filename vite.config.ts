@@ -3,13 +3,15 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 import { dshUiAliases } from './packages/dsh-ui/vite-aliases.mjs';
+import { officeRendererResources } from './scripts/office-renderer-resources.mjs';
 
 const lazyMarkdownDependencies = new Set<string>();
 
 export default defineConfig({
-  define: { "import.meta.env.PROJECT_MIND_DEBUG_BUILD": process.env.TAURI_ENV_DEBUG === "true" },
+  define: { "import.meta.env.PROJECT_MIND_DEBUG_BUILD": process.env.TAURI_ENV_DEBUG === "true", "import.meta.env.OFFICE_PERFORMANCE": process.env.OFFICE_PERFORMANCE === "1" },
   resolve: { alias: dshUiAliases, dedupe: ['react', 'react-dom'] },
   plugins: [
+    officeRendererResources(),
     // Entrypoints own their HMR lifecycle; they are not component refresh boundaries.
     react({ exclude: [/node_modules/, /\/src\/(?:voice-)?main\.tsx$/] }),
     tailwindcss(),
@@ -39,9 +41,15 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
-      input: { main: "index.html", voice: "voice.html" },
+      input: { main: "index.html", voice: "voice.html", ...(process.env.OFFICE_PERFORMANCE === '1' ? { officePerformance: 'scripts/office-performance/native.html' } : {}) },
       output: {
-        manualChunks(id) {
+        codeSplitting: {
+          // Capture shared runtime/UI before editor groups can recursively absorb
+          // them. Preserve the existing recursive grouping for the rest of the app.
+          groups: [
+            {name:'react-vendor', priority:20, test:/\/node_modules\/(?:react|react-dom)\//u},
+            {name:'host-common', priority:10, test: /(?:\/src\/services\/(?:agentApi|desktopApi)\.ts$|\/src\/ui\/(?:components\/(?:Button|ActionContextMenu|PopoverPanel|pressableStyles)|lib\/cn)\.[^/]+$|\/node_modules\/lucide-react\/|vite\/preload-helper)/u},
+            {name(id) {
           // Keep diagram/code editor dependencies in their actual lazy graphs;
           // shared dependencies still use the host's normal vendor chunks.
           if (lazyMarkdownDependencies.has(id)) return undefined;
@@ -94,6 +102,7 @@ export default defineConfig({
           }
 
           return "vendor";
+          }}],
         },
       },
     },
@@ -134,6 +143,7 @@ export default defineConfig({
       "scripts/desktop-runtime.test.mjs",
       "scripts/stage-dsh-runtime.test.mjs",
       "scripts/prepare-cli.test.mjs",
+      "scripts/office-performance/host-bundle-boundary.test.mjs",
       "packages/dsh-ui/vendor-integrity.test.mjs",
       "packages/dsh-ui/preview/assets-integrity.test.mjs",
     ],

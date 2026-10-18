@@ -371,11 +371,11 @@ impl AppState {
         root_path: &Path,
         password: &str,
     ) -> Result<WorkspaceStatusSnapshot> {
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, not(feature = "office-performance")))]
         debug_create_workspace(root_path, debug_cache_workspace_password)?;
-        #[cfg(not(debug_assertions))]
+        #[cfg(any(not(debug_assertions), feature = "office-performance"))]
         create_workspace(root_path, password)?;
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, not(feature = "office-performance")))]
         let _ = password;
         self.open_workspace_root(root_path)
     }
@@ -618,7 +618,7 @@ fn thumbnail_cache_key(path: &str, len: u64, modified_millis: u128, max_edge: u3
     format!("{:016x}", hasher.finish())
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "office-performance"))]
 fn debug_app_data_dir_override(path: PathBuf) -> Result<PathBuf> {
     if !path.is_absolute() {
         bail!("PROJECT_MIND_APP_DATA_DIR must be an absolute path");
@@ -627,7 +627,7 @@ fn debug_app_data_dir_override(path: PathBuf) -> Result<PathBuf> {
 }
 
 fn default_app_data_dir() -> Result<PathBuf> {
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "office-performance"))]
     if let Some(path) = env::var_os("PROJECT_MIND_APP_DATA_DIR") {
         return debug_app_data_dir_override(PathBuf::from(path));
     }
@@ -680,7 +680,35 @@ fn ensure_main_window<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<(
         .find(|window| window.label == "main")
         .ok_or_else(|| tauri::Error::AssetNotFound("main window config".into()))?;
 
+    #[cfg(feature = "office-performance")]
+    let performance_config = env::var("PROJECT_MIND_OFFICE_PERFORMANCE")
+        .ok()
+        .map(|raw| serde_json::from_str::<serde_json::Value>(&raw)
+            .map_err(|error| tauri::Error::AssetNotFound(error.to_string())))
+        .transpose()?;
+    #[cfg(feature = "office-performance")]
+    let window_config = &{
+        let mut config = window_config.clone();
+        if performance_config.as_ref().is_some_and(|config| config["page"] != "startup" && config["page"] != "app") {
+            config.url = tauri::WebviewUrl::App("scripts/office-performance/native.html".into());
+        }
+        config
+    };
     let builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
+    #[cfg(feature = "office-performance")]
+    let builder = if let Some(config) = performance_config {
+        let builder = builder
+            .visible(config.get("visible").and_then(|value| value.as_bool()).unwrap_or(false))
+            .incognito(true)
+            .initialization_script(format!("window.__OFFICE_PERFORMANCE__={config};"));
+        if config["page"] == "startup" {
+            builder.initialization_script(include_str!("../../scripts/office-performance/startup-probe.js"))
+        } else {
+            builder
+        }
+    } else {
+        builder
+    };
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)

@@ -6,6 +6,10 @@ authors = ["Codex"]
 edition = "2021"
 default-run = "project_mind_alpha"
 
+[features]
+# Explicit measurement build only; the shipping app has no harness entrypoint.
+office-performance = []
+
 [lib]
 name = "project_mind_alpha_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

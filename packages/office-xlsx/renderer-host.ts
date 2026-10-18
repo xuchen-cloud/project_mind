@@ -1,21 +1,24 @@
 import {connectHostChannel,onHostMessage,sendHostMessage} from './renderer-channel'
 import { CellValueType, CommandType, LifecycleStages } from '@univerjs/core'
 import { ErrorType } from '@univerjs/engine-formula'
+import { FormulaCalculationSessionService } from '@univerjs/sheets-formula'
+import { InitialCalculationGate } from './initial-calculation'
 import { defaultAiSettings } from './vendor/packages/ai-provider/src/providers'
 import { DEFAULT_AI_PANEL_PREFS } from './vendor/packages/ui/src/ai-panel-prefs'
-import { handleSave } from './vendor/apps/sheets/src/renderer/save-actions'
 import { toNeutralStyle,journalSize } from './vendor/apps/sheets/src/renderer/edit-journal'
 import { journalSuppression } from './vendor/apps/sheets/src/renderer/univer-state'
 import { gatewayChangesSchema } from './gateway-contract'
 import { installScrollMasks } from './scroll-masks'
-import { exportFile,printDocument,confirmCsvExport,embeddedPrintDocuments,recalculateWorkbook,renderPdfDocuments,inspectImportedWorkbook,captureScreenSources,captureScreenSource } from './renderer-output'
 import {screenSourcesResultSchema,screenCaptureRequestSchema,screenCaptureResultSchema,workbookFileSchema,workbookExportCsvRequestSchema,workbookExportPdfRequestSchema,workbookRecalcRequestSchema,workbookRecalcResultSchema} from './vendor/apps/sheets/src/shared/desktop-api'
 import type { Edit, Model } from './types'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
 type AppContext = { univerRef: {current:any}; lazyWorkbookRef:{current:any}; commitActiveEditor:()=>Promise<boolean>; saveContext:()=>any; openingWorkbook:boolean; isCellEditing:()=>boolean; calcManual:boolean; output:(action:string)=>Promise<void> }
-let options:Options,context:AppContext|undefined,loaded=false,ready=false,serializing:Promise<void>|undefined,stopped=false
+let options:Options,context:AppContext|undefined,loaded=false,ready=false,serializing:Promise<void>|undefined,stopped=false,rangeReadyMarked=false
+const initialCalculation=new InitialCalculationGate()
+let initialCalculationTarget:object
+let calculationReadyMarked=false
 const baseline=new Map<string,string>();let baselineCaptured=false
 let outputBusy=false,outputFailure:Error|undefined
 let inputPending=false,pending=false,lastSignature='[]',captured:Edit[]|undefined,restoreStarted=false
@@ -58,10 +61,12 @@ function applyAppearance(){for(const [key,value]of Object.entries(options.appear
 function syncLock(){document.documentElement.dataset.presentationMode=options.presentationMode;document.documentElement.dataset.hostReadonly=String(options.readOnly);const workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook();if(!workbook||!ready)return;workbook.setEditable(!options.readOnly)
  for(const node of document.querySelectorAll<HTMLElement>('.ribbon,.dialog-backdrop'))node.inert=options.readOnly&&!node.querySelector('.print-dialog')
  document.documentElement.dataset.hostReadonly=String(options.readOnly)}
+// Save serialization and native output stay off the initialize bridge's static graph.
+// Await imports inside the existing action promises so failures keep their normal reply path.
 async function flush(){if(serializing)return serializing;serializing=(async()=>{if(!context||!ready)throw Error('Excel 编辑器尚未就绪');if(!(await context.commitActiveEditor()))throw Error('单元格输入提交失败')
  const runtime=context.univerRef.current;if(!context.calcManual){const calculated=runtime.univerAPI.getFormula().onCalculationResultApplied(10000);runtime.univerAPI.getFormula().executeCalculation();await calculated}
  captured=undefined;pruneRestoredCells()
- if(journalSize(context.lazyWorkbookRef.current.editJournal)>0){const result=await handleSave(context.saveContext(),'recovery',true);if(!result.ok||!captured)throw Error('Excel 编辑日志整理失败')}
+ if(journalSize(context.lazyWorkbookRef.current.editJournal)>0){const {handleSave}=await import('./vendor/apps/sheets/src/renderer/save-actions');const result=await handleSave(context.saveContext(),'recovery',true);if(!result.ok||!captured)throw Error('Excel 编辑日志整理失败')}
  const edits=captured??[],signature=JSON.stringify(edits)
  if(signature!==lastSignature){lastSignature=signature;send('change',edits)}
  pending=inputPending;send('pending',pending)
@@ -79,11 +84,11 @@ const transfers=new Map<string,any[]>()
 let nextSave=0;const saveReplies=new Map<number,{resolve:()=>void,reject:(error:Error)=>void}>()
 const api:Record<string,any>={
  signalMcpReady:()=>{},
- captureScreenSources:async()=>screenSourcesResultSchema.parse(await captureScreenSources()),
- captureScreenSource:async(input:unknown)=>{const result=await captureScreenSource(screenCaptureRequestSchema.parse(input));return result===null?null:screenCaptureResultSchema.parse(result)},
- exportPdf:async(input:unknown)=>{const request=workbookExportPdfRequestSchema.parse(input);if(request.outPath)throw Error('PDF 导出不接受任意路径');const documents=await embeddedPrintDocuments(request.html,request.fileName.replace(/\.pdf$/i,''));const bytes=await renderPdfDocuments(documents);const written=await exportFile({name:request.fileName,mime:'application/pdf',bytes});return written?{canceled:false,path:request.fileName}:{canceled:true}},
- exportCsv:async(input:unknown)=>{const request=workbookExportCsvRequestSchema.parse(input);if(request.targetPath)throw Error('当前 File 导出不接受任意路径');if(!await confirmCsvExport(request.hasFormulas,request.activeSheetName))return{canceled:true};const written=await exportFile({name:request.fileName,mime:'text/csv;charset=utf-8',bytes:new TextEncoder().encode('\uFEFF'+request.content)});return written?{canceled:false,path:request.fileName}:{canceled:true}},
- printWorkbook:async(input:unknown)=>{const request=workbookExportPdfRequestSchema.parse(input);if(request.outPath||request.deviceName)throw Error('打印机与路径由原生打印对话框选择');const documents=await embeddedPrintDocuments(request.html,request.fileName.replace(/\.pdf$/i,''),request.copies,request.collate);for(const document of documents)await printDocument(document);return{ok:true}},
+ captureScreenSources:async()=>{const {captureScreenSources}=await import('./renderer-output');return screenSourcesResultSchema.parse(await captureScreenSources())},
+ captureScreenSource:async(input:unknown)=>{const request=screenCaptureRequestSchema.parse(input);const {captureScreenSource}=await import('./renderer-output');const result=await captureScreenSource(request);return result===null?null:screenCaptureResultSchema.parse(result)},
+ exportPdf:async(input:unknown)=>{const request=workbookExportPdfRequestSchema.parse(input);if(request.outPath)throw Error('PDF 导出不接受任意路径');const {embeddedPrintDocuments,renderPdfDocuments,exportFile}=await import('./renderer-output');const documents=await embeddedPrintDocuments(request.html,request.fileName.replace(/\.pdf$/i,''));const bytes=await renderPdfDocuments(documents);const written=await exportFile({name:request.fileName,mime:'application/pdf',bytes});return written?{canceled:false,path:request.fileName}:{canceled:true}},
+ exportCsv:async(input:unknown)=>{const request=workbookExportCsvRequestSchema.parse(input);if(request.targetPath)throw Error('当前 File 导出不接受任意路径');const {confirmCsvExport,exportFile}=await import('./renderer-output');if(!await confirmCsvExport(request.hasFormulas,request.activeSheetName))return{canceled:true};const written=await exportFile({name:request.fileName,mime:'text/csv;charset=utf-8',bytes:new TextEncoder().encode('\uFEFF'+request.content)});return written?{canceled:false,path:request.fileName}:{canceled:true}},
+ printWorkbook:async(input:unknown)=>{const request=workbookExportPdfRequestSchema.parse(input);if(request.outPath||request.deviceName)throw Error('打印机与路径由原生打印对话框选择');const {embeddedPrintDocuments,printDocument}=await import('./renderer-output');const documents=await embeddedPrintDocuments(request.html,request.fileName.replace(/\.pdf$/i,''),request.copies,request.collate);for(const document of documents)await printDocument(document);return{ok:true}},
  getLanguage:async()=>'zh',getTheme:async()=>'light',getDocumentTheme:async()=>'light',getAutoSaveDefault:async()=>false,getAiPanelPrefs:async()=>({...DEFAULT_AI_PANEL_PREFS,openInNewDocs:false}),getAiSettings:async()=>defaultAiSettings(),getUserDisplayName:async()=>'Project Mind',
  hasQueuedWorkbook:async()=>!loaded,consumeNewBlankWorkbook:async()=>false,consumeHeadlessExport:async()=>null,
  selectWorkbook:async()=>{loaded=true;return file()},reopenWorkbook:async()=>file(),closeWorkbook:async(id:string)=>{importedSources.delete(id)},
@@ -93,7 +98,7 @@ const api:Record<string,any>={
   try{for(const selectedFile of selected){
    if(!/\.xlsx$/i.test(selectedFile.name))throw Error('请选择 XLSX 工作簿')
    if(!selectedFile.size||selectedFile.size>64*1024*1024)throw Error('导入 XLSX 超出 64 MiB 字节预算')
-   const model=await inspectImportedWorkbook(new Uint8Array(await selectedFile.arrayBuffer()))
+   const {inspectImportedWorkbook}=await import('./renderer-output');const model=await inspectImportedWorkbook(new Uint8Array(await selectedFile.arrayBuffer()))
    if(options.readOnly)throw Error('当前工作簿已变为只读')
    if(model.format!=='xlsx'||!model.rendererData)throw Error('导入宿主未返回完整 XLSX 快照')
    const sessionId=crypto.randomUUID()
@@ -106,7 +111,7 @@ const api:Record<string,any>={
  readWorkbookRange:async(request:any)=>sourceRange(request),readWorkbookFormulas:async(request:any)=>snapshot(request.sessionId).rendererData!.formulas[request.sheetId],readWorkbookRowOutline:async(request:any)=>snapshot(request.sessionId).rendererData!.outlines[request.sheetId],
  readWorkbookMedia:async(request:any)=>{const result=snapshot(request.sessionId).rendererData!.media[request.visualId];if(!result)throw Error('Unknown workbook image');return result},
  readPivotDefinition:async(request:any)=>{const result=snapshot(request.sessionId).rendererData!.pivots[request.path];if(!result)throw Error('Unknown pivot definition');return result},
- recalcWorkbook:async(input:unknown)=>{const{sessionId,...request}=workbookRecalcRequestSchema.parse(input);assertSession(sessionId);return workbookRecalcResultSchema.parse(await recalculateWorkbook(request))},
+ recalcWorkbook:async(input:unknown)=>{const{sessionId,...request}=workbookRecalcRequestSchema.parse(input);assertSession(sessionId);const {recalculateWorkbook}=await import('./renderer-output');return workbookRecalcResultSchema.parse(await recalculateWorkbook(request))},
  beginSaveEditsTransfer:async(request:any)=>{assertSession(request.sessionId);transfers.set(request.transferId,[])},sendSaveEditsChunk:async(request:any)=>{assertSession(request.sessionId);const items=transfers.get(request.transferId);if(!items)throw Error('Unknown edit transfer');items.push(...JSON.parse(request.editsJson))},abortSaveEditsTransfer:async(request:any)=>{transfers.delete(request.transferId)},
  writeWorkbookRecovery:async(request:any)=>{capture(request);return{ok:true}},
  saveWorkbookEdits:async()=>{throw Error('保存必须通过当前 File 的原生版本校验')},
@@ -123,12 +128,14 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
  applyAppearance();syncLock()
  ;(window as any).desktopApi=new Proxy(api,{get(target,key:string){if(key in target)return target[key];if(key.startsWith('on'))return(callback:Function)=>subscribe(key,callback);return async()=>{throw Error(`当前 File 宿主尚未连接 ${key}`)}}})
  ;(window as any).__projectMindSheetsHost={
+  initialCalculationRequested(state:object){initialCalculationTarget=state;initialCalculation.expect(state);performance.mark('office-xlsx:initial-calculation-requested')},
+  initialCalculationStarting(runtime:any){initialCalculation.begin(initialCalculationTarget,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state.id);performance.mark('office-xlsx:initial-calculation-starting')},
   isReadOnly:()=>options.readOnly,
   outputFailed:(error:unknown)=>{if(outputBusy)outputFailure=error instanceof Error?error:Error(String(error))},
   edited:()=>api.notifyPendingEdits(0),
   menu:(action:string)=>emit('onMenuAction',action),
-  render(next:AppContext){context=next;syncLock();if(!ready&&!next.openingWorkbook&&initialRangeLoaded(next.lazyWorkbookRef.current)){queueMicrotask(()=>void finishReady())}},
-  attach(runtime:any){
+  render(next:AppContext){if(!context)performance.mark('office-xlsx:first-app-context');context=next;syncLock();if(!ready&&!next.openingWorkbook&&initialRangeLoaded(next.lazyWorkbookRef.current)){queueMicrotask(()=>void finishReady())}},
+  attach(runtime:any){performance.mark('office-xlsx:runtime-attached');performance.mark('office-xlsx:lifecycle-'+runtime.univerAPI.getCurrentLifecycleStage());runtime.univerAPI.addEvent(runtime.univerAPI.Event.LifeCycleChanged,({stage}:any)=>performance.mark('office-xlsx:lifecycle-'+stage));
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditChanging,({worksheet,row,column,value}:any)=>{if(!ready||options.readOnly)return;const cell=worksheet.getRange(row,column).getCellData(),current=cell?.f??cell?.p?.body?.dataStream?.replace(/\r\n$/,'')??String(cell?.v??''),input=value.getData().body?.dataStream?.replace(/\r\n$/,'')??'';if(input!==current){inputPending=true;send('pending',true)}})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditEnded,()=>{inputPending=false;api.notifyPendingEdits(0)})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeSheetEditStart,(event:any)=>{if(ready&&options.readOnly)event.cancel=true})
@@ -139,12 +146,17 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
  const tick=()=>{if(!ready&&initialRangeLoaded(context?.lazyWorkbookRef.current)&&!context.openingWorkbook)void finishReady();if(!stopped)requestAnimationFrame(tick)};requestAnimationFrame(tick)
  window.addEventListener('keydown',event=>{if(!(event.metaKey||event.ctrlKey)||event.altKey)return;const key=event.key.toLowerCase();if(key==='s'&&!event.shiftKey){event.preventDefault();event.stopImmediatePropagation();void (window as any).__projectMindSheetsHost.requestSave().catch((error:any)=>send('error',String(error.message??error)))}else if(key==='p'&&!event.shiftKey){event.preventDefault();event.stopImmediatePropagation();emit('onMenuAction','print')}},true)
  installScrollMasks(document.body)
+ window.addEventListener('pagehide',()=>{stopped=true;initialCalculation.dispose()},{once:true})
 }
-async function finishReady(){if(ready||stopped||!context)return;const runtime=context.univerRef.current;if(!runtime)return;if(runtime.univerAPI.getCurrentLifecycleStage()<LifecycleStages.Steady){requestAnimationFrame(()=>void finishReady());return}
+async function finishReady(){if(ready||stopped||!context)return;const state=context.lazyWorkbookRef.current;if(context.openingWorkbook||!initialRangeLoaded(state))return;if(!rangeReadyMarked){rangeReadyMarked=true;performance.mark('office-xlsx:initial-content-loaded')}const runtime=context.univerRef.current;if(!runtime)return;if(runtime.univerAPI.getCurrentLifecycleStage()<LifecycleStages.Steady)return
+ if(!initialCalculation.ready(state,context.calcManual,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state))return
+ if(state?.formulaMode&&!context.calcManual){
+  if(!calculationReadyMarked){calculationReadyMarked=true;performance.mark('office-xlsx:initial-calculation-applied')}
+ }
  const workbook=runtime.univerAPI.getActiveWorkbook();if(!baselineCaptured){baselineCaptured=true;for(const sheet of workbook.getSheets())sheet.getSheet().getCellMatrix().forValue((row:number,column:number,cell:any)=>{if(cell)baseline.set(`${sheet.getSheetId()}:${row}:${column}`,comparableCell(cell,workbook))})}
  const draft=options.edits.find(edit=>edit.kind==='gateway')
  if(draft?.kind==='gateway'&&draft.snapshot&&!restoreStarted){restoreStarted=true;const saved=draft.snapshot as any;if(saved.workbook&&saved.journal){const state=context.lazyWorkbookRef.current,active=runtime.univerAPI.getActiveWorkbook();journalSuppression.active=true;try{runtime.univerAPI.disposeUnit(active.getId());runtime.univerAPI.createWorkbook(saved.workbook);Object.assign(state.editJournal,decode(saved.journal))}finally{journalSuppression.active=false}}}
- ready=true;syncLock();send('ready');if(options.edits.length){lastSignature=JSON.stringify(options.edits);pending=true;send('pending',true)}
+ performance.mark('office-xlsx:ready');ready=true;syncLock();send('ready');if(options.edits.length){lastSignature=JSON.stringify(options.edits);pending=true;send('pending',true)}
 }
 
 /** Native file chooser ownership stays with the browser; only selected bytes leave the frame. */

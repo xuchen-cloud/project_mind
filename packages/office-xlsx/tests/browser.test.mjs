@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -19,11 +20,11 @@ for (const [name, engine] of [['Chromium', chromium], ['WebKit', webkit]]) test(
     window.model=${JSON.stringify(model)}; window.changes=[]; window.pending=false; window.pendingStates=[];
     window.props={model:window.model,edits:[],readOnly:false,onPendingChange(pending){window.pending=pending;window.pendingStates.push({pending,edits:structuredClone(window.props.edits)})},onChange(edits){window.changes.push(edits);window.props.edits=edits;window.editor.update(window.props)}};
     window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true;</script></body></html>`
-  const server = createServer((req, res) => {
+  const server = createServer(withRendererResources((req, res) => {
     if (req.url === '/browser.mjs') { res.setHeader('Content-Type', 'text/javascript'); res.end(bundle) }
     else if (req.url === '/browser.css') { res.setHeader('Content-Type', 'text/css'); res.end(css) }
     else { res.setHeader('Content-Type', 'text/html'); res.end(html) }
-  })
+  }))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   let browser
   try {

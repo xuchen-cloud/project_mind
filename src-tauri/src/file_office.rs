@@ -288,7 +288,11 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         request: &RequestContext,
         input: &FileOfficeInput,
     ) -> AgentResult<FileOfficeInspection> {
+        #[cfg(feature = "office-performance")]
+        let measured = std::time::Instant::now();
         let bytes = self.read(request, input)?;
+        #[cfg(feature = "office-performance")]
+        eprintln!("[office-performance] {} read {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
         let format = format(&bytes.name)?;
         let result = self
             .worker
@@ -300,8 +304,12 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
                 OfficePayload::Inspect,
             )
             .await?;
+        #[cfg(feature = "office-performance")]
+        eprintln!("[office-performance] {} worker-complete {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
         // Async work releases storage: recheck binding, owner, policy and bytes.
         self.read(request, input)?;
+        #[cfg(feature = "office-performance")]
+        eprintln!("[office-performance] {} revalidated {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
         Ok(FileOfficeInspection {
             object: bytes.object,
             version_number: bytes.version_number,

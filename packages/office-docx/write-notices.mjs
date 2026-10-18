@@ -10,10 +10,14 @@ export async function writeNotices(root, inputs, lock) {
     pieces.push(`=== GenOffice ${row.path} ===\n${await readFile(resolve(root, 'upstream', row.path), 'utf8')}`);
   }
   pieces.push(`=== Project Mind print-only font derivatives ===\nRebuilt from pinned GenOffice OFL CFF subsets with fonttools 4.60.1, brotli 1.1.0 and zopfli 0.2.3.post1. TrueType quadratic outlines, curve error <= 0.0005 em; cmap/GID and horizontal/vertical advance metrics retained. Font names changed to Project Mind Word Print. See print-fonts/source-lock.json and prepare-print-fonts.py. Original screen fonts are unchanged.\n${await readFile(resolve(root,'print-fonts/LICENSE-OFL.txt'),'utf8')}`);
-  const packages = [...new Set([...inputs].filter(p => p.startsWith('node_modules/')).map(p => p.match(/^node_modules\/((?:@[^/]+\/)?[^/]+)/)[1]))].sort();
-  for (const name of packages) {
-    const dir = resolve(root, 'node_modules', name);
+  // esbuild resolves symlinked dependencies outside root in isolated checkouts.
+  const packages = [...new Set([...inputs].flatMap(input => {
+    const match=input.match(/^(.*(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+))(?:\/|$)/);
+    return match?[resolve(root,match[1])]:[];
+  }))].sort();
+  for (const dir of packages) {
     const pkg = JSON.parse(await readFile(resolve(dir, 'package.json'), 'utf8'));
+    const name=pkg.name;
     pieces.push(`=== ${name}@${pkg.version} (${pkg.license ?? 'see license text'}) ===`);
     const files = (await readdir(dir)).filter(name => /^(licen[sc]e|notice|copying)([.-]|$)/i.test(name)).sort();
     // isarray@1.0.0 publishes its complete MIT text inside README.md.

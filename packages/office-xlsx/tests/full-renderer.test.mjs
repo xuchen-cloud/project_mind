@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
@@ -9,7 +10,7 @@ test('complete Sheets ribbon edits a workbook and preserves original XLSX object
  const source=await readFile(new URL('./fixtures/complex.original.xlsx',import.meta.url)),model=await inspect(source)
  const bundle=await readFile(new URL('../dist/browser.mjs',import.meta.url)),css=await readFile(new URL('../dist/browser.css',import.meta.url))
  const html=`<!doctype html><html><meta charset="utf-8"><style>body{margin:0}#editor{height:100vh;--color-bg:#faf9f6;--color-bg-subtle:#f3f2ef;--color-border:#d6d4cf;--color-text-primary:#292d2c;--color-accent:#197a70;--font-ui:sans-serif}</style><link rel="stylesheet" href="/browser.css"><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.props={model:${JSON.stringify(model)},edits:[],readOnly:false,onPendingChange(p){window.pending=p},onChange(edits){window.props={...window.props,edits};window.editor.update(window.props)}};window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true</script></html>`
- const server=createServer((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}})
+ const server=createServer(withRendererResources((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}}))
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true})
  try{const page=await browser.newPage({viewport:{width:1200,height:800}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')console.log('renderer error:',m.text().slice(0,300))})
  await page.goto(`http://127.0.0.1:${server.address().port}`)

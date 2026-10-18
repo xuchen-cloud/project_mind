@@ -1,3 +1,4 @@
+import {withRendererResources} from './renderer-server.mjs'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
@@ -9,7 +10,7 @@ for(const[name,engine]of[['Chromium',chromium],['WebKit',webkit]])test(`${name}:
  const model=await inspect(await readFile(new URL('./fixtures/complex.original.xlsx',import.meta.url)))
  const bundle=await readFile(new URL('../dist/browser.mjs',import.meta.url)),css=await readFile(new URL('../dist/browser.css',import.meta.url))
  const html=`<!doctype html><meta charset="utf-8"><style>body{margin:0}#editor{height:100vh}</style><link rel="stylesheet" href="/browser.css"><div id="editor"></div><script type="module">import{mount}from'/browser.mjs';window.prints=[];window.props={model:${JSON.stringify(model)},edits:[],readOnly:true,presentationMode:'preview',onChange(edits){window.props.edits=edits},onPrint:async output=>{window.prints.push(output);return new Promise(resolve=>window.finishPrint=resolve)}};window.editor=mount(document.getElementById('editor'),window.props);await window.editor.ready;window.ready=true</script>`
- const server=createServer((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}})
+ const server=createServer(withRendererResources((req,res)=>{if(req.url==='/browser.mjs'){res.setHeader('Content-Type','text/javascript');res.end(bundle)}else if(req.url==='/browser.css'){res.setHeader('Content-Type','text/css');res.end(css)}else{res.setHeader('Content-Type','text/html');res.end(html)}}))
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await engine.launch({headless:true,...(name==='WebKit'&&process.env.OFFICE_WEBKIT_EXECUTABLE?{executablePath:process.env.OFFICE_WEBKIT_EXECUTABLE}:{})})
  try{const page=await browser.newPage({viewport:{width:1200,height:850}});await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.ready)
  const frame=page.frameLocator('iframe[title="Excel 完整编辑器"]');await page.evaluate(()=>window.editor.output('print'))

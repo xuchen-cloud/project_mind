@@ -32,7 +32,11 @@
       "types": "./editor-types.ts",
       "import": "./dist/editor.mjs"
     },
-    "./types": "./types.ts"
+    "./types": "./types.ts",
+    "./full-editor": {
+      "types": "./editor-types.ts",
+      "import": "./dist/full-editor.mjs"
+    }
   },
   "overrides": {
     "@tiptap/extension-bubble-menu": "3.31.0",

@@ -10,9 +10,8 @@ import { PptxEditor } from './PptxEditor';
 afterEach(()=>vi.unstubAllGlobals());
 
 const runtime=vi.hoisted(()=>({docxMount:vi.fn(),xlsxMount:vi.fn()}));
-vi.mock('../../../packages/office-docx/dist/editor.mjs',()=>({mountFullEditor:runtime.docxMount}));
+vi.mock('../../../packages/office-docx/dist/full-editor.mjs',()=>({mountFullEditor:runtime.docxMount}));
 vi.mock('../../../packages/office-xlsx/dist/browser.mjs',()=>({mount:runtime.xlsxMount}));
-vi.mock('../../../packages/office-pptx/dist/browser.mjs',()=>({parityHtml:'<!doctype html><title>Test renderer</title>'}));
 function deferred(){let resolve!:()=>void;let reject!:(error:Error)=>void;const promise=new Promise<void>((done,failed)=>{resolve=done;reject=failed;});return {promise,resolve,reject};}
 let docxReady:ReturnType<typeof deferred>;let xlsxReady:ReturnType<typeof deferred>;
 let docx:{readonly ready:Promise<void>;update:ReturnType<typeof vi.fn>;destroy:ReturnType<typeof vi.fn>;beforeSave:ReturnType<typeof vi.fn>};
@@ -85,4 +84,14 @@ it('waits for the current PPT initialized message rather than iframe load, boots
  send('initialized',initial.epoch);expect(screen.getByRole('status')).toBeInTheDocument();
  const latest=post.mock.calls.filter(([data])=>data?.type==='init').at(-1)?.[0] as {epoch:number};send('initialized',latest.epoch);
  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+it('shows an external PPT resource failure before the renderer can initialize',()=>{
+ const props={model:{format:'pptx',name:'deck.pptx'},edits:[],readOnly:true,onChange:vi.fn(),onPendingChange:vi.fn()} as unknown as PptxEditorProps;
+ const view=render(<PptxEditor {...props}/>);const frame=view.container.querySelector('iframe')!;
+ act(()=>{window.dispatchEvent(new MessageEvent('message',{source:window,data:{source:'project-mind-pptx',type:'resource-error',message:'unrelated'}}));});
+ expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+ act(()=>{window.dispatchEvent(new MessageEvent('message',{source:frame.contentWindow,data:{source:'project-mind-pptx',type:'resource-error',message:'PPTX renderer resource failed'}}));});
+ expect(screen.getByRole('alert')).toHaveTextContent('PPTX renderer resource failed');
+ expect(screen.queryByRole('status')).not.toBeInTheDocument();
+ expect(props.onPendingChange).toHaveBeenLastCalledWith(false);
 });

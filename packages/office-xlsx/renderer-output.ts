@@ -39,7 +39,21 @@ export function confirmCsvExport(hasFormulas:boolean,sheetName?:string):Promise<
 export async function embeddedPrintHtml(html:string,copies=1,collate=true):Promise<string>{
  const output=new DOMParser().parseFromString(html,'text/html')
  if(output.querySelector('script,iframe,object,embed,form,input,textarea,select,button'))throw Error('打印文档含交互控件，未提交打印')
- const fonts=document.createElement('style');fonts.textContent=[...document.styleSheets].flatMap(sheet=>[...sheet.cssRules].filter(rule=>rule.type===CSSRule.FONT_FACE_RULE).map(rule=>rule.cssText)).join('\n');output.head.append(fonts)
+ // Editor CSS references external assets. Print is a self-contained document,
+ // so resolve font URLs against their stylesheet before copying the same bytes.
+ const fontData=new Map<string,Promise<string>>()
+ const fontFaces=await Promise.all([...document.styleSheets].flatMap(sheet=>[...sheet.cssRules].filter(rule=>rule.type===CSSRule.FONT_FACE_RULE).map(async rule=>{
+  let css=rule.cssText
+  for(const match of css.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)){
+   const source=match[2]!;if(source.startsWith('data:'))continue
+   const url=new URL(source,sheet.href??document.baseURI).href
+   let data=fontData.get(url)
+   if(!data){data=(async()=>{const response=await fetch(url);if(!response.ok)throw Error('打印字体加载失败：'+url);const blob=await response.blob();return new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob)})})();fontData.set(url,data)}
+   css=css.replace(match[0],`url("${await data}")`)
+  }
+  return css
+ })))
+ const fonts=document.createElement('style');fonts.textContent=fontFaces.join('\n');output.head.append(fonts)
  // Source images are data URLs; blob snapshots can be materialized without network access.
  for(const image of output.querySelectorAll('img[src],svg image[href],svg image[xlink\\:href]')){
   const attr=image.hasAttribute('src')?'src':image.hasAttribute('href')?'href':'xlink:href',src=image.getAttribute(attr)!

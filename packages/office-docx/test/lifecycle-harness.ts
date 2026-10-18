@@ -13,6 +13,6 @@ function options(){
     onFetchImage:state.lifecycleFetchImage?(url:string)=>state.lifecycleFetchImage(url,identity):undefined,
     onConvertAltChunkHtml:state.lifecycleConvert?(html:string)=>state.lifecycleConvert(html,identity):undefined};
 }
-const controller=mountFullEditor(document.querySelector('#root')!,options());
+const controller=mountFullEditor(document.querySelector('#root')!,options(),'/word-renderer/renderer.html');
 state.lifecycle={events,flush:()=>controller.beforeSave?.(),
   replace(next:DocxModel){model=next;file++;controller.update(options());},dispose:()=>controller.destroy()};

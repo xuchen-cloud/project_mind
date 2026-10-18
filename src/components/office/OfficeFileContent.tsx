@@ -1,5 +1,5 @@
 import { EditorLoading } from "../document/EditorLoading";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import {  useCallback, useEffect, useRef, useState } from 'react';
 import { Eye, Pencil, Save } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button } from '../../ui/components/Button';
@@ -17,9 +17,7 @@ import { desktopApi } from '../../services/desktopApi';
 import { inspectImportedWorkbook } from '../../services/editorWorkbookImport';
 import './office-file-content.css';
 import type { RecalculateRequest } from '../../../packages/office-xlsx/types';
-const DocxEditor = lazy(() => import('./DocxEditor').then(module => ({default:module.DocxEditor})));
-const XlsxEditor = lazy(() => import('./XlsxEditor').then(module => ({default:module.XlsxEditor})));
-const PptxEditor = lazy(() => import('./PptxEditor').then(module => ({default:module.PptxEditor})));
+import {loadDocxEditor, loadXlsxEditor, loadPptxEditor} from './office-component-loader';
 async function convertAltChunkHtml(html: string) {
   const converter = await import('../../../packages/office-html2docx/dist/index.mjs');
   return converter.convertAltChunkHtml(html);
@@ -37,14 +35,34 @@ interface Props {
 }
 /** Format models are temporary editor state. File versions remain authoritative. */
 export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline,readOnly,registerFlush,onDirtyChange,onSaved}:Props) {
+  const [components, setComponents] = useState<{
+    docx?: typeof import('./DocxEditor').DocxEditor;
+    xlsx?: typeof import('./XlsxEditor').XlsxEditor;
+    pptx?: typeof import('./PptxEditor').PptxEditor;
+  }>({});
+  const [componentError, setComponentError] = useState<string>();
+  const DocxEditor = components.docx, XlsxEditor = components.xlsx, PptxEditor = components.pptx;
+  useEffect(() => {if (import.meta.env.OFFICE_PERFORMANCE) performance.mark('office-component:host:mounted');}, []);
   // Loading the exact renderer can overlap native parsing. Preview still uses
   // that renderer; failures are surfaced by its normal mount path.
   useEffect(() => {
     const extension = fileName?.split('.').pop()?.toLowerCase();
-    const loading = extension === 'docx' ? import('../../../packages/office-docx/dist/editor.mjs')
-      : extension === 'xlsx' ? import('../../../packages/office-xlsx/dist/browser.mjs')
-      : extension === 'pptx' ? import('./PptxEditor') : undefined;
-    void loading?.catch(() => {});
+    let active = true;
+    let cancelHints: (() => void) | undefined;
+    const loading = extension === 'docx' ? Promise.all([
+      import('../../../packages/office-docx/dist/full-editor.mjs'),
+      import('../../../packages/office-docx/dist/renderer.html?office-resource'),
+    ]) : extension === 'xlsx' ? Promise.all([
+      import('../../../packages/office-xlsx/dist/browser.mjs'),
+      import('../../../packages/office-xlsx/dist/renderer.html?office-resource'),
+    ]) : extension === 'pptx' ? Promise.all([
+      import('./PptxEditor'),
+      import('../../../packages/office-pptx/dist/renderer.html?office-resource'),
+    ]) : undefined;
+    // Only the selected format's module/style hints overlap inspect. They fetch
+    // and compile resources without executing a renderer or retaining a model.
+    void loading?.then(([,resource]) => { if (active) cancelHints = resource.preload(); }).catch(() => {});
+    return () => { active = false; cancelHints?.(); };
   },[fileName]);
   const objectKey = JSON.stringify(baseline.object);
   const session = useRef<OfficeEditSession<OfficeModel,OfficeEdit> | null>(null);
@@ -53,6 +71,17 @@ export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline
   const [snapshot,setSnapshot] = useState<ReturnTypeSnapshot>();
   const [error,setError] = useState<string>();
   const [reading,setReading] = useState(true);
+  const selectedFormat = snapshot?.model.format ?? fileName?.match(/\.(docx|xlsx|pptx)$/iu)?.[1].toLowerCase();
+  useEffect(() => {
+    let active = true;
+    setComponentError(undefined);
+    const loaded = selectedFormat === 'docx' ? loadDocxEditor().then(module => ({docx:module.DocxEditor}))
+      : selectedFormat === 'xlsx' ? loadXlsxEditor().then(module => ({xlsx:module.XlsxEditor}))
+      : selectedFormat === 'pptx' ? loadPptxEditor().then(module => ({pptx:module.PptxEditor})) : undefined;
+    void loaded?.then(component => {if (active) setComponents(previous => ({...previous,...component}));},
+      failure => {if (active) setComponentError(message(failure));});
+    return () => {active = false;};
+  }, [selectedFormat]);
   const [editing,setEditing] = useState(false);
   const [outputBusy,setOutputBusy] = useState(false);
   const [outputError,setOutputError] = useState<string>();
@@ -219,13 +248,20 @@ export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline
     {outputError ? <p role="alert">{outputError}</p> : null}
     <div className="office-file-content__editor">
       {reading && !snapshot && !error ? <EditorLoading fileName={fileName} stage="parse" /> : null}
-      <Suspense fallback={<EditorLoading format={snapshot?.model.format} stage="runtime" />}>
-        {snapshot?.model.format === 'docx' ? <DocxEditor onFetchImage={fetchImage} onGetSystemFonts={desktopApi.listSystemFontFamilies} onFontMetrics={desktopApi.editorFontMetrics} onConvertAltChunkHtml={convertAltChunkHtml} model={snapshot.model} edits={snapshot.edits as DocxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} />
-          : snapshot?.model.format === 'xlsx' ? <XlsxEditor model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
-          : snapshot?.model.format === 'pptx' ? <PptxEditor model={snapshot.model} edits={snapshot.edits as PptxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} /> : null}
-      </Suspense>
+      {componentError ? <p role="alert">{componentError}</p> : null}
+      {snapshot && !components[snapshot.model.format] && !componentError ? <EditorLoading format={snapshot.model.format} stage="runtime" /> : null}
+      <OfficeFormatCommit format={snapshot && components[snapshot.model.format] ? snapshot.model.format : undefined}>
+        {snapshot?.model.format === 'docx' && DocxEditor ? <DocxEditor onFetchImage={fetchImage} onGetSystemFonts={desktopApi.listSystemFontFamilies} onFontMetrics={desktopApi.editorFontMetrics} onConvertAltChunkHtml={convertAltChunkHtml} model={snapshot.model} edits={snapshot.edits as DocxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} />
+          : snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
+          : snapshot?.model.format === 'pptx' && PptxEditor ? <PptxEditor model={snapshot.model} edits={snapshot.edits as PptxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} /> : null}
+      </OfficeFormatCommit>
     </div>
   </section>;
 }
 type ReturnTypeSnapshot = OfficeEditSession<OfficeModel,OfficeEdit>['snapshot'];
 function message(error:unknown) {return error instanceof Error ? error.message : String(error);}
+
+function OfficeFormatCommit({format, children}: {format?: string; children: import('react').ReactNode}) {
+  useEffect(() => {if (format && import.meta.env.OFFICE_PERFORMANCE) performance.mark(`office-component:${format}:mounted`);}, [format]);
+  return <>{children}</>;
+}

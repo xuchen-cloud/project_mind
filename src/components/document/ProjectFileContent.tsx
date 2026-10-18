@@ -18,7 +18,7 @@ import { FileOpenWithButton } from "./FileOpenWithButton";
 import { FileVersionMenu } from "./FileVersionMenu";
 import "./project-file-content.css";
 const MarkdownFileContent = lazy(() => import("./MarkdownFileContent").then(module => ({default:module.MarkdownFileContent})));
-const OfficeFileContent = lazy(() => import("../office/OfficeFileContent").then(module => ({default:module.OfficeFileContent})));
+import {loadOfficeHost, preloadOfficeComponents} from "../office/office-component-loader";
 
 export interface ProjectFileView { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceLocator?: NonNullable<AgentSourceRef["locator"]>; sourceMode?: boolean }
 export interface ProjectFileContentProps {
@@ -60,6 +60,8 @@ export function ProjectFileContent(props: ProjectFileContentProps) {
 }
 function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery, registerCloseGuard }: ProjectFileContentProps) {
   const queryClient = useQueryClient();
+  const [OfficeFileContent, setOfficeFileContent] = useState<typeof import('../office/OfficeFileContent').OfficeFileContent>();
+  const [officeHostError, setOfficeHostError] = useState<string>();
   const editorFlush = useRef<(() => Promise<void>) | null>(null);
   const editorDirty = useRef(false);
   const editorEditRevision = useRef(0);
@@ -170,12 +172,21 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     const lifetime = new AbortController();
     const signal = lifetime.signal;
     setLoaded(retainEditorOrHtml); setError(undefined); setReading(true);
+    function prepareOffice(name?: string) {
+      if (!name || projectFilePreviewKind(name, '') !== 'office') return;
+      preloadOfficeComponents(name);
+      void loadOfficeHost().then(module => {
+        if (!signal.aborted) setOfficeFileContent(() => module.OfficeFileContent);
+      }, failure => {if (!signal.aborted) setOfficeHostError(message(failure));});
+    }
+    prepareOffice(fileName);
     void (async () => {
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       signal.throwIfAborted();
       const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
       const live = selection === undefined ? await projectFileApi.resolve(binding, object) : undefined;
       signal.throwIfAborted();
+      prepareOffice(live?.name);
       if (live && !sameObject(live.object, object)) throw new Error("当前文件所属项目不符。");
       if (live) setNeedsRecovery(live.state !== "ready");
       if (live) setLoaded(previous => (previous?.kind === "office" || previous?.kind === "markdown") ? retainEditorOrHtml(previous) : previous?.kind === "html" && live.state === "ready" && previous.version === live.versionNumber && previous.contentHash === live.contentHash ? previous : undefined);
@@ -203,6 +214,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       // The Office command reads and verifies the fixed original natively.
       // Avoid the generic 10 MiB preview read and a second base64 round trip.
       if (projectFilePreviewKind(selected.name, "") === "office") {
+        prepareOffice(selected.name);
         if (editorDirty.current && selection === undefined) return;
         sourceCallback.current?.({object,revision:selected.contentHash,fileVersion:version,recordVersion:null,blockId:null,locator:null,title:selected.name,excerpt:""});
         setLoaded({binding,object,name:live?.name ?? selected.name,renderName:selected.name,kind:"office",resources:{},warnings:[],version,contentHash:selected.contentHash,rendererId:++rendererSequence.current,versions,signal});
@@ -353,7 +365,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     {valid?.warnings.map(warning => <p key={warning} role="status" className="project-file-content__notice">未加载资源：{warning}</p>)}
     <div className="project-file-content__body">
       {!valid && reading && visible ? <EditorLoading fileName={fileName} stage="resolve" /> : valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
-        : valid?.kind === "office" ? <Suspense fallback={<EditorLoading fileName={valid.renderName} stage="runtime" />}><OfficeFileContent fileName={valid.renderName} toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty; editorEditRevision.current++;}} onSaved={editorSaved} /></Suspense>
+        : valid?.kind === "office" ? (officeHostError ? <p role="alert">{officeHostError}</p> : OfficeFileContent ? <OfficeFileContent fileName={valid.renderName} toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty; editorEditRevision.current++;}} onSaved={editorSaved} /> : <EditorLoading fileName={valid.renderName} stage="runtime" />)
         : valid?.kind === "markdown" ? <Suspense fallback={<EditorLoading format="markdown" stage="runtime" />}><MarkdownFileContent toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} text={valid.text!} resources={valid.resources} resolveResource={valid.resolveResource} line={line} sourceMode={source} initialView={initialView || views.current.has(valid.version) ? {...initialView,...views.current.get(valid.version)} : undefined} onViewChange={viewChanged} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty=>{editorDirty.current=dirty; editorEditRevision.current++;}} onSaved={editorSaved}/></Suspense>
         : valid ? <DshFilePreview key={`${valid.version}:${valid.rendererId}:${valid.kind}:${showSource}`} kind={showSource ? "text" : valid.kind} name={valid.renderName} text={valid.text} bytes={showSource ? undefined : valid.bytes} resources={valid.resources} signal={valid.signal} line={line} page={page} initialView={initialView || views.current.has(valid.version) ? { ...initialView, ...views.current.get(valid.version) } : undefined} onViewChange={viewChanged} /> : null}
     </div>
