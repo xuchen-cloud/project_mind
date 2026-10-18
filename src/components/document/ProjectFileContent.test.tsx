@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { AgentSourceRef } from "../../lib/agent-types";
+import { useEffect, useRef, useState } from "react";
+import type { AgentError, AgentSourceRef } from "../../lib/agent-types";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -7,6 +7,26 @@ import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { projectFileApi } from "../../services/projectFileApi";
 import { ProjectFileContent } from "./ProjectFileContent";
+import { officeFileApi } from "../../services/officeFileApi";
+import { officePreviewCache } from "../../lib/office-preview-cache";
+import { desktopApi } from "../../services/desktopApi";
+import { agentApi, AgentApiError } from "../../services/agentApi";
+vi.mock("../../services/officeFileApi", () => ({ officeFileApi: { inspect: vi.fn(), save: vi.fn() } }));
+// The editor components are mocked; their runtime preloads must not compile unused vendor bundles.
+vi.mock("../../../packages/office-docx/dist/editor.mjs", () => ({}));
+vi.mock("../../../packages/office-xlsx/dist/browser.mjs", () => ({}));
+vi.mock("../office/DocxEditor", () => ({ DocxEditor: (props: { edits: { text: string }[]; onChange: (edits: unknown[]) => void; readOnly: boolean }) => <input aria-label="Office 正文" disabled={props.readOnly} value={props.edits[0]?.text ?? "原文"} onChange={event => props.onChange([{ type: "text", nodeId: "p0", text: event.target.value }])} /> }));
+vi.mock("../office/XlsxEditor", () => ({ XlsxEditor: (props: { registerBeforeSave: (commit: () => Promise<void>) => () => void; onPendingChange: (pending: boolean) => void; onChange: (edits: unknown[]) => void }) => {
+  const pending = useRef<string | null>(null);
+  const latest = useRef(props); latest.current = props;
+  useEffect(() => props.registerBeforeSave(async () => {
+    if (pending.current === null) return;
+    latest.current.onChange([{ sheetId: 'sheet-1', row: 0, column: 0, kind: 'string', value: pending.current }]);
+    pending.current = null;
+    latest.current.onPendingChange(false);
+  }), [props.registerBeforeSave]);
+  return <input aria-label="Office 正文" onChange={event => { pending.current = event.target.value; props.onPendingChange(true); }} />;
+} }));
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
 vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), openLocal: vi.fn(), applications: vi.fn(), openWith: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
@@ -27,13 +47,214 @@ function view(props = input) {
   return { ...render(wrap(props)), wrap, client };
 }
 beforeEach(() => {
+  officePreviewCache.clear();
   vi.resetAllMocks();
+  vi.spyOn(desktopApi, "confirm").mockResolvedValue(false);
+  vi.spyOn(agentApi, "statusGet").mockResolvedValue({ binding } as Awaited<ReturnType<typeof agentApi.statusGet>>);
   vi.mocked(projectFileApi.applications).mockResolvedValue([]);
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
   vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath: "sample.txt", name: "sample.txt", versionNumber: 2, contentHash: "hash2", state: "ready", reason: null });
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: 2, currentContentHash: "hash2", versions: [version(2), version(1)], nextCursor: null });
   vi.mocked(projectFileApi.readBytes).mockImplementation(async (_binding, { versionNumber }) => ({ object, versionNumber, contentHash: `hash${versionNumber}`, name: "sample.txt", mime: "text/plain", byteLength: 8, base64: btoa(`version${versionNumber}`) }));
   vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, data) => source(data.versionNumber));
+});
+function originalMissing() {
+  return new AgentApiError({ code: 'SOURCE_NOT_READY', message: 'Original File is missing', details: { reason: 'original_missing' }, retryable: false });
+}
+// Use the registered content-tab guard with the real Office component/session:
+// Project/window leave also invokes this same guard through the layout registrar.
+async function editedOffice(format: 'docx' | 'xlsx' = 'docx') {
+  const versions = [2, 1].map(n => ({ ...version(n), name: `sample.${format}` }));
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: 2, currentContentHash: "hash2", versions, nextCursor: null });
+  vi.mocked(officeFileApi.inspect).mockResolvedValue({ model: { format, nodes: [{ id: "p0", text: "原文" }] } } as never);
+  let guard!: () => Promise<void>;
+  const registerCloseGuard = (next: () => Promise<void>) => { guard = next; return () => {}; };
+  const rendered = view({ ...input, registerCloseGuard } as typeof input);
+  const edit = await screen.findByRole("button", { name: "编辑", exact: true });
+  await waitFor(() => expect(edit).not.toBeDisabled());
+  fireEvent.click(edit);
+  const editor = await screen.findByRole("textbox", { name: "Office 正文" });
+  await waitFor(() => expect(editor).not.toBeDisabled());
+  fireEvent.change(editor, { target: { value: "未保存草稿" } });
+  return { ...rendered, editor, close: () => guard(), hide: () => rendered.rerender(rendered.wrap({ ...input, visible: false, registerCloseGuard } as typeof input)) };
+}
+it('allows the real hidden Office close guard after confirming a deleted managed File', async () => {
+  const failure = new AgentApiError({ code: 'NOT_FOUND', message: 'File is no longer present', retryable: false });
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  rendered.hide();
+  vi.mocked(fileDocumentApi.versionsList).mockRejectedValue(failure);
+  await act(async () => { await expect(rendered.close()).resolves.toBeUndefined(); });
+  expect(desktopApi.confirm).toHaveBeenCalledWith('原始文件已删除/不可用，关闭会丢失未保存修改');
+  expect(rendered.editor).toHaveValue('未保存草稿');
+  expect(officeFileApi.save).toHaveBeenCalledOnce();
+});
+it('confirms closing after the native original_missing error from a deleted disk original', async () => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(new AgentApiError({ code: 'SOURCE_NOT_READY', message: 'Original File is missing', details: { reason: 'original_missing' }, retryable: false }));
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  await act(() => rendered.close());
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  expect(rendered.editor).toHaveValue('未保存草稿');
+});
+it('does not treat a missing internal Office reference or version as a missing target File', async () => {
+  const failure = new AgentApiError({ code: 'NOT_FOUND', message: 'Internal reference is no longer present', retryable: false });
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).not.toHaveBeenCalled();
+});
+it.each([null, { workspaceId: 'another-workspace', generation: 'g' }, { workspaceId: 'w', generation: 'reopened' }])('rejects Office close consent when the active binding changes to %j', async current => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(new AgentApiError({ code: 'SOURCE_NOT_READY', message: 'Original File is missing', details: { reason: 'original_missing' }, retryable: false }));
+  vi.mocked(desktopApi.confirm).mockImplementation(async () => {
+    vi.mocked(agentApi.statusGet).mockResolvedValue({ binding: current } as Awaited<ReturnType<typeof agentApi.statusGet>>);
+    return true;
+  });
+  const rendered = await editedOffice();
+  await act(async () => { await expect(rendered.close()).rejects.toThrow('工作区已切换'); });
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  expect(rendered.editor).toHaveValue('未保存草稿');
+});
+it('rechecks generation when a later leave guard reuses previous Office close consent', async () => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(originalMissing());
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  await act(() => rendered.close());
+  vi.mocked(agentApi.statusGet).mockResolvedValue({ binding: { ...binding, generation: 'reopened' } } as Awaited<ReturnType<typeof agentApi.statusGet>>);
+  await act(async () => { await expect(rendered.close()).rejects.toThrow('工作区已切换'); });
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  expect(officeFileApi.save).toHaveBeenCalledOnce();
+});
+it.each<AgentError>([
+  { code: 'IO_FAILED', message: 'Cannot read retained File versions', retryable: false },
+  { code: 'SCOPE_DENIED', message: 'File belongs to another owner', retryable: false },
+  { code: 'WORKSPACE_CHANGED', message: 'File Workspace is no longer current', retryable: false },
+])('propagates target absence lookup failures without offering discard: $code', async error => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(new AgentApiError({ code: 'NOT_FOUND', message: 'Internal reference missing', retryable: false }));
+  const rendered = await editedOffice();
+  const failure = new AgentApiError(error);
+  vi.mocked(fileDocumentApi.versionsList).mockRejectedValue(failure);
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).not.toHaveBeenCalled();
+});
+it('reuses close consent for repeated leave guards, but asks again after a new Office edit', async () => {
+  const failure = originalMissing();
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  vi.mocked(desktopApi.confirm).mockResolvedValueOnce(true).mockResolvedValue(false);
+  const rendered = await editedOffice();
+  await act(() => rendered.close());
+  await act(() => rendered.close());
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  expect(officeFileApi.save).toHaveBeenCalledOnce();
+  fireEvent.change(rendered.editor, { target: { value: '新的未保存修改' } });
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).toHaveBeenCalledTimes(2);
+  expect(rendered.editor).toHaveValue('新的未保存修改');
+});
+it('shares an outstanding Office close confirmation and rejects consent if editing continues', async () => {
+  const failure = originalMissing();
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  let answer!: (accepted: boolean) => void;
+  vi.mocked(desktopApi.confirm).mockImplementation(() => new Promise(resolve => { answer = resolve; }));
+  const rendered = await editedOffice();
+  let first!: Promise<void>, second!: Promise<void>;
+  await act(async () => {
+    first = rendered.close();
+    second = rendered.close();
+  });
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  fireEvent.change(rendered.editor, { target: { value: '确认期间的新修改' } });
+  await act(async () => {
+    const rejected = Promise.all([expect(first).rejects.toBe(failure), expect(second).rejects.toBe(failure)]);
+    answer(true);
+    await rejected;
+  });
+  vi.mocked(desktopApi.confirm).mockResolvedValue(false);
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).toHaveBeenCalledTimes(2);
+  expect(rendered.editor).toHaveValue('确认期间的新修改');
+});
+it.each<AgentError>([
+  { code: 'OBJECT_WITHDRAWN', message: 'File has been withdrawn; restore it to use its current contents', retryable: false },
+  { code: 'SOURCE_NOT_READY', message: 'Original File is missing', details: { reason: 'original_missing' }, retryable: false },
+])('allows closing only after confirming explicit Office source unavailability: $code', async error => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(new AgentApiError(error));
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  await act(() => rendered.close());
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  expect(rendered.editor).toHaveValue('未保存草稿');
+});
+it('keeps the Office draft after declining close and permits a later confirmed retry', async () => {
+  const failure = originalMissing();
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  const rendered = await editedOffice();
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(rendered.editor).toHaveValue('未保存草稿');
+  expect(screen.getByRole('status')).toHaveTextContent('保存失败');
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  await act(() => rendered.close());
+  expect(desktopApi.confirm).toHaveBeenCalledTimes(2);
+});
+it('invalidates close consent for spreadsheet input before the cell enters the edit journal', async () => {
+  const failure = originalMissing();
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  vi.mocked(desktopApi.confirm).mockResolvedValueOnce(true).mockResolvedValue(false);
+  const rendered = await editedOffice('xlsx');
+  await act(() => rendered.close());
+  fireEvent.change(rendered.editor, { target: { value: '尚未按 Enter 的单元格' } });
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).toHaveBeenCalledTimes(2);
+  expect(rendered.editor).toHaveValue('尚未按 Enter 的单元格');
+  expect(officeFileApi.save).toHaveBeenLastCalledWith(binding, expect.objectContaining({ edits: [{ sheetId: 'sheet-1', row: 0, column: 0, kind: 'string', value: '尚未按 Enter 的单元格' }] }), expect.any(String));
+});
+it.each<AgentError>([
+  // Generic I/O and retained version failures are not original-file absence.
+  { code: 'IO_FAILED', message: 'Cannot prepare or commit File Version', retryable: false },
+  { code: 'SCOPE_DENIED', message: 'File belongs to another owner', retryable: false },
+  { code: 'REVISION_CONFLICT', message: 'Office File baseline hash changed', retryable: false },
+  { code: 'FILE_CHANGED_UNREGISTERED', message: 'Office File changed on disk', retryable: false },
+  { code: 'SOURCE_CHANGED', message: 'File changed during preflight', retryable: false },
+  { code: 'SOURCE_NOT_READY', message: 'Historical File hash is unknown', details: { reason: 'version_unregistered' }, retryable: false },
+  { code: 'SOURCE_NOT_READY', message: 'Retained File Version bytes are missing', details: { reason: 'snapshot_missing' }, retryable: false },
+  { code: 'SOURCE_NOT_READY', message: 'missing', retryable: false },
+  { code: 'WORKSPACE_CHANGED', message: 'File Workspace binding changed', retryable: false },
+  { code: 'IDEMPOTENCY_CONFLICT', message: 'Request identity conflict', retryable: false },
+])('never offers Office discard for ambiguous or unrelated failures: $code $message', async error => {
+  const failure = new AgentApiError(error);
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).not.toHaveBeenCalled();
+  expect(rendered.editor).toHaveValue('未保存草稿');
+});
+it('does not classify unstructured Office errors by their missing-file message', async () => {
+  const failure = new Error('原始文件已删除 / File not found');
+  vi.mocked(officeFileApi.save).mockRejectedValue(failure);
+  const rendered = await editedOffice();
+  await act(async () => { await expect(rendered.close()).rejects.toBe(failure); });
+  expect(desktopApi.confirm).not.toHaveBeenCalled();
+});
+it.each(['save', 'shortcut', 'refresh', 'version', 'external'])('close consent never authorizes ordinary Office %s', async action => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(originalMissing());
+  vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+  const rendered = await editedOffice();
+  await act(() => rendered.close());
+  if (action === 'save') fireEvent.click(screen.getByRole('button', { name: '保存', exact: true }));
+  else if (action === 'shortcut') fireEvent.keyDown(rendered.editor, { key: 's', metaKey: true });
+  else if (action === 'refresh') fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
+  else if (action === 'external') fireEvent.click(screen.getByRole('button', { name: '在外部应用打开当前原件' }));
+  else await chooseVersion(1);
+  await waitFor(() => expect(officeFileApi.save).toHaveBeenCalledTimes(2));
+  expect(desktopApi.confirm).toHaveBeenCalledOnce();
+  expect(rendered.editor).toHaveValue('未保存草稿');
+  expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('v2');
+  expect(officeFileApi.inspect).toHaveBeenCalledOnce();
+  expect(projectFileApi.resolve).toHaveBeenCalledOnce();
+  expect(projectFileApi.openLocal).not.toHaveBeenCalled();
 });
 it('previews without Session or model; latest and fixed version share the same File component', async () => {
   const change = vi.fn();

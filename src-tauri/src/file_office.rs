@@ -269,9 +269,9 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
                     "Office File baseline hash changed",
                 ));
             }
-            use crate::file_version_service::{FileBytesReader, FilesystemFileReader};
+            use crate::file_version_service::FilesystemFileReader;
             if FilesystemFileReader
-                .capture(std::path::Path::new(&target.managed_path))?
+                .capture_original(std::path::Path::new(&target.managed_path))?
                 .content_hash()
                 != input.expected_content_hash
             {

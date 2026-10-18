@@ -7,6 +7,8 @@ import type { AgentObjectRef, AgentSourceRef, AgentWorkspaceBinding } from "../.
 import type { FileVersionMetadata } from "../../lib/file-types";
 import { readCompleteFileSource } from "../../lib/file-source";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
+import { agentApi, AgentApiError } from "../../services/agentApi";
+import { desktopApi } from "../../services/desktopApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { fileBytes, projectFileApi } from "../../services/projectFileApi";
 import { markdownImageReferences, localResourcePath } from "../../../packages/dsh-ui/preview/resources.mjs";
@@ -60,19 +62,65 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
   const queryClient = useQueryClient();
   const editorFlush = useRef<(() => Promise<void>) | null>(null);
   const editorDirty = useRef(false);
+  const editorEditRevision = useRef(0);
+  const discardCloseRevision = useRef<number | undefined>(undefined);
+  const pendingEditorClose = useRef<Promise<void> | null>(null);
+  const editorContext = useRef<Loaded | undefined>(undefined);
   const resourceLifetime = useRef<AbortController | null>(null);
   useEffect(() => {
     const lifetime = new AbortController(); resourceLifetime.current = lifetime;
     return () => lifetime.abort();
   }, []);
-  const [editorToolbar,setEditorToolbar] = useState<HTMLSpanElement | null>(null);
   const [editorMenu,setEditorMenu] = useState<HTMLSpanElement | null>(null);
+  const [editorToolbar,setEditorToolbar] = useState<HTMLSpanElement | null>(null);
   const registerEditorFlush = useCallback((flush: () => Promise<void>) => {
     editorFlush.current = flush;
     return () => { if (editorFlush.current === flush) editorFlush.current = null; };
   }, []);
   const flushEditor = useCallback(async () => { if (editorFlush.current) await editorFlush.current(); }, []);
-  useEffect(() => registerCloseGuard?.(async () => { if (editorFlush.current) await editorFlush.current(); }), [registerCloseGuard]);
+  useEffect(() => registerCloseGuard?.(() => {
+    if (pendingEditorClose.current) return pendingEditorClose.current;
+    const pending = (async () => {
+      const context = editorContext.current;
+      const checkBinding = async () => {
+        const current = (await agentApi.statusGet()).binding;
+        if (!context || !current || current.workspaceId !== context.binding.workspaceId || current.generation !== context.binding.generation
+          || editorContext.current?.binding.workspaceId !== context.binding.workspaceId || editorContext.current?.binding.generation !== context.binding.generation) {
+          throw new Error("工作区已切换，关闭已取消");
+        }
+      };
+      if (discardCloseRevision.current === editorEditRevision.current) {
+        const revision = editorEditRevision.current;
+        await checkBinding();
+        if (revision !== editorEditRevision.current) throw new Error("文件内容已变化，请重新确认关闭");
+        return;
+      }
+      try { if (editorFlush.current) await editorFlush.current(); }
+      catch (failure) {
+        if (!context || !(failure instanceof AgentApiError)) throw failure;
+        const missingOriginal = failure.code === "SOURCE_NOT_READY" && typeof failure.details === "object" && failure.details !== null
+          && "reason" in failure.details && failure.details.reason === "original_missing";
+        if (failure.code === "NOT_FOUND") {
+          // A save's NOT_FOUND may refer to an internal reference/version. This
+          // native list resolves the target itself, without requiring a version.
+          let targetMissing = false;
+          try { await fileDocumentApi.versionsList(context.binding, { object: context.object, limit: 1 }); }
+          catch (lookupFailure) {
+            if (!(lookupFailure instanceof AgentApiError) || lookupFailure.code !== "NOT_FOUND") throw lookupFailure;
+            targetMissing = true;
+          }
+          if (!targetMissing) throw failure;
+        } else if (failure.code !== "OBJECT_WITHDRAWN" && !missingOriginal) throw failure;
+        const revision = editorEditRevision.current;
+        if (!await desktopApi.confirm("原始文件已删除/不可用，关闭会丢失未保存修改")) throw failure;
+        await checkBinding();
+        if (revision !== editorEditRevision.current) throw failure;
+        discardCloseRevision.current = revision;
+      }
+    })();
+    pendingEditorClose.current = pending.finally(() => { pendingEditorClose.current = null; });
+    return pendingEditorClose.current;
+  }), [registerCloseGuard]);
 
   const views = useRef(new Map<number, ProjectFileView>());
   const dependentIds = useRef(new Set<number>());
@@ -243,6 +291,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     return () => { lifetime.abort(); dependentIds.current.clear(); sourceCallback.current?.(null); };
   }, [workspaceRoot, projectId, fileId, selection, reload, visible]);
   const valid = loaded && (!loaded.signal.aborted || ((loaded.kind === "html" && !source) || loaded.kind === "office" || loaded.kind === "markdown")) && (selection === undefined || loaded.version === selection) && (versionNumber === lastRequested.current || versionNumber === undefined || loaded.version === versionNumber) ? loaded : undefined;
+  editorContext.current = valid?.kind === "office" || valid?.kind === "markdown" ? valid : undefined;
   const showSource = source && (valid?.kind === "html" || valid?.kind === "markdown");
   function viewChanged(partial: ProjectFileView) {
     if (!valid) return;
@@ -304,8 +353,8 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     {valid?.warnings.map(warning => <p key={warning} role="status" className="project-file-content__notice">未加载资源：{warning}</p>)}
     <div className="project-file-content__body">
       {!valid && reading && visible ? <EditorLoading fileName={fileName} stage="resolve" /> : valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
-        : valid?.kind === "office" ? <Suspense fallback={<EditorLoading fileName={valid.renderName} stage="runtime" />}><OfficeFileContent fileName={valid.renderName} toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty;}} onSaved={editorSaved} /></Suspense>
-        : valid?.kind === "markdown" ? <Suspense fallback={<EditorLoading format="markdown" stage="runtime" />}><MarkdownFileContent toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} text={valid.text!} resources={valid.resources} resolveResource={valid.resolveResource} line={line} sourceMode={source} initialView={initialView || views.current.has(valid.version) ? {...initialView,...views.current.get(valid.version)} : undefined} onViewChange={viewChanged} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty=>{editorDirty.current=dirty;}} onSaved={editorSaved}/></Suspense>
+        : valid?.kind === "office" ? <Suspense fallback={<EditorLoading fileName={valid.renderName} stage="runtime" />}><OfficeFileContent fileName={valid.renderName} toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty; editorEditRevision.current++;}} onSaved={editorSaved} /></Suspense>
+        : valid?.kind === "markdown" ? <Suspense fallback={<EditorLoading format="markdown" stage="runtime" />}><MarkdownFileContent toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} text={valid.text!} resources={valid.resources} resolveResource={valid.resolveResource} line={line} sourceMode={source} initialView={initialView || views.current.has(valid.version) ? {...initialView,...views.current.get(valid.version)} : undefined} onViewChange={viewChanged} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty=>{editorDirty.current=dirty; editorEditRevision.current++;}} onSaved={editorSaved}/></Suspense>
         : valid ? <DshFilePreview key={`${valid.version}:${valid.rendererId}:${valid.kind}:${showSource}`} kind={showSource ? "text" : valid.kind} name={valid.renderName} text={valid.text} bytes={showSource ? undefined : valid.bytes} resources={valid.resources} signal={valid.signal} line={line} page={page} initialView={initialView || views.current.has(valid.version) ? { ...initialView, ...views.current.get(valid.version) } : undefined} onViewChange={viewChanged} /> : null}
     </div>
   </section>;

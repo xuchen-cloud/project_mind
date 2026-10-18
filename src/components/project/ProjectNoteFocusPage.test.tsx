@@ -10,6 +10,8 @@ import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
   requestProjectRecordFocusSave,
 } from "../../lib/record-focus-save";
+import { desktopApi } from "../../services/desktopApi";
+import { AgentApiError } from "../../services/agentApi";
 import { RecordSaveCoordinator, RecordSaveFailure } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
@@ -21,6 +23,11 @@ vi.mock("../../todo", () => ({
     <aside aria-label="笔记待办" data-scope={scope.kind} data-project-id={scope.projectId} data-enabled={enabled} />
   ),
 }));
+
+vi.mock("../../services/desktopApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../services/desktopApi")>();
+  return { ...actual, desktopApi: { ...actual.desktopApi, confirm: vi.fn() } };
+});
 
 const richEditorMocks = vi.hoisted(() => ({
   pendingReviews: 0,
@@ -636,6 +643,33 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(editor).toHaveValue("Kept[AI preview]");
     if (failure === "save" || failure === "conflict") expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("Kept");
     else expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("confirms discarding a deleted Record before close and does not resubmit it on leave", async () => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async () => { throw new RecordSaveFailure("Record is missing", { retryable: false, code: "NOT_FOUND" }); });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "Deleted draft" } });
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "Record is missing", retryable: false }));
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await act(async () => { await expect(guard()).rejects.toThrow(); });
+    expect(desktopApi.confirm).toHaveBeenCalledWith(expect.stringContaining("关闭会丢失"), expect.any(String));
+    expect(coordinator.getLatestSnapshot("project:1:7")).not.toBeNull();
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    expect(coordinator.getLatestSnapshot("project:1:7")).toBeNull();
+    act(() => { expect(requestProjectRecordFocusSave({ projectId: 1, recordId: 7 })).toBe("not_needed"); });
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "New draft after cancellation elsewhere" } });
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(false);
+    await act(async () => { await expect(guard()).rejects.toThrow("已取消关闭"); });
+    expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("New draft after cancellation elsewhere");
+    vi.mocked(desktopApi.confirm).mockResolvedValueOnce(true);
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    view.unmount();
+    await Promise.resolve();
+    expect(coordinator.getStatus().pendingCount).toBe(0);
   });
 
   it("closes only its own save queue even when another Record has a failed save", async () => {

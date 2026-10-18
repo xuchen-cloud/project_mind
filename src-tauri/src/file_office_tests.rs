@@ -465,6 +465,66 @@ impl OfficeUtility for ChangedDisk {
         Ok(result)
     }
 }
+struct DeletedDisk(PathBuf);
+impl OfficeUtility for DeletedDisk {
+    async fn request(
+        &self,
+        id: &str,
+        method: &str,
+        format: &str,
+        base64: &str,
+        payload: OfficePayload<'_>,
+    ) -> AgentResult<Value> {
+        let result = Engine.request(id, method, format, base64, payload).await?;
+        std::fs::remove_file(&self.0).unwrap();
+        Ok(result)
+    }
+}
+
+#[tokio::test]
+async fn office_save_original_missing_before_save_has_explicit_reason() {
+    let f = fixture();
+    let service = FileOfficeService::new(&f.store, &Engine);
+    service.inspect(&f.request, &f.input.baseline()).await.unwrap();
+    std::fs::remove_file(&f.path).unwrap();
+    let failure = service.save(&f.request, &f.input).await.unwrap_err();
+    assert_eq!(failure.code, ErrorCode::SourceNotReady);
+    assert_eq!(failure.details, Some(json!({"reason":"original_missing"})));
+    assert!(!f.path.exists());
+    assert_eq!(
+        f.store.db.lock().unwrap()
+            .file_version_registered_target(&f.request, &f.store.binding, &f.input.object)
+            .unwrap().current_version_number,
+        1
+    );
+}
+
+#[tokio::test]
+async fn office_save_original_missing_during_utility_has_explicit_reason() {
+    let f = fixture();
+    let failure = FileOfficeService::new(&f.store, &DeletedDisk(f.path.clone()))
+        .save(&f.request, &f.input).await.unwrap_err();
+    assert_eq!(failure.code, ErrorCode::SourceNotReady);
+    assert_eq!(failure.details, Some(json!({"reason":"original_missing"})));
+    assert!(!f.path.exists());
+    assert_eq!(
+        f.store.db.lock().unwrap()
+            .file_version_registered_target(&f.request, &f.store.binding, &f.input.object)
+            .unwrap().current_version_number,
+        1
+    );
+}
+
+#[test]
+fn office_save_original_missing_does_not_reclassify_generic_snapshot_io() {
+    use crate::file_version_service::{FileBytesReader, FilesystemFileReader};
+    let temp = tempfile::tempdir().unwrap();
+    let failure = FilesystemFileReader.capture(&temp.path().join("missing-version-snapshot"))
+        .err().unwrap();
+    assert_eq!(failure.code, ErrorCode::IoFailed);
+    assert_eq!(failure.details, None);
+}
+
 #[tokio::test]
 async fn office_save_rejects_external_disk_changes_before_and_during_utility() {
     let f = fixture();

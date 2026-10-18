@@ -392,7 +392,8 @@ export function WorkspaceLayout({
     if (!submitActiveFocusRecord()) {
       throw new Error("无法捕获当前 Record 的 Committed Content");
     }
-    await recordSaveCoordinator.flush();
+    const { flushRecordSavesForClose } = await import("./lib/deleted-record-close");
+    await flushRecordSavesForClose(recordSaveCoordinator);
     await flushQuickNotes();
   }, [recordSaveCoordinator, submitActiveFocusRecord, currentWorkspace?.rootPath]);
 

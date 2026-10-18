@@ -185,3 +185,30 @@ Excel 新增回归区分了两个事实：浏览器未复现“单纯预览切�
 最新公共选项卡回归在 `shared-tabs`：三Office串行重建、共享tsc通过；Chromium/WebKit六例通过，实际切换插入/开始，验证13px/28px、普通400/选中600、文字主色和2px下划线，并执行真实菜单命中与关闭。`shared-tabs/final-results.json`保留computed-style，Word README记录最终产物hash。
 
 主agent对当前阶段修复按Standards/Spec复核：固定上游保留，公共组件被实际renderer使用；保存后跨异步权限重新核验、File身份/epoch和CAS路径保留；本轮已发现的菜单、预览失真、生命周期、MD样式与加载问题均有修复及针对性验证。此结论仅适用于本修复范围，不表示四格式完整矩阵、Windows实机或冷启动秒开目标完成。用户授权的最终同步develop、桌面演示及发布结果在后续段落记录。
+
+## develop同步与最后实机演示
+
+修复提交 `890fb38` 后同步 `origin/develop@3ee8184` 的七个提交。唯一源码冲突在 `ProjectFileContent.tsx`：保留删除/不可用原件关闭前确认、工作区复核、编辑revision与重复关闭保护，并沿用本包editor命名、共享菜单/加载及Markdown保存。Rust新增 `DeletedDisk` 测试适配当前 `OfficePayload` 接口，未改变测试行为。
+
+### 合并后验证
+
+- tsc、Vite生产构建、UI规范和包体检查退出0；main249KiB/250KiB，编辑器仍懒加载。日志 `root-tsc-merged.log`、`root-vite-merged.log`、`ui-standards-merged.log`、`bundle-merged.log`。既有dynamic-import提示仍在，不能称零warning。
+- 关闭路径：最终 `ProjectFileContent.test.tsx` 76/76；同次初跑其他三个文件17项通过并按未变范围复用，共93项有效通过。真实点“编辑”、缓存隔离及已mock编辑器的无关预加载已适配；失败和重跑见 `merge-develop-closeguard-verification.txt`，未把首次失败整组标绿。
+- `cargo build --manifest-path src-tauri/Cargo.toml --bin project_mind_alpha --quiet -j 2` 退出0。`cargo test --manifest-path src-tauri/Cargo.toml --lib office_save_ --quiet -j 2` 首次因新增测试旧trait签名编译失败，适配后6/6；`cargo test --manifest-path src-tauri/Cargo.toml --lib office_real_ --quiet -j 2 -- --include-ignored` 实际执行两个真实格式验收，2/2。日志 `native-merged-build.log`、`rust-office-save-merged-retry.log`、`rust-office-real-merged.log`；首次失败日志也保留。
+- 最新Office构建重新stage darwin-arm64，`verify-packaged.mjs` 在生产permission worker完成三格式字节编辑重开及Excel renderer gateway/公式值保留。见 `runtime-stage-publish.log`、`packaged-permission-publish.log`。
+
+### 合并后可见桌面操作
+
+使用合并后debug二进制更新隔离.app并单次重开，全部操作仍在临时Workspace：
+
+1. Markdown块模式输入ASCII标记B2，自动保存v7；实际文件及关闭重开仍含标记、表格和Mermaid。见 `publish-markdown-reopen.png`、`publish-markdown-reopen.ax.txt`。白色正文、Record字号、紧凑表格、无点点gutter及整篇蓝框维持。
+2. Word粘贴“待修改中文段落：最终实机 B2。”，自动保存v2，关闭重开仍含该段、三页、表格、图片和分节内容。见 `publish-word-reopen.ax.txt`。PPT第三页备注追加B2，自动保存v2；关闭重开后点击第三页仍有B2，见 `publish-ppt-reopen.ax.txt`。备注编辑不等于全部幻灯片元素验收。
+3. Excel v2进入编辑、等待并点击第一行无修改保存，实际SHA256和版本不变。见 `publish-excel-clean-save.png`、`publish-native-byte-proof.json`。实际B3最终保存为15(v4)，关闭重开显示15、合计35、依赖公式30、百分比12.5%。第一次F2/Cmd+A没有选中旧值，追加成1015(v3)；随后通过GUI删除旧值输入15修正。此过程保留在字节证据，未将中间值标为成功。见 `publish-excel-reopen.png`。
+4. 约470px右栏Word文件图标菜单全部可见；长字体提示不会挤出共享缩放。Word/PPT编辑态及Excel/Word预览态共用控件。见 `publish-narrow-word-file-menu.png`、`publish-word-ppt-edit.png`。本轮不宣称640/1440全矩阵均做了实机复验。
+5. Word第一行菜单实际执行导出PDF，经原生保存对话框保存 `Word-final.pdf`，37475字节，Quartz PDFContext、A4、3页。PDFium逐页渲染检查中文、B2、图片、表格、分页与分节页眉页脚。见 `pdf-final-info.txt`、`pdf-final-text.txt`、`pdfium-final-page-1.png` 至第3页。本机Poppler缺Adobe-Japan1语言包产生字体警告，改用PDFium核验，未只凭导出回执认定成功。
+
+### 最终代码审视与边界
+
+主agent完成Standards/Spec双轴：本轮确定的保存权限、旧异步回执、PPT父回显重置、Excel生产gateway权限、预览版式、共用菜单/缩放/加载、Markdown正文/表格/gutter问题均已处理。合并保留双方必要行为，当前阶段发布范围没有剩余阻塞发现；未启动review子agent。
+
+非阻塞后续：Excel只读预览仍沿用上游“行列可编辑”的状态文案，实际权限由宿主及renderer限制，后续需收敛文案。首开普遍秒开目标未达成；Windows实机、中文输入法组合态、完整功能矩阵未验收。本次仅发布已验证阶段，不关闭#191/#118。
