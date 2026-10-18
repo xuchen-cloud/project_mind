@@ -4,9 +4,30 @@ html,body,#root{height:100%;width:100%;margin:0;overflow:hidden}
 body{background:var(--chrome-bg);color:var(--text);font-family:var(--font-ui)}
 .app{height:100%;min-height:0}
 /* File identity and persistence controls are owned by the enclosing File content. */
-.ribbon-quick-actions,.ribbon-ai-btn,.ribbon-autosave{display:none!important}
+.ribbon-ai-btn,.ribbon-autosave{display:none!important}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
-.file-tab-wrap,.autosave-toggle,.ribbon-group:has(.ai-entry){display:none!important}
-.ribbon-tabs{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;-webkit-app-region:no-drag}
-.ribbon-tabs-mac{padding-left:10px}
+/* The embedded editor has no independent window caption buttons. */
+.pm-ribbon-header{display:flex;align-items:stretch;min-width:0;padding-left:0;background:var(--chrome-bg)}
+.ribbon-tabs,.ribbon-tabs-mac,.ribbon-tabs-win{flex:1;min-width:0;padding:5px 8px 0 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;-webkit-app-region:no-drag}
 .ribbon-tabs .ribbon-tab{flex:none;white-space:nowrap}
+.ribbon-body{min-width:0}
+.ribbon-body button,.ribbon-group-label{white-space:nowrap}
+/* One bounded status row: page and zoom stay fixed; secondary info scrolls. */
+.status-item{flex:none;margin:0;white-space:nowrap}
+.status-page{flex:none;height:24px;padding:0 4px}
+.pm-status-info{display:flex;align-items:center;flex:1;min-width:0;height:26px;gap:12px;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.pm-status-info::-webkit-scrollbar{display:none}
+.pm-status-info:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+.status-left{flex:none;min-width:max-content;gap:12px;overflow:visible;text-overflow:clip;white-space:nowrap}
+.status-msg{flex:none;overflow:visible;text-overflow:clip;white-space:nowrap}
+.status-right{flex:none;gap:4px;height:24px;white-space:nowrap}
+.status-views{flex:none;gap:2px;margin:0;height:24px}
+.status-btn,.status-view-btn{height:24px;min-height:24px;font:inherit;white-space:nowrap}
+.status-view-btn{width:24px;min-width:24px}
+/* Preview has no second header row; document layout and zoom remain upstream. */
+.pm-preview-state{display:none;flex:none;white-space:nowrap}
+:root[data-presentation-mode=preview] .ribbon{display:none!important}
+:root[data-presentation-mode=preview] .status-wordcount,
+:root[data-presentation-mode=preview] .status-track,
+:root[data-presentation-mode=preview] .status-views{display:none}
+:root[data-presentation-mode=preview] .pm-preview-state{display:inline}

@@ -1,3 +1,4 @@
+import {requestOutput} from './output-command.mjs';
 /** Real output seam: native PDF bytes -> original group merge -> PDF/PNG ZIP. */
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
@@ -14,7 +15,7 @@ let page;
 try{
  page=await browser.newPage({viewport:{width:1440,height:1000}});await page.goto(process.env.OFFICE_ACCEPTANCE_URL+'/?nativePdf&nativeExport&nativeFonts');const f=page.frameLocator('iframe');await f.locator('.tiptap.doc-page').waitFor();
  await page.evaluate(({bytes,otherBytes})=>{window.pdfInputs=[];window.exports=[];window.renderPdf=async document=>{window.pdfInputs.push(document);return new Uint8Array(document.html.includes('size:600px 800px')?otherBytes:bytes);};window.officeDocxHarness.export=async file=>{window.exports.push({...file,bytes:Array.from(file.bytes)});return true;};window.getSystemFonts=async()=>['Project Mind Test Serif','Arial'];},{bytes:fixtureBytes,otherBytes});
- await f.locator('.ribbon-tabs').getByRole('button',{name:'导出 PDF',exact:true}).click({timeout:10000});
+ await requestOutput(page,'导出 PDF');
  await page.waitForFunction(()=>window.exports.length===1);
  const first=await page.evaluate(()=>({file:window.exports[0],inputs:window.pdfInputs}));assert.equal(first.file.mime,'application/pdf');assert.deepEqual(first.file.bytes,fixtureBytes);assert.deepEqual(first.inputs[0].pageSize,{widthPt:595.45,heightPt:841.7});assert.match(first.inputs[0].html,/data-native-page/);assert.match(first.inputs[0].html,/data:font\//);
  // Actual upstream mixed-paper grouping: preserve each measured sheet and

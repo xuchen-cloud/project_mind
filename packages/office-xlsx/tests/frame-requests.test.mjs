@@ -15,13 +15,13 @@ test('accepted frame requests and beforeSave commits become inert when the workb
  // synchronously before the Promise callbacks can start host IO.
  for(const action of ['replace','dispose']){
   const count=await page.evaluate(action=>{
-   window.commitState='waiting';void window.editor.commitEditing().then(()=>window.commitState='resolved',()=>window.commitState='rejected')
+   window.commitState='waiting';void window.editor.commitEditing().then(()=>window.commitState='resolved',()=>window.commitState='rejected');window.outputState='waiting';void window.editor.output('csv').then(()=>window.outputState='resolved',()=>window.outputState='rejected')
    const channel=window.channels.at(-1),requests=[['saveRequest'],['calculateRequest',{edits:[],reads:[]}],['inspectImportedRequest',new Uint8Array([1])],['captureSourcesRequest'],['captureSourceRequest',{id:'selected-source'}],['exportRequest',{name:'book.csv',mime:'text/csv',bytes:new Uint8Array([1])}],['renderPdfRequest',{html:'<html></html>'}],['printRequest',{html:'<html></html>'}]]
    requests.forEach(([type,value],id)=>channel.port1.dispatchEvent(new MessageEvent('message',{data:{officeXlsx:true,type,value,id:100+id}})))
    if(action==='replace'){window.props=window.makeProps('new',structuredClone(window.props.model));window.editor.update(window.props)}else window.editor.dispose()
    return window.channels.length
   },action)
-  await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,0)));assert.deepEqual(await page.evaluate(()=>window.invoked),[],`${action} must cancel every queued host action`);assert.equal(await page.evaluate(()=>window.commitState),'rejected',`${action} must reject a commit that crossed the ready await`)
+  await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,0)));assert.deepEqual(await page.evaluate(()=>window.invoked),[],`${action} must cancel every queued host action`);assert.equal(await page.evaluate(()=>window.commitState),'rejected',`${action} must reject a commit that crossed the ready await`);assert.equal(await page.evaluate(()=>window.outputState),'rejected',`${action} must reject output across ready await`)
   if(action==='replace'){await page.evaluate(()=>window.editor.ready);assert.equal(await page.evaluate(()=>window.channels.length),count+1,'replacement owns a new channel')}
  }
  // A fresh mount accepts exactly one bootstrap for its current iframe.
@@ -40,14 +40,14 @@ test('beforeSave and the original ready reject when replaced or disposed before 
  try{const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.loaded)
  for(const action of ['replace','dispose']){
   const states=await page.evaluate(async action=>{
-   const editor=window.mountEditor(document.getElementById('editor'),window.props),states={ready:'waiting',commit:'waiting'}
+   const editor=window.mountEditor(document.getElementById('editor'),window.props),states={ready:'waiting',commit:'waiting',output:'waiting'}
    void editor.ready.then(()=>states.ready='resolved',()=>states.ready='rejected')
-   void editor.commitEditing().then(()=>states.commit='resolved',()=>states.commit='rejected')
+   void editor.commitEditing().then(()=>states.commit='resolved',()=>states.commit='rejected');void editor.output('csv').then(()=>states.output='resolved',()=>states.output='rejected')
    // No await: the first renderer has not bootstrapped, let alone sent ready.
    if(action==='replace')editor.update({...window.props,model:structuredClone(window.props.model)});else editor.dispose()
    await new Promise(resolve=>setTimeout(resolve,100));window.editor=editor;return states
   },action)
-  assert.deepEqual(states,{ready:'rejected',commit:'rejected'},`${action} must settle the original pre-ready promises`)
+  assert.deepEqual(states,{ready:'rejected',commit:'rejected',output:'rejected'},`${action} must settle the original pre-ready promises`)
   if(action==='replace')await page.evaluate(()=>window.editor.ready)
   await page.evaluate(()=>window.editor.dispose())
  }

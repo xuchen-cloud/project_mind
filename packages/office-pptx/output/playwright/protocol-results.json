@@ -5,7 +5,8 @@
     "staleInitializedIgnored": true,
     "reorderedInitIgnored": true,
     "twoExternalReplacements": true,
-    "oldPdfRejected": true,
+    "oldHostOutputRejected": true,
+    "staleOutputAckSuppressed": true,
     "lateNativeOutputIgnored": true,
     "errors": []
   },
@@ -15,7 +16,8 @@
     "staleInitializedIgnored": true,
     "reorderedInitIgnored": true,
     "twoExternalReplacements": true,
-    "oldPdfRejected": true,
+    "oldHostOutputRejected": true,
+    "staleOutputAckSuppressed": true,
     "lateNativeOutputIgnored": true,
     "errors": []
   }

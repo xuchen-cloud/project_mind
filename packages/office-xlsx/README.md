@@ -43,7 +43,7 @@ inspect 同时提供完整 renderer 所需的只读 metadata、公式 inventory�
 
 ## 编辑器与宿主合同
 
-`mount/mountEditor(container,props)` 返回 `{ready,commitEditing,update,dispose}`。`ready` 等待完整 App/Univer Steady；所有保存先 `await commitEditing()`，再读取最新 edits，进入 saving 后才设 readOnly。React `XlsxEditor` 保留：
+`mount/mountEditor(container,props)` 返回 `{ready,commitEditing,output,update,dispose}`。`ready` 等待完整 App/Univer Steady；所有保存先 `await commitEditing()`，再读取最新 edits，进入 saving 后才设 readOnly。React `XlsxEditor` 保留：
 
 ```ts
 registerBeforeSave?: (callback: () => Promise<void>) => () => void
@@ -62,7 +62,9 @@ onCaptureScreenSource?: (request: ScreenCaptureRequest) => Promise<ScreenCapture
 
 合并工作簿复用官方 Ribbon 入口和合并器；实际 file picker 只传用户选择的 XLSX bytes 给 `onInspectImportedWorkbook`。返回完整 Model 后创建独立临时只读 session，范围/公式/行轮廓/媒体/透视按该 session 查询；合并结束释放。文件名仅 renderer metadata，无原生路径。目标 journal 一次进入原 File/CAS。固定上游仅导入缓存值、样式、合并区域、行高和列宽；公式转值，不导入源表格/图片/图表对象。目标既有对象保留。
 
-选择或打开未改变单元格不产生 pending；真实输入产生 pending，journal 发送后才结算。专属 MessageChannel 在严格且仅一次的窗口握手后建立，避免 WebKit 异步 reply 的 WindowProxy 来源差异；替换/销毁关闭旧通道。已接收的异步请求捕获发起帧 epoch/callback，执行 host IO 前核验仍当前，回执只发原 port。model 引用替换表示原生保存成功后的新基线，宿主同时传 `edits:[]`。App 保存按钮必须接 `onSaveRequest` 到原 File 保存，不通过 renderer 自行写文件。
+选择或打开未改变单元格不产生 pending；真实输入产生 pending，journal 发送后才结算。专属 MessageChannel 在严格且仅一次的窗口握手后建立，避免 WebKit 异步 reply 的 WindowProxy 来源差异；替换/销毁关闭旧通道。已接收的异步请求捕获发起帧 epoch/callback，执行 host IO 前核验仍当前，回执只发原 port。model 引用替换表示原生保存成功后的新基线，宿主同时传 `edits:[]`。独立 File、保存、自动保存开关已从 renderer 移除；默认自动保存及保存快捷键通过 `onSaveRequest` 进入原 File 保存，不通过 renderer 自行写文件。
+
+宿主文件名行菜单调用 `await editor.output(command)`，`command` 为 `'pdf' | 'csv' | 'print'`，经现有专属 MessagePort 执行上游 `export-pdf` / `export-csv` / `print`。PDF/CSV 等待真实生成与导出回执，用户取消正常完成，失败拒绝；print 打开原打印设置后完成，后续原生打印失败在该对话框显示。工作簿替换、关闭会拒绝尚未完成的 handle 请求。预览与只读态允许输出；打印参数在只读态仅用于本次输出，不写回源文档。预览隐藏整个编辑器 header，保留原工作表/缩放；两态状态栏统一 28px 高、12px 文字、24px 按钮。
 
 导出优先等待 `onExport`：true 写入完成，false 用户取消；取消不会再触发 anchor。只有 standalone 无宿主 callback 才用 anchor。CSV 是当前真实字节导出路径，保留单工作表/公式与格式损失提示。PDF 复用官方分页打印 HTML，每页从官方分页结果获得实际有向 pt 尺寸，按连续尺寸组等待 `onRenderPdf` 的有效 PDF bytes，包内 pdf-lib 保序合并为一次 `onExport`；无宿主 PDF 生成器时明确报错，不把浏览器打印当可编程 PDF。
 

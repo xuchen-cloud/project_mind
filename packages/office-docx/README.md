@@ -37,6 +37,8 @@ node packages/office-docx/prepare-source.mjs --verify-only
 
 `DocxEditor.tsx` 相对动态导入`dist/editor.mjs`并挂载完整renderer，Vite可解析；无需根Tiptap升级或额外静态资源路由。完整上游字体为Blob URL，iframe销毁时浏览器释放其文档资源。
 
+完整 renderer 的 `EditorOptions.presentationMode?: 'preview' | 'edit'` 默认 edit；preview 强制只读，保留分页计数和缩放，隐藏整个编辑 Ribbon；文件输出统一由宿主第一行图标菜单调用，不渲染第二行。`DocxEditor` 透传该属性并纳入 update 依赖。切换复用同一 iframe/live editor，不切换上游 readMode，不重设文档宽度、zoom、fit 选择或 undo 历史。底部缩放对话框属于只读可用的 view dialog。预览与编辑均消费完整 `editor.mjs`；本轮废弃的独立轻量 preview 入口、声明、测试与 legacy 拆分已删除，旧 mountEditor 行为保持原实现，返回 LegacyEditorController（不包含完整 renderer 的 output）。
+
 ## 内存格式 API
 
 ```ts
@@ -107,7 +109,7 @@ OFFICE_WEBKIT_EXECUTABLE=/path/to/existing/webkit/pw_run.sh \
 node packages/office-docx/test/browser-parity.mjs
 ```
 
-`browser-parity.mjs`验证主输入/两轮真实DOCX保存/undo/redo/主题；`browser-objects.mjs`验证图片/表格/页眉/页面；`browser-receipt.mjs`验证native save Promise；`browser-affordance.mjs`验证连续遮罩/reduced-motion；`browser-output.mjs`验证浏览器输出边界；`browser-native-export.mjs`验证宿主导出成功/取消/失败；`browser-native-print.mjs`验证选页/data资源/pageSize/回执；`browser-native-pdf.mjs`验证真PDF fixture混合页合并/192DPI PNG/字体桥；`browser-readonly-output.mjs`验证只读四输出且原件不写入；`browser-tables.mjs`验证列宽/选择/合并/拆分；`browser-paste.mjs`验证异步I/O与保存等待/失败；`browser-output-layout.mjs`生成1440/480截图并核对hit target/连续遮罩。
+`browser-parity.mjs`验证主输入/两轮真实DOCX保存/undo/redo/主题；`browser-objects.mjs`验证图片/表格/页眉/页面；`browser-receipt.mjs`验证native save Promise；`browser-affordance.mjs`验证连续遮罩/reduced-motion；`browser-output.mjs`验证浏览器输出边界；`browser-native-export.mjs`验证宿主导出成功/取消/失败；`browser-native-print.mjs`验证选页/data资源/pageSize/回执；`browser-native-pdf.mjs`验证真PDF fixture混合页合并/192DPI PNG/字体桥；`browser-readonly-output.mjs`验证只读四输出且原件不写入；`browser-tables.mjs`验证列宽/选择/合并/拆分；`browser-paste.mjs`验证异步I/O与保存等待/失败；`browser-output-layout.mjs`生成1440/640/490截图并核对宿主输出handler、hit target/连续遮罩。
 
 这些脚本共享server当前bytes，**同一server顺序执行**。poisoned链接用独立`OFFICE_DOCX_POISONED_LINKS=1` server运行`browser-link-acceptance.mjs`。输出在`test/output/browser/`，不启动可见应用或Tauri；root集成检查由主agent执行。
 
@@ -115,4 +117,32 @@ node packages/office-docx/test/browser-parity.mjs
 
 真实altChunk设`OFFICE_DOCX_ALT_CHUNK=rich`，运行`browser-alt-chunk-real.mjs`，使用独立helper的实际dist（先由其owner构建）；`OFFICE_BROWSER=webkit|chromium`可只重跑受影响浏览器。`browser-lifecycle.mjs`用普通server的`/lifecycle`专用入口，延迟真实converter/JSZip后替换字节不同的model或dispose；`OFFICE_LIFECYCLE_CASE=conversion|serialization`仅重跑相应边界。
 
-最新远程图片回归：`browser-native-image.mjs`验证宿主回执、真实DOCX media/重开、原错误可见、只读和晚回执；`OFFICE_IMAGE_CASE=paste|lifetime|readonly`只重跑对应组。Chrome155/WebKit26.5各4组通过。`browser-protection.mjs`验证无整文件打开密码UI、普通writeProtection保留、新编辑限制保存重开，两浏览器通过。Native受限下载模块由主实际注册编译，`editor_remote_image`全模块12/12通过（2.63s）；本agent未运行Cargo。源码/dist于2026-10-18 19:39冻结，主集中build/stage，详细指纹见Word矩阵。
+最新远程图片回归：`browser-native-image.mjs`验证宿主回执、真实DOCX media/重开、原错误可见、只读和晚回执；`OFFICE_IMAGE_CASE=paste|lifetime|readonly`只重跑对应组。Chrome155/WebKit26.5各4组通过。`browser-protection.mjs`验证无整文件打开密码UI、普通writeProtection保留、新编辑限制保存重开，两浏览器通过。Native受限下载模块由主实际注册编译，`editor_remote_image`全模块12/12通过（2.63s）；本agent未运行Cargo。该远程图片/保护工作包于2026-10-18 19:39完成，历史指纹见Word矩阵；当前冻结点见下。
+
+## 2026-10-18 宿主输出与紧凑 chrome（#191）
+
+- 范围：仅 packages/office-docx；主负责宿主第一行统一图标菜单。本包没有 File 菜单入口，file-menu.tsx、构建引用和死菜单 CSS 已删除。不改 pinned upstream、字体/打印内容逻辑、root/src/docs，不运行根构建/stage/native GUI/全测。
+- renderer-build.mjs 从固定 TypeScript JSX AST 精确选择并删除 AiPanel 外层 ai-dock、AiAskPopover、home AI group 和紧邻 following separator，以及 QAT 保存/autosave/分隔线；节点数量和 following separator 不符即构建失败。Clipboard 等真实编辑组与 QAT undo/redo 保留。
+- 状态栏两态统一28px高、12px文字和24px控件；page、zoom 固定，其他信息/视图控件置于 pm-status-info 的有界横向滚动区，复用 scroll-edges 连续渐变、反向归零和尺寸/内容更新。预览无 Ribbon 第二行，两态仍复用同一完整文档/分页/zoom。
+- 正式接口：EditorController.output(command: 'pdf' | 'images' | 'html' | 'print' | 'preview'): Promise<void>。mountFullEditor 在请求时捕获当前 Mount，沿用 ready + runCurrent + cancelled 生命周期；等待真实 renderer-host.output，不在 src 宿主直接访问 iframe globals。preview 通过同一 FileActionContext.setShowPagePreview 打开原分页预览；print 打开原选页打印对话框，PDF/图片/HTML 仍走已有原生回调与回执、取消和可见错误路径。旧内容编辑器 mountEditor 不具备完整输出，返回原有方法的 LegacyEditorController 类型，无伪造输出实现。
+- 测试宿主通过 DocxEditor.registerOutput 注册真实 handler；output-command.mjs 调用该 handler 并记录 pending/resolved/rejected，不重造菜单。presentation-harness 则直连正式 mountFullEditor controller，覆盖 ready 前预览与销毁取消未完成输出。
+- 真跑命令与最终结果见本节后续收口记录；浏览器证据位于 test/output/browser/，与真实系统打印/主 App 菜单验收分开记录。
+
+### 本轮真实验证与冻结
+
+固定 Node：/Users/xuchen/project_mind/src-tauri/resources/agent-host/node；命令均在 /Users/xuchen/project_mind 执行。
+
+- `src-tauri/resources/agent-host/node packages/office-docx/build.mjs` 成功，505固定上游来源校验通过；本轮只构建本包一次。
+- `src-tauri/resources/agent-host/node packages/office-docx/test/browser-server.mjs` 提供 headless 测试宿主（最终 http://127.0.0.1:53787）；环境统一为 OFFICE_ACCEPTANCE_URL、OFFICE_PLAYWRIGHT_MODULE=/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs、OFFICE_WEBKIT_EXECUTABLE=/Users/xuchen/Library/Caches/ms-playwright/webkit-2368/pw_run.sh。
+- `.../node packages/office-docx/test/browser-output-layout.mjs`：Chromium155/WebKit26.5，1440/640/490均通过；无File/AI/QAT保存/autosave/前导分隔线，Clipboard/QAT两按钮保留，状态栏28px/12px/24px、page/zoom固定、信息横向滚动及连续边缘渐变/反向归零、真实输出preview、字体popover有效。最初测试把上游redo中文误写为“重做”，实际为“恢复”，已按固定上游文案修正测试，无产品失败。
+- `.../node packages/office-docx/test/browser-presentation.mjs`：两浏览器通过同iframe/document/live editor、三页正文、两态手动40%和整页fit保持、实际QAT undo/redo、独立readOnly锁、490px两态、preview无第二行；分页几何最大偏移均0。新output在ready前调用preview会等待；HTML原生回执未到保持pending，销毁后及时reject，晚回执不能改为成功。errors=[]。
+- `.../node packages/office-docx/test/browser-readonly-output.mjs`：两浏览器经真实宿主registerOutput/controller.output调用HTML/PDF/PNG ZIP/第2页打印均通过；原件字节相同，edits=[]、pending=false、正文与编辑控件锁定，随后可解锁编辑。
+- `.../node packages/office-docx/test/browser-native-export.mjs`：Chromium通过真实HTML/原PNG字节、await receipt、取消与失败可见、无anchor fallback。
+- `git diff --check -- packages/office-docx` 通过。产物meta无file-menu.tsx，适配CSS无死菜单选择器；未跑root build/stage、Cargo、native GUI、全测或提交/发布。
+
+证据：test/output/browser/output-layout-{chromium,webkit}-results.json 与各尺寸PNG、presentation-{chromium,webkit}-results.json 与490PNG、readonly-output-results.json、native-export-results.json。系统菜单/打印面板及HMR稳定reload由主集中验收，本包不把fixture回执声明为真实系统打印成功。
+
+上述格式包验证之后，又接入共享 `packages/editor-chrome` 的缩放与工具栏样式；当前集成验证见 `docs/implementation/genoffice-review-fixes-20261018.md`。自建headless server已停止。
+
+- 当前共享 chrome 构建 dist/editor.mjs SHA256：`7d68fcbc1e0c7f6e10c179034fdfd898c960650c9408d54624017e0db938f088`
+- 当前共享 chrome 构建 dist/renderer-resource.mjs SHA256：`39c08c0a439dbe9e68db39c840fb267a8b3f6450d0d9ae6aaf2a0af4f57136c7`

@@ -23,11 +23,12 @@ export function mountFullEditor(element:HTMLElement,initial:EditorOptions):Edito
     for(const name of ['--font-ui','--color-bg','--color-bg-subtle','--color-bg-muted','--color-canvas','--color-bg-hover','--color-bg-active','--color-border','--color-border-strong','--color-text-primary','--color-text-secondary','--color-text-tertiary','--color-accent']){const value=css.getPropertyValue(name).trim();if(value)tokens[name]=value;}
     return{theme,font,tokens};
   }
+  const locked=()=>options.presentationMode==='preview'||!!options.readOnly||options.model.readOnly;
   function settings(mounted:Mount){
     const snapshot=options.edits.length===1&&options.edits[0].type==='snapshot'?options.edits[0]:null;
     return{sourceBase64:snapshot?.base64??options.model.sourceBase64,baselineHash:options.model.baselineHash,
       initialDocument:!snapshot&&options.edits.length?applyEdits(options.model.document,options.edits):undefined,
-      readOnly:!!options.readOnly||options.model.readOnly,hasDraft:options.edits.length>0,appearance:appearance(),
+      readOnly:locked(),presentationMode:options.presentationMode??'edit',hasDraft:options.edits.length>0,appearance:appearance(),
       onChange:(edits:Edit[])=>{if(isCurrent(mounted)){lastEmitted=edits;options.onChange(edits);}},
       onPending:(pending:boolean)=>{if(isCurrent(mounted))options.onPendingChange?.(pending);},
       onError:(message:string)=>{if(isCurrent(mounted))options.onError?.(message);},onReady:()=>{if(isCurrent(mounted))mounted.resolveReady();},
@@ -39,7 +40,7 @@ export function mountFullEditor(element:HTMLElement,initial:EditorOptions):Edito
       onGetSystemFonts:options.onGetSystemFonts?()=>runCurrent(mounted,()=>options.onGetSystemFonts!()):undefined,
       onFontMetrics:options.onFontMetrics?(family:string)=>runCurrent(mounted,()=>options.onFontMetrics!(family)):undefined,
       onFetchImage:options.onFetchImage?async(url:string)=>{
-        const editable=()=>{if(options.readOnly||options.model.readOnly)throw Error('当前 Word 文档只读，不能粘贴图片。');};
+        const editable=()=>{if(locked())throw Error('当前 Word 文档只读，不能粘贴图片。');};
         const result=await runCurrent(mounted,()=>{editable();return options.onFetchImage!(url);});
         editable();return result;
       }:undefined,
@@ -71,6 +72,7 @@ export function mountFullEditor(element:HTMLElement,initial:EditorOptions):Edito
   const observer=new MutationObserver(()=>{if(!disposed)updateSettings();});
   observer.observe(element.ownerDocument.documentElement,{attributes:true,attributeFilter:['class','style','data-theme']});
   return{
+    get ready(){return current.ready;},
     update(next){
       if(disposed)return;
       const rebase=next.model!==options.model;
@@ -89,9 +91,10 @@ export function mountFullEditor(element:HTMLElement,initial:EditorOptions):Edito
         mount();options.onPendingChange?.(false);
       }else updateSettings();
     },
+    async output(command){const mounted=current;await runCurrent(mounted,()=>mounted.ready);await runCurrent(mounted,()=>api(mounted).output(command));},
     async beforeSave(){const mounted=current;await runCurrent(mounted,()=>mounted.ready);await runCurrent(mounted,()=>api(mounted).flush(true));},
     destroy(){if(disposed)return;disposed=true;observer.disconnect();invalidate(current);options.onPendingChange?.(false);},
-    undo(){if(!disposed&&!options.readOnly&&!options.model.readOnly)api()?.undo();},
-    redo(){if(!disposed&&!options.readOnly&&!options.model.readOnly)api()?.redo();},
+    undo(){if(!disposed&&!locked())api()?.undo();},
+    redo(){if(!disposed&&!locked())api()?.redo();},
   };
 }

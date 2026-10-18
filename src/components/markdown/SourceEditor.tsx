@@ -101,10 +101,11 @@ export function SourceEditor({value,documentKey,readOnly,zoom,spellcheck,onChang
 import { Annotation } from '@codemirror/state';
 const externalLoad=Annotation.define<boolean>();
 function theme(zoom:number):Extension{return EditorView.theme({
-  '&':{height:'100%',color:'var(--color-text-primary)',backgroundColor:'var(--color-bg)'},
+  '&':{height:'100%',color:'var(--color-text-primary)',backgroundColor:'var(--md-paper, var(--color-bg))'},
   '.cm-scroller':{fontFamily:'var(--font-mono, ui-monospace, monospace)',fontSize:`${14*zoom/100}px`,lineHeight:'1.65',overflow:'auto'},
-  '.cm-content':{padding:'20px 24px',minHeight:'100%'},'.cm-gutters':{backgroundColor:'var(--color-bg-subtle)',color:'var(--color-text-tertiary)',borderRight:'1px solid var(--color-border)'},
-  '.cm-activeLine,.cm-activeLineGutter':{backgroundColor:'var(--color-bg-hover)'},
+  '.cm-content':{padding:'20px 24px',minHeight:'100%',backgroundColor:'var(--md-paper, var(--color-bg))'},'.cm-gutters':{backgroundColor:'var(--md-paper, var(--color-bg))',color:'var(--color-text-tertiary)',borderRight:'1px solid var(--color-border)'},
+  '.cm-activeLine':{backgroundColor:'transparent'},
+  '.cm-activeLineGutter':{backgroundColor:'transparent',color:'var(--color-text-primary)'},
   '.cm-cursor':{borderLeftColor:'var(--color-text-primary)'},
   '&.cm-focused .cm-selectionBackground,.cm-selectionBackground':{backgroundColor:'var(--color-accent-ring)'},
   '&.cm-focused':{outline:'none'},

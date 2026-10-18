@@ -22,7 +22,9 @@ import './vendor/apps/slides/src/renderer/styles.css';
 import './parity-frame.css';
 import type {PptxCommand} from './types';
 import {checkpointTextEdit,settleTextEditSave,setTextEditReadOnly,setTextEditComposing,abandonTextEdit,cancelTextEditResume,noteTextEditPointer} from './parity-text-edit';
+import {runPptxOutput} from './parity-output';
 import {setPptxEpoch} from './parity-protocol';
+import {setPptxPresentationMode} from './parity-presentation';
 
 const listeners = new Map<string,Set<(...args:any[])=>void>>();
 const emit=(name:string,payload:any)=>listeners.get(name)?.forEach(f=>f({},payload));
@@ -123,6 +125,7 @@ document.addEventListener('focusout',()=>queueMicrotask(()=>{if(!document.queryS
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopImmediatePropagation();post('save-request')}},true);
 document.addEventListener('pointerdown',noteTextEditPointer,true);
 document.addEventListener('keydown',cancelTextEditResume,true);
+document.addEventListener('contextmenu',event=>{if(document.body.dataset.presentationMode==='preview'){event.preventDefault();event.stopImmediatePropagation()}},true);
 const syncReadOnly=()=>{
  document.body.dataset.readOnly=String(readOnly);
  session?.setReadOnly(readOnly);
@@ -161,6 +164,10 @@ async function receiveHost(m:any){
  if(m.type==='init'){
   if(!Number.isSafeInteger(m.epoch)||m.epoch<=epoch)return;
   epoch=m.epoch;setPptxEpoch(epoch);initializing=true;
+  setPptxPresentationMode(m.presentationMode??'edit');
+  // Capture initial permissions before I/O; newer readonly messages may arrive
+  // while fonts/archive parsing is pending and must win at completion.
+  readOnly=m.presentationMode==='preview'||m.readOnly;
   previousQueue=queue;queue=Promise.resolve();busy=0;
   if(snapshotTimer)clearTimeout(snapshotTimer);snapshotTimer=undefined;
   const replaced=new Error('PPTX 编辑内容已替换');
@@ -188,14 +195,17 @@ async function receiveHost(m:any){
    if(same){
     // Native acknowledgment keeps App, selection and the bounded upstream undo/redo snapshots.
     baseline=nextBaseline;initializing=false;
-    snapshotVersion=dirtyVersion;error=null;readOnly=m.readOnly;if(readOnly)setTextEditReadOnly(true);syncReadOnly();if(!readOnly)setTextEditReadOnly(false);settleTextEditSave();post('initialized',{},context);pending();
+    snapshotVersion=dirtyVersion;error=null;if(readOnly)setTextEditReadOnly(true);syncReadOnly();if(!readOnly)setTextEditReadOnly(false);settleTextEditSave();post('initialized',{},context);pending();
     previousSaves.forEach(resolve=>resolve({ok:true}));return;
    }
    const candidate=m.edits[0]?.kind==='candidate'?m.edits[0]:null;
-   const opened=candidate?await openPptx(new Uint8Array(Buffer.from(candidate.base64,'base64'))):nextBaseline;checkContext(context);
+   // Structural upstream ops mutate the session archive (including undo/redo).
+   // Keep the native baseline independent so candidate manifests compare with
+   // the original File even before the first native save acknowledgment.
+   const opened=await openPptx(new Uint8Array(Buffer.from(candidate?.base64??m.model.sourceBase64,'base64')));checkContext(context);
    previousSaves.forEach(resolve=>resolve({ok:false,error:'PPTX 编辑内容已替换'}));previousSaves=[];
    abandonTextEdit();root.render(null);
-   dirtyVersion=0;snapshotVersion=0;error=null;activeInput=false;composing=false;readOnly=m.readOnly;
+   dirtyVersion=0;snapshotVersion=0;error=null;activeInput=false;composing=false;
    setTextEditReadOnly(readOnly);setTextEditComposing(false);baseline=nextBaseline;
    const created=createParitySession(opened,{metrics:browserFontMetrics,emit:(name,payload)=>{if(session===created&&!initializing)emit(name,payload)},onCommand:()=>{if(session===created&&!initializing){dirtyVersion++;activeInput=false;pending();scheduleSnapshot()}},confirmChart:async message=>confirm(message)});
    session=created;
@@ -205,8 +215,9 @@ async function receiveHost(m:any){
    root.render(<LocaleProvider key={++generation} initial="zh"><App/></LocaleProvider>);
    syncReadOnly();post('initialized',{},context);pending();
   }catch(e){previousSaves.forEach(resolve=>resolve({ok:false,error:'PPTX 编辑内容已替换'}));if(context===epoch){initializing=false;post('error',{message:e instanceof Error?e.message:String(e)},context)}}
- }else if(m.type==='readonly'){readOnly=m.readOnly;if(readOnly)setTextEditReadOnly(true);syncReadOnly();if(!readOnly)setTextEditReadOnly(false)}
- else if(m.type==='flush'){
+ }else if(m.type==='readonly'){setPptxPresentationMode(m.presentationMode??'edit');readOnly=m.presentationMode==='preview'||m.readOnly;if(readOnly)setTextEditReadOnly(true);syncReadOnly();if(!readOnly)setTextEditReadOnly(false)}
+ else if(m.type==='flush'||m.type==='output'){
+  const reply=m.type==='output'?'output-done':'flushed';
   try{
    if(composing)throw new Error('请先完成中文输入，再保存演示文稿');
    // Shape text uses the original extraction/editText without disposing its live DOM.
@@ -219,13 +230,24 @@ async function receiveHost(m:any){
    checkContext(context);await queue;checkContext(context);
    if(error)throw error;
    await snapshotNow();checkContext(context);
-   activeInput=false;pending();post('flushed',{requestId:m.requestId},context);
-  }catch(e){post('flushed',{requestId:m.requestId,error:e instanceof Error?e.message:String(e)},context)}
+   activeInput=false;pending();
+   if(m.type==='output'){
+    if(!['pdf','images','print'].includes(m.command))throw new Error('未知 PPTX 输出命令');
+    await runPptxOutput(m.command);checkContext(context);
+   }
+   post(reply,{requestId:m.requestId},context);
+  }catch(e){post(reply,{requestId:m.requestId,error:e instanceof Error?e.message:String(e)},context)}
  }
 }
 window.addEventListener('message',event=>{
  if(event.source!==parent||event.data?.source!=='project-mind-pptx-host')return;
- if(event.data.type==='connect'&&event.ports[0]&&!hostChannel){hostChannel=event.ports[0];hostChannel.onmessage=event=>{void receiveHost(event.data)};hostChannel.start()}
+ // A ready query must answer over the window: an earlier host effect may
+ // already have closed its end of the previous channel.
+ if(event.data.type==='ready-request'){parent.postMessage({source:'project-mind-pptx',type:'ready',epoch},'*');return}
+ if(event.data.type==='connect'&&event.ports[0]){
+  hostChannel?.close();const connection=event.ports[0];hostChannel=connection;
+  connection.onmessage=event=>{if(hostChannel===connection)void receiveHost(event.data)};connection.start();
+ }
  else if(!hostChannel)void receiveHost(event.data);
 });
 post('ready');

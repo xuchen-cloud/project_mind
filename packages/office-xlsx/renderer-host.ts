@@ -13,11 +13,12 @@ import {screenSourcesResultSchema,screenCaptureRequestSchema,screenCaptureResult
 import type { Edit, Model } from './types'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
-type Options = { model: Model; edits: Edit[]; readOnly: boolean; appearance: Record<string,string> }
-type AppContext = { univerRef: {current:any}; lazyWorkbookRef:{current:any}; commitActiveEditor:()=>Promise<boolean>; saveContext:()=>any; openingWorkbook:boolean; isCellEditing:()=>boolean; calcManual:boolean }
+type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
+type AppContext = { univerRef: {current:any}; lazyWorkbookRef:{current:any}; commitActiveEditor:()=>Promise<boolean>; saveContext:()=>any; openingWorkbook:boolean; isCellEditing:()=>boolean; calcManual:boolean; output:(action:string)=>Promise<void> }
 let options:Options,context:AppContext|undefined,loaded=false,ready=false,serializing:Promise<void>|undefined,stopped=false
 const baseline=new Map<string,string>();let baselineCaptured=false
-let inputPending=false,pending=false,lastSignature='',captured:Edit[]|undefined,restoreStarted=false
+let outputBusy=false,outputFailure:Error|undefined
+let inputPending=false,pending=false,lastSignature='[]',captured:Edit[]|undefined,restoreStarted=false
 const listeners=new Map<string,Set<Function>>()
 // Streaming workbooks become interactive after their first viewport; only formula mode preloads all cells.
 const initialRangeLoaded=(state:any)=>state&&(state.flags.preloadComplete||(!state.formulaMode&&state.loadedRanges.size>0))
@@ -54,8 +55,8 @@ function capture(request:any){assertSession(request.sessionId);const {sessionId,
  captured=[{kind:'gateway',changes,snapshot:{workbook:workbook.getSnapshot(),journal:encode(state.editJournal)}}]
 }
 function applyAppearance(){for(const [key,value]of Object.entries(options.appearance))document.documentElement.style.setProperty(key,value)}
-function syncLock(){const workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook();if(!workbook||!ready)return;workbook.setEditable(!options.readOnly)
- for(const node of document.querySelectorAll<HTMLElement>('.ribbon,.dialog-backdrop'))node.inert=options.readOnly
+function syncLock(){document.documentElement.dataset.presentationMode=options.presentationMode;document.documentElement.dataset.hostReadonly=String(options.readOnly);const workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook();if(!workbook||!ready)return;workbook.setEditable(!options.readOnly)
+ for(const node of document.querySelectorAll<HTMLElement>('.ribbon,.dialog-backdrop'))node.inert=options.readOnly&&!node.querySelector('.print-dialog')
  document.documentElement.dataset.hostReadonly=String(options.readOnly)}
 async function flush(){if(serializing)return serializing;serializing=(async()=>{if(!context||!ready)throw Error('Excel 编辑器尚未就绪');if(!(await context.commitActiveEditor()))throw Error('单元格输入提交失败')
  const runtime=context.univerRef.current;if(!context.calcManual){const calculated=runtime.univerAPI.getFormula().onCalculationResultApplied(10000);runtime.univerAPI.getFormula().executeCalculation();await calculated}
@@ -65,6 +66,15 @@ async function flush(){if(serializing)return serializing;serializing=(async()=>{
  if(signature!==lastSignature){lastSignature=signature;send('change',edits)}
  pending=inputPending;send('pending',pending)
  })().finally(()=>{serializing=undefined});return serializing}
+async function runOutput(command:unknown){
+ const action=command==='pdf'?'export-pdf':command==='csv'?'export-csv':command==='print'?'print':null
+ if(!action)throw Error('未知 Excel 输出命令')
+ if(!ready||!context)throw Error('Excel 编辑器尚未就绪')
+ if(outputBusy)throw Error('Excel 输出正在进行')
+ outputBusy=true;outputFailure=undefined
+ try{if(!await context.commitActiveEditor())throw Error('单元格输入提交失败');await context.output(action);if(outputFailure)throw outputFailure}
+ finally{outputBusy=false;outputFailure=undefined}
+}
 const transfers=new Map<string,any[]>()
 let nextSave=0;const saveReplies=new Map<number,{resolve:()=>void,reject:(error:Error)=>void}>()
 const api:Record<string,any>={
@@ -108,9 +118,13 @@ const api:Record<string,any>={
   const start=request.resumeAt?matches.findIndex(c=>c.sheetId===request.resumeAt.sheetId&&c.row===request.resumeAt.row&&c.column===request.resumeAt.column):0;const page=matches.slice(Math.max(start,0),Math.max(start,0)+request.limit),next=matches[Math.max(start,0)+request.limit];return{matches:page,complete:!next,...(next?{nextCursor:{sheetId:next.sheetId,row:next.row,column:next.column}}:{}),indexingComplete:true}},
 }
 export async function initialize(){options=await new Promise<Options>(resolve=>{const init=(event:MessageEvent)=>{if(event.source!==parent||event.data?.officeXlsx!==true||event.data.type!=='init')return;window.removeEventListener('message',init);if(!event.ports[0])throw Error('Excel 宿主缺少专属通信端口');connectHostChannel(event.ports[0]);resolve(event.data.value)};window.addEventListener('message',init);parent.postMessage({officeXlsx:true,type:'bootstrap'},'*')})
- applyAppearance()
+ // A clean mount (or restored host draft) is the comparison baseline, not an edit.
+ lastSignature=JSON.stringify(options.edits)
+ applyAppearance();syncLock()
  ;(window as any).desktopApi=new Proxy(api,{get(target,key:string){if(key in target)return target[key];if(key.startsWith('on'))return(callback:Function)=>subscribe(key,callback);return async()=>{throw Error(`当前 File 宿主尚未连接 ${key}`)}}})
  ;(window as any).__projectMindSheetsHost={
+  isReadOnly:()=>options.readOnly,
+  outputFailed:(error:unknown)=>{if(outputBusy)outputFailure=error instanceof Error?error:Error(String(error))},
   edited:()=>api.notifyPendingEdits(0),
   menu:(action:string)=>emit('onMenuAction',action),
   render(next:AppContext){context=next;syncLock();if(!ready&&!next.openingWorkbook&&initialRangeLoaded(next.lazyWorkbookRef.current)){queueMicrotask(()=>void finishReady())}},
@@ -119,9 +133,9 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditEnded,()=>{inputPending=false;api.notifyPendingEdits(0)})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeSheetEditStart,(event:any)=>{if(ready&&options.readOnly)event.cancel=true})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeCommandExecute,(event:any)=>{if(ready&&options.readOnly&&event.type===CommandType.MUTATION)event.cancel=true})},
-  requestSave:async()=>{await flush();const id=++nextSave;await new Promise<void>((resolve,reject)=>{saveReplies.set(id,{resolve,reject});send('saveRequest',undefined,id)});return{ok:true}},
+  requestSave:async()=>{await flush();if(lastSignature==='[]')return{ok:true};const id=++nextSave;await new Promise<void>((resolve,reject)=>{saveReplies.set(id,{resolve,reject});send('saveRequest',undefined,id)});return{ok:true}},
  }
- onHostMessage(data=>{const{type,value,id}=data;if(type==='saveReply'){const reply=saveReplies.get(id);saveReplies.delete(id);if(value?.error)reply?.reject(Error(value.error));else reply?.resolve()}if(type==='update'){options={...options,...value};applyAppearance();syncLock()}if(type==='commit')void flush().then(()=>send('reply',null,id),error=>send('reply',{error:String(error.message??error)},id))})
+ onHostMessage(data=>{const{type,value,id}=data;if(type==='saveReply'){const reply=saveReplies.get(id);saveReplies.delete(id);if(value?.error)reply?.reject(Error(value.error));else reply?.resolve()}if(type==='update'){options={...options,...value};applyAppearance();syncLock()}if(type==='commit'||type==='output')void (type==='commit'?flush():runOutput(value)).then(()=>send('reply',null,id),error=>send('reply',{error:String(error.message??error)},id))})
  const tick=()=>{if(!ready&&initialRangeLoaded(context?.lazyWorkbookRef.current)&&!context.openingWorkbook)void finishReady();if(!stopped)requestAnimationFrame(tick)};requestAnimationFrame(tick)
  window.addEventListener('keydown',event=>{if(!(event.metaKey||event.ctrlKey)||event.altKey)return;const key=event.key.toLowerCase();if(key==='s'&&!event.shiftKey){event.preventDefault();event.stopImmediatePropagation();void (window as any).__projectMindSheetsHost.requestSave().catch((error:any)=>send('error',String(error.message??error)))}else if(key==='p'&&!event.shiftKey){event.preventDefault();event.stopImmediatePropagation();emit('onMenuAction','print')}},true)
  installScrollMasks(document.body)

@@ -163,6 +163,8 @@ function relatedFixture(rootText: string, rootName: string, rootMime: string, fo
 it('loads current Markdown relative and reference images only through bound same-Project File resolution', async () => {
   relatedFixture('# Picture\n\n![direct](images/a.png)\n\n![ref][asset]\n\n[asset]: images/a.png', 'sample.md', 'text/markdown', 'markdown');
   const rendered = view();
+  // This integration loads the real lazy rich renderer; resource assertions start after it mounts.
+  await screen.findByRole("heading",{name:"Picture",exact:true},{timeout:5000});
   await waitFor(() => expect(rendered.container.querySelectorAll('img[src^="data:image/png"]')).toHaveLength(2));
   expect(projectFileApi.resolveRelated).toHaveBeenCalledOnce();
   expect(projectFileApi.resolveRelated).toHaveBeenCalledWith(binding, object, 'images/a.png');
@@ -173,7 +175,7 @@ it('does not mix current images into historical Markdown when dependent snapshot
   const rendered = view({ ...input, versionNumber: 1 } as typeof input);
   await screen.findByText(/历史版本未保留关联资源快照/);
   expect(projectFileApi.resolveRelated).not.toHaveBeenCalled();
-  expect(rendered.container.querySelector('img')).toBeNull();
+  expect(rendered.container.querySelector('img[src]')).toBeNull();
 });
 it('loads static HTML current image and stylesheet before fixed DSH sanitization in an opaque sandbox', async () => {
   relatedFixture('<link rel="stylesheet" href="style.css"><h1 onclick="attack()">Preview</h1><img src="a.png"><a href="https://example.com">link</a><script>attack()</script>', 'sample.html', 'text/html', 'html');
@@ -206,7 +208,7 @@ it('ignores late current-image resolution when switching the same File to fixed 
   await screen.findByText(/历史版本未保留关联资源快照/);
   await act(async () => complete({ object: { ...object, id: '8' }, versionNumber: 3, contentHash: 'asset3', state: 'ready', reason: null }));
   expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2);
-  expect(rendered.container.querySelector('img')).toBeNull();
+  expect(rendered.container.querySelector('img[src]')).toBeNull();
 });
 it('reconciles latest before reading the actual registered head, while fixed versions skip live reconciliation', async () => {
   vi.mocked(projectFileApi.resolve).mockImplementation(async () => {
@@ -512,8 +514,9 @@ it('restores Markdown source mode from the shell without rereading bytes when th
   expect(sourceEditor).toHaveTextContent('# Markdown');
   expect(sourceEditor).toHaveAttribute('contenteditable', 'true');
   rendered.rerender(wrap(false)); await screen.findByRole('heading', {name:'Markdown'});
-  fireEvent.click(screen.getByRole('button', {name:'源码 / 行定位'}));
-  expect(changed).toHaveBeenLastCalledWith({sourceMode:true});
+  expect(rendered.container.querySelector('.project-file-content__toolbar button[aria-label="源码 / 行定位"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name:'源码',exact:true}));
+  expect(changed).toHaveBeenLastCalledWith({mode:'source',sourceMode:true});
   expect(projectFileApi.readBytes).toHaveBeenCalledOnce();
 });
 

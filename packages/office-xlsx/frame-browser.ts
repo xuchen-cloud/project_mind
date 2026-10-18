@@ -1,13 +1,13 @@
 import {rendererHtml} from './generated/renderer-resource'
-import type {EditorProps,MountedEditor,ExportFile,PrintDocument} from './types'
+import type {EditorProps,MountedEditor,ExportFile,PrintDocument,OutputCommand} from './types'
 import './browser.css'
-export type {Model,Edit,EditorProps,ExportFile,PrintDocument,ScreenSourcesResult,ScreenCaptureRequest,ScreenCaptureResult} from './types'
+export type {Model,Edit,EditorProps,MountedEditor,OutputCommand,ExportFile,PrintDocument,ScreenSourcesResult,ScreenCaptureRequest,ScreenCaptureResult} from './types'
 /** Isolated full GenOffice renderer. File identity, CAS and persistence stay in the host. */
 export function mount(container:HTMLElement,initial:EditorProps):MountedEditor{
  let props=initial,disposed=false,frame:HTMLIFrameElement,resolveReady:()=>void,rejectReady:((cause:Error)=>void)|undefined,ready:Promise<void>,nextId=0,epoch=0,frameUrl:string|undefined,port:MessagePort|undefined
  const calls=new Map<number,{resolve:()=>void;reject:(e:Error)=>void}>()
  const appearance=()=>Object.fromEntries(['--color-bg','--color-bg-subtle','--color-canvas','--color-border','--color-text-primary','--color-text-secondary','--color-accent','--font-ui'].map(key=>[key,getComputedStyle(container).getPropertyValue(key)]))
- const data=()=>({model:props.model,edits:props.edits,readOnly:props.readOnly,appearance:appearance()})
+ const data=()=>({model:props.model,edits:props.edits,readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit',appearance:appearance()})
  const send=(type:string,value?:unknown,id?:number)=>port?.postMessage({officeXlsx:true,type,value,id})
  function start(){rejectReady?.(Error('Excel 工作簿已切换'));epoch++;port?.close();port=undefined;if(frameUrl)URL.revokeObjectURL(frameUrl);ready=new Promise<void>((resolve,reject)=>{resolveReady=resolve;rejectReady=reject});void ready.catch(()=>{});frame=document.createElement('iframe');frame.title='Excel 完整编辑器';frame.className='office-xlsx-frame';frame.setAttribute('sandbox','allow-scripts allow-same-origin allow-downloads allow-modals allow-popups');frameUrl=URL.createObjectURL(new Blob([rendererHtml],{type:'text/html;charset=utf-8'}));frame.src=frameUrl;container.replaceChildren(frame)}
  const receive=(event:MessageEvent,respond?:(message:unknown)=>void)=>{if(disposed||event.source!==frame.contentWindow||event.data?.officeXlsx!==true)return;const{type,value,id}=event.data;const reply=respond??((message:unknown)=>(event.source as Window).postMessage(message,'*'))
@@ -62,8 +62,9 @@ export function mount(container:HTMLElement,initial:EditorProps):MountedEditor{
 
  }
  const receiveWindow=(event:MessageEvent)=>{if(event.data?.type==='bootstrap'||(!port&&event.data?.type==='error'))receive(event)};window.addEventListener('message',receiveWindow);start()
- return{get ready(){return ready},async commitEditing(){const owner=epoch;await ready;if(disposed||owner!==epoch)throw Error('Excel 工作簿已切换或关闭');const id=++nextId;await new Promise<void>((resolve,reject)=>{calls.set(id,{resolve,reject});send('commit',undefined,id)})},
- update(next){const replaced=props.model!==next.model;props=next;if(replaced){for(const call of calls.values())call.reject(Error('Excel 工作簿已切换'));calls.clear();start()}else send('update',{readOnly:props.readOnly,appearance:appearance()})},
+ async function call(type:'commit'|'output',value?:OutputCommand){const owner=epoch;await ready;if(disposed||owner!==epoch)throw Error('Excel 工作簿已切换或关闭');const id=++nextId;await new Promise<void>((resolve,reject)=>{calls.set(id,{resolve,reject});send(type,value,id)})}
+ return{get ready(){return ready},commitEditing:()=>call('commit'),output(command){if(!['pdf','csv','print'].includes(command))return Promise.reject(Error('未知 Excel 输出命令'));return call('output',command)},
+ update(next){const replaced=props.model!==next.model;props=next;if(replaced){for(const call of calls.values())call.reject(Error('Excel 工作簿已切换'));calls.clear();start()}else send('update',{readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit',appearance:appearance()})},
  dispose(){disposed=true;epoch++;rejectReady?.(Error('Excel 编辑器已关闭'));window.removeEventListener('message',receiveWindow);port?.close();for(const call of calls.values())call.reject(Error('Excel 编辑器已关闭'));calls.clear();frame.remove();if(frameUrl)URL.revokeObjectURL(frameUrl)}}
 }
 export const mountEditor=mount

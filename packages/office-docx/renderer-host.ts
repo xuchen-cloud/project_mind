@@ -6,7 +6,7 @@ import type {FileActionContext} from './upstream/apps/docs/src/renderer/file-act
 import type {Edit} from './types';
 import type {FaceVerticalMetrics,EditorRemoteImage} from './editor-types';
 interface EmbeddedOptions {
-  sourceBase64: string; baselineHash: string; readOnly: boolean; hasDraft:boolean;initialDocument?:unknown;
+  sourceBase64: string; baselineHash: string; readOnly: boolean; presentationMode:'preview'|'edit'; hasDraft:boolean;initialDocument?:unknown;
   appearance:{theme:'light'|'dark';font:string;tokens:Record<string,string>};
   onChange(edits:Edit[]):void; onPending?(value:boolean):void; onError?(message:string):void;
   onReady?():void; onSaveRequest?():void|Promise<void>;
@@ -49,6 +49,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
   const emit=(name:string,...args:unknown[])=>events.get(name)?.forEach(fn=>fn(...args));
   function applyAppearance(){
     const root=document.documentElement,{theme,font,tokens}=options.appearance;
+    root.dataset.presentationMode=options.presentationMode;
     root.dataset.theme=theme;root.dataset.docTheme=theme;root.classList.toggle('dark',theme==='dark');
     for(const [name,value]of Object.entries(tokens))root.style.setProperty(name,value);
     root.style.setProperty('--font-ui',tokens['--font-ui']||font);root.style.setProperty('--gs-font-sans',tokens['--font-ui']||font);
@@ -126,6 +127,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     beginOperation(){if(destroyed)return;if(!activeOperations){operationFailure=null;operationsIdle=new Promise(resolve=>{resolveOperationsIdle=resolve;});}activeOperations++;pending(true);},
     endOperation(error?:unknown){if(destroyed)return;if(error)operationFailure=error;activeOperations=Math.max(0,activeOperations-1);if(!activeOperations){resolveOperationsIdle();void flush().catch(()=>{});}},
     get readOnly(){return options.readOnly&&!loading&&!restoringDraft;},
+    get presentationMode(){return options.presentationMode;},
     get locked(){return destroyed||options.readOnly;},
     get dirty(){return revision!==persistedRevision||uncommittedInput||composing||activeOperations>0;},
     subscribeDirty(fn:Function){return subscribe('hostDirty',fn);},
@@ -138,15 +140,15 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
       if(!options.onSaveRequest)throw Error('当前 File 宿主尚未连接 Word 保存回执。');
       await options.onSaveRequest();ensureActive();return true;
     },
-    async output(command:'html'|'print'|'pdf'|'images'){
-      try{await flush(true);if(command==='html')return await deps.exportHtml(context!);if(command==='pdf')return await deps.exportPdf(context!);if(command==='images')return await deps.exportImages(context!);deps.printDoc(context!);return true;}
+    async output(command:'html'|'print'|'pdf'|'images'|'preview'){
+      try{await flush(true);if(command==='preview'){context!.setShowPagePreview(true);return true;}if(command==='html')return await deps.exportHtml(context!);if(command==='pdf')return await deps.exportPdf(context!);if(command==='images')return await deps.exportImages(context!);deps.printDoc(context!);return true;}
       catch(error){fail(error);return false;}
     },
     render(ctx:FileActionContext,docLoading:boolean){
       if(destroyed)return;
       context=ctx;loading=docLoading||!ctx.doc;
       syncViews();
-      for(const node of document.querySelectorAll<HTMLElement>('.pm-ribbon-edit-tabs,.ribbon-body,.modal-backdrop:not(.pm-output-dialog),.comments-pane'))node.inert=options.readOnly;
+      for(const node of document.querySelectorAll<HTMLElement>('.pm-ribbon-edit-tabs,.ribbon-body,.modal-backdrop:not(.pm-output-dialog):not(.pm-view-dialog),.comments-pane'))node.inert=options.readOnly;
       // Lock immediately. App's own readMode/protection/embeddedReadOnly effect
       // owns unlocking; restoring a captured isEditable=false from an initially
       // read-only mount would override that effect and leave it locked forever.

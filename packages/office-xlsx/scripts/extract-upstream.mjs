@@ -21,8 +21,14 @@ await writeFile(new URL('generated/edit-journal.ts',root),banner+journal.replace
 const main = await read('main/sheets-main.ts')
 const start = main.indexOf('async function writeWorkbookTo(')
 const end = main.indexOf('/** Copies the workbook into the temp snapshot dir;',start)
-const save = main.slice(start,end).replace('async function writeWorkbookTo(','export async function writeWorkbookTo(').replace('client: XlsxSidecarClient','client: Sidecar')
-await writeFile(new URL('generated/save-workbook.ts',root),banner+`import type { Sidecar } from '../sidecar'
+let save = main.slice(start,end).replace('async function writeWorkbookTo(','export async function writeWorkbookTo(').replace('client: XlsxSidecarClient','client: Sidecar')
+// File persistence belongs to the host. Every gateway scratch file and the
+// byte candidate stay inside the same private directory granted to the worker.
+const saveCall = 'const mutation = await saveWorkbookViaSidecar({\n    client,'
+if (!save.includes(saveCall)) throw Error('Upstream workbook save bridge changed')
+save = save.replace(saveCall, saveCall + '\n    tempRoot: dirname(targetPath),\n    temporaryCandidate: true,')
+await writeFile(new URL('generated/save-workbook.ts',root),banner+`import { dirname } from 'node:path'
+import type { Sidecar } from '../sidecar'
 import type { WorkbookSaveRequest } from './desktop-api'
 import type { CellEdit, SheetStructuralOps } from '../vendor/packages/xlsx-gateway/src/gateway/xlsx-gateway'
 import type { SheetEditPlan } from '../vendor/packages/xlsx-gateway/src/gateway/xlsx-sheets'

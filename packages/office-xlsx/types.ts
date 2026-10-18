@@ -61,6 +61,8 @@ export interface RecalculateResult {
 export interface ExportFile { name: string; mime: string; bytes: Uint8Array }
 export interface PrintDocument { html: string; title?: string; pageSize?: { widthPt: number; heightPt: number } }
 export interface EditorProps {
+  /** The same renderer and view state; preview locks editing and hides editing controls. */
+  presentationMode?: 'preview' | 'edit'
   model: Model; edits: Edit[]; onChange: (edits: Edit[]) => void; readOnly: boolean
   onPendingChange?: (pending: boolean) => void
   onSaveRequest?: () => void | Promise<void>
@@ -73,9 +75,12 @@ export interface EditorProps {
   onCaptureScreenSources?: () => Promise<ScreenSourcesResult>
   onCaptureScreenSource?: (request: ScreenCaptureRequest) => Promise<ScreenCaptureResult | null>
 }
+export type OutputCommand = 'pdf' | 'csv' | 'print'
 export interface MountedEditor {
   readonly ready: Promise<void>
   commitEditing: () => Promise<void>
+  /** PDF/CSV await the output callback; print opens the original print settings dialog. */
+  output: (command: OutputCommand) => Promise<void>
   update: (props: EditorProps) => void
   dispose: () => void
 }

@@ -1,12 +1,53 @@
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import ts from 'typescript';
+import {replaceStatusZoom,markEditorChrome} from '../editor-chrome/build-adapter.mjs';
+
+// Select JSX nodes from the pinned AST; exact counts fail on upstream changes.
+function chromeAst(source,path){
+ const ast=ts.createSourceFile(path,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+ const all=[];function visit(node){all.push(node);ts.forEachChild(node,visit)}visit(ast);
+ const element=node=>ts.isJsxElement(node)||ts.isJsxSelfClosingElement(node);
+ const opening=node=>ts.isJsxElement(node)?node.openingElement:node;
+ const hasClass=(node,name)=>element(node)&&opening(node).attributes.properties.some(a=>ts.isJsxAttribute(a)&&a.name.getText(ast)==='className'&&a.initializer&&(ts.isStringLiteral(a.initializer)?a.initializer.text.split(/\s+/).includes(name):a.initializer.getText(ast).includes(name)));
+ const one=(predicate,label)=>{const nodes=all.filter(predicate);if(nodes.length!==1)throw Error(label+' integration point changed: '+nodes.length);return nodes[0]};
+ const conditional=node=>{while(ts.isParenthesizedExpression(node.parent)||ts.isBinaryExpression(node.parent))node=node.parent;return ts.isJsxExpression(node.parent)?node.parent:node};
+ return{ast,all,element,opening,hasClass,one,conditional};
+}
+function removeRanges(source,nodes){for(const node of nodes.sort((a,b)=>b.getStart()-a.getStart()))source=source.slice(0,node.getStart())+source.slice(node.end);return source;}
+function embeddedAppChrome(source,path){
+ const a=chromeAst(source,path),tag=(node,name)=>a.element(node)&&a.opening(node).tagName.getText(a.ast)===name;
+ const dock=a.conditional(a.one(n=>a.hasClass(n,'ai-dock'),'AI dock'));
+ const ask=a.conditional(a.one(n=>tag(n,'AiAskPopover'),'AI ask'));
+ const save=a.one(n=>a.hasClass(n,'qa-btn')&&n.getText(a.ast).includes("t('appSaveShortcutTip')"),'QAT save');
+ const autosave=a.one(n=>a.hasClass(n,'autosave-toggle'),'QAT autosave');
+ const sep=a.one(n=>a.hasClass(n,'qa-sep'),'QAT separator');
+ return removeRanges(source,[dock,ask,save,autosave,sep]);
+}
+function embeddedRibbonChrome(source,path){
+ const a=chromeAst(source,path),group=a.one(n=>a.hasClass(n,'ribbon-group')&&n.getText(a.ast).includes('Genspark AI'),'Home AI group');
+ const siblings=group.parent.children,following=siblings.slice(siblings.indexOf(group)+1).find(a.element);
+ if(!following||!a.hasClass(following,'ribbon-sep'))throw Error('Home AI following separator integration point changed');
+ return removeRanges(source,[group,following]);
+}
+function embeddedStatus(source,path){
+ const a=chromeAst(source,path),footer=a.one(n=>a.hasClass(n,'status-bar'),'Status bar');
+ const left=a.one(n=>a.hasClass(n,'status-left'),'Status info'),right=a.one(n=>a.hasClass(n,'status-right'),'Status zoom');
+ const page=a.one(n=>a.hasClass(n,'status-page'),'Status page'),views=a.conditional(a.one(n=>a.hasClass(n,'status-views'),'Status views'));
+ const without=(node,child)=>source.slice(node.getStart(),child.getStart())+source.slice(child.end,node.end);
+ const result='<footer className="status-bar">{doc && ('+page.getText(a.ast)+')}<div className="pm-status-info" role="group" aria-label="文档状态" tabIndex={0}><span className="pm-preview-state">只读预览</span>'+without(left,page)+views.getText(a.ast)+'</div>'+without(right,views)+'</footer>';
+ return source.slice(0,footer.getStart())+result+source.slice(footer.end);
+}
+
 /** Deterministic integration transforms. The pinned upstream files stay unchanged. */
 export function rendererAdapter(root){
   const replace=(source,from,to)=>{if(!source.includes(from))throw Error(`Upstream integration point changed: ${from.slice(0,90)}`);return source.replace(from,to);};
   return {name:'project-mind-docx-web-host',setup(build){
+    build.onLoad({filter:/office-docx[\/]renderer\.tsx$/},async({path})=>({contents:await readFile(path,'utf8')+"\nimport '../editor-chrome/status-bar.css';\nimport '../editor-chrome/editor-chrome.css';\n",loader:'tsx',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/office-docx[\/]scroll-edges\.ts$/},async({path})=>({contents:(await readFile(path,'utf8')).replaceAll('Math.min(16,width*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-size')),width*.35)").replaceAll('Math.min(24,height*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-block-size')),height*.35)"),loader:'ts',resolveDir:resolve(path,'..')}));
     build.onLoad({filter:/pdf\.worker\.min\.mjs$/},async({path,suffix})=>suffix==='?url'?{contents:`export default URL.createObjectURL(new Blob([${JSON.stringify(await readFile(path,'utf8'))}],{type:'text/javascript'}));`,loader:'js'}:undefined);
     build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/PrintDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-output-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/ZoomDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-view-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
     build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/ProtectDialog\.tsx$/},async({path})=>{
       let source=await readFile(path,'utf8');
       // User explicitly excludes whole-file encryption. Remove this feature's
@@ -66,14 +107,16 @@ export function rendererAdapter(root){
     });
     build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/Ribbon\.tsx$/},async({path})=>{
       let source=await readFile(path,'utf8');
-      source=replace(source,'        {!IS_MAC && (',`
-        <button className="ribbon-tab pm-output-command" disabled={!hasDoc} onClick={() => void window.__projectMindDocxHost.output('pdf')}>导出 PDF</button>
-        <button className="ribbon-tab pm-output-command" disabled={!hasDoc} onClick={() => void window.__projectMindDocxHost.output('images')}>导出图片</button>
-        <button className="ribbon-tab pm-output-command" disabled={!hasDoc} onClick={() => void window.__projectMindDocxHost.output('html')}>导出 HTML</button>
-        <button className="ribbon-tab pm-output-command" disabled={!hasDoc} onClick={() => void window.__projectMindDocxHost.output('print')}>打印…</button>
-        <div className="pm-ribbon-edit-tabs" style={{display:'contents'}}>
-        {!IS_MAC && (`);
-      source=replace(source,'        {trailingActions}\n      </div>','        {trailingActions}\n        </div>\n      </div>');
+      source=markEditorChrome(ts,embeddedRibbonChrome(source,path),path);
+      // The enclosing File host owns its menu; keep original editor tabs and QAT undo/redo.
+      const start=source.indexOf('        {!IS_MAC && (',source.indexOf('className={`ribbon-tabs'));
+      const end=source.indexOf('        {quickActions}',start);
+      if(start<0||end<0)throw Error('Ribbon file menu integration point changed');
+      source=source.slice(0,start)+'        <div className="pm-ribbon-edit-tabs" style={{display:"contents"}}>\n'+source.slice(end);
+      source=replace(source,'      <div\n        className={`ribbon-tabs',`      <div className="pm-ribbon-header">
+      <div
+        className={\`ribbon-tabs`);
+      source=replace(source,'        {trailingActions}\n      </div>','        {trailingActions}\n        </div>\n      </div>\n      </div>');
       return{contents:source,loader:'tsx',resolveDir:resolve(path,'..')};
     });
     build.onResolve({filter:/^project-mind:secure-extensions$/},()=>({path:resolve(root,'secure-extensions.ts')}));
@@ -88,6 +131,13 @@ export function rendererAdapter(root){
     });
     build.onLoad({filter:/apps\/docs\/src\/renderer\/App\.tsx$/},async ({path})=>{
       let source=await readFile(path,'utf8');
+      source=embeddedStatus(embeddedAppChrome(source,path),path);
+      source=replaceStatusZoom(ts,source,path,'<StatusZoom value={Math.round(zoom)} min={DOCS_ZOOM_MIN} max={DOCS_ZOOM_MAX} step={10} disabled={!doc} onChange={setZoom} onStep={direction=>setZoom(z=>stepDocsZoom(z,direction))} onValueClick={()=>setShowZoomDialog(true)}/>',resolve(root,'../editor-chrome/StatusZoom.tsx'));
+      source=markEditorChrome(ts,source,path);
+      // Chrome changes resize only the viewing area; retain the user's current
+      // ratio and fit choice on this update. Real subsequent resizes still refit.
+      source=replace(source,'    let lastWidth = -1',"    let lastWidth = -1\n    let lastPresentation = window.__projectMindDocxHost.presentationMode");
+      source=replace(source,'      const raw = rawFitWidth()\n      if (raw == null) return',"      const mode = window.__projectMindDocxHost.presentationMode\n      if (mode !== lastPresentation) { lastPresentation = mode; lastWidth = el.clientWidth; return }\n      const raw = rawFitWidth()\n      if (raw == null) return");
       source=replace(source,'export function App() {',`export function App() {\n  const [embeddedReadOnly, setEmbeddedReadOnly] = useState(window.__projectMindDocxHost.locked);\n  useEffect(() => window.__projectMindDocxHost.subscribeReadOnly(setEmbeddedReadOnly), []);\n  const [embeddedDirty, setEmbeddedDirty] = useState(window.__projectMindDocxHost.dirty);\n  useEffect(() => window.__projectMindDocxHost.subscribeDirty(setEmbeddedDirty), []);`);
       source=replace(source,'        if (!imageFile && imageOnlyHtml) {\n          void (async () => {',`        if (!imageFile && imageOnlyHtml) {
           window.__projectMindDocxHost.beginOperation();

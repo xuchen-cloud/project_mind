@@ -41,7 +41,7 @@ beforeEach(() => {
     vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, input) => { const text = input.versionNumber === 2 ? '原文' : '保留草稿'; return { object, versionNumber: input.versionNumber, contentHash: `hash${input.versionNumber}`, title: 'sample.md', byteLength: new TextEncoder().encode(text).byteLength, format: 'markdown', text, startChar: 0, endChar: [...text].length, totalChars: [...text].length, nextCursor: null, complete: true }; });
     vi.mocked(fileTextApi.save).mockImplementation(async () => { current = 3; return { receipt: { documentId: 7, versionNumber: 3, contentHash: 'hash3', noChange: false }, versionPath: null }; });
 });
-function mount() {
+async function mount() {
     const client = new QueryClient();
     let close: () => Promise<void> = async () => { };
     const wrap = (visible = true) => <QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible={visible} focused registerCloseGuard={guard => { close = guard; return () => { }; }}/></QueryClientProvider>;
@@ -49,7 +49,7 @@ function mount() {
     return { ...view, client, wrap, close: () => close() };
 }
 it('keeps an unsaved Markdown draft and its baseline when an external version arrives', async () => {
-    const view = mount();
+    const view = await mount();
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
     current = 3;
@@ -66,7 +66,7 @@ it('keeps an unsaved Markdown draft and its baseline when an external version ar
     view.unmount();
 });
 it('closing a hidden edited Markdown tab commits its fixed baseline; reopening reads the new File version', async () => {
-    const view = mount();
+    const view = await mount();
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
     view.rerender(view.wrap(false));
@@ -74,13 +74,13 @@ it('closing a hidden edited Markdown tab commits its fixed baseline; reopening r
     await act(() => view.close());
     expect(fileTextApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({ object, versionNumber: 2, expectedContentHash: 'hash2' }), expect.any(String));
     view.unmount();
-    const reopened = mount();
+    const reopened = await mount();
     await screen.findByText('保留草稿');
     expect(fileDocumentApi.sourceRead).toHaveBeenLastCalledWith(binding, expect.objectContaining({ object, versionNumber: 3, expectedContentHash: 'hash3' }));
     reopened.unmount();
 });
 it('a draft created during asynchronous tab revalidation survives the incoming clean baseline', async () => {
-    const view = mount();
+    const view = await mount();
     await screen.findByText('原文');
     view.rerender(view.wrap(false));
     let finish!: (value: ReturnType<typeof resolved>) => void;
@@ -97,7 +97,7 @@ it('a draft created during asynchronous tab revalidation survives the incoming c
 });
 it.each(['default', 'selected'])('flushes Markdown edits before %s external open', async (mode) => {
     vi.mocked(projectFileApi.applications).mockResolvedValue([{ id: 'viewer', name: 'Viewer', icon: null, isDefault: true }]);
-    const view = mount();
+    const view = await mount();
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
     let finish!: () => void;
@@ -120,7 +120,7 @@ it.each(['default', 'selected'])('flushes Markdown edits before %s external open
 });
 it('keeps the latest Markdown draft when saving before a version switch fails', async () => {
     vi.mocked(fileDocumentApi.versionsList).mockResolvedValueOnce({ object, currentVersionNumber: 2, currentContentHash: 'hash2', versions: [{ id: '2', versionNumber: 2, name: 'sample.md', createdAt: '2026-10-13', contentHash: 'hash2', isCurrent: true }, { id: '1', versionNumber: 1, name: 'sample.md', createdAt: '2026-10-12', contentHash: 'hash1', isCurrent: false }], nextCursor: null });
-    const view = mount();
+    const view = await mount();
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
     vi.mocked(fileTextApi.save).mockRejectedValueOnce(new Error('保存冲突'));
@@ -132,7 +132,7 @@ it('keeps the latest Markdown draft when saving before a version switch fails', 
     view.unmount();
 });
 it.each(['ready', 'wrong-owner', 'oversize'] as const)('resolves a newly typed Markdown image through the managed File boundary (%s)', async (scenario) => {
-    const view = mount();
+    const view = await mount();
     await screen.findByText('原文');
     const assetObject = { ...object, id: '8', scope: { kind: 'project' as const, projectId: scenario === 'wrong-owner' ? 9 : 2 } };
     vi.mocked(projectFileApi.resolveRelated).mockResolvedValue({ ...resolved(), object: assetObject, name: 'new.png', relativePath: 'images/new.png', versionNumber: 1, contentHash: 'asset-hash' });

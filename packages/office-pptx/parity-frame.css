@@ -7,14 +7,40 @@ body,.app,.ribbon,button,input,select,textarea {font-family:var(--pm-font,sans-s
 .ribbon-group:has(.ai-entry),.ribbon-group:has(.ai-entry)+.ribbon-sep {display:none!important;}
 body[data-read-only="true"] .ribbon-body {opacity:.6;}
 body[data-read-only="true"] .stage-area {pointer-events:none;}
+/* Preview uses the same App, SlideCanvas and session; only editing chrome is hidden. */
+body[data-presentation-mode="preview"] :is(.ribbon,.pm-ribbon-tab-list,.ribbon-tabs>.qa-btn,.ribbon-tabs>.qa-sep,.ribbon-collapse-btn,.ribbon-expand-btn,.notes-pane,.notes-pull-zone,.status-notes-btn,.format-pane,.bg-format-pane,.anim-pane,.comments-pane,.font-missing-banner,.ctx-menu,.ruler-row,.ruler,.ruler-bubble,.grid-overlay,.guide-line) {display:none!important;}
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important} }
 
-/* Native host owns open/Save As; the real editor keeps Save/export/print. */
-.file-menu>button:nth-child(1),.file-menu>button:nth-child(3){display:none;}
+/* The enclosing host already owns window controls and window dragging. */
+.ribbon-tabs,.ribbon-tabs-mac,.ribbon-tabs-win {padding:5px 8px 0;-webkit-app-region:no-drag;min-width:0;}
+.ribbon-tabs>.file-tab-wrap,.ribbon-tabs>.qa-btn,.ribbon-tabs>.qa-sep {flex-shrink:0;}
+.ribbon-tab,.file-menu button {white-space:nowrap;}
+.pm-ribbon-tab-list {display:flex;align-items:center;gap:2px;flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
+.pm-ribbon-tab-list>.ribbon-tab {flex:none;}
+.pm-ribbon-tab-list::-webkit-scrollbar {height:4px;}
+.pm-ribbon-tab-list::-webkit-scrollbar-thumb {background:var(--slides-scroll-thumb);border-radius:2px;}
+.ribbon-tabs-spacer {display:none;}
+.file-menu {max-width:calc(100vw - 16px);max-height:calc(100vh - 56px);overflow-y:auto;}
+/* Nested galleries can fit neither side of a narrow flyout trigger. Keep the
+   upstream anchor/vertical flips, then offer an inset viewport position. */
+@position-try --pm-slides-menu-inset {left:8px;right:auto;}
+.pm-editor-ribbon .rb-drop {max-width:calc(100vw - 16px);position-try-fallbacks:flip-inline,flip-block,flip-block flip-inline,--pm-slides-menu-inset,--pm-slides-menu-inset flip-block;}
+.status-left {min-width:0;flex:1;gap:8px;}
+.status-item {margin:0;color:inherit;white-space:nowrap;}
+.status-msg {flex:1;min-width:0;height:24px;line-height:24px;overflow-x:auto;overflow-y:hidden;text-overflow:clip;white-space:nowrap;scrollbar-width:none;}
+.status-msg::-webkit-scrollbar {display:none;}
+.status-right {gap:6px;}
+.status-notes-btn {padding:0 5px;gap:4px;}
+.status-notes-btn svg,.status-play-btn svg {width:16px;height:16px;}
+@media(max-width:680px) {
+ .ribbon-tab {padding-inline:8px;}
+ .status-left {gap:6px;}
+ .status-right {gap:4px;}
+}
 
 /* The ribbon's anchored menus must escape its scrollport. A sibling fade
    preserves the edge affordance without masking or hit-testing the menus. */
 .pm-ribbon-fades {position:absolute;pointer-events:none;z-index:1;}
-.pm-ribbon-fades::before,.pm-ribbon-fades::after {content:'';position:absolute;top:0;bottom:0;width:min(16px,35%);}
+.pm-ribbon-fades::before,.pm-ribbon-fades::after {content:'';position:absolute;top:0;bottom:0;width:min(var(--editor-chrome-fade-size),35%);}
 .pm-ribbon-fades::before {left:0;background:linear-gradient(to right,var(--chrome-bg),transparent);opacity:var(--fade-left,0);}
 .pm-ribbon-fades::after {right:0;background:linear-gradient(to left,var(--chrome-bg),transparent);opacity:var(--fade-right,0);}

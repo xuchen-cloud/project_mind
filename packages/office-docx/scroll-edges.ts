@@ -1,6 +1,6 @@
 /** Continuous scroll affordances for the upstream canvas, ribbon and bounded panels. */
 export function installScrollEdges(){
- const selectors='.ribbon-tabs,.ribbon-body,.rb-font-size-menu,.rb-font-family-menu,.cover-gallery,.shape-palette,.equation-gallery,.equation-preview,.layout-menu-scroll,.style-gallery-menu,.styles-pane-list,.editor-scroll,.nav-body,.comments-pane-list,.pv-scroll,.bookmark-list,.modal-shortcuts .sc-list,.protect-dialog,.print-options,.find-results,.split-pane-scroll,.ctx-submenu-scroll,.list-dialog-symbols,.list-define-levels,.table-style-gallery,.table-properties-dialog,.rb-shape-gallery';
+ const selectors='.pm-status-info,.ribbon-tabs,.ribbon-body,.rb-font-size-menu,.rb-font-family-menu,.cover-gallery,.shape-palette,.equation-gallery,.equation-preview,.layout-menu-scroll,.style-gallery-menu,.styles-pane-list,.editor-scroll,.nav-body,.comments-pane-list,.pv-scroll,.bookmark-list,.modal-shortcuts .sc-list,.protect-dialog,.print-options,.find-results,.split-pane-scroll,.ctx-submenu-scroll,.list-dialog-symbols,.list-define-levels,.table-style-gallery,.table-properties-dialog,.rb-shape-gallery';
  const areas=new Map<HTMLElement,HTMLElement[]>();let scheduled=0;
  const axis=(total:number,visible:number,offset:number)=>{const max=Math.max(0,total-visible),p=Math.min(max,Math.max(0,offset)),d=Math.min(64,max/2);return d?[Math.min(1,p/d),Math.min(1,(max-p)/d)]:[0,0];};
  function measure(node:HTMLElement,edges:HTMLElement[]){

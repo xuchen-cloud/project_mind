@@ -1,9 +1,30 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EditorView } from '@codemirror/view';
 import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MarkdownEditor } from '../../../src/components/markdown/MarkdownEditor';
+
+beforeEach(()=>window.getSelection()?.removeAllRanges());
+
+async function sourceEditor(){
+  const source=await screen.findByRole('textbox',{name:'Markdown 源码'});
+  const view=EditorView.findFromDOM(source);
+  if(!view)throw new Error('Expected the mounted CodeMirror editor');
+  return {source,view};
+}
+function openRichContext(target:Element){
+  // JSDOM has no coordinates. Exercise the production DOM-target fallback,
+  // leaving schema commands, selection, history and serialization unmocked.
+  const hit=vi.spyOn(document,'elementFromPoint').mockReturnValue(null);
+  try{fireEvent.contextMenu(target,{clientX:20,clientY:20});}finally{hit.mockRestore();}
+  return screen.getByRole('menu',{name:'Markdown 右键菜单'});
+}
+function insertDivider(rich:HTMLElement){
+  const menu=openRichContext(rich.querySelector('p')??rich);
+  fireEvent.click(within(menu).getByRole('button',{name:'分隔线',exact:true}));
+}
 
 describe('Markdown editing and original source persistence', () => {
   it('formats the actual source selection, undo/redoes, saves real bytes and reopens', async () => {
@@ -12,22 +33,24 @@ describe('Markdown editing and original source persistence', () => {
     const onChange = vi.fn((value: string) => { current = value; });
     const result = render(<MarkdownEditor value={original} onChange={onChange} initialView={{mode:'source'}} />);
     expect(onChange).not.toHaveBeenCalled();
-    const source = screen.getByRole('textbox', {name:'Markdown 源码'});
-    source.focus();
-    // A native select-all keyboard command uses the real CodeMirror selection.
-    fireEvent.keyDown(source, {key:'a', code:'KeyA', ctrlKey:true});
-    fireEvent.click(screen.getByRole('button', {name:'粗体'}));
-    expect(current).toContain('**');
+    const {source,view}=await sourceEditor();
+    const from=view.state.doc.toString().indexOf('正文');
+    act(()=>view.dispatch({selection:{anchor:from,head:from+2}}));source.focus();
+    fireEvent.keyDown(source,{key:'b',code:'KeyB',ctrlKey:true});
+    const formatted=original.replace('正文','**正文**');
+    expect(current).toBe(formatted);
     fireEvent.click(screen.getByRole('button', {name:'撤销'}));
     expect(current).toBe(original);
     fireEvent.click(screen.getByRole('button', {name:'重做'}));
-    expect(current).toContain('**');
+    expect(current).toBe(formatted);
     const directory = await mkdtemp(join(tmpdir(), 'mind-markdown-'));
     try {
       const file = join(directory, 'roundtrip.md');
       await writeFile(file, current, 'utf8');
-      const reopened = await readFile(file, 'utf8');
-      expect(reopened).toBe(current);
+      const bytes=await readFile(file);
+      expect([...bytes.subarray(0,3)]).toEqual([0xef,0xbb,0xbf]);
+      const reopened=bytes.toString('utf8');
+      expect(reopened).toBe(formatted);
       result.rerender(<MarkdownEditor value={reopened} onChange={onChange} initialView={{mode:'source'}} />);
       expect(screen.getByRole('textbox', {name:'Markdown 源码'}).textContent).toContain('正文');
     } finally { await rm(directory, {recursive:true, force:true}); }
@@ -37,16 +60,20 @@ describe('Markdown editing and original source persistence', () => {
     const first = vi.fn(); const next = vi.fn();
     const {rerender} = render(<MarkdownEditor value={'one\r\n'} onChange={first} initialView={{mode:'source'}} />);
     rerender(<MarkdownEditor value={'\uFEFFtwo\r\nline\n'} onChange={next} readOnly initialView={{mode:'source'}} />);
-    const source = screen.getByRole('textbox', {name:'Markdown 源码'});
+    const {source,view}=await sourceEditor();
     expect(source).toHaveAttribute('contenteditable', 'false');
     expect(source.textContent).toContain('two');
     expect(first).not.toHaveBeenCalled(); expect(next).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', {name:'粗体'})).toBeDisabled();
+    expect(view.state.readOnly).toBe(true);
+    source.focus();fireEvent.keyDown(source,{key:'b',code:'KeyB',ctrlKey:true});
+    expect(first).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', {name:'表格',exact:true})).toBeDisabled();
   });
 
   it('replaces real source matches in one undo group and keeps literal replacement text', async () => {
     let text = 'cat dog CAT\r\ncat\r\n';
-    render(<MarkdownEditor value={text} onChange={value=>{text=value;}} initialView={{mode:'split'}} />);
+    render(<MarkdownEditor value={text} onChange={value=>{text=value;}} initialView={{mode:'source'}} />);
+    await sourceEditor();
     fireEvent.click(screen.getByRole('button', {name:'查找替换'}));
     fireEvent.change(screen.getByRole('textbox', {name:'查找'}), {target:{value:'cat'}});
     fireEvent.change(screen.getByRole('textbox', {name:'替换为'}), {target:{value:'$&猫'}});
@@ -56,34 +83,38 @@ describe('Markdown editing and original source persistence', () => {
     expect(text).toBe('cat dog CAT\r\ncat\r\n');
   });
 
-  it('renders safe previews and only host-resolved images without changing stored source', () => {
+  it('renders safe read-only blocks and only host-resolved images without changing stored source', async () => {
     const onChange = vi.fn();
     const text = '# Safe\n\n<script>window.bad=1</script>\n\n[bad](javascript:alert(1))\n\n![image](asset.png)';
-    const {container} = render(<MarkdownEditor value={text} onChange={onChange} resources={{'asset.png':'data:image/png;base64,aGVsbG8='}} initialView={{mode:'preview'}} />);
+    const {container} = render(<MarkdownEditor value={text} onChange={onChange} resources={{'asset.png':'data:image/png;base64,aGVsbG8='}} readOnly initialView={{mode:'rich'}} />);
+    expect(await screen.findByRole('textbox',{name:'Markdown 块编辑'})).toHaveAttribute('contenteditable','false');
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
-    expect(container.querySelector('img')).toHaveAttribute('src', 'data:image/png;base64,aGVsbG8=');
+    expect(screen.getByRole('img',{name:'image'})).toHaveAttribute('src', 'data:image/png;base64,aGVsbG8=');
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('has actual rich editing, source-backed toolbar changes and no-op preservation', async () => {
+  it('has actual rich editing, source-backed context commands and no-op preservation', async () => {
     let text = '# Title\r\n\r\nOriginal text\r\n\r\n[ref]: /keep "verbatim"\r\n';
     const onChange = vi.fn((value:string)=>{text=value;});
     render(<MarkdownEditor value={text} onChange={onChange} initialView={{mode:'rich'}} />);
     const rich = await screen.findByRole('textbox', {name:'Markdown 块编辑'});
     expect(onChange).not.toHaveBeenCalled();
     rich.focus();
-    fireEvent.click(screen.getByRole('button', {name:'分隔线'}));
+    insertDivider(rich);
     await waitFor(()=>expect(text).toContain('---'));
     expect(text).toContain('[ref]: /keep "verbatim"');
     expect(screen.getByRole('button', {name:'撤销'})).toBeEnabled();
   });
 });
 
-it('clears source undo on external documentKey changes, preserving normal save acknowledgements',()=>{
+it('clears source undo on external documentKey changes, preserving normal save acknowledgements',async()=>{
   let text='Original\r\n';const change=vi.fn((value:string)=>{text=value;});
   const {rerender}=render(<MarkdownEditor documentKey="1" value={text} onChange={change} initialView={{mode:'source'}}/>);
-  fireEvent.click(screen.getByRole('button',{name:'粗体'}));
+  const {source,view}=await sourceEditor();source.focus();
+  act(()=>view.dispatch({selection:{anchor:0,head:8}}));
+  fireEvent.keyDown(source,{key:'b',code:'KeyB',ctrlKey:true});
+  expect(text).toBe('**Original**\r\n');
   expect(screen.getByRole('button',{name:'撤销'})).toBeEnabled();
   rerender(<MarkdownEditor documentKey="1" value={text} onChange={change} initialView={{mode:'source'}}/>);
   expect(screen.getByRole('button',{name:'撤销'})).toBeEnabled();
@@ -94,9 +125,10 @@ it('clears source undo on external documentKey changes, preserving normal save a
 it('clears rich undo for a new external baseline, including same-text historical versions',async()=>{
   let text='# Title\r\n';const change=(value:string)=>{text=value;};
   const {rerender}=render(<MarkdownEditor documentKey="1" value={text} onChange={change} initialView={{mode:'rich'}}/>);
-  await screen.findByRole('textbox',{name:'Markdown 块编辑'});
+  const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
   expect(screen.getByRole('button',{name:'撤销'})).toBeDisabled();
-  fireEvent.click(screen.getByRole('button',{name:'分隔线'}));
+  insertDivider(rich);
+  await waitFor(()=>expect(text).toContain('---'));
   expect(screen.getByRole('button',{name:'撤销'})).toBeEnabled();
   rerender(<MarkdownEditor documentKey="1" value={text} onChange={change} initialView={{mode:'rich'}}/>);
   expect(screen.getByRole('button',{name:'撤销'})).toBeEnabled();
@@ -112,29 +144,32 @@ it('keeps rich mode after the host acknowledges sourceMode=false',async()=>{
   expect(await screen.findByRole('textbox',{name:'Markdown 块编辑'})).toBeVisible();
 });
 
-it('inserts a data image, previews it immediately, writes bytes, and reopens it',async()=>{
+it('inserts a data image, renders it in blocks, writes bytes, and reopens read-only',async()=>{
   const data='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aEDsAAAAASUVORK5CYII=';
   let text='';const change=(value:string)=>{text=value;};
   const result=render(<MarkdownEditor value={text} onChange={change} initialView={{mode:'source'}}/>);
+  await sourceEditor();
   fireEvent.click(screen.getByRole('button',{name:'图片'}));
   fireEvent.change(screen.getByRole('textbox',{name:'目标地址'}),{target:{value:data}});
   fireEvent.change(screen.getByRole('textbox',{name:'显示文字'}),{target:{value:'新图片'}});
   fireEvent.click(screen.getByRole('button',{name:'插入'}));
-  fireEvent.click(screen.getByRole('button',{name:'预览'}));
-  expect(screen.getByRole('img',{name:'新图片'})).toHaveAttribute('src',data);
+  fireEvent.click(screen.getByRole('button',{name:'块编辑'}));
+  expect(await screen.findByRole('img',{name:'新图片'})).toHaveAttribute('src',data);
   const directory=await mkdtemp(join(tmpdir(),'mind-markdown-image-'));
   try{
     const file=join(directory,'image.md');await writeFile(file,text);const reopened=await readFile(file,'utf8');
     expect(reopened).toBe(`![新图片](${data})`);
-    result.unmount();render(<MarkdownEditor value={reopened} onChange={()=>{}} initialView={{mode:'preview'}}/>);
-    expect(screen.getByRole('img',{name:'新图片'})).toHaveAttribute('src',data);
+    result.unmount();const changed=vi.fn();render(<MarkdownEditor value={reopened} onChange={changed} readOnly initialView={{mode:'rich'}}/>);
+    expect(await screen.findByRole('img',{name:'新图片'})).toHaveAttribute('src',data);
+    expect(screen.getByRole('textbox',{name:'Markdown 块编辑'})).toHaveAttribute('contenteditable','false');
+    expect(changed).not.toHaveBeenCalled();
   }finally{await rm(directory,{recursive:true,force:true});}
 });
 
 it('waits for composing input before the host save guard resolves',async()=>{
   let flush:(()=>Promise<void>)|undefined;const pending=vi.fn();
   render(<MarkdownEditor value="" onChange={()=>{}} initialView={{mode:'source'}} registerBeforeSave={callback=>{flush=callback;return()=>{};}} onPendingChange={pending}/>);
-  const source=screen.getByRole('textbox',{name:'Markdown 源码'});
+  const {source}=await sourceEditor();
   fireEvent.compositionStart(source);
   let saved=false;const saving=flush!().then(()=>{saved=true;});await Promise.resolve();
   expect(saved).toBe(false);expect(pending).toHaveBeenLastCalledWith(true);
@@ -142,46 +177,75 @@ it('waits for composing input before the host save guard resolves',async()=>{
   await saving;expect(saved).toBe(true);expect(pending).toHaveBeenLastCalledWith(false);
 });
 
-it('performs actual rich table row/column commands and disables mutations in read-only mode',async()=>{
-  let text='';const change=(value:string)=>{text=value;};
+it('performs actual rich table row/column context commands and disables mutations in read-only mode',async()=>{
+  let text='';const change=vi.fn((value:string)=>{text=value;});
   const {container,rerender}=render(<MarkdownEditor value="" onChange={change} initialView={{mode:'rich'}}/>);
-  await screen.findByRole('textbox',{name:'Markdown 块编辑'});
-  fireEvent.click(screen.getByRole('button',{name:'表格'}));
-  expect(container.querySelectorAll('.tiptap tr')).toHaveLength(3);
-  fireEvent.click(screen.getByRole('button',{name:'下方插入行'}));
-  expect(container.querySelectorAll('.tiptap tr')).toHaveLength(4);
-  expect(text).toContain('|');
+  const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
+  fireEvent.click(screen.getByRole('button',{name:'表格',exact:true}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(3);
+  let menu=openRichContext(rich.querySelector('td,th')!);
+  fireEvent.click(within(menu).getByRole('menuitem',{name:'下方插入行'}));
+  await waitFor(()=>expect(rich.querySelectorAll('tr')).toHaveLength(4));
+  menu=openRichContext(rich.querySelector('td,th')!);
+  fireEvent.click(within(menu).getByRole('menuitem',{name:'右侧插入列'}));
+  await waitFor(()=>expect(rich.querySelector('tr')?.children).toHaveLength(4));
+  expect(text).toContain('|');expect(container.querySelector('.table-menu')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'撤销',exact:true}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(4);
+  expect(rich.querySelector('tr')?.children).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button',{name:'撤销',exact:true}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(3);
+  expect(rich.querySelector('tr')?.children).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button',{name:'重做',exact:true}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(4);
+  expect(rich.querySelector('tr')?.children).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button',{name:'重做',exact:true}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(4);
+  expect(rich.querySelector('tr')?.children).toHaveLength(4);
   rerender(<MarkdownEditor value={text} onChange={change} readOnly initialView={{mode:'rich'}}/>);
-  expect(screen.getByRole('textbox',{name:'Markdown 块编辑'})).toHaveAttribute('contenteditable','false');
-  expect(screen.getByRole('button',{name:'表格'})).toBeDisabled();
-  expect(screen.queryByRole('button',{name:'下方插入行'})).toBeNull();
+  expect(rich).toHaveAttribute('contenteditable','false');
+  expect(screen.getByRole('button',{name:'表格',exact:true})).toBeDisabled();
+  const saved=text,calls=change.mock.calls.length;
+  menu=openRichContext(rich.querySelector('td,th')!);
+  expect(within(menu).getAllByRole('button')).toHaveLength(1);
+  expect(within(menu).getByRole('button',{name:'复制'})).toBeEnabled();
+  expect(within(menu).queryByRole('menuitem',{name:'下方插入行'})).toBeNull();
+  expect(text).toBe(saved);expect(change).toHaveBeenCalledTimes(calls);
 });
 
-it('inserts linked text at an empty rich caret and saves the actual Markdown target',async()=>{
+it('pastes linked Markdown at an empty rich caret through its context menu and saves the actual target',async()=>{
+  const read=vi.fn().mockResolvedValue('[使用指南](https://example.com/guide)');
+  Object.defineProperty(navigator,'clipboard',{configurable:true,value:{readText:read}});
   let text='';render(<MarkdownEditor value="" onChange={value=>{text=value;}} initialView={{mode:'rich'}}/>);
-  await screen.findByRole('textbox',{name:'Markdown 块编辑'});
-  fireEvent.click(screen.getByRole('button',{name:'链接'}));
-  fireEvent.change(screen.getByRole('textbox',{name:'目标地址'}),{target:{value:'https://example.com/guide'}});
-  fireEvent.change(screen.getByRole('textbox',{name:'显示文字'}),{target:{value:'使用指南'}});
-  fireEvent.click(screen.getByRole('button',{name:'插入'}));
-  expect(screen.getByRole('link',{name:'使用指南'})).toHaveAttribute('href','https://example.com/guide');
+  const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
+  const menu=openRichContext(rich.querySelector('p')!);
+  fireEvent.click(within(menu).getByRole('button',{name:'粘贴'}));
+  expect(await screen.findByRole('link',{name:'使用指南'})).toHaveAttribute('href','https://example.com/guide');
+  expect(read).toHaveBeenCalledTimes(1);
   expect(text).toContain('[使用指南](https://example.com/guide)');
 });
 
 it('resolves a newly authored relative image through the bound host without rewriting source',async()=>{
   const data='data:image/png;base64,aGVsbG8=';const resolver=vi.fn(async(reference:string)=>reference==='new.png'?data:undefined);const change=vi.fn();
-  const {rerender}=render(<MarkdownEditor documentKey="one" value="" onChange={change} resolveResource={resolver} initialView={{mode:'preview'}}/>);
-  rerender(<MarkdownEditor documentKey="one" value="![新增](new.png)\r\n![远程](https://invalid.test/x.png)" onChange={change} resolveResource={resolver} initialView={{mode:'preview'}}/>);
+  const {rerender}=render(<MarkdownEditor documentKey="one" value="" onChange={change} resolveResource={resolver} readOnly initialView={{mode:'rich'}}/>);
+  rerender(<MarkdownEditor documentKey="one" value="![新增](new.png)\r\n![远程](https://invalid.test/x.png)" onChange={change} resolveResource={resolver} readOnly initialView={{mode:'rich'}}/>);
   await waitFor(()=>expect(screen.getByRole('img',{name:'新增'})).toHaveAttribute('src',data));
   expect(resolver).toHaveBeenCalledTimes(1);expect(resolver).toHaveBeenCalledWith('new.png');expect(resolver).not.toHaveBeenCalledWith('https://invalid.test/x.png');
-  expect(screen.queryByRole('img',{name:'远程'})).toBeNull();expect(change).not.toHaveBeenCalled();
+  const blocked=screen.getByRole('img',{name:'远程'});
+  expect(blocked).not.toHaveAttribute('src');expect(blocked).toHaveAttribute('data-markdown-src','https://invalid.test/x.png');
+  expect(change).not.toHaveBeenCalled();
 });
 
-it('keeps frontmatter in source while preview renders only the document body',()=>{
-  const change=vi.fn();const {container}=render(<MarkdownEditor value={'\uFEFF---\r\ntitle: 元数据\r\n---\r\n\r\n# 正文标题\r\n'} onChange={change} initialView={{mode:'preview'}}/>);
-  const preview=container.querySelector('article')!;
-  expect(preview.textContent).toContain('正文标题');expect(preview.textContent).not.toContain('元数据');
-  expect(preview.querySelector('hr')).toBeNull();expect(change).not.toHaveBeenCalled();
+it('keeps frontmatter in source while read-only blocks render only the document body',async()=>{
+  const original='\uFEFF---\r\ntitle: 元数据\r\n---\r\n\r\n# 正文标题\r\n',change=vi.fn();
+  render(<MarkdownEditor value={original} onChange={change} readOnly initialView={{mode:'rich'}}/>);
+  const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
+  expect(rich.textContent).toContain('正文标题');expect(rich.textContent).not.toContain('元数据');
+  expect(rich.querySelector('hr')).toBeNull();expect(rich).toHaveAttribute('contenteditable','false');
+  fireEvent.click(screen.getByRole('button',{name:'源码'}));
+  const {source,view}=await sourceEditor();expect(source).toHaveAttribute('contenteditable','false');
+  expect(view.state.doc.toString()).toBe(original.replace(/\r\n/gu,'\n'));
+  expect(change).not.toHaveBeenCalled();
 });
 
 it('dismisses a formula editor when the host switches the document to read-only',async()=>{
@@ -252,17 +316,25 @@ it('shows parsed headings in the outline, ignores fenced code and supports resiz
   expect(change).not.toHaveBeenCalled();
 });
 
-it('formats source containing backticks with a valid longer code fence while retaining original EOL',()=>{
+it('accepts a longer inline-code delimiter as source input, retains original EOL and undoes the whole edit',async()=>{
   const original='a `b` c\r\n';let text=original;
   render(<MarkdownEditor value={original} onChange={value=>{text=value;}} initialView={{mode:'source'}}/>);
-  const source=screen.getByRole('textbox',{name:'Markdown 源码'});source.focus();fireEvent.keyDown(source,{key:'a',code:'KeyA',ctrlKey:true});
-  fireEvent.click(screen.getByRole('button',{name:'行内代码'}));expect(text).toBe('``a `b` c\r\n``');
+  const {view}=await sourceEditor();
+  // Directly type Markdown syntax into the real CodeMirror document; the
+  // removed inline-code toolbar action is no longer a product entry point.
+  act(()=>view.dispatch({changes:[{from:0,insert:'``'},{from:view.state.doc.length,insert:'``'}],userEvent:'input.type'}));
+  expect(text).toBe('``a `b` c\r\n``');
   fireEvent.click(screen.getByRole('button',{name:'撤销'}));expect(text).toBe(original);
+  fireEvent.click(screen.getByRole('button',{name:'重做'}));expect(text).toBe('``a `b` c\r\n``');
+  fireEvent.click(screen.getByRole('button',{name:'块编辑'}));
+  const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
+  expect(rich.querySelector('code')).toHaveTextContent('a `b` c');
 });
 
-it('removes an emptied frontmatter block while keeping the BOM and body bytes',()=>{
+it('removes an emptied frontmatter block while keeping the BOM and body bytes',async()=>{
   let text='\uFEFF---\r\ntitle: Original\r\n---\r\n\r\n# 正文\r\n';
   render(<MarkdownEditor value={text} onChange={value=>{text=value;}} initialView={{mode:'source'}}/>);
+  await sourceEditor();
   fireEvent.click(screen.getByRole('button',{name:'前置信息'}));
   fireEvent.change(screen.getByRole('textbox',{name:'YAML 前置信息'}),{target:{value:''}});
   expect(text).toBe('\uFEFF# 正文\r\n');

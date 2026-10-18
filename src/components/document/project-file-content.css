@@ -19,4 +19,11 @@
   .project-file-content__toolbar button:active:not(:disabled) { transform:none; }
 }
 
-.project-file-content__office-actions { display:inline-flex; flex:none; align-items:center; gap:8px; }
+.project-file-content__office-actions { display:inline-flex; flex:none; align-items:center; gap:4px; }
+
+.project-file-content__file-menu {display:inline-flex;flex:none;align-items:center;}
+.project-file-content__office-actions > button {padding:4px;min-width:28px;width:28px;}
+@container (max-width:560px) {
+  .project-file-content__toolbar {padding-inline:8px;gap:2px;}
+  .office-file-content__status {max-width:84px;overflow:hidden;text-overflow:ellipsis;}
+}

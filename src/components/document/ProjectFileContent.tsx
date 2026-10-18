@@ -1,3 +1,4 @@
+import { EditorLoading } from "./EditorLoading";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Code2, Eye, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -65,6 +66,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     return () => lifetime.abort();
   }, []);
   const [editorToolbar,setEditorToolbar] = useState<HTMLSpanElement | null>(null);
+  const [editorMenu,setEditorMenu] = useState<HTMLSpanElement | null>(null);
   const registerEditorFlush = useCallback((flush: () => Promise<void>) => {
     editorFlush.current = flush;
     return () => { if (editorFlush.current === flush) editorFlush.current = null; };
@@ -278,12 +280,13 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
   }
   return <section className="project-file-content" hidden={!visible} data-focused={focused || undefined} aria-label="项目文件预览">
     <header className="project-file-content__toolbar">
+      {(valid?.kind === "office" || valid?.kind === "markdown") ? <span ref={setEditorMenu} className="project-file-content__file-menu" /> : null}
       <strong title={valid?.name}>{valid?.name ?? "文件"}</strong>
       <FileVersionMenu label="文件查看版本" triggerLabel={selection === undefined ? (valid ? `v${valid.version}` : "版本") : `v${selection}`}
         versions={availableVersions.some(item => item.versionNumber === selection) || selection === undefined ? availableVersions : [...availableVersions, { id: String(selection), versionNumber: selection }]}
         selectedVersion={selection} includeLatest latestVersion={selection === undefined ? valid?.version : availableVersions.find(item => item.isCurrent)?.versionNumber}
         visible={visible} onSelect={choose} />
-      {valid && (valid.kind === "markdown" || valid.kind === "html") ? <button type="button" className="project-file-content__icon-button" aria-label={source ? (valid.kind === "html" ? "静态预览" : "预览") : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
+      {valid?.kind === "html" ? <button type="button" className="project-file-content__icon-button" aria-label={source ? "静态预览" : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
       {(valid?.kind === "office" || valid?.kind === "markdown") ? <span ref={setEditorToolbar} className="project-file-content__office-actions" /> : null}
       <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" /></button>
       <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} fileName={fileName} visible={visible} beforeOpen={flushEditor}
@@ -293,17 +296,16 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     </header>
     {needsRecovery ? identityRecovery : null}
     {error ? <p role="alert">{error}</p> : null}
-    {reading && visible ? <p role="status">正在读取固定版本…</p> : null}
+    {reading && visible && valid ? <p role="status">正在读取固定版本…</p> : null}
     {valid?.kind === "html" ? <p className="project-file-content__notice">静态 HTML 预览：脚本、导航与表单提交已禁用，不提供交互执行。复杂 CSS 依赖未递归加载。</p> : null}
     {valid?.kind === "html" && !source ? <p className="project-file-content__notice">静态预览隐藏后保留当前位置；关闭重开、内容变化或应用重启后无法恢复内部位置。源码视图支持位置恢复。</p> : null}
     {valid && sourceLocator?.kind === "paragraph" ? <p className="project-file-content__notice">引用提取段落 {sourceLocator.start}–{sourceLocator.end}。此定位不是源码行号，当前显示对应固定版本全文。</p> : null}
     {valid && sourceLocator?.kind === "page" ? <p className="project-file-content__notice">已定位到第 {sourceLocator.page} 页；引用的页内字符范围 {sourceLocator.start}–{sourceLocator.end} 暂不支持高亮。</p> : null}
-    {valid?.kind === "markdown" && line !== undefined && !source ? <p className="project-file-content__notice">行定位请使用源码视图。</p> : null}
     {valid?.warnings.map(warning => <p key={warning} role="status" className="project-file-content__notice">未加载资源：{warning}</p>)}
     <div className="project-file-content__body">
-      {valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
-        : valid?.kind === "office" ? <Suspense fallback={<p role="status">正在加载 Office…</p>}><OfficeFileContent toolbar={editorToolbar} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty;}} onSaved={editorSaved} /></Suspense>
-        : valid?.kind === "markdown" ? <Suspense fallback={<p role="status">正在加载 Markdown…</p>}><MarkdownFileContent toolbar={editorToolbar} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} text={valid.text!} resources={valid.resources} resolveResource={valid.resolveResource} line={line} sourceMode={source} initialView={initialView || views.current.has(valid.version) ? {...initialView,...views.current.get(valid.version)} : undefined} onViewChange={viewChanged} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty=>{editorDirty.current=dirty;}} onSaved={editorSaved}/></Suspense>
+      {!valid && reading && visible ? <EditorLoading fileName={fileName} stage="resolve" /> : valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
+        : valid?.kind === "office" ? <Suspense fallback={<EditorLoading fileName={valid.renderName} stage="runtime" />}><OfficeFileContent fileName={valid.renderName} toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty;}} onSaved={editorSaved} /></Suspense>
+        : valid?.kind === "markdown" ? <Suspense fallback={<EditorLoading format="markdown" stage="runtime" />}><MarkdownFileContent toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} text={valid.text!} resources={valid.resources} resolveResource={valid.resolveResource} line={line} sourceMode={source} initialView={initialView || views.current.has(valid.version) ? {...initialView,...views.current.get(valid.version)} : undefined} onViewChange={viewChanged} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty=>{editorDirty.current=dirty;}} onSaved={editorSaved}/></Suspense>
         : valid ? <DshFilePreview key={`${valid.version}:${valid.rendererId}:${valid.kind}:${showSource}`} kind={showSource ? "text" : valid.kind} name={valid.renderName} text={valid.text} bytes={showSource ? undefined : valid.bytes} resources={valid.resources} signal={valid.signal} line={line} page={page} initialView={initialView || views.current.has(valid.version) ? { ...initialView, ...views.current.get(valid.version) } : undefined} onViewChange={viewChanged} /> : null}
     </div>
   </section>;

@@ -24,9 +24,9 @@ for(const name of process.env.OFFICE_BROWSERS?.split(',')??['chromium','webkit']
   await frame.evaluate(()=>{const original=FontFace.prototype.load;const gate=new Promise(resolve=>{window.__releaseMetricsFont=resolve});FontFace.prototype.load=function(){if(this.family.replaceAll('"','')==='Caladea'){window.__metricsFontLoading=true;return gate.then(()=>original.call(this))}return original.call(this)}});
   const chooser=page.waitForEvent('filechooser');const installing=frame.evaluate(()=>window.slidesApi.fontInstallLocal());installing.catch(()=>{});
   await(await chooser).setFiles(resolve(import.meta.dirname,'../vendor/apps/docs/src/renderer/fonts/Caladea-Regular.ttf'));await frame.waitForFunction(()=>window.__metricsFontLoading);
-  await frame.locator('.ribbon-tab-file').click();await frame.getByRole('button',{name:/PDF/,exact:false}).click();await frame.getByText('正在导出 PDF…',{exact:false}).waitFor();
+  await page.evaluate(()=>{window.metricsExport=window.officePptxHarness.output('pdf')});await frame.getByText('正在导出 PDF…',{exact:false}).waitFor();
   await frame.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));assert.equal(await page.evaluate(()=>window.officePptxHarness.pdfRequests().length),0);assert.equal(await page.evaluate(()=>window.officePptxHarness.exports().length),0);
-  await frame.evaluate(()=>window.__releaseMetricsFont());assert.deepEqual((await installing).families,['Caladea']);await page.waitForFunction(()=>window.officePptxHarness.exports().length===1);
+  await frame.evaluate(()=>window.__releaseMetricsFont());assert.deepEqual((await installing).families,['Caladea']);await page.evaluate(()=>window.metricsExport);await page.waitForFunction(()=>window.officePptxHarness.exports().length===1);
   const after=await node(frame);assert.notDeepEqual(lines(after),lines(before));assert.equal(await frame.evaluate(()=>document.fonts.check('16px Caladea')),true);
   const vector=await page.evaluate(()=>window.officePptxHarness.pdfRequests()[0]);assert.deepEqual(vector.pageSize,{widthPt:source.size.cx/12700,heightPt:source.size.cy/12700});assert.match(vector.html,/@font-face\{font-family:"Caladea";src:url\(data:font\/ttf;base64,/);
   // Merely loading/layouting fonts is not an edit: native save receives no candidate.

@@ -41,12 +41,11 @@ for(const name of (process.env.OFFICE_BROWSERS?.split(',')??['chromium','webkit'
   await page.keyboard.insertText('续B');await page.getByRole('button',{name:'主 File 保存',exact:true}).click();
   await frame.waitForFunction(()=>document.body.dataset.readOnly==='false'&&document.activeElement===document.querySelector('.slide-text-editor'));
   let saved=await(await page.request.get(url+'/model')).json();assert.equal(saved.textElements.find(e=>e.slideIndex===0&&e.cNvPrId==='5').text,'中文 续B 中间 Beta 尾部');
-  // Existing original File menu uses the same checkpoint and leaves the caret in place.
+  // Original Save API still uses the host checkpoint and leaves the caret in place.
   await input.press('Meta+ArrowLeft');for(let i=0;i<3;i++)await input.press('ArrowRight');await page.keyboard.insertText('菜单');
   await page.evaluate(()=>window.officePptxHarness.holdSaveCompletion());
   await frame.evaluate(()=>{const original=window.slidesApi.save;window.slidesApi.save=(...args)=>original(...args).then(result=>{window.internalSaveReceipt=result;return result})});
-  const menuCaret=await selection();await frame.getByRole('button',{name:'文件',exact:true}).click();
-  await frame.locator('.file-menu button').filter({hasText:/^保存/}).first().click();
+  const menuCaret=await selection();await frame.evaluate(()=>{void window.slidesApi.save()});
   await frame.waitForFunction(()=>document.body.dataset.readOnly==='false'&&document.activeElement===document.querySelector('.slide-text-editor'));
   await frame.waitForFunction(()=>window.internalSaveReceipt?.ok===true);
   // Native model acknowledgement has already settled the request while the host callback is still held.
@@ -60,6 +59,9 @@ for(const name of (process.env.OFFICE_BROWSERS?.split(',')??['chromium','webkit'
   await frame.getByRole('button',{name:'恢复',exact:true}).click();await page.evaluate(()=>window.officePptxHarness.save());
   // Moving to another host input during pending native I/O must not steal focus back.
   await page.mouse.dblclick(point.x+offset.x,point.y+offset.y);await input.waitFor();
+  // The real OfficeEditSession correctly skips persistence for a clean File.
+  // Make a real edit before holding native I/O, otherwise this gate never opens.
+  await page.keyboard.insertText('焦点');
   let releaseFocus,focusArrived;const focusGate=new Promise(r=>{releaseFocus=r}),focusNative=new Promise(r=>{focusArrived=r});
   await page.route('**/save',async route=>{const response=await route.fetch();focusArrived();await focusGate;await route.fulfill({response})});
   await page.getByRole('button',{name:'主 File 保存',exact:true}).click();await focusNative;

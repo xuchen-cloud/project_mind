@@ -21,16 +21,21 @@ test('complete Sheets ribbon edits a workbook and preserves original XLSX object
  const checkToolbar=async(width)=>{
   await page.setViewportSize({width,height:800})
   assert.equal(await frame.locator('body').evaluate(node=>Math.round(node.getBoundingClientRect().width)),width)
-  for(const label of ['导出 CSV','打印','开始','插入','页面布局','视图']){
+  for(const label of ['开始','插入','页面布局','视图']){
    const button=frame.locator('.ribbon-tabs').getByRole('button',{name:label,exact:true});await button.scrollIntoViewIfNeeded()
    assert.equal(await button.evaluate(node=>node.scrollWidth<=node.clientWidth),true,`${label} label fits its hit area at ${width}px`)
   }
+  assert.equal(await frame.locator('.ai-entry,.ai-chat-panel,.ai-panel,.copilot-panel').count(),0)
+  assert.equal(await frame.getByText('Genspark AI',{exact:true}).count(),0)
+  assert.equal(await frame.locator('.ribbon-tabs').getByRole('button',{name:'导出 CSV',exact:true}).count(),0)
+  assert.equal(await frame.getByRole('button',{name:'文件',exact:true}).count(),0)
+  assert.equal(await frame.locator('.autosave-toggle,button[data-tip="保存 (⌘S)"]').count(),0)
   await frame.getByRole('button',{name:'插入',exact:true}).click()
   await frame.getByRole('button',{name:'开始',exact:true}).click()
   await expect(frame.getByRole('button',{name:'开始',exact:true})).toHaveClass(/active/)
   await page.screenshot({path:new URL(`./output/full-renderer-${width}.png`,import.meta.url).pathname})
  }
- await checkToolbar(1200);await checkToolbar(560);await checkToolbar(360);await page.setViewportSize({width:1200,height:800})
+ await checkToolbar(1200);await checkToolbar(640);await checkToolbar(490);await checkToolbar(360);await page.setViewportSize({width:1200,height:800})
  await page.screenshot({path:new URL('./output/full-renderer.png',import.meta.url).pathname})
  await writeFile(new URL('./output/full-renderer-dom.html',import.meta.url),await frame.locator('body').evaluate(node=>{const root=node.cloneNode(true);root.querySelectorAll('script,style').forEach(n=>n.remove());return root.innerHTML}))
  const nameBox=frame.locator('input[type="text"]:visible').last();await nameBox.fill('D20');await nameBox.press('Enter');await page.keyboard.press('F2');await page.keyboard.type('完整上游工具栏')

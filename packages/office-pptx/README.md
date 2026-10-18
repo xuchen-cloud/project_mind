@@ -180,3 +180,33 @@ full upstream platform shaping/substitution not ported, and binary
 `.ppt` being unsupported upstream. Browser system clipboard access depends on
 webview permission; internal editable object/slide clipboard remains available.
 These are recorded gaps, not a declaration that #191 is fully complete.
+
+### Embedded presentation and host output
+
+`presentationMode: 'preview' | 'edit'` retains the same upstream App, Canvas,
+model and Undo history. Preview hides the editing ribbon/notes and forces the
+native session read only; page navigation, ordinary slideshow and zoom remain.
+File/save/autosave controls belong to the host filename row. The embedded
+editing row contains Undo/Redo and the original editing tabs. Both modes use a
+28px status bar, 12px text, 24px controls and a 100px zoom slider.
+
+On the existing connected MessagePort, the host sends:
+
+```ts
+{source: 'project-mind-pptx-host', epoch, type: 'output', requestId,
+ command: 'pdf' | 'images' | 'print'}
+```
+
+The renderer checkpoints text and waits for the operation queue as for `flush`,
+then calls the live upstream App action. It replies:
+
+```ts
+{source: 'project-mind-pptx', epoch, type: 'output-done', requestId, error?: string}
+```
+
+PDF/images resolve after the existing output delivery completes; cancellation
+resolves normally, failures reject through `error`. Print opens the original
+PrintDialog and acknowledges that action; confirmation still sends the existing
+`print-request` and awaits `print-finished`. Existing `render-pdf-request` /
+`render-pdf-finished` and `export-request` / `export-finished` remain unchanged.
+Old epochs are ignored and cannot acknowledge or deliver into a replacement File.

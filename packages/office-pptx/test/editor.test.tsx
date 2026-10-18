@@ -1,12 +1,33 @@
-import React from 'react';
+import React,{useState} from 'react';
 import {afterEach,expect,test,vi} from 'vitest';
-import {act,cleanup,render,screen} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen} from '@testing-library/react';
 import {PDFDocument} from 'pdf-lib';
 import {PptxEditor,type PptxModel,type PptxEdit} from '../../../src/components/office/PptxEditor';
+import {OfficeEditSession} from '../../../src/lib/office-edit-session';
 
 afterEach(()=>{cleanup();document.documentElement.removeAttribute('data-theme');document.documentElement.classList.remove('dark');vi.restoreAllMocks()});
 const model={format:'pptx',sourceBase64:'test'} as PptxModel;
 const PlatformChannel=window.MessageChannel;
+test('OfficeEditSession cloned parent echoes do not reinitialize the frame or reject its active flush',async()=>{
+ const session=new OfficeEditSession<PptxModel,PptxEdit>({object:{workspaceId:'workspace',scope:{kind:'project',projectId:7},kind:'file',id:'42'},versionNumber:1,expectedContentHash:'old'},model,async()=>{throw Error('unused')});
+ let flush!:()=>Promise<void>;
+ function Parent(){
+  const [snapshot,publish]=useState(session.snapshot);
+  return <PptxEditor model={snapshot.model} edits={snapshot.edits} readOnly={false} registerBeforeSave={callback=>{flush=callback;return ()=>{}}} onChange={edits=>{session.replaceEdits(edits);publish(session.snapshot)}}/>;
+ }
+ render(<Parent/>);const frame=screen.getByTitle('PPTX 幻灯片编辑画布') as HTMLIFrameElement;
+ let post!:ReturnType<typeof vi.spyOn>;
+ vi.spyOn(window,'MessageChannel').mockImplementation(function(){const connection=new PlatformChannel();post=vi.spyOn(connection.port1,'postMessage').mockImplementation(()=>{});return connection});
+ const message=(data:object)=>act(()=>window.dispatchEvent(new MessageEvent('message',{source:frame.contentWindow,data:{source:'project-mind-pptx',epoch:1,...data}})));
+ message({type:'ready'});message({type:'initialized'});
+ const waiting=flush();const result=waiting.then(()=> 'flushed',()=> 'rejected');
+ const request=post.mock.calls.findLast(c=>c[0].type==='flush')![0];
+ const edits=[{kind:'candidate',sourceHash:'old',base64:'candidate',changedParts:['ppt/slides/slide2.xml']}] as PptxEdit[];
+ message({type:'change',edits});
+ expect(session.snapshot.edits).toEqual(edits);expect(session.snapshot.edits).not.toBe(edits);
+ expect(post.mock.calls.filter(c=>c[0].type==='init')).toHaveLength(1);
+ message({type:'flushed',requestId:request.requestId});expect(await result).toBe('flushed');
+});
 function setup(extra:Record<string,unknown>={}){
  const change=vi.fn(),pending=vi.fn();let beforeSave:()=>Promise<void>=async()=>{};
  const props={model,edits:[] as PptxEdit[],onChange:change,readOnly:false,onPendingChange:pending,registerBeforeSave:(callback:()=>Promise<void>)=>{beforeSave=callback;return ()=>{}},...extra};
@@ -17,6 +38,34 @@ function setup(extra:Record<string,unknown>={}){
  message({type:'ready'});message({type:'initialized'});
  return {...ui,props,frame,post,message,change,pending,epoch,flush:()=>beforeSave()};
 }
+test('listener setup and iframe load query ready; repeated replies never restart initialization',()=>{
+ let send!:ReturnType<typeof vi.spyOn>,post!:ReturnType<typeof vi.spyOn>;
+ vi.spyOn(window,'MessageChannel').mockImplementation(function(){const connection=new PlatformChannel();post=vi.spyOn(connection.port1,'postMessage').mockImplementation(()=>{});return connection});
+ function Parent(){React.useLayoutEffect(()=>{const frame=screen.getByTitle('PPTX 幻灯片编辑画布') as HTMLIFrameElement;send=vi.spyOn(frame.contentWindow!,'postMessage').mockImplementation(()=>{})},[]);return <PptxEditor model={model} edits={[]} readOnly={false} onChange={()=>{}}/>}
+ render(<Parent/>);const frame=screen.getByTitle('PPTX 幻灯片编辑画布') as HTMLIFrameElement;
+ expect(send).toHaveBeenCalledWith({source:'project-mind-pptx-host',type:'ready-request'},'*');
+ send.mockClear();fireEvent.load(frame);
+ expect(send).toHaveBeenCalledWith({source:'project-mind-pptx-host',type:'ready-request'},'*');
+ const ready=()=>act(()=>window.dispatchEvent(new MessageEvent('message',{source:frame.contentWindow,data:{source:'project-mind-pptx',type:'ready',epoch:0}})));
+ ready();ready();ready();
+ expect(post.mock.calls.filter(c=>c[0].type==='init')).toHaveLength(1);
+});
+test('StrictMode cleanup resets readiness and ignores messages from the retired host port',()=>{
+ const channels:Array<{port1:MessagePort;port2:MessagePort;send:ReturnType<typeof vi.spyOn>;receive:((event:MessageEvent)=>void)|null}>=[];
+ vi.spyOn(window,'MessageChannel').mockImplementation(function(){const connection=new PlatformChannel();const send=vi.spyOn(connection.port1,'postMessage').mockImplementation(()=>{});channels.push({...connection,port1:connection.port1,port2:connection.port2,send,receive:null});return connection});
+ const add=window.addEventListener.bind(window);let first=true;
+ vi.spyOn(window,'addEventListener').mockImplementation((type,handler,options)=>{
+  add(type,handler,options);
+  if(type==='message'&&first){first=false;const frame=screen.getByTitle('PPTX 幻灯片编辑画布') as HTMLIFrameElement;window.dispatchEvent(new MessageEvent('message',{source:frame.contentWindow,data:{source:'project-mind-pptx',type:'ready',epoch:0}}));channels[0].receive=channels[0].port1.onmessage as (event:MessageEvent)=>void;}
+ });
+ const change=vi.fn();render(<React.StrictMode><PptxEditor model={model} edits={[]} readOnly={false} onChange={change}/></React.StrictMode>);
+ const frame=screen.getByTitle('PPTX 幻灯片编辑画布') as HTMLIFrameElement;
+ act(()=>window.dispatchEvent(new MessageEvent('message',{source:frame.contentWindow,data:{source:'project-mind-pptx',type:'ready',epoch:1}})));
+ expect(channels).toHaveLength(2);
+ const epoch=channels[1].send.mock.calls.find(c=>c[0].type==='init')![0].epoch;expect(epoch).toBe(2);
+ act(()=>channels[0].receive?.(new MessageEvent('message',{data:{source:'project-mind-pptx',type:'change',epoch,edits:[]}})));
+ expect(change).not.toHaveBeenCalled();
+});
 test('host accepts editor changes and pending only from its own frame; readOnly crosses the bridge',()=>{
  const ctx=setup();const edits=[{kind:'command',name:'slides:edit-text',args:[]}] as PptxEdit[];
  ctx.message({type:'change',edits},window);expect(ctx.change).not.toHaveBeenCalled();ctx.message({type:'change',edits});expect(ctx.change).toHaveBeenCalledWith(edits);
@@ -30,6 +79,32 @@ test('beforeSave waits for the renderer, propagates IME rejection and succeeds a
 test('model replacement re-initializes through the frame boundary, and flush cannot race initialization',async()=>{
  const ctx=setup();ctx.rerender(<PptxEditor {...ctx.props} model={{...model,sourceBase64:'new'}} edits={[]}/>);
  expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'init',model:expect.objectContaining({sourceBase64:'new'})}));const saved=ctx.flush();ctx.message({type:'initialized'});await act(async()=>{});const req=ctx.post.mock.calls.at(-1)![0] as {requestId:number};ctx.message({type:'flushed',requestId:req.requestId});await saved;
+});
+test('different edits on the same model replace context and still reject stale epoch messages',()=>{
+ const ctx=setup();
+ const local=[{kind:'candidate',sourceHash:'old',base64:'local',changedParts:['ppt/slides/slide2.xml']}] as PptxEdit[];
+ ctx.message({type:'change',edits:local});const previous=ctx.epoch();
+ ctx.rerender(<PptxEditor {...ctx.props} edits={structuredClone(local)}/>);
+ expect(ctx.epoch()).toBe(previous);
+ const external=[{...local[0],base64:'external'}] as PptxEdit[];
+ ctx.rerender(<PptxEditor {...ctx.props} edits={external}/>);
+ expect(ctx.epoch()).toBeGreaterThan(previous);ctx.change.mockClear();
+ ctx.message({type:'change',epoch:previous,edits:local});expect(ctx.change).not.toHaveBeenCalled();
+ expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'init',edits:external}));
+});
+test('presentation toggles update the same frame without init or invalidating a pending flush',async()=>{
+ const ctx=setup({presentationMode:'preview',readOnly:false});
+ expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'init',presentationMode:'preview',readOnly:true}));
+ const before=ctx.epoch(),count=ctx.post.mock.calls.filter(c=>c[0].type==='init').length;
+ const saved=ctx.flush();const request=ctx.post.mock.calls.findLast(c=>c[0].type==='flush')![0];
+ ctx.rerender(<PptxEditor {...ctx.props} presentationMode="edit" readOnly={false}/>);
+ expect(screen.getByTitle('PPTX 幻灯片编辑画布')).toBe(ctx.frame);
+ expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'readonly',presentationMode:'edit',readOnly:false}));
+ expect(ctx.epoch()).toBe(before);expect(ctx.post.mock.calls.filter(c=>c[0].type==='init')).toHaveLength(count);
+ ctx.message({type:'flushed',requestId:request.requestId});await saved;
+ ctx.rerender(<PptxEditor {...ctx.props} presentationMode="preview" readOnly={false}/>);
+ expect(ctx.post).toHaveBeenCalledWith(expect.objectContaining({type:'readonly',presentationMode:'preview',readOnly:true}));
+ expect(ctx.epoch()).toBe(before);
 });
 test('real app theme and computed font synchronize independently of OS preference',async()=>{
  const ctx=setup();document.documentElement.dataset.theme='dark';document.body.style.fontFamily='Test Host Font';await act(async()=>{});
