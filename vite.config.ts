@@ -143,6 +143,7 @@ export default defineConfig({
       "scripts/desktop-runtime.test.mjs",
       "scripts/stage-dsh-runtime.test.mjs",
       "scripts/prepare-cli.test.mjs",
+      "scripts/markdown-export-portability.test.mjs",
       "scripts/office-performance/host-bundle-boundary.test.mjs",
       "packages/dsh-ui/vendor-integrity.test.mjs",
       "packages/dsh-ui/preview/assets-integrity.test.mjs",

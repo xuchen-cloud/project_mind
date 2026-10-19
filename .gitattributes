@@ -2,3 +2,9 @@ src-tauri/resources/fsmn/model.onnx binary
 src-tauri/resources/fsmn/vad.mvn binary
 # Preserve the exact pinned upstream license bytes, including trailing spaces.
 packages/office-pptx/vendor/packages/pptx-engine/src/vendor/mtx/LICENSE whitespace=-blank-at-eol
+
+# Vendored package sources, generated adapters and pinned licenses are checked
+# byte-for-byte. Preserve repository bytes on Windows (core.autocrlf=true) too.
+packages/** -text
+scripts/dsh-runtime-licenses/** -text
+scripts/vendor-licenses/** -text
