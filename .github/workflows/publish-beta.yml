@@ -53,6 +53,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          cache-on-failure: true
       - name: Install frontend and build dependencies
         run: npm ci
       # The release overlay stages the CLI sidecar after pinned target Node,
