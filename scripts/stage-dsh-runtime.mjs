@@ -64,7 +64,12 @@ export async function dshNoticeAssets(roots) {
         const prebuild = JSON.parse(await readFile(path.join(root, 'prebuilds.json')));
         const program = prebuild.engine.programDirectory;
         if (typeof program !== 'string' || path.posix.isAbsolute(program) || program.split('/').includes('..')) throw new Error('Invalid LibreOffice program license path');
-        for (const name of ['LICENSE', 'NOTICE']) await include(`${program}/${name}`);
+        // The pinned Windows payload keeps attribution beside its inner
+        // program/ binary directory; macOS keeps it inside app Resources.
+        const engineNotices = pkg.name === '@deepseek-ai/libreoffice-kit-win32-x64'
+          ? ['program/license.txt', 'program/NOTICE']
+          : [`${program}/LICENSE`, `${program}/NOTICE`];
+        for (const name of engineNotices) await include(name);
       } else {
         for (const file of supplement.slice(1)) {
           const source = sources.find(entry => entry.file === file);

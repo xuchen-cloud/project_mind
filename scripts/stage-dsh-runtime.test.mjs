@@ -331,3 +331,32 @@ test('LibreOffice collects published nested MPL, wrapper, third-party and engine
   await rm(path.join(root, 'program/LibreOffice.app/Contents/Resources/NOTICE'));
   await assert.rejects(dshNoticeAssets([root]), { code: 'ENOENT' });
 });
+
+
+test('pinned Windows LibreOffice payload collects license.txt and NOTICE above programDirectory', async t => {
+  const f = await fixture(t);
+  const root = path.join(f.repository, 'windows-office-licenses');
+  await json(path.join(root, 'package.json'), { name: '@deepseek-ai/libreoffice-kit-win32-x64', version: '0.1.5', license: 'MPL-2.0' });
+  // Published 0.1.5 prebuilds.json points at the binary directory, not licenses.
+  await json(path.join(root, 'prebuilds.json'), { engine: { programDirectory: 'program/program' } });
+  const files = [
+    ['licenses/LibreOffice-MPL-2.0.txt', 'published Windows MPL text'],
+    ['licenses/DeepSeek-Harness-MIT.txt', 'published Windows wrapper attribution'],
+    ['licenses/LibreOffice-third-party.html', '<html>published Windows third-party notices</html>'],
+    ['program/license.txt', 'published Windows engine license'],
+    ['program/NOTICE', 'published Windows engine notice'],
+  ];
+  for (const [file, text] of files) await put(path.join(root, file), text);
+  await put(path.join(root, 'program/program/soffice.ini'), 'binary configuration');
+  const { notices } = await dshNoticeAssets([root]);
+  for (const [file, text] of files) {
+    assert.ok(notices.includes(`Published package file: ${file}`));
+    assert.ok(notices.includes(text));
+  }
+  assert.doesNotMatch(notices, /SPDX reference text/);
+  for (const [file, text] of files) {
+    await rm(path.join(root, file));
+    await assert.rejects(dshNoticeAssets([root]), { code: 'ENOENT' });
+    await put(path.join(root, file), text);
+  }
+});
