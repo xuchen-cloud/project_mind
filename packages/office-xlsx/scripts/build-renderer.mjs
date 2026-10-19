@@ -7,9 +7,9 @@ const root=resolve(import.meta.dirname,'..')
 export async function buildRenderer(){
  await rm(resolve(root,'dist/renderer'),{recursive:true,force:true});await mkdir(resolve(root,'dist/renderer'),{recursive:true});
  const result=await build({absWorkingDir:root,entryPoints:['renderer-entry.ts'],outdir:'dist/renderer',entryNames:'[name]-[hash]',chunkNames:'chunks/[name]-[hash]',assetNames:'assets/[name]-[hash]',outExtension:{'.js':'.mjs'},bundle:true,splitting:true,platform:'browser',format:'esm',target:'es2022',jsx:'automatic',write:true,minify:true,metafile:true,define:{'process.env.NODE_ENV':'"production"','import.meta.hot':'undefined','import.meta.env.DEV':'false'},loader:{'.ttf':'file','.woff':'file','.woff2':'file','.svg':'file','.png':'file','.jpg':'file'},plugins:[disposedAutoHeightPatch,{name:'fixed-renderer-bridge',setup(b){
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/(formula-stream-hold|univer-sync)\.ts$/},async a=>({contents:(a.path.endsWith('formula-stream-hold.ts')?adaptFormulaStreamHold:adaptPreloadCompletion)(await readFile(a.path,'utf8')),loader:'ts',resolveDir:dirname(a.path)}))
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/i18n\/(strings\.ts|locale\.tsx)$/},async a=>({contents:(a.path.endsWith('strings.ts')?adaptLocaleStrings:adaptLocaleProvider)(await readFile(a.path,'utf8')),loader:a.path.endsWith('.tsx')?'tsx':'ts',resolveDir:dirname(a.path)}))
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/main\.tsx$/},async a=>{
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/](formula-stream-hold|univer-sync)\.ts$/},async a=>({contents:(a.path.endsWith('formula-stream-hold.ts')?adaptFormulaStreamHold:adaptPreloadCompletion)(await readFile(a.path,'utf8')),loader:'ts',resolveDir:dirname(a.path)}))
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]i18n[\\/](strings\.ts|locale\.tsx)$/},async a=>({contents:(a.path.endsWith('strings.ts')?adaptLocaleStrings:adaptLocaleProvider)(await readFile(a.path,'utf8')),loader:a.path.endsWith('.tsx')?'tsx':'ts',resolveDir:dirname(a.path)}))
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]main\.tsx$/},async a=>{
  let source=adaptLocaleBootstrap(await readFile(a.path,'utf8'));
  const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream initialization point changed: '+from);source=source.replace(from,to)};
  replace('  const loads: Promise<unknown>[] = [registerCellFontAliases()]', "  performance.mark('office-xlsx:font-load-start');\n  const loads: Promise<unknown>[] = [registerCellFontAliases()]");
@@ -17,7 +17,7 @@ export async function buildRenderer(){
  replace('  ReactDOM.createRoot(root!).render(', "  performance.mark('office-xlsx:react-render');\n  ReactDOM.createRoot(root!).render(");
  return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}
  })
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/App\.tsx$/},async a=>{let source=adaptLoadedVisualScroll(await readFile(a.path,'utf8'));const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream bridge point changed: '+from);source=source.replace(from,to)};
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]App\.tsx$/},async a=>{let source=adaptLoadedVisualScroll(await readFile(a.path,'utf8'));const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream bridge point changed: '+from);source=source.replace(from,to)};
  replace('const [pendingEdits, setPendingEdits] = useState(0)', 'const [pendingEdits, setPendingEditsState] = useState(0);const setPendingEdits = useCallback((value: Parameters<typeof setPendingEditsState>[0])=>{setPendingEditsState(value);queueMicrotask(()=>window.__projectMindSheetsHost.edited())},[])');
  replace('univerRef.current = runtime','univerRef.current = runtime; window.__projectMindSheetsHost.attach(runtime)');
  replace('return handleSaveImpl(saveContext(), mode, quiet, explicitTarget)',"return mode === 'recovery' ? handleSaveImpl(saveContext(), mode, quiet, explicitTarget) : window.__projectMindSheetsHost.requestSave()");
@@ -39,7 +39,7 @@ export async function buildRenderer(){
  replace('  function applyProtectedRanges(ranges: readonly { name: string; sqref: string }[]): string | null {', '  function applyProtectedRanges(ranges: readonly { name: string; sqref: string }[]): string | null {\n    if(window.__projectMindSheetsHost.isReadOnly())return "当前工作簿只读"');
 
  return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}})
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/ExcelShell\.tsx$/},async a=>{let source=await readFile(a.path,'utf8');
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]ExcelShell\.tsx$/},async a=>{let source=await readFile(a.path,'utf8');
  const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream shell bridge changed: '+from);source=source.replace(from,to)};
  const cut=(from,to)=>{const start=source.indexOf(from),end=source.indexOf(to,start);if(start<0||end<0)throw Error('Upstream shell section changed: '+from);source=source.slice(0,start)+source.slice(end)};
  source=replaceStatusZoom(ts,source,a.path,'<StatusZoom value={clampZoomPercent(zoomPercent)} min={SHEET_ZOOM_MIN} max={SHEET_ZOOM_MAX} step={1} onChange={value=>onCommand(`zoom:${value}`)} onStep={direction=>onCommand(direction===1?\"zoom-in\":\"zoom-out\")} onValueClick={()=>setShowZoomDialog(true)}/>',resolve(root,'../editor-chrome/StatusZoom.tsx'));
@@ -66,7 +66,7 @@ export async function buildRenderer(){
  cut(`          <button\n            type="button"\n            className="qa-btn"\n            data-tip={t('appSaveTitle')}`, `          <button\n            type="button"\n            className="qa-btn"\n            data-tip={t('appUndo')}`);
  cut('          <label\n            className={`autosave-toggle', '          {visibleTabs.map');
  return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}})
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/(csv-export|page-layout-actions)\.ts$/},async a=>{
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/](csv-export|page-layout-actions)\.ts$/},async a=>{
  let source=await readFile(a.path,'utf8');const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream output bridge changed: '+from);source=source.replace(from,to)};
  replace('  } catch (error: unknown) {', '  } catch (error: unknown) {\n    window.__projectMindSheetsHost.outputFailed(error)');
  if(a.path.endsWith('csv-export.ts')){
@@ -80,7 +80,7 @@ export async function buildRenderer(){
 
  return{contents:source,loader:'ts',resolveDir:dirname(a.path)}
  })
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/PrintDialog\.tsx$/},async a=>{
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]PrintDialog\.tsx$/},async a=>{
  let source=await readFile(a.path,'utf8');
  for(const[from,to]of [
   ['    setSettings((prev) => ({ ...prev, ...patch }))', '    setJob(null);setSettings((prev) => ({ ...prev, ...patch }))'],
@@ -89,7 +89,7 @@ export async function buildRenderer(){
  ]){if(!source.includes(from))throw Error('Upstream print settings bridge changed: '+from);source=source.replace(from,to)}
  return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}
  })
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/SheetTabContextMenu\.tsx$/},async a=>{
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]SheetTabContextMenu\.tsx$/},async a=>{
  let source=await readFile(a.path,'utf8');
  for(const[from,to]of [
   ['disabled={options.disabled}', 'disabled={options.disabled || (window.__projectMindSheetsHost.isReadOnly() && label!==t("dlgSheetTabSelectAll") && label!==t("dlgSheetTabUngroup"))}'],
@@ -97,7 +97,7 @@ export async function buildRenderer(){
  ]){if(!source.includes(from))throw Error('Upstream sheet menu lock changed: '+from);source=source.replace(from,to)}
  return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}
  })
- b.onLoad({filter:/apps\/sheets\/src\/renderer\/merge-workbooks\.ts$/},async a=>{
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]merge-workbooks\.ts$/},async a=>{
  // Fixed upstream passes `width`, but its pinned Univer command consumes `value`.
  let source=await readFile(a.path,'utf8')
  for(const[from,to]of [['width: width.width,','value: width.width,'],['height: Math.round((row.height * 96) / 72)','height: (row.height * 96) / 72']]){

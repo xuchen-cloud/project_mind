@@ -43,12 +43,12 @@ function embeddedStatus(source,path){
 export function rendererAdapter(root){
   const replace=(source,from,to)=>{if(!source.includes(from))throw Error(`Upstream integration point changed: ${from.slice(0,90)}`);return source.replace(from,to);};
   return {name:'project-mind-docx-web-host',setup(build){
-    build.onLoad({filter:/office-docx[\/]renderer\.tsx$/},async({path})=>({contents:await readFile(path,'utf8')+"\nimport '../editor-chrome/status-bar.css';\nimport '../editor-chrome/editor-chrome.css';\n",loader:'tsx',resolveDir:resolve(path,'..')}));
-    build.onLoad({filter:/office-docx[\/]scroll-edges\.ts$/},async({path})=>({contents:(await readFile(path,'utf8')).replaceAll('Math.min(16,width*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-size')),width*.35)").replaceAll('Math.min(24,height*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-block-size')),height*.35)"),loader:'ts',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/office-docx[\\/]renderer\.tsx$/},async({path})=>({contents:await readFile(path,'utf8')+"\nimport '../editor-chrome/status-bar.css';\nimport '../editor-chrome/editor-chrome.css';\n",loader:'tsx',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/office-docx[\\/]scroll-edges\.ts$/},async({path})=>({contents:(await readFile(path,'utf8')).replaceAll('Math.min(16,width*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-size')),width*.35)").replaceAll('Math.min(24,height*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-block-size')),height*.35)"),loader:'ts',resolveDir:resolve(path,'..')}));
     build.onLoad({filter:/pdf\.worker\.min\.mjs$/},async({path,suffix})=>suffix==='?url'?{contents:`export default URL.createObjectURL(new Blob([${JSON.stringify(await readFile(path,'utf8'))}],{type:'text/javascript'}));`,loader:'js'}:undefined);
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/PrintDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-output-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/ZoomDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-view-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/ProtectDialog\.tsx$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]PrintDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-output-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]ZoomDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-view-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]ProtectDialog\.tsx$/},async({path})=>{
       let source=await readFile(path,'utf8');
       // User explicitly excludes whole-file encryption. Remove this feature's
       // fields/state/diff only; settings.xml write/edit protection stays intact.
@@ -66,13 +66,13 @@ export function rendererAdapter(root){
       source=replace(source,'              value={modifyPwd}','              autoFocus\n              value={modifyPwd}');
       return{contents:source,loader:'tsx',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/PaginationPreview\.tsx$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]PaginationPreview\.tsx$/},async({path})=>{
       let source=await readFile(path,'utf8');
       source=replace(source,'      <div className="pv-toolbar">',`      <div className="pv-toolbar">
         <button className="pv-close" onClick={() => void window.__projectMindDocxHost.output('images')}>导出图片</button>`);
       return{contents:source,loader:'tsx',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/system-fonts\.ts$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]system-fonts\.ts$/},async({path})=>{
       let source=await readFile(path,'utf8');const ast=ts.createSourceFile(path,source,ts.ScriptTarget.Latest,true);
       const query=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='queryFamilies');
       if(!query?.body)throw Error('System font integration point changed');
@@ -80,7 +80,7 @@ export function rendererAdapter(root){
       source=replace(source,'    return families\n  })','    return families\n  }).catch(error => { pending = null; throw error })');
       return{contents:source,loader:'ts',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/file-actions\.ts$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]file-actions\.ts$/},async({path})=>{
       let source=await readFile(path,'utf8');
       source=replace(source,"    const pvPages = [...document.querySelectorAll('.pv-page')] as HTMLElement[]",`    const pvPages = [...document.querySelectorAll('.pv-page')] as HTMLElement[]
     if (!pvPages.length) return deferExportToPreview(ctx, outPath)`);
@@ -94,7 +94,7 @@ export function rendererAdapter(root){
       source=source.slice(0,images.body.getStart(ast)+1)+'try {'+source.slice(images.body.getStart(ast)+1);
       return{contents:source,loader:'ts',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/html-export\.ts$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]html-export\.ts$/},async({path})=>{
       let source=await readFile(path,'utf8');
       // This class marks the real paragraph following a page break, not just
       // chrome. Upstream's skip set otherwise drops its entire text on export.
@@ -105,7 +105,7 @@ export function rendererAdapter(root){
   }`);
       return{contents:source,loader:'ts',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/components\/Ribbon\.tsx$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]Ribbon\.tsx$/},async({path})=>{
       let source=await readFile(path,'utf8');
       source=markEditorChrome(ts,embeddedRibbonChrome(source,path),path);
       // The enclosing File host owns its menu; keep original editor tabs and QAT undo/redo.
@@ -120,8 +120,8 @@ export function rendererAdapter(root){
       return{contents:source,loader:'tsx',resolveDir:resolve(path,'..')};
     });
     build.onResolve({filter:/^project-mind:secure-extensions$/},()=>({path:resolve(root,'secure-extensions.ts')}));
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/editor\/extensions\.ts$/},async({path})=>{let source=await readFile(path,'utf8');source=replace(source,'export const editorExtensions = [','const originalEditorExtensions = [');source=replace(source,'export const textboxSubExtensions = [','const originalTextboxSubExtensions = [');return{contents:"import {secureExtensions} from 'project-mind:secure-extensions';\n"+source+'\nexport const textboxSubExtensions = secureExtensions(originalTextboxSubExtensions);\nexport const editorExtensions = secureExtensions(originalEditorExtensions);',loader:'ts',resolveDir:resolve(path,'..')};});
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/(components\/ribbon-tabs|editor\/image-drop)\.tsx?$/},async({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]editor[\\/]extensions\.ts$/},async({path})=>{let source=await readFile(path,'utf8');source=replace(source,'export const editorExtensions = [','const originalEditorExtensions = [');source=replace(source,'export const textboxSubExtensions = [','const originalTextboxSubExtensions = [');return{contents:"import {secureExtensions} from 'project-mind:secure-extensions';\n"+source+'\nexport const textboxSubExtensions = secureExtensions(originalTextboxSubExtensions);\nexport const editorExtensions = secureExtensions(originalEditorExtensions);',loader:'ts',resolveDir:resolve(path,'..')};});
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/](components[\\/]ribbon-tabs|editor[\\/]image-drop)\.tsx?$/},async({path})=>{
       let source=await readFile(path,'utf8');
       if(path.endsWith('ribbon-tabs.tsx'))source=replace(source,"title={t('ribbonProtectDocTip')}","title={t('ribbonProtectDoc')}");
       const ast=ts.createSourceFile(path,source,ts.ScriptTarget.Latest,true);const patches=[];
@@ -129,7 +129,7 @@ export function rendererAdapter(root){
       for(const patch of patches.sort((a,b)=>b.at-a.at))source=source.slice(0,patch.at)+patch.text+source.slice(patch.at);
       return{contents:source,loader:path.endsWith('tsx')?'tsx':'ts',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/App\.tsx$/},async ({path})=>{
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]App\.tsx$/},async ({path})=>{
       let source=await readFile(path,'utf8');
       source=embeddedStatus(embeddedAppChrome(source,path),path);
       source=replaceStatusZoom(ts,source,path,'<StatusZoom value={Math.round(zoom)} min={DOCS_ZOOM_MIN} max={DOCS_ZOOM_MAX} step={10} disabled={!doc} onChange={setZoom} onStep={direction=>setZoom(z=>stepDocsZoom(z,direction))} onValueClick={()=>setShowZoomDialog(true)}/>',resolve(root,'../editor-chrome/StatusZoom.tsx'));
@@ -164,7 +164,7 @@ export function rendererAdapter(root){
       source=replace(source,'(saveAs: boolean, auto = false) => saveImpl(fileCtxRef.current, saveAs, auto)','(saveAs: boolean, auto = false) => window.__projectMindDocxHost.requestSave()');
       return {contents:source,loader:'tsx',resolveDir:resolve(path,'..')};
     });
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/parse-off-thread\.ts$/},async ({path})=>({contents:(await readFile(path,'utf8')).replace("new URL('./parse-worker.ts', import.meta.url)","URL.createObjectURL(new Blob([__PROJECT_MIND_DOCX_WORKER__], {type: 'text/javascript'}))"),loader:'ts'}));
-    build.onLoad({filter:/apps\/docs\/src\/renderer\/ai\/AiPanel\.tsx$/},()=>({contents:'export const AI_REVISION_AUTHOR="Project Mind"; export function AiPanel(){return null}',loader:'tsx'}));
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]parse-off-thread\.ts$/},async ({path})=>({contents:(await readFile(path,'utf8')).replace("new URL('./parse-worker.ts', import.meta.url)","URL.createObjectURL(new Blob([__PROJECT_MIND_DOCX_WORKER__], {type: 'text/javascript'}))"),loader:'ts'}));
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]ai[\\/]AiPanel\.tsx$/},()=>({contents:'export const AI_REVISION_AUTHOR="Project Mind"; export function AiPanel(){return null}',loader:'tsx'}));
   }};
 }

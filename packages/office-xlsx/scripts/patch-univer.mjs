@@ -8,8 +8,8 @@ import {adaptSteadyScheduling} from './initialization-adapter.mjs'
 export const disposedAutoHeightPatch={
   name:'xlsx-disposed-auto-height',
   setup(build){
-    build.onLoad({filter:/@univerjs\/ui\/lib\/es\/index\.js$/},async({path})=>({contents:adaptSteadyScheduling(await readFile(path,'utf8')),loader:'js'}))
-    build.onLoad({filter:/@univerjs\/sheets-note-ui\/lib\/es\/index\.js$/},async({path})=>{
+    build.onLoad({filter:/@univerjs[\\/]ui[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>({contents:adaptSteadyScheduling(await readFile(path,'utf8')),loader:'js'}))
+    build.onLoad({filter:/@univerjs[\\/]sheets-note-ui[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>{
       const text=await readFile(path,'utf8')
       // The 300ms debounce loses freshly typed text when the popup closes or
       // beforeSave snapshots its journal immediately. Notes must journal input
@@ -18,7 +18,7 @@ export const disposedAutoHeightPatch={
       if(text.split(needle).length!==2)throw new Error('Pinned Univer note input patch no longer matches')
       return {contents:text.replace(needle,'const updateNote = ((newNote) => {'),loader:'js'}
     })
-    build.onLoad({filter:/@univerjs\/sheets-ui\/lib\/es\/index\.js$/},async({path})=>{
+    build.onLoad({filter:/@univerjs[\\/]sheets-ui[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>{
       const text=await readFile(path,'utf8')
       const needle='getUndoRedoParamsOfAutoHeight(ranges, subUnitIdParam, currentCellHeights) {\n\t\tconst { _univerInstanceService: univerInstanceService } = this;\n\t\tconst workbook = univerInstanceService.getCurrentUnitOfType(UniverInstanceType.UNIVER_SHEET);'
       if(text.split(needle).length!==2)throw new Error('Pinned Univer auto-height patch no longer matches')

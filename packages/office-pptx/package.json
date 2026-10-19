@@ -13,7 +13,7 @@
     "sources:verify": "node sources.mjs",
     "sources:fetch": "node sources.mjs --fetch",
     "build": "node build.mjs",
-    "test": "node --test test/engine.test.mjs test/parity.test.mjs test/renderer-resources.test.mjs",
+    "test": "node --test test/build-portability.test.mjs test/engine.test.mjs test/parity.test.mjs test/renderer-resources.test.mjs",
     "test:ui": "vitest run --config vitest.config.ts",
     "check": "tsc --noEmit -p tsconfig.json"
   },
