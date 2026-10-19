@@ -1,5 +1,6 @@
 import {readFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
+import {buildImportPath} from './build-import-path.mjs';
 import ts from 'typescript';
 import {markEditorChrome} from '../editor-chrome/build-adapter.mjs';
 import {installTextEditTransforms} from './parity-text-edit-build.mjs';
@@ -7,14 +8,14 @@ export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-pa
  if(browser)installTextEditTransforms(b,root);
  if(browser)b.onLoad({filter:/parity-entry\.tsx$/},args=>({contents:readFileSync(args.path,'utf8').replaceAll('min(16px,35%)','min(var(--editor-chrome-fade-size),35%)').replaceAll('min(24px,35%)','min(var(--editor-chrome-fade-block-size),35%)'),loader:'tsx'}));
  // Preserve pinned source bytes while making generated IDs/timestamps replayable across browser/native.
- b.onLoad({filter:/(?:pptx-engine[\/]src[\/](?:xml-utils|index|sections|generate|comments|insert|headerfooter)\.ts|parity-handlers\.mjs)$/},args=>{
+ b.onLoad({filter:/(?:pptx-engine[\\/]src[\\/](?:xml-utils|index|sections|generate|comments|insert|headerfooter)\.ts|parity-handlers\.mjs)$/},args=>{
   let source=readFileSync(args.path,'utf8');
   source=source.replace(/globalThis\.crypto\.randomUUID\(\)/g,'replayUUID()').replace(/new Date\(\)\.toISOString\(\)/g,'replayDateISO()').replace(/Date\.now\(\)/g,'replayNow()');
   source=source.replace(/import \{ randomUUID \} from 'node:crypto'/,"const randomUUID=replayUUID;");
   source=source.replace(/function fieldGuid\(\): string \{[\s\S]*?\n\}/,"function fieldGuid(): string {return replayUUID().toUpperCase()}");
-  return {contents:`import {replayUUID,replayNow,replayDateISO} from '${join(root,'parity-context.ts')}';\n${source}`,loader:args.path.endsWith('.mjs')?'js':'ts'};
+  return {contents:`import {replayUUID,replayNow,replayDateISO} from ${JSON.stringify(buildImportPath(root,'parity-context.ts'))};\n${source}`,loader:args.path.endsWith('.mjs')?'js':'ts'};
  });
- b.onLoad({filter:/slides[\/]src[\/]renderer[\/]components[\/]Ribbon\.tsx$/},args=>({contents:markEditorChrome(ts,readFileSync(args.path,'utf8').replace(/        \{!IS_MAC && \([\s\S]*?<IconSave size=\{16\} \/>\n        <\/button>/, '')
+ b.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]components[\\/]Ribbon\.tsx$/},args=>({contents:markEditorChrome(ts,readFileSync(args.path,'utf8').replace(/        \{!IS_MAC && \([\s\S]*?<IconSave size=\{16\} \/>\n        <\/button>/, '')
   .replace(/        <label\n          className=\{`autosave-toggle[\s\S]*?<\/label>/, '')
   // Keep every editing tab in the scroll rail; output/save belong to the host.
   .replace("{TABS.filter((tb)", '<div className="pm-ribbon-tab-list" role="group" aria-label="编辑选项卡">{TABS.filter((tb)')
@@ -25,8 +26,8 @@ export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-pa
   .replace('onClick={onSave}', 'data-keep-edit="" onMouseDown={e => e.preventDefault()} onClick={onSave}'),args.path),loader:'tsx'}));
  b.onLoad({filter:/file-actions\.ts$/},args=>{
   let source=readFileSync(args.path,'utf8').replace(": t('appExportImagesFailed'",": (r as any).canceled ? '已取消导出' : t('appExportImagesFailed'").replace(": t('appExportPdfFailed'",": (r as any).canceled ? '已取消导出' : t('appExportPdfFailed'");
-  source="import {checkpointTextEdit} from '"+join(root,'parity-text-edit.ts')+"';\n"+source.replaceAll('    await flushActiveEdit(ctx)','    if (!await checkpointTextEdit()) await flushActiveEdit(ctx)');
-  source="import {currentPptxEpoch,assertPptxEpoch} from '"+join(root,'parity-protocol.ts')+"';\n"+source
+  source="import {checkpointTextEdit} from "+JSON.stringify(buildImportPath(root,'parity-text-edit.ts'))+";\n"+source.replaceAll('    await flushActiveEdit(ctx)','    if (!await checkpointTextEdit()) await flushActiveEdit(ctx)');
+  source="import {currentPptxEpoch,assertPptxEpoch} from "+JSON.stringify(buildImportPath(root,'parity-protocol.ts'))+";\n"+source
    .replace('export async function exportImages(ctx: ActionCtx): Promise<void> {','export async function exportImages(ctx: ActionCtx, hostOutput = false): Promise<void> {\n  const epoch = currentPptxEpoch()')
    .replace('export async function exportPdf(ctx: ActionCtx, outPath?: string): Promise<boolean> {','export async function exportPdf(ctx: ActionCtx, outPath?: string, hostOutput = false): Promise<boolean> {\n  const epoch = currentPptxEpoch()')
    .replace('const r = await window.slidesApi.exportImages(', 'assertPptxEpoch(epoch);\n    const r = await window.slidesApi.exportImages(')

@@ -1,11 +1,11 @@
 /** Explicit adapters around pinned upstream extraction/commit; vendor bytes stay untouched. */
 import {readFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {buildImportPath} from './build-import-path.mjs';
 import ts from 'typescript';
 import {replaceStatusZoom,markEditorChrome} from '../editor-chrome/build-adapter.mjs';
 export function installTextEditTransforms(build,root){
- const modulePath=join(root,'parity-text-edit.ts');
- build.onLoad({filter:/slides[\/]src[\/]renderer[\/]TextEditOverlay\.tsx$/},args=>{
+ const modulePath=JSON.stringify(buildImportPath(root,'parity-text-edit.ts'));
+ build.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]TextEditOverlay\.tsx$/},args=>{
   let source=readFileSync(args.path,'utf8');
   source=source.replace('onCommit: (paragraphs: EditParagraph[]) => void','onCheckpoint?: (paragraphs: EditParagraph[]) => Promise<void>\n  onAbandon?: () => void\n  onCommit: (paragraphs: EditParagraph[]) => void')
    .replace('  onCommit,\n','  onCommit, onCheckpoint, onAbandon,\n')
@@ -30,9 +30,9 @@ export function installTextEditTransforms(build,root){
     '  // Targeted layout release',
    ].join('\n'))
    .replace('        onBlur={(e) => {','        onBlur={(e) => {\n          if (keepTextEditOnBlur(e.relatedTarget)) return');
-  return {contents:"import {registerTextEdit, consumeTextEditCheckpoint, keepTextEditOnBlur} from '"+modulePath+"';\n"+source,loader:'tsx'};
+  return {contents:"import {registerTextEdit, consumeTextEditCheckpoint, keepTextEditOnBlur} from "+modulePath+";\n"+source,loader:'tsx'};
  });
- build.onLoad({filter:/slides[\/]src[\/]renderer[\/]App\.tsx$/},args=>({contents:markEditorChrome(ts,replaceStatusZoom(ts,"import {usePptxOutput} from '"+join(root,'parity-output.ts')+"';\nimport {usePptxPreview} from '"+join(root,'parity-presentation.ts')+"';\nimport {markTextEditCheckpoint} from '"+modulePath+"';\n"+readFileSync(args.path,'utf8')
+ build.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]App\.tsx$/},args=>({contents:markEditorChrome(ts,replaceStatusZoom(ts,"import {usePptxOutput} from "+JSON.stringify(buildImportPath(root,'parity-output.ts'))+";\nimport {usePptxPreview} from "+JSON.stringify(buildImportPath(root,'parity-presentation.ts'))+";\nimport {markTextEditCheckpoint} from "+modulePath+";\n"+readFileSync(args.path,'utf8')
   .replace('const exportImages = useCallback(() => fileActions.exportImages(ctxRef.current), [])', 'const exportImages = useCallback((hostOutput = false) => fileActions.exportImages(ctxRef.current, hostOutput), [])')
   .replace('const exportPdf = useCallback(() => void fileActions.exportPdf(ctxRef.current), [])', 'const exportPdf = useCallback((hostOutput = false) => fileActions.exportPdf(ctxRef.current, undefined, hostOutput), [])')
   .replace('const [printDlgOpen, setPrintDlgOpen] = useState(false)', "const [printDlgOpen, setPrintDlgOpen] = useState(false)\n  usePptxOutput({pdf: () => exportPdf(true), images: () => exportImages(true), print: () => setPrintDlgOpen(true)})")
@@ -47,5 +47,5 @@ export function installTextEditTransforms(build,root){
   .replace('if (editing.discardIfEmpty && paragraphsBlank(paragraphs))','if (!keepEditing && editing.discardIfEmpty && paragraphsBlank(paragraphs))')
   .replace('      if (updated) {\n        setSlides((s)', '      if (updated) {\n        if (keepEditing) markTextEditCheckpoint(updated, editing.sourceId)\n        setSlides((s)')
   .replace('      setEditing(null)\n      setSelectedIds([editing.sourceId])', '      if (keepEditing) return\n      setEditing(null)\n      setSelectedIds([editing.sourceId])')
-  .replace('onCommit={commitEdit}', 'onCommit={commitEdit} onCheckpoint={paragraphs => commitEdit(paragraphs, true)} onAbandon={() => setEditing(null)}'),args.path,'<StatusZoom value={live} min={ZOOM_MIN*100} max={ZOOM_MAX*100} step={5} onChange={value=>{setLive(value);onPreview(value/100)}} onStep={step}/>',join(root,'../editor-chrome/StatusZoom.tsx')),args.path),loader:'tsx'}));
+  .replace('onCommit={commitEdit}', 'onCommit={commitEdit} onCheckpoint={paragraphs => commitEdit(paragraphs, true)} onAbandon={() => setEditing(null)}'),args.path,'<StatusZoom value={live} min={ZOOM_MIN*100} max={ZOOM_MAX*100} step={5} onChange={value=>{setLive(value);onPreview(value/100)}} onStep={step}/>',buildImportPath(root,'../editor-chrome/StatusZoom.tsx')),args.path),loader:'tsx'}));
 }
