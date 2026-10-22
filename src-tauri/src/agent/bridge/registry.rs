@@ -34,6 +34,10 @@ use serde_json::Value;
 #[serde(deny_unknown_fields)]
 pub struct ProjectListInput {}
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionStatusInput {}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisteredMethod {
@@ -45,6 +49,12 @@ pub struct RegisteredMethod {
 
 pub fn registered_methods() -> Vec<RegisteredMethod> {
     vec![
+        RegisteredMethod {
+            method: "connection.status",
+            description: "Read this connection's current binding and native scope/operation grants. Embedded executions also report their actual executionMode; external connections report null. This snapshot does not reserve access: each operation rechecks authorization and source visibility.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ConnectionStatusInput)).expect("static schema"),
+        },
         RegisteredMethod {
             method: "project.list",
             description: "List projects visible to this connection in the bound Workspace.",
@@ -280,7 +290,7 @@ pub fn is_registered(method: &str) -> bool {
 
 pub fn is_read_only(method: &str) -> Option<bool> {
     match method {
-        "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
+        "connection.status" | "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
         | "knowledge.get" | "source.search" | "source.read"
         | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
@@ -308,6 +318,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         crate::agent::tools::validate_bounds(method, parameters)?;
     }
     let decoded = match method {
+        "connection.status" => decode::<ConnectionStatusInput>(parameters),
         "project.list" => decode::<ProjectListInput>(parameters),
         "context.get" => decode::<ContextGetInput>(parameters),
         "context.overview.get" => decode::<OverviewReadInput>(parameters),
@@ -382,7 +393,7 @@ mod tests {
     #[test]
     fn registry_contains_only_exposed_methods() {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
-            "project.list", "context.get", "context.overview.get", "knowledge.search",
+            "connection.status", "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read",
             "reference.list", "record.get", "record.blocks.get", "todo.get", "todo.list",
             "file.versions.list", "file.versions.get", "file.source.read",

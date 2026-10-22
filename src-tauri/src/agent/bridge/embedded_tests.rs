@@ -15,7 +15,8 @@ fn execution_lease_enforces_mode_and_revocation() {
         .authorize("native-long-term-token", "record.get")
         .is_err());
     control.close(opened["leaseId"].as_str().unwrap()).unwrap();
-    assert!(!lease.load(Ordering::Acquire));
+    assert_eq!(lease.mode, "read-only");
+    assert!(!lease.enabled.load(Ordering::Acquire));
     assert!(control.authorize(token, "record.get").is_err());
     for mode in ["workspace-write", "danger-full-access"] {
         let runtime = EmbeddedCliControl::default();
@@ -24,11 +25,29 @@ fn execution_lease_enforces_mode_and_revocation() {
             .authorize(opened["token"].as_str().unwrap(), "record.patch")
             .unwrap();
         runtime.revoke();
-        assert!(!enabled.load(Ordering::Acquire));
+        assert_eq!(enabled.mode, mode);
+        assert!(!enabled.enabled.load(Ordering::Acquire));
         assert!(runtime.open(mode).is_err());
         assert!(runtime
             .authorize(opened["token"].as_str().unwrap(), "record.get")
             .is_err());
+    }
+}
+
+#[test]
+fn connection_status_uses_the_actual_lease_mode_without_relaxing_any_write() {
+    let control = EmbeddedCliControl::default();
+    for mode in ["read-only", "workspace-write", "danger-full-access"] {
+        let opened = control.open(mode).unwrap();
+        let token = opened["token"].as_str().unwrap();
+        let status = control.authorize(token, "connection.status").unwrap();
+        assert_eq!(status.mode, mode);
+        for method in ["todo.create", "todo.update", "record.create", "record.patch", "file.create", "file.update"] {
+            assert_eq!(control.authorize(token, method).is_ok(), mode != "read-only", "{mode}: {method}");
+        }
+        control.close(opened["leaseId"].as_str().unwrap()).unwrap();
+        assert!(!status.enabled.load(Ordering::Acquire));
+        assert!(control.authorize(token, "connection.status").is_err());
     }
 }
 
@@ -80,7 +99,7 @@ fn dropping_runtime_invalidates_outstanding_controls_and_storage_flags() {
         config: json!({}),
     };
     drop(runtime);
-    assert!(!enabled.load(Ordering::Acquire));
+    assert!(!enabled.enabled.load(Ordering::Acquire));
     assert!(control.open("read-only").is_err());
     assert!(control
         .authorize(opened["token"].as_str().unwrap(), "record.get")
@@ -289,7 +308,7 @@ fn in_flight_storage_rechecks_lease_and_workspace_binding() {
     };
     let connection = ConnectionStore {
         inner: &store,
-        enabled: &enabled,
+        enabled: &enabled.enabled,
         token: &token,
         input: &input,
     };

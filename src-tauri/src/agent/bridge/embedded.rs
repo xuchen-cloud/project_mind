@@ -190,8 +190,13 @@ fn ensure_grant(
 
 struct Lease {
     token: String,
-    read_only: bool,
+    mode: &'static str,
     enabled: Arc<AtomicBool>,
+}
+
+struct AuthorizedLease {
+    enabled: Arc<AtomicBool>,
+    mode: &'static str,
 }
 struct Leases {
     alive: bool,
@@ -212,9 +217,10 @@ pub(crate) struct EmbeddedCliControl {
 impl EmbeddedCliControl {
     /// Trusted native stdin control only; never expose this through the bridge.
     pub(crate) fn open(&self, mode: &str) -> AgentResult<Value> {
-        let read_only = match mode {
-            "read-only" => true,
-            "workspace-write" | "danger-full-access" => false,
+        let mode = match mode {
+            "read-only" => "read-only",
+            "workspace-write" => "workspace-write",
+            "danger-full-access" => "danger-full-access",
             _ => {
                 return Err(AgentError::new(
                     ErrorCode::InvalidArgument,
@@ -238,7 +244,7 @@ impl EmbeddedCliControl {
             id.clone(),
             Lease {
                 token: token.clone(),
-                read_only,
+                mode,
                 enabled: Arc::new(AtomicBool::new(true)),
             },
         );
@@ -251,7 +257,7 @@ impl EmbeddedCliControl {
         }
         Ok(())
     }
-    fn authorize(&self, token: &str, method: &str) -> AgentResult<Arc<AtomicBool>> {
+    fn authorize(&self, token: &str, method: &str) -> AgentResult<AuthorizedLease> {
         let leases = lock_mutex(&self.leases);
         if !leases.alive {
             return Err(unavailable());
@@ -267,7 +273,7 @@ impl EmbeddedCliControl {
         if method != "connect" {
             match registry::is_read_only(method) {
                 Some(true) => {}
-                Some(false) if !lease.read_only => {}
+                Some(false) if lease.mode != "read-only" => {}
                 Some(false) => return Err(denied()),
                 None => {
                     return Err(AgentError::new(
@@ -277,7 +283,7 @@ impl EmbeddedCliControl {
                 }
             }
         }
-        Ok(lease.enabled.clone())
+        Ok(AuthorizedLease { enabled: lease.enabled.clone(), mode: lease.mode })
     }
     pub(crate) fn revoke(&self) {
         let mut leases = lock_mutex(&self.leases);
@@ -324,12 +330,12 @@ impl EmbeddedHandler {
 }
 impl BridgeHandler for EmbeddedHandler {
     fn connect(&self, token: &str, input: ConnectInput) -> AgentResult<WorkspaceBinding> {
-        let enabled = self.control.authorize(token, "connect")?;
+        let lease = self.control.authorize(token, "connect")?;
         if input.grant_id != self.grant_id || Path::new(&input.workspace_path) != self.workspace {
             return Err(denied());
         }
         self.with_current(|db| {
-            if !enabled.load(Ordering::Acquire) {
+            if !lease.enabled.load(Ordering::Acquire) {
                 return Err(unavailable());
             }
             db.agent_connection_authenticate(
@@ -343,21 +349,26 @@ impl BridgeHandler for EmbeddedHandler {
     }
     fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
         Box::pin(async move {
-            let enabled = self.control.authorize(token, &input.method)?;
+            let lease = self.control.authorize(token, &input.method)?;
             if input.grant_id != self.grant_id || input.binding != self.binding {
                 return Err(denied());
             }
             self.with_current(|_| Ok(()))?;
             let state = self.app.state::<AppState>();
-            dispatch::execute(
+            let is_status = input.method == "connection.status";
+            let mut result = dispatch::execute(
                 &*state,
-                &enabled,
+                &lease.enabled,
                 &self.native_token,
                 input,
                 &crate::record_document_service::AppDocumentUtility(self.app.clone()),
                 &AppSourceUtility(self.app.clone()),
             )
-            .await
+            .await?;
+            if is_status {
+                result["executionMode"] = json!(lease.mode);
+            }
+            Ok(result)
         })
     }
 }

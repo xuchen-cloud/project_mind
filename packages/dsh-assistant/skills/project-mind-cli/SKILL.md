@@ -19,9 +19,30 @@ mind capabilities --json
 mind doctor --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
-Subcommand `--help` is normal discovery. `capabilities --json` lists compact callable methods; add `--verbose` for full details only when needed. `mind schema METHOD --json` is the authority for an exact input DTO. Internal/planned capabilities in verbose output do not establish CLI support. `doctor` returns compact connection/binding facts: continue when `ok` and `data.connected` are true and the binding matches this task.
+Subcommand `--help` is normal discovery. `capabilities --json` lists compact callable methods; add `--verbose` for full details only when needed. `mind schema METHOD --json` is the authority for an exact input DTO. Internal/planned capabilities in verbose output do not establish CLI support.
 
-Use exactly the authorized scope: `{"kind":"workspace"}` or `{"kind":"project","projectId":ID}` in DTOs; `--workspace-scope` or `--project ID` in shorthand. DTO scope is inside its JSON: omit shorthand scope/query/budget flags. Workspace object scope does not include all Projects. Use `project list` only when the task needs authorized Project discovery; IDs and object references come from native reads, never guesses.
+### Check binding and authorization
+
+Consult `doctor` when establishing the current task's connection/scope or diagnosing a connection, binding or permission failure. Require `ok:true`, `data.connected:true` and `workspacePath` equal to the canonical supplied Workspace path. `binding.workspaceId` and `binding.generation` must equal the runtime-supplied or previously verified task binding; if neither exists, retain this first verified binding. Native object references must have that Workspace ID. A different Workspace ID requires resolving the intended Workspace before proceeding. A changed generation means the Workspace was reopened: re-establish the task binding and reread affected evidence/baselines before continuing.
+
+`doctor` also returns `authorization` and `executionMode`. `mind connection status --workspace "$WORKSPACE" --connection "$CONNECTION" --json` (MCP method `connection.status`) returns the same binding/authorization/executionMode snapshot, without `workspacePath` or `connected`. Reuse the current task's snapshot; each operation still checks live authorization, so probing before every mutation is unnecessary.
+
+- **Scope:** Workspace-owned content requires `authorization.workspaceContent:true`; a Project requires its ID in `authorization.projectIds`. Resolve the user's intended scope within those grants. Use `project list` for authorized Project identity discovery when needed and `context.read` is granted; a supplied Project ID alone does not grant access. If identity/scope remains unclear, ask the user. Permission failures are not a scope-discovery mechanism.
+- **Objects:** `authorization.objectKeys:null` adds no object restriction; an array restricts existing-object access to its exact keys (an empty array permits none). Match a native ObjectRef using `workspaceId/workspace/todo/ID` or `workspaceId/project:PROJECT_ID/todo/ID`, substituting its actual kind for `todo`. Scope and operation checks still apply. For object-limited grants, use authorized object/source reads instead of scope-wide `context get`.
+- **Operations:** `authorization.operations` contains native permissions, not callable method names. Check the permission for the intended behavior below, including `source.read` for native evidence/readback.
+- **Mode:** `read-only` forbids every mutation even with write permissions. `workspace-write` and `danger-full-access` retain the scope/object/operation limits. `null` means an external connection supplies no built-in execution mode; it does not imply unrestricted access.
+
+| Intended behavior | Native permission |
+| --- | --- |
+| Read Todo / Record / File content | `source.read` |
+| Create Todo / Record / File | `content.create` |
+| Change Todo, including Subtasks | `todo.update` |
+| Change / append to Record | `record.patch` |
+| Restore a historical Record version | `record.restore` |
+| Change / patch File | `file.update` |
+| Restore a historical File version | `file.restore` |
+
+Use the resolved scope: `{"kind":"workspace"}` or `{"kind":"project","projectId":ID}` in DTOs; `--workspace-scope` or `--project ID` in shorthand. DTO scope is inside its JSON: omit shorthand scope/query/budget flags. Workspace object scope does not include all Projects. IDs and object references come from the supplied binding context or authorized native reads, never guesses.
 
 ## 2. Choose the object and task branch
 
@@ -46,9 +67,17 @@ Stop reading when the task has sufficient evidence or report the remaining cover
 
 ## 4. Apply the requested change
 
-Read the target first. Keep its current CAS baseline: Todo `expectedRevision`, Record `baseRevision`, File `expectedVersionNumber` and `expectedContentHash`. Build the mutation from the method schema and the relevant branch guide.
+Before creating, modifying or appending to a Todo, Record or File:
+
+1. Establish the authorized scope and the object or independent outcome the user means. Reuse native evidence already read for this task.
+2. If evidence is insufficient, use bounded relevant native lists/source queries and necessary pagination within that authorization. Stop once the target/creation decision is supported. A finite query or unread page cannot prove no matching object exists; if ambiguity affects identity or could overwrite the wrong content, ask the user before writing.
+3. Choose create, modify or append using the [Todo rules](references/todo.md#choose-create-or-update) or [Record/File rules](references/record-file.md#choose-create-or-continue). A similar title/text alone does not settle identity.
+
+For an existing target, read the content needed for the edit and keep its current CAS baseline: Todo `expectedRevision`, Record `baseRevision`, File `expectedVersionNumber` and `expectedContentHash`. Reuse a sufficient current native read; reread after intervening changes or a conflict. Build the mutation from the method schema and the relevant branch guide.
 
 Allocate one stable request ID per intended mutation (1–128 UTF-8 bytes) and retain it with the exact payload, excluding credentials. Most writes use `{"requestId":"…","input":{…}}`; `record.patch` takes native RecordPatch JSON. If also supplied as `--request-id`, the ID must match the payload. Preview/staging is not a save.
+
+The current Todo/Record/File methods settle each object's mutation independently, keeping recovery and undo tied to its native receipt/version. Batch creation is deferred until actual multi-object volume or call costs justify defining batch authorization, atomicity and undo; stable request IDs can support such a design. Use the installed per-object methods for current work.
 
 ### Recover from the actual outcome
 
@@ -70,6 +99,6 @@ JSON
 
 ## 5. Verify and report
 
-A write is complete when the native success result and **Operation Receipt** identify the actual object/version, and a fresh authorized read confirms the requested fields or content. Retain the operation ID and before/after revisions; report partial success per mutation. A preview, upload stage, local file or model statement is not persistence evidence.
+A write is complete when the native success result and **Operation Receipt** identify the actual object/version, and a fresh authorized read confirms the requested fields or content. For several requested writes, use the current per-object methods with a request ID, exact payload, receipt/replay and readback for each mutation. Report saved objects/versions and any failed, uncertain or unattempted items separately; partial success is not an atomic batch. Retain operation IDs and before/after revisions. A preview, upload stage, local file or model statement is not persistence evidence.
 
 Frontend automatic refresh is a separate product acceptance check. If UI acceptance is requested, verify that the already-open view updates without manual refresh. Receipt plus readback proves persistence; claim automatic refresh only when observed. Report any unverified UI behavior separately from the saved result.

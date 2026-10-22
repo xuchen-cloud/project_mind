@@ -8,7 +8,10 @@ use crate::agent::{
 };
 use crate::db::file_imports::{validate_agent_file_create, AgentFileCreateInput};
 use serde_json::{json, Value};
-use std::{io::Read, path::PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 #[path = "cli_upload.rs"]
 mod cli_upload;
 #[path = "cli_help.rs"]
@@ -273,6 +276,7 @@ fn preview_create_params(params: Value, budget_chars: Option<usize>) -> AgentRes
 
 fn bridge_method(command: &str, dry_run: bool) -> &str {
     match (command, dry_run) {
+        ("doctor", _) => "connection.status",
         ("search", _) => "source.search",
         ("record.patch", true) => "record.patch.preview",
         ("record.create", true) => "record.create.preview",
@@ -501,13 +505,26 @@ fn capabilities_data(verbose: bool) -> Value {
     }
 }
 
-fn doctor_data(binding: &WorkspaceBinding, verbose: bool) -> Value {
-    let mut data = json!({"connected": true, "binding": binding});
+fn doctor_data(workspace: &Path, status: Value, verbose: bool) -> Value {
+    let mut data = json!({"connected": true, "binding": status["binding"],
+        "workspacePath": workspace, "authorization": status["authorization"],
+        "executionMode": status["executionMode"]});
     if verbose { data["bridgeMethods"] = json!(registry::registered_methods()); }
     data
 }
 
 pub fn run(args: &[String]) -> CliOutput {
+    run_with_bridge_call(args, |workspace, connection, method, params, request_id| {
+        let client = BridgeClient::discover(connection)?;
+        let binding = client.connect(connection, workspace, request_id)?;
+        client.call(connection, &binding, method, params, request_id)
+    })
+}
+
+fn run_with_bridge_call(
+    args: &[String],
+    bridge_call: impl FnOnce(&Path, &str, &str, Value, &str) -> AgentResult<Value>,
+) -> CliOutput {
     let words = args.iter().map(String::as_str).collect::<Vec<_>>();
     match words.as_slice() {
         ["--version"] => return CliOutput { stdout: format!("mind {}\n", env!("CARGO_PKG_VERSION")), stderr: String::new(), exit_code: 0 },
@@ -521,6 +538,7 @@ pub fn run(args: &[String]) -> CliOutput {
         ["schema", method, ..] if !method.starts_with("--") => ("schema", &args[2..], Some(*method)),
         ["schema", ..] => ("schema", &args[1..], None),
         ["doctor", ..] => ("doctor", &args[1..], None),
+        ["connection", "status", ..] => ("connection.status", &args[2..], None),
         ["project", "list", ..] => ("project.list", &args[2..], None),
         ["context", "get", ..] => ("context.get", &args[2..], None),
         ["search", query, ..] if !query.starts_with("--") => ("search", &args[2..], Some(*query)),
@@ -700,7 +718,7 @@ pub fn run(args: &[String]) -> CliOutput {
         }
         let method = bridge_method(command, options.dry_run);
         let params = match command {
-            "doctor" | "project.list" => {
+            "doctor" | "connection.status" | "project.list" => {
                 if options.input_file.is_some() || options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
                     return Err(invalid("This command accepts only Workspace and connection options"));
                 }
@@ -766,16 +784,22 @@ pub fn run(args: &[String]) -> CliOutput {
         if command == "record.patch" && !options.dry_run {
             request_id = write_request_id(&options, &params)?;
         }
-        if command != "doctor" { registry::validate(method, &params)?; }
+        registry::validate(method, &params)?;
         if registry::is_read_only(method) == Some(false) && command != "record.patch" {
             request_id = write_request_id(&options, &params)?;
         }
-        let client = BridgeClient::discover(connection)?;
-        let binding = client.connect(connection, workspace, &request_id)?;
+        // Keep the same canonical path for connect and doctor output. Connect
+        // still checks the path and the server verifies its Workspace binding.
+        let canonical_workspace = if command == "doctor" {
+            Some(workspace.canonicalize().map_err(|_| AgentError::new(
+                ErrorCode::WorkspaceNotOpen, "Workspace path is unavailable"))?)
+        } else { None };
+        let workspace = canonical_workspace.as_deref().unwrap_or(workspace.as_path());
+        let data = bridge_call(workspace, connection, method, params, &request_id)?;
         if command == "doctor" {
-            return Ok(doctor_data(&binding, options.verbose));
+            return Ok(doctor_data(workspace, data, options.verbose));
         }
-        client.call(connection, &binding, method, params, &request_id)
+        Ok(data)
     })();
     response(request_id, result)
 }
@@ -784,6 +808,24 @@ pub fn run(args: &[String]) -> CliOutput {
 mod tests {
     use super::*;
     fn invoke(args: &[&str]) -> CliOutput { run(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()) }
+    #[test]
+    fn connection_status_help_is_offline_and_explains_snapshot_limits() {
+        let out = invoke(&["connection", "status", "--help"]);
+        assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        assert!(out.stdout.contains("mind schema connection.status --json"));
+        assert!(out.stdout.contains("snapshot"));
+        assert!(out.stdout.contains("reauthorized"));
+        assert!(out.stdout.contains("native permissions"));
+        assert!(out.stdout.contains("null"));
+        let group = invoke(&["connection", "--help"]);
+        assert_eq!(group.exit_code, 0, "{}", group.stderr);
+        assert!(group.stdout.contains("mind connection status"));
+        assert!(invoke(&["--help"]).stdout.contains("mind connection status --workspace PATH --connection ID --json"));
+        let doctor = invoke(&["doctor", "--help"]);
+        assert!(doctor.stdout.contains("workspacePath"));
+        assert!(doctor.stdout.contains("snapshot"));
+        assert!(doctor.stdout.contains("reauthorized"));
+    }
     #[test]
     fn subcommand_help_is_offline_and_points_to_its_schema() {
         for method in [
@@ -863,15 +905,100 @@ mod tests {
         }
     }
     #[test]
-    fn doctor_default_reports_connection_and_binding_only() {
-        let binding = WorkspaceBinding { workspace_id: "bound-workspace".into(), generation: "g".into() };
-        let compact = doctor_data(&binding, false);
-        assert_eq!(compact, json!({"connected":true,"binding":{"workspaceId":"bound-workspace","generation":"g"}}));
-        let verbose = doctor_data(&binding, true);
-        assert_eq!(verbose["connected"], compact["connected"]);
-        assert_eq!(verbose["binding"], compact["binding"]);
-        assert_eq!(verbose["bridgeMethods"], serde_json::to_value(registry::registered_methods()).unwrap());
-        assert!(verbose.get("sharedCapabilities").is_none());
+    fn doctor_reports_current_authorization_and_canonical_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("child")).unwrap();
+        let workspace = root.path().join("child/..");
+        let canonical = root.path().canonicalize().unwrap();
+        for (mode, object_keys) in [
+            (Value::Null, Value::Null),
+            (json!("read-only"), json!([])),
+            (json!("workspace-write"), json!(["selected-record"])),
+            (json!("danger-full-access"), Value::Null),
+        ] {
+            let status = json!({"binding":{"workspaceId":"bound-workspace","generation":"g"},
+                "authorization":{"workspaceContent":false,"projectIds":[7],"operations":["source.read"],"objectKeys":object_keys},
+                "executionMode":mode,"token":"private-token","grantToken":"private-grant"});
+            let mut compact = None;
+            for verbose in [false, true] {
+                let mut args = vec!["doctor", "--workspace", workspace.to_str().unwrap(),
+                    "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+                if verbose { args.push("--verbose"); }
+                let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+                let out = run_with_bridge_call(&args, |path, _, method, params, _| {
+                    assert_eq!(path, canonical);
+                    assert_eq!(method, "connection.status");
+                    assert_eq!(params, json!({}));
+                    Ok(status.clone())
+                });
+                assert_eq!(out.exit_code, 0, "{}", out.stderr);
+                let mut data = serde_json::from_str::<Value>(&out.stdout).unwrap()["data"].clone();
+                if verbose {
+                    assert_eq!(data.as_object_mut().unwrap().remove("bridgeMethods").unwrap(),
+                        serde_json::to_value(registry::registered_methods()).unwrap());
+                    assert_eq!(Some(&data), compact.as_ref());
+                } else {
+                    assert_eq!(data, json!({"connected":true,"binding":{"workspaceId":"bound-workspace","generation":"g"},
+                        "workspacePath":canonical,"authorization":{"workspaceContent":false,"projectIds":[7],"operations":["source.read"],"objectKeys":object_keys},
+                        "executionMode":mode}));
+                    compact = Some(data);
+                }
+            }
+        }
+    }
+    #[test]
+    fn connection_status_routes_empty_input_and_preserves_status() {
+        let root = tempfile::tempdir().unwrap();
+        let args = ["connection", "status", "--workspace", root.path().to_str().unwrap(),
+            "--connection", "0123456789abcdef0123456789abcdef", "--json"]
+            .into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let expected = json!({"binding":{"workspaceId":"w","generation":"g"},
+            "authorization":{"workspaceContent":true,"projectIds":[],"operations":[],"objectKeys":null},"executionMode":null});
+        let out = run_with_bridge_call(&args, |_, connection, method, params, _| {
+            assert_eq!(connection, "0123456789abcdef0123456789abcdef");
+            assert_eq!(method, "connection.status");
+            assert_eq!(params, json!({}));
+            Ok(expected.clone())
+        });
+        assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        assert_eq!(serde_json::from_str::<Value>(&out.stdout).unwrap()["data"], expected);
+    }
+    #[test]
+    fn connection_status_rejects_business_input_before_bridge_io() {
+        for flag in [vec!["--input-file", "-"], vec!["--project", "7"],
+            vec!["--workspace-scope"], vec!["--query", "text"], vec!["--budget-chars", "100"]] {
+            let mut args = vec!["connection", "status", "--workspace", "/tmp",
+                "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+            args.extend(flag);
+            let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let out = run_with_bridge_call(&args, |_, _, _, _, _| panic!("unexpected bridge I/O"));
+            assert_eq!(out.exit_code, 2, "{}", out.stderr);
+            assert!(out.stderr.contains("accepts only Workspace and connection options"));
+        }
+    }
+    #[test]
+    fn doctor_and_connection_status_propagate_status_query_failures() {
+        let root = tempfile::tempdir().unwrap();
+        for command in [vec!["doctor"], vec!["connection", "status"]] {
+            for (code, exit, name) in [(ErrorCode::ScopeDenied, 4, "SCOPE_DENIED"),
+                (ErrorCode::RuntimeUnavailable, 3, "RUNTIME_UNAVAILABLE"),
+                (ErrorCode::ToolCallUnsupported, 6, "TOOL_CALL_UNSUPPORTED")] {
+                let mut args = command.clone();
+                args.extend(["--workspace", root.path().to_str().unwrap(),
+                    "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+                let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+                let out = run_with_bridge_call(&args, |_, _, method, _, _| {
+                    assert_eq!(method, "connection.status");
+                    Err(AgentError::new(code, "Status query failed"))
+                });
+                assert_eq!(out.exit_code, exit, "{}", out.stderr);
+                let response: Value = serde_json::from_str(&out.stdout).unwrap();
+                assert_eq!(response["ok"], false);
+                assert_eq!(response["error"]["code"], name);
+                assert_eq!(response["error"]["message"], "Status query failed");
+                assert!(response.get("data").is_none());
+            }
+        }
     }
     #[test]
     fn verbose_is_explicitly_limited_to_discovery_commands() {
