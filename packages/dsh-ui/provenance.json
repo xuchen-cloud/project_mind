@@ -284,6 +284,13 @@
   ],
   "localChanges": [
     {
+      "reason": "Keep assistant Markdown link glyphs inline without growing prose lines; wrap tables to the available host width and only show horizontal scrollbars on actual overflow (Issue #213).",
+      "paths": [
+        "upstream/client/ui-primitives/src/markdown/MarkdownText.module.css",
+        "upstream/client/ui-primitives/src/markdown/render.tsx"
+      ]
+    },
+    {
       "reason": "Instance socket factory for Tauri stream carrier; preserve multiplexing lifecycle.",
       "paths": [
         "upstream/api/gateway/src/client/stream-client.ts"
@@ -2718,7 +2725,7 @@
     },
     {
       "path": "upstream/client/ui-primitives/src/markdown/MarkdownText.module.css",
-      "sha256": "b26d4977785a4ac6b60da56ac04c57116643830208ee76bb8095f8d8700cb7a5",
+      "sha256": "f72d86d4b4a36912c1be60de861a63440214bad0fc6fe1d361e825ade6bd5e7c",
       "originalSha256": "b26d4977785a4ac6b60da56ac04c57116643830208ee76bb8095f8d8700cb7a5"
     },
     {
@@ -2743,7 +2750,7 @@
     },
     {
       "path": "upstream/client/ui-primitives/src/markdown/render.tsx",
-      "sha256": "6e4af631d34ae8c8ea1dbeabd1b4593ee9ff23c3470d2855708b3cf8b84bbca2",
+      "sha256": "30cfecf73765fc3abdd7ec3ed9a1e9618a7e7b8f7d5dae2a90084b1bbcbe2bdb",
       "originalSha256": "6e4af631d34ae8c8ea1dbeabd1b4593ee9ff23c3470d2855708b3cf8b84bbca2"
     },
     {
