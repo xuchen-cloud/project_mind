@@ -31,6 +31,7 @@
             "content": [
               {
                 "attrs": {
+                  "align": null,
                   "blockId": "44444444444444444444444444444444",
                   "colspan": 1,
                   "colwidth": [
@@ -90,5 +91,5 @@
   "text": "Fixture 正文\n\n",
   "codeLanguage": "typescript",
   "schemaVersion": 1,
-  "bodyHash": "sha256:7f193b27b1fe833103f181b1424efa877bec16fafedb1eab403ea33a59298cd7"
+  "bodyHash": "sha256:f806179e716dca1f828cad47a63d4c2628047c0dfc7cc15b5751f48b6ea7596a"
 }

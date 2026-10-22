@@ -1,4 +1,8 @@
-//! Shared dispatch for the implemented Record and Todo output services.
+//! Shared dispatch for Record, Todo and File output services.
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tokio::{sync::watch, time::Instant};
+
 use super::{
     access::{Caller, RequestContext},
     errors::{AgentError, AgentResult, ErrorCode},
@@ -416,6 +420,163 @@ pub(crate) fn restore_created_content<S: BoundRecordStore>(
         store.publish_committed(changes);
     }
     result
+}
+
+/// Apply a later user decision through native output permissions and receipts.
+pub(super) async fn execute_review_decision<
+    S: crate::record_document_service::BoundRecordStore
+        + crate::file_version_service::BoundFileCommitStore,
+    R: crate::record_document_service::DocumentUtility,
+>(
+    store: &S,
+    record: &R,
+    request: &RequestContext,
+    arguments: Value,
+    cancel: &watch::Receiver<bool>,
+    deadline: Option<Instant>,
+) -> AgentResult<Value> {
+    let should_stop = || *cancel.borrow() || deadline.is_some_and(|limit| Instant::now() >= limit);
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct ModelDecision {
+        run_id: String,
+        outputs: Vec<super::output_review::OutputReviewItem>,
+        decision: super::output_review::ReviewDecision,
+    }
+    let input: ModelDecision = serde_json::from_value(arguments)
+        .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid review decision"))?;
+    let super::access::Caller::BuiltinRun { run_id } = &request.caller else {
+        return Err(AgentError::new(
+            ErrorCode::ScopeDenied,
+            "Assistant run required",
+        ));
+    };
+    let reviewed =
+        crate::record_document_service::BoundRecordStore::with_current(store, |binding, db| {
+            let current = db.agent_run_get(request, binding, run_id)?;
+            let prompt = current
+                .context_manifest
+                .get("prompt")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    AgentError::new(ErrorCode::InvalidArgument, "Real user message is missing")
+                })?;
+            let data = super::output_review::OutputReviewInput {
+                run_id: input.run_id.clone(),
+                outputs: input.outputs,
+                decision: input.decision,
+                text: Some(prompt.to_owned()),
+            };
+            db.agent_output_review(request, binding, &data)
+        })?;
+    let mut saved_count = 0usize;
+    let mut saved_refs = Vec::new();
+    let mut failures = Vec::new();
+    if reviewed.decision == super::output_review::ReviewDecision::Confirm {
+        let gui = crate::record_document_service::BoundRecordStore::with_current(
+            store,
+            |binding, db| {
+                let old = db.agent_output_gui_grant_for_run(
+                    binding,
+                    &reviewed.run_id,
+                    &["output.commit", "output.update"],
+                )?;
+                let mut current = request.scope_grant.clone();
+                current.workspace_content &= old.workspace_content;
+                current
+                    .project_ids
+                    .retain(|id| old.project_ids.contains(id));
+                Ok(super::access::RequestContext {
+                    binding: binding.clone(),
+                    caller: super::access::Caller::Gui,
+                    request_id: request.request_id.clone(),
+                    scope_grant: current,
+                })
+            },
+        )?;
+        for candidate in &reviewed.outputs {
+            if should_stop() {
+                break;
+            }
+            let mut native = gui.clone();
+            native.request_id = format!(
+                "review:{}:{}",
+                candidate.staged.id, candidate.staged.revision
+            );
+            let outcome = super::output_service::commit(
+                store,
+                record,
+                &native,
+                &candidate.staged.id,
+                candidate.staged.revision,
+            )
+            .await;
+            match outcome {
+                Ok(saved) => {
+                    saved_count += 1;
+                    if saved_refs.len() < 32 {
+                        saved_refs.push(json!({"outputId":candidate.staged.id,"object":saved.output.object,"operationId":saved.operation.map(|entry|entry.operation_id)}));
+                    }
+                }
+                Err(error) => {
+                    failures.push(json!({"outputId":candidate.staged.id,"code":error.code}))
+                }
+            }
+        }
+        if should_stop() {
+            let remaining = crate::record_document_service::BoundRecordStore::with_current(
+                store,
+                |binding, db| {
+                    reviewed
+                        .outputs
+                        .iter()
+                        .map(|candidate| db.agent_output_get(&gui, binding, &candidate.staged.id))
+                        .collect::<AgentResult<Vec<_>>>()
+                },
+            )?
+            .into_iter()
+            .filter(|item| {
+                !item.dismissed
+                    && matches!(
+                        item.state,
+                        super::output_runtime::OutputState::Staged
+                            | super::output_runtime::OutputState::Failed
+                    )
+            })
+            .map(|item| super::output_review::OutputReviewItem {
+                output_id: item.staged.id,
+                expected_revision: item.staged.revision,
+            })
+            .collect::<Vec<_>>();
+            if !remaining.is_empty() {
+                let mut stop = gui.clone();
+                stop.request_id = format!("{}:stop", request.request_id);
+                crate::record_document_service::BoundRecordStore::with_current(
+                    store,
+                    |binding, db| {
+                        db.agent_output_review(
+                            &stop,
+                            binding,
+                            &super::output_review::OutputReviewInput {
+                                run_id: reviewed.run_id.clone(),
+                                outputs: remaining,
+                                decision: super::output_review::ReviewDecision::Cancel,
+                                text: None,
+                            },
+                        )
+                    },
+                )?;
+            }
+        }
+    }
+    let unexecuted = reviewed
+        .outputs
+        .len()
+        .saturating_sub(saved_count + failures.len());
+    let stopped = should_stop() && unexecuted > 0;
+    Ok(
+        json!({"runId":reviewed.run_id,"decision":reviewed.decision,"savedCount":saved_count,"saved":saved_refs,"hasMoreSaved":saved_count>saved_refs.len(),"failures":failures,"unexecutedCount":unexecuted,"stopped":stopped}),
+    )
 }
 
 #[cfg(test)]

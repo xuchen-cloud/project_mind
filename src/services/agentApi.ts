@@ -6,10 +6,7 @@ import type {
   AgentContextInstruction, AgentInstructionUpsert, AgentInstructionDelete, AgentChangePage,
   SourceMaintenanceProgress, OverviewReadInput, OverviewReadPage, OverviewCorrections, OverviewCorrectionUpsert, OverviewCorrectionDelete, OverviewMaintenanceView,
   KnowledgeGetInput, KnowledgeGetPage, KnowledgeSearchInput, KnowledgeSearchPage,
-  AgentSessionCreateInput, AgentSessionsListInput, AgentSessionGetInput, AgentSessionMessagesReadInput, AgentSessionMessagesReadPage, AgentSessionSearchInput, AgentSessionSearchPage,
-  AgentSessionArchiveInput, AgentSessionDeleteInput, AgentSessionMetadata, AgentSessionPage, AgentSessionSnapshot,
-  AgentRunStartInput, AgentRunCancelInput, AgentRunGetInput, AgentRunEventsListInput,
-  AgentStoredRun, AgentRunEvent, AgentRunEventPage, AgentProfileProbeInput, AgentProfileProbeResult,
+  AgentProfileProbeInput, AgentProfileProbeResult,
   AgentSourceRef, AgentSourceNavigation,
   AgentOutputListInput, AgentOutputGetInput, AgentOutputUpdateInput, AgentOutputCommitInput, AgentOutputPage, AgentRuntimeOutput, AgentOutputResult,
   AgentOutputPreviewInput, AgentRecordOutputPreview,
@@ -48,44 +45,8 @@ export const agentApi = {
   statusGet(requestId: string = crypto.randomUUID()): Promise<AgentStatus> {
     return callAgentCommand("agent_status_get", requestId, { requestId });
   },
-  sessionCreate(binding: AgentWorkspaceBinding, data: AgentSessionCreateInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionMetadata> {
-    return callAgentCommand("agent_session_create", requestId, { input: { binding, requestId, data } });
-  },
-  sessionsList(binding: AgentWorkspaceBinding, data: AgentSessionsListInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionPage> {
-    return callAgentCommand("agent_sessions_list", requestId, { input: { binding, requestId, data } });
-  },
-  sessionGet(binding: AgentWorkspaceBinding, data: AgentSessionGetInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionSnapshot> {
-    return callAgentCommand("agent_session_get", requestId, { input: { binding, requestId, data } });
-  },
-  sessionMessagesRead(binding: AgentWorkspaceBinding, data: AgentSessionMessagesReadInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionMessagesReadPage> {
-    return callAgentCommand("agent_session_messages_read", requestId, { input: { binding, requestId, data } });
-  },
-  sessionSearch(binding: AgentWorkspaceBinding, data: AgentSessionSearchInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionSearchPage> {
-    return callAgentCommand("agent_session_search", requestId, { input: { binding, requestId, data } });
-  },
-  sessionArchive(binding: AgentWorkspaceBinding, data: AgentSessionArchiveInput, requestId: string = crypto.randomUUID()): Promise<AgentSessionMetadata> {
-    return callAgentCommand("agent_session_archive", requestId, { input: { binding, requestId, data } });
-  },
-  sessionDelete(binding: AgentWorkspaceBinding, data: AgentSessionDeleteInput, requestId: string = crypto.randomUUID()): Promise<boolean> {
-    return callAgentCommand("agent_session_delete", requestId, { input: { binding, requestId, data } });
-  },
-  runStart(binding: AgentWorkspaceBinding, data: AgentRunStartInput, requestId: string = crypto.randomUUID()): Promise<AgentStoredRun> {
-    return callAgentCommand("agent_run_start", requestId, { input: { binding, requestId, data } });
-  },
-  runCancel(binding: AgentWorkspaceBinding, data: AgentRunCancelInput, requestId: string = crypto.randomUUID()): Promise<AgentStoredRun> {
-    return callAgentCommand("agent_run_cancel", requestId, { input: { binding, requestId, data } });
-  },
-  runGet(binding: AgentWorkspaceBinding, data: AgentRunGetInput, requestId: string = crypto.randomUUID()): Promise<AgentStoredRun> {
-    return callAgentCommand("agent_run_get", requestId, { input: { binding, requestId, data } });
-  },
-  runEventsList(binding: AgentWorkspaceBinding, data: AgentRunEventsListInput, requestId: string = crypto.randomUUID()): Promise<AgentRunEventPage> {
-    return callAgentCommand("agent_run_events_list", requestId, { input: { binding, requestId, data } });
-  },
   profileProbe(binding: AgentWorkspaceBinding, data: AgentProfileProbeInput = {}, requestId: string = crypto.randomUUID()): Promise<AgentProfileProbeResult> {
     return callAgentCommand("agent_profile_probe", requestId, { input: { binding, requestId, data } });
-  },
-  onRunEvent(handler: (event: AgentRunEvent) => void): Promise<() => void> {
-    return desktopApi.listenEvent<AgentRunEvent>("agent-run-event", handler);
   },
   sourceResolve(binding: AgentWorkspaceBinding, data: AgentSourceRef, requestId: string = crypto.randomUUID()): Promise<AgentSourceNavigation> {
     return callAgentCommand("agent_source_resolve", requestId, { input: { binding, requestId, data } });

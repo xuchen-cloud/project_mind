@@ -18,7 +18,6 @@ use crate::{
     record_document_service::{BoundRecordStore, DocumentUtility},
     record_documents::{body_hash, record_block_hash, RecordDocumentProjection, RecordTarget},
     source_service::{BoundSourceStore, SourcePolicyUpdate, SourceUtility},
-    source_session_read::{SessionHistoryFragment, SessionHistoryUtility},
 };
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -105,9 +104,6 @@ struct Unused;
 impl SourceUtility for Unused {
     async fn request(&self, _: &str, _: &str, _: &str, _: &[u8]) -> AgentResult<Value> { panic!("No source extraction") }
 }
-impl SessionHistoryUtility for Unused {
-    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<SessionHistoryFragment> { panic!("No history read") }
-}
 struct Fixture {
     _root: tempfile::TempDir,
     store: Arc<Store>,
@@ -143,7 +139,7 @@ impl Fixture {
         dispatch::execute(&*self.store, &self.enabled, TOKEN, CallInput {
             instance_id: "fixture".into(), grant_id: grant.into(), request_id: id.into(),
             binding: self.binding.clone(), method: method.into(), params,
-        }, worker, &Unused, &Unused).await
+        }, worker, &Unused).await
     }
     fn object(&self, created: &Value) -> ObjectRef {
         ObjectRef { workspace_id: self.binding.workspace_id.clone(), scope: self.scope(), kind: ObjectKind::Record, id: created["result"]["target"]["recordId"].as_i64().unwrap().to_string() }

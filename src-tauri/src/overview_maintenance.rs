@@ -971,7 +971,8 @@ pub(crate) fn start(app: &tauri::AppHandle) {
                 let model = crate::overview_model::AppOverviewModel::new(app.clone(), binding);
                 let runtime = crate::lock_mutex(&state.current_workspace).clone();
                 let Some(runtime) = runtime.filter(|runtime| runtime.agent_binding == request.binding) else { continue; };
-                let history = crate::agent::model_history::AppSessionHistoryUtility { app: app.clone(), runtime };
+                let history = crate::source_session_read::archival::ArchivalHistory::new(
+                    &*state, &request, runtime.paths.root_path.clone());
                 if let Err(error) = step(&*state, &request, &scope, &record, &file, &model, &history).await {
                     if !matches!(
                         error.code,

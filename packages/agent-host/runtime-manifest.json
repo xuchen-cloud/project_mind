@@ -1,12 +1,6 @@
 {
   "schemaVersion": 1,
   "nodeVersion": "24.21.0",
-  "sdk": {
-    "package": "@earendil-works/pi-coding-agent",
-    "version": "0.99.1",
-    "license": "MIT",
-    "lockfile": "package-lock.json"
-  },
   "targets": {
     "linux-x64": {
       "archive": "node-v24.21.0-linux-x64.tar.gz",
@@ -38,5 +32,9 @@
   "releaseBaseUrl": "https://nodejs.org/dist/v24.21.0/",
   "checksumSource": "https://nodejs.org/dist/v24.21.0/SHASUMS256.txt",
   "licenseFile": "LICENSE",
-  "acceptance": { "macosPackage": false, "windowsPackage": false, "realProvider": false }
+  "acceptance": {
+    "macosPackage": false,
+    "windowsPackage": false,
+    "realProvider": false
+  }
 }

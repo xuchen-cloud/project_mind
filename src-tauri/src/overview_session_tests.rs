@@ -40,7 +40,7 @@ impl SessionHistoryUtility for History {
             .get(&record.message_id)
             .cloned()
             .unwrap();
-        let start = crate::agent::model_history::history_cursor_offset(cursor, record)?;
+        let start = crate::source_session_read::history_cursor_offset(cursor, record)?;
         let rest: String = text.chars().skip(start as usize).collect();
         Ok(SessionHistoryFragment {
             session_id: record.session_id.clone(),

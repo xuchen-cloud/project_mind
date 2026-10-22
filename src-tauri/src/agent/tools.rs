@@ -378,12 +378,6 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
         &[],
     );
     add("source.read", "Read original evidence with fixed-revision pagination. Full view omits selection; range view requires a blockId or source locator. Reuse sourceRef and nextCursor when continuing; source metadata may report unsupported or incomplete extraction.", json!({"source":target,"view":{"type":"string","maxLength":32,"enum":["full","range"]},"selection":nullable(selection),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(12000))}), &["source","view"]);
-    add("session.search", "Find authorized earlier user and assistant discussion in this scope. Results can be incomplete; use nextCursor for continuation and session.messages.read to verify original wording.", json!({"scope":scope,"query":text(256),"sessionId":nullable(text(32)),"afterMessageId":nullable(text(32)),"limit":integer(20),"budgetChars":integer(12000)}), &["scope","query"]);
-    let history_cursor = object(
-        json!({"branchId":text(128),"fromMessageId":nullable(text(32)),"toMessageId":nullable(text(32)),"messageId":text(32),"charOffset":{"type":"integer","minimum":0,"maximum":u32::MAX}}),
-        &["branchId", "messageId", "charOffset"],
-    );
-    add("session.messages.read", "Read an authorized exact historical message from Pi history. Use sessionId/messageId returned by session.search. Long originals return nextCursor; reuse it unchanged to continue.", json!({"sessionId":text(32),"messageId":text(32),"cursor":nullable(history_cursor),"budgetChars":integer(12000)}), &["sessionId","messageId"]);
     result
 }
 

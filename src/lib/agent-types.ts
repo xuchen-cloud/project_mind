@@ -210,6 +210,16 @@ export interface KnowledgeRelatedCard {
   reason: string;
 }
 export type SessionSummaryStatementKind = "user_plan" | "user_decision" | "ai_suggestion" | "completed_operation" | "user_reported_completion";
+/** Native knowledge provenance retained independently of the retired Pi UI. */
+export interface AgentSessionMessageRef {
+  workspaceId: string;
+  scope: AgentScope;
+  sessionId: string;
+  branchId: string;
+  messageId: string;
+  ordinal: number;
+  contentHash: string;
+}
 export interface SessionSummaryStatement {
   text: string;
   kind: SessionSummaryStatementKind;
@@ -275,7 +285,6 @@ export interface KnowledgeSearchPage {
 }
 export type AiProjectOverview = AiOverview & { scope: { kind: "project"; projectId: number } };
 export type AiWorkspaceOverview = AiOverview & { scope: { kind: "workspace" } };
-export type AgentRunState = "preparing" | "running" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted";
 /** Rust serde_json::Value fields retain their source-specific JSON shape. */
 export type AgentJsonValue = null | boolean | number | string | AgentJsonValue[] | { [key: string]: AgentJsonValue };
 export interface AgentBlockInput {
@@ -384,167 +393,8 @@ export interface AgentOperationUndoBatchResult {
     | { status: "failed"; error: AgentError } }>;
   excludedNoChangeIds: string[];
 }
-export type AgentSessionState = "active" | "archived" | "read_only";
-export interface AgentSessionMetadata {
-  id: string;
-  scope: AgentScope;
-  title: string;
-  runtimeId: string;
-  profileOverrideId: number | null;
-  state: AgentSessionState;
-  createdAt: string;
-  updatedAt: string;
-}
-export interface AgentSessionCursor { updatedAt: string; id: string }
-export interface AgentSessionPage { sessions: AgentSessionMetadata[]; nextCursor: AgentSessionCursor | null }
-export interface AgentSessionSearchInput {
-  scope: AgentScope;
-  sessionId?: string | null;
-  query: string;
-  afterMessageId?: string | null;
-  limit?: number;
-}
-export interface AgentSessionSearchMatch {
-  sessionId: string;
-  messageId: string;
-  runtimeEntryId: string;
-  ordinal: number;
-  role: "user" | "assistant";
-  createdAt: string;
-  contentHash: string;
-  branchLeafId: string;
-  snippet: string;
-  sessionTitle: string;
-}
-export interface AgentSessionSearchPage {
-  matches: AgentSessionSearchMatch[];
-  nextCursor: string | null;
-  coverage: { indexedMessages: number; remainingMessages: number; backfilledThisRequest: number; pendingSessions: number; complete: boolean };
-}
-export interface AgentSessionCheckpoint {
-  schemaVersion: number;
-  checksum: string;
-  bytes: number;
-  leafId: string | null;
-  offset: number;
-  entryCount: number;
-  messageCount: number;
-}
-export type AgentMessageRole = "user" | "assistant" | "tool";
-export interface AgentConversationMessage {
-  id: string;
-  sessionId: string;
-  runId: string | null;
-  runtimeEntryId: string;
-  role: AgentMessageRole;
-  content: AgentJsonValue;
-  ordinal: number;
-  createdAt: string;
-  parentId?: string;
-  stopReason?: string;
-  usage?: AgentJsonValue;
-  toolCallId?: string;
-  toolName?: string;
-  isError?: boolean;
-}
-export interface AgentSessionSnapshot {
-  session: AgentSessionMetadata;
-  checkpoint: AgentSessionCheckpoint | null;
-  messages: AgentConversationMessage[];
-  nextOrdinal: number | null;
-  latestRun: AgentStoredRun | null;
-}
-export interface AgentStoredRun {
-  id: string;
-  sessionId: string;
-  clientRequestId: string;
-  state: AgentRunState;
-  contextManifest: AgentJsonValue;
-  startedAt: string;
-  finishedAt: string | null;
-  usage: AgentJsonValue;
-  errorCode: string | null;
-}
-export interface AgentSessionCreateInput {
-  scope: AgentScope;
-  title: string;
-  /** Omission selects the bundled Pi runtime. */
-  runtimeId?: "builtin-pi";
-  profileOverrideId?: number | null;
-}
-export interface AgentSessionsListInput { scope: AgentScope; cursor?: AgentSessionCursor | null; limit?: number }
-export interface AgentSessionGetInput { sessionId: string; afterOrdinal?: number | null; limit?: number }
-/** A bounded, read-only slice of original user/assistant messages in one branch. */
-export interface AgentSessionMessagesReadCursor {
-  branchId: string;
-  fromMessageId: string | null;
-  toMessageId: string | null;
-  messageId: string;
-  charOffset: number;
-}
-export interface AgentSessionMessagesReadInput {
-  sessionId: string;
-  branchId?: string;
-  fromMessageId?: string;
-  toMessageId?: string;
-  cursor?: AgentSessionMessagesReadCursor | null;
-  limit?: number;
-  maxChars?: number;
-}
-export interface AgentSessionMessageRef {
-  workspaceId: string;
-  scope: AgentScope;
-  sessionId: string;
-  branchId: string;
-  messageId: string;
-  ordinal: number;
-  contentHash: string;
-}
-export interface AgentSessionMessageFragment {
-  messageId: string;
-  runtimeEntryId: string;
-  ordinal: number;
-  role: "user" | "assistant";
-  createdAt: string;
-  text: string;
-  contentHash: string;
-  charStart: number;
-  charEnd: number;
-  totalChars: number;
-  messageRef: AgentSessionMessageRef;
-}
-export interface AgentSessionMessagesReadPage {
-  sessionId: string;
-  branchId: string | null;
-  messages: AgentSessionMessageFragment[];
-  nextCursor: AgentSessionMessagesReadCursor | null;
-  hasMore: boolean;
-}
-export interface AgentSessionArchiveInput { sessionId: string; archived: boolean }
-export interface AgentSessionDeleteInput { sessionId: string }
-export interface AgentRunStartInput { sessionId: string; clientRequestId: string; prompt: string; discussionTarget?: AgentObjectRef | null }
-export interface AgentRunCancelInput { runId: string }
-export interface AgentRunGetInput { runId: string }
-export interface AgentRunEventsListInput { runId: string; afterSeq?: number; limit?: number }
 export interface AgentProfileProbeInput { profileOverrideId?: number | null }
 export interface AgentProfileProbeResult { verified: boolean }
-export type AgentRunEventKind =
-  | { type: "run.started" | "run.completed" | "run.cancelled" }
-  | { type: "text.delta"; data: { text: string } }
-  | { type: "tool.started"; data: { callId: string; method: string } }
-  | { type: "tool.completed"; data: { callId: string } }
-  | { type: "message.completed"; data: { messageId: string } }
-  | { type: "run.failed"; data: { error: AgentError } };
-export interface AgentRunEvent {
-  binding: AgentWorkspaceBinding; sessionId: string; runId: string; seq: number; event: AgentRunEventKind;
-}
-export interface AgentRunEventPage {
-  events: AgentRunEvent[];
-  nextSeq: number | null;
-  /** Reconcile persisted messages when events before this sequence were evicted. */
-  firstAvailableSeq: number | null;
-}
-
 export interface AgentScopeSettings {
   scope: AgentScope;
   enabled: boolean;

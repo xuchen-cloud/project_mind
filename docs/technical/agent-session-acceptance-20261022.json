@@ -850,6 +850,24 @@
       ],
       "nativeGrantCountAfterRestart": 1,
       "fixtureCleanup": "Pending old intent created Record9 and Todo9 with new request IDs. Exactly these two duplicates were withdrawn via native receipt undo at expectedHeadRevision1; original Record7/Todo6 and all Files retained. Visible native lists exclude withdrawn objects."
+    },
+    "developIntegration": {
+      "commit": "7affb2383c4278d32381300005435c0165737392",
+      "reason": "Develop advanced with #205 runtime and dependency cleanup. Removed the now-deleted legacy history utility argument from the embedded bridge, kept new vendor packaging docs, and repeated checks affected by the merged native dispatch/dependencies.",
+      "checks": {
+        "nativeBridgePassed": 92,
+        "nativeBridgeIgnored": 4,
+        "nativeCliHostPassed": 3,
+        "nodeBindingSourceWorkspacePassed": 33,
+        "runtimeProviderIntegrationPassed": 4,
+        "bundledSkillPassed": 1,
+        "frontendTodoAndChangeSyncPassed": 38,
+        "cliAndRuntimePackagingPassed": 15,
+        "typescript": "passed",
+        "vite": "passed",
+        "nativeAppAndCliBuild": "passed"
+      },
+      "review": "Main agent reviewed the integrated diff against develop on Standards and Spec axes; no remaining findings. Unrelated title/session-tab working changes excluded."
     }
   }
 }

@@ -38,7 +38,7 @@ impl SessionHistoryUtility for Reader {
         cursor: Option<&str>,
         max_chars: u32,
     ) -> AgentResult<SessionHistoryFragment> {
-        let start = crate::agent::model_history::history_cursor_offset(cursor, record)?;
+        let start = crate::source_session_read::history_cursor_offset(cursor, record)?;
         let chars: Vec<char> = self.text.chars().collect();
         let end = (start as usize + max_chars as usize).min(chars.len()) as u32;
         Ok(SessionHistoryFragment {
@@ -56,7 +56,7 @@ impl SessionHistoryUtility for Reader {
             char_end: end,
             total_chars: chars.len() as u32,
             next_cursor: (end < chars.len() as u32).then(|| {
-                crate::agent::model_history::history_cursor_json(
+                crate::source_session_read::history_cursor_json(
                     &record.runtime_entry_id,
                     &record.message_id,
                     end,

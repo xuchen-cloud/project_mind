@@ -42,11 +42,11 @@ fn todo_gui_concurrent_same_revision_commits_exactly_one_business_write() {
     let barrier = Arc::new(Barrier::new(2));
     let mut threads = vec![];
     for content in ["First GUI", "Second GUI"] {
-        let root = root.path().to_owned();
+        // Initialize each connection before racing business writes at the barrier.
+        let db = open(root.path());
         let barrier = barrier.clone();
         let todo = todo.clone();
         threads.push(std::thread::spawn(move || {
-            let db = open(&root);
             barrier.wait();
             db.todo_update_content(TodoUpdateContentInput {
                 todo_id: todo.id,

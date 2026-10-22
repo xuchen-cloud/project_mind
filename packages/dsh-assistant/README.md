@@ -4,7 +4,7 @@
 
 保留已有 Node 运行时及有效的项目、历史、统一模型接入；官方 `app-boot` 加载 `base + web-app`，复用上游 WebUI 与 dataelement/dsh-desktop UI 插件，不启动 Electron，不打开外部浏览器，不要求用户登录。
 
-旧 Pi 聊天面板、conversation hooks 和消息 UI 已删除。本基础阶段仍保留 Overview 等后台 Pi 调用，不能视为全部 Pi 已移除或整体迁移完成。
+旧 Pi 聊天面板、conversation hooks 和消息 UI 已删除。独立 Pi Host、SDK、原生会话/运行命令和打包链已在 #201 移除；Overview 与 Profile 探测使用 DSH 的一次性模型接口。DSH 官方适配器自身使用的 `pi-ai` 保留。
 
 ## 已有运行时与统一模型设置
 
@@ -100,7 +100,9 @@ DSH 历史当前仍单独存储，默认 `DSH_HOME` 如下，不读取默认 `~/
 - Web UI 使用官方 Connection 的 HTTP unary RPC；Typert Remote 流走 API gateway 的 WebSocket mux `/api/remote.mux`。会话与历史由同一个 Node Web runtime 提供，主页面 React 组件通过 Tauri 通信适配保留完整客户端协议与会话语义，不增加第二个 SDK runtime。
 - 模型 Provider 流式响应使用 SSE；它不是 UI Remote 流的传输协议。
 - 已评估 `@deepseek-ai/dsh-sdk-client@0.2.0-rc.2`，其传递依赖引入完整 DSH CLI 与 Office/PPT adapters，当前不安装或使用 SDK client。原生业务接入复用项目自己的 Mind CLI，不依赖该 SDK。
-- 官方 `dsh-web-app` 仍带有 `dsh-office-to-pdf` / `libreoffice-kit` 传递依赖；本包 overlay 禁用 `office-to-pdf`，不执行 Office/PPT build、Office prepare 或引擎准备。
+- 为完成 [#201](https://github.com/xuchen-cloud/project_mind/issues/201) 的安装依赖清理，`@deepseek-ai/dsh-web-app` 固定为本地 [vendor/dsh-web-app](vendor/dsh-web-app/package.json)，保留官方包名与 `0.2.0-rc.2` 版本，继续由原有 `initProfile` 加载。只移除 manifest 的 `dsh-office-to-pdf` dependency 和开发依赖 `libreoffice-kit`；npm 正常生成本包 lockfile，不在构建时修改依赖图。所有运行时 JavaScript、类型声明、五个 patch 的全部组件行与预设保持上游原始字节，`desktop.patch.yml` 沿用原本的 `office-to-pdf: disabled` 配置。
+- 选择固定上游小型 Web bundle，避免重写启动、WebUI、插件组合与预设；单靠 overlay 禁用插件无法阻止 npm 安装其依赖。上游 npm 归档 SRI、来源目录、逐文件 SHA-256 与精确修改范围记录于 [provenance.json](vendor/dsh-web-app/provenance.json)，保留完整 [DeepSeek MIT 许可证](vendor/dsh-web-app/LICENSE)。升级时从目标版本的已校验 npm 归档重新导入这些文件，再应用相同的最小删减，并更新 provenance 和针对性测试；不要手工删改 lock 条目。
+- 干净安装不再包含 `dsh-office-to-pdf`、`libreoffice-kit` 或任何平台引擎。`@earendil-works/pi-ai@0.87.1` 仍供 DSH LLM adapter 使用。原生 Project File Office inspect/edit 服务与文档预览客户端继续保留，不执行上游 Office/PPT build、Office prepare 或 LibreOffice 引擎准备。桌面 staging 将两个已固定的 vendor 链接复制为实际目录，并收集原始 MIT 版权文本。
 - rc.2 stdio JSON-RPC SDK 没有轮次中取消方法；当前 UI 使用官方 Web session controller 的 `cancel`，停止后 runtime 可继续服务，已通过本地测试 Provider 验证。
 
 ## 历史验证
@@ -128,7 +130,7 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 
 构建日志：`$TMPDIR/mind-dsh-component-final-build.log`；restage 日志：`$TMPDIR/mind-dsh-component-final-restage.log`。旧 native WebView 已全部删除，Cargo unstable 已移除，重启自动解锁无需手动密码通过。Orphan 修复由 `bindProject` 调用 `originalRegistry.attachSession` 恢复真实 cwd 下非 archived、遗漏 account 关联的历史会话。
 
-**实现、验证与主 agent Standards / Spec 自查完成，无剩余阻塞项。** 本包不 publish，不标记全部 Pi 迁移或 #121 完成；后台 Pi、旧 Pi 历史转换、业务数据库工具桥、Office/PPT 不属于本包。确定性本地 Provider 验收不代表真实外部 Provider 已通过。
+**实现、验证与主 agent Standards / Spec 自查完成，无剩余阻塞项。** 本包不 publish，不标记全部 Pi 迁移或 #121 完成；该历史阶段未覆盖的后台 Pi 已由 #201 迁移；旧历史转换、业务数据库工具桥、Office/PPT 不属于该阶段。确定性本地 Provider 验收不代表真实外部 Provider 已通过。
 
 范围见 [迁移方案](../../docs/requirements/dsh-assistant-migration.md)，改动、命令与最终收口由主 agent 在 [执行说明](../../docs/requirements/dsh-assistant-execution.md) 维护。
 
@@ -145,3 +147,17 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 真实 Node 子进程、HTTP RPC / WebSocket mux 与本地 SSE Provider 验证 Workspace 创建、普通聊天、模型选择、普通文件 read、附件上传入聊、停止及续发、重启历史恢复、归档后恢复不可见，以及独立 DSH_HOME 下的 Project 历史与会话访问隔离。配置边界验证包括无上下文、同时携带两种上下文（含 null）、无效 ID、名称及目录；Workspace 不注册 Project source 路由和 Office 工具，既有 Project source / Office 场景保持通过。
 
 早期依赖目录缺失导致的检查失败已由完整依赖恢复后的上述结果取代。本轮没有调用真实外部模型，也没有执行 Rust、前端或 GUI 验收；这些仍由主 agent 分别收口。未接记忆、新业务工具或历史迁移。
+
+
+## #201 Office 依赖边界
+
+检查固定的 DSH `0.2.0-rc.2` 发布包后确认：
+
+- `dsh-office-to-pdf/lib/index.js` 是 Office → PDF 转换服务，使用 `libreoffice-kit.createConverter`；`convert` 明确不修改源文件或写入 Session 事件。它支持 `doc/docx/xls/xlsx/ppt/pptx`。
+- `dsh-client-ui-sidebar-documentpreview/lib/client.js` 通过 `officeToPdf/render` 获取 PDF，随后交给 PDF viewer 展示。官方组件仍保留。主应用的原生 File 预览使用既有 GenOffice；不为此启动 LibreOffice。
+- `dsh-tool-cordis` 的官方 API catalog 也描述 `officeToPdf.convert/render`。因此它不只是 UI 代码；启用服务时可进行明确的 PDF 转换操作。但本仓库原有 desktop overlay 已禁用该服务，现有可用功能不会因此减少，也不宣称 GenOffice 提供同等 Office → PDF 导出能力。
+- DSH 的原生 Office 操作走 `scripts/office-service.mjs` 的 `file_office_inspect` / `file_office_edit` → Rust `dsh_office` → GenOffice。它们保留 Project 归属校验、版本/哈希 CAS 和原生保存收据，不依赖 LibreOffice。官方文件、Shell、工具、模型组件及预设没有裁剪。
+- 根浏览器依赖使用 [dsh-office-client](../dsh-office-client/package.json)，逐字保留官方生成的 `/remote` JavaScript、类型声明与许可证，保留原有 remotes 挂载；仅暴露浏览器入口，不携带 Host 转换引擎。版本、发布包校验和与逐文件校验见其 `provenance.json`。
+- `.doc/.xls/.ppt` 的转换及 Office → PDF 导出仍不在当前启用功能内；若以后启用，需要单独实现有输入/输出预算和字体策略的转换服务，再接回原有 Remote，不能用 GenOffice 编辑结果冒充 PDF 转换。
+
+`model-utility-entry.mjs` 提供不落盘的 `capacity/generate/probe` 调用，直接使用官方 DSH LLM 服务及适配器；打包共用固定 Node，所有文件受 DSH distribution 收据校验。旧 DB 和归档数据不删除。

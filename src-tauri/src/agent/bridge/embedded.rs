@@ -1,7 +1,7 @@
 //! Native DSH CLI bridge. Persistent native authority never crosses the HTTP boundary.
 use super::{
     credentials,
-    dispatch::{self, AppHistoryUtility, AppSourceUtility},
+    dispatch::{self, AppSourceUtility},
     protocol::{CallInput, ConnectInput},
     registry,
     transport::{self, BridgeCallFuture, BridgeHandler, RunningBridge},
@@ -356,7 +356,6 @@ impl BridgeHandler for EmbeddedHandler {
                 input,
                 &crate::record_document_service::AppDocumentUtility(self.app.clone()),
                 &AppSourceUtility(self.app.clone()),
-                &AppHistoryUtility(self.app.clone()),
             )
             .await
         })

@@ -1,10 +1,8 @@
 use super::{
     errors::{AgentError, AgentResult, ErrorCode},
-    models::{ExecutionMode, Scope, WorkspaceBinding},
+    models::WorkspaceBinding,
 };
 use serde::{Deserialize, Serialize};
-
-pub const HOST_PROTOCOL: &str = "mind-agent-host/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,40 +44,6 @@ impl RunState {
         }
         Ok(next)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunDescriptor {
-    pub binding: WorkspaceBinding,
-    pub scope: Scope,
-    pub session_id: String,
-    pub run_id: String,
-    pub mode: ExecutionMode,
-    pub state: RunState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCapabilities {
-    pub structured_events: bool,
-    pub tool_bridge: bool,
-    pub resume: bool,
-    pub cancel: bool,
-    pub file_output: bool,
-    pub scope_enforced: bool,
-}
-
-/// The adapter maps vendor events; only the Host settles persisted run completion.
-/// Implementations are supplied after the Pi packaging/security spike (AI-01).
-pub trait RuntimeAdapter {
-    fn detect(&self) -> AgentResult<()>;
-    fn capabilities(&self) -> RuntimeCapabilities;
-    fn start(&mut self, run: &RunDescriptor) -> AgentResult<()>;
-    fn send(&mut self, run_id: &str, text: &str) -> AgentResult<()>;
-    fn cancel(&mut self, run_id: &str) -> AgentResult<()>;
-    fn resume(&mut self, session_id: &str) -> AgentResult<()>;
-    fn dispose(&mut self) -> AgentResult<()>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

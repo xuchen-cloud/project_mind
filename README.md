@@ -128,7 +128,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspa
 ## 当前限制
 
 - 当前数据库 schema 为 v37，包含原生 AI、Record/文件版本、会话索引、Overview 和记忆服务；旧领域数据通过兼容迁移复制为当前 Record。
-- DSH 会话通过应用附带的 Mind CLI 接入当前作用域的原生 Record/Todo/File 读取与保存；固定 File 来源与自动版本管理仍沿用原生服务。知识/记忆的完整统一工作流仍未交付；后台 Pi、原生保存和外部 CLI/MCP 继续保留。
+- DSH 会话通过应用附带的 Mind CLI 接入当前作用域的原生 Record/Todo/File 读取与保存；固定 File 来源与自动版本管理仍沿用原生服务。知识/记忆的完整统一工作流仍未交付；原生保存和外部 CLI/MCP 继续保留。
 - Office 编辑仍处于候选验证阶段；静态 HTML 预览禁用脚本、导航与表单，不代表交互 HTML 执行能力已交付。
 - macOS 是当前主要开发和验证平台；Windows 的 Voice Record 与页面驻留仍缺完整实机验收。
 - 当前未完成事项统一记录在 [`docs/remaining-work.md`](docs/remaining-work.md)。

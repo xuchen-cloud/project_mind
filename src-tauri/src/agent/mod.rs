@@ -10,9 +10,7 @@ pub mod changes;
 pub(crate) mod commands;
 pub mod context;
 pub mod conversation;
-pub(crate) mod conversation_commands;
 pub mod errors;
-pub(crate) mod host;
 pub(crate) mod local_metrics;
 pub mod instructions;
 pub(crate) mod knowledge;
@@ -29,7 +27,6 @@ pub(crate) mod output_tools;
 pub mod outputs;
 pub(crate) mod overview;
 pub(crate) mod overview_inventory;
-pub(crate) mod process;
 pub(crate) mod profile_probe;
 pub(crate) mod record_blocks;
 pub(crate) mod record_get;
@@ -37,7 +34,6 @@ pub(crate) mod record_outputs;
 pub(crate) mod record_write_tools;
 pub mod repository;
 pub(crate) mod run_commands;
-pub(crate) mod session_history;
 pub mod runtime;
 pub mod service;
 pub mod sessions;
@@ -56,5 +52,3 @@ mod tests;
 
 #[cfg(test)]
 mod file_dispatch_tests;
-
-pub(crate) mod model_history;
