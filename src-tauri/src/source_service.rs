@@ -128,7 +128,11 @@ pub(crate) struct SourcePolicy {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SourceSearchInput {
     pub scope: Scope,
-    #[schemars(length(max = 256))]
+    #[schemars(
+        length(min = 1, max = 256),
+        regex(pattern = r"\S"),
+        description = "Query containing non-whitespace characters, at most 256 characters including surrounding whitespace. Search trims surrounding whitespace and accepts at most 16 whitespace-separated terms."
+    )]
     pub query: String,
     #[serde(default)]
     #[schemars(length(max = 7))]

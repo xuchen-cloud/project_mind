@@ -217,6 +217,20 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(response["data"], serde_json::to_value(&binding).unwrap());
 
+    let status = post(port, "/v1/call", call(instance, &grant.id, &binding,
+        "status-before-read", "connection.status", json!({}))).await;
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["data"], json!({
+        "binding":binding,
+        "authorization":{"workspaceContent":false,"projectIds":[included.id],
+            "operations":grant.operations,"objectKeys":null},
+        "executionMode":null,
+    }));
+    assert!(!status.to_string().contains(TOKEN));
+    let invalid_status = post(port, "/v1/call", call(instance, &grant.id, &binding,
+        "status-forged", "connection.status", json!({"projectIds":[other.id]}))).await;
+    expect_error(&invalid_status, "INVALID_ARGUMENT");
+
     let response = post(
         port,
         "/v1/call",
@@ -431,6 +445,9 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
         .unwrap()
         .agent_connection_revoke(&binding, &grant.id)
         .unwrap();
+    let revoked_status = post(port, "/v1/call", call(instance, &grant.id, &binding,
+        "status-revoked", "connection.status", json!({}))).await;
+    expect_error(&revoked_status, "SCOPE_DENIED");
     let response = post(
         port,
         "/v1/call",
@@ -447,6 +464,9 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
     expect_error(&response, "SCOPE_DENIED");
 
     handler.binding.lock().unwrap().generation = "open-2".into();
+    let stale_status = post(port, "/v1/call", call(instance, &grant.id, &binding,
+        "status-stale", "connection.status", json!({}))).await;
+    expect_error(&stale_status, "WORKSPACE_CHANGED");
     let response = post(
         port,
         "/v1/call",

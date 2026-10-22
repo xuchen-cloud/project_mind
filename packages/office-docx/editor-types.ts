@@ -25,7 +25,13 @@ export interface EditorOptions {
   onFetchImage?(url:string):Promise<EditorRemoteImage>;
 }
 export type EditorOutputCommand = 'pdf' | 'images' | 'html' | 'print' | 'preview';
+export interface CapturedEditorSelection {selectionId:string;text:string;}
+export interface ReplaceEditorSelection {selectionId:string;text:string;}
 export interface EditorController {
+  /** Frozen selection in this mount; document changes invalidate it. */
+  captureSelection(): Promise<CapturedEditorSelection>;
+  /** Applies a tracked revision to the captured range, never the live caret. */
+  replaceSelection(input:ReplaceEditorSelection): Promise<{text:string}>;
   /** Resolves when the current full renderer has completed its document layout. */
   readonly ready: Promise<void>;
   /** Uses the current full renderer; waits for readiness and rejects when replaced/destroyed. */
@@ -37,7 +43,7 @@ export interface EditorController {
   beforeSave?(): Promise<void>;
 }
 /** The legacy local content editor has no full-renderer output surface. */
-export type LegacyEditorController = Omit<EditorController, 'output' | 'ready'>;
+export type LegacyEditorController = Omit<EditorController, 'output' | 'ready' | 'captureSelection' | 'replaceSelection'>;
 export declare function mountEditor(element: HTMLElement, options: EditorOptions): LegacyEditorController;
 
 export declare function mountFullEditor(element: HTMLElement, options: EditorOptions, rendererUrl?: string | URL): EditorController;

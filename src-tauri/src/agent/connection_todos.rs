@@ -12,6 +12,7 @@ fn required_date<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<St
 pub(crate) struct ConnectionTodoCreateInput {
     pub scope: Scope,
     pub content: String,
+    #[schemars(schema_with = "crate::agent::outputs::todo_priority_schema")]
     pub priority: String,
     #[serde(deserialize_with = "required_date")]
     #[schemars(required, schema_with = "crate::agent::outputs::nullable_due_date_schema")]
@@ -32,6 +33,80 @@ pub(crate) struct ConnectionTodoUpdateInput {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    fn fields(schema: &Value, name: &str) -> Vec<Value> {
+        fn visit(value: &Value, name: &str, found: &mut Vec<Value>) {
+            if let Some(field) = value.get("properties").and_then(|props| props.get(name)) {
+                found.push(field.clone());
+            }
+            match value {
+                Value::Object(map) => for child in map.values() { visit(child, name, found); },
+                Value::Array(values) => for child in values { visit(child, name, found); },
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        visit(schema, name, &mut found);
+        found
+    }
+
+    #[test]
+    fn todo_schemas_expose_native_priority_and_status_enums_with_descriptions() {
+        let create = serde_json::to_value(schemars::schema_for!(ConnectionTodoCreateInput)).unwrap();
+        let mutations = serde_json::to_value(schemars::schema_for!(TodoMutation)).unwrap();
+        for schema in [&create, &mutations] {
+            let priorities = fields(schema, "priority");
+            assert_eq!(priorities.len(), 1);
+            for field in priorities {
+                assert_eq!(field["type"], "string");
+                assert_eq!(field["enum"], json!([
+                    "urgent_important", "urgent_not_important",
+                    "not_urgent_important", "not_urgent_not_important"
+                ]));
+                assert!(!field["description"].as_str().unwrap_or_default().is_empty());
+            }
+        }
+        let statuses = fields(&mutations, "status");
+        assert_eq!(statuses.len(), 2);
+        for field in statuses {
+            assert_eq!(field["type"], "string");
+            assert_eq!(field["enum"], json!(["unfinished", "finished"]));
+            assert!(!field["description"].as_str().unwrap_or_default().is_empty());
+        }
+    }
+
+    #[test]
+    fn todo_date_schemas_distinguish_legacy_progress_date_from_nullable_deadline() {
+        for (schema, progress_count, due_count) in [
+            (schemars::schema_for!(ConnectionTodoCreateInput), 1, 2),
+            (schemars::schema_for!(TodoNewChild), 1, 1),
+            (schemars::schema_for!(TodoMutation), 2, 3),
+        ] {
+            let schema = serde_json::to_value(schema).unwrap();
+            let progress_dates = fields(&schema, "progressDate");
+            assert_eq!(progress_dates.len(), progress_count);
+            for field in progress_dates {
+                assert_eq!(field["type"], "string");
+                assert_eq!(field["format"], "date");
+                assert_eq!(field["pattern"], "^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+                let description = field["description"].as_str().unwrap_or_default();
+                for semantic in ["Legacy", "local", "preserve", "deadline"] {
+                    assert!(description.contains(semantic), "Missing {semantic}: {description}");
+                }
+            }
+            let deadlines = due_dates(&schema);
+            assert_eq!(deadlines.len(), due_count);
+            for field in deadlines {
+                assert_eq!(field["type"], json!(["string", "null"]));
+                assert_eq!(field["format"], "date");
+                assert_eq!(field["pattern"], "^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+                let description = field["description"].as_str().unwrap_or_default();
+                for semantic in ["deadline", "null", "YYYY-MM-DD"] {
+                    assert!(description.contains(semantic), "Missing {semantic}: {description}");
+                }
+            }
+        }
+    }
 
     fn due_dates(schema: &Value) -> Vec<Value> {
         fn visit(value: &Value, found: &mut Vec<Value>) {

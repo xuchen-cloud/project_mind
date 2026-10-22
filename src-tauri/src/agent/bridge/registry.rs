@@ -12,7 +12,7 @@ use crate::{
         record_blocks::RecordBlocksInput,
         record_get::RecordGetInput,
         references::ReferenceListInput,
-        todo_tools::TodoGetInput,
+        todo_tools::{TodoGetInput, TodoListInput},
     },
     agent::bridge::record_writes::{ConnectionRecordCreate, MutationInput, RecordCreatePreviewInput},
     db::agent_record_withdrawals::RecordRestoreInput as CreatedRecordRestoreInput,
@@ -34,6 +34,10 @@ use serde_json::Value;
 #[serde(deny_unknown_fields)]
 pub struct ProjectListInput {}
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionStatusInput {}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisteredMethod {
@@ -45,6 +49,12 @@ pub struct RegisteredMethod {
 
 pub fn registered_methods() -> Vec<RegisteredMethod> {
     vec![
+        RegisteredMethod {
+            method: "connection.status",
+            description: "Read this connection's current binding and native scope/operation grants. Embedded executions also report their actual executionMode; external connections report null. This snapshot does not reserve access: each operation rechecks authorization and source visibility.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ConnectionStatusInput)).expect("static schema"),
+        },
         RegisteredMethod {
             method: "project.list",
             description: "List projects visible to this connection in the bound Workspace.",
@@ -110,6 +120,12 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             description: "Read one authorized Todo by its object reference with source.read, subject to current scope and visibility.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(TodoGetInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "todo.list",
+            description: "List current native Todo and Subtask actions in one authorized scope with source.read. Filter each action by its own status and inclusive deadline bounds, or undated. Continue nextCursor until hasMore=false; restart on SOURCE_CHANGED. Display text is bounded; todo.get returns full details.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(TodoListInput)).expect("static schema"),
         },
         RegisteredMethod {
             method: "file.versions.list",
@@ -274,9 +290,9 @@ pub fn is_registered(method: &str) -> bool {
 
 pub fn is_read_only(method: &str) -> Option<bool> {
     match method {
-        "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
+        "connection.status" | "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
         | "knowledge.get" | "source.search" | "source.read"
-        | "reference.list" | "record.get" | "record.blocks.get" | "todo.get"
+        | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
         | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" => Some(true),
@@ -302,6 +318,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         crate::agent::tools::validate_bounds(method, parameters)?;
     }
     let decoded = match method {
+        "connection.status" => decode::<ConnectionStatusInput>(parameters),
         "project.list" => decode::<ProjectListInput>(parameters),
         "context.get" => decode::<ContextGetInput>(parameters),
         "context.overview.get" => decode::<OverviewReadInput>(parameters),
@@ -313,6 +330,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "record.get" => decode::<RecordGetInput>(parameters),
         "record.blocks.get" => decode::<RecordBlocksInput>(parameters),
         "todo.get" => decode::<TodoGetInput>(parameters),
+        "todo.list" => decode::<TodoListInput>(parameters),
         "file.versions.list" => decode::<FileVersionsListInput>(parameters),
         "file.versions.get" => decode::<FileVersionsGetInput>(parameters),
         "file.source.read" => decode::<FileSourceReadInput>(parameters),
@@ -375,9 +393,9 @@ mod tests {
     #[test]
     fn registry_contains_only_exposed_methods() {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
-            "project.list", "context.get", "context.overview.get", "knowledge.search",
+            "connection.status", "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read",
-            "reference.list", "record.get", "record.blocks.get", "todo.get",
+            "reference.list", "record.get", "record.blocks.get", "todo.get", "todo.list",
             "file.versions.list", "file.versions.get", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
             "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",

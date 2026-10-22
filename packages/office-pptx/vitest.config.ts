@@ -1,6 +1,8 @@
+import {officeRendererResources} from '../../scripts/office-renderer-resources.mjs';
 import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 export default defineConfig({
+  plugins: [officeRendererResources()],
   resolve: { dedupe: ['react', 'react-dom'], alias: {
     react: fileURLToPath(new URL('./node_modules/react', import.meta.url)),
     'react-dom': fileURLToPath(new URL('./node_modules/react-dom', import.meta.url)),

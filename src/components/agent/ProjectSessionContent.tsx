@@ -85,7 +85,9 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
   useEffect(() => {
     if (!visible || !ready || !hostReady || error || !pending || inserting.current || referenceError?.id === pending.id) return;
     inserting.current = true;
-    void insertDshFileReference(projectId, sessionId, pending.path, pending.sourceRef).then(() => {
+    const insert = pending.selection ? insertDshFileReference(projectId, sessionId, pending.path, pending.sourceRef, pending.selection)
+      : insertDshFileReference(projectId, sessionId, pending.path, pending.sourceRef);
+    void insert.then(() => {
       consumeDshFileReference(pending.id);
     }).catch(reason => {
       if (alive.current) setReferenceError({ id: pending.id, message: getErrorMessage(reason, '引用文件失败') });

@@ -8,11 +8,16 @@ use crate::agent::{
 };
 use crate::db::file_imports::{validate_agent_file_create, AgentFileCreateInput};
 use serde_json::{json, Value};
-use std::{io::Read, path::PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
 #[path = "cli_upload.rs"]
 mod cli_upload;
+#[path = "cli_help.rs"]
+mod cli_help;
+use cli_help::HELP;
 
-const HELP: &str = "mind — Project Mind local CLI\n\nUsage:\n  mind --version\n  mind capabilities --json\n  mind schema METHOD --json\n  mind doctor --workspace PATH --connection ID --json\n  mind project list --workspace PATH --connection ID --json\n  mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json\n  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json\n  mind context overview get --input-file PATH|- --workspace PATH --connection ID --json\n  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json\n  mind reference list --kind record|todo|file|quick_note --id ID --direction incoming|outgoing (--project ID | --workspace-scope) [--cursor TOKEN] [--limit N] [--budget-chars N] --workspace PATH --connection ID --json\n  mind reference list --input-file PATH|- --workspace PATH --connection ID --json\n  mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json\n  mind record get --input-file PATH|- --workspace PATH --connection ID --json\n  mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo get --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json\n  mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json\n  mind todo update --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json\n  mind file source read --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json\n  mind file patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash SHA256 --request-id ID --workspace PATH --connection ID --json\n  mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json\n  mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json\n  mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json\n  mind record restore --id ID --version VERSION_ID --base-revision N (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json\n  mind record create --title TITLE --body-file PATH|- (--project ID | --workspace-scope) --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create --input-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record create preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --workspace PATH --connection ID --json\n  mind record patch --patch-file PATH|- --dry-run [--budget-chars N] --workspace PATH --connection ID --json\n  mind record patch preview --input-file PATH|- --workspace PATH --connection ID --json\n  mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json\n  mind mcp serve --workspace PATH --connection ID\n\nUse `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. record get reads one bounded body page; pass its nextCursor with --cursor to continue. reference list returns one page (default 20 items, 4000 characters); pass nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json\n";
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub struct CliOutput {
@@ -50,6 +55,8 @@ struct Options {
     limit: Option<usize>,
     dry_run: bool,
     json: bool,
+    help: bool,
+    verbose: bool,
 }
 
 fn invalid(message: &'static str) -> AgentError {
@@ -78,6 +85,21 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             options.dry_run = true;
             cursor += 1;
             continue;
+        }
+        if flag == "--help" || flag == "--verbose" {
+            let option = if flag == "--help" { &mut options.help } else { &mut options.verbose };
+            if *option { return Err(invalid("Duplicate option")); }
+            *option = true;
+            cursor += 1;
+            continue;
+        }
+        if !matches!(flag, "--workspace" | "--connection" | "--project" | "--query"
+            | "--budget-chars" | "--request-id" | "--input-file" | "--patch-file"
+            | "--body-file" | "--name" | "--title" | "--priority" | "--due-date"
+            | "--id" | "--version" | "--base-revision" | "--source-file"
+            | "--expected-version" | "--expected-hash" | "--revision" | "--cursor"
+            | "--kind" | "--direction" | "--limit") {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, format!("Unknown option: {flag}")));
         }
         let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing option value"))?;
         if value.starts_with("--") { return Err(invalid("Missing option value")); }
@@ -130,7 +152,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
         }
         cursor += 2;
     }
-    if !options.json { return Err(invalid("This command requires --json")); }
+    if !options.json && !options.help { return Err(invalid("This command requires --json")); }
     Ok(options)
 }
 
@@ -254,6 +276,7 @@ fn preview_create_params(params: Value, budget_chars: Option<usize>) -> AgentRes
 
 fn bridge_method(command: &str, dry_run: bool) -> &str {
     match (command, dry_run) {
+        ("doctor", _) => "connection.status",
         ("search", _) => "source.search",
         ("record.patch", true) => "record.patch.preview",
         ("record.create", true) => "record.create.preview",
@@ -397,7 +420,7 @@ fn todo_create_params(options: &Options) -> AgentResult<Value> {
     }
     let scope = scoped(options)?;
     let priority = options.priority.as_deref().unwrap_or("not_urgent_not_important");
-    if !matches!(priority, "urgent_important" | "urgent_not_important" | "not_urgent_important" | "not_urgent_not_important") {
+    if !crate::agent::outputs::TODO_PRIORITIES.contains(&priority) {
         return Err(invalid("Unsupported Todo priority"));
     }
     if let Some(date) = options.due_date.as_deref() {
@@ -414,13 +437,25 @@ fn todo_create_params(options: &Options) -> AgentResult<Value> {
     }}))
 }
 
-/// Stdio owns stdout for its entire lifetime. Diagnostics go only to stderr.
+/// During MCP serving, stdio owns stdout. Offline help exits before connecting;
+/// diagnostics go only to stderr.
 pub fn run_mcp(args: &[String]) -> i32 {
     let parsed = (|| {
         let mut workspace = None;
         let mut connection = None;
         let mut cursor = 0;
+        let mut help = false;
         while cursor < args.len() {
+            let flag = args[cursor].as_str();
+            if flag == "--help" {
+                if help { return Err(invalid("Duplicate --help")); }
+                help = true;
+                cursor += 1;
+                continue;
+            }
+            if !matches!(flag, "--workspace" | "--connection") {
+                return Err(AgentError::new(ErrorCode::InvalidArgument, format!("Unknown option: {flag}")));
+            }
             let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing MCP option value"))?;
             if value.starts_with("--") { return Err(invalid("Missing MCP option value")); }
             match args[cursor].as_str() {
@@ -430,14 +465,19 @@ pub fn run_mcp(args: &[String]) -> i32 {
             }
             cursor += 2;
         }
+        if help { return Ok(None); }
         let workspace = workspace.ok_or_else(|| invalid("--workspace is required"))?;
         let connection = connection.ok_or_else(|| invalid("--connection is required"))?;
         if connection.len() != 32 || !connection.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(invalid("Invalid connection ID"));
         }
-        Ok((workspace, connection))
+        Ok(Some((workspace, connection)))
     })();
-    let result = parsed.and_then(|(workspace, connection)| {
+    let result = parsed.and_then(|target| {
+        let Some((workspace, connection)) = target else {
+            print!("{}", cli_help::command("mcp.serve"));
+            return Ok(());
+        };
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
             .map_err(|_| AgentError::new(ErrorCode::RuntimeUnavailable, "Cannot start MCP runtime"))?;
         runtime.block_on(async {
@@ -454,25 +494,55 @@ pub fn run_mcp(args: &[String]) -> i32 {
     }
 }
 
+fn capabilities_data(verbose: bool) -> Value {
+    let methods = registry::registered_methods();
+    if verbose {
+        json!({"sharedCapabilities": capabilities(), "bridgeMethods": methods})
+    } else {
+        json!({"bridgeMethods": methods.into_iter().map(|entry| json!({
+            "method": entry.method, "description": entry.description, "readOnly": entry.read_only
+        })).collect::<Vec<_>>()})
+    }
+}
+
+fn doctor_data(workspace: &Path, status: Value, verbose: bool) -> Value {
+    let mut data = json!({"connected": true, "binding": status["binding"],
+        "workspacePath": workspace, "authorization": status["authorization"],
+        "executionMode": status["executionMode"]});
+    if verbose { data["bridgeMethods"] = json!(registry::registered_methods()); }
+    data
+}
+
 pub fn run(args: &[String]) -> CliOutput {
+    run_with_bridge_call(args, |workspace, connection, method, params, request_id| {
+        let client = BridgeClient::discover(connection)?;
+        let binding = client.connect(connection, workspace, request_id)?;
+        client.call(connection, &binding, method, params, request_id)
+    })
+}
+
+fn run_with_bridge_call(
+    args: &[String],
+    bridge_call: impl FnOnce(&Path, &str, &str, Value, &str) -> AgentResult<Value>,
+) -> CliOutput {
     let words = args.iter().map(String::as_str).collect::<Vec<_>>();
     match words.as_slice() {
         ["--version"] => return CliOutput { stdout: format!("mind {}\n", env!("CARGO_PKG_VERSION")), stderr: String::new(), exit_code: 0 },
         [] | ["--help"] | ["help"] => return CliOutput { stdout: HELP.into(), stderr: String::new(), exit_code: 0 },
+        ["mcp", "serve", "--help"] => return CliOutput { stdout: cli_help::command("mcp.serve"), stderr: String::new(), exit_code: 0 },
         ["mcp", "serve", ..] => return CliOutput { stdout: String::new(), stderr: "MCP serve must own stdio; use the mind executable\n".into(), exit_code: 2 },
         _ => {}
     }
-    if words.as_slice() == ["capabilities", "--json"] {
-        return response(request_id(), Ok(json!({"sharedCapabilities": capabilities(), "bridgeMethods": registry::registered_methods()})));
-    }
-    if let ["schema", method, "--json"] = words.as_slice() {
-        return response(request_id(), registry::schema(method).ok_or_else(|| invalid("Unknown bridge method")));
-    }
     let (command, option_args, positional) = match words.as_slice() {
+        ["capabilities", ..] => ("capabilities", &args[1..], None),
+        ["schema", method, ..] if !method.starts_with("--") => ("schema", &args[2..], Some(*method)),
+        ["schema", ..] => ("schema", &args[1..], None),
         ["doctor", ..] => ("doctor", &args[1..], None),
+        ["connection", "status", ..] => ("connection.status", &args[2..], None),
         ["project", "list", ..] => ("project.list", &args[2..], None),
         ["context", "get", ..] => ("context.get", &args[2..], None),
         ["search", query, ..] if !query.starts_with("--") => ("search", &args[2..], Some(*query)),
+        ["search", ..] => ("search", &args[1..], None),
         ["context", "overview", "get", ..] => ("context.overview.get", &args[3..], None),
         ["knowledge", "search", ..] => ("knowledge.search", &args[2..], None),
         ["knowledge", "get", ..] => ("knowledge.get", &args[2..], None),
@@ -491,6 +561,7 @@ pub fn run(args: &[String]) -> CliOutput {
         ["record", "versions", "get", ..] => ("record.versions.get", &args[3..], None),
         ["record", "versions", "compare", ..] => ("record.versions.compare", &args[3..], None),
         ["todo", "get", ..] => ("todo.get", &args[2..], None),
+        ["todo", "list", ..] => ("todo.list", &args[2..], None),
         ["todo", "create", ..] => ("todo.create", &args[2..], None),
         ["todo", "update", ..] => ("todo.update", &args[2..], None),
         ["file", "versions", "list", ..] => ("file.versions.list", &args[3..], None),
@@ -510,12 +581,35 @@ pub fn run(args: &[String]) -> CliOutput {
         ["operation", "list", ..] => ("operation.list", &args[2..], None),
         ["operation", "undo", ..] => ("operation.undo", &args[2..], None),
         ["operation", "restore-created", ..] => ("operation.restore_created", &args[2..], None),
-        _ => return response(request_id(), Err(invalid("Unknown command; see mind --help"))),
+        _ => {
+            if let [path @ .., "--help"] = words.as_slice() {
+                if let Some(help) = cli_help::group(&path.join(".")) {
+                    return CliOutput { stdout: help, stderr: String::new(), exit_code: 0 };
+                }
+            }
+            return response(request_id(), Err(invalid("Unknown command; see mind --help")));
+        }
     };
     let options = match parse_options(option_args) {
         Ok(options) => options,
         Err(error) => return response(request_id(), Err(error)),
     };
+    if options.verbose && !matches!(command, "capabilities" | "doctor") {
+        return response(request_id(), Err(invalid("--verbose is only supported by capabilities and doctor")));
+    }
+    if options.help {
+        return CliOutput { stdout: cli_help::command(command), stderr: String::new(), exit_code: 0 };
+    }
+    if matches!(command, "capabilities" | "schema") {
+        if option_args.iter().any(|arg| !matches!(arg.as_str(), "--json" | "--verbose")) {
+            return response(request_id(), Err(invalid("Discovery commands accept only --json and capabilities --verbose")));
+        }
+        return response(request_id(), if command == "capabilities" {
+            Ok(capabilities_data(options.verbose))
+        } else {
+            positional.and_then(registry::schema).ok_or_else(|| invalid("Unknown bridge method; use mind capabilities --json"))
+        });
+    }
     if options.input_file.is_some() && options.patch_file.is_some() {
         return response(request_id(), Err(invalid("--input-file and --patch-file cannot be combined")));
     }
@@ -624,7 +718,7 @@ pub fn run(args: &[String]) -> CliOutput {
         }
         let method = bridge_method(command, options.dry_run);
         let params = match command {
-            "doctor" | "project.list" => {
+            "doctor" | "connection.status" | "project.list" => {
                 if options.input_file.is_some() || options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
                     return Err(invalid("This command accepts only Workspace and connection options"));
                 }
@@ -637,7 +731,7 @@ pub fn run(args: &[String]) -> CliOutput {
             }
             "search" => {
                 if options.input_file.is_some() || options.query.is_some() { return Err(invalid("search uses its positional query, not --query or --input-file")); }
-                json!({"scope":scoped(&options)?,"query":positional.expect("search query"),"budgetChars":options.budget_chars})
+                json!({"scope":scoped(&options)?,"query":positional.ok_or_else(|| invalid("Search query is required"))?,"budgetChars":options.budget_chars})
             }
             "record.get" => {
                 if options.project.is_some() || options.workspace_scope || options.revision.is_some()
@@ -690,16 +784,22 @@ pub fn run(args: &[String]) -> CliOutput {
         if command == "record.patch" && !options.dry_run {
             request_id = write_request_id(&options, &params)?;
         }
-        if command != "doctor" { registry::validate(method, &params)?; }
+        registry::validate(method, &params)?;
         if registry::is_read_only(method) == Some(false) && command != "record.patch" {
             request_id = write_request_id(&options, &params)?;
         }
-        let client = BridgeClient::discover(connection)?;
-        let binding = client.connect(connection, workspace, &request_id)?;
+        // Keep the same canonical path for connect and doctor output. Connect
+        // still checks the path and the server verifies its Workspace binding.
+        let canonical_workspace = if command == "doctor" {
+            Some(workspace.canonicalize().map_err(|_| AgentError::new(
+                ErrorCode::WorkspaceNotOpen, "Workspace path is unavailable"))?)
+        } else { None };
+        let workspace = canonical_workspace.as_deref().unwrap_or(workspace.as_path());
+        let data = bridge_call(workspace, connection, method, params, &request_id)?;
         if command == "doctor" {
-            return Ok(json!({"connected":true,"binding":binding,"bridgeMethods":registry::registered_methods()}));
+            return Ok(doctor_data(workspace, data, options.verbose));
         }
-        client.call(connection, &binding, method, params, &request_id)
+        Ok(data)
     })();
     response(request_id, result)
 }
@@ -708,6 +808,267 @@ pub fn run(args: &[String]) -> CliOutput {
 mod tests {
     use super::*;
     fn invoke(args: &[&str]) -> CliOutput { run(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()) }
+    #[test]
+    fn connection_status_help_is_offline_and_explains_snapshot_limits() {
+        let out = invoke(&["connection", "status", "--help"]);
+        assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        assert!(out.stdout.contains("mind schema connection.status --json"));
+        assert!(out.stdout.contains("snapshot"));
+        assert!(out.stdout.contains("reauthorized"));
+        assert!(out.stdout.contains("native permissions"));
+        assert!(out.stdout.contains("null"));
+        let group = invoke(&["connection", "--help"]);
+        assert_eq!(group.exit_code, 0, "{}", group.stderr);
+        assert!(group.stdout.contains("mind connection status"));
+        assert!(invoke(&["--help"]).stdout.contains("mind connection status --workspace PATH --connection ID --json"));
+        let doctor = invoke(&["doctor", "--help"]);
+        assert!(doctor.stdout.contains("workspacePath"));
+        assert!(doctor.stdout.contains("snapshot"));
+        assert!(doctor.stdout.contains("reauthorized"));
+    }
+    #[test]
+    fn subcommand_help_is_offline_and_points_to_its_schema() {
+        for method in [
+            "todo.create", "todo.get", "todo.update", "todo.list", "record.get",
+            "record.create", "record.patch", "record.patch.preview", "record.restore",
+            "record.versions.compare", "file.upload", "file.version.restore",
+            "context.overview.get", "source.read", "reference.list", "operation.restore-created",
+        ] {
+            let mut args = method.split('.').collect::<Vec<_>>();
+            args.push("--help");
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 0, "{method}: {}", out.stderr);
+            assert!(out.stderr.is_empty(), "{method}");
+            assert!(out.stdout.contains("Usage:"), "{method}: {}", out.stdout);
+            let schema = match method {
+                "file.upload" => "file.content.begin",
+                "operation.restore-created" => "operation.restore_created",
+                _ => method,
+            };
+            assert!(out.stdout.contains(&format!("mind schema {schema} --json")), "{method}: {}", out.stdout);
+            assert!(out.stdout.len() < 3500, "{method}: help should be concise");
+        }
+        // Help must not open even stdin or a nonexistent mutation input.
+        for source in ["-", "/nonexistent/mind-help-input.json"] {
+            let out = invoke(&["todo", "create", "--input-file", source, "--help", "--json"]);
+            assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        }
+        for group in ["todo", "record", "file"] {
+            let out = invoke(&[group, "--help"]);
+            assert_eq!(out.exit_code, 0, "{}", out.stderr);
+            assert!(out.stdout.contains(&format!("mind {group}")));
+        }
+        let root = invoke(&["--help"]);
+        assert!(root.stdout.contains("mind todo get|list --input-file PATH|-"));
+        let todo = invoke(&["todo", "--help"]);
+        assert!(todo.stdout.contains("list"));
+        assert_eq!(invoke(&["invented", "--help"]).exit_code, 2);
+    }
+    #[test]
+    fn unknown_flags_are_reported_before_reading_option_values() {
+        for command in [vec!["todo", "create"], vec!["record", "get"], vec!["capabilities"], vec!["doctor"]] {
+            for tail in [vec!["--bogus"], vec!["--bogus", "--json"], vec!["--bogus", "value", "--json"]] {
+                let mut args = command.clone();
+                args.extend(tail);
+                let out = invoke(&args);
+                assert_eq!(out.exit_code, 2);
+                assert!(out.stderr.contains("Unknown option: --bogus"), "{args:?}: {}", out.stderr);
+                assert!(!out.stderr.contains("Missing option value"));
+            }
+        }
+        let out = invoke(&["todo", "get", "--input-file"]);
+        assert!(out.stderr.contains("Missing option value"));
+    }
+    #[test]
+    fn capabilities_default_is_compact_and_verbose_preserves_full_catalog() {
+        let compact = invoke(&["capabilities", "--json"]);
+        assert_eq!(compact.exit_code, 0);
+        let compact: Value = serde_json::from_str(&compact.stdout).unwrap();
+        assert_eq!(compact["ok"], true);
+        let data = compact["data"].as_object().unwrap();
+        assert_eq!(data.len(), 1);
+        let methods = data["bridgeMethods"].as_array().unwrap();
+        assert!(!methods.is_empty());
+        for method in methods {
+            assert_eq!(method.as_object().unwrap().len(), 3, "{method}");
+            assert!(method["method"].is_string());
+            assert!(method["description"].is_string());
+            assert!(method["readOnly"].is_boolean());
+        }
+        for args in [["capabilities", "--verbose", "--json"], ["capabilities", "--json", "--verbose"]] {
+            let verbose = invoke(&args);
+            assert_eq!(verbose.exit_code, 0, "{}", verbose.stderr);
+            let verbose: Value = serde_json::from_str(&verbose.stdout).unwrap();
+            assert_eq!(verbose["data"]["bridgeMethods"], serde_json::to_value(registry::registered_methods()).unwrap());
+            assert_eq!(verbose["data"]["sharedCapabilities"], serde_json::to_value(capabilities()).unwrap());
+            assert_eq!(verbose["data"]["bridgeMethods"].as_array().unwrap().len(), methods.len());
+        }
+    }
+    #[test]
+    fn doctor_reports_current_authorization_and_canonical_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("child")).unwrap();
+        let workspace = root.path().join("child/..");
+        let canonical = root.path().canonicalize().unwrap();
+        for (mode, object_keys) in [
+            (Value::Null, Value::Null),
+            (json!("read-only"), json!([])),
+            (json!("workspace-write"), json!(["selected-record"])),
+            (json!("danger-full-access"), Value::Null),
+        ] {
+            let status = json!({"binding":{"workspaceId":"bound-workspace","generation":"g"},
+                "authorization":{"workspaceContent":false,"projectIds":[7],"operations":["source.read"],"objectKeys":object_keys},
+                "executionMode":mode,"token":"private-token","grantToken":"private-grant"});
+            let mut compact = None;
+            for verbose in [false, true] {
+                let mut args = vec!["doctor", "--workspace", workspace.to_str().unwrap(),
+                    "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+                if verbose { args.push("--verbose"); }
+                let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+                let out = run_with_bridge_call(&args, |path, _, method, params, _| {
+                    assert_eq!(path, canonical);
+                    assert_eq!(method, "connection.status");
+                    assert_eq!(params, json!({}));
+                    Ok(status.clone())
+                });
+                assert_eq!(out.exit_code, 0, "{}", out.stderr);
+                let mut data = serde_json::from_str::<Value>(&out.stdout).unwrap()["data"].clone();
+                if verbose {
+                    assert_eq!(data.as_object_mut().unwrap().remove("bridgeMethods").unwrap(),
+                        serde_json::to_value(registry::registered_methods()).unwrap());
+                    assert_eq!(Some(&data), compact.as_ref());
+                } else {
+                    assert_eq!(data, json!({"connected":true,"binding":{"workspaceId":"bound-workspace","generation":"g"},
+                        "workspacePath":canonical,"authorization":{"workspaceContent":false,"projectIds":[7],"operations":["source.read"],"objectKeys":object_keys},
+                        "executionMode":mode}));
+                    compact = Some(data);
+                }
+            }
+        }
+    }
+    #[test]
+    fn connection_status_routes_empty_input_and_preserves_status() {
+        let root = tempfile::tempdir().unwrap();
+        let args = ["connection", "status", "--workspace", root.path().to_str().unwrap(),
+            "--connection", "0123456789abcdef0123456789abcdef", "--json"]
+            .into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let expected = json!({"binding":{"workspaceId":"w","generation":"g"},
+            "authorization":{"workspaceContent":true,"projectIds":[],"operations":[],"objectKeys":null},"executionMode":null});
+        let out = run_with_bridge_call(&args, |_, connection, method, params, _| {
+            assert_eq!(connection, "0123456789abcdef0123456789abcdef");
+            assert_eq!(method, "connection.status");
+            assert_eq!(params, json!({}));
+            Ok(expected.clone())
+        });
+        assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        assert_eq!(serde_json::from_str::<Value>(&out.stdout).unwrap()["data"], expected);
+    }
+    #[test]
+    fn connection_status_rejects_business_input_before_bridge_io() {
+        for flag in [vec!["--input-file", "-"], vec!["--project", "7"],
+            vec!["--workspace-scope"], vec!["--query", "text"], vec!["--budget-chars", "100"]] {
+            let mut args = vec!["connection", "status", "--workspace", "/tmp",
+                "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+            args.extend(flag);
+            let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let out = run_with_bridge_call(&args, |_, _, _, _, _| panic!("unexpected bridge I/O"));
+            assert_eq!(out.exit_code, 2, "{}", out.stderr);
+            assert!(out.stderr.contains("accepts only Workspace and connection options"));
+        }
+    }
+    #[test]
+    fn doctor_and_connection_status_propagate_status_query_failures() {
+        let root = tempfile::tempdir().unwrap();
+        for command in [vec!["doctor"], vec!["connection", "status"]] {
+            for (code, exit, name) in [(ErrorCode::ScopeDenied, 4, "SCOPE_DENIED"),
+                (ErrorCode::RuntimeUnavailable, 3, "RUNTIME_UNAVAILABLE"),
+                (ErrorCode::ToolCallUnsupported, 6, "TOOL_CALL_UNSUPPORTED")] {
+                let mut args = command.clone();
+                args.extend(["--workspace", root.path().to_str().unwrap(),
+                    "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+                let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+                let out = run_with_bridge_call(&args, |_, _, method, _, _| {
+                    assert_eq!(method, "connection.status");
+                    Err(AgentError::new(code, "Status query failed"))
+                });
+                assert_eq!(out.exit_code, exit, "{}", out.stderr);
+                let response: Value = serde_json::from_str(&out.stdout).unwrap();
+                assert_eq!(response["ok"], false);
+                assert_eq!(response["error"]["code"], name);
+                assert_eq!(response["error"]["message"], "Status query failed");
+                assert!(response.get("data").is_none());
+            }
+        }
+    }
+    #[test]
+    fn verbose_is_explicitly_limited_to_discovery_commands() {
+        let out = invoke(&["todo", "get", "--verbose", "--json"]);
+        assert_eq!(out.exit_code, 2);
+        assert!(out.stderr.contains("--verbose is only supported by capabilities and doctor"), "{}", out.stderr);
+    }
+    #[test]
+    fn todo_list_routes_input_file_through_registered_validation() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), br#"{"unexpected":"field"}"#).unwrap();
+        for action in ["get", "list"] {
+            let out = invoke(&["todo", action, "--input-file", file.path().to_str().unwrap(),
+                "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+            assert_eq!(out.exit_code, 2);
+            assert!(out.stderr.contains("method input DTO"), "{action}: {}", out.stderr);
+            let out = invoke(&["todo", action, "--workspace", "/tmp",
+                "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
+            assert!(out.stderr.contains("--input-file is required"), "{action}: {}", out.stderr);
+        }
+    }
+    #[test]
+    fn todo_list_accepts_registered_dto_and_rejects_mixed_scope_flags() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let params = json!({"scope":{"kind":"workspace"},"status":"unfinished",
+            "dueFrom":"2026-10-01","dueTo":"2026-10-31","includeChildren":true,
+            "limit":20,"budgetChars":4000});
+        registry::validate("todo.list", &params).unwrap();
+        std::fs::write(file.path(), serde_json::to_vec(&params).unwrap()).unwrap();
+        let args = ["todo", "list", "--input-file", file.path().to_str().unwrap(),
+            "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_ne!(out.exit_code, 2, "{}", out.stderr);
+        let mut mixed = args.to_vec();
+        mixed.push("--workspace-scope");
+        let out = invoke(&mixed);
+        assert_eq!(out.exit_code, 2);
+        assert!(out.stderr.contains("cannot accompany --input-file"), "{}", out.stderr);
+        // The same bounded JSON reader services --input-file - for list and get.
+        assert_eq!(parse_input(std::io::Cursor::new(serde_json::to_vec(&params).unwrap())).unwrap(), params);
+    }
+    #[test]
+    fn all_registered_methods_have_focused_offline_help() {
+        for entry in registry::registered_methods() {
+            let path = entry.method.replace('_', "-");
+            let mut args = path.split('.').collect::<Vec<_>>();
+            args.push("--help");
+            let out = invoke(&args);
+            assert_eq!(out.exit_code, 0, "{}: {}", entry.method, out.stderr);
+            assert!(out.stdout.lines().any(|line| line.starts_with("  mind ")), "{}: {}", entry.method, out.stdout);
+            assert!(out.stdout.contains(&format!("mind schema {} --json", entry.method)), "{}: {}", entry.method, out.stdout);
+        }
+        for command in ["capabilities", "doctor", "schema", "search"] {
+            let out = invoke(&[command, "--help"]);
+            assert_eq!(out.exit_code, 0, "{command}: {}", out.stderr);
+            assert!(out.stdout.contains("Usage:"));
+        }
+        let out = invoke(&["record", "get", "23", "--help"]);
+        assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        assert!(out.stdout.contains("mind schema record.get --json"));
+        let out = invoke(&["doctor", "--verbose", "--json"]);
+        assert!(out.stderr.contains("--workspace is required"), "{}", out.stderr);
+    }
+    #[test]
+    fn standalone_mcp_help_does_not_connect() {
+        let out = invoke(&["mcp", "serve", "--help"]);
+        assert_eq!(out.exit_code, 0);
+        assert!(out.stdout.contains("mind mcp serve"));
+        assert_eq!(run_mcp(&["--help".into()]), 0);
+    }
     #[test]
     fn malformed_options_are_json_and_exit_two() {
         for args in [

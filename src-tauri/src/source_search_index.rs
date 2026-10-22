@@ -244,15 +244,22 @@ impl<'a> SourceIndex<'a> {
         kinds: Option<&[ObjectKind]>,
     ) -> AgentResult<SearchPage> {
         request.authorize(binding, scope, "source.read")?;
+        if query.trim().is_empty() {
+            return Err(invalid("Source search query must contain non-whitespace characters"));
+        }
+        if query.chars().count() > 256 {
+            return Err(invalid("Source search query must contain at most 256 characters"));
+        }
         let query = query.trim();
         let terms: Vec<_> = query.split_whitespace().collect();
-        if terms.is_empty()
-            || terms.len() > 16
-            || query.chars().count() > 256
-            || selected.len() > 50
-            || limit == 0
-        {
-            return Err(invalid("Invalid source search budget"));
+        if terms.len() > 16 {
+            return Err(invalid("Source search query must contain at most 16 whitespace-separated terms"));
+        }
+        if selected.len() > 50 {
+            return Err(invalid("Source search selected sources must contain at most 50 items"));
+        }
+        if limit == 0 {
+            return Err(invalid("Source search limit must be positive"));
         }
         let (long, short): (Vec<_>, Vec<_>) = terms
             .into_iter()
@@ -427,6 +434,63 @@ mod tests {
         errors::ErrorCode,
         models::ObjectKind,
     };
+
+    #[test]
+    fn source_search_query_schema_exposes_length_and_nonwhitespace_contract() {
+        let schema = serde_json::to_value(schemars::schema_for!(crate::source_service::SourceSearchInput)).unwrap();
+        let query = &schema["properties"]["query"];
+        assert_eq!(query["type"], "string");
+        assert_eq!(query["minLength"], 1);
+        assert_eq!(query["maxLength"], 256);
+        assert_eq!(query["pattern"], r"\S");
+        let description = query["description"].as_str().unwrap_or_default();
+        for semantic in ["non-whitespace", "256", "16", "trim"] {
+            assert!(description.contains(semantic), "Missing {semantic}: {description}");
+        }
+    }
+
+    #[test]
+    fn source_search_reports_query_constraints_separately_from_budgets() {
+        let conn = Connection::open_in_memory().unwrap();
+        let index = SourceIndex::prepare(&conn).unwrap();
+        let scope = Scope::Project { project_id: 1 };
+        for (query, message) in [
+            (String::new(), "Source search query must contain non-whitespace characters"),
+            (" \t\n\u{3000}".into(), "Source search query must contain non-whitespace characters"),
+            ("文".repeat(257), "Source search query must contain at most 256 characters"),
+            (format!(" {} ", "a".repeat(255)), "Source search query must contain at most 256 characters"),
+            (vec!["a"; 17].join(" "), "Source search query must contain at most 16 whitespace-separated terms"),
+        ] {
+            let error = index.search(&request(), &binding(), &scope, &query, &[], false, 8, None)
+                .err().expect("invalid query");
+            assert_eq!(error.code, ErrorCode::InvalidArgument);
+            assert_eq!(error.message, message);
+        }
+        let selected = vec!["record:1".to_owned(); 51];
+        for (selected, limit, message) in [
+            (selected.as_slice(), 8, "Source search selected sources must contain at most 50 items"),
+            ([].as_slice(), 0, "Source search limit must be positive"),
+        ] {
+            let error = index.search(&request(), &binding(), &scope, "evidence", selected, false, limit, None)
+                .err().expect("invalid search budget");
+            assert_eq!(error.code, ErrorCode::InvalidArgument);
+            assert_eq!(error.message, message);
+        }
+    }
+
+    #[test]
+    fn source_search_accepts_unicode_character_and_term_boundaries_and_trims_query() {
+        let conn = Connection::open_in_memory().unwrap();
+        let index = SourceIndex::prepare(&conn).unwrap();
+        let scope = Scope::Project { project_id: 1 };
+        index.replace(&source(1, scope.clone(), "Evidence", "evidence")).unwrap();
+        for query in ["文".repeat(256), vec!["a"; 16].join(" ")] {
+            assert!(index.search(&request(), &binding(), &scope, &query, &[], false, 8, None).is_ok());
+        }
+        let page = index.search(&request(), &binding(), &scope, " \tevidence\n", &[], false, 8, None).unwrap();
+        assert_eq!(page.items.len(), 1);
+    }
+
     fn binding() -> WorkspaceBinding {
         WorkspaceBinding {
             workspace_id: "source-workspace".into(),

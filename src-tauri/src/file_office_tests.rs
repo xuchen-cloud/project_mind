@@ -644,10 +644,11 @@ async fn office_sql_failure_rolls_back_live_bytes_and_can_retry_same_stage() {
 /// Explicit opt-in: uses the packaged format engines and XLSX native sidecar,
 /// with no Tauri AppHandle, user window or mock utility.
 #[tokio::test]
-#[ignore = "requires pinned development Node and all staged Office-dist assets"]
+#[ignore = "requires staged Office resources and shared pinned Node"]
 async fn office_real_formats_native_save_reopen_and_retained_history() {
-    let worker = crate::office_worker::OfficeWorker::development()
-        .expect("Stage Node 24.21.0 and office-dist before this acceptance test");
+    let resources = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+    let worker = crate::office_worker::OfficeWorker::bundled(&resources)
+        .expect("Stage Office resources and shared Node 24.21.0 before this acceptance test");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();

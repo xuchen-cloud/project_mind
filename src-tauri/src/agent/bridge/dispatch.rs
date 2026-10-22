@@ -47,10 +47,22 @@ where
         token,
         input: &input,
     };
-    if matches!(input.method.as_str(), "project.list" | "context.get") {
+    if matches!(input.method.as_str(), "connection.status" | "project.list" | "context.get") {
         return connection.with_authenticated(|binding, db, workspace_name, request| {
             registry::validate(&input.method, &input.params)?;
-            let value = if input.method == "project.list" {
+            let value = if input.method == "connection.status" {
+                let grant = &request.scope_grant;
+                Ok(serde_json::json!({
+                    "binding":binding,
+                    "authorization":{
+                        "workspaceContent":grant.workspace_content,
+                        "projectIds":grant.project_ids,
+                        "operations":grant.operations,
+                        "objectKeys":grant.object_keys,
+                    },
+                    "executionMode":null,
+                }))
+            } else if input.method == "project.list" {
                 serde_json::to_value(db.agent_connection_projects(&request, binding)?)
             } else {
                 let params: crate::agent::context::ContextGetInput =
@@ -98,6 +110,7 @@ where
         | "record.versions.get"
         | "record.versions.compare"
         | "todo.get"
+        | "todo.list"
         | "file.versions.list"
         | "file.versions.get"
         | "file.source.read" => {
@@ -124,7 +137,7 @@ where
 }
 
 /// Resolve packaged extraction resources only when a File read needs them.
-struct AppSourceUtility(tauri::AppHandle);
+pub(crate) struct AppSourceUtility(pub(crate) tauri::AppHandle);
 impl SourceUtility for AppSourceUtility {
     async fn request(
         &self,
@@ -173,18 +186,27 @@ impl BridgeHandler for AppBridge {
                 "The requested Workspace is not open",
             ));
         }
-        lock_mutex(&runtime.db).agent_connection_authenticate(
+        let request = lock_mutex(&runtime.db).agent_connection_authenticate(
             &runtime.agent_binding,
             &input.grant_id,
             token,
             &input.request_id,
         )?;
+        super::embedded::require_external(&request)?;
         Ok(runtime.agent_binding.clone())
     }
 
     fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
         Box::pin(async move {
             let state = self.0.state::<AppState>();
+            if super::embedded::is_internal_grant(&input.grant_id) {
+                ConnectionStore {
+                    inner: &*state,
+                    enabled: &state.external_bridge.enabled,
+                    token,
+                    input: &input,
+                }.with_authenticated(|_, _, _, request| super::embedded::require_external(&request))?;
+            }
             let started = std::time::Instant::now();
             let binding = input.binding.clone();
             let label = match input.method.as_str() {

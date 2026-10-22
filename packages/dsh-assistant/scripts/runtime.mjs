@@ -10,7 +10,9 @@ import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readContext, bindContext } from './project-workspace.mjs';
 import { installOfficeService } from './office-service.mjs';
+import { installOfficeSelectionService } from './office-selection-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
+import { readMindCli, installMindCli } from './mind-cli.mjs';
 import { bundledSkillEnvironment, prepareBundledSkills } from './skills.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -19,6 +21,7 @@ const args = process.argv.slice(2).filter(arg => arg !== '--embedded');
 let input;
 let sharedModel;
 let context;
+let cli;
 let sourceBridge;
 let parentClosed = false;
 if (embedded) {
@@ -30,7 +33,8 @@ if (embedded) {
   });
   sharedModel = readSharedModel(frame);
   context = await readContext(frame);
-  if (context.kind === 'project') sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
+  cli = await readMindCli(frame, context);
+  sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
 }
 Object.assign(process.env, assistantEnvironment());
 await prepareBundledSkills();
@@ -57,11 +61,11 @@ const profileContext = { name: 'assistant', dir, patchPath: profile.patchPath, i
 const config = path.join(dir, 'cordis.yml');
 await writeFile(config, '[]\n');
 let ctx;
+let mindCli;
 let closing;
 let stopping = false;
 const dispose = () => closing ??= (async () => {
-  sourceBridge?.close();
-  try { await ctx?.fiber.dispose(); } finally { await releaseProxy(); }
+  try { await ctx?.fiber.dispose(); } finally { sourceBridge?.close(); await releaseProxy(); }
 })();
 const stop = code => {
   if (stopping) return;
@@ -81,15 +85,21 @@ try {
     await host.plugin(PluginPackages, { resolution });
     if (embedded) {
       installSharedCredential(host, sharedModel);
+      mindCli = installMindCli(host, context, cli, sourceBridge);
       if (context.kind === 'project') installSourceTitles(host);
     }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });
   });
+  if (cli) {
+    await mindCli;
+    if (!ctx.shell || !ctx.sessionController || !ctx.systemPrompt) throw new Error('Native Mind CLI binding requires shell, Session and system prompt services');
+  }
   if (embedded) {
     await bindContext(ctx, context);
     if (context.kind === 'project') {
       await installSourceService(ctx, context, sourceBridge);
       await installOfficeService(ctx, context, sourceBridge);
+      await installOfficeSelectionService(ctx, context, sourceBridge);
     }
   }
   for (const listener of readyListeners) listener();

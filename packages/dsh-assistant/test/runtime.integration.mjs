@@ -4,7 +4,7 @@ import { fork, execFile } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { randomUUID, createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
-import { mkdtemp, mkdir, realpath, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile, readFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,14 +27,14 @@ async function waitFor(read, description, timeoutMs = 15000) {
   throw new Error(`Timed out: ${description}`);
 }
 
-async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace) {
+async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace, cli) {
   const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), '--port', '0', '--no-open'], {
     cwd: root, execArgv: [], silent: true,
     env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(path.dirname(data), 'skill-management'),
       ...((project || workspace) ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
       ...(patch ? { PROJECT_MIND_DSH_PATCH: patch } : {}), LOCAL_TEST_KEY: 'local-integration-key' },
   });
-  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, ...(workspace ? { workspace } : { project }) }) + '\n');
+  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, ...(workspace ? { workspace } : { project }), ...(cli ? { cli } : {}) }) + '\n');
   let output = '';
   let ready;
   let ended;
@@ -351,9 +351,9 @@ test('fixed source auto titles reach the catalog and header without changing sto
   let runtime, stream;
   t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
   const directory = await realpath(temp);
-  const sourceRef = { object: { workspaceId: 'title-fixture', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, title: 'sample.txt', locator: { kind: 'line', start: 1, end: 120 } };
+  const sourceRef = { object: { workspaceId: 'title-fixture', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, title: 'sample.txt', locator: { kind: 'line', start: 1, end: 120 }, excerpt: '' };
   const token = `mind-source/${Buffer.from(JSON.stringify(sourceRef)).toString('base64url')}/sample.txt`;
-  const projection = `@${token}\n<mind-file-source>${JSON.stringify({ id: 'fixed-v1', sourceRef, offset: 1, limit: 120, requestedLimit: 120, truncated: false, content: Array.from({ length: 120 }, (_, i) => `${i + 1}: immutable model bytes for this source`).join('\n') })}</mind-file-source>`;
+  const projection = `@${token}\n<mind-file-source>${JSON.stringify({ id: 'fixed-v1', sourceRef, offset: 1, limit: 120, requestedLimit: 120, truncated: false, content: Array.from({ length: 120 }, (_, i) => `${i + 1}: immutable model bytes for this source`).join('\n') }).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e')}</mind-file-source>`;
   const data = path.join(temp, 'data');
   const shared = { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
   const project = { id: 7, name: 'Title', directory };
@@ -408,8 +408,9 @@ test('source stdio delivers fixed composer and actual read projections to a loca
       assert.match(payload.deliveryId, /^(composer|read):/);
       return null;
     }
-    const metadata = { id: randomUUID(), sourceRef: payload.sourceRef ?? sourceRef, offset: payload.offset, limit: payload.limit, content: payload.sourceRef ? '1: fixed historical bytes' : '1: tool snapshot bytes' };
-    return { sourceRef: metadata.sourceRef, projection: `<mind-file-source>${JSON.stringify(metadata)}</mind-file-source>`, readValue: {path:"renamed.md", offset:1, lines:[{number:1,text:metadata.content.slice(3)}], totalLines:1} };
+    const metadata = { id: randomUUID(), sourceRef: { ...(payload.sourceRef ?? sourceRef), locator: { kind: 'line', start: 1, end: 1 } }, offset: payload.offset, limit: 1, requestedLimit: payload.limit, truncated: false, content: payload.sourceRef ? '1: fixed historical bytes' : '1: tool snapshot bytes' };
+    const token = `mind-source/${Buffer.from(JSON.stringify(metadata.sourceRef)).toString('base64url')}/old.md`;
+    return { sourceRef: metadata.sourceRef, projection: `@${token}\n<mind-file-source>${JSON.stringify(metadata).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e')}</mind-file-source>`, readValue: {path:token, offset:1, lines:[{number:1,text:metadata.content.slice(3)}], totalLines:1, truncated:false} };
   };
   runtime = await launch(path.join(temp, 'data'), undefined, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, { id: 7, name: 'Source', directory }, undefined, sourceHandler);
   const { sessionId } = await runtime.rpc('session/create', {});
@@ -458,14 +459,15 @@ export function apply(ctx) {
   await writeFile(patch, '- id: tools\n  config:\n    mode: both\n- insert:\n    - id: source-projection-test-policy\n      name: ' + JSON.stringify(policy) + '\n');
   for (const name of ['child-content.md', 'child-value.md', 'child-block.md', 'dispatch-value.md']) await writeFile(path.join(temp, name), 'immutable nested bytes');
   await writeFile(path.join(temp, 'nested.md'), 'immutable nested bytes');
-  const sourceRef = { object: { workspaceId: 'ptc', scope: { kind: 'project', projectId: 8 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, locator: { kind: 'line', start: 1, end: 1 }, title: 'nested.md' };
+  const sourceRef = { object: { workspaceId: 'ptc', scope: { kind: 'project', projectId: 8 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, locator: { kind: 'line', start: 1, end: 1 }, title: 'nested.md', excerpt: '' };
   let prepared;
   runtime = await launch(path.join(temp, 'data'), patch, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, { id: 8, name: 'PTC', directory }, undefined, payload => {
     operations.push(payload);
     if (payload.operation === 'delivery') return null;
     const metadata = { id: randomUUID(), sourceRef, offset: 1, limit: 1, requestedLimit: 1, truncated: false, content: '1: immutable nested bytes' };
-    prepared = `<mind-file-source>${JSON.stringify(metadata)}</mind-file-source>`;
-    return { projection: prepared, sourceRef, readValue: { path: 'nested.md', offset: 1, lines: [{ number: 1, text: 'immutable nested bytes' }], totalLines: 1, truncated: false } };
+    const token = `mind-source/${Buffer.from(JSON.stringify(sourceRef)).toString('base64url')}/nested.md`;
+    prepared = `@${token}\n<mind-file-source>${JSON.stringify(metadata).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e')}</mind-file-source>`;
+    return { projection: prepared, sourceRef, readValue: { path: token, offset: 1, lines: [{ number: 1, text: 'immutable nested bytes' }], totalLines: 1, truncated: false } };
   });
   const { sessionId } = await runtime.rpc('session/create', {});
   stream = await follow(runtime, sessionId);
@@ -1195,4 +1197,67 @@ test('bounded session fork preserves completed history and independent durable c
   assertRestoredHistory(child, durable);
   assert.equal(child.snapshot.header.parentSession, sessionId);
   assert.ok(events(child).some(event => event.type === 'assistant/message' && assistantText(event) === 'Fork independent answer'));
+});
+
+
+test('Mind CLI lease rc.2 runtime: model bash uses native Workspace binding and isolated shell lease', { timeout: 60000 }, async t => {
+  const temp = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-cli-runtime-')));
+  const bodies = [], operations = [];
+  const leases = new Set();
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => {
+    try { await stream?.close(); } finally {
+      try { await runtime?.stop(); } finally { await provider.close(); await rm(temp, { recursive: true, force: true }); }
+    }
+  });
+  const workspace = { id: randomUUID(), name: 'CLI Workspace', directory: path.join(temp, 'workspace') };
+  await mkdir(workspace.directory);
+  const bin = path.join(temp, 'bundle'); await mkdir(bin);
+  const executable = path.join(bin, 'mind');
+  const discovery = path.join(temp, 'independent-bridge.json');
+  // A fixture binary consumes credentials without echoing them. An active
+  // marker is native-owned; closing the lease removes it. JSON remains public.
+  const marker = path.join(temp, 'lease-active');
+  await writeFile(executable, `#!/bin/sh
+[ -n "$PROJECT_MIND_CLI_TOKEN" ] || exit 31
+[ "$PROJECT_MIND_CLI_DISCOVERY" = '${discovery}' ] || exit 32
+[ -f '${marker}' ] || exit 33
+printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixture-receipt"}}'
+`);
+  await chmod(executable, 0o700);
+  const cli = { executable, workspace: workspace.directory, connection: 'a'.repeat(32), discovery, projectId: null };
+  const shared = { name: 'CLI local fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  const patch = path.join(temp, 'readonly.patch.yml');
+  await writeFile(patch, '- id: sandbox-policy\n  config:\n    mode: read-only\n');
+  const token = 'synthetic-ephemeral-cli-lease';
+  runtime = await launch(path.join(temp, 'data'), patch, shared, undefined, undefined, async payload => {
+    operations.push(payload);
+    if (payload.operation === 'cliLeaseOpen') {
+      assert.equal(payload.mode, 'read-only');
+      const leaseId = `lease-${operations.length}`;
+      leases.add(leaseId); await writeFile(marker, 'active');
+      return { leaseId, token };
+    }
+    assert.equal(payload.operation, 'cliLeaseClose');
+    assert.ok(leases.delete(payload.leaseId)); await rm(marker);
+    return null;
+  }, workspace, cli);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/rename', { sessionId, title: 'CLI binding fixture' });
+  stream = await follow(runtime, sessionId);
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'cli-runtime-bash', type: 'function', function: {
+    name: 'bash', arguments: JSON.stringify({ description: 'Inspect native Workspace CLI binding', command: `mind doctor --workspace '${cli.workspace}' --connection ${cli.connection} --json` }),
+  } }] });
+  await prompt(runtime, stream, sessionId, 'Use the bound native CLI to inspect this Workspace');
+  const reply = providerToolReply(bodies, 'cli-runtime-bash');
+  assert.match(reply, /native-cli-read/);
+  assert.match(reply, /fixture-receipt/);
+  assert.deepEqual(operations, [{ operation: 'cliLeaseOpen', sessionId, mode: 'read-only' }, { operation: 'cliLeaseClose', sessionId, leaseId: 'lease-1' }]);
+  assert.equal(leases.size, 0);
+  const system = bodies[0].messages.filter(message => message.role === 'system').map(message => JSON.stringify(message.content)).join('\n');
+  for (const fact of ['project-mind-cli', executable, '--workspace-scope', cli.connection]) assert.ok(system.includes(fact), fact);
+  assert.ok(!JSON.stringify(bodies).includes(token), 'lease credentials must never enter model input');
+  assert.ok(!runtime.diagnostics().includes(token), 'lease credentials must never enter runtime logs');
+  assert.ok(!JSON.stringify(events(stream)).includes(token), 'lease credentials must never enter durable Session events');
 });

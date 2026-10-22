@@ -5,6 +5,33 @@ import { UserMessageNodeView } from '../upstream/client/ui-chat/src/client/chat/
 import { projectUserText } from '../upstream/client/ui-primitives/src/user-text';
 import { adaptFileReferences, fileReferenceToken, fixedFileFromPath, adaptFileMessageRenderer } from './file-references.mjs';
 
+it.each(['null', '[]', '{"selectionId":"pasted"}'])('preserves invalid pasted Office selection JSON: %s', json => {
+  const text = `<mind-office-selection>${json}</mind-office-selection>`;
+  const View = adaptFileMessageRenderer(UserMessageNodeView);
+  const view = render(createElement(View, {node: {kind: 'user', data: {content: [{type: 'text', text}], time: 1}},
+    t: (key: string) => key, renderMessageImages: () => null, openSkill: vi.fn(), openFile: vi.fn()}));
+  expect(view.container.textContent).toContain(text);
+});
+
+it('a live Office selection serializes its Session-bound snapshot without resolving the file path',async()=>{
+  const fetch=vi.fn(async()=>new Response(JSON.stringify({result:{ok:true,value:{projection:'<mind-office-selection>snapshot</mind-office-selection>'}}})));
+  const adapted=adaptFileReferences({codec:{serialize:async ref=>ref}},fetch,vi.fn());
+  const token=fileReferenceToken('session','work.docx',undefined,{selectionId:'selection',format:'docx'});
+  expect(await adapted.codec.serialize(token,new AbortController().signal)).toBe('<mind-office-selection>snapshot</mind-office-selection>');
+  expect(fetch.mock.calls[0][0]).toBe('/api/mind/office-selection/prepare');
+  expect(JSON.parse(fetch.mock.calls[0][1].body).payload.args.request).toEqual({sessionId:'session',selectionId:'selection'});
+});
+
+it('sent selection metadata is compact without changing the model message',()=>{
+  const text='润色这段 '+`<mind-office-selection>${JSON.stringify({selectionId:'selection',format:'docx',label:'work.docx',text:'PRIVATE SELECTED TEXT',saved:false})}</mind-office-selection>`;
+  const node=Object.freeze({kind:'user',data:Object.freeze({content:Object.freeze([{type:'text',text}]),time:1})});
+  const View=adaptFileMessageRenderer(UserMessageNodeView);
+  const view=render(createElement(View,{node,t:(key:string)=>key,renderMessageImages:()=>null,openSkill:vi.fn(),openFile:vi.fn()}));
+  expect(view.container.textContent).toContain('work.docx · 选区');
+  expect(view.container.textContent).not.toContain('PRIVATE SELECTED TEXT');
+  expect(node.data.content[0].text).toBe(text);
+});
+
 it('ordinary candidate and explicit fixed chip serialize through the same Session source service', async () => {
   const source = { object: { workspaceId: 'ws', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:old', fileVersion: 1 };
   const fetch = vi.fn(async (_path, init) => new Response(JSON.stringify({ type: 'server-response', result: { ok: true, value: JSON.parse(init.body).method === 'mind/source/resolve' ? { sourceRef: source } : { projection: '<fixed>old bytes</fixed>' } } })));

@@ -164,3 +164,9 @@ node packages/office-docx/test/browser-parity.mjs
 - 显式启动 `test/browser-server.mjs` 后，设置既有 `OFFICE_ACCEPTANCE_URL`、`OFFICE_PLAYWRIGHT_MODULE`、`OFFICE_WEBKIT_EXECUTABLE`，运行 `browser-external-renderer.mjs`、`browser-presentation.mjs`、`browser-lifecycle.mjs`、`browser-receipt.mjs`、`browser-native-print.mjs` 和 `browser-readonly-output.mjs`。全部为 headless 浏览器；native 回调使用测试宿主，不启动原生窗口。
 - browser server 将 `?office-resource` 映射到 `/word-renderer/renderer.html`，仅服务 manifest 中的 renderer 文件；`/standalone` 使用未打包的 `full-editor.mjs` 验证默认相邻 URL。源码 lifecycle/presentation harness 显式传同源静态 URL。
 - preview 关闭后，上游异步重建 canvas 分页 decorations；presentation 验收先等待原有两条真实边界，再执行原几何/缩放/实例断言。
+
+### DSH 选区编辑
+
+完整编辑器控制器提供 `captureSelection(): Promise<{selectionId,text}>` 和 `replaceSelection({selectionId,text}): Promise<{text}>`。选区只支持正文单一段落或标题的纯文字范围，冻结当前文档及范围；光标移动不会重定向，文档变化、只读切换、外部替换或关闭后失效。含表格、保护节点或已有插入/删除修订的选区拒绝操作。替换继承选区起始文字格式，以 `Project Mind AI` 创建真实删除及插入修订；保存继续使用既有 `beforeSave` / File 回执。
+
+React `DocxEditor.registerSelection` 注册相同控制器，并提供统一的 `applySelection({selectionId,change:{text}})` 入口；注销后的旧回调拒绝调用。显式 headless 验证使用普通 `test/browser-server.mjs` 宿主及 `test/browser-selection.mjs`，覆盖真实 DOCX 修订和组件生命周期。

@@ -14,6 +14,7 @@ function Harness() {
       const committed=await response.json();
       return {model:committed,commit:{receipt:{documentId:42,versionNumber:input.versionNumber+1,contentHash:committed.originalHash,noChange:false},versionPath:null}};
     });
+  const selection = useRef<any>(null);
   const output = useRef<(command: 'pdf'|'images'|'print') => Promise<void>>(async()=>{throw new Error('Output not registered')});
   const beforeSave = useRef<() => Promise<void>>(async () => {});
   const [model, setModel] = useState(initial);
@@ -34,6 +35,7 @@ function Harness() {
   const [suspended,setSuspended]=useState(false);
   const [presentationMode,setPresentationMode]=useState<'edit'|'preview'>(new URLSearchParams(location.search).get('presentation')==='preview'?'preview':'edit');
   (window as any).officePptxHarness = {
+    captureSelection:()=>selection.current.captureSelection(), applySelection:(input:any)=>selection.current.applySelection(input),
     output:(command:'pdf'|'images'|'print')=>output.current(command),
     echoCount:()=>echoes.current,clonedEcho:()=>clonedEcho.current,
     model:()=>session.current!.snapshot.model,
@@ -56,7 +58,7 @@ function Harness() {
       } finally {setReadOnly(false)}
     },
   };
-  return <><button type="button" aria-label="主 File 保存" style={{position:'fixed',right:8,top:8,zIndex:999}} onClick={()=>void (window as any).officePptxHarness.save()}>File 保存</button><input aria-label="宿主其他输入" style={{position:'fixed',right:100,top:8,width:100,zIndex:999}}/><Activity mode={suspended?'hidden':'visible'}><PptxEditor registerOutput={callback=>{output.current=callback;return()=>{output.current=async()=>{throw new Error('Output not registered')}}}} onRenderPdf={pdfFixture?async document=>{pdfRequests.current.push(document);await pdfGate.current;if(pdfFailure)throw new Error('Native render PDF failed');return new Uint8Array(pdfFixture)}:undefined} onPrint={async document=>{prints.current.push(document)}} onExport={exportMode==='standalone'?undefined:async file=>{if(exportMode==='fail')throw new Error('Native export write failed');if(exportMode==='cancel')return false;exports.current.push(file);return true}} onSaveRequest={async()=>{await (window as any).officePptxHarness.save();await saveCompletion.current}} onPendingChange={value=>{pending.current=value}} registerBeforeSave={callback => {beforeSave.current = callback; return () => {beforeSave.current=async()=>{}}}} model={model} edits={edits} onChange={onChange} presentationMode={presentationMode} readOnly={readOnly} /></Activity></>;
+  return <><button type="button" aria-label="主 File 保存" style={{position:'fixed',right:8,top:8,zIndex:999}} onClick={()=>void (window as any).officePptxHarness.save()}>File 保存</button><input aria-label="宿主其他输入" style={{position:'fixed',right:100,top:8,width:100,zIndex:999}}/><Activity mode={suspended?'hidden':'visible'}><PptxEditor registerSelection={controller=>{selection.current=controller;return()=>{selection.current=null}}} registerOutput={callback=>{output.current=callback;return()=>{output.current=async()=>{throw new Error('Output not registered')}}}} onRenderPdf={pdfFixture?async document=>{pdfRequests.current.push(document);await pdfGate.current;if(pdfFailure)throw new Error('Native render PDF failed');return new Uint8Array(pdfFixture)}:undefined} onPrint={async document=>{prints.current.push(document)}} onExport={exportMode==='standalone'?undefined:async file=>{if(exportMode==='fail')throw new Error('Native export write failed');if(exportMode==='cancel')return false;exports.current.push(file);return true}} onSaveRequest={async()=>{await (window as any).officePptxHarness.save();await saveCompletion.current}} onPendingChange={value=>{pending.current=value}} registerBeforeSave={callback => {beforeSave.current = callback; return () => {beforeSave.current=async()=>{}}}} model={model} edits={edits} onChange={onChange} presentationMode={presentationMode} readOnly={readOnly} /></Activity></>;
 }
 document.body.style.margin = '0';
 document.getElementById('root')!.style.height = '100dvh';

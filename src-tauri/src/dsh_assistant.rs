@@ -25,6 +25,9 @@ use tokio::{
 #[path = "dsh_office.rs"]
 mod office;
 
+#[path = "dsh_cli.rs"]
+mod cli;
+
 #[cfg(test)]
 #[path = "dsh_workspace_tests.rs"]
 mod workspace_tests;
@@ -397,6 +400,7 @@ struct AssistantProcess {
     source_revoked: Arc<AtomicBool>,
     office_alive: Arc<AtomicBool>,
     source_gate: Arc<std::sync::Mutex<()>>,
+    native_cli: Option<crate::agent::bridge::embedded::EmbeddedCli>,
 }
 
 impl Drop for AssistantProcess {
@@ -488,7 +492,7 @@ impl AssistantProcess {
                     let task_handler = handler.clone();
                     let task_revoked = revoked.clone();
                     let task_alive = alive.clone();
-                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeInspect"|"officeEdit"));
+                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeInspect"|"officeEdit"|"officeSelectionRead"|"officeSelectionApply"));
                     let task_gate = gate.clone();
                     let task_url = source_url.clone();
                     let source_id = frame.id.clone();
@@ -514,6 +518,7 @@ impl AssistantProcess {
                     if revoked.load(Ordering::SeqCst) { break; }
                     if stdin.write_all(&bytes).await.is_err() { break; }
                 }
+                alive.store(false, Ordering::SeqCst);
                 revoked.store(true, Ordering::SeqCst);
                 writer.lock().await.take();
             } else {
@@ -545,6 +550,7 @@ impl AssistantProcess {
             source_revoked,
             office_alive,
             source_gate,
+            native_cli: None,
         })
     }
 
@@ -557,6 +563,7 @@ impl AssistantProcess {
     }
 
     fn revoke_sources(&self) {
+        if let Some(cli) = &self.native_cli { cli.revoke(); }
         self.office_alive.store(false, Ordering::SeqCst);
         let _guard = crate::lock_mutex(&self.source_gate);
         self.source_revoked.store(true, Ordering::SeqCst);
@@ -575,6 +582,8 @@ enum SourceRequest {
     Prepare { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize },
     OfficeInspect { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef> },
     OfficeEdit { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, #[serde(rename="sourceRef")] source_ref: crate::agent::models::SourceRef, edits: Vec<serde_json::Value> },
+    OfficeSelectionRead { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String },
+    OfficeSelectionApply { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String, #[serde(rename="requestId")] request_id: String, mode: String, change: serde_json::Value },
     Delivery { #[serde(rename="sessionId")] session_id: String, #[serde(rename="deliveryId")] delivery_id: String, projection: String, #[serde(rename="projectionHash")] projection_hash: String },
 }
 
@@ -672,7 +681,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
         identity.project()?;
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
-        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
+        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
         let state = app.state::<crate::AppState>();
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("Source Workspace closed")?;
@@ -680,7 +689,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let mut db = crate::lock_mutex(&runtime.db);
         if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project()?.id)? != *identity.project()? { return Err("Source Project binding changed".into()); }
         let result = match operation {
-            SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => unreachable!("Office is dispatched outside storage locks"),
+            SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
             SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &identity, &runtime.agent_binding, &session_id, &format!("{runtime_generation}:{}", session_rpc_id()), path.as_deref(), source_ref, offset, limit),
             SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
@@ -1297,8 +1306,7 @@ impl RuntimeState {
             self.reject_running_replacement().await?;
         }
         self.stop().await?;
-        let process = AssistantProcess::launch_with_source(runtime_command(app, &config)?, &config.message(),
-            Some(source_handler(app.clone(), config.identity.clone(), session_rpc_id()))).await?;
+        let process = cli::launch(app, &config).await?;
         // Workspace/settings can change while Node boots. Never expose that stale runtime.
         let current = Configuration::resolve(app, project_id);
         if current.as_ref().map(|config| &config.identity).ok() != Some(&config.identity) {
@@ -1714,7 +1722,7 @@ fn spawn_socket(
 fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     if matches!(
         endpoint,
-        "$events" | "$events/result" | "mind/session/delete" | "mind/source/prepare" | "mind/source/resolve"
+        "$events" | "$events/result" | "mind/session/delete" | "mind/source/prepare" | "mind/source/resolve" | "mind/office-selection/prepare"
     ) {
         return Ok(());
     }
@@ -2510,6 +2518,7 @@ mod tests {
         assert_eq!(called.load(Ordering::SeqCst), 1);
         process.stop().await.unwrap();
         assert!(process.source_revoked.load(Ordering::SeqCst));
+        assert!(!process.office_alive.load(Ordering::SeqCst));
         assert!(process.source_stdin.as_ref().unwrap().lock().await.is_none());
         assert!(serde_json::from_value::<SourceRequest>(serde_json::json!({"operation":"prepare","workspaceId":"forged","sessionId":"a","path":"fixed.txt","offset":1,"limit":1})).is_err());
     }
@@ -2535,7 +2544,7 @@ mod tests {
         let handler: SourceHandler = Arc::new(move |payload, revoked, _, _, _| {
             let db = crate::lock_mutex(&shared);
             match serde_json::from_value::<SourceRequest>(payload).map_err(|_| "Invalid source operation")? {
-                SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => Err("Office not used by this text fixture".into()),
+                SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => Err("Office not used by this text fixture".into()),
                 SourceRequest::Resolve { session_id, path } => source_resolve(&db, &source_identity, &source_binding, &session_id, &path),
                 SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &source_identity, &source_binding, &session_id, &session_rpc_id(), path.as_deref(), source_ref, offset, limit),
                 SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
@@ -3223,6 +3232,24 @@ input.on('close', () => process.exit(0));
     }
 
     #[test]
+    fn office_selection_prepare_endpoint_is_exact_and_carrier_accepts_its_rpc_frame() {
+        let endpoint="mind/office-selection/prepare";
+        for denied in [
+            "mind/office-selection", "mind/office-selection/read", "mind/office-selection/apply",
+            "mind/office-selection/prepare-extra", "mind/office-selection/prepare/extra",
+            "mind/office-selection/prepare/", "mind/office-selection/prepare?extra=1",
+            "mind/office-selection/../prepare", "mind/office-selection/%70repare",
+        ] {
+            assert!(validate_endpoint(denied).is_err(),"must reject adjacent endpoint {denied}");
+        }
+        validate_endpoint(endpoint).expect("registered Office selection prepare must be reachable");
+        let payload=serde_json::json!({"sessionId":"owned-session","selectionId":"frozen-selection"});
+        let frame=serde_json::json!({"type":"client-request","rpcId":"selection-prepare","method":endpoint,"payload":payload});
+        let (actual,forwarded,rpc)=carrier_path("/api/mind/office-selection/prepare","POST",&serde_json::to_vec(&frame).unwrap()).unwrap();
+        assert_eq!(actual,endpoint);assert_eq!(forwarded,Some(payload));assert_eq!(rpc.as_deref(),Some("selection-prepare"));
+    }
+
+    #[test]
     fn mounted_workspace_and_gateway_use_actual_pinned_endpoints() {
         let packages = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../packages/dsh-assistant/node_modules/@deepseek-ai");
@@ -3482,15 +3509,20 @@ input.on('close', () => process.exit(0));
 
     #[tokio::test]
     async fn pinned_runtime_native_carrier_creates_lists_uploads_and_streams_without_gui() {
-        verify_native_carrier(Some(1)).await;
+        verify_native_carrier(Some(1), false).await;
     }
 
     #[tokio::test]
     async fn workspace_native_carrier_creates_lists_uploads_and_streams_without_gui() {
-        verify_native_carrier(None).await;
+        verify_native_carrier(None, false).await;
     }
 
-    async fn verify_native_carrier(project_id: Option<i64>) {
+    #[tokio::test]
+    async fn native_carrier_model_catalog_keeps_credentials_out_of_profile_labels() {
+        verify_native_carrier(Some(1), true).await;
+    }
+
+    async fn verify_native_carrier(project_id: Option<i64>, credential_labels: bool) {
         use tokio_tungstenite::tungstenite::Message;
         let temp = tempfile::tempdir().unwrap();
         let directory = if project_id.is_some() { temp.path().join("project") } else { temp.path().to_path_buf() };
@@ -3524,6 +3556,10 @@ input.on('close', () => process.exit(0));
             config["workspace"] = serde_json::json!({"id":"2f3dc81a-bb8d-42c0-bf7d-517f8a7e8d84","name":"Native Workspace fixture","directory":directory});
             AssistantContext::Workspace { directory: directory.clone() }
         };
+        if credential_labels {
+            config["provider"]["name"] = serde_json::json!("Native native-fixture-model-key / other-fixture-key");
+            config["providers"] = serde_json::json!([{"id":"mind-profile-2","name":"Other native-fixture-model-key / other-fixture-key","baseUrl":"http://127.0.0.1:9/v1","modelId":"other-fixture-model","apiKey":"other-fixture-key","supportsImage":false}]);
+        }
         let mut process = AssistantProcess::launch(fixture_command(), &config).await.unwrap();
         authenticate(
             &process.url,
@@ -3532,6 +3568,16 @@ input.on('close', () => process.exit(0));
         )
         .await
         .unwrap();
+        let catalog_request = serde_json::json!({"type":"client-request","rpcId":session_rpc_id(),"method":"session/modelCatalog","payload":{"args":{}}});
+        let catalog = fetch_bytes(&process.session_http, process.url.join("/api/session/modelCatalog").unwrap(),
+            process.session_cookie.clone().unwrap(), "POST", serde_json::to_vec(&catalog_request).unwrap(), false, &process.sensitive)
+            .await.expect("modelCatalog must pass the native credential guard even when profile labels contain keys");
+        let catalog_bytes = BASE64.decode(catalog.body_base64).unwrap();
+        assert!(!contains_secret(&catalog_bytes, &process.sensitive));
+        let catalog: serde_json::Value = serde_json::from_slice(&catalog_bytes).unwrap();
+        assert_eq!(catalog["result"]["ok"], true);
+        assert_eq!(catalog["result"]["value"]["default"]["provider"], "mind-main");
+        assert_eq!(catalog["result"]["value"]["groups"].as_array().unwrap().len(), if credential_labels {2} else {1});
         let rpc_id = session_rpc_id();
         let request = serde_json::json!({"type":"client-request","rpcId":rpc_id,"method":"workspace/initializeDefault","payload":{"args":{}}});
         let bytes = serde_json::to_vec(&request).unwrap();
