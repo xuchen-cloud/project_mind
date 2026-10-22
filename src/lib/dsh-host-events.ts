@@ -8,7 +8,8 @@ export function showDshBusyFeedback() {
   useFeedbackStore.getState().setStatus({ tone: "warning", label: "助手正在执行", message: DSH_BUSY_MESSAGE });
   useFeedbackStore.getState().pushToast({ tone: "info", title: "助手正在执行", detail: DSH_BUSY_MESSAGE });
 }
-interface FileReference { id: number; workspaceRoot: string; projectId: number; sessionId?: string; path: string; sourceRef?: AgentSourceRef }
+export interface DshOfficeSelection { selectionId: string; format: 'docx' | 'xlsx' | 'pptx' }
+interface FileReference { id: number; workspaceRoot: string; projectId: number; sessionId?: string; path: string; sourceRef?: AgentSourceRef; selection?: DshOfficeSelection }
 let sequence = 0;
 export const useDshFileReferences = create<{
   workspaceRoot: string | null; pending: FileReference[];
@@ -36,6 +37,13 @@ export function requestDshFileReference(projectId: number, path: string, session
 }
 export function consumeDshFileReference(id: number) {
   useDshFileReferences.setState(state => ({ pending: state.pending.filter(value => value.id !== id) }));
+}
+
+/** A selection has already been bound by the native editor to this exact Session. */
+export function requestDshOfficeSelection(projectId: number, path: string, sessionId: string, selection: DshOfficeSelection): void {
+  const workspaceRoot = useDshFileReferences.getState().workspaceRoot;
+  if (!workspaceRoot) throw new Error('工作区已关闭，无法引用选区');
+  useDshFileReferences.setState(state => ({ pending: [...state.pending, { id: ++sequence, workspaceRoot, projectId, sessionId, path, selection }] }));
 }
 
 /** Catalog facts keep updating after the last content page is unmounted. */

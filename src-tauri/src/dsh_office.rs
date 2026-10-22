@@ -2,7 +2,6 @@
 use super::{Identity, ProjectContext, SessionListValue, SessionRequest, SourceRequest};
 use crate::{
     agent::{
-        access::RequestContext,
         connections::ConnectionCreateInput,
         errors::{AgentError, AgentResult, ErrorCode},
         models::{SourceRef, WorkspaceBinding},
@@ -11,6 +10,7 @@ use crate::{
     db::Database,
     file_office::{FileOfficeEditInput, FileOfficeInput, FileOfficeService},
     file_version_service::{BoundFileCommitStore, FileCommitHost},
+    office_selection::{authorize_file, Dispatch, EditRequest, Selections, EDIT_TIMEOUT},
     office_worker::{AppOfficeUtility, OfficePayload, OfficeUtility},
     source_service::BoundSourceStore,
     AppState,
@@ -23,7 +23,7 @@ use std::{
         Arc, Mutex,
     },
 };
-use tauri::{Manager, Url};
+use tauri::{Emitter, Manager, Url};
 
 pub(super) struct OfficeBridge {
     app: tauri::AppHandle,
@@ -47,8 +47,13 @@ impl OfficeBridge {
         frame_id: &str,
         alive: Arc<AtomicBool>,
     ) -> Result<Value, String> {
-        let call = OfficeCall::parse(operation, frame_id).map_err(|e| e.message)?;
-        let session_id = call.session_id.clone();
+        let session_id = match &operation {
+            SourceRequest::OfficeInspect { session_id, .. }
+            | SourceRequest::OfficeEdit { session_id, .. }
+            | SourceRequest::OfficeSelectionRead { session_id, .. }
+            | SourceRequest::OfficeSelectionApply { session_id, .. } => session_id.clone(),
+            _ => return Err("Invalid Office operation".into()),
+        };
         let store = Store {
             bridge: self,
             revoked,
@@ -60,15 +65,49 @@ impl OfficeBridge {
         };
         store.session_owned().map_err(|e| e.message)?;
         let result = tokio::runtime::Handle::current()
-            .block_on(call.execute(
-                &store,
-                &SessionUtility {
-                    store: &store,
-                    worker: AppOfficeUtility(self.app.clone()),
-                },
-                &self.identity,
-                &self.grants,
-            ))
+            .block_on(async {
+                if matches!(
+                    &operation,
+                    SourceRequest::OfficeSelectionRead { .. }
+                        | SourceRequest::OfficeSelectionApply { .. }
+                ) {
+                    let call = SelectionCall::parse(operation, frame_id)?;
+                    let state = self.app.state::<AppState>();
+                    let project = self
+                        .identity
+                        .project()
+                        .map_err(|e| AgentError::new(ErrorCode::ScopeDenied, e))?;
+                    call.execute(
+                        &store,
+                        &state.office_selections,
+                        project.id,
+                        store.alive.clone(),
+                        |request| {
+                            self.app
+                                .emit_to(&request.window, "mind:office-selection-edit", request)
+                                .map_err(|_| {
+                                    AgentError::new(
+                                        ErrorCode::EditorBusy,
+                                        "无法联系 Office 编辑窗口",
+                                    )
+                                })
+                        },
+                    )
+                    .await
+                } else {
+                    OfficeCall::parse(operation, frame_id)?
+                        .execute(
+                            &store,
+                            &SessionUtility {
+                                store: &store,
+                                worker: AppOfficeUtility(self.app.clone()),
+                            },
+                            &self.identity,
+                            &self.grants,
+                        )
+                        .await
+                }
+            })
             .map_err(|e| e.message)?;
         store.session_owned().map_err(|e| e.message)?;
         Ok(result)
@@ -120,11 +159,7 @@ impl Store<'_> {
                 "Invalid DSH Session catalog",
             )
         })?;
-        validate_session(
-            &list,
-            self.session_id,
-            self.bridge.identity.directory(),
-        )
+        validate_session(&list, self.session_id, self.bridge.identity.directory())
     }
 }
 impl BoundSourceStore for Store<'_> {
@@ -155,14 +190,13 @@ impl BoundSourceStore for Store<'_> {
             ));
         }
         let mut db = crate::lock_mutex(&runtime.db);
-        let project = self.bridge.identity.project()
+        let project = self
+            .bridge
+            .identity
+            .project()
             .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
-        if ProjectContext::resolve(
-            &mut db,
-            &runtime.paths.root_path,
-            project.id,
-        )
-        .map_err(|m| AgentError::new(ErrorCode::ScopeDenied, m))?
+        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, project.id)
+            .map_err(|m| AgentError::new(ErrorCode::ScopeDenied, m))?
             != *project
         {
             return Err(AgentError::new(
@@ -260,7 +294,8 @@ impl OfficeCall {
         identity: &Identity,
         grants: &Mutex<HashMap<String, (String, String)>>,
     ) -> AgentResult<Value> {
-        let project = identity.project()
+        let project = identity
+            .project()
             .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
         let request = store.with_current(|binding, db| {
             let mut grants = crate::lock_mutex(grants);
@@ -350,6 +385,152 @@ impl OfficeCall {
         Ok(value)
     }
 }
+/// Selected drafts use the same native Workspace/Project store, but never
+/// create a File version; the owning editor keeps its existing save flow.
+struct SelectionCall {
+    session_id: String,
+    selection_id: String,
+    request_id: String,
+    change: Option<Value>,
+}
+impl SelectionCall {
+    fn parse(operation: SourceRequest, frame_id: &str) -> AgentResult<Self> {
+        let (session_id, selection_id, request_id, change) = match operation {
+            SourceRequest::OfficeSelectionRead {
+                session_id,
+                selection_id,
+            } => (session_id, selection_id, frame_id.to_owned(), None),
+            SourceRequest::OfficeSelectionApply {
+                session_id,
+                selection_id,
+                request_id,
+                mode,
+                change,
+            } => {
+                // mode is supplied by the Node bridge's resolved sandbox policy,
+                // outside the model's tool arguments.
+                if !matches!(mode.as_str(), "workspace-write" | "danger-full-access") {
+                    return Err(AgentError::new(
+                        ErrorCode::ScopeDenied,
+                        "Office 选区修改需要可写 sandbox 权限",
+                    ));
+                }
+                (session_id, selection_id, request_id, Some(change))
+            }
+            _ => {
+                return Err(AgentError::new(
+                    ErrorCode::InvalidArgument,
+                    "Invalid Office selection operation",
+                ))
+            }
+        };
+        if session_id.is_empty()
+            || session_id.len() > 512
+            || session_id.chars().any(char::is_control)
+            || selection_id.is_empty()
+            || selection_id.len() > 128
+            || !selection_id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+            || request_id.is_empty()
+            || request_id.len() > 128
+            || request_id.chars().any(char::is_control)
+        {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid Office selection identity",
+            ));
+        }
+        Ok(Self {
+            session_id,
+            selection_id,
+            request_id,
+            change,
+        })
+    }
+    async fn execute<S: BoundSourceStore>(
+        self,
+        store: &S,
+        selections: &Selections,
+        project_id: i64,
+        alive: Arc<AtomicBool>,
+        emit: impl FnOnce(&EditRequest) -> AgentResult<()>,
+    ) -> AgentResult<Value> {
+        let Some(change) = self.change else {
+            return store.with_current(|binding, db| {
+                let (object, value) =
+                    selections.read(binding, project_id, &self.session_id, &self.selection_id)?;
+                authorize_file(binding, db, &self.request_id, &object, false)?;
+                Ok(value)
+            });
+        };
+        let mut accepted = false;
+        let dispatch = store.with_current(|binding, db| {
+            let (object, _) =
+                selections.read(binding, project_id, &self.session_id, &self.selection_id)?;
+            authorize_file(binding, db, &self.request_id, &object, true)?;
+            let dispatch = selections.begin(
+                binding,
+                project_id,
+                &self.session_id,
+                &self.selection_id,
+                &self.request_id,
+                change,
+                alive,
+            )?;
+            accepted = true;
+            if let Dispatch::Pending(request, _) = &dispatch {
+                if let Err(error) = emit(request) {
+                    selections.fail(&self.selection_id, &self.request_id, error.clone());
+                    return Err(error);
+                }
+            }
+            Ok(dispatch)
+        });
+        let dispatch = match dispatch {
+            Ok(dispatch) => dispatch,
+            Err(error) => {
+                if accepted {
+                    selections.fail(&self.selection_id, &self.request_id, error.clone());
+                }
+                return Err(error);
+            }
+        };
+        let receiver = match dispatch {
+            Dispatch::Cached(value) => return Ok(value),
+            Dispatch::Waiting(receiver) | Dispatch::Pending(_, receiver) => receiver,
+        };
+        let invalidated = async {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                store.with_current(|binding, db| {
+                    let (object, _) = selections.read(
+                        binding,
+                        project_id,
+                        &self.session_id,
+                        &self.selection_id,
+                    )?;
+                    authorize_file(binding, db, &self.request_id, &object, true)
+                })?;
+            }
+            #[allow(unreachable_code)]
+            Ok::<(), AgentError>(())
+        };
+        let result = tokio::select! {
+            value=tokio::time::timeout(EDIT_TIMEOUT,receiver)=>match value {
+                Ok(Ok(result))=>result,
+                Ok(Err(_))=>Err(AgentError::new(ErrorCode::EditorBusy,"Office 编辑窗口已关闭")),
+                Err(_)=>Err(AgentError::new(ErrorCode::EditorBusy,"Office 选区修改已超时，请重新引用")),
+            },
+            result=invalidated=>Err(result.err().expect("invalidation loop only returns an error")),
+        };
+        if let Err(error) = &result {
+            selections.fail(&self.selection_id, &self.request_id, error.clone());
+        }
+        result
+    }
+}
+
 fn validate_session(
     list: &SessionListValue,
     session_id: &str,

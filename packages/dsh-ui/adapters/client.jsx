@@ -245,7 +245,7 @@ export async function createDshClient(projectId) {
         listener('sessionRuns', currentSessionRuns());
         return () => listeners.delete(listener);
       },
-      async insertFile(sessionId, path, sourceRef) {
+      async insertFile(sessionId, path, sourceRef, selection) {
         if (ctx.sessions.binding(sessionId) === undefined) throw new Error('请先选择项目会话');
         const scope = ctx.sessions.scope(sessionId);
         const input = scope === undefined ? undefined : ctx.conversation.input.for(scope);
@@ -254,10 +254,10 @@ export async function createDshClient(projectId) {
         if (mention === undefined) throw new Error('此文件路径不能作为助手引用');
         const state = input.state.getSnapshot();
         const end = state.draft.length;
-        sourceRef ??= await resolveFileReference(transport.fetch, sessionId, path, lifetime.signal);
+        if (!selection) sourceRef ??= await resolveFileReference(transport.fetch, sessionId, path, lifetime.signal);
         lifetime.signal.throwIfAborted();
         if (ctx.sessions.binding(sessionId) === undefined) throw new Error('目标会话已关闭');
-        if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef), label: path, appearance: 'file', clipboardText: mention },
+        if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef, selection), label: selection ? `${path} · 选区` : path, appearance: 'file', clipboardText: mention },
           { start: end, end, draftRev: state.draftRev })) throw new Error('输入框正在提交，请稍后引用文件');
         input.focus();
       },

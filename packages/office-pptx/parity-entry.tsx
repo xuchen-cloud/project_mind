@@ -23,6 +23,7 @@ import './parity-frame.css';
 import type {PptxCommand} from './types';
 import {checkpointTextEdit,settleTextEditSave,setTextEditReadOnly,setTextEditComposing,abandonTextEdit,cancelTextEditResume,noteTextEditPointer} from './parity-text-edit';
 import {runPptxOutput} from './parity-output';
+import {livePptxSelection,selectionContext,selectionOps} from './parity-selection';
 import {setPptxEpoch} from './parity-protocol';
 import {setPptxPresentationMode} from './parity-presentation';
 
@@ -39,6 +40,12 @@ let snapshotTimer:ReturnType<typeof setTimeout>|undefined;
 let composing=false,activeInput=false,readOnly=false;
 let queue:Promise<unknown>=Promise.resolve();
 let busy=0;
+let pointerDown=false;
+let capturedSelection:{selectionId:string;epoch:number;version:number;slideIndex:number;ids:string[]}|undefined;
+const assertSelectionReady=()=>{if(initializing||!session)throw Error('PPTX 编辑器尚未就绪');if(readOnly)throw Error('PPTX 当前为只读预览');if(composing||activeInput||pointerDown||session.state.transformPreview||session.state.masterEdit)throw Error('请先结束当前 PPTX 编辑');if(error)throw error};
+document.addEventListener('pointerdown',()=>{pointerDown=true},true);
+document.addEventListener('pointerup',()=>{pointerDown=false},true);
+document.addEventListener('pointercancel',()=>{pointerDown=false},true);
 let error:Error|null=null;
 const pending=()=>post('pending',{pending:composing||activeInput||busy>0||dirtyVersion!==snapshotVersion});
 let generation=0;
@@ -163,7 +170,7 @@ async function receiveHost(m:any){
  let previousSaves:Array<(result:any)=>void>=[];
  if(m.type==='init'){
   if(!Number.isSafeInteger(m.epoch)||m.epoch<=epoch)return;
-  epoch=m.epoch;setPptxEpoch(epoch);initializing=true;
+  epoch=m.epoch;setPptxEpoch(epoch);initializing=true;capturedSelection=undefined;
   setPptxPresentationMode(m.presentationMode??'edit');
   // Capture initial permissions before I/O; newer readonly messages may arrive
   // while fonts/archive parsing is pending and must win at completion.
@@ -216,6 +223,38 @@ async function receiveHost(m:any){
    syncReadOnly();post('initialized',{},context);pending();
   }catch(e){previousSaves.forEach(resolve=>resolve({ok:false,error:'PPTX 编辑内容已替换'}));if(context===epoch){initializing=false;post('error',{message:e instanceof Error?e.message:String(e)},context)}}
  }else if(m.type==='readonly'){setPptxPresentationMode(m.presentationMode??'edit');readOnly=m.presentationMode==='preview'||m.readOnly;if(readOnly)setTextEditReadOnly(true);syncReadOnly();if(!readOnly)setTextEditReadOnly(false)}
+ else if(m.type==='capture-selection'||m.type==='apply-selection'){
+  try{
+   assertSelectionReady();if(busy)throw Error('PPTX 编辑器忙，请稍后重试');
+   if(m.type==='capture-selection'){
+    const selected=livePptxSelection(),slide=session.state.opened.deck.slides[selected.slideIndex];
+    const elements=selected.ids.map(id=>slide?.elements.find(e=>e.id===id));
+    if(elements.some(e=>!e)||elements.length>256)throw Error('PPTX 选区不可用或超过 256 个元素');
+    const selectionId=crypto.randomUUID();
+    capturedSelection={selectionId,epoch,version:dirtyVersion,...selected};
+    post('selection-done',{requestId:m.requestId,result:{selectionId,text:selectionContext(selected.slideIndex,slide.path,elements as any)}},context);
+   }else{
+    const captured=capturedSelection;
+    if(!captured||m.selectionId!==captured.selectionId||captured.epoch!==epoch||captured.version!==dirtyVersion)throw Error('PPTX 选区已过期，请重新获取');
+    // Freeze the document target before awaiting the serialized native operation queue.
+    const target=session;
+    busy++;pending();
+    const operation=queue.then(async()=>{
+     checkContext(context);assertSelectionReady();
+     if(captured.version!==dirtyVersion)throw Error('PPTX 选区已过期，请重新获取');
+     const slide=target.state.opened.deck.slides[captured.slideIndex];
+     const elements=captured.ids.map(id=>slide.elements.find(e=>e.id===id)!);
+     const ops=selectionOps(m.change,captured.slideIndex,elements);
+     if(ops.length)await target.invoke('slides:apply-txn',[{ops,isolation:'atomic'}]);
+     checkContext(context);capturedSelection=undefined;
+     emit('slides:deck-changed',{slides:await target.invoke('slides:get-render-slides')});
+    });
+    queue=operation.catch(()=>{}).finally(()=>{if(context===epoch){busy--;pending()}});
+    await operation;checkContext(context);await snapshotNow();checkContext(context);
+    post('selection-done',{requestId:m.requestId,result:{text:'已更新捕获的幻灯片元素；可撤销并通过 File 保存。'}},context);
+   }
+  }catch(e){post('selection-done',{requestId:m.requestId,error:e instanceof Error?e.message:String(e)},context)}
+ }
  else if(m.type==='flush'||m.type==='output'){
   const reply=m.type==='output'?'output-done':'flushed';
   try{

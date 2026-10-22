@@ -36,6 +36,7 @@
     "parity-context-browser.ts",
     "parity-presentation.ts",
     "parity-output.ts",
+    "parity-selection.ts",
     "browser-fonts.ts",
     "browser-clipboard.ts"
   ]

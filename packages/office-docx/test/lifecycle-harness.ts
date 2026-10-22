@@ -14,5 +14,5 @@ function options(){
     onConvertAltChunkHtml:state.lifecycleConvert?(html:string)=>state.lifecycleConvert(html,identity):undefined};
 }
 const controller=mountFullEditor(document.querySelector('#root')!,options(),'/word-renderer/renderer.html');
-state.lifecycle={events,flush:()=>controller.beforeSave?.(),
+state.lifecycle={events,ready:()=>controller.ready,captureSelection:()=>controller.captureSelection(),replaceSelection:(input:any)=>controller.replaceSelection(input),flush:()=>controller.beforeSave?.(),
   replace(next:DocxModel){model=next;file++;controller.update(options());},dispose:()=>controller.destroy()};

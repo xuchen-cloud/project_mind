@@ -92,6 +92,8 @@ export function mountFullEditorSource(element:HTMLElement,initial:EditorOptions,
         mount();options.onPendingChange?.(false);
       }else updateSettings();
     },
+    async captureSelection(){const mounted=current;return runCurrent(mounted,()=>{if(locked())throw Error('当前 Word 文档只读');const renderer=api(mounted);if(!renderer)throw Error('Word 文档仍在加载');return renderer.captureSelection();});},
+    async replaceSelection(input){const mounted=current;return runCurrent(mounted,()=>{if(locked())throw Error('当前 Word 文档只读');const renderer=api(mounted);if(!renderer)throw Error('Word 文档仍在加载');return renderer.replaceSelection(input);});},
     async output(command){const mounted=current;await runCurrent(mounted,()=>mounted.ready);await runCurrent(mounted,()=>api(mounted).output(command));},
     async beforeSave(){const mounted=current;await runCurrent(mounted,()=>mounted.ready);await runCurrent(mounted,()=>api(mounted).flush(true));},
     destroy(){if(disposed)return;disposed=true;observer.disconnect();invalidate(current);options.onPendingChange?.(false);},

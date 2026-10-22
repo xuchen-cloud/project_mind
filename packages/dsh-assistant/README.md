@@ -161,3 +161,17 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 - `.doc/.xls/.ppt` 的转换及 Office → PDF 导出仍不在当前启用功能内；若以后启用，需要单独实现有输入/输出预算和字体策略的转换服务，再接回原有 Remote，不能用 GenOffice 编辑结果冒充 PDF 转换。
 
 `model-utility-entry.mjs` 提供不落盘的 `capacity/generate/probe` 调用，直接使用官方 DSH LLM 服务及适配器；打包共用固定 Node，所有文件受 DSH distribution 收据校验。旧 DB 和归档数据不删除。
+
+## Office 固定选区（#212）
+
+在项目 Office 文件的编辑态选择内容，点击工具栏“引用选区”，即可在相邻项目会话中提问或要求修改。已有同项目空闲会话优先复用；没有时创建会话。文件与会话保持分栏，模型和聊天配置继续使用 DSH。修改需要该会话允许项目写入，可通过原有权限选择器或 `/permission workspace-write` 设置；引用不会自动提升会话权限。
+
+- Word 支持单一正文段落或标题内的文字，用 GenOffice 原生插入/删除修订替换，作者为 `Project Mind AI`；不跨段落、不处理表格和已有修订。
+- Excel 支持最多 256 格的连续区域，可修改普通值或公式。行列是绝对零基坐标；合并、共享公式和数组公式目标暂不支持。
+- PPT 支持所选顶层元素的文字和位置尺寸，坐标使用整数 EMU（每英寸 914400）。每次最多 50 个原生操作，文字和几何修改各计一次；保持原生事务和撤销。
+
+`office_selection_read` / `office_selection_edit` 仅在 Project Runtime 注册，使用用户主动附加的选区身份。选区固定到原编辑器和文档版本；移动光标不会更换目标。后续正文变化、替换/关闭文件或切换 Workspace 后需要重新引用。原生层验证 Workspace generation、实际 File 归属、Project 和 Session，并将单次请求绑定到原窗口；DSH 的实际 sandbox 策略禁止只读会话写入。选区正文是数据，不是新的授权。
+
+编辑回执的 `saved:false` 表示修改进入编辑器草稿。原有自动保存或 File 菜单保存成功后才产生 File Version；工具不能把草稿回执描述为已保存。引用时若有手工输入或保存正在进行，会先完成正常保存并提示重新选择，避免部分编辑器重建后的默认选区被误引用。原有文件级 `file_office_inspect` / `file_office_edit` 继续承担独立的 File CAS 保存操作。
+
+验证覆盖真实格式编辑器、React 宿主、原生注册/权限/生命周期、真实 Node DSH 进程和确定性本地 SSE Provider。格式测试分别检查 DOCX 修订 XML、XLSX 值/公式持久化、PPT 原生事务与格式保留。确定性 Provider 证明工具调用链，不代表外部模型的理解质量或跨平台产品签收。

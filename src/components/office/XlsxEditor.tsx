@@ -1,12 +1,13 @@
 import { EditorLoading } from "../document/EditorLoading"
 import { useEffect, useRef, useState } from 'react'
-import type { EditorProps, MountedEditor } from '../../../packages/office-xlsx/types'
+import type { EditorProps, MountedEditor, SelectionController } from '../../../packages/office-xlsx/types'
 import '../../../packages/office-xlsx/dist/browser.css'
 import rendererUrl from '../../../packages/office-xlsx/dist/renderer.html?office-resource'
 import type {RegisterEditorOutput} from '../../lib/editor-output'
 
 export type { Model, Edit } from '../../../packages/office-xlsx/types'
 export type XlsxEditorProps = EditorProps & {
+  registerSelection?: (controller: SelectionController) => () => void
   registerOutput?: RegisterEditorOutput
   registerBeforeSave?: (callback: () => Promise<void>) => () => void
 }
@@ -43,6 +44,10 @@ export function XlsxEditor(props: XlsxEditorProps) {
   useEffect(() => {
     const node=host.current; const failed=(event:Event)=>setError(String((event as CustomEvent).detail)); node?.addEventListener('office-error',failed); return()=>node?.removeEventListener('office-error',failed)
   }, [])
+  useEffect(() => props.registerSelection?.({
+    async captureSelection() { const mounted = editor.current; if (!mounted) throw new Error('Excel 编辑器尚未加载'); return mounted.captureSelection() },
+    async applySelection(input) { const mounted = editor.current; if (!mounted) throw new Error('Excel 编辑器尚未加载'); return mounted.applySelection(input) },
+  }), [props.registerSelection])
   useEffect(() => props.registerBeforeSave?.(async () => {
     const mounted = await mounting.current
     if (!mounted) throw new Error('Excel 编辑器尚未加载')
@@ -57,7 +62,7 @@ export function XlsxEditor(props: XlsxEditorProps) {
   useEffect(() => {
     try { editor.current?.update(props); if (editor.current) observeReady(editor.current) }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
-  }, [props.model, props.edits, props.onChange, props.readOnly, props.presentationMode, props.onPendingChange, props.onSaveRequest, props.onExport, props.onPrint, props.onRenderPdf, props.onRecalculate, props.onInspectImportedWorkbook, props.onCaptureScreenSources, props.onCaptureScreenSource])
+  }, [props.model, props.savedModelUpdate, props.edits, props.onChange, props.readOnly, props.presentationMode, props.onPendingChange, props.onSaveRequest, props.onExport, props.onPrint, props.onRenderPdf, props.onRecalculate, props.onInspectImportedWorkbook, props.onCaptureScreenSources, props.onCaptureScreenSource])
   return <div className="editor-loading-boundary office-xlsx-editor h-full min-h-0 w-full" aria-label="Excel 工作表">
     <div ref={host} className="h-full min-h-0 w-full" />
     {error && <div role="alert" className="office-xlsx-status">{error}</div>}

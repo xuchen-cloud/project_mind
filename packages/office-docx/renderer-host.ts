@@ -1,4 +1,5 @@
 import {pickImage,copyImageToClipboard,exportHtml,pickViaInput} from './web-helpers.mjs';
+import {replaceInlineRange} from './upstream/apps/docs/src/renderer/ai/protocol';
 import {flushSync} from 'react-dom';
 import {buildPrintDocument} from './renderer-print';
 import {createPdfBridge} from './renderer-pdf';
@@ -36,6 +37,14 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
   let operationsIdle=Promise.resolve(),resolveOperationsIdle=()=>{};
   let operationFailure:unknown=null;
   let restoredDraft=false;
+  let captured:{id:string;editor:NonNullable<FileActionContext['editor']>;doc:unknown;revision:number;from:number;to:number}|null=null;
+  function selectionEditor(){
+    ensureActive();const editor=context?.editor;
+    if(options.readOnly||options.presentationMode==='preview'||!editor?.isEditable)throw Error('当前 Word 文档只读');
+    if(loading||composing||editor.view.composing||activeOperations||uncommittedInput||restoringDraft||serializing)throw Error('Word 文档正在处理输入，请稍后重试');
+    return editor;
+  }
+
   document.addEventListener('compositionstart',()=>{if(!destroyed){composing=true;pending(true);}},true);
   document.addEventListener('compositionend',()=>{if(!destroyed){composing=false;queueMicrotask(()=>{void flush().catch(()=>{});});}},true);
   document.addEventListener('input',event=>{
@@ -133,8 +142,32 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     subscribeDirty(fn:Function){return subscribe('hostDirty',fn);},
     subscribeReadOnly(fn:Function){return subscribe('hostReadonly',fn);},
     flush,
-    update(next:EmbeddedOptions){if(destroyed)return;options=next;emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
-    acknowledge(next:EmbeddedOptions){if(destroyed)return;options=next;persistedRevision=savedRevision;last=[];pending(false);context?.setStatus('已保存');emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
+    update(next:EmbeddedOptions){if(destroyed)return;if(next.readOnly)captured=null;options=next;emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
+    acknowledge(next:EmbeddedOptions){if(destroyed)return;if(next.readOnly)captured=null;options=next;persistedRevision=savedRevision;last=[];pending(false);context?.setStatus('已保存');emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
+    captureSelection(){
+      const editor=selectionEditor(),{doc,selection}=editor.state,{from,to,$from,$to}=selection;
+      const native=window.getSelection();
+      const owner=(node:Node|null)=>(node?.nodeType===Node.ELEMENT_NODE?node as Element:node?.parentElement)?.closest('.ProseMirror');
+      if(!native||native.isCollapsed||owner(native.anchorNode)!==editor.view.dom||owner(native.focusNode)!==editor.view.dom)throw Error('请选择 Word 正文段落内的文字，不能选择表格或其他编辑区域');
+      const anchor=editor.view.posAtDOM(native.anchorNode!,native.anchorOffset),focus=editor.view.posAtDOM(native.focusNode!,native.focusOffset);
+      if(Math.min(anchor,focus)!==from||Math.max(anchor,focus)!==to)throw Error('Word 选区正在更新，请重新选择文字');
+      if(selection.empty||$from.depth!==1||!$from.sameParent($to)||!['docParagraph','docHeading'].includes($from.parent.type.name))throw Error('请选择同一段落或标题内的文字，不能跨段落或选择表格');
+      let blocked=false;
+      doc.nodesBetween(from,to,node=>{if(node.isInline&&(!node.isText||node.marks.some(mark=>['ins','del'].includes(mark.type.name))))blocked=true;});
+      if(blocked||$from.parent.attrs.blockRevision)throw Error('选区包含受保护内容或已有修订，请先调整选区');
+      const text=doc.textBetween(from,to,'','');if(!text.trim())throw Error('请选择非空文字');
+      const id=crypto.randomUUID();captured={id,editor,doc,revision,from,to};return{selectionId:id,text};
+    },
+    replaceSelection(input:{selectionId:string;text:string}){
+      const editor=selectionEditor(),selection=captured;
+      if(!selection||selection.id!==input.selectionId||selection.editor!==editor||selection.doc!==editor.state.doc||selection.revision!==revision){captured=null;throw Error('Word 选区已失效，请重新选择文字');}
+      if(typeof input.text!=='string'||!input.text.trim()||/[\r\n]/.test(input.text))throw Error('替换内容必须是单段非空纯文字');
+      const $from=editor.state.doc.resolve(selection.from);
+      const inherited=($from.parent.childAfter($from.parentOffset).node?.marks??[]).filter(mark=>!['ins','del'].includes(mark.type.name));
+      replaceInlineRange(editor,selection.from,selection.to,[editor.schema.text(input.text,inherited)],{author:'Project Mind AI'});
+      captured=null;
+      host.render(context!,loading);return{text:input.text};
+    },
     async requestSave(){
       ensureActive();
       if(!options.onSaveRequest)throw Error('当前 File 宿主尚未连接 Word 保存回执。');
@@ -158,7 +191,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
       const changed=signature.some((value,i)=>value!==previous[i]);previous=signature;
       if(!loading){options.onReady?.();if(changed&&deps.isDocDirty(ctx)){revision++;pending(true);void flush().catch(()=>{});}}
     },
-    destroy(){if(destroyed)return;destroyed=true;rejectStopped(Error('Word 编辑器已关闭，旧文档操作已失效'));resolveOperationsIdle();events.clear();views.clear();context=null;pdf.cancelImages();URL.revokeObjectURL(sourceUrl);for(const url of comparisonUrls)URL.revokeObjectURL(url);comparisonUrls.clear();},
+    destroy(){if(destroyed)return;destroyed=true;captured=null;rejectStopped(Error('Word 编辑器已关闭，旧文档操作已失效'));resolveOperationsIdle();events.clear();views.clear();context=null;pdf.cancelImages();URL.revokeObjectURL(sourceUrl);for(const url of comparisonUrls)URL.revokeObjectURL(url);comparisonUrls.clear();},
     undo(){if(!destroyed)context?.editor?.commands.undo();},redo(){if(!destroyed)context?.editor?.commands.redo();},
   };
   // The boundary plugin contributes its own editable predicate. Never capture

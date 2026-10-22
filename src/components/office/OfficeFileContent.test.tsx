@@ -11,7 +11,7 @@ vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:vi.fn(),save
 vi.mock('../../services/editorWorkbookImport',()=>({inspectImportedWorkbook:vi.fn()}));
 vi.mock('../../../packages/office-html2docx/dist/index.mjs',()=>({convertAltChunkHtml:vi.fn()}));
 vi.mock('../../services/desktopApi',()=>({desktopApi:{listSystemFontFamilies:vi.fn(),editorFontMetrics:vi.fn(),editorCaptureSources:vi.fn(),editorCaptureSource:vi.fn(),fetchEditorRemoteImage:vi.fn()}}));
-const spreadsheet = vi.hoisted(()=>({recalculate:undefined as undefined|((input:RecalculateRequest)=>Promise<RecalculateResult>),importWorkbook:undefined as undefined|((bytes:Uint8Array)=>Promise<XlsxModel>),captureSources:undefined as undefined|(()=>Promise<ScreenSourcesResult>),captureSource:undefined as undefined|((input:{id:string})=>Promise<ScreenCaptureResult|null>)}));
+const spreadsheet = vi.hoisted(()=>({savedModelUpdate:undefined as undefined|{previous:XlsxModel;current:XlsxModel},recalculate:undefined as undefined|((input:RecalculateRequest)=>Promise<RecalculateResult>),importWorkbook:undefined as undefined|((bytes:Uint8Array)=>Promise<XlsxModel>),captureSources:undefined as undefined|(()=>Promise<ScreenSourcesResult>),captureSource:undefined as undefined|((input:{id:string})=>Promise<ScreenCaptureResult|null>)}));
 const wordFlush = vi.hoisted(()=>({output:vi.fn(async(_command:string)=>{}),fetchImage:undefined as undefined|((url:string)=>Promise<{mime:'image/png'|'image/jpeg'|'image/gif';base64:string}>),wait:undefined as undefined|(()=>Promise<void>),convert:undefined as undefined|((html:string)=>Promise<Uint8Array|null>)}));
 vi.mock('./DocxEditor',async()=>{
  const {useEffect,useRef,useState}=await import('react');
@@ -46,7 +46,8 @@ vi.mock('./PptxEditor',async()=>{
 });
 vi.mock('./XlsxEditor',async()=>{
   const {useEffect,useRef}=await import('react');
-  return{XlsxEditor:(props:{registerBeforeSave:(flush:()=>Promise<void>)=>()=>void;onPendingChange:(pending:boolean)=>void;onChange:(edits:unknown[])=>void;onRecalculate?:(input:RecalculateRequest)=>Promise<RecalculateResult>;onInspectImportedWorkbook?:(bytes:Uint8Array)=>Promise<XlsxModel>;onCaptureScreenSources?:()=>Promise<ScreenSourcesResult>;onCaptureScreenSource?:(input:{id:string})=>Promise<ScreenCaptureResult|null>})=>{
+  return{XlsxEditor:(props:{savedModelUpdate?:{previous:XlsxModel;current:XlsxModel};registerBeforeSave:(flush:()=>Promise<void>)=>()=>void;onPendingChange:(pending:boolean)=>void;onChange:(edits:unknown[])=>void;onRecalculate?:(input:RecalculateRequest)=>Promise<RecalculateResult>;onInspectImportedWorkbook?:(bytes:Uint8Array)=>Promise<XlsxModel>;onCaptureScreenSources?:()=>Promise<ScreenSourcesResult>;onCaptureScreenSource?:(input:{id:string})=>Promise<ScreenCaptureResult|null>})=>{
+    spreadsheet.savedModelUpdate=props.savedModelUpdate;
     spreadsheet.recalculate=props.onRecalculate;
     spreadsheet.importWorkbook=props.onInspectImportedWorkbook;
     spreadsheet.captureSources=props.onCaptureScreenSources;spreadsheet.captureSource=props.onCaptureScreenSource;
@@ -335,5 +336,15 @@ it('rejects a save that becomes read-only while beforeSave is pending',async()=>
  expect(screen.getByText('已修改')).toBeVisible();expect(screen.getByRole('button',{name:'修改正文'})).toBeDisabled();
  expect(screen.getByRole('status')).toHaveTextContent('历史版本 · 只读');expect(screen.getByRole('alert')).toHaveTextContent('修改已保留');
  expect(view.saved).not.toHaveBeenCalled();expect(nextSaved).not.toHaveBeenCalled();expect(view.dirty).toHaveBeenLastCalledWith(true);
+ view.cleanup();
+});
+
+it('sends Excel an explicit matching model receipt only after native persistence succeeds',async()=>{
+ const previous={format:'xlsx'},current={format:'xlsx',name:'saved.xlsx'};
+ vi.mocked(officeFileApi.inspect).mockResolvedValue({model:previous} as never);
+ vi.mocked(officeFileApi.save).mockResolvedValue({model:current,commit:{receipt:{documentId:42,versionNumber:3,contentHash:'sha256:new',noChange:false},versionPath:null}} as never);
+ const view=await mount();const input=await screen.findByRole('textbox',{name:'正在编辑的单元格'});
+ expect(spreadsheet.savedModelUpdate).toBeUndefined();fireEvent.change(input,{target:{value:'已修改'}});await act(()=>view.flush());
+ expect(spreadsheet.savedModelUpdate?.previous).toBe(previous);expect(spreadsheet.savedModelUpdate?.current).toBe(current);
  view.cleanup();
 });

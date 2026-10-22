@@ -2,12 +2,12 @@ import { createElement } from 'react';
 
 const PREFIX = 'mind-file:';
 const SOURCE_PROJECTION = /@(mind-source\/[A-Za-z0-9_-]+\/[^\s]+)\n<mind-file-source>[^\n]*<\/mind-file-source>/g;
-export function fileReferenceToken(sessionId, path, sourceRef) {
-  return PREFIX + JSON.stringify({ sessionId, path, ...(sourceRef ? { sourceRef } : {}) });
+export function fileReferenceToken(sessionId, path, sourceRef, selection) {
+  return PREFIX + JSON.stringify({ sessionId, path, ...(sourceRef ? { sourceRef } : {}), ...(selection ? { selection } : {}) });
 }
 async function sourceRequest(fetch, operation, file, signal) {
   const rpcId = crypto.randomUUID();
-  const method = `mind/source/${operation}`;
+  const method = operation === 'office-selection' ? 'mind/office-selection/prepare' : `mind/source/${operation}`;
   const response = await fetch(`/api/${method}`, { method: 'POST', signal,
     body: JSON.stringify({ type: 'client-request', rpcId, method, payload: { args: { request: file } } }) });
   const envelope = await response.json();
@@ -31,11 +31,22 @@ export function fixedFileFromPath(path) {
 /** Fold the native source envelope only in the sent user/steering view. */
 export function adaptFileMessageRenderer(Component) {
   return function FixedFileMessageView(props) {
+    const displayContent = props.node.data.content.map(block => {
+      if (block.type !== 'text') return block;
+      const text = block.text.replace(/<mind-office-selection>([^\n]*?)<\/mind-office-selection>/g, (projection, json) => {
+        let selection;
+        try { selection = JSON.parse(json); } catch { return projection; }
+        if (!selection || typeof selection.selectionId !== 'string' || typeof selection.label !== 'string' || typeof selection.text !== 'string'
+          || !['docx','xlsx','pptx'].includes(selection.format)) return projection;
+        return `【${selection.label.replace(/[\r\n]/g,' ')} · 选区】`;
+      });
+      return text === block.text ? block : {...block,text};
+    });
     const targets = new Map();
     const displaySources = new Map();
     // Generated labels contain spaces, so the upstream grammar uses quoted
     // mentions. Reserve ordinary quoted paths before assigning fixed labels.
-    const ordinaryPaths = new Set(props.node.data.content.flatMap(block => block.type === 'text'
+    const ordinaryPaths = new Set(displayContent.flatMap(block => block.type === 'text'
       ? Array.from(block.text.replace(SOURCE_PROJECTION, (projection, path) => {
         // User text can imitate the envelope. Decode only at this display
         // boundary; malformed literals retain their original text.
@@ -46,7 +57,7 @@ export function adaptFileMessageRenderer(Component) {
         displaySources.set(path, sourceRef);
         return '';
       }).matchAll(/@"([^"\n]+)"/g), match => match[1]) : []));
-    const content = props.node.data.content.map(block => {
+    const content = displayContent.map(block => {
       if (block.type !== 'text') return block;
       const text = block.text.replace(SOURCE_PROJECTION, (_projection, path, offset, original) => {
         const sourceRef = displaySources.get(path);
@@ -63,7 +74,7 @@ export function adaptFileMessageRenderer(Component) {
       });
       return text === block.text ? block : { ...block, text };
     });
-    if (targets.size === 0) return createElement(Component, props);
+    if (targets.size === 0 && content.every((block,index)=>block===props.node.data.content[index])) return createElement(Component, props);
     return createElement(Component, { ...props,
       node: { ...props.node, data: { ...props.node.data, content } },
       openFile: (path, options) => props.openFile(targets.get(path) ?? path, options),
@@ -92,6 +103,9 @@ export function adaptFileReferences(source, fetch, open) {
     openReference(session, request) {
       const file = decode(request.ref);
       if (!file) return source.openReference?.(session, request);
+      // A live selection has no standalone path target. Its editor already
+      // remains open beside the chat; never turn its label into a file lookup.
+      if (file.selection) return true;
       open({ path: file.path, sourceRef: file.sourceRef, sessionId: session.sessionId });
       return true;
     },
@@ -103,6 +117,7 @@ export function adaptFileReferences(source, fetch, open) {
           if (ref.startsWith('@') && !ref.includes('](dsh-session:') && !ref.endsWith('/')) throw new Error('此旧草稿引用尚未固定文件身份，请移除并重新选择文件');
           return source.codec.serialize(ref, signal);
         }
+        if (file.selection) return (await requestSource('office-selection', {sessionId:file.sessionId,selectionId:file.selection.selectionId}, signal)).projection;
         if (!file.sourceRef) throw new Error('此旧草稿引用尚未固定文件身份，请移除并重新选择文件');
         return (await requestSource('prepare', file, signal)).projection;
       },
