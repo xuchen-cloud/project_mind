@@ -210,3 +210,34 @@ PrintDialog and acknowledges that action; confirmation still sends the existing
 `print-request` and awaits `print-finished`. Existing `render-pdf-request` /
 `render-pdf-finished` and `export-request` / `export-finished` remain unchanged.
 Old epochs are ignored and cannot acknowledge or deliver into a replacement File.
+
+## Current selection bridge
+
+`PptxEditor.registerSelection(controller)` registers the live iframe controller and
+returns a cleanup callback. `captureSelection()` resolves to
+`{selectionId, text}`; `text` is JSON containing the current slide index/path,
+selected stable element IDs, element text and geometry. Capture requires selected
+top-level elements in edit mode, with no active text/group editor or pending input.
+
+`applySelection({selectionId, change})` accepts:
+
+```ts
+{elements: [{id: 'e_5', text: 'Revised text', x: 914400, width: 4572000}]}
+```
+
+All geometry uses integer OOXML EMU (914400 per inch), in slide coordinates;
+optional fields are `text`, `x`, `y`, `width`, `height`. IDs must belong to the
+captured selection. At most 256 elements and 50 native operations are accepted
+(text and geometry count separately), matching GenOffice's atomic transaction
+limit. Duplicate IDs, extra fields and unsupported text targets reject the entire
+request. Text edits retain unchanged prefix/suffix run styling and use upstream
+paragraph mapping for changed text.
+
+A capture freezes its slide, IDs, epoch and document mutation version. Moving the
+selection does not retarget it; any intervening document mutation (including
+undo), File replacement or editor destruction invalidates it. Successful apply
+consumes the capture, uses the original `slides:apply-txn` handler, updates the live
+canvas and produces the existing candidate edit journal. One undo restores the
+transaction. Saving remains the normal native File/CAS flow. Readonly/preview,
+composition, active editing and busy states reject instead of queueing an AI edit
+against unstable input. This bridge adds no model, chat or network image runtime.

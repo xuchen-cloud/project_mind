@@ -30,6 +30,7 @@ const fixture = vi.hoisted(() => {
   dual: false,
   followReleases: new Map<string, () => void>(),
   blank: false,
+  title: undefined as string | undefined,
   emitEvent: undefined as ((frame: unknown) => void) | undefined,
   opens: [] as { endpoint: string; payload: unknown }[],
   releaseFollow: undefined as (() => void) | undefined,
@@ -61,7 +62,7 @@ vi.mock('./adapters/transport.mjs', async () => {
         const request = JSON.parse(String(init.body));
         const projections = { asOfSeq: -1, values: { sessionListMetadata: { blank: fixture.blank, lastPromptAt: fixture.blank ? null : 1 } } };
         const value = String(input).endsWith('/list')
-          ? { items: [ ...(fixture.dual ? [{ agentAvailable: true, sessionId: 'second-session', updatedAt: 1, running: false, blank: false, cwd: '/fixture/project' }] : []), { agentAvailable: true, sessionId: 'fixture-session', updatedAt: 1, running: false, blank: fixture.blank, cwd: '/fixture/project' }] }
+          ? { items: [ ...(fixture.dual ? [{ agentAvailable: true, sessionId: 'second-session', updatedAt: 1, running: false, blank: false, cwd: '/fixture/project' }] : []), { agentAvailable: true, sessionId: 'fixture-session', updatedAt: 1, running: false, blank: fixture.blank, cwd: '/fixture/project', ...(fixture.title === undefined ? {} : { projections: { kind: 'sequenced', asOfSeq: 0, values: { title: fixture.title } } }) }] }
           : projections;
         return Promise.resolve(new Response(JSON.stringify({ type: 'server-response', rpcId: request.rpcId, result: { ok: true, value } }), { headers: { 'content-type': 'application/json' } }));
       }
@@ -583,4 +584,105 @@ it('publishes exact Session running facts from the original catalog and clears o
     await client.dispose();
     expect(listener.mock.calls.filter(call => call[0] === 'sessionRuns').at(-1)?.[1]).toEqual({});
   } finally { await client.dispose(); fixture.catalog = false; fixture.dual = false; }
+});
+
+
+it.each([[undefined, '新会话'], ['', '新会话'], [' \t\n', '新会话'], ['Saved title', 'Saved title']])('publishes authoritative Session titles for initial title=%j and automatic projections without runtime or subagent fallback leakage', async (title, initialTitle) => {
+  fixture.catalog = true; fixture.dual = true; fixture.title = title;
+  const client = await createDshClient(7);
+  const listener = vi.fn();
+  const titles = () => listener.mock.calls.filter(call => call[0] === 'sessionTitles');
+  const emit = async (event: string, args: unknown[]) => {
+    fixture.emitEvent!({ type: 'emit', event, args });
+    await new Promise(resolve => setTimeout(resolve, 0));
+  };
+  try {
+    await waitFor(() => expect(client.ctx.sessions.list.getSnapshot().ids).toHaveLength(2));
+    client.subscribe(listener);
+    expect(titles()).toEqual([['sessionTitles', { 'fixture-session': initialTitle, 'second-session': '新会话' }]]);
+    expect(listener.mock.calls.filter(call => call[0] === 'sessionsChanged')).toEqual([]);
+    expect(client.ctx.sessions.binding('fixture-session')).toBeUndefined();
+    await emit('api-session/status', ['fixture-session', true]);
+    expect(titles()).toHaveLength(1);
+    const summary = { sessionId: 'fixture-session', updatedAt: 1, running: true, blank: false, agentAvailable: true, cwd: '/fixture/project' };
+    const automatic = { ...summary, projections: { kind: 'sequenced', asOfSeq: 1, values: { title: '  Automatic title  ', subagentCatalog: [{ id: 'child-session', label: 'Private child label' }] } } };
+    await emit('api-session/added', [automatic]);
+    await waitFor(() => expect(titles().at(-1)).toEqual(['sessionTitles', { 'fixture-session': '  Automatic title  ', 'second-session': '新会话' }]));
+    expect(client.ctx.sessions.list.getSnapshot().byId['child-session']).toMatchObject({ displayTitle: 'Private child label' });
+    expect(client.ctx.sessions.list.getSnapshot().ids).not.toContain('child-session');
+    const late = vi.fn();
+    const unsubscribe = client.subscribe(late);
+    expect(late).toHaveBeenCalledWith('sessionTitles', { 'fixture-session': '  Automatic title  ', 'second-session': '新会话' });
+    expect(late.mock.calls.filter(call => call[0] === 'sessionsChanged')).toEqual([]);
+    unsubscribe();
+    expect(titles()).toHaveLength(2);
+    await emit('api-session/added', [automatic]);
+    await emit('api-session/status', ['fixture-session', false]);
+    expect(titles()).toHaveLength(2);
+    await emit('api-session/removed', ['second-session']);
+    await waitFor(() => expect(titles().at(-1)).toEqual(['sessionTitles', { 'fixture-session': '  Automatic title  ' }]));
+    // A pending catalog publication cannot leak after this graph is disposed.
+    client.ctx.sessions.handleSessionRemoved('fixture-session');
+    const disposing = client.dispose();
+    expect(titles().at(-1)).toEqual(['sessionTitles', {}]);
+    listener.mockClear();
+    await disposing;
+    client.subscribe(listener);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(listener).not.toHaveBeenCalled();
+  } finally { await client.dispose(); fixture.catalog = false; fixture.dual = false; fixture.title = undefined; }
+});
+
+it('bridges authoritative Session titles into the native cache across unmounted seats and clears disposed Workspace generations', async () => {
+  const { useDshSessionTitles, setDshWorkspaceRoot } = await import('../../src/lib/dsh-host-events');
+  fixture.catalog = true;
+  setDshWorkspaceRoot('/fixture');
+  const events = vi.fn();
+  window.addEventListener('mind:dsh-session-titles', events);
+  const emit = async (publish: (frame: unknown) => void, title: string, seq: number) => {
+    await act(async () => {
+      publish({ type: 'emit', event: 'api-session/added', args: [{
+        sessionId: 'fixture-session', updatedAt: 1, running: false, blank: false, agentAvailable: true, cwd: '/fixture/project',
+        projections: { kind: 'sequenced', asOfSeq: seq, values: { title } },
+      }] });
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  };
+  try {
+    const view = render(<DshConversationHost projectId={7} sessionId="fixture-session" />);
+    await waitFor(() => expect(useDshSessionTitles.getState().byProject[7]).toEqual({ 'fixture-session': '新会话' }));
+    const stalePublish = fixture.emitEvent!;
+    view.unmount();
+    await emit(stalePublish, 'Background automatic title', 1);
+    await waitFor(() => expect(useDshSessionTitles.getState().byProject[7]).toEqual({ 'fixture-session': 'Background automatic title' }));
+    expect(events.mock.calls.at(-1)?.[0].detail).toEqual({ projectId: 7, titlesBySession: { 'fixture-session': 'Background automatic title' } });
+    await disposeDshClients();
+    expect(useDshSessionTitles.getState().byProject[7]).toEqual({});
+    events.mockClear();
+    await emit(stalePublish, 'Disposed title', 2);
+    expect(events).not.toHaveBeenCalled();
+    expect(useDshSessionTitles.getState().byProject[7]).toEqual({});
+
+    const reopened = render(<DshConversationHost projectId={7} sessionId="fixture-session" />);
+    await waitFor(() => expect(useDshSessionTitles.getState().byProject[7]).toEqual({ 'fixture-session': '新会话' }));
+    const currentPublish = fixture.emitEvent!;
+    reopened.unmount();
+    await emit(currentPublish, 'Current automatic title', 1);
+    await waitFor(() => expect(useDshSessionTitles.getState().byProject[7]).toEqual({ 'fixture-session': 'Current automatic title' }));
+    events.mockClear();
+    await emit(stalePublish, 'Stale instance title', 3);
+    expect(events).not.toHaveBeenCalled();
+    expect(useDshSessionTitles.getState().byProject[7]).toEqual({ 'fixture-session': 'Current automatic title' });
+    setDshWorkspaceRoot('/next-workspace');
+    expect(useDshSessionTitles.getState()).toMatchObject({ workspaceRoot: '/next-workspace', byProject: {} });
+    await disposeDshClients();
+    events.mockClear();
+    await emit(currentPublish, 'Old Workspace title', 2);
+    expect(events).not.toHaveBeenCalled();
+    expect(useDshSessionTitles.getState().byProject).toEqual({});
+  } finally {
+    cleanup(); await disposeDshClients(); setDshWorkspaceRoot(null);
+    window.removeEventListener('mind:dsh-session-titles', events);
+    fixture.catalog = false;
+  }
 });

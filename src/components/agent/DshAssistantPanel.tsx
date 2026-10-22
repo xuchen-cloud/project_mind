@@ -160,7 +160,9 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
     inserting.current = reference.id;
     // Claim once before async I/O; StrictMode or another render cannot insert twice.
     consumeDshFileReference(reference.id);
-    void insertDshFileReference(projectId, selectedSession.id, reference.path, reference.sourceRef).catch(reason => {
+    const insert = reference.selection ? insertDshFileReference(projectId, selectedSession.id, reference.path, reference.sourceRef, reference.selection)
+      : insertDshFileReference(projectId, selectedSession.id, reference.path, reference.sourceRef);
+    void insert.catch(reason => {
       if (alive.current && current.current === identity)
         useFeedbackStore.getState().pushToast({ tone: "error", title: "引用文件失败", detail: getErrorMessage(reason, "请重新引用该文件") });
     }).finally(() => {

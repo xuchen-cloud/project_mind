@@ -5,7 +5,7 @@ export type {Model,Edit,EditorProps,MountedEditor,OutputCommand,ExportFile,Print
  * The dynamic default path prevents host bundlers from emitting a second orphan HTML asset. */
 export function mount(container:HTMLElement,initial:EditorProps,rendererUrl=new URL(['.','renderer.html'].join('/'),import.meta.url).href):MountedEditor{
  let props=initial,disposed=false,frame:HTMLIFrameElement,resolveReady:()=>void,rejectReady:((cause:Error)=>void)|undefined,ready:Promise<void>,nextId=0,epoch=0,port:MessagePort|undefined
- const calls=new Map<number,{resolve:()=>void;reject:(e:Error)=>void}>()
+ const calls=new Map<number,{resolve:(value:any)=>void;reject:(e:Error)=>void}>()
  const appearance=()=>Object.fromEntries(['--color-bg','--color-bg-subtle','--color-canvas','--color-border','--color-text-primary','--color-text-secondary','--color-accent','--font-ui'].map(key=>[key,getComputedStyle(container).getPropertyValue(key)]))
  const data=()=>({model:props.model,edits:props.edits,readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit',appearance:appearance()})
  const send=(type:string,value?:unknown,id?:number)=>port?.postMessage({officeXlsx:true,type,value,id})
@@ -21,7 +21,7 @@ export function mount(container:HTMLElement,initial:EditorProps,rendererUrl=new 
   if(type==='pending')props.onPendingChange?.(value===true)
   if(type==='change')props.onChange(value)
   if(type==='error'){rejectReady?.(new Error(value));container.dispatchEvent(new CustomEvent('office-error',{detail:value}))}
-  if(type==='reply'){const call=calls.get(id);if(!call)return;calls.delete(id);value?.error?call.reject(new Error(value.error)):call.resolve()}
+  if(type==='reply'){const call=calls.get(id);if(!call)return;calls.delete(id);value?.error?call.reject(new Error(value.error)):call.resolve(value?.result)}
   // A model replacement/dispose can occur after delivery and before this
   // microtask. Bind both File ownership and callbacks before scheduling IO.
   const request=(replyType:string,action:(callbacks:EditorProps)=>unknown|Promise<unknown>)=>{
@@ -62,9 +62,9 @@ export function mount(container:HTMLElement,initial:EditorProps,rendererUrl=new 
 
  }
  const receiveWindow=(event:MessageEvent)=>{if(event.data?.type==='bootstrap'||(!port&&event.data?.type==='error'))receive(event)};window.addEventListener('message',receiveWindow);start()
- async function call(type:'commit'|'output',value?:OutputCommand){const owner=epoch;await ready;if(disposed||owner!==epoch)throw Error('Excel 工作簿已切换或关闭');const id=++nextId;await new Promise<void>((resolve,reject)=>{calls.set(id,{resolve,reject});send(type,value,id)})}
- return{get ready(){return ready},commitEditing:()=>call('commit'),output(command){if(!['pdf','csv','print'].includes(command))return Promise.reject(Error('未知 Excel 输出命令'));return call('output',command)},
- update(next){const replaced=props.model!==next.model;props=next;if(replaced){for(const call of calls.values())call.reject(Error('Excel 工作簿已切换'));calls.clear();start()}else send('update',{readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit',appearance:appearance()})},
+ async function call(type:'commit'|'output'|'captureSelection'|'applySelection',value?:unknown){const owner=epoch;await ready;if(disposed||owner!==epoch)throw Error('Excel 工作簿已切换或关闭');const id=++nextId;return new Promise<any>((resolve,reject)=>{calls.set(id,{resolve,reject});send(type,value,id)})}
+ return{captureSelection:()=>call('captureSelection'),applySelection:input=>call('applySelection',input),get ready(){return ready},commitEditing:()=>call('commit'),output(command){if(!['pdf','csv','print'].includes(command))return Promise.reject(Error('未知 Excel 输出命令'));return call('output',command)},
+ update(next){const replaced=props.model!==next.model,saved=replaced&&next.savedModelUpdate?.previous===props.model&&next.savedModelUpdate.current===next.model&&next.edits.length===0;props=next;if(saved){epoch++;rejectReady?.(Error('Excel 正在接收保存回执'));for(const call of calls.values())call.reject(Error('Excel 正在接收保存回执'));calls.clear();ready=new Promise<void>((resolve,reject)=>{resolveReady=resolve;rejectReady=reject});void ready.catch(()=>{});send('saved',data())}else if(replaced){for(const call of calls.values())call.reject(Error('Excel 工作簿已切换'));calls.clear();start()}else send('update',{readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit',appearance:appearance()})},
  dispose(){disposed=true;epoch++;rejectReady?.(Error('Excel 编辑器已关闭'));window.removeEventListener('message',receiveWindow);port?.close();for(const call of calls.values())call.reject(Error('Excel 编辑器已关闭'));calls.clear();frame.remove()}}
 }
 export const mountEditor=mount

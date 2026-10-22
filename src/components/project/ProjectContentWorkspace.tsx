@@ -8,6 +8,7 @@ import { projectPath, recordPath } from "../../lib/formatters";
 import { projectRecordSaveKey } from "../../lib/record-save-coordinator";
 import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
+import { useDshSessionTitles } from "../../lib/dsh-host-events";
 import type { ProjectPageData } from "../../lib/types";
 import type { AgentSourceRef } from "../../lib/agent-types";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
@@ -75,6 +76,7 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   const binding = bindingQuery.data;
   const scope = useMemo(() => binding ? { workspaceId: binding.workspaceId, projectId } : null, [binding?.workspaceId, projectId]);
   const layout = useProjectContentStore(state => scope ? getContentLayout(state, scope) : null);
+  const sessionTitles = useDshSessionTitles(state => state.workspaceRoot === workspaceRoot ? state.byProject[projectId] : undefined);
   const [openingError, setOpeningError] = useState<string | null>(null);
   const route = active ? parseRecordFocusRoute(location.pathname) : null;
   const routeRecordId = route?.kind === "project" && route.projectId === projectId ? route.recordId : null;
@@ -141,6 +143,15 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
       if (title && title !== tab.object.title) state.updateTitle(scope, tab.id, title);
     }
   }, [pageData, scope, layout]);
+  useEffect(() => {
+    if (!scope || !sessionTitles) return;
+    const state = useProjectContentStore.getState();
+    // Apply new catalog facts without replaying an older snapshot over an accepted rename.
+    for (const tab of getContentLayout(state, scope).tabs) {
+      const title = tab.object.kind === "session" ? sessionTitles[tab.object.id] : undefined;
+      if (title && title !== tab.object.title) state.updateTitle(scope, tab.id, title);
+    }
+  }, [sessionTitles, scope]);
   return <div className="h-full min-h-0 min-w-0">
     {bindingQuery.error ? <p role="alert" className="p-4 text-sm">无法恢复项目内容：{String(bindingQuery.error)}<button type="button" onClick={() => void bindingQuery.refetch()}>重试</button></p> : null}
     {scope && presentedLayout ? <div className="h-full min-h-0">

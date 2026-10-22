@@ -10,6 +10,7 @@ import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readContext, bindContext } from './project-workspace.mjs';
 import { installOfficeService } from './office-service.mjs';
+import { installOfficeSelectionService } from './office-selection-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
 import { readMindCli, installMindCli } from './mind-cli.mjs';
 import { bundledSkillEnvironment, prepareBundledSkills } from './skills.mjs';
@@ -98,6 +99,7 @@ try {
     if (context.kind === 'project') {
       await installSourceService(ctx, context, sourceBridge);
       await installOfficeService(ctx, context, sourceBridge);
+      await installOfficeSelectionService(ctx, context, sourceBridge);
     }
   }
   for (const listener of readyListeners) listener();

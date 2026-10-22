@@ -168,6 +168,10 @@ export async function createDshClient(projectId) {
       throw new Error(`助手组件依赖未就绪：${Object.keys(fiber.inject).filter(name => ctx.get(name) === undefined).join('、')}`);
     }
     const currentSessionRuns = () => Object.fromEntries(Object.entries(ctx.sessions.list.getSnapshot().byId).map(([id, item]) => [id, item.running]));
+    const currentSessionTitles = () => {
+      const { ids, byId } = ctx.sessions.list.getSnapshot();
+      return Object.fromEntries(ids.map(id => [id, byId[id].title?.trim() ? byId[id].title : '新会话']));
+    };
     const currentBusy = () => Object.values(ctx.sessions.list.getSnapshot().byId).some(item => item.running);
     const currentCatalog = () => {
       const { ids, byId } = ctx.sessions.list.getSnapshot();
@@ -178,6 +182,7 @@ export async function createDshClient(projectId) {
         pinnedSessionIds, archivedSessionIds]);
     };
     let catalog = currentCatalog();
+    let sessionTitles = JSON.stringify(currentSessionTitles());
     let listPending = false;
     let runtimePending = false;
     const scheduleListChange = () => {
@@ -190,6 +195,12 @@ export async function createDshClient(projectId) {
           if (nextCatalog !== catalog) {
             catalog = nextCatalog;
             notify('sessionsChanged');
+            const titles = currentSessionTitles();
+            const nextTitles = JSON.stringify(titles);
+            if (nextTitles !== sessionTitles) {
+              sessionTitles = nextTitles;
+              notify('sessionTitles', titles);
+            }
           }
           if (runtimePending) {
             runtimePending = false;
@@ -240,12 +251,14 @@ export async function createDshClient(projectId) {
         }
       },
       subscribe(listener) {
+        if (disposed) return () => {};
         listeners.add(listener);
         listener('busy', currentBusy());
         listener('sessionRuns', currentSessionRuns());
+        listener('sessionTitles', currentSessionTitles());
         return () => listeners.delete(listener);
       },
-      async insertFile(sessionId, path, sourceRef) {
+      async insertFile(sessionId, path, sourceRef, selection) {
         if (ctx.sessions.binding(sessionId) === undefined) throw new Error('请先选择项目会话');
         const scope = ctx.sessions.scope(sessionId);
         const input = scope === undefined ? undefined : ctx.conversation.input.for(scope);
@@ -254,10 +267,10 @@ export async function createDshClient(projectId) {
         if (mention === undefined) throw new Error('此文件路径不能作为助手引用');
         const state = input.state.getSnapshot();
         const end = state.draft.length;
-        sourceRef ??= await resolveFileReference(transport.fetch, sessionId, path, lifetime.signal);
+        if (!selection) sourceRef ??= await resolveFileReference(transport.fetch, sessionId, path, lifetime.signal);
         lifetime.signal.throwIfAborted();
         if (ctx.sessions.binding(sessionId) === undefined) throw new Error('目标会话已关闭');
-        if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef), label: path, appearance: 'file', clipboardText: mention },
+        if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef, selection), label: selection ? `${path} · 选区` : path, appearance: 'file', clipboardText: mention },
           { start: end, end, draftRev: state.draftRev })) throw new Error('输入框正在提交，请稍后引用文件');
         input.focus();
       },
@@ -269,6 +282,7 @@ export async function createDshClient(projectId) {
         unsubscribeWorkspaces();
         unsubscribeStatus();
         notify('sessionRuns', {});
+        notify('sessionTitles', {});
         listeners.clear();
         await ctx.fiber.dispose();
         await transport.close();

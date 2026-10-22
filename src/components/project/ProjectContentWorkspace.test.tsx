@@ -17,6 +17,8 @@ import { useProjectContentStore } from "../../state/project-content-store";
 import type { RecordTarget } from "../../lib/record-document-types";
 import { queryKeys } from "../../lib/queryKeys";
 import voiceRecordIcon from "../../assets/icons/voice-record-color.svg";
+import { setDshWorkspaceRoot } from "../../lib/dsh-host-events";
+import { getContentLayout } from "../../lib/project-content-layout";
 
 const page = vi.hoisted(() => ({ mounts: vi.fn(), guard: vi.fn(async (_projectId: number, _recordId: number) => undefined) }));
 // Page internals are covered by WP3/4/5; exercise the real route, authority service and layout here.
@@ -33,6 +35,7 @@ vi.mock("./ProjectNoteFocusPage", () => ({ ProjectNoteFocusPage: function Record
 } }));
 vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: (props: { fileId: number; versionNumber?: number; line?: number; toolbarActions?: ReactNode }) =>
   <section aria-label="文件页"><header aria-label="文件工具栏">{props.toolbarActions}</header><p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p></section> }));
+vi.mock("../agent/ProjectSessionContent", () => ({ ProjectSessionContent: () => <section aria-label="会话正文" /> }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(), editorGet: vi.fn() } }));
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn() } }));
 vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("../../services/agentApi")>(),
@@ -64,7 +67,85 @@ beforeEach(() => {
   }));
   vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_binding, { object }) => ({ object, currentVersionNumber: 3, currentContentHash: "sha256:current", versions: [], nextCursor: null }));
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { setDshWorkspaceRoot(null); vi.restoreAllMocks(); });
+it("updates a background Session tab after automatic title generation without changing selection or panes", async () => {
+  setDshWorkspaceRoot(workspaceRoot);
+  const scope = { workspaceId: binding.workspaceId, projectId: 7 };
+  const store = useProjectContentStore.getState();
+  const sessionTab = store.open(scope, { kind: "session", id: "session-a", title: "新会话" });
+  store.open(scope, { kind: "record", id: 1, title: "Record 1" });
+  fixture();
+  await screen.findByLabelText("编辑1");
+  const before = getContentLayout(useProjectContentStore.getState(), scope);
+  act(() => { window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+    detail: { projectId: 7, titlesBySession: { "session-a": "自动生成的会话标题" } },
+  })); });
+  await screen.findByRole("tab", { name: "自动生成的会话标题" });
+  const after = getContentLayout(useProjectContentStore.getState(), scope);
+  expect(after.tabs.find(tab => tab.id === sessionTab)?.object.title).toBe("自动生成的会话标题");
+  expect(after.panes).toEqual(before.panes);
+  expect(after.focusedPaneId).toBe(before.focusedPaneId);
+  expect(screen.getByRole("tab", { name: "Record 1" })).toHaveAttribute("aria-selected", "true");
+});
+it("restores the latest Session title when the catalog arrives before the content workspace mounts", async () => {
+  setDshWorkspaceRoot(workspaceRoot);
+  const scope = { workspaceId: binding.workspaceId, projectId: 7 };
+  const store = useProjectContentStore.getState();
+  const tabId = store.open(scope, { kind: "session", id: "session-a", title: "新会话" });
+  window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+    detail: { projectId: 7, titlesBySession: { "session-a": "恢复的会话标题" } },
+  }));
+  fixture(`/projects/7?content=${tabId}`);
+  expect(await screen.findByRole("tab", { name: "恢复的会话标题" })).toHaveAttribute("aria-selected", "true");
+  expect(getContentLayout(useProjectContentStore.getState(), scope).tabs[0].id).toBe(tabId);
+});
+it("preserves an accepted manual rename until a newer catalog title arrives", async () => {
+  setDshWorkspaceRoot(workspaceRoot);
+  const scope = { workspaceId: binding.workspaceId, projectId: 7 };
+  const store = useProjectContentStore.getState();
+  const tabId = store.open(scope, { kind: "session", id: "session-a", title: "新会话" });
+  window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+    detail: { projectId: 7, titlesBySession: { "session-a": "自动标题" } },
+  }));
+  fixture(`/projects/7?content=${tabId}`);
+  await screen.findByRole("tab", { name: "自动标题" });
+  // manageProjectSession writes the accepted title before its asynchronous catalog event arrives.
+  act(() => store.updateTitle(scope, tabId, "用户重命名"));
+  expect(screen.getByRole("tab", { name: "用户重命名" })).toBeInTheDocument();
+  act(() => { window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+    detail: { projectId: 7, titlesBySession: { "session-a": "用户重命名" } },
+  })); });
+  expect(screen.getByRole("tab", { name: "用户重命名" })).toBeInTheDocument();
+});
+it("keeps Session title updates within their Project and Workspace without touching other content", async () => {
+  setDshWorkspaceRoot(workspaceRoot);
+  const scope = { workspaceId: binding.workspaceId, projectId: 7 };
+  const store = useProjectContentStore.getState();
+  const tabId = store.open(scope, { kind: "session", id: "same-id", title: "保留的会话标题" });
+  store.open({ ...scope, projectId: 8 }, { kind: "session", id: "same-id", title: "另一项目" });
+  store.open({ ...scope, workspaceId: "other-workspace" }, { kind: "session", id: "same-id", title: "另一工作区" });
+  store.open(scope, { kind: "file", id: 51, title: "文件标题" });
+  fixture("/projects/7?view=overview");
+  await screen.findByRole("tab", { name: "保留的会话标题" });
+  act(() => { window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+    detail: { projectId: 8, titlesBySession: { "same-id": "不属于当前项目" } },
+  })); });
+  expect(screen.getByRole("tab", { name: "保留的会话标题" })).toBeInTheDocument();
+  act(() => { window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+    detail: { projectId: 7, titlesBySession: { "same-id": "当前项目新标题", "51": "不能修改文件" } },
+  })); });
+  await screen.findByRole("tab", { name: "当前项目新标题" });
+  expect(screen.getByRole("tab", { name: "文件标题" })).toBeInTheDocument();
+  expect(getContentLayout(useProjectContentStore.getState(), { ...scope, projectId: 8 }).tabs[0].object.title).toBe("另一项目");
+  expect(getContentLayout(useProjectContentStore.getState(), { ...scope, workspaceId: "other-workspace" }).tabs[0].object.title).toBe("另一工作区");
+  act(() => {
+    setDshWorkspaceRoot("/other-workspace");
+    window.dispatchEvent(new CustomEvent("mind:dsh-session-titles", {
+      detail: { projectId: 7, titlesBySession: { "same-id": "不属于当前工作区" } },
+    }));
+  });
+  expect(getContentLayout(useProjectContentStore.getState(), scope).tabs.find(tab => tab.id === tabId)?.object.title).toBe("当前项目新标题");
+});
 it("restores the voice icon for an older saved Record tab without reopening its editor", async () => {
   const id = useProjectContentStore.getState().open({ workspaceId: binding.workspaceId, projectId: 7 }, { kind: "record", id: 1, title: "Record 1" });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

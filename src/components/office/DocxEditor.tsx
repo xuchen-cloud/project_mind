@@ -7,9 +7,11 @@ import type {DocxModel,Edit} from '../../../packages/office-docx/types';
 import type {EditorController,EditorOptions,FaceVerticalMetrics,EditorRemoteImage} from '../../../packages/office-docx/editor-types';
 export type {FaceVerticalMetrics} from '../../../packages/office-docx/editor-types';
 export type {DocxModel,DocxModel as Model,Edit,Edit as DocxEdit} from '../../../packages/office-docx/types';
+export type DocxSelectionController=Pick<EditorController,'captureSelection'|'replaceSelection'>&{applySelection(input:{selectionId:string;change:unknown}):Promise<{text:string}>};
 export interface DocxEditorProps{
   model:DocxModel;edits:Edit[];onChange(edits:Edit[]):void;readOnly?:boolean;presentationMode?:'preview'|'edit';
   registerOutput?:RegisterEditorOutput;
+  registerSelection?:(controller:DocxSelectionController)=>()=>void;
   registerBeforeSave?:(callback:()=>Promise<void>)=>()=>void;
   onPendingChange?:(pending:boolean)=>void;
   onSaveRequest?:()=>void|Promise<void>;
@@ -50,6 +52,16 @@ export function DocxEditor(props:DocxEditorProps){
   useEffect(()=>props.registerBeforeSave?.(async()=>{
     const mounted=await mounting.current;if(!mounted)throw Error('Word 编辑器尚未加载');await mounted.beforeSave?.();
   }),[props.registerBeforeSave]);
+  useEffect(()=>{
+    let active=true;
+    const mountedController=async()=>{const mounted=await mounting.current;if(!active||!mounted||controller.current!==mounted)throw Error('Word 编辑器已关闭');return mounted;};
+    const replaceSelection:EditorController['replaceSelection']=async input=>(await mountedController()).replaceSelection(input);
+    const unregister=props.registerSelection?.({captureSelection:async()=>(await mountedController()).captureSelection(),replaceSelection,applySelection:async({selectionId,change})=>{
+      if(typeof change!=='object'||change===null||!('text'in change)||typeof change.text!=='string')throw Error('Word 替换内容必须包含纯文字 text');
+      return replaceSelection({selectionId,text:change.text});
+    }});
+    return()=>{active=false;unregister?.();};
+  },[props.registerSelection]);
   useEffect(()=>props.registerOutput?.(async command=>{
     if (!['pdf','images','html','print','preview'].includes(command)) throw Error('Word 不支持此输出格式');
     const mounted=await mounting.current;
