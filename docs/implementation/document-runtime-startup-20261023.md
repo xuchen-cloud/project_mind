@@ -35,7 +35,7 @@
 
 ### 相同源码和锁的缓存复用
 
-- root 为 `/Users/xuchen/project_mind`；执行工作树为 `/Users/xuchen/.codex/worktrees/document-runtime-startup/project_mind`。
+- root 指仓库主工作树；执行目录为本任务的 `document-runtime-startup` 工作树。
 - 用 Python 调用 `git ls-files -z`，逐文件比较两处实际字节：1,692 个 Office/Markdown 与共享构建相关 tracked 文件一致，其中包括 29 个 Office XLSX native engine 文件及其 Cargo manifest/lock/config。根 `package-lock.json` 与依赖声明也一致。
 - 五个 Office/Markdown 包的 `node_modules/.mind-office-lock` 均匹配各自 lock 的实际 SHA-256。
 - 固定 Node 归档实际 SHA-256 为 `bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057`，匹配本工作树 manifest。
@@ -44,10 +44,10 @@
 
 ### 实际命令与结果
 
-工作目录为上述执行工作树。实际运行命令为：
+工作目录为上述执行工作树，使用系统 `time -l` 记录耗时和资源。实际运行的准备命令为：
 
 ```sh
-/usr/bin/time -l env CARGO_INCREMENTAL=0 npm run prepare:dev-runtime
+CARGO_INCREMENTAL=0 npm run prepare:dev-runtime
 ```
 
 退出码 **0**；墙钟耗时 **27.61 秒**，user **51.83 秒**，sys **4.44 秒**，最大 RSS **861,487,104 bytes**（约 822 MiB）。原 npm、Node、Vite、Office 和 Cargo 子进程均真实执行；没有伪造 spawn 或跳过 native 构建。
@@ -75,7 +75,7 @@ Desktop development backend resources prepared for aarch64-apple-darwin (darwin-
 ```
 
 - 原脚本实际校验并解压官方固定 Node 归档，重新构建 Record/Source、生成收据和共享资源，再完成 HTML→DOCX、Word、Excel、PPT 及 Office 分发组装。XLSX native release 复用 cloned target 的依赖缓存，只重编译本地 `xlsx-sidecar` crate，耗时 10.94 秒。
-- 原始日志保存在本机 `/var/folders/kw/lqtydwgd1sb5hykvcv961q6m0000gn/T/document-runtime-startup-prepare-s7lzkrxf.log`，SHA-256 为 `5a02b423a9db5d63b423bdeefd723d533b7b4f850c0034b16e2a54de7caa8e0c`；关键命令与输出已在本记录中保存。
+- 原始日志保存在本机临时目录的 `document-runtime-startup-prepare-s7lzkrxf.log`，SHA-256 为 `5a02b423a9db5d63b423bdeefd723d533b7b4f850c0034b16e2a54de7caa8e0c`；关键命令与输出已在本记录中保存。
 - 执行前后磁盘可用空间为 1,226.2 → 747.2 MiB（同期净变化，主线程也有构建）。此前磁盘协调期间，仅删除本任务自建克隆和旧生成产物；其他用户缓存未动。
 - 开发准备后没有生成 `src-tauri/resources/dsh-assistant` 或 `src-tauri/resources/office-editor`。没有运行 Tauri 应用 Cargo、Vite dev、应用窗口、review 子 agent 或远端写操作。
 
@@ -89,3 +89,9 @@ Desktop development backend resources prepared for aarch64-apple-darwin (darwin-
 ## 平台验证边界
 
 macOS arm64 已完成真实完整准备及本轮产物验证。macOS x64、Windows x64、Linux x64 已通过 host/target 与命令选择测试，尚未作这些平台的完整准备实机验收。
+
+## Standards / Spec 主 agent 检查
+
+- 固定基线 `origin/develop@77afa4f`。Standards：检查完整七文件差异；复用现有 pinned Node 校验、资源准备和分发接缝，开发与发行 target 选择明确，准备失败阻止启动。修正文档的本机绝对路径后，没有剩余发现。
+- Spec：#224 的常规及 manual Tauri 开发入口统一准备 Record / Source / Office，保留固定 Node、Source 收据及原发行命令；真实完整准备与本轮 worker 产物验证通过。没有剩余发现。
+- 未启动 review 子 agent。最终源码仍为 `ddf405c`，后续仅修订验证文档；复用上文有效验证，不重跑应用构建或前端全量。
