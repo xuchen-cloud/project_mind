@@ -25,12 +25,9 @@ const resources = path.join(root,'src-tauri/resources');
 const staging = await mkdtemp(path.join(resources,'.office-editor-'));
 try {
   await mkdir(path.join(staging,'src'));
-  await copyFile(path.join(runtimeRoot,executable),path.join(staging,executable));
-  await copyFile(path.join(runtimeRoot,'NODE-LICENSE'),path.join(staging,'NODE-LICENSE'));
   await copyFile(path.join(host,'src/office-worker-entry.mjs'),path.join(staging,'src/office-worker-entry.mjs'));
   await cp(source,path.join(staging,'office-dist'),{recursive:true});
   if (!target.startsWith('win-')) {
-    await chmod(path.join(staging,executable),0o755);
     await chmod(path.join(staging,'office-dist/xlsx-sidecar'),0o755);
   }
   // Verify the copied snapshot before replacing the previous packaged utility.

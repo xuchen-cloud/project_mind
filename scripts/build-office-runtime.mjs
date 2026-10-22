@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { copyFile, cp, mkdir, readFile, rm, writeFile, readdir, lstat } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -29,32 +29,10 @@ await run(['run','verify:vendor'],markdown);
 const html2docx = path.join(root, 'packages/office-html2docx');
 await installLocked(html2docx);
 await run(['run','build'],html2docx);
-const distribution = path.join(root, 'packages/agent-host/office-dist');
-await rm(distribution, { recursive: true, force: true });
-await mkdir(distribution, { recursive: true });
 for (const format of ['docx', 'xlsx', 'pptx']) {
   const source = path.join(root, `packages/office-${format}`);
   await installLocked(source);
   await run(['run','build'],source,{...process.env,OFFICE_RUST_TARGET:target.rustTarget});
-  const destination = path.join(distribution, format);
-  await rm(destination, {recursive:true,force:true});
-  await cp(path.join(source,'dist'), destination, {recursive:true,filter: file => !file.endsWith('.meta.json') && !file.endsWith('.d.mts')});
-  await writeFile(path.join(distribution,`${format}-engine.mjs`),`export * from './${format}/engine.mjs';\n`);
 }
-const executable = target.platform === 'win32' ? 'xlsx-sidecar.exe' : 'xlsx-sidecar';
-await copyFile(path.join(root, 'packages/office-xlsx/dist', executable),path.join(distribution,executable));
-await copyFile(path.join(root, 'packages/office-runtime/worker.mjs'),path.join(distribution,'worker.mjs'));
-const files = [];
-async function visit(directory, prefix = '') {
-  for (const entry of (await readdir(directory, {withFileTypes:true})).sort((a,b) => a.name.localeCompare(b.name))) {
-    const name = prefix + entry.name;
-    if (name === 'office-distribution.json') continue;
-    const file = path.join(directory,entry.name); const stat = await lstat(file);
-    if (stat.isSymbolicLink()) throw new Error(`Office asset cannot be a symlink: ${name}`);
-    if (entry.isDirectory()) await visit(file, name + '/');
-    else if (entry.isFile()) files.push({file:name,sha256:checksum(await readFile(file))});
-    else throw new Error(`Invalid Office asset: ${name}`);
-  }
-}
-await visit(distribution);
-await writeFile(path.join(distribution,'office-distribution.json'),JSON.stringify({schemaVersion:1,rustTarget:target.rustTarget,runtimeTarget:target.runtimeTarget,upstream:'d32d1711f1bf985430757b8c6b3fbddd3831d946',files},null,2)+'\n');
+const { assembleOfficeDistribution } = await import('./office-distribution.mjs');
+await assembleOfficeDistribution(root, target.rustTarget);

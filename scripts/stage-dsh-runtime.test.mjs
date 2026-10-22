@@ -78,9 +78,16 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
     await put(path.join(root, 'LICENSE'), `MIT ${name}`);
   }
   await put(path.join(production, browser), '<html>DSH browser</html>');
-  await put(path.join(production, 'node_modules/node-pty/prebuilds/darwin-x64/pty.node'), 'fixture-native');
-  await put(path.join(production, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fixture-helper');
-  await chmod(path.join(production, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 0o755);
+  for (const platform of ['darwin', 'linux', 'win32']) {
+    for (const arch of ['x64', 'arm64']) {
+      const prebuilt = path.join(production, 'node_modules/node-pty/prebuilds', `${platform}-${arch}`);
+      const names = platform === 'win32'
+        ? ['conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']
+        : platform === 'darwin' ? ['pty.node', 'spawn-helper'] : ['pty.node'];
+      for (const name of names) await put(path.join(prebuilt, name), `${platform}-${arch}/${name}`);
+      if (platform === 'darwin') await chmod(path.join(prebuilt, 'spawn-helper'), 0o755);
+    }
+  }
   await symlink('../vendor/dsh-desktop-client-ui', path.join(production, 'node_modules/dsh-desktop-client-ui'), 'dir');
   await put(path.join(shared, 'node'), 'shared-pinned-node');
   await put(path.join(shared, 'dist/record-document-worker.mjs'), 'keep-record');
@@ -133,6 +140,66 @@ test('DSH staging preserves imports/browser and independent home, selects target
   await rm(path.join(f.destination, 'unlisted.txt'));
   await put(path.join(f.destination, browser), 'tampered');
   await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+});
+
+test('node-pty staging retains only target prebuilds and preserves all other package files', async t => {
+  const f = await fixture(t);
+  const location = 'node_modules/node-pty';
+  const retained = {
+    'lib/utils.js': 'official loader',
+    'lib/windowsTerminal.js': 'official Windows implementation',
+    'lib/unixTerminal.js': 'official Unix implementation',
+    'src/unix/pty.cc': 'upstream native source',
+    'README.md': 'upstream documentation',
+    'third_party/conpty/LICENSE': 'upstream third-party license',
+    'prebuilds/darwin-x64/resources/extra.bin': Buffer.from([0, 255, 10]),
+  };
+  for (const [name, contents] of Object.entries(retained)) await put(path.join(f.production, location, name), contents);
+  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  assert.deepEqual(await readdir(path.join(f.destination, location, 'prebuilds')), ['darwin-x64']);
+  for (const [name, contents] of Object.entries(retained)) {
+    assert.deepEqual(await readFile(path.join(f.destination, location, name)), Buffer.from(contents));
+    assert.ok(manifest.files.some(entry => entry.file === `${location}/${name}`));
+  }
+  assert.equal(await readFile(path.join(f.destination, location, 'LICENSE'), 'utf8'), 'MIT node-pty');
+  assert.deepEqual((await readdir(path.join(f.production, location, 'prebuilds'))).sort(),
+    ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
+});
+
+test('arm64 and Linux staging select the release target and fail if its node-pty prebuild is missing', async t => {
+  for (const target of ['darwin-arm64', 'linux-x64']) await t.test(target, async t => {
+    const f = await fixture(t);
+    await json(path.join(f.repository, 'packages/agent-host/runtime-manifest.json'), {
+      nodeVersion: '24.21.0', targets: { [target]: { sha256: 'pinned-archive' } },
+    });
+    await json(path.join(f.shared, 'runtime.json'), {
+      target, nodeVersion: '24.21.0', sourceArchiveChecksum: 'pinned-archive', nodeChecksum: checksum('shared-pinned-node'),
+    });
+    await stageDshRuntime(f.repository, target, f.production);
+    const verified = await verifyDshDistribution(f.destination, target);
+    const prebuilds = 'node_modules/node-pty/prebuilds';
+    assert.deepEqual(await readdir(path.join(f.destination, prebuilds)), [target]);
+    assert.equal(await readFile(path.join(f.destination, prebuilds, target, 'pty.node'), 'utf8'), `${target}/pty.node`);
+    if (target === 'darwin-arm64') {
+      assert.equal((await lstat(path.join(f.destination, prebuilds, target, 'spawn-helper'))).mode & 0o111, 0o111);
+    }
+    await rm(path.join(f.production, prebuilds, target), { recursive: true });
+    await assert.rejects(stageDshRuntime(f.repository, target, f.production), { code: 'ENOENT' });
+    assert.equal((await verifyDshDistribution(f.destination, target)).manifestChecksum, verified.manifestChecksum);
+  });
+});
+
+test('verification rejects non-target node-pty prebuilds even with a matching manifest inventory', async t => {
+  const f = await fixture(t);
+  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  const file = 'node_modules/node-pty/prebuilds/win32-arm64/conpty.node';
+  await put(path.join(f.destination, file), 'unexpected prebuild');
+  const files = [...manifest.files, { file, checksum: checksum('unexpected prebuild'), executable: false }]
+    .sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+  await json(path.join(f.destination, 'dsh-distribution.json'), { ...manifest, files });
+  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /non-target node-pty prebuild/);
 });
 
 test('all bundled skills and resources ship with verified inventory; required skill is mandatory', async t => {
@@ -220,8 +287,17 @@ test('Windows staging uses shared node.exe and requires target ConPTY assets wit
   await copyFile(path.join(f.shared, 'node'), path.join(f.shared, 'node.exe'));
   const prebuilt = path.join(f.production, 'node_modules/node-pty/prebuilds/win32-x64');
   for (const name of ['conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']) await put(path.join(prebuilt, name), name);
+  await put(path.join(prebuilt, 'conpty/resources/extra.bin'), Buffer.from([0, 255, 10]));
   await stageDshRuntime(f.repository, 'win-x64', f.production);
-  assert.equal((await verifyDshDistribution(f.destination, 'win-x64')).manifest.node.executable, '../agent-host/node.exe');
+  const { manifest } = await verifyDshDistribution(f.destination, 'win-x64');
+  assert.equal(manifest.node.executable, '../agent-host/node.exe');
+  assert.deepEqual(await readdir(path.join(f.destination, 'node_modules/node-pty/prebuilds')), ['win32-x64']);
+  for (const name of await readdir(prebuilt, { recursive: true })) {
+    if (!(await lstat(path.join(prebuilt, name))).isFile()) continue;
+    const relative = `node_modules/node-pty/prebuilds/win32-x64/${name.split(path.sep).join('/')}`;
+    assert.deepEqual(await readFile(path.join(f.destination, relative)), await readFile(path.join(prebuilt, name)));
+    assert.ok(manifest.files.some(entry => entry.file === relative));
+  }
   await rm(path.join(prebuilt, 'conpty/conpty.dll'));
   await assert.rejects(stageDshRuntime(f.repository, 'win-x64', f.production), { code: 'ENOENT' });
   await verifyDshDistribution(f.destination, 'win-x64');

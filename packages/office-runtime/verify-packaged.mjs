@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const resources = await realpath(path.join(root, 'src-tauri/resources/office-editor'));
-const node = path.join(resources, process.platform === 'win32' ? 'node.exe' : 'node');
+const node = path.resolve(resources, '../agent-host', process.platform === 'win32' ? 'node.exe' : 'node');
 const entry = path.join(resources, 'src/office-worker-entry.mjs');
 const distribution = path.join(resources, 'office-dist');
 const guard = "data:text/javascript,if(process.versions.node!==%2724.21.0%27)throw%20new%20Error(%27Unsupported%20Office%20runtime%27)";

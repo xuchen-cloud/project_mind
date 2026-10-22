@@ -77,10 +77,13 @@ export async function dshNoticeAssets(roots) {
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-async function copyClean(source, destination, omitDependencies = false) {
+async function copyClean(source, destination, omitDependencies = false, nodePtyTarget) {
   await cp(source, destination, { recursive: true, filter: async file => {
     const parts = path.relative(source, file).split(path.sep);
     if (parts.some(part => excluded.has(part)) || (omitDependencies && parts.includes('node_modules'))) return false;
+    // Keep the complete selected prebuild (including ConPTY helpers), and
+    // leave node-pty's JS, sources and notices outside prebuilds untouched.
+    if (nodePtyTarget && parts[0] === 'prebuilds' && parts.length > 1 && parts[1] !== nodePtyTarget) return false;
     if ((await lstat(file)).isSymbolicLink()) throw new Error(`Unexpected DSH source symlink: ${file}`);
     return true;
   } });
@@ -128,7 +131,7 @@ async function copyDependencies(source, destination, target, lock) {
         if (!pinned.optional) throw new Error(`Required DSH dependency does not support ${target.runtimeTarget}: ${pkg.name}`);
         continue;
       }
-      await copyClean(root, copied, true);
+      await copyClean(root, copied, true, pkg.name === 'node-pty' ? `${target.platform}-${target.arch}` : undefined);
       roots.push(copied);
       try { await lstat(path.join(root, 'node_modules')); }
       catch (error) { if (error.code === 'ENOENT') continue; throw error; }
@@ -189,12 +192,14 @@ async function validateAssets(directory, target) {
   // The pinned node-pty ships prebuilds: no node-gyp or general postinstall approval.
   const pty = path.join(directory, 'node_modules/node-pty');
   if (lock.packages['node_modules/node-pty']) {
-    const prebuilt = path.join(pty, 'prebuilds', `${target.platform}-${target.arch}`);
+    const prebuildTarget = `${target.platform}-${target.arch}`;
+    const prebuilt = path.join(pty, 'prebuilds', prebuildTarget);
     const names = target.platform === 'win32'
       ? ['conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']
       : target.platform === 'darwin' ? ['pty.node', 'spawn-helper'] : ['pty.node'];
     for (const name of names) await regularFile(path.join(prebuilt, name));
     if (target.platform === 'darwin' && !((await lstat(path.join(prebuilt, 'spawn-helper'))).mode & 0o111)) throw new Error('DSH node-pty spawn-helper requires executable permissions');
+    if ((await readdir(path.join(pty, 'prebuilds'))).some(name => name !== prebuildTarget)) throw new Error('DSH distribution contains non-target node-pty prebuilds');
   }
   if (lock.packages['node_modules/koffi']) {
     const location = `node_modules/@koromix/koffi-${target.platform}-${target.arch}`;
