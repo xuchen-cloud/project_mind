@@ -17,7 +17,7 @@ import { printEditorHtml, renderEditorPdf } from '../../services/editorPrint';
 import { desktopApi } from '../../services/desktopApi';
 import { inspectImportedWorkbook } from '../../services/editorWorkbookImport';
 import './office-file-content.css';
-import type { RecalculateRequest } from '../../../packages/office-xlsx/types';
+import type { RecalculateRequest, Model as XlsxModel } from '../../../packages/office-xlsx/types';
 import {loadDocxEditor, loadXlsxEditor, loadPptxEditor} from './office-component-loader';
 async function convertAltChunkHtml(html: string) {
   const converter = await import('../../../packages/office-html2docx/dist/index.mjs');
@@ -67,6 +67,7 @@ export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline
   },[fileName]);
   const objectKey = JSON.stringify(baseline.object);
   const session = useRef<OfficeEditSession<OfficeModel,OfficeEdit> | null>(null);
+  const savedXlsxModel = useRef<{previous:XlsxModel;current:XlsxModel} | undefined>(undefined);
   const saveOperation = useRef<{session: OfficeEditSession<OfficeModel,OfficeEdit>; promise: Promise<void>} | null>(null);
   const sessionBinding = useRef<AgentWorkspaceBinding | null>(null);
   const [snapshot,setSnapshot] = useState<ReturnTypeSnapshot>();
@@ -111,7 +112,7 @@ export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline
     if (sessionBinding.current?.workspaceId === binding.workspaceId && sessionBinding.current.generation === binding.generation
       && current?.versionNumber === baseline.versionNumber && current.expectedContentHash === baseline.expectedContentHash && JSON.stringify(current.object) === objectKey) return;
     const epoch = ++lifetime.current;
-    session.current = null; pendingEditor.current = false; setEditorPending(false); setSnapshot(undefined); setReading(true); setError(undefined); setEditing(false); setOutputBusy(false); setOutputError(undefined);
+    session.current = null; savedXlsxModel.current = undefined; pendingEditor.current = false; setEditorPending(false); setSnapshot(undefined); setReading(true); setError(undefined); setEditing(false); setOutputBusy(false); setOutputError(undefined);
     const cached = readOnly ? undefined : officePreviewCache.get(binding,baseline);
     void (cached ? Promise.resolve({model:cached}) : officeFileApi.inspect(binding,baseline)).then(result => {
       if (lifetime.current !== epoch) return;
@@ -153,10 +154,12 @@ export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline
       setError(reason.message);
       throw reason;
     }
+    const previousModel = current.snapshot.model;
     const pending = current.save(); publish();
     try {
       const result = await pending;
       if (epoch !== lifetime.current) return;
+      if (result && previousModel.format === 'xlsx' && result.model.format === 'xlsx') savedXlsxModel.current = {previous:previousModel,current:result.model};
       publish();
       if (result) {
         officePreviewCache.remember(binding,current.snapshot.baseline,result.model);
@@ -269,7 +272,7 @@ export function OfficeFileContent({toolbar,menuToolbar,fileName,binding,baseline
       {snapshot && !components[snapshot.model.format] && !componentError ? <EditorLoading format={snapshot.model.format} stage="runtime" /> : null}
       <OfficeFormatCommit format={snapshot && components[snapshot.model.format] ? snapshot.model.format : undefined}>
         {snapshot?.model.format === 'docx' && DocxEditor ? <DocxEditor onFetchImage={fetchImage} onGetSystemFonts={desktopApi.listSystemFontFamilies} onFontMetrics={desktopApi.editorFontMetrics} onConvertAltChunkHtml={convertAltChunkHtml} model={snapshot.model} edits={snapshot.edits as DocxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} />
-          : snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
+          : snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor savedModelUpdate={savedXlsxModel.current} model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
           : snapshot?.model.format === 'pptx' && PptxEditor ? <PptxEditor model={snapshot.model} edits={snapshot.edits as PptxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} /> : null}
       </OfficeFormatCommit>
     </div>

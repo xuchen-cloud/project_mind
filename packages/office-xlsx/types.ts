@@ -61,6 +61,9 @@ export interface RecalculateResult {
 export interface ExportFile { name: string; mime: string; bytes: Uint8Array }
 export interface PrintDocument { html: string; title?: string; pageSize?: { widthPt: number; heightPt: number } }
 export interface EditorProps {
+  /** Exact native save receipt; unrelated model replacements must omit this. */
+  savedModelUpdate?: {previous: Model; current: Model}
+
   /** The same renderer and view state; preview locks editing and hides editing controls. */
   presentationMode?: 'preview' | 'edit'
   model: Model; edits: Edit[]; onChange: (edits: Edit[]) => void; readOnly: boolean
