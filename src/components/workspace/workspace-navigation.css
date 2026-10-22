@@ -2,4 +2,7 @@
 .workspace-navigation .project-navigation__search { padding-inline:8px; }
 .workspace-navigation .project-navigation__tags { padding-inline:8px; }
 .workspace-navigation .project-navigation__tag-cloud { padding-right:0; }
-.workspace-navigation .home-side__item { min-height:30px; padding-block:5px; }
+.workspace-navigation .home-side__scroll { padding-inline:8px; }
+.workspace-navigation .home-side__section > .home-side__heading { margin-right:0; }
+.workspace-navigation .home-side__project .text-body { font:inherit; color:inherit; }
+.workspace-navigation .home-side__project-icon { color:inherit; }

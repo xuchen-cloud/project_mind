@@ -51,7 +51,7 @@ it("loads real API sessions without selecting/creating, and filters titles local
   expect(api.start).toHaveBeenCalledTimes(1);
 });
 
-it("shows only a spinner while loading and keeps only creation in the heading", async () => {
+it("shows the loading spinner in the heading immediately before creation", async () => {
   const pending = deferred<typeof saved>();
   api.sessions.mockReturnValueOnce(pending.promise);
   render(component());
@@ -63,7 +63,9 @@ it("shows only a spinner while loading and keeps only creation in the heading", 
   expect(screen.queryByRole("button", { name: "刷新会话" })).toBeNull();
   const create = screen.getByRole("button", { name: "新增会话" });
   expect(create).toBeDisabled();
-  expect(create.parentElement?.children).toHaveLength(1);
+  expect(create.previousElementSibling).toBe(status);
+  expect(status.closest(".home-side__heading")).not.toBeNull();
+  expect(screen.getByRole("region", { name: "项目会话列表" })).not.toContainElement(status);
   await act(async () => pending.resolve(saved));
   expect(screen.queryByRole("status")).toBeNull();
   expect(create).toBeEnabled();
@@ -197,7 +199,11 @@ it("reuses runtime status without starting an active run or polling", async () =
   useAgentPanelStore.getState().setSessionRuns("/workspace", 7, { alpha: true, beta: false });
   const view = render(component());
   const alpha = await screen.findByRole("button", { name: /Alpha/ });
-  expect(within(alpha).getByLabelText("运行中")).toBeInTheDocument();
+  const running = within(alpha).getByRole("status", { name: "运行中" });
+  expect(running.tagName.toLowerCase()).toBe("svg");
+  expect(running).toHaveClass("home-side__running", "spin");
+  expect(alpha.lastElementChild).toBe(running);
+  expect(alpha).not.toHaveTextContent("运行中");
   expect(within(screen.getByRole("button", { name: /Beta/ })).queryByLabelText("运行中")).toBeNull();
   act(() => useAgentPanelStore.getState().setSessionRuns("/workspace", 7, { alpha: false, beta: true }));
   expect(within(alpha).queryByLabelText("运行中")).toBeNull();
@@ -298,6 +304,7 @@ it("shows a single text-free spinner until content opening finishes", async () =
   expect(status.textContent).toBe("");
   expect(status.querySelector("svg")).toHaveClass("spin");
   expect(screen.queryByText(/正在读取|正在打开/)).toBeNull();
+  expect(screen.getByRole("button", { name: "新增会话" }).previousElementSibling).toBe(status);
   expect(screen.getByRole("button", { name: "新增会话" })).toBeDisabled();
   await act(async () => pending.resolve());
   expect(screen.queryByRole("status")).toBeNull();
