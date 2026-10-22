@@ -19,12 +19,12 @@ function run(executable, argv) {
   });
 }
 if (command === 'check' || command === 'build') {
-  for (const file of ['scripts/desktop.mjs', 'scripts/runtime.mjs', 'scripts/skills.mjs', 'scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/isolation.mjs', 'scripts/shared-model.mjs', 'scripts/project-workspace.mjs', 'scripts/office-service.mjs', 'vendor/dsh-desktop-client-ui/index.js', 'vendor/dsh-desktop-client-ui/client.js']) await run(process.execPath, ['--check', file]);
+  for (const file of ['scripts/desktop.mjs', 'scripts/runtime.mjs', 'scripts/model-utility.mjs', 'scripts/model-utility-entry.mjs', 'scripts/skills.mjs', 'scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/isolation.mjs', 'scripts/shared-model.mjs', 'scripts/project-workspace.mjs', 'scripts/office-service.mjs', 'vendor/dsh-desktop-client-ui/index.js', 'vendor/dsh-desktop-client-ui/client.js']) await run(process.execPath, ['--check', file]);
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const pin = JSON.parse(await readFile(path.join(root, 'upstream.json'), 'utf8'));
   for (const name of ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']) {
     const installed = JSON.parse(await readFile(path.join(root, 'node_modules', name, 'package.json'), 'utf8'));
-    if (installed.version !== pin.dshVersion || manifest.dependencies[name] !== pin.dshVersion) throw new Error(`Version mismatch: ${name}`);
+    if (installed.version !== pin.dshVersion || manifest.dependencies[name] !== (name === '@deepseek-ai/dsh-web-app' ? 'file:vendor/dsh-web-app' : pin.dshVersion)) throw new Error(`Version mismatch: ${name}`);
   }
   await access(path.join(root, 'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html'));
   process.stdout.write('Pinned Node DSH and upstream browser assets ready.\n');

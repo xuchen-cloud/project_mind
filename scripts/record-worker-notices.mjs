@@ -5,12 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const checksum = (text) => createHash('sha256').update(text).digest('hex');
 const vendorLicenses = fileURLToPath(new URL('./vendor-licenses/', import.meta.url));
-const piPackages = new Set(['@earendil-works/pi-coding-agent', '@earendil-works/chord', '@earendil-works/pi-agent-core',
-  '@earendil-works/pi-ai', '@earendil-works/pi-codemode', '@earendil-works/pi-mcp', '@earendil-works/pi-telemetry', '@earendil-works/pi-tui']);
 const licenseSupplements = {
-  '@aws-sdk/credential-provider-http@3.972.72': ['Apache-2.0', 'aws-sdk-js-v3.LICENSE'],
-  '@aws-sdk/credential-provider-login@3.972.77': ['Apache-2.0', 'aws-sdk-js-v3.LICENSE'],
-  '@aws-sdk/nested-clients@3.997.44': ['Apache-2.0', 'aws-sdk-js-v3.LICENSE'],
   'proxy-agent-negotiate@1.1.0': ['MIT', 'proxy-agent-negotiate-1.1.0.LICENSE'],
   'standardwebhooks@1.1.1': ['MIT', 'standardwebhooks-1.1.1.LICENSE'],
 };
@@ -39,7 +34,7 @@ export async function recordWorkerNoticeAssets(bundle, utility = 'Record documen
   } };
 }
 
-/** Also used for the installed production Pi tree, including nested dependencies. */
+/** Also used for the installed DSH production tree, including nested dependencies. */
 export async function packageNoticeAssets(roots, utility) {
   const packages = await Promise.all(roots.map(async (root) => {
     const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
@@ -56,9 +51,7 @@ export async function packageNoticeAssets(roots, utility) {
       texts.push({ name: 'LICENSE (upstream 54811f01c797a6bb1c263183ae90b7dd627e0638)', text: await readFile(path.join(vendorLicenses, 'boolbase-1.0.0.LICENSE'), 'utf8') });
     }
     if (!texts.length) {
-      let supplement = licenseSupplements[`${manifest.name}@${manifest.version}`];
-      if (piPackages.has(manifest.name) && manifest.version === '0.99.1') supplement = ['MIT', 'pi-0.99.1.LICENSE'];
-      if (manifest.name?.startsWith('@esbuild/') && manifest.version === '0.28.2') supplement = ['MIT', 'esbuild-0.28.2.LICENSE'];
+      const supplement = licenseSupplements[`${manifest.name}@${manifest.version}`];
       if (supplement && manifest.license === supplement[0]) {
         texts.push({ name: supplement[1], text: await readFile(path.join(vendorLicenses, supplement[1]), 'utf8') });
       }
@@ -69,16 +62,6 @@ export async function packageNoticeAssets(roots, utility) {
         const end = readme.indexOf('\n[rfc]:', start);
         if (start < 0 || end < start) throw new Error('Missing data-uri-to-buffer README license');
         texts.push({ name: 'README.md (License)', text: readme.slice(start, end).trimEnd() + '\n' });
-      }
-    }
-    // Pi MCP retains a separately licensed vendored implementation.
-    if (manifest.name === '@earendil-works/pi-mcp' && manifest.version === '0.99.1') {
-      const directory = path.join(root, 'LICENSES');
-      for (const name of (await readdir(directory)).sort()) {
-        const file = path.join(directory, name);
-        const info = await lstat(file);
-        if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Invalid vendored Pi license: ${name}`);
-        texts.push({ name: `LICENSES/${name}`, text: await readFile(file, 'utf8') });
       }
     }
     if (!manifest.name || !manifest.version || !manifest.license || !texts.length) throw new Error(`Missing third-party license text: ${root}`);

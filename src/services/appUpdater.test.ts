@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetVersion, mockCheck, mockDownloadAndInstall, mockRelaunch } = vi.hoisted(() => ({
+const { mockGetVersion, mockCheck, mockDownloadAndInstall, mockCommand } = vi.hoisted(() => ({
   mockGetVersion: vi.fn(),
   mockCheck: vi.fn(),
   mockDownloadAndInstall: vi.fn(),
-  mockRelaunch: vi.fn(),
+  mockCommand: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -15,11 +15,7 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
   check: mockCheck,
 }));
 
-vi.mock("@tauri-apps/plugin-process", () => ({
-  relaunch: mockRelaunch,
-}));
-
-vi.mock("./desktopApi", () => ({ desktopApi: { prepareVoiceLeave: vi.fn(async () => true), flushOtherWorkspaceWindows: vi.fn(async () => {}), command: mockRelaunch } }));
+vi.mock("./desktopApi", () => ({ desktopApi: { prepareVoiceLeave: vi.fn(async () => true), flushOtherWorkspaceWindows: vi.fn(async () => {}), command: mockCommand } }));
 
 import { tauriAppUpdater } from "./appUpdater";
 
@@ -28,7 +24,7 @@ describe("tauriAppUpdater", () => {
     mockGetVersion.mockReset();
     mockCheck.mockReset();
     mockDownloadAndInstall.mockReset();
-    mockRelaunch.mockReset();
+    mockCommand.mockReset();
   });
 
   it("checks, installs, and relaunches through the Tauri updater boundary", async () => {
@@ -46,6 +42,6 @@ describe("tauriAppUpdater", () => {
     await tauriAppUpdater.install(update!);
 
     expect(mockDownloadAndInstall).toHaveBeenCalledOnce();
-    expect(mockRelaunch).toHaveBeenCalledOnce();
+    expect(mockCommand).toHaveBeenCalledExactlyOnceWith("app_restart");
   });
 });

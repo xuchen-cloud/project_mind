@@ -66,11 +66,11 @@ impl BridgeHandler for WorkspaceHandler {
         Box::pin(async move {
             if let Some(worker) = &self.record_worker {
                 dispatch::execute(
-                    self, &Arc::new(AtomicBool::new(true)), token, input, worker, &NoUtility, &NoUtility,
+                    self, &Arc::new(AtomicBool::new(true)), token, input, worker, &NoUtility,
                 ).await
             } else {
                 dispatch::execute(
-                    self, &Arc::new(AtomicBool::new(true)), token, input, &NoUtility, &NoUtility, &NoUtility,
+                    self, &Arc::new(AtomicBool::new(true)), token, input, &NoUtility, &NoUtility,
                 ).await
             }
         })
@@ -1286,12 +1286,6 @@ async fn real_keyring_client_roundtrip() {
     bridge.stop().await.unwrap();
     credentials::delete(&grant_id).unwrap();
     credentials::delete(&grant_id).unwrap();
-}
-
-impl crate::source_session_read::SessionHistoryUtility for NoUtility {
-    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
-        panic!("This fixture does not read session history")
-    }
 }
 
 // This headless transport fixture has no registered editors.

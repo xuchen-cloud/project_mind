@@ -71,8 +71,6 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
     let record = json!({"workspaceId":"test","scope":project_scope,"kind":"record","id":"1"});
     let todo = json!({"workspaceId":"test","scope":project_scope,"kind":"todo","id":"1"});
     let file = json!({"workspaceId":"test","scope":project_scope,"kind":"file","id":"1"});
-    let session_id = "a".repeat(32);
-    let message_id = "b".repeat(32);
     let reads = [
         ("mind_project_list", "project.list", json!({})),
         ("mind_context_get", "context.get", json!({"scope":workspace_scope.clone(),"budgetChars":100})),
@@ -81,8 +79,6 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         ("mind_knowledge_get", "knowledge.get", json!({"scope":workspace_scope.clone(),"nodeId":"node-1","budgetChars":100})),
         ("mind_source_search", "source.search", json!({"scope":workspace_scope.clone(),"query":"plan","budgetChars":100})),
         ("mind_source_read", "source.read", json!({"source":{"object":{"workspaceId":"test","scope":workspace_scope,"kind":"record","id":"1"}},"view":"full","budgetChars":100})),
-        ("mind_session_search", "session.search", json!({"scope":project_scope,"query":"plan","sessionId":session_id})),
-        ("mind_session_messages_read", "session.messages.read", json!({"sessionId":session_id,"messageId":message_id})),
         ("mind_record_blocks_get", "record.blocks.get", json!({"record":record})),
         ("mind_record_get", "record.get", json!({"record":record,"budgetChars":100})),
         ("mind_reference_list", "reference.list", json!({"object":record,"direction":"outgoing","limit":10,"budgetChars":1000})),

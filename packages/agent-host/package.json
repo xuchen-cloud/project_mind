@@ -1,23 +1,16 @@
 {
-  "name": "@project-mind/agent-host",
+  "name": "@project-mind/document-workers",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Native Pi Agent Host with durable sessions and isolated Record/Source utility workers.",
+  "description": "Isolated Record, Source and Office utility workers with one pinned Node runtime.",
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
-    "start": "node src/index.mjs",
-    "probe": "node src/probe-entry.mjs",
-    "check": "node --check src/index.mjs && node --check src/host-entry.mjs && node --check src/protocol.mjs && node --check src/host-protocol.mjs && node --check src/session-history.mjs && node --check src/session-history-scan.mjs && node --check src/overview-generation.mjs && node --check src/pi-spike.mjs && node --check src/context-policy.mjs && node --check src/session-codec.mjs && node --check src/probe-protocol.mjs && node --check src/probe-entry.mjs && node --check src/session-store.mjs && node --check src/profile-map.mjs && node --check src/record-worker-entry.mjs",
+    "check": "node --check src/record-worker-entry.mjs && node --check src/source-worker-entry.mjs && node --check src/office-worker-entry.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:pi": "node --test test/pi/*.test.mjs",
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
-    "smoke:runtime": "node scripts/smoke-runtime.mjs",
     "test:record": "node --test test/record-worker.test.mjs test/record-worker-notices.test.mjs"
-  },
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.99.1"
   }
 }

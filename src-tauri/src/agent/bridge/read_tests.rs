@@ -256,7 +256,6 @@ impl Fixture {
             self.input(id, method, params),
             &UnusedDocument,
             utility,
-            &UnusedDocument,
         )
         .await
     }
@@ -267,7 +266,7 @@ impl Fixture {
         let mut input = self.input(id, method, params);
         input.grant_id = grant.into();
         dispatch::execute(&*self.store, &self.enabled, TOKEN, input,
-            &UnusedDocument, utility, &UnusedDocument).await
+            &UnusedDocument, utility).await
     }
     fn scope(&self) -> Scope {
         Scope::Project {
@@ -826,11 +825,6 @@ async fn reference_list_navigates_visible_links_in_both_directions() {
     assert_eq!(denied.code, ErrorCode::ScopeDenied);
 }
 
-impl crate::source_session_read::SessionHistoryUtility for UnusedDocument {
-    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<crate::source_session_read::SessionHistoryFragment> {
-        panic!("This fixture does not read session history")
-    }
-}
 
 #[tokio::test]
 async fn record_version_reads_return_exact_source_and_compare_rechecks_revocation() {
@@ -863,7 +857,7 @@ async fn record_version_reads_return_exact_source_and_compare_rechecks_revocatio
         f.input("record-compare", "record.versions.compare", json!({
             "record": f.record, "beforeVersionId": version_id, "afterVersionId": version_id,
         })),
-        &compare, &utility, &UnusedDocument,
+        &compare, &utility,
     );
     let intervene = async {
         entered_rx.await.unwrap();

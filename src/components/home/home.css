@@ -574,26 +574,6 @@
 .home-cover-dialog__preview:active {
   cursor:grabbing}
 
-
-.home-rail__divider {
-  display:flex;
-  align-items:center;
-  height:12px;
-  margin-inline:22px;
-  flex:none;
-  cursor:row-resize;
-  touch-action:none;
-  outline:none}
-.home-rail__divider::before {
-  content:"";
-  width:100%;
-  height:1px;
-  background:var(--home-line)}
-.home-rail__divider:hover::before,.home-rail__divider:focus-visible::before {
-  height:2px;
-  background:var(--color-accent)}
-
-
 .home-side__search { width:calc(100% - 16px); margin:4px 8px 10px; border:1px solid var(--home-line); border-radius:7px; padding:7px 10px; background:var(--home-surface); font-size:var(--type-label-size);line-height:var(--type-label-line); }
 
 .home-page .project-overview-focus__page--history { width:100%; }

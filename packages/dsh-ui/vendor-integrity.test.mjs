@@ -57,3 +57,29 @@ test('scoped stylesheet is reproducible and every selector belongs to a host', a
     for (const selector of rule.selectors) assert.ok(selector.includes('.dsh-ui-host'), selector);
   });
 });
+
+test('embedded browser install graph excludes native Office conversion engines', async () => {
+  const lock = JSON.parse(await fs.readFile(new URL('../../package-lock.json', import.meta.url), 'utf8'));
+  const nativeOffice = /(?:^|[/])(?:libreoffice-kit(?:-[^/]+)?|koffi(?:-[^/]+)?)(?:[/]|$)/u;
+  for (const [location, pkg] of Object.entries(lock.packages)) {
+    assert.doesNotMatch(location, nativeOffice, location);
+    for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+      for (const dependency of Object.keys(pkg[field] ?? {})) {
+        assert.doesNotMatch(dependency, nativeOffice, `${location}: ${field}`);
+      }
+    }
+  }
+});
+
+
+test('Office browser Remote is the original upstream contribution without a converter export', async () => {
+  const directory = new URL('../dsh-office-client/', import.meta.url);
+  const provenance = JSON.parse(await fs.readFile(new URL('provenance.json', directory), 'utf8'));
+  const pkg = JSON.parse(await fs.readFile(new URL('package.json', directory), 'utf8'));
+  assert.equal(pkg.version, '0.2.0-rc.2');
+  assert.deepEqual(Object.keys(pkg.exports).sort(), ['./package.json', './remote', './types']);
+  for (const [file, hash] of Object.entries(provenance.upstreamSha256)) {
+    assert.equal(sha(await fs.readFile(new URL(file, directory))), hash, file);
+  }
+  assert.equal(typeof (await import('@deepseek-ai/dsh-office-to-pdf/remote')).default, 'object');
+});

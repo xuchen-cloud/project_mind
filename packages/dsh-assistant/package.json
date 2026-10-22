@@ -24,8 +24,10 @@
     "@deepseek-ai/dsh-cmdline": "0.2.0-rc.2",
     "@deepseek-ai/dsh-http-proxy": "0.2.0-rc.2",
     "@deepseek-ai/dsh-launch-environment": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-web-app": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-web-app": "file:vendor/dsh-web-app",
     "dsh-desktop-client-ui": "file:vendor/dsh-desktop-client-ui"
   },
   "devDependencies": {
