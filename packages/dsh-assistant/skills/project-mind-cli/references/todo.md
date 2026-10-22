@@ -1,5 +1,13 @@
 # Todo guide
 
+## Choose create or update
+
+Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-authorization) and [write decision](../SKILL.md#4-apply-the-requested-change) before creating or changing a Todo. Reuse relevant native evidence; if needed, list the intended scope with appropriate date/status filters and read plausible targets with `todo.get`.
+
+- **Create:** the user means a distinct action or deliverable. Similar text alone does not justify merging; different dates, occurrences or delivery meaning can warrant separate Todos. A bounded list does not prove that no related Todo exists.
+- **Update:** the user refers to the same action. Use its native ObjectRef and current revision; change only the requested content, status, priority, deadline or children, preserving other fields.
+- **Append:** add a Subtask only for an action clearly subordinate to that parent Todo. Confirm the parent from native evidence; topical similarity or a progress note is insufficient. Save informational facts as a Record when that matches the user's intent.
+
 ## List the exact scope
 
 Discover `mind todo list --help` and `mind schema todo.list --json`. For today/tomorrow, resolve the user's local calendar date, then pass that same explicit `YYYY-MM-DD` as both bounds. For undated work, use `undated:true` with no date bounds.
@@ -31,6 +39,8 @@ Results are flat `items`: parents and Subtasks match their **own** due date and 
 Continue with `nextCursor` while `hasMore`, preserving the scope and filters; do not silently drop pages. Either finish pagination or report bounded coverage, including any unqueried Projects. Workspace scope lists Workspace-owned objects only; a full Workspace View requires separate authorized active-Project scopes as well. Use native list/source references to find IDs; arbitrary character searches and guessed IDs cannot replace enumeration.
 
 The cursor binds query filters, the binding/grant and the native change sequence. A concurrent mutation can return `SOURCE_CHANGED`: discard that cursor and restart the same query without `cursor`. Use the restarted pages for coverage claims; do not combine pages from different change sequences into a supposedly complete inventory.
+
+Todo content-text filtering is deferred while the existing filters and bounded pages cover current inventories. Assess it when measured object counts or call costs justify it; content filtering can be incorporated into the existing cursor's query fingerprint. Use the supported filters and report actual coverage.
 
 ## Values and date semantics
 
@@ -68,7 +78,7 @@ Inspect the receipt before continuing. For an existing Todo, obtain `$TODO_TARGE
 
 ### Get the current baseline
 
-Run this before **each** update recipe and again afterward for readback; keep the returned `object`, `revision` and `snapshot`:
+Obtain a current baseline before an update recipe (reuse a sufficient native read), then run again afterward for readback; keep the returned `object`, `revision` and `snapshot`:
 
 ```sh
 current=$(mind todo get --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON

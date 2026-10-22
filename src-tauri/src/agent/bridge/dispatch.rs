@@ -47,10 +47,22 @@ where
         token,
         input: &input,
     };
-    if matches!(input.method.as_str(), "project.list" | "context.get") {
+    if matches!(input.method.as_str(), "connection.status" | "project.list" | "context.get") {
         return connection.with_authenticated(|binding, db, workspace_name, request| {
             registry::validate(&input.method, &input.params)?;
-            let value = if input.method == "project.list" {
+            let value = if input.method == "connection.status" {
+                let grant = &request.scope_grant;
+                Ok(serde_json::json!({
+                    "binding":binding,
+                    "authorization":{
+                        "workspaceContent":grant.workspace_content,
+                        "projectIds":grant.project_ids,
+                        "operations":grant.operations,
+                        "objectKeys":grant.object_keys,
+                    },
+                    "executionMode":null,
+                }))
+            } else if input.method == "project.list" {
                 serde_json::to_value(db.agent_connection_projects(&request, binding)?)
             } else {
                 let params: crate::agent::context::ContextGetInput =

@@ -2,6 +2,13 @@
 
 Load this branch only for Record or File work. Discover the relevant subcommand help and exact method schema before constructing input; the installed CLI owns field names and limits.
 
+## Choose create or continue
+
+Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-authorization) and [write decision](../SKILL.md#4-apply-the-requested-change). Reuse already-read native references/content; when insufficient, follow relevant authorized source queries, references and necessary pages to establish the target. A bounded result cannot establish that the entire scope contains no related object.
+
+- **Record:** append new facts or correct affected passages in the same Record when that is the user's intended information unit. Apply the requested edit to the current body and preserve unrelated content; native versions retain prior committed text. Create a new Record for independently useful information or an explicitly separate entry. A shared topic/title alone does not justify combining independent entries.
+- **File:** continue edits, additions or replacements of the same managed material through its existing File ID, producing a new version. Create a File for an independent deliverable. A filename is neither object identity nor a ban on creating another File with that name; resolve the user's intended material and Project using native evidence.
+
 ## Read the current content
 
 - **Record:** `record get` for bounded body pages; `record blocks get` for canonical block IDs/hashes before a patch; `record versions` for historical evidence. Preserve returned revision/cursor when continuing pages. `reference list` follows incoming/outgoing native references.
