@@ -48,3 +48,17 @@
 - 真实 worker 验证复用的是已有构建产物，并非本包重新构建；Node 正向准备复用了已校验 receipt 的固定 binary，未重新下载/解压官方归档。错误归档拒绝路径已通过真实 CLI 验证。
 - macOS arm64 完成真实资源/worker 小用例；macOS x64、Windows x64、Linux x64 本包仅完成 host/target 与命令选择测试，未作这些平台实机验收。
 - 未启动 Tauri、Vite 或应用窗口；未运行 review 子 agent。本记录是实现及验证交接，主 agent 的 Standards / Spec 检查、完整发布门禁及远端发布仍待主 agent 处理。
+
+## 完整正向链路补验准备（后续授权）
+
+- 目标仍关联 #224：在本工作树真实执行 `npm run prepare:dev-runtime`，允许必要 Office 构建，禁止 Cargo/UI/发布。优先复用 root 的相同源码、lock、依赖及 pinned 缓存。
+- 用 Python 调用 `git ls-files -z` 并逐文件比较 root 与本工作树实际字节：1,692 个 Office/Markdown 及共享构建相关 tracked 文件一致；根 `package-lock.json`、依赖声明也一致。五个 Office/Markdown `node_modules/.mind-office-lock` 均与各包当前 lock SHA-256 一致。
+- root 固定 Node 归档 `packages/agent-host/runtime/archives/node-v24.21.0-darwin-arm64.tar.gz` 的实际 SHA-256 为 `bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057`，与本工作树 manifest 一致。
+- 对已核对的 root `node_modules`、五个 Office/Markdown 包 `node_modules` 逐项执行 `cp -cR <root路径> <本工作树路径>`：合计约 22.20 秒；另以同命令克隆两个忽略的 `upstream` 目录和 Node 归档，约 0.14 秒。未复制 Cargo target；未运行 npm install/ci，未改 root 或其他工作树。
+- 初次克隆脚本在 `git check-ignore` 检查不存在的 upstream 目录名（缺末尾斜线）时停止；改为检查该目录内的 LICENSE 路径后继续复制。此前未复制 upstream 的 `prepare-source --verify-only` 报缺 LICENSE，完成复制后原校验通过；未改校验规则。
+- `node packages/office-docx/prepare-source.mjs --verify-only`：505 个固定上游文件通过。
+- `node packages/office-html2docx/prepare-source.mjs --verify-only`：31 个固定上游文件通过。
+- `node packages/office-xlsx/scripts/source.mjs`：退出 0，固定 vendor / fork 校验通过。
+- `node packages/office-pptx/sources.mjs`：501 个固定 GenOffice 文件与 4 个 Web adaptation 文件通过。
+- 本轮尚未执行完整准备命令：现有 XLSX `scripts/build.mjs` 必经 `build-native.mjs`，其中真实调用 `cargo build --locked --release`；与本轮“不要 Cargo”的明确限制冲突。未跳过 native、伪造 spawn 结果或声称完整链路通过，待用户/主 agent 明确该调用的处理方式。
+- 磁盘压力：执行期间 `df -h .` 先显示约 1.5 GiB，后降到 195 MiB。仅删除本工作树上一轮生成的 `packages/agent-host/{dist,source-dist,office-dist,runtime/darwin-arm64}` 与 `src-tauri/resources/{agent-host,source-extractor}`，可用空间恢复至约 464 MiB。固定归档及 APFS 克隆的依赖/upstream 缓存保留，待实际链路重新生成产物；未触碰其他用户缓存或 memory 工作树。
