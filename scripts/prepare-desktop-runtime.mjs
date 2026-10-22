@@ -38,18 +38,9 @@ try {
     }
   }
   archive = path.resolve(archive);
-  const productionHost = path.join(temporary, 'agent-host');
-  await mkdir(productionHost);
-  for (const name of ['package.json', 'package-lock.json']) await copyFile(path.join(host, name), path.join(productionHost, name));
-  // A fresh production tree excludes development files and selects the target's
-  // optional binaries even for a macOS x64 build on an arm64 runner. SDK package
-  // resources remain intact; do not bundle dynamic SDK imports or run host-native
-  // install scripts against a cross-target dependency tree.
-  await run(process.execPath, [process.env.npm_execpath, 'ci', '--omit=dev', '--ignore-scripts',
-    '--no-audit', '--no-fund', `--os=${target.platform}`, `--cpu=${target.arch}`], productionHost);
   const productionDsh = path.join(temporary, 'dsh-assistant');
   await prepareDshProduction(path.join(repository, 'packages/dsh-assistant'), productionDsh, target, run);
-  for (const [script, ...args] of desktopResourceCommands(target, archive, productionHost, productionDsh)) {
+  for (const [script, ...args] of desktopResourceCommands(target, archive, productionDsh)) {
     await run(process.execPath, [path.join(repository, script), ...args]);
   }
   process.stdout.write(`Desktop backend resources prepared for ${target.rustTarget} (${target.runtimeTarget})\n`);

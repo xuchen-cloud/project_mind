@@ -4,7 +4,7 @@
 
 ## 当前接入路径
 
-GUI 的原生功能通过 Tauri 命令进入当前 Workspace 的共享服务。Pi Host、run、来源读取、Overview/知识、Record/Todo/File 成果与收据服务保留后端和 CLI/MCP 调用路径；Project 聊天已由 `dsh_assistant.rs` 与独立 DSH runtime 承载，尚未接通这里的全部业务工具。当前 Workspace 聊天与知识/记忆 GUI 没有挂载，旧面板已清理；每项能力按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
+GUI 的原生功能通过 Tauri 命令进入当前 Workspace 的共享服务。独立 Pi Host 与旧原生会话、run 执行及 Pi 历史读取接口已移除；来源读取、Overview/知识、Record/Todo/File 成果与收据服务保留后端和 CLI/MCP 调用路径；Project 聊天已由 `dsh_assistant.rs` 与独立 DSH runtime 承载，尚未接通这里的全部业务工具。当前 Workspace 聊天与知识/记忆 GUI 没有挂载，旧面板已清理；每项能力按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
 
 本机外部调用路径为：
 
@@ -37,13 +37,13 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前包含 38 个方法（24 读 / 14 写）。读取包括原有上下文、来源、会话、Record 正文/Todo、File 版本与源码、Record 历史、`operation.get/list`、`file.content.status`，原生 `reference.list`，以及 `record.patch.preview`、`record.create.preview`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 注册表当前包含 36 个方法（22 读 / 14 写）。读取包括原有上下文、来源、Record 正文/Todo、File 版本与源码、Record 历史、`operation.get/list`、`file.content.status`，原生 `reference.list`，以及 `record.patch.preview`、`record.create.preview`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
 
 `mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json` 读取已提交 Record 正文；也可用 `record get --input-file PATH|-` 传 `record.get` 的完整 DTO。它和 `source.read` 共享 SourceReadPage、来源修订及分页，默认 4000、最多 12000 字符；继续阅读时传回 nextCursor，可同时固定返回的 SourceRef.revision（不同于正文 bodyHash）。CLI 不自动读取下一页，只有 complete=true 才读到末尾。需要块身份与修改基线时仍用 `record blocks get`。
 
 `mind reference list --kind record|todo|file|quick_note --id ID --direction incoming|outgoing (--project ID | --workspace-scope) [--cursor TOKEN --limit N --budget-chars N] --workspace PATH --connection ID --json` 查询当前原生入链/出链；也支持 `--input-file PATH|-`。默认 20、最多 50 项，整个响应默认 4000、最多 12000 字符。引用两端都须允许来源读取，隐藏对象不返回身份或计数；Record 附件属于出链，File 正文本身不解析引用。原生 token 与 canonical 引用边共用实际对象身份，不把知识来源依赖当作正文引用。返回空 items 但 complete=false 时仍须按 nextCursor 续查；数据或授权范围变更后旧游标返回 SOURCE_CHANGED，需重新开始。超大旧正文明确报预算错误。
 
-新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。会话工具另需 `session.read`，索引推进和原文读取的所有 DB 阶段也经过连接核验。
+新增命令接受 `--input-file PATH|-`，JSON 内容与 `schema METHOD` 相同，CLI/HTTP JSON 输入最多 2 MiB；本地路径不发给服务端。可用 `mind search QUERY --project ID ... --json` 直接搜索来源，其余复杂选择及 cursor 放在输入 JSON 中。旧 Pi `session.search` 和 `session.messages.read` 不再开放，当前聊天历史由 DSH 管理；历史数据库保持原样。
 
 `mind mcp serve --workspace PATH --connection ID` 基于固定 `rmcp 3.5.1` 提供 stdio 初始化、协议协商、工具发现和调用，初始协议兼容基线为 2025-11-25。stdout 仅承载 JSON-RPC，诊断发往 stderr；连接始终使用握手时的 Workspace binding。设置可复制不含 secret 的 MCP JSON 配置，command 为检测到的 CLI 绝对路径。其他尚未注册的共享工具不会因内部服务存在就授予外部连接，其他 dry-run 仍按后续子包推进。
 

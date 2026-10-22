@@ -198,9 +198,8 @@ fn agent_response_uses_boolean_discriminator_and_reports_native_write_availabili
     let references = capabilities().into_iter().find(|cap| cap.method == "reference.list").unwrap();
     assert!(references.implemented && references.read_only);
     assert_eq!(references.permission, "source.read");
-    for method in ["context.overview.refresh", "session.summary.get"] {
-        assert!(!capabilities().iter().find(|cap| cap.method == method).unwrap().implemented);
-    }
+    assert!(!capabilities().iter().find(|cap| cap.method == "context.overview.refresh").unwrap().implemented);
+    assert!(capabilities().iter().all(|cap| !cap.method.starts_with("session.") && !cap.method.starts_with("run.")));
     for method in [
         "output.stage",
         "output.update",

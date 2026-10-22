@@ -1,0 +1,22 @@
+{
+  "name": "@deepseek-ai/dsh-office-to-pdf",
+  "version": "0.2.0-rc.2",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Unmodified DSH browser Remote contribution; no Host converter entry point.",
+  "exports": {
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.2"
+  }
+}

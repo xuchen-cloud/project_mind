@@ -16,7 +16,6 @@ use crate::{
     record_document_service::{BoundRecordStore, DocumentUtility},
     record_documents::RecordTarget,
     source_service::{BoundSourceStore, SourceUtility},
-    source_session_read::{SessionHistoryFragment, SessionHistoryUtility},
 };
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -61,9 +60,6 @@ impl DocumentUtility for Unused {
 impl SourceUtility for Unused {
     async fn request(&self, _: &str, _: &str, _: &str, _: &[u8]) -> AgentResult<Value> { panic!("Todo writes do not extract sources") }
 }
-impl SessionHistoryUtility for Unused {
-    async fn read(&self, _: &WorkspaceBinding, _: &crate::db::agent_session_model_search::SourceReadRecord, _: Option<&str>, _: u32) -> AgentResult<SessionHistoryFragment> { panic!("Todo writes do not read history") }
-}
 struct Fixture {
     _root: tempfile::TempDir,
     store: Store,
@@ -99,7 +95,7 @@ impl Fixture {
         dispatch::execute(&self.store, &self.enabled, TOKEN, CallInput {
             instance_id: "todo-fixture".into(), grant_id: grant.into(), request_id: id.into(),
             binding: self.binding.clone(), method: method.into(), params,
-        }, &Unused, &Unused, &Unused).await
+        }, &Unused, &Unused).await
     }
     async fn get(&self, object: &ObjectRef) -> Value {
         self.call(GRANT, "read-todo", "todo.get", json!({"target":object})).await.unwrap()

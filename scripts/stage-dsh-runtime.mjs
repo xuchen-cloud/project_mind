@@ -8,6 +8,10 @@ import { checksum, packageNoticeAssets } from './record-worker-notices.mjs';
 const sourceNames = ['scripts', 'config', 'vendor', 'skills', 'package.json', 'package-lock.json', 'upstream.json'];
 const manifestName = 'dsh-distribution.json';
 const browserIndex = 'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html';
+const vendorDependencies = {
+  'node_modules/dsh-desktop-client-ui': 'vendor/dsh-desktop-client-ui',
+  'node_modules/@deepseek-ai/dsh-web-app': 'vendor/dsh-web-app',
+};
 const excluded = new Set(['.upstream', '.downloads', '.acceptance']);
 const targetFor = runtimeTarget => {
   const target = Object.values(DESKTOP_RUNTIME_TARGETS).find(entry => entry.runtimeTarget === runtimeTarget);
@@ -26,10 +30,6 @@ const licenseSupplements = {
   '@earendil-works/pi-telemetry@0.87.1': ['MIT', 'pi-0.87.1.LICENSE'],
   '@xterm/addon-serialize@0.14.0': ['MIT', 'xterm-6.0.0.LICENSE'],
   '@xterm/headless@6.0.0': ['MIT', 'xterm-6.0.0.LICENSE'],
-  'brotli@1.3.3': ['MIT', 'SPDX-MIT.txt', '../vendor-licenses/aws-sdk-js-v3.LICENSE'],
-  'dfa@1.2.0': ['MIT', 'SPDX-MIT.txt'],
-  'fontkit@2.0.4': ['MIT', 'SPDX-MIT.txt'],
-  'saxes@6.0.0': ['ISC', 'saxes-6.0.0.LICENSE'],
 };
 for (const target of Object.values(DESKTOP_RUNTIME_TARGETS)) {
   licenseSupplements[`@koromix/koffi-${target.platform}-${target.arch}@3.1.1`] = ['MIT', 'koffi-3.1.1.LICENSE'];
@@ -47,52 +47,24 @@ export async function dshNoticeAssets(roots) {
     const inputs = [];
     for (const [index, root] of roots.entries()) {
       const pkg = JSON.parse(await readFile(path.join(root, 'package.json')));
-      const nestedOffice = /^@deepseek-ai\/libreoffice-kit-(?:darwin-(?:arm64|x64)|win32-x64)$/.test(pkg.name)
-        && pkg.version === '0.1.5' && pkg.license === 'MPL-2.0';
       const supplement = licenseSupplements[`${pkg.name}@${pkg.version}`];
       const hasRootNotice = (await readdir(root)).some(name => /^(licen[cs]e|copying|notice)([._-].*)?$/i.test(name));
-      if (hasRootNotice || (!nestedOffice && !supplement)) { inputs.push(root); continue; }
+      if (hasRootNotice || !supplement) { inputs.push(root); continue; }
       if (supplement && pkg.license !== supplement[0]) throw new Error(`DSH supplement license mismatch: ${pkg.name}@${pkg.version}`);
       const sections = [];
       const include = async name => {
         await regularFile(path.join(root, name));
         sections.push(`--- Published package file: ${name} ---\n${await readFile(path.join(root, name), 'utf8')}`);
       };
-      if (nestedOffice) {
-        for (const name of ['LibreOffice-MPL-2.0.txt', 'DeepSeek-Harness-MIT.txt', 'LibreOffice-third-party.html']) await regularFile(path.join(root, 'licenses', name));
-        for (const name of (await readdir(path.join(root, 'licenses'))).sort()) await include(`licenses/${name}`);
-        const prebuild = JSON.parse(await readFile(path.join(root, 'prebuilds.json')));
-        const program = prebuild.engine.programDirectory;
-        if (typeof program !== 'string' || path.posix.isAbsolute(program) || program.split('/').includes('..')) throw new Error('Invalid LibreOffice program license path');
-        // The pinned Windows payload keeps attribution beside its inner
-        // program/ binary directory; macOS keeps it inside app Resources.
-        const engineNotices = pkg.name === '@deepseek-ai/libreoffice-kit-win32-x64'
-          ? ['program/license.txt', 'program/NOTICE']
-          : [`${program}/LICENSE`, `${program}/NOTICE`];
-        for (const name of engineNotices) await include(name);
-      } else {
-        for (const file of supplement.slice(1)) {
-          const source = sources.find(entry => entry.file === file);
-          if (!source) throw new Error(`Missing DSH license source: ${file}`);
-          const text = await readFile(path.join(licenseDirectory, file), 'utf8');
-          if (checksum(text) !== source.sha256) throw new Error(`DSH license source checksum mismatch: ${file}`);
-          const label = file.startsWith('SPDX-') ? 'SPDX reference text (template, not an upstream copyright notice)' : 'Source license/notice';
-          sections.push(`--- ${label}: ${source.source} ---\n${text}`);
-        }
-        if (['brotli', 'dfa', 'fontkit'].includes(pkg.name)) {
-          const readme = pkg.name === 'brotli' ? 'readme.md' : 'README.md';
-          const text = await readFile(path.join(root, readme), 'utf8');
-          const start = text.lastIndexOf('## License');
-          if (start < 0 || !/^## License\s+MIT\s*$/.test(text.slice(start))) throw new Error(`Missing published MIT declaration: ${pkg.name}`);
-          sections.push(`--- Published package file: ${readme} (License) ---\n${text.slice(start)}`);
-        }
-        if (pkg.name === 'brotli') {
-          const decoder = await readFile(path.join(root, 'dec/decode.js'), 'utf8');
-          if (!decoder.startsWith('/* Copyright 2013 Google Inc.') || !decoder.includes('*/')) throw new Error('Missing brotli decoder attribution');
-          sections.push(`--- Published package file: dec/decode.js (Apache-2.0 notice) ---\n${decoder.slice(0, decoder.indexOf('*/') + 2)}`);
-        }
-        if (pkg.name.startsWith('@img/sharp-libvips-')) await include('README.md');
+      for (const file of supplement.slice(1)) {
+        const source = sources.find(entry => entry.file === file);
+        if (!source) throw new Error(`Missing DSH license source: ${file}`);
+        const text = await readFile(path.join(licenseDirectory, file), 'utf8');
+        if (checksum(text) !== source.sha256) throw new Error(`DSH license source checksum mismatch: ${file}`);
+        const label = file.startsWith('SPDX-') ? 'SPDX reference text (template, not an upstream copyright notice)' : 'Source license/notice';
+        sections.push(`--- ${label}: ${source.source} ---\n${text}`);
       }
+      if (pkg.name.startsWith('@img/sharp-libvips-')) await include('README.md');
       const proxy = path.join(temporary, String(index));
       await mkdir(proxy);
       await writeFile(path.join(proxy, 'package.json'), JSON.stringify(pkg));
@@ -141,11 +113,11 @@ async function copyDependencies(source, destination, target, lock) {
       const location = path.relative(source, input).split(path.sep).join('/');
       let pinned = lock.packages[location];
       let root = input;
-      // npm ci represents this pinned file dependency as a link. Materialize it
+      // npm ci represents pinned file dependencies as links. Materialize it
       // so the shipped tree remains portable, including on Windows.
       if (entry.isSymbolicLink()) {
-        if (location !== 'node_modules/dsh-desktop-client-ui' || !pinned?.link
-          || pinned.resolved !== 'vendor/dsh-desktop-client-ui') throw new Error(`Unexpected DSH dependency link: ${location}`);
+        if (!vendorDependencies[location] || !pinned?.link
+          || pinned.resolved !== vendorDependencies[location]) throw new Error(`Unexpected DSH dependency link: ${location}`);
         root = await realpath(input);
         if (root !== await realpath(path.join(source, pinned.resolved))) throw new Error('DSH vendor dependency link escapes its pinned vendor root');
         pinned = lock.packages[pinned.resolved];
@@ -204,7 +176,7 @@ async function inventory(directory) {
 }
 
 async function validateAssets(directory, target) {
-  for (const name of ['skills/project-mind-cli/SKILL.md', 'scripts/runtime.mjs', 'scripts/skills.mjs', 'scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/isolation.mjs', 'config/desktop.patch.yml', 'package.json', 'package-lock.json', 'upstream.json', browserIndex,
+  for (const name of ['skills/project-mind-cli/SKILL.md', 'scripts/runtime.mjs', 'scripts/model-utility-entry.mjs', 'scripts/model-utility.mjs', 'scripts/skills.mjs', 'scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/isolation.mjs', 'config/desktop.patch.yml', 'package.json', 'package-lock.json', 'upstream.json', browserIndex,
     'node_modules/dsh-desktop-client-ui/package.json']) await regularFile(path.join(directory, name));
   const lock = JSON.parse(await readFile(path.join(directory, 'package-lock.json')));
   for (const location of Object.keys(lock.packages).filter(name => name.includes('node_modules/'))) {

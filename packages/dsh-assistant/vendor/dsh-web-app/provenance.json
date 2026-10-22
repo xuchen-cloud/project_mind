@@ -1,0 +1,27 @@
+{
+  "package": "@deepseek-ai/dsh-web-app",
+  "version": "0.2.0-rc.2",
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "sourceDirectory": "packages/bundle/web-app",
+  "publishedArchive": {
+    "resolved": "https://registry.npmmirror.com/@deepseek-ai/dsh-web-app/-/dsh-web-app-0.2.0-rc.2.tgz",
+    "integrity": "sha512-pCIMPLfTKVfY942dP4eJSDVw7iUw86pemzfOr/e5DWP7CdCKTfvA82kP0RJAKJcyKJd8s679hqtCue/p4P20Dg=="
+  },
+  "upstreamSha256": {
+    "LICENSE": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+    "package.json": "8d1324675ff120ed1ce834ddd689546deed093d41cc50faf4a5b4d6515a1b233",
+    "cordis.patch.yml": "df7653ee4c324dca706034631926c86f13a2cf17c280cc018f8c070a0aaad19e",
+    "lib/index.js": "50c7ce5b93e8a7ac0117e066699cd31b553a5a135d38b7051d6a8364ac691af4",
+    "lib/startup.js": "95a47053483fbe8ec86711369b8791bccb592c303fcc89300458a4bd07c6c252",
+    "lib/types/index.d.ts": "048ab196d6e6a01b4ece40e314abff5041e7e309856f896990aa5b5493e2fbb7",
+    "lib/types/startup.d.ts": "c369e3c1e0ab567a88772951a1d17a6200bcf9787ca32df7296ff83582f44aba",
+    "presets/cordis.patch.yml": "b74d71901b692f11111d02d20072735b2fe94b74744ee7e3bfdc5d972f1a3aa5",
+    "presets/minimal.patch.yml": "71ef887f43d8a37931ba3b014e5b116f79018af873d06625fb22e280a23c1dfc",
+    "presets/ptc.patch.yml": "8fcf6b04dce7c2c76fab925129f6ac9b05ebb546840508e6cde72aa2da991832",
+    "presets/standard.patch.yml": "6cd2f197737fc94a45e487d0bb57869461dd6f392d45f6429b576e75d973eda8"
+  },
+  "changes": [
+    "Remove @deepseek-ai/dsh-office-to-pdf from dependencies and @deepseek-ai/libreoffice-kit from devDependencies.",
+    "Keep every runtime JS file, type declaration, patch row, preset and license byte-identical. The desktop overlay continues to disable office-to-pdf as before."
+  ]
+}

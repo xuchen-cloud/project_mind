@@ -156,7 +156,7 @@ pub(crate) fn segment_batch(
     let (last,_) = messages.last().unwrap();
     let first_page=&pages[0];
     let last_page=pages.last().unwrap();
-    let start=crate::agent::model_history::history_cursor_offset(cursor,first)? as usize;
+    let start=crate::source_session_read::history_cursor_offset(cursor,first)? as usize;
     let end=if messages.len()==1 { start+first_page.text.chars().count() } else { last_page.text.chars().count() };
     let split=messages.len()==1 && (start!=0 || end!=first.total_chars as usize);
     let identities=serde_json::to_vec(&messages.iter().map(|(record,_)|(&record.message_id,&record.text_hash)).collect::<Vec<_>>())

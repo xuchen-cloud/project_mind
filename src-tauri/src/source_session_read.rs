@@ -1,4 +1,4 @@
-//! Original session-message source reads through a checked, credential-free Pi reader.
+//! Shared session-message source reads through an authorized history utility.
 use crate::{
     agent::{
         access::RequestContext,
@@ -16,7 +16,7 @@ fn error(code: ErrorCode, message: &str) -> AgentError {
     AgentError::new(code, message)
 }
 
-/// The utility performs the Pi checkpoint and response checks. Its cursor is
+/// The utility verifies history identity and response bounds. Its cursor is
 /// the serialized internal HistoryCursor, opaque to source callers.
 pub(crate) trait SessionHistoryUtility {
     fn scan(
@@ -98,7 +98,7 @@ fn fit_page(
         let mid = (low + high) / 2;
         page.text = chars[..mid].iter().collect();
         let end = starting + mid as u32;
-        page.next_cursor = Some(crate::agent::model_history::history_cursor_json(
+        page.next_cursor = Some(crate::source_session_read::history_cursor_json(
             entry, id, end,
         )?);
         page.complete = end == total;
@@ -117,7 +117,7 @@ fn fit_page(
     }
     page.text = chars[..low].iter().collect();
     let end = starting + low as u32;
-    page.next_cursor = Some(crate::agent::model_history::history_cursor_json(
+    page.next_cursor = Some(crate::source_session_read::history_cursor_json(
         entry, id, end,
     )?);
     page.complete = false;
@@ -181,7 +181,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             ));
         }
         let expected_start =
-            crate::agent::model_history::history_cursor_offset(input.cursor.as_deref(), &record)?;
+            crate::source_session_read::history_cursor_offset(input.cursor.as_deref(), &record)?;
         if fragment.char_start != expected_start {
             return Err(error(
                 ErrorCode::SourceChanged,
@@ -234,3 +234,55 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
 #[cfg(test)]
 #[path = "source_session_read_tests.rs"]
 mod tests;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HistoryCursor {
+    branch_id: String,
+    from_message_id: Option<String>,
+    to_message_id: Option<String>,
+    message_id: String,
+    char_offset: u32,
+}
+
+fn read_cursor(entry: &str, message_id: &str, offset: u32) -> HistoryCursor {
+    HistoryCursor {
+        branch_id: entry.into(),
+        from_message_id: Some(message_id.into()),
+        to_message_id: Some(message_id.into()),
+        message_id: message_id.into(),
+        char_offset: offset,
+    }
+}
+
+pub(crate) fn history_cursor_json(
+    entry: &str,
+    message_id: &str,
+    offset: u32,
+) -> AgentResult<String> {
+    serde_json::to_string(&read_cursor(entry, message_id, offset))
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot encode history cursor"))
+}
+pub(crate) fn history_cursor_offset(
+    cursor: Option<&str>,
+    record: &crate::db::agent_session_model_search::SourceReadRecord,
+) -> AgentResult<u32> {
+    let Some(cursor) = cursor else { return Ok(0) };
+    let cursor: HistoryCursor = serde_json::from_str(cursor)
+        .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid history cursor"))?;
+    if cursor.branch_id != record.runtime_entry_id
+        || cursor.message_id != record.message_id
+        || cursor.from_message_id.as_deref() != Some(record.message_id.as_str())
+        || cursor.to_message_id.as_deref() != Some(record.message_id.as_str())
+        || cursor.char_offset >= record.total_chars
+    {
+        return Err(AgentError::new(
+            ErrorCode::InvalidArgument,
+            "History cursor does not match message",
+        ));
+    }
+    Ok(cursor.char_offset)
+}
+
+#[path = "source_session_archive.rs"]
+pub(crate) mod archival;

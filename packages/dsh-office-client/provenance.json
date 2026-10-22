@@ -1,0 +1,20 @@
+{
+  "package": "@deepseek-ai/dsh-office-to-pdf",
+  "version": "0.2.0-rc.2",
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "publishedArchive": {
+    "resolved": "https://registry.npmmirror.com/@deepseek-ai/dsh-office-to-pdf/-/dsh-office-to-pdf-0.2.0-rc.2.tgz",
+    "integrity": "sha512-Dl0TjqzrrzgQZCLATAvLuoXGOkmJ+deQLsLtL1HZUehN/aTyDI9j42obKPdOwSEHZeUnrdY2SEga+RiqY/J8ag=="
+  },
+  "upstreamSha256": {
+    "LICENSE": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+    "lib/typert.remote-client.js": "5a4e17985115a422ded5cd897fdadfe4d5335d8a2be062f893df8bb45214c09a",
+    "lib/typert.remote-client.d.ts": "b2f8ccc4fd3383d2ea32265c6614e87b7ad7e48e79f736bec5c95f05fdc8a138",
+    "lib/types/types.d.ts": "56282d2e7f86131a730c5ddc3c6b90bf2c77d93a540706c4c8f517216089d049",
+    "lib/types/identity.d.ts": "18e22e32cb3a9b797eca0edee9b783382c75a02e16fac79e73225c52cbf71fd0"
+  },
+  "changes": [
+    "Expose only the original browser /remote contribution and supporting declarations. All copied files remain byte-identical to the pinned upstream archive.",
+    "Do not export the Host converter or install LibreOffice."
+  ]
+}

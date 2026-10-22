@@ -12,7 +12,6 @@ const tauriMocks = vi.hoisted(() => ({
   setMinSizeMock: vi.fn(async () => undefined),
   setSizeMock: vi.fn(async () => undefined),
   closeWindowMock: vi.fn(async () => undefined),
-  exitMock: vi.fn(async () => undefined),
   destroyWindowMock: vi.fn(async () => undefined),
   getCurrentWindowMock: vi.fn(() => ({
     innerSize: vi.fn(async () => ({
@@ -72,10 +71,6 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   readImage: tauriMocks.readClipboardImageMock,
 }));
 
-vi.mock("@tauri-apps/plugin-process", () => ({
-  exit: tauriMocks.exitMock,
-}));
-
 vi.mock("@tauri-apps/api", () => {
   class MockWebviewWindow {
     label: string;
@@ -129,7 +124,6 @@ describe("desktopApi", () => {
     tauriMocks.setMinSizeMock.mockClear();
     tauriMocks.setSizeMock.mockClear();
     tauriMocks.closeWindowMock.mockClear();
-    tauriMocks.exitMock.mockClear();
     tauriMocks.destroyWindowMock.mockClear();
     tauriMocks.getByLabelMock.mockReset();
     tauriMocks.getAllWebviewWindowsMock.mockReset();
@@ -171,7 +165,6 @@ describe("desktopApi", () => {
     expect(preventDefault).toHaveBeenCalledOnce();
     release(false);
     await pending;
-    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
   it("exits the whole app after the main-window lifecycle barrier succeeds", async () => {
@@ -203,7 +196,6 @@ describe("desktopApi", () => {
 
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
-    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
   it("prevents a close request when the lifecycle barrier fails", async () => {
@@ -217,7 +209,6 @@ describe("desktopApi", () => {
     await handler({ preventDefault });
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
-    expect(tauriMocks.exitMock).not.toHaveBeenCalled();
   });
 
   it("flushes and then destroys detached Project windows for a Workspace switch", async () => {

@@ -208,7 +208,7 @@ async fn model_review_tool_confirms_real_file_only_after_later_user_turn() {
     }).unwrap();
     let model=RequestContext {caller:Caller::BuiltinRun {run_id:next},request_id:"model-confirm".into(),..f.model.clone()};
     let (_sender,cancel)=tokio::sync::watch::channel(false);
-    let result=super::host::execute_review_decision(&f.store,&NoRecordWorker,&model,
+    let result=super::output_service::execute_review_decision(&f.store,&NoRecordWorker,&model,
         json!({"runId":candidate_run,"outputs":[{"outputId":staged["outputId"],"expectedRevision":1}],"decision":"confirm"}),&cancel,None).await.unwrap();
     assert_eq!(result["savedCount"],1,"{result}");
     assert_eq!(result["failures"],json!([]));
@@ -236,7 +236,7 @@ async fn model_review_tool_stops_before_next_file_and_cancels_remaining_plan() {
     }).unwrap();
     let model=RequestContext {caller:Caller::BuiltinRun {run_id:next},request_id:"model-stop".into(),..f.model.clone()};
     let (_sender,cancel)=tokio::sync::watch::channel(false);
-    let result=super::host::execute_review_decision(&f.store,&NoRecordWorker,&model,
+    let result=super::output_service::execute_review_decision(&f.store,&NoRecordWorker,&model,
         json!({"runId":candidate_run,"outputs":[{"outputId":first["outputId"],"expectedRevision":1},{"outputId":second["outputId"],"expectedRevision":1}],"decision":"confirm"}),&cancel,Some(tokio::time::Instant::now())).await.unwrap();
     assert_eq!(result["savedCount"],0);
     assert_eq!(result["unexecutedCount"],2);

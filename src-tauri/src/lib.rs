@@ -1,6 +1,7 @@
 pub mod agent;
 mod ai_jobs;
 mod dsh_assistant;
+mod dsh_model;
 mod skills;
 mod project_directory;
 mod project_file_exclusions;
@@ -1467,7 +1468,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -1627,17 +1627,6 @@ pub fn run() {
             agent::bridge::commands::agent_connections_enable,
             agent::bridge::commands::agent_connection_create,
             agent::bridge::commands::agent_connection_revoke,
-            agent::conversation_commands::agent_session_create,
-            agent::conversation_commands::agent_sessions_list,
-            agent::conversation_commands::agent_session_search,
-            agent::conversation_commands::agent_session_get,
-            agent::session_history::agent_session_messages_read,
-            agent::conversation_commands::agent_session_archive,
-            agent::conversation_commands::agent_session_delete,
-            agent::conversation_commands::agent_run_get,
-            agent::conversation_commands::agent_run_events_list,
-            agent::run_commands::agent_run_start,
-            agent::run_commands::agent_run_cancel,
             agent::run_commands::agent_profile_probe,
             agent::output_commands::agent_output_list,
             agent::output_commands::agent_output_get,

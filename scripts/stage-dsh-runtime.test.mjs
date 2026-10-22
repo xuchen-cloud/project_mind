@@ -62,6 +62,8 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
     await put(path.join(source, cache, 'secret'), 'source-only');
     await put(path.join(source, 'scripts', cache, 'secret'), 'source-only');
   }
+  await put(path.join(source, 'scripts/model-utility-entry.mjs'), 'export {};');
+  await put(path.join(source, 'scripts/model-utility.mjs'), 'export {};');
   await put(path.join(source, 'node_modules/dev-only/index.js'), 'never ship source dependencies');
   for (const [name, contents] of Object.entries(bundledSkills)) await put(path.join(source, 'skills', name), contents);
   await put(path.join(repository, 'user-home/.agents/skills/private/SKILL.md'), 'user-local skill');
@@ -82,7 +84,6 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
   await symlink('../vendor/dsh-desktop-client-ui', path.join(production, 'node_modules/dsh-desktop-client-ui'), 'dir');
   await put(path.join(shared, 'node'), 'shared-pinned-node');
   await put(path.join(shared, 'dist/record-document-worker.mjs'), 'keep-record');
-  await put(path.join(shared, 'pi-distribution.json'), 'keep-legacy-pi');
   await json(path.join(repository, 'packages/agent-host/runtime-manifest.json'), { nodeVersion: '24.21.0', targets: { 'darwin-x64': { sha256: 'pinned-archive' } } });
   await json(path.join(shared, 'runtime.json'), { target: 'darwin-x64', nodeVersion: '24.21.0', sourceArchiveChecksum: 'pinned-archive', nodeChecksum: checksum('shared-pinned-node') });
   return { repository, source, production, destination, shared, target, lock };
@@ -100,7 +101,7 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
       assert.deepEqual(await readFile(path.join(cwd, 'skills', name)), Buffer.from(contents));
     }
     await assert.rejects(lstat(path.join(cwd, 'node_modules')), { code: 'ENOENT' });
-    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'isolation.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
+    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'isolation.mjs', 'model-utility-entry.mjs', 'model-utility.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fresh-helper');
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'), 'other-target');
   });
@@ -121,7 +122,6 @@ test('DSH staging preserves imports/browser and independent home, selects target
     await assert.rejects(lstat(path.join(f.destination, name)), { code: 'ENOENT' });
   }
   assert.match(await readFile(path.join(f.destination, 'DSH-THIRD-PARTY-NOTICES.txt'), 'utf8'), /DSH Assistant production dependencies/);
-  assert.equal(await readFile(path.join(f.shared, 'pi-distribution.json'), 'utf8'), 'keep-legacy-pi');
   assert.equal(await readFile(path.join(f.shared, 'dist/record-document-worker.mjs'), 'utf8'), 'keep-record');
   const home = path.join(f.repository, 'independent-home');
   const { stdout } = await exec(process.execPath, [path.join(f.destination, 'scripts/runtime.mjs')], { cwd: os.tmpdir(), env: { ...process.env, DSH_HOME: home } });
@@ -284,14 +284,12 @@ test('Koffi target optional package and prebuilt are mandatory when Koffi is ins
 test('pinned omitted licenses retain original attribution and clearly labeled SPDX references', async t => {
   const f = await fixture(t);
   const root = path.join(f.repository, 'license-fixture');
-  await json(path.join(root, 'package.json'), { name: 'dfa', version: '1.2.0', license: 'MIT', author: 'Devon Govett <devongovett@gmail.com>', repository: { url: 'https://github.com/devongovett/dfa' } });
-  await put(path.join(root, 'README.md'), 'Published README\n\n## License\n\nMIT\n');
+  await json(path.join(root, 'package.json'), { name: '@img/sharp-libvips-darwin-arm64', version: '1.3.4', license: 'LGPL-3.0-or-later' });
+  await put(path.join(root, 'README.md'), 'Published libvips runtime attribution');
   const reference = await dshNoticeAssets([root]);
-  assert.match(reference.notices, /Devon Govett/);
   assert.match(reference.notices, /SPDX reference text \(template, not an upstream copyright notice\)/);
-  assert.match(reference.notices, /Permission is hereby granted/);
-  assert.match(reference.notices, /Published package file: README.md \(License\)/);
-  assert.doesNotMatch(reference.notices, /Copyright \(c\) \d+ Devon Govett/);
+  assert.match(reference.notices, /GNU LESSER GENERAL PUBLIC LICENSE/);
+  assert.match(reference.notices, /Published libvips runtime attribution/);
   await json(path.join(root, 'package.json'), { name: '@earendil-works/pi-ai', version: '0.87.1', license: 'MIT' });
   const pi = await dshNoticeAssets([root]);
   assert.match(pi.notices, /Copyright \(c\) 2025 Mario Zechner/);
@@ -303,8 +301,8 @@ test('license fallback refuses unknown SPDX, unknown packages, and unverified ve
   const f = await fixture(t);
   const root = path.join(f.repository, 'unknown-license');
   for (const pkg of [
-    { name: 'dfa', version: '1.2.0', license: 'LicenseRef-Unknown' },
-    { name: 'dfa', version: '9.0.0', license: 'MIT' },
+    { name: '@earendil-works/pi-ai', version: '0.87.1', license: 'LicenseRef-Unknown' },
+    { name: '@earendil-works/pi-ai', version: '9.0.0', license: 'MIT' },
     { name: 'unverified-package', version: '1.0.0', license: 'MIT' },
   ]) {
     await json(path.join(root, 'package.json'), pkg);
@@ -312,51 +310,26 @@ test('license fallback refuses unknown SPDX, unknown packages, and unverified ve
   }
 });
 
-test('LibreOffice collects published nested MPL, wrapper, third-party and engine notices without substituting templates', async t => {
+test('staging materializes the pinned scoped web bundle and includes its MIT attribution', async t => {
   const f = await fixture(t);
-  const root = path.join(f.repository, 'office-licenses');
-  await json(path.join(root, 'package.json'), { name: '@deepseek-ai/libreoffice-kit-darwin-arm64', version: '0.1.5', license: 'MPL-2.0' });
-  await json(path.join(root, 'prebuilds.json'), { engine: { programDirectory: 'program/LibreOffice.app/Contents/Resources' } });
-  for (const [file, text] of [
-    ['licenses/LibreOffice-MPL-2.0.txt', 'published MPL text'],
-    ['licenses/DeepSeek-Harness-MIT.txt', 'published DeepSeek MIT attribution'],
-    ['licenses/LibreOffice-third-party.html', '<html>published third-party notices</html>'],
-    ['program/LibreOffice.app/Contents/Resources/LICENSE', 'published engine license'],
-    ['program/LibreOffice.app/Contents/Resources/NOTICE', 'published engine notice'],
-  ]) await put(path.join(root, file), text);
-  const { notices } = await dshNoticeAssets([root]);
-  for (const text of ['published MPL text', 'published DeepSeek MIT attribution', 'published third-party notices', 'published engine license', 'published engine notice']) assert.ok(notices.includes(text));
-  assert.doesNotMatch(notices, /SPDX reference text/);
-  await rm(path.join(root, 'licenses/DeepSeek-Harness-MIT.txt'));
-  await rm(path.join(root, 'program/LibreOffice.app/Contents/Resources/NOTICE'));
-  await assert.rejects(dshNoticeAssets([root]), { code: 'ENOENT' });
-});
-
-
-test('pinned Windows LibreOffice payload collects license.txt and NOTICE above programDirectory', async t => {
-  const f = await fixture(t);
-  const root = path.join(f.repository, 'windows-office-licenses');
-  await json(path.join(root, 'package.json'), { name: '@deepseek-ai/libreoffice-kit-win32-x64', version: '0.1.5', license: 'MPL-2.0' });
-  // Published 0.1.5 prebuilds.json points at the binary directory, not licenses.
-  await json(path.join(root, 'prebuilds.json'), { engine: { programDirectory: 'program/program' } });
-  const files = [
-    ['licenses/LibreOffice-MPL-2.0.txt', 'published Windows MPL text'],
-    ['licenses/DeepSeek-Harness-MIT.txt', 'published Windows wrapper attribution'],
-    ['licenses/LibreOffice-third-party.html', '<html>published Windows third-party notices</html>'],
-    ['program/license.txt', 'published Windows engine license'],
-    ['program/NOTICE', 'published Windows engine notice'],
-  ];
-  for (const [file, text] of files) await put(path.join(root, file), text);
-  await put(path.join(root, 'program/program/soffice.ini'), 'binary configuration');
-  const { notices } = await dshNoticeAssets([root]);
-  for (const [file, text] of files) {
-    assert.ok(notices.includes(`Published package file: ${file}`));
-    assert.ok(notices.includes(text));
+  const location = 'node_modules/@deepseek-ai/dsh-web-app';
+  const vendor = 'vendor/dsh-web-app';
+  f.lock.packages[location] = { resolved: vendor, link: true };
+  f.lock.packages[vendor] = { version: '0.2.0-rc.2' };
+  for (const root of [f.source, f.production]) {
+    await json(path.join(root, 'package-lock.json'), f.lock);
+    await json(path.join(root, vendor, 'package.json'), { name: '@deepseek-ai/dsh-web-app', version: '0.2.0-rc.2', license: 'MIT', type: 'module', main: 'lib/index.js' });
+    await put(path.join(root, vendor, 'LICENSE'), 'MIT Copyright (c) 2026 DeepSeek');
+    await put(path.join(root, vendor, 'lib/index.js'), "export const name = 'web-app';");
   }
-  assert.doesNotMatch(notices, /SPDX reference text/);
-  for (const [file, text] of files) {
-    await rm(path.join(root, file));
-    await assert.rejects(dshNoticeAssets([root]), { code: 'ENOENT' });
-    await put(path.join(root, file), text);
-  }
+  await symlink(path.join(f.production, vendor), path.join(f.production, location), 'dir');
+  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  assert.equal((await lstat(path.join(f.destination, location))).isSymbolicLink(), false);
+  assert.equal((await import(path.join(f.destination, location, 'lib/index.js'))).name, 'web-app');
+  assert.ok(manifest.packages.some(pkg => pkg.name === '@deepseek-ai/dsh-web-app' && pkg.version === '0.2.0-rc.2'));
+  assert.match(await readFile(path.join(f.destination, 'DSH-THIRD-PARTY-NOTICES.txt'), 'utf8'), /Copyright \(c\) 2026 DeepSeek/);
+  await rm(path.join(f.production, location));
+  await symlink(path.join(f.source, vendor), path.join(f.production, location), 'dir');
+  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /escapes/);
 });
