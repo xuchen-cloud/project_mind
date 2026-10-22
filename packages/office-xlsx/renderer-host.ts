@@ -142,7 +142,12 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
   menu:(action:string)=>emit('onMenuAction',action),
   render(next:AppContext){if(!context)performance.mark('office-xlsx:first-app-context');context=next;syncLock();if(!ready&&!next.openingWorkbook&&initialRangeLoaded(next.lazyWorkbookRef.current)){queueMicrotask(()=>void finishReady())}},
   attach(runtime:any){performance.mark('office-xlsx:runtime-attached');performance.mark('office-xlsx:lifecycle-'+runtime.univerAPI.getCurrentLifecycleStage());runtime.univerAPI.addEvent(runtime.univerAPI.Event.LifeCycleChanged,({stage}:any)=>performance.mark('office-xlsx:lifecycle-'+stage));
-   runtime.univerAPI.onCommandExecuted((command:any)=>{if(ready&&command.type===CommandType.MUTATION&&!journalSuppression.active&&command.params?.unitId===runtime.univerAPI.getActiveWorkbook()?.getId())selectionRevision++})
+   runtime.univerAPI.onCommandExecuted((command:any,executionOptions?:{fromFormula?:boolean})=>{
+    // Match the existing save journal: formula result application is derived
+    // cache state, including delayed results after layout/viewport changes.
+    // User formula edits still execute ordinary mutations and invalidate captures.
+    if(ready&&command.type===CommandType.MUTATION&&!journalSuppression.active&&!executionOptions?.fromFormula&&command.params?.unitId===runtime.univerAPI.getActiveWorkbook()?.getId())selectionRevision++
+   })
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditChanging,({worksheet,row,column,value}:any)=>{if(!ready||options.readOnly)return;const cell=worksheet.getRange(row,column).getCellData(),current=cell?.f??cell?.p?.body?.dataStream?.replace(/\r\n$/,'')??String(cell?.v??''),input=value.getData().body?.dataStream?.replace(/\r\n$/,'')??'';if(input!==current){inputPending=true;send('pending',true)}})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditEnded,()=>{inputPending=false;api.notifyPendingEdits(0)})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeSheetEditStart,(event:any)=>{if(ready&&options.readOnly)event.cancel=true})

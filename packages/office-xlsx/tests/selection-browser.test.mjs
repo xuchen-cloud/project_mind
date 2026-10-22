@@ -18,6 +18,11 @@ test('public selection bridge freezes target, preserves undo, rejects stale and 
  const select=async range=>{await name.fill(range);await name.press('Enter')}
  await page.frames()[1].evaluate(()=>window.dispatchEvent(new CompositionEvent('compositionstart')));await assert.rejects(page.evaluate(()=>window.editor.captureSelection()),/编辑/);await page.frames()[1].evaluate(()=>window.dispatchEvent(new CompositionEvent('compositionend')))
  await select('B3:B4');const captured=await page.evaluate(()=>window.editor.captureSelection());assert.deepEqual(JSON.parse(captured.text).range,{startRow:2,endRow:3,startColumn:1,endColumn:1})
+ // Splitting the host pane and starting the assistant gives deferred formula
+ // caches time to apply. Those must not invalidate an untouched selection.
+ await page.setViewportSize({width:600,height:800});await page.waitForTimeout(2500)
+ assert.deepEqual(await page.evaluate(()=>window.props.edits),[])
+ await page.setViewportSize({width:1200,height:800})
  await select('D2')
  const apply=change=>page.evaluate(({selectionId,change})=>window.editor.applySelection({selectionId,change}),{selectionId:captured.selectionId,change})
  await assert.rejects(apply({cells:[{row:0,column:0,kind:'string',value:'outside'}]}),/选区/)
@@ -43,6 +48,12 @@ test('public selection bridge freezes target, preserves undo, rejects stale and 
  await page.evaluate(selectionId=>window.editor.applySelection({selectionId,change:{cells:[{row:2,column:1,kind:'string',value:'=1+1'}]}}),literal.selectionId)
  const literalSaved=await inspect(await edit(source,await page.evaluate(()=>window.props.edits))),literalCell=literalSaved.ranges['sheet-1'].cells.find(c=>c.row===2&&c.column===1)
  assert.equal(literalCell.value,'=1+1');assert.equal(literalCell.formula,undefined)
+ await select('B3');const formulaBaseline=await page.evaluate(()=>window.editor.captureSelection())
+ await page.keyboard.press('F2');await page.keyboard.press('ControlOrMeta+a');await page.keyboard.type('=2+3');await page.evaluate(()=>window.editor.commitEditing())
+ await assert.rejects(page.evaluate(selectionId=>window.editor.applySelection({selectionId,change:{cells:[{row:2,column:1,kind:'blank'}]}}),formulaBaseline.selectionId),/失效|变化/)
+ await select('B3');const structureBaseline=await page.evaluate(()=>window.editor.captureSelection())
+ await frame.getByRole('button',{name:'插入行',exact:true}).click();await page.evaluate(()=>window.editor.commitEditing())
+ await assert.rejects(page.evaluate(selectionId=>window.editor.applySelection({selectionId,change:{cells:[{row:2,column:1,kind:'blank'}]}}),structureBaseline.selectionId),/失效|变化/)
  await page.evaluate(()=>window.editor.dispose());await assert.rejects(page.evaluate(()=>window.editor.captureSelection()),/关闭/)
 
  }finally{await browser.close();await new Promise(r=>server.close(r))}

@@ -1,7 +1,7 @@
 /** Opt-in, isolated native runner. Does not build; running this file launches the supplied Tauri binary. */
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
-import {mkdir,readFile,writeFile,copyFile} from 'node:fs/promises';
+import {mkdir,realpath,readFile,writeFile,copyFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import JSZip from '../../packages/office-docx/node_modules/jszip/lib/index.js';
 import {startSelectionProvider} from './provider.mjs';
@@ -9,9 +9,11 @@ const options=Object.fromEntries(process.argv.slice(2).map(arg=>{const i=arg.ind
 if(!options.binary||!options.out)throw Error('Required --binary=/absolute/measurement-binary --out=/unique/empty/output-directory');
 const format=options.format??'docx';
 if(!['docx','xlsx','pptx'].includes(format))throw Error('Invalid format');
-const out=resolve(options.out),binary=resolve(options.binary),workspace=resolve(out,'workspace'),data=resolve(out,'app-data');
 // Reject reuse: native fixtures and credentials must stay isolated from real work.
-await mkdir(out,{recursive:false});
+await mkdir(resolve(options.out),{recursive:false});
+// Match production fixture setup: SQLite's NOFOLLOW requires canonical parents
+// (macOS /tmp is a symlink to /private/tmp).
+const out=await realpath(resolve(options.out)),binary=resolve(options.binary),workspace=resolve(out,'workspace'),data=resolve(out,'app-data');
 const run=(args,env={})=>new Promise((yes,no)=>{const p=spawn(process.execPath,args,{stdio:'inherit',env:{...process.env,...env}});p.on('error',no);p.on('exit',code=>code===0?yes():no(Error(`Setup exited ${code}`)))});
 await run(['scripts/office-performance/native-run.mjs',`--binary=${binary}`,`--out=${out}`,`--workspace=${workspace}`,`--data=${data}`,'--setup=1','--visible=1']);
 const setup=JSON.parse(await readFile(resolve(out,'setup.json'),'utf8'));if(setup.status!=='setup'||!setup.projectRoot)throw Error('Native fixture provisioning did not complete');

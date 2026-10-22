@@ -45,7 +45,9 @@ async function run(){
  setDshWorkspaceRoot(config.workspaceRoot);
  const file=await projectFileApi.register(binding,project.id,`selection.${config.format}`);
  await openProjectContent({workspaceRoot:config.workspaceRoot,projectId:project.id,object:{kind:'file',id:Number(file.object.id),title:file.name},expectedBinding:binding});
- createRoot(element).render(<QueryClientProvider client={createProjectMindQueryClient()}><ProjectFileContent workspaceRoot={config.workspaceRoot} projectId={project.id} fileId={Number(file.object.id)} fileName={file.name} visible focused /></QueryClientProvider>);
+ const root=createRoot(element),queryClient=createProjectMindQueryClient();
+ const renderFile=(key:string)=>root.render(<QueryClientProvider client={queryClient}><ProjectFileContent key={key} workspaceRoot={config.workspaceRoot} projectId={project.id} fileId={Number(file.object.id)} fileName={file.name} visible focused /></QueryClientProvider>);
+ renderFile('initial');
  await until(()=>{const button=document.querySelector<HTMLButtonElement>('button[aria-label="编辑"]');return button&&!button.disabled},'native File preview');click('编辑');
  await until(()=>{const button=document.querySelector<HTMLButtonElement>('button[aria-label="引用选区"]');return button&&!button.disabled},'selection toolbar registration');
  if(config.format==='docx'){
@@ -79,10 +81,16 @@ async function run(){
   for(const name of ['office_selection_register','office_selection_bind','office_selection_claim','office_selection_reply'])if(!commands.some(c=>c.name===name&&c.ok))throw Error(`Native ${name} not observed`);
   if(config.format==='docx')await until(()=>wordDocument()?.body.textContent?.includes(config.marker),'live Word inserted revision');
   const save=document.querySelector<HTMLButtonElement>('button[aria-label="保存"]');if(save&&!save.disabled)save.click();
-  const saved=await until(async()=>{const versions=await fileDocumentApi.versionsList(binding,{object:file.object,limit:1});return versions.currentVersionNumber>file.versionNumber&&versions.currentContentHash&&versions},'native File new version');
+  const saved=await until(async()=>{const failed=commands.find(c=>c.name==='file_office_save'&&!c.ok);if(failed)throw Error(`Native File save failed: ${JSON.stringify(failed.result)}`);const versions=await fileDocumentApi.versionsList(binding,{object:file.object,limit:1});return versions.currentVersionNumber>file.versionNumber&&versions.currentContentHash&&versions},'native File new version');
   const reopened=await officeFileApi.inspect(binding,{object:file.object,versionNumber:saved.currentVersionNumber,expectedContentHash:saved.currentContentHash!});
   if(config.format==='docx'){
-   if(reopened.model.format!=='docx'||!reopened.model.nodes.some(node=>node.text.includes(config.marker)))throw Error('Native saved bytes did not contain replacement');
+   if(reopened.model.format!=='docx')throw Error('Native saved format changed');
+   // The inspect node list intentionally excludes paragraphs containing
+   // revisions. Remount the full editor from the saved File instead; the runner
+   // independently checks persisted w:ins/w:del and their author in the ZIP.
+   renderFile('reopened');
+   await until(()=>{const button=document.querySelector<HTMLButtonElement>('button[aria-label="编辑"]');return button&&!button.disabled},'reopened native File preview');click('编辑');
+   await until(()=>wordDocument()?.querySelector('.tiptap.doc-page')?.textContent?.includes(config.marker),'reopened Word revision');
   }else if(config.format==='xlsx')assertXlsxSaved(reopened.model);
   else assertPptxSaved(reopened.model,config.marker);
   return {status:'passed',scope:'native ProjectFileContent shell, real toolbar/DSH/claims/File save; deterministic provider, not full app chat UI',selectionId:quoted.selection.selectionId,sessionId:quoted.sessionId,versionBefore:file.versionNumber,versionAfter:saved.currentVersionNumber,contentHash:saved.currentContentHash,commands,provider};
