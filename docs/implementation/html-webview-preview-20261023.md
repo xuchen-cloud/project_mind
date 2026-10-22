@@ -1,6 +1,6 @@
 # HTML 原生网页运行：实现与验证
 
-日期：2026-10-23。Issue：[#115](https://github.com/xuchen-cloud/project_mind/issues/115)，父需求 [#118](https://github.com/xuchen-cloud/project_mind/issues/118)。实现基线：`7affb2383c4278d32381300005435c0165737392`，分支 `codex/html-webview-preview`。范围：[H01–H04 需求](../requirements/html-webview-preview.md)。
+日期：2026-10-23。本次集成 Issue：[#225](https://github.com/xuchen-cloud/project_mind/issues/225)；原需求 [#115](https://github.com/xuchen-cloud/project_mind/issues/115)，父需求 [#118](https://github.com/xuchen-cloud/project_mind/issues/118)。实现基线：`7affb2383c4278d32381300005435c0165737392`，分支 `codex/html-webview-preview`。需求：[H01–H04](../requirements/html-webview-preview.md)，本包按 #225 集成已完成的 H01–H03。
 
 ## 工作包与交付
 
@@ -13,7 +13,7 @@
 
 ## 自动验证
 
-以下通过项对应本分支最终实现；前端未在通过后再改动。主线程文档生命周期与中文错误提示修改后重跑全部 17 项 Rust 网页测试，并重新完成默认配置原生构建。
+以下为原实现提交 `c8a78d5` 的验证。主线程文档生命周期与中文错误提示修改后重跑全部 17 项 Rust 网页测试，并重新完成默认配置原生构建；本轮 develop 集成的复验另见下节。
 
 | 检查 | 命令 / 范围 | 结果 |
 | --- | --- | --- |
@@ -30,7 +30,7 @@
 
 开发中先确认 File/native 缺失实现、固定 CSS 视口缩放、宿主重载失效用例失败，再补实现通过。HTTP 模块的真实请求测试在集成时通过，不把它们记作已记录红灯的 TDD 证据。
 
-### 构建环境与复用
+### 原实现构建环境与复用
 
 该 checkout 原先没有 node_modules；复用了锁文件完全一致的本机工作树依赖。首轮 `npm run build` 停在未改动的 Office 构建下载 GitHub 资源时 TLS 连接被重置，因此不记为全命令通过。
 
@@ -74,5 +74,14 @@
 ## Standards / Spec 主 agent 自查
 
 - Standards：按基线检查完整变更，复用现有 File/归属/绑定与固定版本，不增建版本仓库或通用代理；诊断只传有界文本，缓存和资源读取有预算。修复宿主重载早于 Session 插入的异步失效问题。当前执行包无剩余已知代码发现。
-- Spec：H01–H03 已实现，相关组件与 native 证据通过；H04 的 Windows/完整壳/安装验收仍未完成。原 #115 的源码编辑和完整历史依赖快照保留后续范围；不将当前包当作整个 Issue 完成。
-- 未启动 review 子 agent。依据发布流程，当前不自动合并或关闭 #115/#118。
+- Spec：按 #225 的集成范围检查，H01–H03 已实现，相关组件与 native 证据通过；H04 的 Windows/完整壳/安装验收仍未完成。原 #115 的源码编辑和完整历史依赖快照保留后续范围；不将当前包当作整个 Issue 完成。
+- 本轮用户已明确授权三处改动验证后合入 develop。主 agent 对相对 `origin/develop@77afa4f` 的完整变更完成 Standards / Spec 两轴检查，没有剩余发现；未启动 review 子 agent。发布仅关闭 #225，#115/#118 保持打开。
+
+## 本轮 develop 集成复验
+
+- 集成提交 `cc43e15` 合入 `develop@77afa4f`。`src-tauri/src/lib.rs` 的窗口销毁冲突同时保留 HTML parent 撤销与 Office selection 清理；Workspace 切换、宿主 reload 和退出路径保留双方清理职责。
+- 原实现的 HTTP/File/native 与组件代码没有因集成修改；复用上文 macOS 原生组件实测证据，未将其扩大为完整产品壳或 Windows 验收。
+- 当前复验：Rust `cargo test --manifest-path src-tauri/Cargo.toml --lib html_preview --quiet` 17/17；前端 HTML 服务、原生组件和五个文件/项目接缝共 175 项通过（五文件 162、服务 2、预览层 11）。`tsc --noEmit`、Vite 生产构建、UI standards、包边界与入口 249 KiB / 250 KiB 均通过。
+- 首轮 npm 批量测试在共享 `node_modules` symlink 环境出现 jest-dom matcher 未注册；APFS 克隆为独立依赖后，同一批 162 项断言通过，没有放宽断言或改动测试基础设施。类型检查最初发现 Office dist 落后源码，按相同源码树复用当前 root 产物后通过；随后重新构建前端和检查包边界。
+- 当前复用 Office 源码树：docx `e0d3b79677ebe901bdaf012da27f3c7e292ff530`、xlsx `fcf1beaf39ffccfae3c8b98eeb04d814a2257b0e`、pptx `e0eb2ec744d3d67eaaee126661c7b49948eb2391`；产物不提交。
+- Rust 首轮因 sherpa 上游下载 TLS 中断，复用现有固定归档后 17 项测试通过。最终原生构建曾因磁盘耗尽退出；仅清理本工作树本轮增量与失败归档产物后，以 `CARGO_INCREMENTAL=0` 重试 `cargo build --manifest-path src-tauri/Cargo.toml --bin project_mind_alpha --quiet`，退出 0。未修改源码、依赖或构建门槛，未启动应用窗口。
