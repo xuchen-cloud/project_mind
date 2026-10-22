@@ -1,6 +1,8 @@
 # AI 工作上下文：验收台账与实机执行入口
 
-更新：2026-10-10。本页保留 **A01～A76** 的逐项证据与剩余条件；新增记忆场景 **ML01～ML22** 在[生命周期细则](workspace-memory-lifecycle.md#10-验收场景)。当前目标以[主规格](ai-work-context-spec.md)为准，覆盖按[交付总览 V1～V5](ai-work-context-delivery.md#current-delivery)归并。本页不是第二份排期，也不替代 GitHub Issue 状态。
+> 2026-10-23 记忆规则更新：当前以[记忆生命周期细则](workspace-memory-lifecycle.md)及[实现契约](../technical/memory-contract.md)为准。来源删除保留结论、默认静默语义整理与 24h 回退、DSH 真实读写接入及评测后切换 L1/L2 取代旧来源删除即失效、默认待审、Pi 记忆接入和永久全量快照规则；旧实现仅供历史追溯。其他业务权限、原子事务和非记忆功能规则保持适用。实施与验证状态逐项记录，未完成真实验收不关闭父 Issue。
+
+更新：2026-10-23。本页保留 **A01～A76** 的逐项证据与剩余条件；历史记忆场景 **ML01～ML22** 在[原场景归档](archive/workspace-memory-lifecycle-history-20261010.md#10-验收场景)，现行记忆验收采用[生命周期 US-01～US-09](workspace-memory-lifecycle.md)。当前目标以[主规格](ai-work-context-spec.md)为准，覆盖按[交付总览 V1～V5](ai-work-context-delivery.md#current-delivery)归并。本页不是第二份排期，也不替代 GitHub Issue 状态。
 
 2026-10-14 接入更新：旧 Pi 聊天/成果界面测试链接固定到移除前提交，只用于历史证据。当前 Project 聊天是 DSH，旧 GUI 通过项不能替代 DSH 的来源、成果、记忆与真实 Provider 验收。当前界面测试见 [DSH 面板](../../src/components/agent/DshAssistantPanel.test.tsx)、[内容会话](../../src/components/agent/ProjectSessionContent.test.tsx)与[应用路由](../../src/App.test.tsx)。
 
@@ -9,8 +11,29 @@
 - 「部分」表示已有相关代码、确定性测试或执行记录，不能视为整个场景已通过；「待执行」表示没有足够执行证据；「后续」表示当前范围外。
 - 表内 M/R/WP/S/LM 是**历史追溯编号**，不是可继续照搬的当前批次。A23/A24 外部 Harness/闭应用 Host 保留编号但不计本轮通过分母。
 - 文件预览与格式编辑已归独立 [#118/#115](project-file-integration.md)。A42 迁出、不计 AI 通过分母；A43 只保留 AI 原字节与如实告知部分。迁出不表示已完成。
-- A57/A58 的 S7 本地证据只证明旧双 scope 记忆、GUI 管理及抑制，不能证明 Workspace 唯一归属、项目沿用/单次写入、快照、Skill、即时增量、联合整理或并发恢复。A75 普通成果仍要求方案后的真实用户确认；明确记忆请求的具体授权另验 ML17/ML20，不能混用。
-- 用户已确认复用原生服务、打包 Pi 调用链及界面用户流程，分别核持久保存、下一次调用生效和并发恢复；真实 Provider 与目标桌面设备另做产品验收。
+- A57/A58 的 S7 本地证据只证明旧双 scope 记忆、GUI 管理及抑制，不能证明 Workspace 唯一归属、项目沿用/单次写入、快照、Skill、即时增量、联合整理或并发恢复。A75 普通成果仍要求方案后的真实用户确认；明确记忆请求和当前 Project 增量按现行生命周期及原生契约另验（旧 ML17/ML20 仅供追溯），不能混用。
+- 用户已确认复用原生服务、当前 DSH 记忆调用链及界面用户流程（Pi 结果仅作历史证据），分别核持久保存、下一次调用生效和并发恢复；真实 Provider 与目标桌面设备另做产品验收。
+
+<a id="memory-stage-20261023"></a>
+
+## 2026-10-23 #219 阶段证据（暂停检查点）
+
+以下记录已取得的局部证据与当前缺口，不是 gate 完成、整包交付或 Issue 关闭声明。用户要求今天暂停，当前代码作为阶段提交保存；继续工作的入口见[进度与交接](../technical/memory-progress-20261023.md)，命令及验证范围见[实现契约](../technical/memory-contract.md#local-verification-2026-10-23)。
+
+| 范围 | 已有阶段性证据 | 仍须区分的边界 |
+| --- | --- | --- |
+| 原生事实/版本服务 | [store 定向测试](../../src-tauri/src/db/memory_facts_tests.rs) 19 项通过 | 原子批次、CAS/幂等、抑制、可选审批与操作单元回退；不等于真实模型语义通过 |
+| 原生来源与采用 | [delivery 定向测试](../../src-tauri/src/db/memory_delivery_tests.rs) 的 4 个来源用例与 3 个采用用例通过 | 同会话真实来源、实际归属、源删除保留结论及不可变 revision 采用；不授予原文额外权限 |
+| Project 理解历史 | [history 定向测试](../../src-tauri/src/db/project_history_tests.rs) 8 项通过 | 复用不可变 Overview + Project fact 版本，真实差异/来源、有界游标；Agent 工具接线与真实使用另验 |
+| 行为文件与管理 UI | [behavior 原生测试](../../src-tauri/src/memory_behavior.rs) 3 项通过；[管理 UI](../../src/components/memory/MemoryDialog.test.tsx)与[行为编辑 UI](../../src/components/memory/MemoryBehaviorEditor.test.tsx)相关定向验证已有记录 | 管理及行为编辑证据与逐条回答采用证据分别记录 |
+| 逐条回答采用透明度 | [Node 服务](../../packages/dsh-assistant/test/memory-service.test.mjs) 7 项与[真实 Node 链路](../../packages/dsh-assistant/test/memory.runtime.integration.mjs) 7 项、[per-answer UI](../../src/components/memory/MemoryAdoption.test.tsx) 2 项、[Project 聊天](../../src/components/agent/ProjectSessionContent.test.tsx)与[助手父面板](../../src/components/agent/DshAssistantPanel.test.tsx)合计 30 项、[native adoption](../../src-tauri/src/db/memory_delivery_tests.rs) 3 项通过；adapter 闭包 39 entries / 1046 modules 通过 | 已通过 SDK `conversation.chat.turnTail` 接入，按真实 session / turn / step 记录本次采用的不可变版本，可逐条回答查看；不再是每 Session 最新请求面板。各测试组有重叠，不合计为唯一用例数 |
+| 原始会话依据回读 | [原文读取边界](../../packages/dsh-assistant/test/memory-evidence.test.mjs) 4 项通过，实际 SDK 会话回读包含在上述 Node 链路内 | 只接受本次原生记忆返回的来源 ID，读取真实用户消息并分页；保存时的摘录不冒充仍可读取的原文 |
+| 后台已有事实整理 | [existing-facts 后台测试](../../src-tauri/src/memory_maintenance_tests.rs) 11 项通过 | 只整理已有 fact；不从新 sources 提取，不是 Overview + Workspace 联合发布 |
+| 后台真实模型 | attempt 3 通过 merge → inferred → 条件保留 → 回退成员恢复锁定，独立条目前后不变；usage input 1025 / cacheRead 512 / output 524 / total 2061 | 前两次输出协议失败均零 mutation，失败及 usage 记录保留；通过的是这次真实整理/回退案例，详见[后台记录](../technical/memory-maintenance.md) |
+| 真实模型 P0 与检索评测 | 60 场景、120 原生用户轮次及新版三臂 180 次请求已完成；gate 为 `not-passed` | layered 边际记忆输入只降 3.64%，TTFT 增 9.77%，180 条 rubric 未评分。存在纯日期写入拒绝、词法漏召回及历史工具评测接入待核。此前 P0 smoke 只代表局部证据；源删除仍是 host 附加来源后实际删除临时文件，不证明模型读源。默认 snapshot。见[评测记录](../technical/memory-evaluation.md) |
+| 保存失败收尾 | 最新宿主原生 `turn-error` 收尾已通过上述 Node 14 项：保留真实失败归档、不发第二次 Provider 请求、新用户恢复、CAS 可重读重试 | 五条真实 failed_write 结果来自此前实现，仍有未执行 DSML 与虚构重复尝试的模型叙述，不能拿来证明最新修复通过。最新实现尚未重跑真实模型；原生评测运行器的结束原因断言需从完成改为错误通知 |
+
+当前场景以[生命周期 US-01～US-09](workspace-memory-lifecycle.md)为准。已用 `git show HEAD:docs/requirements/workspace-memory-lifecycle.md` 核对历史 ML01～ML22，与[既有归档](archive/workspace-memory-lifecycle-history-20261010.md#10-验收场景)的 22 行逐行一致；历史编号保留原意，不编造到新 US 的一一映射。归档中的默认待审、删除来源失效及 Pi 接入描述不是现行记忆规则。
 
 ## 可复用的历史基线
 
@@ -46,7 +69,7 @@
 | A14 | M1·部分 | [连接授权测试][grant-tests]、[MCP 测试][mcp-tests] | 实际只读 MCP 客户端调用 create 应拒绝；撤销旧连接后在设置中新建有写权限的连接再试，不支持编辑既有 grant。 |
 | A15 | M1·部分 | [bridge 传输测试][transport-tests]、[R12a Linux 实际 CLI 记录][delivery] | Linux 已验应用关闭时实际 CLI 错误；仍需 macOS/Windows 实包核机器错误、Workspace 未打开及无临时 DB。 |
 | A16 | M1·部分 | [Pi 会话恢复测试][host-session-tests]、[Host 测试][host-tests] | 真实会话强退后恢复续聊，核历史及已提交工具不重放。 |
-| A17 | M1·部分 | [来源策略测试][source-read-tests]、[引用测试][reference-tests] | 产品中归档/排除/删除原文后，核后续读取及旧引用失效。 |
+| A17 | M1·部分 | [来源策略测试][source-read-tests]、[引用测试][reference-tests] | 归档后按实际可用性和授权核读；排除/实际删除后核原文及旧引用状态。独立保存的记忆结论按现行生命周期保留。 |
 | A18 | M1·部分 | [Profile 映射测试][profile-tests]、[Host 策略测试][host-policy-tests] | 真实无凭据、工具缺失、模型不兼容的错误与恢复入口；同时补主规格的会话模型覆盖要求（[历史 G7 依据](archive/ai-work-context-delivery-history-20261010.md#intent-audit-20261009)），验证通用默认/显式覆盖/重开/失效模型及 probe 与实际执行一致。 |
 | A19 | M1·部分 | [会话面板测试][agent-panel-tests]、[R04 GUI 执行记录][delivery] | macOS/Windows 736/1200/1540、长消息及 reduced-motion 人工交互。 |
 | A20 | M1·待执行 | [CLI 打包提交][cli-bundle-commit]、[安装定向测试][cli-install-tests] | 无 Node/Pi 开发环境的 macOS/Windows 干净安装，含中文/空格路径实测。 |
@@ -86,8 +109,8 @@
 | A54 | M1·部分 | [Overview 维护测试][overview-tests]、[变更队列测试][source-queue-tests] | 维护中新增事件/重启/失败/日志过期的产品进度和水位。 |
 | A55 | M1·部分 | [知识服务测试][knowledge-tests]、[纠正测试][overview-correction-tests] | 停滞 Todo/冲突目标/用户纠正的真实模型处理，不擅改 Todo。 |
 | A56 | M2·部分 | [S6 定向证据][delivery]和 S8 服务回归 4/4：父删除旧版隐藏、A 项目变化加 Workspace 直属 Record 额外 2 次模型调用且 prompt 无 B/C 原文、长父分页逐页纠正 | 未测 B/C 物理读取次数；真实 Provider 与目标平台验收仍缺。 |
-| A57 | M2·部分；2026-10-10 修订待实现 | S7 本地代码、数据库定向组及前端最终 27/27 有历史证据；六类记忆、推断/确认、GUI 操作和知识版本已接入；[R14 计划][delivery] | 新要求按[ML01～ML05、ML09～ML10、ML13～ML22](workspace-memory-lifecycle.md#10-验收场景)核 Workspace 唯一归属、Project 栏目、统一操作、联合沉淀、完整精简快照、容量、初始化、项目沿用与请求绑定写入、统一 Skill 与设置调整、即时增量和并发协作；再核项目归档、明确偏好、兴趣笔记与随口提问的真实提取边界、真实模型和目标平台。旧 S7 证据不覆盖新要求。 |
-| A58 | M2·部分；2026-10-10 修订待实现 | S7 本地代码、数据库定向组与前端最终 27/27 有历史证据；按来源抑制、多 owner 独立撤回、旧模型读及 Run proof 复核已接入；[R14 计划][delivery] | 新要求按[ML05～ML08、ML11～ML14、ML16～ML17、ML20～ML22](workspace-memory-lifecycle.md#10-验收场景)核待审、遗忘/复生约束、授权、联合原子保存、新模型中的停用约束和旧会话失效、即时/整理的入口保护和基线冲突恢复；再执行排除、部分授权、旧版本/续聊不泄露的真实模型及目标平台验收。 |
+| A57 | M2 历史部分；#219 实施与真实验收中 | 历史 S7 证据保留；当前原生 store、delivery、history 及 behavior/UI、逐条回答采用定向证据见[本轮阶段表](#memory-stage-20261023) | 现行 US-01～05/08/09 的真实调用与产品验收继续执行；Project 理解与 Workspace 记忆保持归属。新增 sources 提取及 Overview + Workspace 联合发布尚未交付；旧 [ML 场景](archive/workspace-memory-lifecycle-history-20261010.md#10-验收场景)不作为现行通过结论。 |
+| A58 | M2 历史部分；#219 实施与真实验收中 | 历史 S7 抑制证据保留；当前 fact 级抑制、原子操作回退及 existing-facts 后台证据见[本轮阶段表](#memory-stage-20261023) | 按现行 US-04～08 验遗忘/停用、同源独立事实、默认静默语义变化、版本确认归属及可选审批；单条 patch 独立、merge 整组 CAS 回退。后台真实模型单次整理/回退案例已通过；真实跨来源遗忘、恢复旧会话及更广语义评测仍须验收，不能沿用旧 ML 的默认待审/来源删除失效规则。 |
 | A59 | M1·部分 | [调度测试][schedule-tests]、[Overview 维护测试][overview-tests]：本地时区初始化、已有值保留、频率/时刻/时区设置及重算已接入 | 真实设备时钟下验证 24h/48h、离线、密钥锁定与前台抢占；单元测试时间不代替夜间运行。 |
 | A60 | M1·部分 | [Overview 维护测试][overview-tests]、[知识维护测试][knowledge-tests] | 大项目、恶意资料、重复摘要真实模型运行，核 partial 和预算续跑。 |
 | A61 | M1·部分 | [会话检索测试][session-search-tests]、[会话摘要测试][session-summary-tests] | [WP4～5](ai-work-context-delivery.md#confirmed-work-packages-20261009)先验证 Pi 原生压缩续聊与权限复核，再按证据补必要知识；真实旧讨论仍可由跨会话索引定位，摘要缺失时有限原文回读。 |
@@ -126,10 +149,10 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-contex
 1. **安装与升级。** 在没有开发 Node/Pi 的干净设备安装；使用中文、空格和单引号路径的 Workspace/用户目录。打开已有业务资料的 Workspace，再安装新版本覆盖升级，核新 AI 结构初始化和数据库升级/备份不改原始 Record/QuickNote/File/Todo；不要求迁移历史 AI 派生数据。于设置查看 CLI 来源、目标命令和将改动的 profile/HKCU PATH，显式安装、执行 `mind --version`、重复安装、更新、卸载并检查其他 PATH/同名外部文件未改。重开终端验证命令发现，卸载后不再指向该安装；手改受管块应报冲突且保留修改。对应 A01/A20/A72；记录平台截图、命令输出和目录/配置差异。
 2. **真实模型会话与来源。** 在 Project A 配置真实 Profile，从空会话询问已有 Record/File/PDF/Todo/QuickNote 的具体问题，核模型只在 A 范围调用工具、回答的 recorded 判断有可点来源且建议另标；打开来源分页并核版本、摘录、coverage。停止、重启、继续同会话；再切 Workspace B，确认 A 的晚到事件不进入 B。尝试无凭据、模型不兼容及恶意文档指令；同时检查非模态面板、两轮消息、来源卡片、异步结果和目标移除。对应 A03～07/A11～12/A16～19/A66～70/A73～74/A76；记录实际工具/来源身份和字符预算，不记录私有推理日志。
 3. **成果、冲突与撤销。** 在同一真实会话依次创建 Record、修改一个块、创建/更新 Todo、创建和两轮修改 File；默认模式只对同一任务确认一次，显式自动模式按用户选择执行。“更新计划并创建 3 项 Todo”另核按钮/文字确认一致、补充要求使旧决定失效及部分失败逐项结算。核页面即时刷新、稳定对象 ID、版本、旧字节、来源与操作收据。用同一请求 ID 重试并改 payload，人工后改后提交旧 patch，撤销修改、撤回新增再恢复；针对 File 执行阶段杀进程、磁盘满/DB 故障注入并复查 journal。对应 A08～10/A13/A25～41/A43～50/A75～76 的 AI 部分。另用真实模型生成 HTML File v1，核一次确认、成果链接与收据；读取完整源码，同 ID 连续续改为 v2/v3，读取固定历史源码、恢复为新版后再续改，并核 JS/CSS/CDN 引用字节保留及未验证交互的如实告知。A42 的隔离及 A43 的依赖/JS 诊断由 #118/#115 在目标 WebKit/WebView2 验收，不阻塞 AI 发布。
-4. **知识与记忆。** 触发 Project Overview 初始化、源变更维护及停用/重开后补跑，核水位、partial、预算、纠正与来源；新会话询问较久以前的讨论，分别试有效摘要、摘要缺失、推翻决定和长历史分支，核有限原文回读、未执行建议未升格。覆盖 A02/A51～55/A59～65/A72。继续覆盖 ML01～ML22：在项目中使用通用记忆、明确请求保存和遗忘、采用方案的即时增量、同一 Run 下一次请求使用新 Skill/记忆、结构化每周设置与部分失败、联合沉淀与基线变化后恢复、Project 多次更新只标记并合并下游核对。24h/48h 是当前旧调度证据；新周设置及已有调度均按真实设备时钟和离线恢复记录，不用单元测试时间代替。
+4. **知识与记忆。** 触发 Project Overview 初始化、源变更维护及停用/重开后补跑，核水位、partial、预算、纠正与来源；新会话询问较久以前的讨论，分别试有效摘要、摘要缺失、推翻决定和长历史分支，核有限原文回读、未执行建议未升格。覆盖 A02/A51～55/A59～65/A72。继续覆盖现行 US-01～US-09（历史 [ML01～ML22](archive/workspace-memory-lifecycle-history-20261010.md#10-验收场景)只供追溯）：在项目中使用通用记忆、明确请求保存和遗忘、采用方案的即时增量、同一 Run 下一次请求使用新 Skill/记忆、结构化每周设置与部分失败、尚未交付的联合沉淀目标与基线变化后恢复、Project 多次更新只标记并合并下游核对。24h/48h 是当前旧调度证据；新周设置及已有调度均按真实设备时钟和离线恢复记录，不用单元测试时间代替。新增按需 Project 历史查询核真实前后差异、时间、来源与分页，不臆造原因、不进入常驻输入。
 5. **CLI/MCP 和授权。** 在应用打开且已绑定 Workspace 时，创建 Workspace/Project 范围的只读和协作连接，通过生产 CLI `mind doctor`、`mind project list`、`mind context get`、`mind mcp serve` 的 SDK 客户端查询，并用 `mind schema METHOD --json` 检查参数。只读连接尝试 create 应拒绝；新连接不能再选择对象白名单；旧对象连接在重选范围与模式前不能静默获得全范围读取或写入。内置助手在已启用 scope 自动获得会话读取能力，外部连接仍按持久 grant 核验。用可写连接保存、重试、撤销，再撤权并重复请求；关闭应用或切换 Workspace 后须为机器可识别错误且不另开 DB。核 CLI/MCP 与内置相同节点版本和有界结果。对应 A04/A09/A13～15/A37/A71 及 R12c；记录实际 SDK/CLI 响应与目标平台，不将 Linux keyring smoke 代替。
 
-解锁条件：可取得三种目标架构的正式安装包和设备、可用真实 Provider Profile、固定旧 Workspace 与含各类来源的非私密 fixture，以及可安全进行杀进程/磁盘满/DB 故障的隔离副本。任一条件缺失时仅将对应行保持「部分」或「待执行」，不以其他平台、mock 模型、截图或单测推断通过。A21/A56～58 和 ML01～ML22 按当前 V1～V5 覆盖逐项验收，不因旧批次本地实现而默认完成。A23/A24 保留为当前范围外的历史验收编号，不计本轮发布分母。
+解锁条件：可取得三种目标架构的正式安装包和设备、可用真实 Provider Profile、固定旧 Workspace 与含各类来源的非私密 fixture，以及可安全进行杀进程/磁盘满/DB 故障的隔离副本。任一条件缺失时仅将对应行保持「部分」或「待执行」，不以其他平台、mock 模型、截图或单测推断通过。A21/A56～58 与现行 US 场景按当前 V1～V5 逐项验收；历史 ML01～ML22 只在归档追溯，不因旧批次本地实现而默认完成。A23/A24 保留为当前范围外的历史验收编号，不计本轮发布分母。
 
 [delivery]: ai-work-context-delivery.md
 [overview-tests]: ../../src-tauri/src/db/overview_maintenance_tests.rs
@@ -137,7 +160,7 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-contex
 [source-nav-tests]: ../../src-tauri/src/agent/source_navigation.rs
 [grant-tests]: ../../src-tauri/src/db/agent_connections_tests.rs
 [bridge-read-tests]: ../../src-tauri/src/agent/bridge/read_tests.rs
-[host-policy-tests]: ../../packages/agent-host/test/pi/production-policy.test.mjs
+[host-policy-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/packages/agent-host/test/pi/production-policy.test.mjs
 [extract-tests]: ../../src/workers/source-extraction-worker.node.test.ts
 [source-read-tests]: ../../src-tauri/src/source_service.rs
 [file-version-tests]: ../../src-tauri/src/file_version_service.rs
@@ -146,14 +169,14 @@ A01～A76 的场景台账不能替代 [E16 性能与观测验收](ai-work-contex
 [record-output-tests]: ../../src-tauri/src/agent/record_outputs_tests.rs
 [bridge-file-tests]: ../../src-tauri/src/agent/bridge/file_write_tests.rs
 [bridge-todo-tests]: ../../src-tauri/src/agent/bridge/todo_write_tests.rs
-[host-tests]: ../../src-tauri/src/agent/host_tests.rs
+[host-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/src-tauri/src/agent/host_tests.rs
 [batch-tests]: ../../src-tauri/src/agent/operation_batch_service_tests.rs
 [business-change-tests]: ../../src/hooks/useWorkspaceBusinessChanges.test.tsx
 [record-connection-tests]: ../../src-tauri/src/record_connection_service_tests.rs
 [transport-tests]: ../../src-tauri/src/agent/bridge/transport_tests.rs
-[host-session-tests]: ../../packages/agent-host/test/pi/session-history.test.mjs
+[host-session-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/packages/agent-host/test/pi/session-history.test.mjs
 [reference-tests]: ../../src-tauri/src/db/agent_references.rs
-[profile-tests]: ../../packages/agent-host/test/pi/profile-map.test.mjs
+[profile-tests]: https://github.com/xuchen-cloud/project_mind/blob/09c2ab65d616fb7757b972ba7b339d73cf4c9782/packages/agent-host/test/pi/profile-map.test.mjs
 [mcp-tests]: ../../src-tauri/src/agent/bridge/mcp_tests.rs
 [cli-bundle-commit]: https://github.com/xuchen-cloud/project_mind/commit/2bb3a73
 [cli-install-tests]: ../../src-tauri/src/agent/bridge/cli_install_tests.rs

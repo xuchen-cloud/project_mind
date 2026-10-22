@@ -10,6 +10,7 @@ import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readContext, bindContext } from './project-workspace.mjs';
 import { installOfficeService } from './office-service.mjs';
+import { installMemoryService } from './memory-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
 import { readMindCli, installMindCli } from './mind-cli.mjs';
 import { bundledSkillEnvironment, prepareBundledSkills } from './skills.mjs';
@@ -95,6 +96,7 @@ try {
   }
   if (embedded) {
     await bindContext(ctx, context);
+    await installMemoryService(ctx, context, sourceBridge);
     if (context.kind === 'project') {
       await installSourceService(ctx, context, sourceBridge);
       await installOfficeService(ctx, context, sourceBridge);

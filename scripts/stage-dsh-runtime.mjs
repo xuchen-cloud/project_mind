@@ -179,7 +179,7 @@ async function inventory(directory) {
 }
 
 async function validateAssets(directory, target) {
-  for (const name of ['skills/project-mind-cli/SKILL.md', 'scripts/runtime.mjs', 'scripts/model-utility-entry.mjs', 'scripts/model-utility.mjs', 'scripts/skills.mjs', 'scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/isolation.mjs', 'config/desktop.patch.yml', 'package.json', 'package-lock.json', 'upstream.json', browserIndex,
+  for (const name of ['skills/project-mind-cli/SKILL.md', 'skills/project-mind-memory/SKILL.md', 'scripts/memory-service.mjs', 'scripts/memory-evidence.mjs', 'scripts/runtime.mjs', 'scripts/model-utility-entry.mjs', 'scripts/model-utility.mjs', 'scripts/skills.mjs', 'scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/isolation.mjs', 'config/desktop.patch.yml', 'package.json', 'package-lock.json', 'upstream.json', browserIndex,
     'node_modules/dsh-desktop-client-ui/package.json']) await regularFile(path.join(directory, name));
   const lock = JSON.parse(await readFile(path.join(directory, 'package-lock.json')));
   for (const location of Object.keys(lock.packages).filter(name => name.includes('node_modules/'))) {

@@ -1,0 +1,270 @@
+{
+  "gate": "not-passed",
+  "defaultStrategy": "snapshot",
+  "arms": {
+    "none": {
+      "count": 60,
+      "meanInputTokens": 725.6,
+      "meanMemoryInputTokens": 0,
+      "meanSerializedMemoryBytes": 0,
+      "meanReturnedMemoryFacts": 0,
+      "meanTtftMs": 3894.4546840333355,
+      "task": null,
+      "preference": null
+    },
+    "snapshot": {
+      "count": 60,
+      "meanInputTokens": 929.5,
+      "meanMemoryInputTokens": 203.9,
+      "meanSerializedMemoryBytes": 525.3,
+      "meanReturnedMemoryFacts": 1.1,
+      "meanTtftMs": 2250.5303284833326,
+      "task": null,
+      "preference": null
+    },
+    "layered": {
+      "count": 60,
+      "meanInputTokens": 922.0833333333334,
+      "meanMemoryInputTokens": 196.48333333333332,
+      "meanSerializedMemoryBytes": 497.56666666666666,
+      "meanReturnedMemoryFacts": 1.0166666666666666,
+      "meanTtftMs": 2470.3718306166675,
+      "task": null,
+      "preference": null
+    }
+  },
+  "byDimension": {
+    "preference": {
+      "none": {
+        "count": 10,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 10,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 10,
+        "featureScreenPassRate": 0.9,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "condition": {
+      "none": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 5,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "isolation": {
+      "none": {
+        "count": 5,
+        "featureScreenPassRate": 0,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 5,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 5,
+        "featureScreenPassRate": 0.6,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "forget": {
+      "none": {
+        "count": 10,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 10,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 10,
+        "featureScreenPassRate": 0.9,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "failedWrite": {
+      "none": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 5,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 5,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "sourceRemoved": {
+      "none": {
+        "count": 5,
+        "featureScreenPassRate": 0.2,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 5,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "time": {
+      "none": {
+        "count": 10,
+        "featureScreenPassRate": 0.1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 10,
+        "featureScreenPassRate": 0.7,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 10,
+        "featureScreenPassRate": 0.7,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "rollback": {
+      "none": {
+        "count": 5,
+        "featureScreenPassRate": 0,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    },
+    "organization": {
+      "none": {
+        "count": 5,
+        "featureScreenPassRate": 0,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "snapshot": {
+        "count": 5,
+        "featureScreenPassRate": 0.8,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      },
+      "layered": {
+        "count": 5,
+        "featureScreenPassRate": 1,
+        "task": null,
+        "preference": null,
+        "boundaryPassRate": null
+      }
+    }
+  },
+  "memoryInputReduction": 0.03637403956187679,
+  "completeRatings": false,
+  "humanReviewed": false,
+  "completeArms": true,
+  "nativeBoundaries": false,
+  "featurePass": false,
+  "qualityPass": false,
+  "lifecycleMeasured": true,
+  "backgroundOrganizationUsage": {
+    "inputTokens": 1537,
+    "outputTokens": 524,
+    "raw": {
+      "cacheReadTokens": 512,
+      "inputTokens": 1025,
+      "outputTokens": 524,
+      "totalTokens": 2061
+    },
+    "reportPath": "docs/technical/evidence/memory-background-20261023-attempt-3.json"
+  },
+  "limitations": [
+    "Regex features only screen answers; complete attributed rubric scoring and native boundary evidence remain mandatory.",
+    "Prompt-token differences measure marginal memory input including message framing.",
+    "TTFT is first visible content, not first reasoning/transport event.",
+    "A candidate pass never changes runtime defaults."
+  ]
+}

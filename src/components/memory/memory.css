@@ -1,0 +1,20 @@
+.memory-dialog__body { display: flex; flex-direction: column; gap: 12px; overflow: hidden; height: min(70dvh, 44rem); }
+.memory-dialog__tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.memory-dialog__body > .home-side__list-frame { min-height: 0; flex: 1; --home-sidebar: var(--color-bg); }
+.memory-dialog__body .home-side__list { max-height: none; }
+.memory-fact { padding: 12px 2px; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
+.memory-fact__content { color: var(--color-text); font-size: var(--type-body-size); line-height: var(--type-body-line); white-space: pre-wrap; }
+.memory-fact__source { padding: 8px 12px; border-left: 2px solid var(--color-border); margin-top: 6px; white-space: pre-wrap; }
+.memory-dialog__empty { padding: 24px 0; color: var(--color-text-secondary); }
+.memory-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-8); }
+.memory-editor__select { margin-left: 8px; border: 1px solid var(--color-border); border-radius: var(--radius-6); background: var(--color-bg); padding: 4px 8px; }
+.memory-adoption { flex: 0 0 auto; padding: 8px 12px; }
+.memory-adoption__toggle { cursor: pointer; text-align: left; }
+.memory-adoption .home-side__list { max-height: 12rem; }
+/* Keep the same answer and content mounted while its disclosure changes size. */
+.memory-adoption__disclosure { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--duration-standard) var(--ease-soft), opacity var(--duration-standard) var(--ease-soft); }
+.memory-adoption__disclosure[data-expanded="true"] { grid-template-rows: 1fr; opacity: 1; }
+.memory-adoption__content { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .memory-adoption__disclosure { transition: none; }
+}

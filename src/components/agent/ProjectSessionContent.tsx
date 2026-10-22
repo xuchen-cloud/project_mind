@@ -11,6 +11,7 @@ import { dshAssistantApi } from '../../services/dshAssistantApi';
 import { dshProjectRunKey, useAgentPanelStore } from '../../state/agent-panel-store';
 import { useUiStore } from '../../state/ui-store';
 import { Button } from '../../ui/components/Button';
+import { MemoryAdoption } from '../memory/MemoryAdoption';
 import './project-session-content.css';
 
 export interface ProjectSessionContentProps {
@@ -107,6 +108,6 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
       <p>引用 {pending.path} 失败：{referenceError.message}</p>
       <Button size="sm" onClick={() => setReferenceError(null)}>重试引用</Button>
     </div> : null}
-    {ready ? <DshConversationHost projectId={projectId} sessionId={sessionId} focused={focused} {...callbacks} /> : null}
+    {ready ? <DshConversationHost renderMemoryAdoption={({ sessionId: adoptedSession, turn }) => <MemoryAdoption workspaceRoot={workspaceRoot} projectId={projectId} sessionId={adoptedSession} turn={turn} />} projectId={projectId} sessionId={sessionId} focused={focused} {...callbacks} /> : null}
   </section>;
 }

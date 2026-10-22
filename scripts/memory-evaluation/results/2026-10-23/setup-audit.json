@@ -1,0 +1,2357 @@
+{
+  "completed": 60,
+  "actualUserTurns": 120,
+  "activeFacts": {
+    "min": 0,
+    "max": 2,
+    "mean": 1.1833333333333333,
+    "distribution": {
+      "0": 11,
+      "1": 27,
+      "2": 22
+    }
+  },
+  "setupFailures": [
+    "current-2"
+  ],
+  "nativeBoundaryFailures": [
+    {
+      "id": "current-2",
+      "arm": "snapshot",
+      "check": "validityRespected"
+    },
+    {
+      "id": "current-2",
+      "arm": "layered",
+      "check": "validityRespected"
+    },
+    {
+      "id": "history-1",
+      "arm": "snapshot",
+      "check": "validityRespected"
+    },
+    {
+      "id": "history-1",
+      "arm": "layered",
+      "check": "validityRespected"
+    }
+  ],
+  "limitations": [
+    "These isolated cases contain few saved facts; do not extrapolate savings to hundreds of long-term memories.",
+    "Earlier passing cases are reused across the explicitly documented behavior/protocol batches; source fingerprints are absent for the earliest batch.",
+    "Native organization fixtures are not production background-model organization."
+  ],
+  "cases": [
+    {
+      "id": "confirmed_drift-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 523,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 523,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "confirmed_drift-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 490,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 490,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "confirmed_drift-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 480,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 480,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "confirmed_drift-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 452,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 452,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "confirmed_drift-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 531,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 531,
+          "evidence": {
+            "newVersionInferred": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "current-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 510,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 510,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "current-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": false,
+      "setupPassed": false,
+      "nativeFailures": [
+        {
+          "action": "expireOld",
+          "ok": false,
+          "reason": "No matching actual saved fact"
+        }
+      ],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "validityRespected": false
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "validityRespected": false
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "current-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 450,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 450,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "current-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 414,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 414,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "current-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 474,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 474,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "failed_write-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": false,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "failed_write-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": false,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "failed_write-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": false,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "failed_write-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": false,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "failed_write-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": false,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 53,
+          "evidence": {
+            "writeReceiptTruthful": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "forget-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 221,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 221,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "forget-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 266,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 266,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "forget-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 233,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 233,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "forget-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 230,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 230,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "forget-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 0,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 275,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 1,
+          "serializedBytes": 275,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "history-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 449,
+          "evidence": {
+            "validityRespected": false
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 449,
+          "evidence": {
+            "validityRespected": false
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "history-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 1000,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 1000,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "history-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 829,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 829,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "history-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 982,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 982,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "history-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 882,
+          "evidence": {
+            "validityRespected": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 882,
+          "evidence": {
+            "validityRespected": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "independent_source-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 610,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 610,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "independent_source-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 611,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 611,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "independent_source-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 599,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 599,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "independent_source-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 577,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 577,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "independent_source-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 661,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 1,
+          "serializedBytes": 661,
+          "evidence": {
+            "suppressionPreserved": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "isolation-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 410,
+          "evidence": {
+            "isolated": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 410,
+          "evidence": {
+            "isolated": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "isolation-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 413,
+          "evidence": {
+            "isolated": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 413,
+          "evidence": {
+            "isolated": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "isolation-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 410,
+          "evidence": {
+            "isolated": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 410,
+          "evidence": {
+            "isolated": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "isolation-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 413,
+          "evidence": {
+            "isolated": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 413,
+          "evidence": {
+            "isolated": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "isolation-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 404,
+          "evidence": {
+            "isolated": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 91,
+          "evidence": {
+            "isolated": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "report-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 835,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 835,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "report-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 799,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 474,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "report-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 862,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 862,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "report-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 505,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 505,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "report-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 451,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 451,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "rollback-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 793,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 7
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 793,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 7
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "rollback-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 754,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 1
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 754,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 1
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "rollback-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 763,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 0
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 763,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 0
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "rollback-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 849,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 0
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 849,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 0
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "rollback-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 872,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 6
+          }
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 872,
+          "evidence": {
+            "restoredAndUnrelatedPreserved": true,
+            "rollbackMs": 6
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "source_removed-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 480,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 480,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "source_removed-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 450,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 450,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "source_removed-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 448,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 448,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "source_removed-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 425,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 425,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "source_removed-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 482,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 482,
+          "evidence": {
+            "retainedConclusionAvailable": true
+          }
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "synonym-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 497,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 497,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "synonym-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 442,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 442,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "synonym-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 481,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 481,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "synonym-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 541,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 541,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "synonym-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 1,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 448,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 448,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      },
+      "sourceFingerprintNote": "recorded on completion"
+    },
+    {
+      "id": "technical-1",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 786,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 786,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "technical-2",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 880,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 880,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "technical-3",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 868,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 1,
+          "suppressedCount": 0,
+          "serializedBytes": 531,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "technical-4",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 819,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 0,
+          "suppressedCount": 0,
+          "serializedBytes": 130,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    },
+    {
+      "id": "technical-5",
+      "actualUserTurns": 2,
+      "activeFactCount": 2,
+      "successfulMemoryWriteObserved": true,
+      "setupPassed": true,
+      "nativeFailures": [],
+      "arms": {
+        "snapshot": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 871,
+          "evidence": {}
+        },
+        "layered": {
+          "returnedFactCount": 2,
+          "suppressedCount": 0,
+          "serializedBytes": 871,
+          "evidence": {}
+        }
+      },
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null,
+      "sourceFingerprintNote": "early batch: no exact source fingerprint captured; actual Provider/bridge/state transcripts retained"
+    }
+  ]
+}

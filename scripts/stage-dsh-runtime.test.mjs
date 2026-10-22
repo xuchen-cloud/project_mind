@@ -15,6 +15,7 @@ const json = (file, value) => put(file, JSON.stringify(value));
 const bundledSkills = {
   'project-mind-cli/SKILL.md': '---\nname: project-mind-cli\ndescription: Use mind CLI.\n---\n',
   'project-mind-cli/references/usage.md': 'CLI reference',
+  'project-mind-memory/SKILL.md': '---\nname: project-mind-memory\ndescription: Native memory behavior template.\n---\n',
   'future-builtin/SKILL.md': 'Another builtin skill',
   'future-builtin/assets/template.bin': Buffer.from([0, 255, 10]),
 };
@@ -46,6 +47,8 @@ async function fixture(t) {
   await put(path.join(source, 'scripts/skills.mjs'), 'export const bundledSkillEnvironment = {};');
   await put(path.join(source, 'scripts/builtin-skills.mjs'), 'export const prepareBundledSkills = async () => {};');
   await put(path.join(source, 'scripts/skill-management.mjs'), 'export const manageSkill = async () => {};');
+  await put(path.join(source, 'scripts/memory-service.mjs'), 'export const installMemoryService = async () => {};');
+  await put(path.join(source, 'scripts/memory-evidence.mjs'), 'export const readMemoryMessage = async () => {};');
   await put(path.join(source, 'scripts/shared-model.mjs'), 'export const mainModel = true;');
   await put(path.join(source, 'scripts/runtime.mjs'), `import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,7 +111,7 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
       assert.deepEqual(await readFile(path.join(cwd, 'skills', name)), Buffer.from(contents));
     }
     await assert.rejects(lstat(path.join(cwd, 'node_modules')), { code: 'ENOENT' });
-    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'isolation.mjs', 'model-utility-entry.mjs', 'model-utility.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
+    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'isolation.mjs', 'memory-evidence.mjs', 'memory-service.mjs', 'model-utility-entry.mjs', 'model-utility.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fresh-helper');
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'), 'other-target');
   });
@@ -213,8 +216,8 @@ test('all bundled skills and resources ship with verified inventory; required sk
     assert.equal(entry.checksum, checksum(contents));
     assert.deepEqual(await readFile(path.join(f.destination, 'skills', name)), Buffer.from(contents));
   }
-  assert.deepEqual((await readdir(path.join(f.destination, 'skills'))).sort(), ['future-builtin', 'project-mind-cli']);
-  for (const module of ['scripts/builtin-skills.mjs', 'scripts/skill-management.mjs']) {
+  assert.deepEqual((await readdir(path.join(f.destination, 'skills'))).sort(), ['future-builtin', 'project-mind-cli', 'project-mind-memory']);
+  for (const module of ['scripts/builtin-skills.mjs', 'scripts/skill-management.mjs', 'scripts/memory-service.mjs', 'scripts/memory-evidence.mjs', 'skills/project-mind-memory/SKILL.md']) {
     assert.ok(manifest.files.some(entry => entry.file === module));
     const contents = await readFile(path.join(f.production, module));
     await rm(path.join(f.production, module));

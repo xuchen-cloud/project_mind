@@ -39,6 +39,10 @@ pub(crate) mod overview_schedule;
 mod source_catalogue;
 mod agent_knowledge;
 pub(crate) mod agent_memory;
+pub(crate) mod memory_facts;
+pub(crate) mod project_history;
+pub(crate) mod memory_maintenance;
+pub(crate) mod memory_delivery;
 #[path = "memory_service.rs"]
 pub(crate) mod memory_service;
 mod agent_instructions;
@@ -373,6 +377,7 @@ impl Database {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
         }
         db.migrate()?;
+        db.ensure_memory_fact_schema().map_err(anyhow::Error::msg)?;
         db.source_registry_prepare()?;
         db.voice_retry_asset_cleanup()?;
         Ok(db)

@@ -60,6 +60,10 @@ export async function prepareBundledSkills({ resourceDir = resourceSkillDir, dat
   await withRootLock(root, async () => {
     const disabled = await checkDisabledRoot(root);
     for (const entry of await readdir(resourceDir, { withFileTypes: true })) {
+      // Native memory copies this template into the Workspace once and injects
+      // that editable version per request. Discovering the packaged template as
+      // another active Skill would replay stale rules after a user edit.
+      if (entry.name === 'project-mind-memory') continue;
       if (!validEntryName(entry.name) || !entry.isDirectory()) continue;
       const target = path.resolve(resourceDir, entry.name);
       if (!await optionalLstat(path.join(target, 'SKILL.md'))) continue;

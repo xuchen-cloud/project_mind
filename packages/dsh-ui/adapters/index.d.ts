@@ -1,5 +1,5 @@
 import type { AgentSourceRef } from '../../../src/lib/agent-types';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 export interface DshSessionModel {
   sessionId: string;
   running: boolean;
@@ -10,6 +10,7 @@ export interface DshConversationHostProps {
   projectId: number | null;
   sessionId: string;
   focused?: boolean;
+  renderMemoryAdoption?: (identity: { sessionId: string; turn: number }) => ReactNode;
   onSessionChange?: (id: string) => void;
   onBusyChange?: (busy: boolean) => void;
   onFileOpen?: (path: string, line?: number, sourceRef?: AgentSourceRef) => void;

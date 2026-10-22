@@ -28,6 +28,9 @@ mod office;
 #[path = "dsh_cli.rs"]
 mod cli;
 
+#[path = "dsh_memory.rs"]
+mod memory;
+
 #[cfg(test)]
 #[path = "dsh_workspace_tests.rs"]
 mod workspace_tests;
@@ -320,7 +323,7 @@ fn configuration_fingerprint(
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-fn authorize_scope_label(label: &str, project_id: Option<i64>) -> Result<(), String> {
+pub(crate) fn authorize_scope_label(label: &str, project_id: Option<i64>) -> Result<(), String> {
     if project_id.is_some_and(|id| !(1..=9_007_199_254_740_991).contains(&id)) {
         return Err("请选择当前工作区中的有效项目".into());
     }
@@ -345,7 +348,7 @@ fn local_caller_url(url: &Url, dev_url: Option<&Url>, is_dev: bool) -> bool {
     }
 }
 
-fn authorize_caller(caller: &Webview) -> Result<(), String> {
+pub(crate) fn authorize_caller(caller: &Webview) -> Result<(), String> {
     let label = caller.label();
     let local_label = label == "main"
         || label
@@ -673,6 +676,10 @@ fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate
 }
 
 fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation: String) -> SourceHandler {
+    memory::with_memory(app.clone(), identity.clone(), file_source_handler(app, identity, runtime_generation))
+}
+
+fn file_source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation: String) -> SourceHandler {
     let offices = office::OfficeBridge::new(app.clone(), identity.clone());
     Arc::new(move |payload, revoked, url, frame_id, alive| {
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
@@ -1321,6 +1328,38 @@ impl RuntimeState {
 }
 
 impl DshAssistantState {
+    /// Background maintenance yields to actual DSH Sessions, including tasks
+    /// whose chat panel is closed. Native legacy run tables do not track these.
+    pub(crate) async fn foreground_busy(&self, binding: &crate::agent::models::WorkspaceBinding) -> Result<bool, String> {
+        if self.stopping.load(Ordering::SeqCst) { return Ok(true); }
+        let selected = {
+            let mut inner = self.inner.lock().await;
+            let mut selected = Vec::new();
+            for (scope, runtime) in &mut inner.scopes {
+                let Some(identity) = &runtime.identity else { continue; };
+                if identity.workspace_id != binding.workspace_id || identity.workspace_generation != binding.generation { continue; }
+                let Some(process) = &mut runtime.process else { continue; };
+                if process.child.try_wait().map_err(|_| "无法核验前台助手状态")?.is_some() { continue; }
+                selected.push((*scope, runtime.generation, identity.directory().to_path_buf(), process.url.clone()));
+            }
+            selected
+        };
+        let client = session_http_client()?;
+        for (_, _, directory, url) in &selected {
+            if list_sessions(url, &client, &mut None, directory).await?.iter().any(|session| session.running) {
+                return Ok(true);
+            }
+        }
+        // A scope started or restarted while the RPCs were in flight must be
+        // sampled again on a later tick before background work can be admitted.
+        let inner = self.inner.lock().await;
+        Ok(self.stopping.load(Ordering::SeqCst) || inner.scopes.iter().any(|(scope, runtime)| {
+            runtime.identity.as_ref().is_some_and(|identity| identity.workspace_id == binding.workspace_id
+                && identity.workspace_generation == binding.generation)
+                && runtime.process.is_some()
+                && !selected.iter().any(|(old_scope, generation, _, _)| old_scope == scope && *generation == runtime.generation)
+        }))
+    }
     // Keep the mutation lock through the native workspace transition, so a
     // concurrent start cannot reuse old credentials between stop and lock/switch.
     pub(crate) async fn invalidate<T>(
@@ -2527,7 +2566,7 @@ mod tests {
         let mut db = crate::db::Database::open(&db_path, root.path(), None).unwrap();
         db.bind_native_workspace("native-source").unwrap();
         let project = db.project_create(crate::models::ProjectCreateInput { name: "Source".into(), summary: None, status: None }).unwrap();
-        let directory = PathBuf::from(&project.root_path);
+        let directory = PathBuf::from(&project.root_path).canonicalize().unwrap();
         std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
         let file = db.project_file_register("native-source", project.id, "fixed.txt").unwrap();
         let fixed = crate::agent::models::SourceRef { object: file.object, revision: file.content_hash.unwrap(), file_version: Some(file.version_number), record_version: None, block_id: None, locator: None, title: "fixed.txt".into(), excerpt: String::new() };
@@ -2549,6 +2588,7 @@ mod tests {
                 }
             }
         });
+        let handler = memory::integration_tests::wrap(database.clone(), identity.clone(), binding.clone(), handler, Arc::new(std::sync::Mutex::new(Vec::new())));
         let bodies = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
         let received = bodies.clone();
         let ptc_token = source_file_token(&fixed).unwrap();

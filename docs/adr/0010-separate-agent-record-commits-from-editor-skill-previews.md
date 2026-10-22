@@ -19,3 +19,7 @@ The same-day user decision extends Review confirmation to the bound model-tool p
 ## 2026-10-10 target clarification: explicit memory requests
 
 The [unified AI specification](../requirements/ai-work-context-spec.md) adds a distinct, not-yet-implemented memory path: an unambiguous real user request to remember, correct, replace or forget a specified item, or an explicit decision bound to a typed Overview increment, supplies the particular authorization without another confirmation. Read-only still rejects writes, and the native service checks target, request, source and version. This exception does not authorize ordinary Record/Todo/File outputs, allow a proposal to approve itself, or change the later-user-message Review rule above.
+
+## 2026-10-23 implementation status
+
+Explicit memory requests now use native fact identities, immutable revisions and atomic receipts through DSH memory tools. The host captures the real user message and Session ownership; tools cannot supply a confirmation flag or widen the current Project. Default organization may silently change semantics, but creates inferred versions and a 24-hour rollback unit; it cannot inherit an earlier version's user confirmation. Record/Todo/File output approval rules remain unchanged. The typed Overview increment and joint publication work are not declared complete by this status. See the [current memory lifecycle](../requirements/workspace-memory-lifecycle.md).

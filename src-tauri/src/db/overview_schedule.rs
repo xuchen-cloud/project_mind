@@ -125,7 +125,7 @@ fn slot_for_settings(settings: &ScheduleTime, now: DateTime<Utc>) -> AgentResult
         + Duration::days(i64::from(settings.interval_hours) / 24);
     Ok(local_slot(date, time, zone)?.timestamp())
 }
-fn next_slot(db: &Database, scope: &Scope, now: DateTime<Utc>) -> AgentResult<i64> {
+pub(super) fn next_slot(db: &Database, scope: &Scope, now: DateTime<Utc>) -> AgentResult<i64> {
     slot_for_settings(&effective_schedule(&db.conn, scope)?.ok_or_else(invalid)?, now)
 }
 

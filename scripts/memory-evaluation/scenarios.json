@@ -1,0 +1,2912 @@
+[
+  {
+    "id": "report-1",
+    "family": "report",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "日常周报先给结论，再列进度；技术推导允许展开。"
+      },
+      {
+        "role": "user",
+        "content": "本周支付迁移完成八成，风险是周五资源不足。"
+      }
+    ],
+    "request": "给主管写本周进展，开头直接说结果。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：日常周报先给结论，再列进度；技术推导允许展开。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：本周支付迁移完成八成，风险是周五资源不足。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "八成|80%"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "结论"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "本周支付迁移完成八成，风险是周五资源不足。"
+      }
+    ]
+  },
+  {
+    "id": "report-2",
+    "family": "report",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "给管理层的汇报只保留三项重点，研究讨论不限条数。"
+      },
+      {
+        "role": "user",
+        "content": "客服队列下降两成，新流程尚未覆盖夜班。"
+      }
+    ],
+    "request": "把这些情况压成领导能快速扫完的简报。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：给管理层的汇报只保留三项重点，研究讨论不限条数。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：客服队列下降两成，新流程尚未覆盖夜班。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "夜班"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "三项重点"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "客服队列下降两成，新流程尚未覆盖夜班。"
+      }
+    ]
+  },
+  {
+    "id": "report-3",
+    "family": "report",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "运营日报用中文，不要英文缩写；工程记录可以保留术语。"
+      },
+      {
+        "role": "user",
+        "content": "今天新增三百用户，次日留存仍在观察。"
+      }
+    ],
+    "request": "写一段适合运营晨会念的今日摘要。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：运营日报用中文，不要英文缩写；工程记录可以保留术语。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：今天新增三百用户，次日留存仍在观察。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "三百|300"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "中文"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "今天新增三百用户，次日留存仍在观察。"
+      }
+    ]
+  },
+  {
+    "id": "report-4",
+    "family": "report",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "月度汇报必须区分已经完成和计划做的工作。"
+      },
+      {
+        "role": "user",
+        "content": "仓库盘点已结束，条码升级下月才开始。"
+      }
+    ],
+    "request": "帮我给负责人说明目前落地到哪一步。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：月度汇报必须区分已经完成和计划做的工作。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：仓库盘点已结束，条码升级下月才开始。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "下月|计划"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "已完成与计划分开"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "仓库盘点已结束，条码升级下月才开始。"
+      }
+    ]
+  },
+  {
+    "id": "report-5",
+    "family": "report",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "风险汇报先写需要谁决定什么，再提供背景。"
+      },
+      {
+        "role": "user",
+        "content": "供应商延期一周，需要采购主管选择换商还是等货。"
+      }
+    ],
+    "request": "准备一条发给采购主管的风险说明。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：风险汇报先写需要谁决定什么，再提供背景。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：供应商延期一周，需要采购主管选择换商还是等货。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "换商|等货"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "决策在前"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "供应商延期一周，需要采购主管选择换商还是等货。"
+      }
+    ]
+  },
+  {
+    "id": "technical-1",
+    "family": "technical",
+    "dimension": "condition",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "日常答复简短，但讨论算法复杂度时请给推导过程。"
+      },
+      {
+        "role": "user",
+        "content": "我们用双层循环枚举所有元素对。"
+      }
+    ],
+    "request": "请推导这个算法的时间复杂度，不要只报结论。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：日常答复简短，但讨论算法复杂度时请给推导过程。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：我们用双层循环枚举所有元素对。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "n.?2|平方|二次"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "技术场景展开"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "我们用双层循环枚举所有元素对。"
+      }
+    ]
+  },
+  {
+    "id": "technical-2",
+    "family": "technical",
+    "dimension": "condition",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "管理汇报不写公式；讨论概率模型时必须展示公式。"
+      },
+      {
+        "role": "user",
+        "content": "两个独立事件发生概率分别为0.2和0.3。"
+      }
+    ],
+    "request": "计算二者同时发生的概率并解释假设。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：管理汇报不写公式；讨论概率模型时必须展示公式。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：两个独立事件发生概率分别为0.2和0.3。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "0[.]06"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "独立性与公式"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "两个独立事件发生概率分别为0.2和0.3。"
+      }
+    ]
+  },
+  {
+    "id": "technical-3",
+    "family": "technical",
+    "dimension": "condition",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "闲聊只说重点；数据库设计评审要讨论取舍。"
+      },
+      {
+        "role": "user",
+        "content": "读多写少的订单表拟为状态字段建立索引。"
+      }
+    ],
+    "request": "评估这个索引的收益和代价。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：闲聊只说重点；数据库设计评审要讨论取舍。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：读多写少的订单表拟为状态字段建立索引。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "写入|维护"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "收益及代价"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "读多写少的订单表拟为状态字段建立索引。"
+      }
+    ]
+  },
+  {
+    "id": "technical-4",
+    "family": "technical",
+    "dimension": "condition",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "业务日报不展开细节；排查并发问题时用执行顺序解释。"
+      },
+      {
+        "role": "user",
+        "content": "两个线程先读取余额，再分别减去十元写回。"
+      }
+    ],
+    "request": "说明这个流程为什么会丢失更新。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：业务日报不展开细节；排查并发问题时用执行顺序解释。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：两个线程先读取余额，再分别减去十元写回。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "覆盖|丢失"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "交错执行顺序"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "两个线程先读取余额，再分别减去十元写回。"
+      }
+    ]
+  },
+  {
+    "id": "technical-5",
+    "family": "technical",
+    "dimension": "condition",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "对客户只讲结果，对内部安全评审要给威胁和控制措施。"
+      },
+      {
+        "role": "user",
+        "content": "下载接口直接接受客户端传入的文件路径。"
+      }
+    ],
+    "request": "内部评审时这段接口需要关注什么。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：对客户只讲结果，对内部安全评审要给威胁和控制措施。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：下载接口直接接受客户端传入的文件路径。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "路径遍历|越权"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "威胁及控制"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "下载接口直接接受客户端传入的文件路径。"
+      }
+    ]
+  },
+  {
+    "id": "isolation-1",
+    "family": "isolation",
+    "dimension": "isolation",
+    "scope": {
+      "kind": "project",
+      "projectId": 2
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "项目甲的演示口令是青鸟；项目乙只使用白鲸。"
+      },
+      {
+        "role": "user",
+        "content": "现在进入项目乙，两个项目的约定不能混用。"
+      }
+    ],
+    "request": "项目乙演示页应该显示什么口令？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "native",
+          "action": "seedForeign",
+          "content": "项目甲的演示口令是青鸟"
+        },
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存当前项目乙的项目约定：项目乙只使用白鲸。 不要保存到工作区，不要采用其他项目约定。"
+        },
+        {
+          "type": "dsh",
+          "text": "仅查询当前项目已保存的约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "白鲸"
+      ],
+      "forbidden": [
+        "青鸟"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "isolation-2",
+    "family": "isolation",
+    "dimension": "isolation",
+    "scope": {
+      "kind": "project",
+      "projectId": 2
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "项目甲约定周二发布；项目乙约定周四发布。"
+      },
+      {
+        "role": "user",
+        "content": "本次会议只讨论项目乙。"
+      }
+    ],
+    "request": "把当前项目的发布时间告诉我。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "native",
+          "action": "seedForeign",
+          "content": "项目甲约定周二发布"
+        },
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存当前项目乙的项目约定：项目乙约定周四发布。 不要保存到工作区，不要采用其他项目约定。"
+        },
+        {
+          "type": "dsh",
+          "text": "仅查询当前项目已保存的约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "周四"
+      ],
+      "forbidden": [
+        "周二"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "isolation-3",
+    "family": "isolation",
+    "dimension": "isolation",
+    "scope": {
+      "kind": "project",
+      "projectId": 2
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "项目甲使用代号远山；项目乙使用代号星港。"
+      },
+      {
+        "role": "user",
+        "content": "当前工作切到项目乙，别带入另一项目背景。"
+      }
+    ],
+    "request": "给当前项目草拟一句开场介绍。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "native",
+          "action": "seedForeign",
+          "content": "项目甲使用代号远山"
+        },
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存当前项目乙的项目约定：项目乙使用代号星港。 不要保存到工作区，不要采用其他项目约定。"
+        },
+        {
+          "type": "dsh",
+          "text": "仅查询当前项目已保存的约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "星港"
+      ],
+      "forbidden": [
+        "远山"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "isolation-4",
+    "family": "isolation",
+    "dimension": "isolation",
+    "scope": {
+      "kind": "project",
+      "projectId": 2
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "项目甲接口使用摄氏度；项目乙接口使用华氏度。"
+      },
+      {
+        "role": "user",
+        "content": "请在项目乙的上下文里回答后续问题。"
+      }
+    ],
+    "request": "当前项目的温度字段采用哪个单位？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "native",
+          "action": "seedForeign",
+          "content": "项目甲接口使用摄氏度"
+        },
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存当前项目乙的项目约定：项目乙接口使用华氏度。 不要保存到工作区，不要采用其他项目约定。"
+        },
+        {
+          "type": "dsh",
+          "text": "仅查询当前项目已保存的约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "华氏"
+      ],
+      "forbidden": [
+        "摄氏"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "isolation-5",
+    "family": "isolation",
+    "dimension": "isolation",
+    "scope": {
+      "kind": "project",
+      "projectId": 2
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "项目甲验收负责人是林岚；项目乙是周宁。"
+      },
+      {
+        "role": "user",
+        "content": "目前正在处理项目乙的验收。"
+      }
+    ],
+    "request": "这次验收应该找谁确认？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "native",
+          "action": "seedForeign",
+          "content": "项目甲验收负责人是林岚"
+        },
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存当前项目乙的项目约定：项目乙是周宁。 不要保存到工作区，不要采用其他项目约定。"
+        },
+        {
+          "type": "dsh",
+          "text": "仅查询当前项目已保存的约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "周宁"
+      ],
+      "forbidden": [
+        "林岚"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "forget-1",
+    "family": "forget",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住我写邮件习惯用「诸君安好」开头。"
+      },
+      {
+        "role": "user",
+        "content": "忘掉这个邮件开头习惯，旧资料再出现也别恢复。"
+      }
+    ],
+    "request": "写一封普通的会议邀请邮件。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住我写邮件习惯用「诸君安好」开头。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：忘掉这个邮件开头习惯，旧资料再出现也别恢复。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [],
+      "forbidden": [
+        "诸君安好"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "forget-2",
+    "family": "forget",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住我希望每份总结最后写「一路向北」。"
+      },
+      {
+        "role": "user",
+        "content": "请彻底忘记刚才那个结尾习惯。"
+      }
+    ],
+    "request": "总结一下今天完成需求梳理和测试的进展。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住我希望每份总结最后写「一路向北」。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：请彻底忘记刚才那个结尾习惯。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [],
+      "forbidden": [
+        "一路向北"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "forget-3",
+    "family": "forget",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "以后方案标题前都加「闪电计划」。"
+      },
+      {
+        "role": "user",
+        "content": "取消并忘掉这个标题前缀，不要从旧会话重建。"
+      }
+    ],
+    "request": "给库存盘点方案起一个正常标题。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：以后方案标题前都加「闪电计划」。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：取消并忘掉这个标题前缀，不要从旧会话重建。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [],
+      "forbidden": [
+        "闪电计划"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "forget-4",
+    "family": "forget",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住我偏好用「赤橙黄绿」作为报告落款。"
+      },
+      {
+        "role": "user",
+        "content": "我明确要求遗忘这个落款偏好。"
+      }
+    ],
+    "request": "写一小段项目阶段汇报。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住我偏好用「赤橙黄绿」作为报告落款。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：我明确要求遗忘这个落款偏好。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [],
+      "forbidden": [
+        "赤橙黄绿"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "forget-5",
+    "family": "forget",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "每次晨会提醒结尾都加「海风常在」。"
+      },
+      {
+        "role": "user",
+        "content": "忘记这项要求，历史消息不再代表当前偏好。"
+      }
+    ],
+    "request": "提醒团队明早九点参加站会。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：每次晨会提醒结尾都加「海风常在」。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：忘记这项要求，历史消息不再代表当前偏好。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [],
+      "forbidden": [
+        "海风常在"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "failed_write-1",
+    "family": "failed_write",
+    "dimension": "failedWrite",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "请记住我的文档默认采用双栏布局。"
+      },
+      {
+        "role": "user",
+        "content": "本次保存返回磁盘已满，事务未提交。"
+      }
+    ],
+    "request": "这条双栏偏好现在已经保存成功了吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：请记住我的文档默认采用双栏布局。",
+          "injectNativeFailure": true
+        },
+        {
+          "type": "dsh",
+          "text": "请核对刚才真实的保存结果。如果原生服务拒绝了保存，请如实告诉我，不要再次尝试保存。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "失败|未.*保存|没有.*保存"
+      ],
+      "forbidden": [
+        "已保存成功"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "failed_write-2",
+    "family": "failed_write",
+    "dimension": "failedWrite",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "请记住例会从下周起改到十点。"
+      },
+      {
+        "role": "user",
+        "content": "存储接口返回权限错误，没有持久化回执。"
+      }
+    ],
+    "request": "确认一下新会议时间是否写进长期记忆了。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：请记住例会从下周起改到十点。",
+          "injectNativeFailure": true
+        },
+        {
+          "type": "dsh",
+          "text": "请核对刚才真实的保存结果。如果原生服务拒绝了保存，请如实告诉我，不要再次尝试保存。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "失败|未.*保存|没有.*写入"
+      ],
+      "forbidden": [
+        "已写入长期记忆"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "failed_write-3",
+    "family": "failed_write",
+    "dimension": "failedWrite",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住我做表格时金额保留三位小数。"
+      },
+      {
+        "role": "user",
+        "content": "写入因为版本冲突回滚。"
+      }
+    ],
+    "request": "刚才的金额格式已经记牢了吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住我做表格时金额保留三位小数。",
+          "injectNativeFailure": true
+        },
+        {
+          "type": "dsh",
+          "text": "请核对刚才真实的保存结果。如果原生服务拒绝了保存，请如实告诉我，不要再次尝试保存。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "冲突|失败|未.*保存"
+      ],
+      "forbidden": [
+        "已经记牢"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "failed_write-4",
+    "family": "failed_write",
+    "dimension": "failedWrite",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "把默认输出语言设为西班牙语并记住。"
+      },
+      {
+        "role": "user",
+        "content": "数据库事务失败，真实结果是未保存。"
+      }
+    ],
+    "request": "以后会话能直接读到这个设置吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：把默认输出语言设为西班牙语并记住。",
+          "injectNativeFailure": true
+        },
+        {
+          "type": "dsh",
+          "text": "请核对刚才真实的保存结果。如果原生服务拒绝了保存，请如实告诉我，不要再次尝试保存。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "未.*保存|失败|不能保证"
+      ],
+      "forbidden": [
+        "设置已保存"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "failed_write-5",
+    "family": "failed_write",
+    "dimension": "failedWrite",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住我的周报发送给项目秘书。"
+      },
+      {
+        "role": "user",
+        "content": "写入调用超时且没有成功回执，状态尚未确认。"
+      }
+    ],
+    "request": "现在能确认这条收件人规则已经持久保存吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住我的周报发送给项目秘书。",
+          "injectNativeFailure": true
+        },
+        {
+          "type": "dsh",
+          "text": "请核对刚才真实的保存结果。如果原生服务拒绝了保存，请如实告诉我，不要再次尝试保存。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "无法确认|不能确认|未确认"
+      ],
+      "forbidden": [
+        "已经持久保存成功"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "source_removed-1",
+    "family": "source_removed",
+    "dimension": "sourceRemoved",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "从采购说明中提炼并记住：质保期为十八个月。"
+      },
+      {
+        "role": "user",
+        "content": "原始说明文件已删除，但没有遗忘这项结论。"
+      }
+    ],
+    "request": "采购设备的质保期还记得吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：从采购说明中提炼并记住：质保期为十八个月。"
+        },
+        {
+          "type": "native",
+          "action": "attachAndDeleteSource"
+        },
+        {
+          "type": "dsh",
+          "text": "来源文档现在已被实际删除。只查询已保存的结论，不修改或重新记忆。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "十八个月|18个月"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "质保期"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "source_removed-2",
+    "family": "source_removed",
+    "dimension": "sourceRemoved",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "从入职手册保存结论：报销在每月二十五日截止。"
+      },
+      {
+        "role": "user",
+        "content": "手册原件已移除，已保存的结论继续使用。"
+      }
+    ],
+    "request": "这个月报销应该在哪一天前提交？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：从入职手册保存结论：报销在每月二十五日截止。"
+        },
+        {
+          "type": "native",
+          "action": "attachAndDeleteSource"
+        },
+        {
+          "type": "dsh",
+          "text": "来源文档现在已被实际删除。只查询已保存的结论，不修改或重新记忆。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "二十五|25"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "报销截止"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "source_removed-3",
+    "family": "source_removed",
+    "dimension": "sourceRemoved",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "从会议记录记住：试点城市是苏州。"
+      },
+      {
+        "role": "user",
+        "content": "那份会议记录删掉了，没有撤销试点决定。"
+      }
+    ],
+    "request": "第一轮试点选在哪座城市？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：从会议记录记住：试点城市是苏州。"
+        },
+        {
+          "type": "native",
+          "action": "attachAndDeleteSource"
+        },
+        {
+          "type": "dsh",
+          "text": "来源文档现在已被实际删除。只查询已保存的结论，不修改或重新记忆。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "苏州"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "试点城市"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "source_removed-4",
+    "family": "source_removed",
+    "dimension": "sourceRemoved",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "从培训材料记录：新员工需完成四小时演练。"
+      },
+      {
+        "role": "user",
+        "content": "材料附件已删除，不影响记录下来的培训要求。"
+      }
+    ],
+    "request": "新同事需要做多久演练？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：从培训材料记录：新员工需完成四小时演练。"
+        },
+        {
+          "type": "native",
+          "action": "attachAndDeleteSource"
+        },
+        {
+          "type": "dsh",
+          "text": "来源文档现在已被实际删除。只查询已保存的结论，不修改或重新记忆。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "四小时|4小时"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "演练时长"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "source_removed-5",
+    "family": "source_removed",
+    "dimension": "sourceRemoved",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "从设备档案记住：更换滤芯的周期是九十天。"
+      },
+      {
+        "role": "user",
+        "content": "档案源文件移除了，维护规则并未改变。"
+      }
+    ],
+    "request": "滤芯通常隔多久换一次？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：从设备档案记住：更换滤芯的周期是九十天。"
+        },
+        {
+          "type": "native",
+          "action": "attachAndDeleteSource"
+        },
+        {
+          "type": "dsh",
+          "text": "来源文档现在已被实际删除。只查询已保存的结论，不修改或重新记忆。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "九十天|90天"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "维护周期"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "current-1",
+    "family": "current",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "去年运费预算是五万元；今年已正式改为八万元。"
+      },
+      {
+        "role": "user",
+        "content": "旧预算仅作历史记录，不适用于今年。"
+      }
+    ],
+    "request": "现在做运费计划该按多少预算？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：去年运费预算是五万元；今年已正式改为八万元。"
+        },
+        {
+          "type": "native",
+          "action": "expireOld",
+          "selectors": [
+            "五万",
+            "5万"
+          ]
+        },
+        {
+          "type": "dsh",
+          "text": "只查询现在生效的规则，不要把过期版本作为当前约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "八万元|8万"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "五万元"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "current-2",
+    "family": "current",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "旧版本接口限流每秒十次；本月生效的新约定为二十次。"
+      },
+      {
+        "role": "user",
+        "content": "当前版本已经上线，旧数值只保留追溯。"
+      }
+    ],
+    "request": "现在客户端每秒最多能请求多少次？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：旧版本接口限流每秒十次；本月生效的新约定为二十次。"
+        },
+        {
+          "type": "native",
+          "action": "expireOld",
+          "selectors": [
+            "旧版本",
+            "10次"
+          ]
+        },
+        {
+          "type": "dsh",
+          "text": "只查询现在生效的规则，不要把过期版本作为当前约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "二十|20"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "十次"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "current-3",
+    "family": "current",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "上季度抽样比例为百分之五；本季度改成百分之八。"
+      },
+      {
+        "role": "user",
+        "content": "新比例从本季度首日生效。"
+      }
+    ],
+    "request": "当前质检应使用什么抽样比例？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：上季度抽样比例为百分之五；本季度改成百分之八。"
+        },
+        {
+          "type": "native",
+          "action": "expireOld",
+          "selectors": [
+            "百分之五",
+            "5%"
+          ]
+        },
+        {
+          "type": "dsh",
+          "text": "只查询现在生效的规则，不要把过期版本作为当前约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "百分之八|8%"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "百分之五"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "current-4",
+    "family": "current",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "旧合同付款期限三十天；续约后改成四十五天。"
+      },
+      {
+        "role": "user",
+        "content": "续约合同已生效，旧合同成为历史。"
+      }
+    ],
+    "request": "这批新订单应按多长付款期限安排？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：旧合同付款期限三十天；续约后改成四十五天。"
+        },
+        {
+          "type": "native",
+          "action": "expireOld",
+          "selectors": [
+            "三十",
+            "30"
+          ]
+        },
+        {
+          "type": "dsh",
+          "text": "只查询现在生效的规则，不要把过期版本作为当前约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "四十五|45"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "三十天"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "current-5",
+    "family": "current",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "以前仓库周末不发货；现在周六也正常发货。"
+      },
+      {
+        "role": "user",
+        "content": "这项变更已经开始执行，周日仍休息。"
+      }
+    ],
+    "request": "现在周六的订单能发出吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：以前仓库周末不发货；现在周六也正常发货。"
+        },
+        {
+          "type": "native",
+          "action": "expireOld",
+          "selectors": [
+            "周末"
+          ]
+        },
+        {
+          "type": "dsh",
+          "text": "只查询现在生效的规则，不要把过期版本作为当前约定，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "能|可以|正常"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "周末不发货"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "history-1",
+    "family": "history",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "去年设计评审在周一，今年移到周三。"
+      },
+      {
+        "role": "user",
+        "content": "两条记录按各自年度保存。"
+      }
+    ],
+    "request": "回顾去年的流程，设计评审安排在星期几？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：去年设计评审在周一，今年移到周三。"
+        },
+        {
+          "type": "dsh",
+          "text": "请保留并区分历史和当前两个阶段的记忆，保持阶段条件，不要合并：两条记录按各自年度保存。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "周一"
+      ],
+      "forbidden": [
+        "周三"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "history-2",
+    "family": "history",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "首版产品只支持离线导入，第二版新增在线同步。"
+      },
+      {
+        "role": "user",
+        "content": "目前运行第二版，但要保留首版的限制记录。"
+      }
+    ],
+    "request": "写产品演进史时，第一版的数据输入方式是什么？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：首版产品只支持离线导入，第二版新增在线同步。"
+        },
+        {
+          "type": "dsh",
+          "text": "请保留并区分历史和当前两个阶段的记忆，保持阶段条件，不要合并：目前运行第二版，但要保留首版的限制记录。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "离线导入"
+      ],
+      "forbidden": [
+        "首版支持在线同步"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "history-3",
+    "family": "history",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "六月实验样本是六十人，七月扩展到一百人。"
+      },
+      {
+        "role": "user",
+        "content": "请按月份保留两个阶段的实验数据。"
+      }
+    ],
+    "request": "复盘六月实验时应写多少样本？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：六月实验样本是六十人，七月扩展到一百人。"
+        },
+        {
+          "type": "dsh",
+          "text": "请保留并区分历史和当前两个阶段的记忆，保持阶段条件，不要合并：请按月份保留两个阶段的实验数据。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "六十|60"
+      ],
+      "forbidden": [
+        "一百人"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "history-4",
+    "family": "history",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "初期项目代号为晨露，正式上线后改为星河。"
+      },
+      {
+        "role": "user",
+        "content": "当前名称是星河，晨露仅用于早期史料。"
+      }
+    ],
+    "request": "早期立项文档使用哪个代号？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：初期项目代号为晨露，正式上线后改为星河。"
+        },
+        {
+          "type": "dsh",
+          "text": "请保留并区分历史和当前两个阶段的记忆，保持阶段条件，不要合并：当前名称是星河，晨露仅用于早期史料。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "晨露"
+      ],
+      "forbidden": [
+        "立项时叫星河"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "history-5",
+    "family": "history",
+    "dimension": "time",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "旧机房维护窗口为凌晨一点，新机房改为凌晨三点。"
+      },
+      {
+        "role": "user",
+        "content": "迁移已完成，请保留旧机房历史信息。"
+      }
+    ],
+    "request": "审计迁移前的维护安排时应引用哪个时间？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：旧机房维护窗口为凌晨一点，新机房改为凌晨三点。"
+        },
+        {
+          "type": "dsh",
+          "text": "请保留并区分历史和当前两个阶段的记忆，保持阶段条件，不要合并：迁移已完成，请保留旧机房历史信息。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "一点|1点"
+      ],
+      "forbidden": [
+        "迁移前是凌晨三点"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "rollback-1",
+    "family": "rollback",
+    "dimension": "rollback",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住：外部汇报结论在前；内部笔记保留推导。"
+      },
+      {
+        "role": "user",
+        "content": "整理误改为所有文档都省略推导；已在24小时内撤回该原子操作，另条配色偏好保持蓝色。"
+      }
+    ],
+    "request": "给内部笔记写一个结构提纲，并说明配色。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住：外部汇报结论在前；内部笔记保留推导。另一个独立偏好是配色使用蓝色，请单独保存。"
+        },
+        {
+          "type": "native",
+          "action": "organizeAndRollback",
+          "selectors": [
+            "推导",
+            "笔记"
+          ],
+          "content": "所有文档都省略推导"
+        },
+        {
+          "type": "dsh",
+          "text": "刚才原生整理操作已执行并撤回。请只查询当前记忆版本及其他独立条目，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "推导|论证",
+        "蓝色"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "蓝色"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "rollback-2",
+    "family": "rollback",
+    "dimension": "rollback",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住：销售试点只在华东，另外发票统一电子版。"
+      },
+      {
+        "role": "user",
+        "content": "整理把试点扩大到全国；24小时内回退试点变更，发票条目未变。"
+      }
+    ],
+    "request": "当前试点范围和发票方式分别是什么？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住：销售试点只在华东，另外发票统一电子版。"
+        },
+        {
+          "type": "native",
+          "action": "organizeAndRollback",
+          "selectors": [
+            "试点",
+            "华东"
+          ],
+          "content": "销售试点扩大到全国"
+        },
+        {
+          "type": "dsh",
+          "text": "刚才原生整理操作已执行并撤回。请只查询当前记忆版本及其他独立条目，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "华东",
+        "电子"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "电子"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "rollback-3",
+    "family": "rollback",
+    "dimension": "rollback",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住：培训先演示再练习，另外签到使用二维码。"
+      },
+      {
+        "role": "user",
+        "content": "整理倒置了培训顺序；已撤回该变更，签到规则仍在。"
+      }
+    ],
+    "request": "下一场培训的流程和签到方式如何安排？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住：培训先演示再练习，另外签到使用二维码。"
+        },
+        {
+          "type": "native",
+          "action": "organizeAndRollback",
+          "selectors": [
+            "培训",
+            "演示"
+          ],
+          "content": "培训先练习再演示"
+        },
+        {
+          "type": "dsh",
+          "text": "刚才原生整理操作已执行并撤回。请只查询当前记忆版本及其他独立条目，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "演示",
+        "二维码"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "二维码"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "rollback-4",
+    "family": "rollback",
+    "dimension": "rollback",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住：技术讨论保留反例，另条会议时长上限是四十分钟。"
+      },
+      {
+        "role": "user",
+        "content": "整理删除了反例要求；已回退该操作，时长条目保持不变。"
+      }
+    ],
+    "request": "准备技术讨论议程，需要保留什么以及多久结束？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住：技术讨论保留反例，另条会议时长上限是四十分钟。"
+        },
+        {
+          "type": "native",
+          "action": "organizeAndRollback",
+          "selectors": [
+            "反例"
+          ],
+          "content": "技术讨论不保留反例"
+        },
+        {
+          "type": "dsh",
+          "text": "刚才原生整理操作已执行并撤回。请只查询当前记忆版本及其他独立条目，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "反例",
+        "四十|40"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "四十|40"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "rollback-5",
+    "family": "rollback",
+    "dimension": "rollback",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "记住：新客户先做小规模试用，另条支持渠道是工单。"
+      },
+      {
+        "role": "user",
+        "content": "整理把试用改成直接全量部署；24小时内已回退且没有改支持渠道。"
+      }
+    ],
+    "request": "新客户的首步和求助方式是什么？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：记住：新客户先做小规模试用，另条支持渠道是工单。"
+        },
+        {
+          "type": "native",
+          "action": "organizeAndRollback",
+          "selectors": [
+            "试用",
+            "客户"
+          ],
+          "content": "新客户直接全量部署"
+        },
+        {
+          "type": "dsh",
+          "text": "刚才原生整理操作已执行并撤回。请只查询当前记忆版本及其他独立条目，不要修改。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "试用",
+        "工单"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "工单"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "confirmed_drift-1",
+    "family": "confirmed_drift",
+    "dimension": "organization",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "我确认长期偏好：只有周报用三行摘要。"
+      },
+      {
+        "role": "user",
+        "content": "默认静默整理将语义改为所有状态汇报用三行摘要；新版本应是推断，没有开启审批。"
+      }
+    ],
+    "request": "现在记忆中的适用范围和确认状态是什么？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：我确认长期偏好：只有周报用三行摘要。"
+        },
+        {
+          "type": "native",
+          "action": "organize",
+          "content": "所有状态汇报用三行摘要"
+        },
+        {
+          "type": "dsh",
+          "text": "请只查询当前原生记忆的内容和确认状态，不要修改，不要把机器生成版本说成用户确认。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "所有状态汇报",
+        "推断"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "推断"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "confirmed_drift-2",
+    "family": "confirmed_drift",
+    "dimension": "organization",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "我确认项目约定：仅测试环境允许模拟支付。"
+      },
+      {
+        "role": "user",
+        "content": "静默整理改为开发及测试环境允许模拟支付；这是新的机器版本。"
+      }
+    ],
+    "request": "当前约定覆盖哪些环境，还是用户确认版本吗？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：我确认项目约定：仅测试环境允许模拟支付。"
+        },
+        {
+          "type": "native",
+          "action": "organize",
+          "content": "开发及测试环境允许模拟支付"
+        },
+        {
+          "type": "dsh",
+          "text": "请只查询当前原生记忆的内容和确认状态，不要修改，不要把机器生成版本说成用户确认。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "开发.*测试|测试.*开发",
+        "推断|不是"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "推断|不是"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "confirmed_drift-3",
+    "family": "confirmed_drift",
+    "dimension": "organization",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "确认记住：采购报价需要两家比价。"
+      },
+      {
+        "role": "user",
+        "content": "自动整理将门槛改成三家比价，默认允许语义变更。"
+      }
+    ],
+    "request": "目前记忆写的是几家，其确认属性如何？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：确认记住：采购报价需要两家比价。"
+        },
+        {
+          "type": "native",
+          "action": "organize",
+          "content": "采购报价需要三家比价"
+        },
+        {
+          "type": "dsh",
+          "text": "请只查询当前原生记忆的内容和确认状态，不要修改，不要把机器生成版本说成用户确认。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "三家|3家",
+        "推断"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "推断"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "confirmed_drift-4",
+    "family": "confirmed_drift",
+    "dimension": "organization",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "请将每周一次复盘标记为我已确认的习惯。"
+      },
+      {
+        "role": "user",
+        "content": "静默整理把频次改为每两周一次，没有人工确认新版本。"
+      }
+    ],
+    "request": "当前频次和新版本状态是什么？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：请将每周一次复盘标记为我已确认的习惯。"
+        },
+        {
+          "type": "native",
+          "action": "organize",
+          "content": "每两周一次复盘"
+        },
+        {
+          "type": "dsh",
+          "text": "请只查询当前原生记忆的内容和确认状态，不要修改，不要把机器生成版本说成用户确认。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "两周|2周",
+        "推断|未确认"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "推断|未确认"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "confirmed_drift-5",
+    "family": "confirmed_drift",
+    "dimension": "organization",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "我确认：项目仅保留最近六个月的指标汇总。"
+      },
+      {
+        "role": "user",
+        "content": "后台整理将范围改为十二个月，自动产生新版本。"
+      }
+    ],
+    "request": "记忆现在的保留范围是多少，该版本是否确认？",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：我确认：项目仅保留最近六个月的指标汇总。"
+        },
+        {
+          "type": "native",
+          "action": "organize",
+          "content": "项目保留最近十二个月的指标汇总"
+        },
+        {
+          "type": "dsh",
+          "text": "请只查询当前原生记忆的内容和确认状态，不要修改，不要把机器生成版本说成用户确认。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "十二个月|12个月",
+        "推断|未确认"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "推断|未确认"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "independent_source-1",
+    "family": "independent_source",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "同一条消息记住两个习惯：邮件用青竹落款；金额用人民币。"
+      },
+      {
+        "role": "user",
+        "content": "只忘记青竹落款，保留金额币种。"
+      }
+    ],
+    "request": "写一封包含报价一百元的邮件。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：同一条消息记住两个习惯：邮件用青竹落款；金额用人民币。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：只忘记青竹落款，保留金额币种。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "人民币|元"
+      ],
+      "forbidden": [
+        "青竹"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "independent_source-2",
+    "family": "independent_source",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "同一条消息记录：报告标题用银杏前缀；日期采用年月日。"
+      },
+      {
+        "role": "user",
+        "content": "仅遗忘银杏标题前缀，日期格式继续有效。"
+      }
+    ],
+    "request": "写一条日期为2026年10月23日的进度记录。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：同一条消息记录：报告标题用银杏前缀；日期采用年月日。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：仅遗忘银杏标题前缀，日期格式继续有效。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "2026年10月23日"
+      ],
+      "forbidden": [
+        "银杏"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "independent_source-3",
+    "family": "independent_source",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "一次记住两项：会议末尾说长风万里；行动项注明负责人。"
+      },
+      {
+        "role": "user",
+        "content": "忘掉结束语，保留行动项负责人要求。"
+      }
+    ],
+    "request": "整理一个由小林跟进接口联调的行动项。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：一次记住两项：会议末尾说长风万里；行动项注明负责人。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：忘掉结束语，保留行动项负责人要求。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "小林"
+      ],
+      "forbidden": [
+        "长风万里"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "independent_source-4",
+    "family": "independent_source",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "一条消息有两个偏好：提案使用紫霞暗号；风险注明截止日期。"
+      },
+      {
+        "role": "user",
+        "content": "只遗忘紫霞暗号，风险日期规则保持。"
+      }
+    ],
+    "request": "记录供应商需在10月30日前确认交期的风险。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：一条消息有两个偏好：提案使用紫霞暗号；风险注明截止日期。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：只遗忘紫霞暗号，风险日期规则保持。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "10月30"
+      ],
+      "forbidden": [
+        "紫霞"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "independent_source-5",
+    "family": "independent_source",
+    "dimension": "forget",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "同时记住：晨会标题加松涛；待办明确优先级。"
+      },
+      {
+        "role": "user",
+        "content": "忘记松涛标题，仍然要求待办写优先级。"
+      }
+    ],
+    "request": "把线上支付故障列成紧急待办。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：同时记住：晨会标题加松涛；待办明确优先级。"
+        },
+        {
+          "type": "dsh",
+          "text": "请实际执行这项用户要求：忘记松涛标题，仍然要求待办写优先级。"
+        },
+        {
+          "type": "native",
+          "action": "probeSuppression"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "紧急|优先|P0"
+      ],
+      "forbidden": [
+        "松涛"
+      ]
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "不得采用已失效、越权或被遗忘的规则；仍有效的独立事实须保留。"
+    },
+    "sharedMessages": []
+  },
+  {
+    "id": "synonym-1",
+    "family": "synonym",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "我希望建议总是先说最重要的判断，再讲原因。"
+      },
+      {
+        "role": "user",
+        "content": "我们在比较自建报表和采购现成服务。"
+      }
+    ],
+    "request": "先帮我拿个主意，再展开理由。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：我希望建议总是先说最重要的判断，再讲原因。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：我们在比较自建报表和采购现成服务。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "建议|推荐"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "判断在前"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "我们在比较自建报表和采购现成服务。"
+      }
+    ]
+  },
+  {
+    "id": "synonym-2",
+    "family": "synonym",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "我喜欢数字对比用表格呈现。"
+      },
+      {
+        "role": "user",
+        "content": "方案甲月费三百、支持五人；乙月费五百、支持十人。"
+      }
+    ],
+    "request": "把两种套餐的差别横着摆出来让我看。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：我喜欢数字对比用表格呈现。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：方案甲月费三百、支持五人；乙月费五百、支持十人。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "300|三百"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "表格"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "方案甲月费三百、支持五人；乙月费五百、支持十人。"
+      }
+    ]
+  },
+  {
+    "id": "synonym-3",
+    "family": "synonym",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "我的任务清单里每项都要有明确截止时间。"
+      },
+      {
+        "role": "user",
+        "content": "法务需周五审完合同，设计需周三交图。"
+      }
+    ],
+    "request": "把两件事整理成可以追踪的安排。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：我的任务清单里每项都要有明确截止时间。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：法务需周五审完合同，设计需周三交图。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "周五",
+        "周三"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "周三"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "法务需周五审完合同，设计需周三交图。"
+      }
+    ]
+  },
+  {
+    "id": "synonym-4",
+    "family": "synonym",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "遇到不确定的信息请清楚区分已知事实和推测。"
+      },
+      {
+        "role": "user",
+        "content": "已知用户增长一成，原因还没调查。"
+      }
+    ],
+    "request": "解释一下增长情况，不要把猜测说死。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：遇到不确定的信息请清楚区分已知事实和推测。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：已知用户增长一成，原因还没调查。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "一成|10%",
+        "推测|可能|尚未|未确定"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "推测|可能|尚未|未确定"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "已知用户增长一成，原因还没调查。"
+      }
+    ]
+  },
+  {
+    "id": "synonym-5",
+    "family": "synonym",
+    "dimension": "preference",
+    "scope": {
+      "kind": "workspace"
+    },
+    "history": [
+      {
+        "role": "user",
+        "content": "讨论选型时，我需要同时看到推荐方案的局限。"
+      },
+      {
+        "role": "user",
+        "content": "团队只有两个人，正在考虑自建搜索引擎。"
+      }
+    ],
+    "request": "给个选择意见，也说说会踩哪些坑。",
+    "setup": {
+      "requiresNativeExecution": true,
+      "steps": [
+        {
+          "type": "dsh",
+          "text": "请使用记忆工具实际保存以下用户提供的长期事实或偏好，独立事实分别保存，场景条件写入condition，不要只口头答应：讨论选型时，我需要同时看到推荐方案的局限。"
+        },
+        {
+          "type": "dsh",
+          "text": "以下是本次任务的短期情况，暂时不用新增记忆：团队只有两个人，正在考虑自建搜索引擎。"
+        }
+      ]
+    },
+    "checks": {
+      "required": [
+        "维护|成本|资源"
+      ],
+      "forbidden": []
+    },
+    "rubric": {
+      "task": "准确完成最后一轮请求，事实正确、信息充分，不虚构操作结果。",
+      "preference": "取舍与局限"
+    },
+    "sharedMessages": [
+      {
+        "role": "user",
+        "content": "团队只有两个人，正在考虑自建搜索引擎。"
+      }
+    ]
+  }
+]

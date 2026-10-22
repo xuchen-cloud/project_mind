@@ -1,0 +1,963 @@
+{
+  "model": "deepseek-flash",
+  "protocol": "captured-production-memory-prelude-skill-trusted-scope-v2",
+  "frozenOriginalFixtureSha256": "b400d5e84752434ba4be24542c7525e10667ee46738bc6bf0fdd2711a95178eb",
+  "exportedFixtureSha256": "0f79110496b4ffcbf4af3eb163b3b1159c7eab6806308340ee22a2129a6924fc",
+  "code": {
+    "scripts/memory-evaluation/evaluate.mjs": "b0fdf547e42a770b5959d70fc66dc141152eaa676b46f7050007d4e6bfe862ff",
+    "scripts/memory-evaluation/run-real.mjs": "653bdc6b1d700d6d3214ffc03a67b939671d8f81e8e3aaa3bfa8ef90d4041cf8",
+    "scripts/memory-evaluation/audit-setups.mjs": "ed87e9184d45fae7efbe959451e04dfe2f45ef28c5cbcadfa1fe47aa65543514",
+    "scripts/memory-evaluation/scenarios.json": "fcc176e4b716b4b2fe6f6f23885b86e7e5560059e91488f932db8b822ad9d461",
+    "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+  },
+  "setupCount": 60,
+  "setupFailures": [
+    "current-2"
+  ],
+  "nativeBoundaryFailures": [
+    {
+      "id": "current-2",
+      "arm": "snapshot",
+      "check": "validityRespected"
+    },
+    {
+      "id": "current-2",
+      "arm": "layered",
+      "check": "validityRespected"
+    },
+    {
+      "id": "history-1",
+      "arm": "snapshot",
+      "check": "validityRespected"
+    },
+    {
+      "id": "history-1",
+      "arm": "layered",
+      "check": "validityRespected"
+    }
+  ],
+  "sourceBatches": [
+    {
+      "id": "confirmed_drift-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "confirmed_drift-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "confirmed_drift-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "confirmed_drift-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "confirmed_drift-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "current-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "current-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "current-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "current-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "current-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "failed_write-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "failed_write-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "failed_write-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "failed_write-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "failed_write-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": {
+          "kind": "runtime-source-observed-at-completion",
+          "sha256": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c"
+        },
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": {
+          "kind": "compiled-native",
+          "sha256": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+        },
+        "src-tauri/src/db/memory_facts.rs": {
+          "kind": "compiled-native",
+          "sha256": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865"
+        },
+        "src-tauri/src/db/memory_facts_store.rs": {
+          "kind": "compiled-native",
+          "sha256": "06a9f18ee033f48c7161a7335da6a0739af50d53a97fe8c8a807ef744dbaf2ed"
+        },
+        "src-tauri/src/dsh_memory.rs": {
+          "kind": "compiled-native",
+          "sha256": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a"
+        },
+        "src-tauri/src/dsh_memory_integration_tests.rs": {
+          "kind": "compiled-native",
+          "sha256": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9"
+        },
+        "src-tauri/src/dsh_memory_model_evaluation.rs": {
+          "kind": "compiled-native",
+          "sha256": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+        },
+        "src-tauri/src/memory_behavior.rs": {
+          "kind": "compiled-native",
+          "sha256": "6d97d207e13fb05705a3c75d597d229c12cd6dad20e94fca738dad56af56ee54"
+        }
+      }
+    },
+    {
+      "id": "forget-1",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "forget-2",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "forget-3",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "forget-4",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "forget-5",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "history-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "history-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "history-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "history-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "history-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "independent_source-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "independent_source-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "independent_source-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "independent_source-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "independent_source-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "f327522a34d38c6eb9571c2bdbecc6b6594e36877616f8bdb6ed7ae7e258c381",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "isolation-1",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "isolation-2",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "isolation-3",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "isolation-4",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "isolation-5",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "report-1",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "report-2",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "report-3",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "report-4",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "report-5",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "rollback-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "rollback-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "rollback-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "rollback-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "rollback-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "1811b59452a6d4343db01185c716030e9da4100ceab5d367338f0c805064b155",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "source_removed-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "source_removed-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "source_removed-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "source_removed-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "source_removed-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "8efcf277aaa68ee53e925fe89b86f8621331cce283f8ad1277bff17269beb08a",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f096795d0edf94acf9df5892a155d10dec689e2c3251d5d013831829b50f93f5"
+      }
+    },
+    {
+      "id": "synonym-1",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "synonym-2",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "synonym-3",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "synonym-4",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "synonym-5",
+      "behaviorRevisions": [
+        "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f"
+      ],
+      "sourceFingerprint": {
+        "packages/dsh-assistant/scripts/memory-service.mjs": "9cfc3cef8d87106ce522995afb064d620e0c5abf92119d79959790e90b02ab1c",
+        "packages/dsh-assistant/skills/project-mind-memory/SKILL.md": "db10c9896239e38c8ee3809bece28390312b684df334c1de636d81ad8fa68e0f",
+        "src-tauri/src/db/memory_facts.rs": "f7527cb21f20cd3c48ab9575e5a6fe78a12ebe0bfe6feac83a1ab661cd15f865",
+        "src-tauri/src/db/memory_facts_store.rs": "20ddc92b97f89680614fe78de9df86dd7cc1aea4c29093e1cd886b4cacef8b37",
+        "src-tauri/src/dsh_memory.rs": "4f3e271d0cd5f7d922e22925ea6537c4bd79a822b86f9ffee7a4f474e6ba436a",
+        "src-tauri/src/dsh_memory_integration_tests.rs": "726faa60ce9039ba9e36fefb5f677aba87fb92289a975d39ed2075ceb122f5b9",
+        "src-tauri/src/dsh_memory_model_evaluation.rs": "f499b530894c88018b9aa916b4c45b72103a67f819b2a576a3f63b755449088b"
+      }
+    },
+    {
+      "id": "technical-1",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "technical-2",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "technical-3",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "technical-4",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    },
+    {
+      "id": "technical-5",
+      "behaviorRevisions": [
+        "96781416e64a17cdc3fd07428fe793f80913ef29163b56b5efe929494df2dae0"
+      ],
+      "sourceFingerprint": null
+    }
+  ],
+  "redaction": "Only machine-specific absolute paths were replaced in exported artifacts. Actual answers, token usage, timings and assertions are otherwise retained. Raw private native transcripts remain outside the repository.",
+  "runMetadata": {
+    "fingerprint": "733db337fdc2e24e1c75df05f364e8d0266d9fa5067f02dadad3126693414c3c",
+    "model": "deepseek-flash",
+    "createdAt": "2026-10-22T18:31:25.755Z"
+  },
+  "originalReportSha256": "393bf29c62dbb56da266f260da116c18ef30a0fcecf48b7c303294169a1163d9"
+}

@@ -1,0 +1,103 @@
+{
+  "nativeSelected60": {
+    "requests": 471,
+    "measuredRequests": 471,
+    "inputTokens": 5900674,
+    "cachedInputTokens": 4340992,
+    "outputTokens": 135759,
+    "totalTokens": 6036433
+  },
+  "nativePriorDiagnosticUniqueTranscripts": {
+    "requests": 181,
+    "measuredRequests": 181,
+    "inputTokens": 3466237,
+    "cachedInputTokens": 3095680,
+    "outputTokens": 43765,
+    "totalTokens": 3510002
+  },
+  "nativePriorFailedWriteDiagnostic": {
+    "requests": 124,
+    "measuredRequests": 124,
+    "inputTokens": 2246779,
+    "cachedInputTokens": 1970432,
+    "outputTokens": 27379,
+    "totalTokens": 2274158
+  },
+  "nativePriorOtherDiagnostic": {
+    "requests": 57,
+    "measuredRequests": 57,
+    "inputTokens": 1219458,
+    "cachedInputTokens": 1125248,
+    "outputTokens": 16386,
+    "totalTokens": 1235844
+  },
+  "oldIncompletePromptThreeArm": {
+    "requests": 103,
+    "inputTokens": 18993,
+    "cachedInputTokens": 640,
+    "outputTokens": 40982,
+    "measuredInputRequests": 103,
+    "measuredOutputRequests": 103,
+    "unknownOutputRequests": 0
+  },
+  "backgroundOrganization": {
+    "attempts": 3,
+    "failedAttempts": [
+      {
+        "attempt": 1,
+        "raw": {
+          "inputTokens": 1139,
+          "outputTokens": 3039,
+          "totalTokens": 4178
+        },
+        "inputTokens": 1139,
+        "outputTokens": 3039
+      },
+      {
+        "attempt": 2,
+        "raw": {
+          "cacheReadTokens": 128,
+          "inputTokens": 1103,
+          "outputTokens": 622,
+          "totalTokens": 1853
+        },
+        "inputTokens": 1231,
+        "outputTokens": 622
+      }
+    ],
+    "successfulAttempt": {
+      "attempt": 3,
+      "raw": {
+        "cacheReadTokens": 512,
+        "inputTokens": 1025,
+        "outputTokens": 524,
+        "totalTokens": 2061
+      }
+    },
+    "inputTokens": 3907,
+    "outputTokens": 4185
+  },
+  "unmeasuredInterruptedRequests": {
+    "requestCount": null,
+    "inputTokens": null,
+    "outputTokens": null,
+    "reason": "Interrupted runs did not journal request starts. Saved completed records cannot establish whether an unrecorded in-flight request was billed. This includes stopped old second19 and prior incomplete native setup attempts; do not interpret the measured sum as a complete invoice."
+  },
+  "notes": [
+    "Selected native setup includes all Provider exchanges, including title generation.",
+    "Historical native diagnostic ledger deduplicates byte-identical recorded exchange objects across saved snapshots. Distinct repeated calls with identical full transcripts cannot be distinguished; treat this historical amount as an evidenced lower bound.",
+    "Old 103 direct requests omitted production Skill/scope and are diagnostic only.",
+    "No currency cost is inferred; input includes cached input where reported."
+  ],
+  "correctedThreeArm": {
+    "requests": 180,
+    "inputTokens": 154631,
+    "cachedInputTokens": 114041,
+    "outputTokens": 100877,
+    "measuredInputRequests": 180,
+    "measuredOutputRequests": 180,
+    "unknownOutputRequests": 0
+  },
+  "totalEvidencedInputTokens": 9544442,
+  "totalEvidencedOutputTokens": 325568
+}

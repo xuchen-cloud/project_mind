@@ -246,45 +246,22 @@ fn edit_todo(f: &Fixture, content: String) {
 }
 
 #[tokio::test]
-async fn model_memory_candidate_uses_todo_evidence_and_updates_stable_node() {
-    use crate::agent::{knowledge::KnowledgeKind, memory::MemoryCategory};
+async fn overview_publication_does_not_create_a_second_memory_store() {
     let mut f = fixture();
     let model = MockModel::new();
     warmup(&f, &model).await;
     add_todo(&mut f, "每周复核项目来源".into());
-    model.set_response(r#"{"upsertItems":[],"removeItemIds":[],"memoryCandidates":[{"category":"method","title":"每周来源复核","oneLine":"每周复核项目来源","summary":"用户持续按周复核项目来源。","evidenceIndices":[0]}]}"#);
+    model.set_response(r#"{"upsertItems":[{"id":"todo-progress","section":"progress","text":"已记录明确结论","epistemicStatus":"recorded","evidenceIndices":[0],"dependencyItemIds":[]}],"removeItemIds":[],"memoryCandidates":[{"category":"method","title":"每周来源复核","oneLine":"每周复核项目来源","summary":"用户持续按周复核项目来源。","evidenceIndices":[0]}]}"#);
     let before = model.calls();
     assert!(next(&f, &model, 811).await.unwrap());
     assert_eq!(model.calls(), before + 1);
-    let first = f.store.with_current(|_, db| {
-        let nodes = db.agent_knowledge_candidates(&f.scope, "", &[KnowledgeKind::Memory], None, 10)?;
-        Ok(nodes.into_iter().next().unwrap())
-    }).unwrap();
-    assert_eq!(first.kind, KnowledgeKind::Memory);
-    assert_eq!(first.memory.as_ref().unwrap().category, MemoryCategory::Method);
-    assert!(matches!(first.epistemic_status, EpistemicStatus::Inferred));
-    assert_eq!(first.source_refs.len(), 1);
-    assert_eq!(first.source_refs[0].object.id, f.todo_id.to_string());
-    edit_todo(&f, "每周复核项目来源并记录结论".into());
-    assert!(next(&f, &model, 812).await.unwrap());
-    let second = f.store.with_current(|_, db| db.agent_knowledge_get(&f.scope, &first.node_id, None)).unwrap().unwrap();
-    assert_eq!(second.revision, first.revision + 1);
-    assert_ne!(second.source_refs[0].revision, first.source_refs[0].revision);
-    f.store.with_current(|_, db| {
-        db.agent_memory_policy_save(&f.scope, &second.node_id, 0,
-            crate::agent::memory::MemoryConfirmation::Inferred,
-            crate::agent::memory::MemoryStatus::Disabled, false)?;
-        db.agent_memory_replace_suppressions(&f.scope, &second, true)
-    }).unwrap();
-    edit_todo(&f, "每周复核项目来源并记录明确结论".into());
-    model.set_response(r#"{"upsertItems":[{"id":"todo-progress","section":"progress","text":"已记录明确结论","epistemicStatus":"recorded","evidenceIndices":[0],"dependencyItemIds":[]}],"removeItemIds":[],"memoryCandidates":[{"category":"method","title":"每周来源复核","oneLine":"每周复核项目来源","summary":"用户持续按周复核项目来源。","evidenceIndices":[0]}]}"#);
-    assert!(next(&f, &model, 813).await.unwrap());
-    let (memory, head) = f.store.with_current(|_, db| Ok((
-        db.agent_knowledge_get(&f.scope, &first.node_id, None)?.unwrap(),
+    let (memory, overview) = f.store.with_current(|_, db| Ok((
+        db.agent_knowledge_candidates(&f.scope, "", &[KnowledgeKind::Memory], None, 10)?,
         db.agent_overview_head(&f.scope)?.unwrap(),
     ))).unwrap();
-    assert_eq!(memory.revision, second.revision);
-    assert!(head.items.iter().any(|item| item.id == "todo-progress"));
+    assert!(memory.is_empty(), "Overview may not publish legacy memory candidates");
+    assert!(overview.items.iter().any(|item| item.id == "todo-progress"));
+    assert!(model.prompts.lock().unwrap().last().unwrap().contains("do not emit memoryCandidates"));
 }
 
 #[path = "overview_session_tests.rs"]
@@ -365,10 +342,8 @@ async fn workspace_published_input_uses_visible_other_project_understanding() {
     assert!(head.items.iter().any(|item|item.id=="workspace-a-b" &&
         item.dependency_item_ids==vec!["workspace-b".to_string()]));
     let memory=f.store.with_current(|_,db|db.agent_knowledge_candidates(&workspace,"",
-        &[crate::agent::knowledge::KnowledgeKind::Memory],None,10)).unwrap().into_iter().next().unwrap();
-    assert!(memory.source_refs.is_empty());
-    assert_eq!(memory.published_sources.len(),1);
-    assert_eq!(memory.published_sources[0].project_id,a);
+        &[KnowledgeKind::Memory],None,10)).unwrap();
+    assert!(memory.is_empty(), "Published Project input must not auto-promote legacy memory");
     let gui_ids=crate::agent::commands::gui_project_ids(&f.store,&f.store.binding,&workspace).unwrap();
     assert!(gui_ids.contains(&a) && gui_ids.contains(&b));
     let mut gui_request=req.clone();
@@ -426,7 +401,7 @@ async fn workspace_published_input_uses_visible_other_project_understanding() {
 }
 
 #[tokio::test]
-async fn published_parent_second_page_sees_first_page_memory_before_update() {
+async fn published_parent_pagination_does_not_restore_legacy_memory() {
     use crate::agent::context::{OverviewItem,OverviewSection,ValidState};
     let mut f=fixture();
     add_todo(&mut f,"项目背景的真实来源".into());
@@ -487,16 +462,8 @@ async fn published_parent_second_page_sees_first_page_memory_before_update() {
     }
     assert_eq!(model.calls(),1);
     assert!(model.prompts.lock().unwrap()[0].contains("\"complete\":false"));
-    let (first_memory,next_batch)=f.store.with_current(|binding,db| Ok((
-        db.agent_knowledge_candidates(&workspace,"",&[crate::agent::knowledge::KnowledgeKind::Memory],None,10)?.into_iter().next().unwrap(),
-        db.agent_overview_maintenance_prepare(binding,&workspace,Utc::now())?.unwrap(),
-    ))).unwrap();
-    assert_eq!(first_memory.published_sources.len(),1);
-    assert_eq!(next_batch.source_object.published().unwrap().item_id,first_memory.published_sources[0].item_id);
+    let next_batch=f.store.with_current(|binding,db|db.agent_overview_maintenance_prepare(binding,&workspace,Utc::now())).unwrap().unwrap();
     assert!(next_batch.source_cursor.is_some());
-    let prior=f.store.with_current(|_,db|db.agent_overview_memory_for_input(&workspace,&next_batch.source_object)).unwrap();
-    assert!(prior.iter().any(|node|node.node_id==first_memory.node_id));
-    assert!(f.store.with_current(|binding,db|db.agent_memory_model_visible(&req,binding,&first_memory)).unwrap());
     model.set_response(r#"{"upsertItems":[],"removeItemIds":[],"memoryCandidates":[{"category":"domain","title":"项目背景","oneLine":"跨页背景","summary":"首段稳定事实；后段稳定事实。","evidenceIndices":[0]}]}"#);
     for index in 0..8 {
         f.store.with_current(|binding,db|db.overview_schedule_request(binding,&workspace,Utc::now()).map(|_|())).unwrap();
@@ -505,14 +472,10 @@ async fn published_parent_second_page_sees_first_page_memory_before_update() {
         if model.calls()>1 {break;}
     }
     assert_eq!(model.calls(),2);
-    let prompts=model.prompts.lock().unwrap();
-    assert!(prompts[1].contains("首段稳定事实"));
-    assert!(prompts[1].contains("priorMemory"));
-    drop(prompts);
     let memory=f.store.with_current(|_,db|db.agent_knowledge_candidates(&workspace,"",
-        &[crate::agent::knowledge::KnowledgeKind::Memory],None,10)).unwrap().into_iter().next().unwrap();
-    assert_eq!(memory.revision,2);
-    assert!(memory.summary.contains("首段稳定事实") && memory.summary.contains("后段稳定事实"));
+        &[KnowledgeKind::Memory],None,10)).unwrap();
+    assert!(memory.is_empty());
+
 }
 
 #[tokio::test]
@@ -651,14 +614,15 @@ async fn saved_small_page_draft_replays_without_model_and_preserves_cursor() {
             valid_state: crate::agent::context::ValidState::Current,
             updated_at: Utc::now().to_rfc3339(),
         }], remove_item_ids: vec![], settled_object_keys: vec![],
-        knowledge_upserts: memory_nodes(&f.store, &f.scope,
-            vec![crate::overview_generation::ParsedMemoryCandidate {
-                node_id: "memory-saved-page".into(),
-                category: crate::agent::memory::MemoryCategory::Method,
-                title: "分段阅读方法".into(), one_line: "分段阅读来源".into(),
-                summary: "分段阅读长来源。".into(), body_sections: vec![], keywords: vec![],
-                source_refs: vec![page.source_ref.clone()], published_sources: vec![],
-            }], &Utc::now().to_rfc3339()).unwrap(),
+        knowledge_upserts: vec![KnowledgeNodeWrite {
+            node_id: "topic-saved-page".into(), expected_revision: 0, kind: KnowledgeKind::Topic,
+            title: "分段阅读方法".into(), one_line: "分段阅读来源".into(),
+            summary: "分段阅读长来源。".into(), body_sections: vec![], aliases: vec![], keywords: vec![],
+            source_refs: vec![page.source_ref.clone()], published_sources: vec![],
+            epistemic_status: EpistemicStatus::Inferred,
+            coverage: SourceCoverage { processed: 1, partial: 0, excluded: 0, unsupported: 0, pending: 0 },
+            related: vec![], session_summary: None, memory: None,
+        }],
         knowledge_removes: vec![], coverage,
         source_manifest_hash: "small-page-draft".into(), model_profile_id: "mock-profile".into() };
     f.store.with_current(|binding, db| db.agent_overview_maintenance_save_draft_many(binding,
@@ -667,7 +631,7 @@ async fn saved_small_page_draft_replays_without_model_and_preserves_cursor() {
     *model.fail.lock().unwrap() = None;
     assert!(next(&f, &model, 901).await.unwrap());
     assert_eq!(model.calls(), calls);
-    let saved_memory = f.store.with_current(|_, db| db.agent_knowledge_get(&f.scope, "memory-saved-page", None)).unwrap().unwrap();
+    let saved_memory = f.store.with_current(|_, db| db.agent_knowledge_get(&f.scope, "topic-saved-page", None)).unwrap().unwrap();
     assert_eq!(saved_memory.source_refs[0].revision, page.source_ref.revision);
     let status = f.store.with_current(|binding, db| db.agent_overview_maintenance_status(binding, &f.scope)).unwrap();
     assert!(status.coverage.partial > 0);

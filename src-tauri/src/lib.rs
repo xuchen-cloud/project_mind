@@ -32,6 +32,8 @@ mod overview_session;
 mod overview_commands;
 mod knowledge_service;
 mod memory_commands;
+mod memory_behavior;
+mod memory_maintenance;
 mod knowledge_registry;
 mod utility_process;
 mod record_document_service;
@@ -1661,6 +1663,12 @@ pub fn run() {
             agent::commands::agent_knowledge_get,
             agent::commands::agent_knowledge_search,
             memory_commands::agent_memory_list,
+            memory_commands::memory_execute,
+            memory_commands::memory_adoption_get,
+            memory_behavior::memory_behavior_get,
+            memory_behavior::memory_behavior_save,
+            memory_maintenance::memory_schedule_get,
+            memory_maintenance::memory_schedule_save,
             memory_commands::agent_memory_get,
             memory_commands::agent_memory_update,
             agent::commands::agent_settings_get,

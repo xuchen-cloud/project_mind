@@ -41,11 +41,18 @@ async function launch(data, patch, sharedProvider, project, profileDirectory, so
   let spawnError;
   child.stdout.on('data', (chunk) => { output = (output + chunk).slice(-64000); });
   child.stderr.on('data', (chunk) => { output = (output + chunk).slice(-64000); });
-  if (sourceHandler) createInterface({ input: child.stdout }).on('line', async line => {
+  createInterface({ input: child.stdout }).on('line', async line => {
     if (!line.startsWith('MIND_DSH_SOURCE ')) return;
     const frame = JSON.parse(line.slice('MIND_DSH_SOURCE '.length));
     let result;
-    try { result = { ok: true, value: await sourceHandler(frame.payload) }; }
+    try {
+      // These tests exercise other native services. Memory's actual protocol
+      // and state transitions have their own memory.runtime.integration suite.
+      const value = frame.payload.operation === 'memory' && frame.payload.request.operation === 'context'
+        ? { facts: [], suppressed: [], omittedIds: [] }
+        : frame.payload.operation === 'memoryAdoption' ? null : await sourceHandler(frame.payload);
+      result = { ok: true, value };
+    }
     catch (error) { result = { ok: false, error: { message: String(error.message) } }; }
     child.stdin.write(JSON.stringify({ type: 'mind-source-response', id: frame.id, result }) + '\n');
   });

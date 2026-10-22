@@ -36,6 +36,7 @@ import { createSlotRenderer } from '../upstream/client/ui-renderer/src/client/sc
 import { FileUploadRuntime } from '../upstream/client/file-upload/src/client/runtime.ts';
 import { GeneralSection } from '../upstream/client/ui-settings-general/src/client/GeneralSection.tsx';
 import { zh, en } from '../upstream/client/ui-settings-general/src/client/locales.ts';
+import { MemoryAdoptionTail } from './memory-adoption.jsx';
 import { ModelPicker } from './model-picker.jsx';
 import { createTauriTransport } from './transport.mjs';
 import { adaptFileReferences, adaptFileMessageRenderer, fileReferenceToken, fixedFileFromPath, resolveFileReference } from './file-references.mjs';
@@ -151,6 +152,7 @@ export async function createDshClient(projectId) {
       openModelSettings: () => notify('modelSettings', sessionId),
     }) }, ModelPicker);
     for (const plugin of [chat, trajectory, tools, approval, attachments, inputTrigger, commands]) await install(plugin).await();
+    slots.register({ name: 'conversation.chat.turnTail', id: 'mind-memory-adoption', order: 50 }, MemoryAdoptionTail);
     // Adapt the existing @ source at its registration boundary: candidates,
     // explicit chips and the original composer keep one serializer contract.
     const registerSource = ctx.inputTriggers.registerSource;

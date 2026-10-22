@@ -5,7 +5,7 @@ use crate::{
         access::{Caller, RequestContext, ScopeGrant},
         context::{EpistemicStatus, SourceCoverage},
         errors::{AgentError, AgentResult, ErrorCode},
-        knowledge::{KnowledgeKind, KnowledgeNode, KnowledgeNodeWrite},
+        knowledge::{KnowledgeKind, KnowledgeNodeWrite},
         models::{ObjectKind, Scope, WorkspaceBinding},
         overview::OverviewPublishInput,
     },
@@ -149,54 +149,6 @@ fn hash(value: &impl Serialize) -> AgentResult<String> {
         AgentError::new(ErrorCode::InvalidArgument, "Cannot encode knowledge input")
     })?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
-}
-
-fn memory_nodes<S:BoundSourceStore>(store:&S,scope:&Scope,
-    candidates:Vec<crate::overview_generation::ParsedMemoryCandidate>,now:&str)->AgentResult<Vec<KnowledgeNodeWrite>> {
-    let mut nodes=Vec::new();
-    for candidate in candidates {
-        let previous=store.with_current(|_,db|db.agent_knowledge_get(scope,&candidate.node_id,None))?;
-        nodes.push(KnowledgeNodeWrite {
-            node_id:candidate.node_id,expected_revision:previous.map_or(0,|node|node.revision),
-            kind:KnowledgeKind::Memory,title:candidate.title,one_line:candidate.one_line,
-            summary:candidate.summary,body_sections:candidate.body_sections,aliases:vec![],
-            keywords:candidate.keywords,source_refs:candidate.source_refs,
-            published_sources:candidate.published_sources,epistemic_status:EpistemicStatus::Inferred,
-            coverage:SourceCoverage {processed:1,partial:0,excluded:0,unsupported:0,pending:0},
-            related:vec![],session_summary:None,
-            memory:Some(crate::agent::memory::MemoryMetadata {
-                category:candidate.category,last_supported_at:now.into(),
-            }),
-        });
-    }
-    Ok(nodes)
-}
-
-fn prior_memory<S:BoundSourceStore>(store:&S,request:&RequestContext,scope:&Scope,
-    inputs:&[OverviewInput])->AgentResult<Vec<KnowledgeNode>> {
-    let mut nodes=Vec::new();
-    let mut seen=std::collections::HashSet::new();
-    for input in inputs {
-        let found=store.with_current(|binding,db| {
-            let mut visible=Vec::new();
-            for mut node in db.agent_overview_memory_for_input(scope,input)? {
-                if !db.agent_memory_model_visible(request,binding,&node)? {continue;}
-                if db.agent_memory_policy(scope,&node.node_id)?.is_some_and(|policy|
-                    policy.confirmation==crate::agent::memory::MemoryConfirmation::UserConfirmed
-                    || policy.protected_correction) {
-                    node.epistemic_status=EpistemicStatus::UserConfirmed;
-                }
-                visible.push(node);
-            }
-            Ok(visible)
-        })?;
-        for node in found {
-            if seen.insert(node.node_id.clone()) {nodes.push(node);}
-        }
-    }
-    if nodes.len()>50 {return Err(AgentError::new(ErrorCode::BudgetExceeded,
-        "Existing memories for this source exceed model input budget"));}
-    Ok(nodes)
 }
 
 /// A document advances one bounded page at a time. Eligible current-branch
@@ -446,9 +398,6 @@ async fn process_batch<
                 db.agent_overview_corrections(&batch.scope)?,
             ))
         })?;
-        let mut existing_memory=if pages.is_empty() {Vec::new()} else {
-            prior_memory(store,request,&batch.scope,std::slice::from_ref(&batch.source_object))?
-        };
         // Keep all IDs for collision checks, but never send hidden historical
         // knowledge back to the model through the previous Overview context.
         let existing_ids = old
@@ -532,7 +481,7 @@ async fn process_batch<
                     old_overview: old.as_ref(), allowed_ids: &allowed, relevant_items: &relevant,
                     corrections: &corrections, source_pages: &pages,
                     prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
-                    prior_memory:&existing_memory,
+                    prior_memory:&[],
                     conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
                 }, &session_data.iter().map(|(_, conversation)| conversation.clone()).collect::<Vec<_>>());
                 match prompt {
@@ -582,21 +531,14 @@ async fn process_batch<
                 if before==prospective_allowed.affected_ids.len() { break; }
             }
             let prospective_relevant:Vec<_>=old_items.iter().filter(|item|prospective_allowed.affected_ids.contains(&item.id)).cloned().collect();
-            let mut prospective_memory=existing_memory.clone();
-            for node in prior_memory(store,request,&batch.scope,std::slice::from_ref(&next_progress.object))? {
-                if !prospective_memory.iter().any(|old|old.node_id==node.node_id) {prospective_memory.push(node);}
-            }
-            if prospective_memory.len()>50 {return Err(AgentError::new(ErrorCode::BudgetExceeded,
-                "Existing memories for this source exceed model input budget"));}
             let prospective = crate::overview_generation::build_prompt_batch(&PromptInput {
                 old_overview:old.as_ref(),allowed_ids:&prospective_allowed,relevant_items:&prospective_relevant,corrections:&corrections,
                 source_pages:&pages,prior_source_summary:conversation_data.as_ref().and_then(|(_,_,prior)|prior.as_ref()),
-                prior_memory:&prospective_memory,
+                prior_memory:&[],
                 conversation:conversation_data.as_ref().map(|(_,conversation,_)|conversation),
             },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>());
             match prospective {
                 Ok(prompt) if budget.as_ref().is_some_and(|value| value.check(&prompt).is_ok()) => {
-                    existing_memory=prospective_memory;
                     allowed=prospective_allowed; evidence.push(proof); progresses.push(next_progress); selected_sources.push(source);
                 }
                 Ok(_) => { pages.pop(); session_data.pop(); break; }
@@ -644,7 +586,7 @@ async fn process_batch<
                 corrections: &corrections,
                 source_pages: &pages,
                 prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
-                prior_memory:&existing_memory,
+                prior_memory:&[],
                 conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
             },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>())?;
             let budget = budget.as_ref().ok_or_else(|| AgentError::new(ErrorCode::RuntimeIncompatible,
@@ -673,7 +615,6 @@ async fn process_batch<
                 crate::overview_generation::parse_delta(&generated.text, &allowed, &refs, &Utc::now().to_rfc3339())?
             };
             publish.model_profile_id = generated.model_profile_id;
-            let memory_candidates=delta.memory_candidates;
             publish.upsert_items = delta.upsert_items;
             publish.remove_item_ids = delta.remove_item_ids;
             if let Some(summary) = delta.source_summary {
@@ -716,7 +657,6 @@ async fn process_batch<
                     memory: None,
                 });
             }
-            publish.knowledge_upserts.extend(memory_nodes(store,&batch.scope,memory_candidates,&Utc::now().to_rfc3339())?);
         }
         store.with_current(|binding, db| {
             active(db, binding, request, &batch.scope)?;
@@ -790,7 +730,6 @@ async fn process_published_batch<S:BoundSourceStore,M:OverviewModel>(
         if let Some(captured)=&proof {
             let mut live_corrections=captured.corrections.clone();
             live_corrections.extend(corrections.items.iter().filter(|c|!c.deleted).cloned());
-            let existing_memory=prior_memory(store,request,&batch.scope,std::slice::from_ref(&batch.source_object))?;
             let full_text=&captured.text;
             // Read existing Workspace understanding through the same visibility
             // gate as a user. This gives the model valid cross-Project context
@@ -818,7 +757,7 @@ async fn process_published_batch<S:BoundSourceStore,M:OverviewModel>(
             let prompt=loop {
                 let page:String=full_text.chars().skip(offset).take(page_budget_chars).collect();
                 let complete=offset+page.chars().count()>=total;
-                let prompt=crate::overview_generation::build_published_prompt(&allowed,&relevant,&live_corrections,&existing_memory,&page,offset,complete)?;
+                let prompt=crate::overview_generation::build_published_prompt(&allowed,&relevant,&live_corrections,&[],&page,offset,complete)?;
                 if budget.check(&prompt).is_ok() {
                     progress.state=if complete {OverviewSourceState::Processed} else {OverviewSourceState::Partial};
                     progress.read_cursor=(!complete).then(||(offset+page.chars().count()).to_string());
@@ -860,7 +799,6 @@ async fn process_published_batch<S:BoundSourceStore,M:OverviewModel>(
                 return Err(AgentError::new(ErrorCode::SourceChanged,"Workspace dependency is not currently visible"));
             }
             publish.model_profile_id=generated.model_profile_id;
-            let memory_candidates=delta.memory_candidates;
             publish.upsert_items=delta.upsert_items;publish.remove_item_ids=delta.remove_item_ids;
             if let Some(summary)=delta.source_summary {
                 let node_id=format!("{}{}",crate::agent::knowledge::published_node_prefix(parent.project_id,&parent.item_id),batch.source_cursor.as_deref().unwrap_or("0"));
@@ -875,7 +813,6 @@ async fn process_published_batch<S:BoundSourceStore,M:OverviewModel>(
                     memory:None,
                 });
             }
-            publish.knowledge_upserts.extend(memory_nodes(store,&batch.scope,memory_candidates,&Utc::now().to_rfc3339())?);
         } else {
             publish.remove_item_ids=allowed.affected_ids.into_iter().collect();publish.remove_item_ids.sort();
             publish.knowledge_removes=store.with_current(|_,db|db.agent_published_knowledge_ids(parent.project_id,&parent.item_id))?;
@@ -946,6 +883,9 @@ pub(crate) fn start(app: &tauri::AppHandle) {
         };
         let record = crate::record_document_service::AppDocumentUtility(app.clone());
         loop {
+            if let Err(error) = crate::memory_maintenance::tick(&app).await {
+                eprintln!("Memory maintenance: {:?}: {}", error.code, error.message);
+            }
             let state = app.state::<crate::AppState>();
             let selected = state.with_current(|binding, db| {
                 db.agent_overview_maintenance_resume_waiting(binding, Utc::now())?;

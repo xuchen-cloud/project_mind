@@ -13,6 +13,87 @@ use crate::{
 use serde::Deserialize;
 use tauri::State;
 
+/// Bind GUI operations to the Workspace opened when the panel was loaded.
+/// The store is shared with DSH; a GUI action supplies user confirmation itself.
+#[tauri::command]
+pub(crate) fn memory_execute(
+    state: State<'_, AppState>,
+    caller: tauri::Webview,
+    binding: WorkspaceBinding,
+    scope: crate::db::memory_facts::MemoryScope,
+    request: crate::db::memory_facts::MemoryRequest,
+) -> Result<serde_json::Value, String> {
+    use crate::db::memory_facts::{MemoryAccess, MemoryOrigin, MemoryScope};
+    crate::dsh_assistant::authorize_caller(&caller)?;
+    let project_id = match &scope {
+        MemoryScope::Workspace => None,
+        MemoryScope::Project { project_id } => Some(*project_id),
+    };
+    crate::dsh_assistant::authorize_scope_label(caller.label(), project_id)?;
+    let current = crate::lock_mutex(&state.current_workspace);
+    let runtime = current.as_ref().ok_or("请先打开工作区")?;
+    if runtime.agent_binding != binding {
+        return Err("工作区已变化，请重新打开记忆面板".into());
+    }
+    let db = crate::lock_mutex(&runtime.db);
+    let listing = matches!(request, crate::db::memory_facts::MemoryRequest::List { .. });
+    let mut result = db.memory_execute(
+        &MemoryAccess {
+            scope,
+            origin: MemoryOrigin::User,
+            sources: vec![],
+        },
+        request,
+    )?;
+    if let Some(facts) = result
+        .get_mut("facts")
+        .and_then(serde_json::Value::as_array_mut)
+        .filter(|_| listing)
+    {
+        for fact in facts {
+            if let Some(sources) = fact
+                .get_mut("sources")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for source in sources {
+                    let stored =
+                        serde_json::from_value(source.clone()).map_err(|_| "无效记忆来源")?;
+                    source["availability"] =
+                        serde_json::json!(db.memory_source_availability(&binding, &stored)?);
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) fn memory_adoption_get(
+    state: State<'_, AppState>,
+    caller: tauri::Webview,
+    binding: WorkspaceBinding,
+    scope: crate::db::memory_facts::MemoryScope,
+    session_id: String,
+    turn: u32,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::memory_facts::MemoryScope;
+    crate::dsh_assistant::authorize_caller(&caller)?;
+    crate::dsh_assistant::authorize_scope_label(
+        caller.label(),
+        match scope {
+            MemoryScope::Workspace => None,
+            MemoryScope::Project { project_id } => Some(project_id),
+        },
+    )?;
+    let current = crate::lock_mutex(&state.current_workspace);
+    let runtime = current.as_ref().ok_or("工作区已关闭")?;
+    if runtime.agent_binding != binding {
+        return Err("工作区已变化".into());
+    }
+    let db = crate::lock_mutex(&runtime.db);
+    db.memory_adoptions_for_turn(&scope, &session_id, turn)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct MemoryCommandInput<T> {

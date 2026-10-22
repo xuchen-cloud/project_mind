@@ -1,0 +1,215 @@
+{
+  "actualCapacityCalls": 1,
+  "actualGenerationCalls": 1,
+  "after": [
+    {
+      "autoOrganizedAt": null,
+      "category": "method",
+      "condition": "记录会议日期时",
+      "confirmation": "confirmed",
+      "content": "会议纪要中的日期采用 YYYY-MM-DD 格式。",
+      "core": false,
+      "id": "mem-12099edfbec7dee6c686ebd8d323e0af",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    },
+    {
+      "autoOrganizedAt": null,
+      "category": "preference",
+      "condition": "仅在项目复盘讨论中",
+      "confirmation": "confirmed",
+      "content": "用户偏好简洁的中文表达，先说结论再说明理由。",
+      "core": false,
+      "id": "mem-2c7a3407478f7295150a13bd23d4c53c",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    },
+    {
+      "autoOrganizedAt": null,
+      "category": "preference",
+      "condition": "仅在项目复盘讨论中",
+      "confirmation": "confirmed",
+      "content": "用户希望先用简洁中文给出结论，再解释原因。",
+      "core": false,
+      "id": "mem-75d4aeb14f44da084cc5e3d6a9bbb8f6",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    }
+  ],
+  "backgroundOrganizationUsage": {
+    "cacheReadTokens": 128,
+    "inputTokens": 1103,
+    "outputTokens": 622,
+    "totalTokens": 1853
+  },
+  "before": [
+    {
+      "autoOrganizedAt": null,
+      "category": "preference",
+      "condition": "仅在项目复盘讨论中",
+      "confirmation": "confirmed",
+      "content": "用户希望先用简洁中文给出结论，再解释原因。",
+      "core": false,
+      "id": "mem-75d4aeb14f44da084cc5e3d6a9bbb8f6",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    },
+    {
+      "autoOrganizedAt": null,
+      "category": "preference",
+      "condition": "仅在项目复盘讨论中",
+      "confirmation": "confirmed",
+      "content": "用户偏好简洁的中文表达，先说结论再说明理由。",
+      "core": false,
+      "id": "mem-2c7a3407478f7295150a13bd23d4c53c",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    },
+    {
+      "autoOrganizedAt": null,
+      "category": "method",
+      "condition": "记录会议日期时",
+      "confirmation": "confirmed",
+      "content": "会议纪要中的日期采用 YYYY-MM-DD 格式。",
+      "core": false,
+      "id": "mem-12099edfbec7dee6c686ebd8d323e0af",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    }
+  ],
+  "checks": {
+    "actualTokenUsage": true,
+    "conditionPreserved": true,
+    "duplicateMerged": false,
+    "executionSucceeded": false,
+    "independentUnchanged": true,
+    "independentUnchangedAfterRollback": true,
+    "restoredBothOriginalFactsAndLocked": false,
+    "rollbackWithin24Hours": false,
+    "silentInferred": false
+  },
+  "error": "InvalidArgument: Unexpected organization field or scope",
+  "executedAt": "2026-10-22T18:10:43.056464Z",
+  "modelOutput": "{\"changes\":[{\"action\":\"merge\",\"id\":\"mem-2c7a3407478f7295150a13bd23d4c53c\",\"expectedRevision\":1,\"content\":\"用户偏好简洁的中文表达，先给出结论，再说明理由。\",\"condition\":\"仅在项目复盘讨论中\",\"from\":[{\"id\":\"mem-75d4aeb14f44da084cc5e3d6a9bbb8f6\",\"expectedRevision\":1}]}]}",
+  "passed": false,
+  "path": "production memory_maintenance::step -> ModelRuntime::call capacity/generate -> native memory_execute organization/apply -> native rollback",
+  "receipt": null,
+  "restored": [
+    {
+      "autoOrganizedAt": null,
+      "category": "method",
+      "condition": "记录会议日期时",
+      "confirmation": "confirmed",
+      "content": "会议纪要中的日期采用 YYYY-MM-DD 格式。",
+      "core": false,
+      "id": "mem-12099edfbec7dee6c686ebd8d323e0af",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    },
+    {
+      "autoOrganizedAt": null,
+      "category": "preference",
+      "condition": "仅在项目复盘讨论中",
+      "confirmation": "confirmed",
+      "content": "用户偏好简洁的中文表达，先说结论再说明理由。",
+      "core": false,
+      "id": "mem-2c7a3407478f7295150a13bd23d4c53c",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    },
+    {
+      "autoOrganizedAt": null,
+      "category": "preference",
+      "condition": "仅在项目复盘讨论中",
+      "confirmation": "confirmed",
+      "content": "用户希望先用简洁中文给出结论，再解释原因。",
+      "core": false,
+      "id": "mem-75d4aeb14f44da084cc5e3d6a9bbb8f6",
+      "locked": false,
+      "revision": 1,
+      "rollbackId": null,
+      "scope": {
+        "kind": "workspace"
+      },
+      "sources": [],
+      "state": "active",
+      "supersededBy": null,
+      "validFrom": null,
+      "validTo": null
+    }
+  ],
+  "rollback": null,
+  "schemaVersion": 1
+}

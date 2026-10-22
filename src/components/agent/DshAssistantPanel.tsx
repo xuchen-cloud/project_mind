@@ -16,6 +16,7 @@ import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-st
 import { Button } from "../../ui/components/Button";
 import { PopoverPanel } from "../../ui/components/PopoverPanel";
 import { HomeSidebarList } from "../home/HomeSidebarList";
+import { MemoryAdoption } from "../memory/MemoryAdoption";
 import "../home/home.css";
 import "./dsh-assistant.css";
 
@@ -242,7 +243,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
       {ready && !error && onOpenSession ? <div className="dsh-assistant__directory">
         <h3>项目会话</h3>{sessionList}
       </div> : null}
-      {ready && selectedSession && !onOpenSession ? <DshConversationHost key={syncedKey!} projectId={projectId} sessionId={selectedSession.id} focused={open} {...callbacks} /> : null}
+      {ready && selectedSession && !onOpenSession ? <DshConversationHost renderMemoryAdoption={({ sessionId: adoptedSession, turn }) => workspaceRoot ? <MemoryAdoption workspaceRoot={workspaceRoot} projectId={projectId} sessionId={adoptedSession} turn={turn} /> : null} key={syncedKey!} projectId={projectId} sessionId={selectedSession.id} focused={open} {...callbacks} /> : null}
     </div>
   </section>;
 }

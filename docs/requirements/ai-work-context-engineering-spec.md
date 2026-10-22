@@ -1,8 +1,10 @@
 # AI 工作上下文：工程契约
 
+> 2026-10-23 记忆规则更新：当前以[记忆生命周期细则](workspace-memory-lifecycle.md)及[实现契约](../technical/memory-contract.md)为准。来源删除保留结论、默认静默语义整理与 24h 回退、DSH 真实读写接入及评测后切换 L1/L2 取代旧来源删除即失效、默认待审、Pi 记忆接入和永久全量快照规则；旧实现仅供历史追溯。其他业务权限、原子事务和非记忆功能规则保持适用。实施与验证状态逐项记录，未完成真实验收不关闭父 Issue。
+
 更新：2026-10-10。本文件是[主规格](ai-work-context-spec.md)的工程契约，定义接口、持久化、授权、并发和恢复；当前任务与验收缺口见[交付计划](ai-work-context-delivery.md)，长期记忆的操作与生命周期细节见[生命周期需求](workspace-memory-lifecycle.md)。文件编辑预览及开源格式组件集成属于[独立需求 #118](project-file-integration.md)，原 HTML Issue #115 已迁出，不作为 AI #97 发布前置。
 
-实现事实以当前 HEAD `cc3ecf9` 的源码为基线：已有 Pi 0.99.1 内置运行时、原生 Record/Todo/File 成果与版本/撤销、CLI/MCP 服务、Project/Workspace 会话和增量知识维护、六类记忆节点及用户策略；这些本地实现不代表真实 Provider、目标平台或本轮目标已验收。下文的统一 Skill、Workspace-only 长期记忆、Project 背景与约定栏目、会话 Overview 即时增量及联合整理是确认的目标，不能凭历史测试宣称已接通。历史实现与验证只作为证据，见交付文档中的历史材料入口。
+`cc3ecf9` 是 2026-10-10 的历史实现基线：已有 Pi 0.99.1 内置运行时、原生 Record/Todo/File 成果与版本/撤销、CLI/MCP 服务、Project/Workspace 会话和增量知识维护、六类记忆节点及用户策略；这些历史本地实现不代表当前 DSH 记忆调用链、真实 Provider 或目标平台已验收。2026-10-23 记忆正文权威已改为原生 fact/version 服务，Project agreement/decision 保持项目理解身份；当前实现与真实缺口见[阶段台账](ai-work-context-acceptance.md#memory-stage-20261023)。Overview 会话增量与联合整理须单独判断，不能凭历史测试宣称已接通。历史实现与验证只作为证据，见交付文档中的历史材料入口。
 
 文中的E编号是稳定工程主题编号。产品流程先读主规格，实现具体模块时按下面目录进入；不存在“较后补充章节覆盖前文”的规则。
 
@@ -11,7 +13,7 @@
 - [E3 知识结构与渐进读取](#e3)
 - [E4 定期维护与Workspace记忆](#e4)
 - [E5 会话摘要与历史回读](#e5)
-- [E6 Pi运行时与生命周期](#e6)
+- [E6 当前 DSH 记忆接入与历史 Pi 生命周期](#e6)
 - [E7 成果提交、幂等与事件](#e7)
 - [E8 Record块编辑、版本与并发](#e8)
 - [E9 File更新与已有版本复用](#e9)
@@ -100,7 +102,7 @@ HEAD 的 `CURRENT_SCHEMA_VERSION` 指向 `AGENT_MEMORY_SCHEMA_VERSION=37`；新�
 - `agent_overviews(scope_key PK,current_revision,as_of_seq,status,coverage_json,policy_revision,updated_at)`与`agent_overview_versions(scope_key,revision,items_json,source_manifest_json,as_of_seq,model_profile_id,created_at)`保存不可变快照，旧overview不递归成为独立source；快照随Workspace备份，首期不自动裁剪。
 - `agent_overview_dependencies(scope_key,item_id,source_object_key,source_revision,parent_overview_scope,parent_item_id,parent_revision)`支持原始依赖与逐层失效；来源权限每次读取仍校验。
 - `agent_overview_pending(scope_key,object_key,first_seq,last_seq,operation,latest_revision)`与业务outbox同事务更新；Overview自身写入只通知父Workspace，不再将自己当Project业务变化，防止无限更新循环。
-- 长期记忆复用已有知识节点、正文及不可变版本，不另建重复正文存储；目标活动 owner 唯一为 Workspace，原生写边界拒绝 Project Memory。Project 专属稳定信息进入 Project Overview 的“项目背景与约定”栏目。六类记忆、确认与状态、支持时间、来源抑制见 E4；确认、纠正和抑制策略独立保存，模型维护不得覆盖。HEAD 的 `KnowledgeKind::Memory`、`memory.category` 和 schema 37 用户策略是可复用实现，不证明 Workspace-only 及会话操作已完成。
+- 记忆正文权威为 `memory_fact_heads` 与不可变 `memory_fact_versions`，并保存不可变 operations、事实级 suppressions、proposals、settings 及绑定 payload 的 receipts；不以旧 `KnowledgeKind::Memory` / schema 37 用户策略作为当前权威，也不做旧记忆迁移。Workspace 保留六类通用记忆，Project agreement/decision 仍属项目理解，不自动提升全局。Overview 继续使用既有 `agent_overviews/agent_overview_versions`，不新建重复 Markdown 正文或历史日志表。确认属于具体版本，后台新版本为 inferred；实际 DTO 与原子操作见[实现契约](../technical/memory-contract.md)。
 
 - `agent_session_summary_segments(id,session_id,branch_id,start_entry_id,end_entry_id,revision,summary_json,message_refs_json,source_refs_json,coverage,input_hash,status)`保存分段当前摘要；历史版本独立保留，唯一(session,branch,range,inputHash)。FTS按segment索引，最新状态与历史时态可区分。
 
@@ -212,6 +214,8 @@ Record/QuickNote 修订基于规范化 Committed Content 和语义元信息；To
 
 ## E4 定期维护与Workspace记忆
 
+本节的来源摄入、Overview 维护与联合沉淀描述保留其知识服务职责及目标；**本包已接入的后台仅整理 existing facts，不抽取新 sources，也没有联合发布 Overview + Workspace 记忆**。已有事实后台 11 项定向测试不能替代这些目标的验收。
+
 **初始化**：启用助手时为已选范围自动排队一次。先读取对象目录和元信息，按目标/固定背景/近期决定/活跃Todo分批读取资料，形成partial Overview；随后按预算补齐未覆盖内容，不要求一次模型输入读完全项目。优先级是读取顺序，不表示旧资料永远忽略。新空Project不调用模型。初始化可取消/续跑，输入游标持久化。
 
 **调度默认**：本地时区每日 03:00 检查，维护间隔 24h，可选 48h 和时间；开关、频率与时刻由 Harness 结构化设置决定，统一 Skill 的文字不替代实际调度设置；仅有未消费业务变化的Project进入队列，无变化零模型调用。原始来源成功保存后独立登记 pending/入队，不能依赖模型先成功生成知识才登记。第一次启用包含此维护策略，无每次确认。应用未运行或Workspace未打开则不执行，下一次打开在用户任务之外合并补跑一次，不补齐过去每一天。应用关闭时的无界面 Host 属延期目标；不承诺电脑休眠时唤醒。
@@ -238,13 +242,15 @@ Workspace输入包含两部分：①各授权Project Overview的变化；②Work
 
 Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴趣、可复用方法、用户明确的工作习惯和关键知识入口。项目归档后可退出活跃工作清单，但仍有来源支持的通用方法/经验可以保留；必须保留来源归档状态，用户撤销授权或排除来源另按即时失效处理。
 
-长期记忆复用 `kind: memory` 知识节点，以 `memory.category: background|domain|interest|method|preference|knowledge_pointer` 区分类别；活动 owner 只允许 Workspace。Project 特有的稳定信息归 Project Overview“项目背景与约定”栏目，不另建 Project Memory。记忆保留原始或已发布项目依据和 `lastSupportedAt`；用户策略独立保存 `confirmation` 与 `status`。模型候选一律为推断，用户经可信 GUI 或绑定真实明确用户消息确认后才标为确认，重复行为仍只作为待验证推断。一段模型建议、一次随口提问或多层摘要循环不能自动变成用户长期偏好。过时内容变stale/superseded，不能无限累积成互相冲突的“用户画像”。用户纠正、停用或“不要再记住这一点”需持久抑制，防止下一轮从同一来源重新生成。具体目标操作、存储与验收见[生命周期需求](workspace-memory-lifecycle.md)；`ab4d461` 的历史验证不能证明本轮修订已完成。Overview 与知识节点各自保留来源、依赖、不可变版本和 coverage；六类记忆与其用户策略、抑制不是这些产物的通用替代结构。
+Workspace 长期记忆使用原生 fact/version 服务，分类为 background/domain/interest/method/preference/knowledge_pointer；Project agreement/decision 对应项目背景、约定与决议，严格限本项目。模型新增或整理出的版本为 inferred，只有可信真实用户操作确认其具体 revision；后台可静默改变已确认版本的语义，但不能继承旧确认。锁定、已遗忘或已停用事实禁止组织器改写。同来源中的独立结论分别保存和抑制，不能按来源消息整体遗忘。过期/被替代版本退出当前采用；事实、条件、时效、来源、替代关系与操作单元均有不可变版本。旧 KnowledgeNode 记忆仅为历史实现，不再约束现行存储。
 
-记忆的产生、更新、整理删除和使用统一参考已核对的 [Hermes 源码机制](../technical/hermes-memory-reference.md)，但采用 Project Mind 的条目 ID/版本、原始来源、权限和用户策略。会话模型理解明确的记住/纠正/遗忘请求；既有后台维护仅在有变化时提取。新增、替换、移除及批量操作共用原生服务，合并可由一次原子的替换加移除完成；后台语义替换、删除或减少信息的合并遵循既有待审方案及最新用户策略，已确认内容不由无人值守模型覆盖；真实明确的用户定向操作不再二次确认。广泛合并、矛盾清理和结构重组进入同一整理入口。自动提取不增加每轮固定模型请求，也不引入另一套调度器。
+记忆产生、局部 patch、merge、遗忘/停用、读取及整理共用原生服务。默认审批开关关闭，后台可静默语义修改；仅开启开关时先保存提案、旧事实继续生效。提案基线过期自动作废。整理后 24h 回退以一次原子操作为单位：单条 patch 独立，merge 全组恢复内容、条件、来源与替代关系，所有成员 CAS 后生成新版本并锁定；不恢复覆盖后来的人工修改/遗忘，不连带同批其他独立操作。当前组织器只处理已有 fact；从新来源提取及更广泛的理解维护仍是未交付目标。
 
-获 Project 与 Workspace 对应授权的维护批可在同一次生成中提出两处操作，任一部分可为空；发布时以既有批次身份、来源证明、基线和用户策略版本在同一事务原子保存两个目标及进度。Project-only 或只读 grant 不扩权；冲突、越权或失败保留草稿与未消费进度。仅有 Workspace 记忆读取权限的会话在首次真实任务装入当前有效、完整且符合预算的精简快照，变化后的下一轮及续聊/Pi 压缩重建复核版本与旧 Run 来源；详细资料按需读取。预算设置和默认值由 LM4 对真实序列化输入及模型余量验证确定，不预写字符常量；小模型装不下时明确改为按需读取，不按 ID 截断或宣称完整注入。项目栏目、操作、联合发布、初始化及容量的完整契约与 ML01～ML15 验收以[生命周期需求](workspace-memory-lifecycle.md)为准。
+**尚未交付的联合发布目标**：获 Project 与 Workspace 对应授权的维护批可一次提出两处操作；以批次身份、来源证明、基线与策略版本，在同一短事务发布两个目标及进度。Project-only 或只读 grant 不扩权，失败/冲突保留草稿与未消费进度。现有 fact 批次事务不等于该联合发布能力。
 
-每个Workspace记忆条目与Project概览条目保留最终原始来源和派生链。删除/排除/撤回/授权收缩立即失效其依赖，不等待夜间任务；只剩无权来源的条目完全不返回正文、标题或摘录。混合授权来源不能只隐藏引用却返回混合结论：保守整条省略，或用仍可见证据重新生成后返回。只授权项目子集的连接只组合有权限的条目，不读取全Workspace自由文本摘要。内置 Project Agent 可以读取当前 Workspace 授权可用的长期记忆；该窄权限不授予 Workspace 或其他 Project 原始资料读取，也不授予任意 Workspace 写入。Project 会话真实明确的通用记忆保存请求只绑定本次 Workspace 记忆操作，原生层仍核验来源与目标；外部连接按持久 grant 执行。
+当前 DSH 在每次 Provider 请求前刷新预算内精简 snapshot，变化后替换活动快照，续聊/压缩恢复重新取当前事实；总输入含系统指令、历史、工具和输出预留，装不下的整条事实如实标 omitted，不冒称完整注入。L1/L2 是实验目标，真实 50～100 中文多轮三组 gate 通过后方可切换默认。原文 L3 始终按需授权回读，不把源摘录放入默认 snapshot。历史 [ML01～ML15](archive/workspace-memory-lifecycle-history-20261010.md#10-验收场景)仅供追溯，现行要求见[生命周期 US 场景](workspace-memory-lifecycle.md)。
+
+记忆结论权限与原文权限分开：来源删除不撤销独立保存的有效结论，归档不等同删除；仅依据真实可用性标记 source_removed，原文回读仍核验授权。Project 只读 Workspace 记忆不取得 Workspace 原文或其他 Project 访问权，也不取得任意写入权。用户明确请求的单次写入仍绑定真实消息与具体目标。Overview/普通知识的原文依赖继续按其契约处理排除、撤回与撤权，不能把其依赖失效规则套成记忆结论随来源删除失效。外部连接只读取获授权条目，不读取全 Workspace 自由文本摘要或隐藏来源。
 
 ### 摄入、索引与健康检查
 
@@ -258,7 +264,7 @@ Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴�
 
 ## E5 会话摘要与历史回读
 
-会话历史可经两条有界路径定位：`Project Overview的主题/决定入口 → 相关会话摘要/主题分段 → 指定原始消息范围`，或 `可重建原文索引 → 命中消息 → 指定原始消息范围`。摘要和 Overview 可提高定位效率，不是原文检索的前置条件；Pi JSONL 始终是原文权威。索引复用已校验的新消息投影，并从 JSONL 分批补齐完整历史树；索引归属会话而非当前分支消息行，checkpoint 前缀校验支持追加续扫，未覆盖范围如实标识。具体边界见[会话记忆架构](../conversation-memory.md)。
+会话历史可经两条有界路径定位：`Project Overview的主题/决定入口 → 相关会话摘要/主题分段 → 指定原始消息范围`，或 `可重建原文索引 → 命中消息 → 指定原始消息范围`。摘要和 Overview 可提高定位效率，不是原文检索的前置条件；Pi JSONL 仅是旧 Pi 会话原文权威；当前 DSH 续聊以实际 Session surface 为准，不能用旧 Pi 证明当前记忆接线。索引复用已校验的新消息投影，并从 JSONL 分批补齐完整历史树；索引归属会话而非当前分支消息行，checkpoint 前缀校验支持追加续扫，未覆盖范围如实标识。具体边界见[会话记忆架构](../conversation-memory.md)。
 
 例如“上次为什么没做权限管理？”：Overview找到“权限管理暂缓”的条目及会话引用；摘要说明当时比较的方案、用户的决定和未决前提；需要确认措辞时读取引用范围的几条消息。若 Overview 或摘要未覆盖这个细节，则搜索有权限的会话原文索引，再回读有限原始消息。回答附“9月某次会话 · 相关讨论”链接，点击打开会话并定位/高亮消息，而非只跳到聊天底部；索引也未覆盖的范围不能据未命中声称没讨论过。
 
@@ -266,7 +272,7 @@ Workspace Overview组织跨项目关系、当前工作分布、长期领域/兴�
 
 ### 当前实现与目标差距
 
-HEAD 的普通 Pi 对话使用原生压缩；单次结构化 Overview 生成关闭压缩，以保留本次原始证据。Pi `CompactionEntry` 的自由文本摘要不含逐条 citation、读取证明、coverage 游标或纠正约束，不能直接成为 Overview 证据。跨会话原文索引、可追溯 `summary_segments` 和原生压缩各司其职，不另建会话权威或摘要 worker。
+历史 Pi 路径的普通对话使用原生压缩；单次结构化 Overview 生成关闭压缩，以保留本次原始证据。Pi `CompactionEntry` 的自由文本摘要不含逐条 citation、读取证明、coverage 游标或纠正约束，不能直接成为 Overview 证据。跨会话原文索引、可追溯 `summary_segments` 和原生压缩各司其职，不另建会话权威或摘要 worker。
 
 当前分支完整短消息可按同分支、同授权的连续来源合批；历史分支和长消息的进一步分段按真实模型窗口、来源边界和任务效果处理。`session.messages.read` 的 50 条/12000 字符仅是单页读取上限，不规定压缩长度、摘要批量或正文长度。完整请求按模型容量与回答余量计预算，失败保留旧快照、draft、游标和 pending，成功才消费进度；不设置每日或 Workspace 共享调用配额，不无限自动重试。历史 WP4/WP5/S3 验证范围见[会话记忆架构](../conversation-memory.md)及交付历史材料，不替代本轮验收。
 
@@ -287,7 +293,7 @@ HEAD 的普通 Pi 对话使用原生压缩；单次结构化 Overview 生成关�
 
 Project检索只见同Project会话；Workspace可聚合其授权范围内的会话，Project不反向继承Workspace会话。内置助手在当前已启用 scope 自动配置 `session.read`，无需用户单独授权；外部连接仍按其持久 grant 检查会话读取。没有session.read时，过滤依赖该会话的摘要/Overview条目正文，不能只藏消息链接却泄露结论。
 
-会话或消息被删除/排除时，失效其 AI 可见 summary segments、FTS 与派生 Overview/Workspace 记忆；原会话涉及被排除资料时同样沿依赖失效，不能通过用户/助手的转述旁路恢复。旧 Overview 版本仍需动态权限过滤。AI 来源排除不隐藏可信 GUI 中用户自己的原始会话或 File 历史；真实删除则使原文引用失效。已独立保存的 Record/File 不因删除会话而删除；删除原文与“从所有独立成果忘记此事”是不同操作，不能承诺后者自动发生。外部 Agent 只索引通过适配器明确回传的会话/消息，不扫描其他 CLI 全部私有聊天记录。
+会话或消息被删除/排除时，失效其 AI 可见 summary segments、FTS，并按原文依赖契约核验 Overview；独立保存的 fact 不因来源删除而失效，原会话涉及被排除资料时同样沿依赖失效，不能通过用户/助手的转述旁路恢复。旧 Overview 版本仍需动态权限过滤。AI 来源排除不隐藏可信 GUI 中用户自己的原始会话或 File 历史；真实删除则使原文引用失效。已独立保存的 Record/File 不因删除会话而删除；删除原文与“从所有独立成果忘记此事”是不同操作，不能承诺后者自动发生。外部 Agent 只索引通过适配器明确回传的会话/消息，不扫描其他 CLI 全部私有聊天记录。
 
 ### 读取接口
 
@@ -299,11 +305,18 @@ Project检索只见同Project会话；Workspace可聚合其授权范围内的会
 
 <a id="e6"></a>
 
-## E6 Pi运行时与生命周期
+## E6 当前 DSH 记忆接入与历史 Pi 生命周期
 
 基础代码入口和当前可执行范围见[框架说明](../../src-tauri/src/agent/README.md)。框架不等于本节运行时、持久化及安装包能力已交付。
 
-已有工程模块职责如下；新增接线沿用现有服务，不要求按本目录重建框架：
+当前 Project 记忆经 DSH admission/request hooks 与 native bridge 调用 fact 服务；行为文件按真实读取版本进入下一次请求，使用受支持的 Session surface 刷新当前 snapshot。实际工具、帧和收据见[实现契约](../technical/memory-contract.md)。后台 existing-facts 整理与原 Overview/source 维护路径分别说明，不宣称联合发布已经完成。
+
+以下保留旧 Pi 结构和协议用于追溯，不作为当前 DSH 记忆 SDK、会话存储或资源加载要求；其中实际归属、代际、凭据保护、终态与保存收据及平台验收等通用约束继续适用。
+
+<details>
+<summary>历史 Pi 模块与运行时契约（非当前记忆接入）</summary>
+
+已有工程模块职责如下：
 
 ```text
 src-tauri/src/agent/
@@ -336,11 +349,13 @@ src-tauri/src/bin/mind.rs   # CLI + MCP adapter
 - 工具请求默认 30s 超时，模型首响应 60s、无任何有效进展 120s、run 总时长 10min、工具调用上限 30 次。超限保留结果并显示继续入口，不无限运行。
 - 取消先 SDK abort，5s 后终止子进程树；终止不能把已经完成的 output commit 回滚成未保存。切 Workspace 的代际标识使所有旧响应失效。
 
+</details>
+
 ### Workspace Skill、记忆组件与运行设置
 
 目标使用一个可编辑的 Workspace Skill 文件，按“记忆行为”和“整理行为”两节表达交互中的定向沉淀与批次结构整理规则，所有 Project 沿用。Skill 是行为说明，记忆正文及 Overview 仍属于 Context，调度开关/频率/时刻仍属于 Harness 设置。薄记忆组件组织读取与触发，并调用已有 Context 与原生服务，不成为另一份正文存储或推理框架。
 
-用户及具有该文件修改权限的 Agent 直接编辑 Skill 并告知实际结果，不新增行为草稿审批。下一次 Provider 请求前读取最新 Skill；同一 Run 的后续请求也采用新版本，已发出的请求不重启。Skill 修改不删除已有记忆；需要修改内容时走明确的 Context 操作。加载路径和编辑入口作为实施选择收敛，HEAD 的空 skills loader 不证明此能力已接通。
+用户及具有该文件修改权限的 Agent 直接编辑 Skill 并告知实际结果，不新增行为草稿审批。下一次 Provider 请求前读取最新 Skill；同一 Run 的后续请求也采用新版本，已发出的请求不重启。Skill 修改不删除已有记忆；需要修改内容时走明确的 Context 操作。当前 DSH 行为文件服务与刷新按实际调用验证，原生 behavior 三项通过；旧 Pi 空 skills loader 既不证明也不否定当前接通，完整证据见阶段台账。
 
 Harness 提供结构化调度设置调整工具或脚本，分别核验设置权限、实际字段及保存结果。此目标扩展仅用于这些运行设置，不开放任意 scope settings、Context Instructions 或连接授权的模型写入；既有 GUI 管理入口继续按 ADR-0009 约束。同一用户请求同时修改 Skill 与运行设置时分别保存，部分失败保留成功项，明确告知失败项，重试仅处理失败项；不能仅修改 Skill 中的时间文字便声称调度已改。该配置部分成功规则不改变 E4 的 Overview 与 Workspace Memory 联合原子发布。
 
@@ -583,7 +598,9 @@ CLI对应`file source read`、`todo update --patch-file`、`operation list/undo/
 
 `context.overview.get/refresh`、`knowledge.search/get`的选择字段、分页与预算见E3；`session.summary.get/refresh`与`session.messages.read`见E5。Overview维护设置、历史查看/恢复为GUI管理接口；外部refresh需context.refresh授权，普通读取不产生模型费用。
 
-目标增加共享原生入口：有类型 Overview 有限增量；Workspace 记忆 `add/replace/remove/batch`；Workspace Skill 文件修改与 Harness 结构化设置调整。具体工具命名沿能力注册表收敛，不为文档虚构已存在 API。Overview/记忆操作绑定可信真实请求、实际来源与收据、目标基线、用户策略和幂等身份；模型不提供最终确认状态。GUI、内置 Agent、后台整理复用相同原生边界；窄记忆读权限及本次显式写授权不扩大原始资料权限。Skill 与设置保存各有实际结果，Overview 与记忆联合发布仍为同一事务。
+记忆已有原生 `Database::memory_execute(&MemoryAccess, MemoryRequest)`，执行 typed add/patch/merge、遗忘/停用、可选审批及 rollback，并返回实际收据；记忆原文只沿真实来源服务回读。新增只读 `memory_project_history(access,query,cursor,limit,budget_chars)` 固定可信当前 Project，复用不可变 Overview 与 Project agreement/decision 版本，按真实前后文本/条件与时间输出变化及 excerpt-free 来源指针；有界分页、稳定游标，预算边界不丢事件，忽略元数据/纯空白变化。显式 historical=true，不注入常驻上下文，不臆造重要性或原因；已遗忘/停用 fact 不回显旧正向内容，旧 Overview 引用仍核实际 Project 边界。
+
+Overview 有类型有限增量与 Overview + Workspace 联合发布仍按各自目标验收，不能以 fact 批次原子性代替。Workspace Skill 与结构化设置各有真实权限及保存结果，部分失败保留成功项；不会放宽未来联合事务。实际接口见[实现契约](../technical/memory-contract.md)，现行行为见[生命周期](workspace-memory-lifecycle.md)。
 
 <a id="e13"></a>
 
@@ -646,6 +663,8 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 - 引用按需预览，再打开实际原文；File显示固定版本/页码，旧版可查看、变化/缺失/删除明确标识。未展开来源不预读全部正文。
 - 加载、折叠和布局位移复用motion token，reduced-motion降级；标题与卡片左对齐，不新增设计系统。
 
+当前记忆管理、行为入口及逐条回答采用透明度按真实 DSH 接线验证。SDK `conversation.chat.turnTail` 绑定真实 session / turn / step，原生记录本次实际采用的不可变版本；历史回答展示其当时版本，不用最新 fact head 替代。真实 Node 10、per-answer UI 2、两聊天父面板 30、native adoption 3 项及 adapter 39 entries / 1046 modules 闭包通过，分组存在重叠；详见[阶段台账](ai-work-context-acceptance.md#memory-stage-20261023)。本节普通助手 UI 的旧 Pi 展示选型仅作历史实现记录，不能替代当前 DSH 记忆 UI 验收。
+
 助手“项目知识”菜单按需显示 Overview 更新时间、coverage、来源/纠正/排除与刷新入口，目标增加同一 Overview 的“项目背景与约定”栏目；不在 Project 首页增加知识卡片。Workspace 提供长期记忆、统一 Skill 编辑和 Harness 运行设置入口；Skill/设置操作按实际保存结果通知，记忆内容操作显示真实位置与收据。空态和设置均不默认把完整 Overview 发给模型。
 
 | 情况 | 显示与恢复 |
@@ -664,11 +683,11 @@ CLI 通过安装目录绝对路径可用；设置提供复制命令和安装到�
 
 ## E15 后续批次的接入边界
 
-Workspace会话首次真实任务使用有权限且符合预算的当前有效精简记忆快照，再按问题渐进读取 Workspace Overview、相关 Project Overview、Workspace Record/Todo 和原始来源；具体快照/超额行为见 [2026-10-10 生命周期需求](workspace-memory-lifecycle.md)。Workspace不是项目摘要的简单拼接：它同时承载非Project的长期领域、兴趣知识、方法、工作背景与明确偏好。
+Workspace会话首次真实任务使用有权限且符合预算的当前有效精简记忆快照，再按问题渐进读取 Workspace Overview、相关 Project Overview、Workspace Record/Todo 和原始来源；具体快照/超额行为见 [现行生命周期需求](workspace-memory-lifecycle.md)。Workspace不是项目摘要的简单拼接：它同时承载非Project的长期领域、兴趣知识、方法、工作背景与明确偏好。
 
 更新输入为旧Workspace Overview、发生变化的Project Overview条目、Workspace直属资料增量及用户纠正。项目先更新、Workspace再聚合；某项目失败则保留其旧修订并标滞后，不阻塞其他项目。按E4每日/隔日批次运行，无变更不调用模型。
 
-目标接入边界：内置 Project Agent 可沿用当前 Workspace 的授权可用长期记忆，记忆读取单独于 Workspace 原文读取和记忆写入。用户在内置 Project 会话明确要求保存通用信息时，可信适配器将该真实请求绑定到本次 Workspace 记忆操作；内容与范围明确时直接保存并回报位置，含糊时先澄清，不据此扩大其他原文访问或任意写入权限。Project 资料与会话仍限本项目，外部连接和后台维护按各自授权判断；Workspace只能读取已授权项目集合，不能把全Workspace摘要泄露给只授权部分项目的连接。排除、删除、撤回来源即时影响派生概览/记忆可见性，详见E4与[生命周期补充及 ML16～17](workspace-memory-lifecycle.md)。
+目标接入边界：内置 Project Agent 可沿用当前 Workspace 的授权可用长期记忆，记忆读取单独于 Workspace 原文读取和记忆写入。用户在内置 Project 会话明确要求保存通用信息时，可信适配器将该真实请求绑定到本次 Workspace 记忆操作；内容与范围明确时直接保存并回报位置，含糊时先澄清，不据此扩大其他原文访问或任意写入权限。Project 资料与会话仍限本项目，外部连接和后台维护按各自授权判断；Workspace只能读取已授权项目集合，不能把全Workspace摘要泄露给只授权部分项目的连接。排除、撤回和权限变化影响原文及相应派生概览可见性；来源删除保留已保存的有效 fact，归档按真实可用性判断，详见 E4 与[现行生命周期](workspace-memory-lifecycle.md)；旧 [ML16～17](archive/workspace-memory-lifecycle-history-20261010.md#10-验收场景)仅作追溯。
 
 综合产出仍保存为Workspace Record/Todo；File必须归Project，当前不增加Workspace File。长期知识原文使用Workspace Record及现有引用；维护层独立保留来源、确认程度、适用范围和失效状态，不把推测当用户事实，不要求用户逐个建立主题。
 
@@ -703,7 +722,7 @@ RuntimeAdapter 契约：detect、capabilities、start、send、cancel、resume�
 - 本机日志指标：检索耗时、来源读取成功率、引用解析失败率、成果保存/冲突、取消耗时、恢复结果；无远程埋点默认上传。
 - 用户验证：准备3个真实项目，由用户完成历史问题定位、查找依据、生成并找回文件。记录用时和纠正次数，不用“聊天条数/自动生成 Record 数”作为成功指标。
 
-验证沿最高可复用的共享原生服务边界覆盖真实调用路径，重点为来源/权限、请求与收据身份、CAS、幂等、抑制、原子发布、未消费进度和恢复；不要为每个适配入口复制同一组实现镜像测试。真实打包 Pi 配合 mock Provider 验证工具接线、Provider 请求中的 Skill 刷新、历史/压缩及恢复；React 流程验证入口、方案/结果、纠正与配置通知。真实 Provider 及 macOS arm64/x64、Windows x64 的安装/续聊/业务验收独立列为待完成项，mock 和历史定向验证不能替代。当前执行包、有效历史验证及外部缺口以[交付计划](ai-work-context-delivery.md)为准。
+验证沿最高可复用的共享原生服务边界覆盖真实调用路径，重点为来源/权限、请求与收据身份、CAS、幂等、抑制、原子发布、未消费进度和恢复；不要为每个适配入口复制同一组实现镜像测试。当前 DSH/Node 配合真实 native bridge 验证记忆工具接线、Provider 请求中的 Skill 刷新、历史/压缩及恢复；mock 只验接线，旧打包 Pi 证据保留为历史；React 流程验证入口、方案/结果、纠正与配置通知。真实 Provider 及 macOS arm64/x64、Windows x64 的安装/续聊/业务验收独立列为待完成项，mock 和历史定向验证不能替代。当前执行包、有效历史验证及外部缺口以[交付计划](ai-work-context-delivery.md)为准。
 
 参考（一手资料，2026-09-28核对）：
 

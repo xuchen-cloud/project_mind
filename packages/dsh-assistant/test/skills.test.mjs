@@ -159,6 +159,7 @@ test('the same bundled skill configuration is loadable by the real DSH registry 
     await ctx.plugin(filesystem, { bundledSkillDir: environment.DSH_BUNDLED_SKILL_DIR, dshHome: f.dshHome, agentsHome: f.agentsHome, watch: false });
     const catalog = await ctx.skills.snapshot({ cwd: f.cwd });
     assert.equal(catalog.complete, true);
+    assert.ok(!catalog.skills.some(skill => skill.name === 'project-mind-memory'), 'memory rules come from the editable Workspace snapshot, not a second packaged Skill');
     const skill = await ctx.skills.get('project-mind-cli', { cwd: f.cwd });
     assert.ok(skill, 'built-in CLI skill must be visible and loadable by an Agent');
     assert.match(skill.content, /mind capabilities --json/);

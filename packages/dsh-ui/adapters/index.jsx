@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { HostPortalProvider } from '@deepseek-ai/dsh-client-ui-primitives';
 import { installScrollEdges } from './scroll-edges.mjs';
 import { createDshClient } from './client.jsx';
+import { MemoryAdoptionRenderer } from './memory-adoption.jsx';
 import { observeSessionModel } from './session-model.mjs';
 import '../styles/scoped.css';
 import './host.css';
@@ -40,7 +41,7 @@ export async function insertDshFileReference(projectId, sessionId, path, sourceR
   await (await entry.promise).insertFile(sessionId, path, sourceRef);
 }
 
-function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {
+function Host({ projectId, sessionId, focused = true, mode, renderMemoryAdoption, ...callbacks }) {
   const element = useRef(null);
   const handlers = useRef(callbacks);
   handlers.current = { ...callbacks, focused };
@@ -120,7 +121,7 @@ function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {
   return <div ref={element} className="dsh-ui-host" data-dsh-component-host data-dsh-focused={focused} data-mode={mode}>
     {error ? <p role="alert">{error}</p> : client === null || portal === null || (mode === 'chat' && reference?.sessionId !== sessionId)
       ? <p role="status">正在连接助手…</p>
-      : <HostPortalProvider value={portal}>{client.ctx.slots.renderSlot('root', { mode, reference })}</HostPortalProvider>}
+      : <MemoryAdoptionRenderer.Provider value={renderMemoryAdoption}><HostPortalProvider value={portal}>{client.ctx.slots.renderSlot('root', { mode, reference })}</HostPortalProvider></MemoryAdoptionRenderer.Provider>}
   </div>;
 }
 export function DshConversationHost(props) {
