@@ -88,6 +88,7 @@ async fn sdk_client_negotiates_and_calls_registered_methods() {
         ("mind_record_versions_get", "record.versions.get", json!({"record":record,"versionId":"a".repeat(32)})),
         ("mind_record_versions_compare", "record.versions.compare", json!({"record":record,"beforeVersionId":"a".repeat(32),"afterVersionId":"b".repeat(32)})),
         ("mind_todo_get", "todo.get", json!({"target":todo})),
+        ("mind_todo_list", "todo.list", json!({"scope":project_scope,"status":"unfinished","dueTo":"2026-10-22","includeChildren":true,"limit":10})),
         ("mind_file_versions_list", "file.versions.list", json!({"object":file})),
         ("mind_file_versions_get", "file.versions.get", json!({"object":file,"versionId":"1"})),
         ("mind_file_source_read", "file.source.read", json!({"object":file,"versionNumber":1})),

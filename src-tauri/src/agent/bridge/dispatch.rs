@@ -98,6 +98,7 @@ where
         | "record.versions.get"
         | "record.versions.compare"
         | "todo.get"
+        | "todo.list"
         | "file.versions.list"
         | "file.versions.get"
         | "file.source.read" => {

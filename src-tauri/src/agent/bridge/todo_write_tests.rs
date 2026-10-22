@@ -102,6 +102,41 @@ impl Fixture {
     }
 }
 
+/// Exposes only this temporary native fixture for a fresh Agent to exercise the
+/// installed CLI using its public help/schema/Skill. No user Workspace is opened.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "manual public CLI/Skill acceptance; set MIND_CLI_CONTRACT_FIXTURE to an absolute output path"]
+async fn manual_cli_contract_fixture() {
+    use super::transport::{BridgeCallFuture, BridgeHandler};
+    use super::protocol::ConnectInput;
+    struct Handler(Arc<Fixture>);
+    impl BridgeHandler for Handler {
+        fn connect(&self, token: &str, input: ConnectInput) -> AgentResult<WorkspaceBinding> {
+            if std::path::Path::new(&input.workspace_path) != self.0._root.path().canonicalize().unwrap() {
+                return Err(crate::agent::errors::AgentError::new(ErrorCode::ScopeDenied, "Wrong fixture Workspace"));
+            }
+            self.0.store.db.lock().unwrap().agent_connection_authenticate(&self.0.binding,&input.grant_id,token,&input.request_id)?;
+            Ok(self.0.binding.clone())
+        }
+        fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
+            Box::pin(async move {dispatch::execute(&self.0.store,&self.0.enabled,token,input,&Unused,&Unused).await})
+        }
+    }
+    let output=std::path::PathBuf::from(std::env::var("MIND_CLI_CONTRACT_FIXTURE").expect("fixture output path"));
+    assert!(output.is_absolute());
+    let fixture=Arc::new(Fixture::new());
+    let discovery=fixture._root.path().join("cli-discovery.json");
+    let bridge=super::transport::start(Arc::new(Handler(fixture.clone())),discovery.clone()).await.unwrap();
+    std::fs::write(&output,serde_json::to_vec(&json!({"workspace":fixture._root.path().canonicalize().unwrap(),
+        "connection":GRANT,"token":TOKEN,"discovery":discovery,"projectId":fixture.project_id})).unwrap()).unwrap();
+    let stop=output.with_extension("stop");
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(600);
+    while !stop.exists() && std::time::Instant::now()<deadline {tokio::time::sleep(std::time::Duration::from_millis(100)).await;}
+    drop(bridge);
+    let _=std::fs::remove_file(output);
+    let _=std::fs::remove_file(stop);
+}
+
 #[tokio::test]
 async fn create_children_update_and_undo_preserve_child_identity() {
     let f = Fixture::new();
