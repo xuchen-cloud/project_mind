@@ -8,6 +8,7 @@ Usage:
   mind capabilities [--verbose] --json
   mind schema METHOD --json
   mind doctor --workspace PATH --connection ID [--verbose] --json
+  mind connection status --workspace PATH --connection ID --json
   mind project list --workspace PATH --connection ID --json
   mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json
   mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json
@@ -99,7 +100,8 @@ pub(super) fn command(command: &str) -> String {
     let mut out = format!("mind {path}\n\nUsage:\n{usage}\n");
     match command {
         "capabilities" => out.push_str("\nLists available bridge methods (method, description, readOnly). --verbose includes input schemas and shared capabilities.\nUse `mind schema METHOD --json` for one method's exact input DTO.\n"),
-        "doctor" => out.push_str("\nChecks the connection and Workspace binding. --verbose also includes bridge method input schemas.\n"),
+        "doctor" => out.push_str("\nConnects and queries connection.status. Returns connected, binding, canonical workspacePath, authorization and executionMode. --verbose only adds bridgeMethods with input schemas.\nThis is a current authorization snapshot; every business call is reauthorized. authorization.operations lists native permissions, not method names. A null executionMode means no built-in execution mode information; it implies neither read-only nor unrestricted access.\n"),
+        "connection.status" => out.push_str("\nReturns the live grant's current authorization snapshot: binding, authorization (workspaceContent, projectIds, operations, objectKeys) and executionMode. operations lists native permissions, not method names. objectKeys=null means no object-key restriction. executionMode is null, read-only, workspace-write or danger-full-access; null means no built-in execution mode information and implies neither read-only nor unrestricted access. Every business call is reauthorized.\nUse `mind schema connection.status --json` for the exact input DTO (an empty object; extra fields are rejected).\n"),
         "schema" => out.push_str("\nPrints one bridge method's exact input JSON schema without connecting. Discover methods with `mind capabilities --json`.\n"),
         "mcp.serve" => out.push_str("\nServes MCP over stdio using the bound Workspace and connection.\n"),
         "file.upload" => out.push_str("\nUploads local bytes (up to 100 MiB) through staged content and file.update.\nTARGET.json contains object, expectedVersionNumber and expectedContentHash; --request-id supplies the stable mutation ID.\nSee `mind schema file.content.begin --json` and `mind schema file.update --json` for the related bridge DTOs.\n--input-file - reads target JSON from stdin (up to 2 MiB). Target JSON and body cannot both use stdin.\n"),
