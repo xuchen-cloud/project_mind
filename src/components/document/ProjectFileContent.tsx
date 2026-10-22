@@ -12,7 +12,7 @@ import { desktopApi } from "../../services/desktopApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { fileBytes, projectFileApi } from "../../services/projectFileApi";
 import { markdownImageReferences, localResourcePath } from "../../../packages/dsh-ui/preview/resources.mjs";
-import { prepareStaticHtml } from "../../../packages/dsh-ui/preview/static-html.mjs";
+import { HtmlWebviewContent } from "./HtmlWebviewContent";
 import { DshFilePreview, type DshPreviewKind } from "../../../packages/dsh-ui/preview";
 import { FileOpenWithButton } from "./FileOpenWithButton";
 import { FileVersionMenu } from "./FileVersionMenu";
@@ -46,7 +46,7 @@ export function projectFilePreviewKind(name: string, mime: string): Kind {
   if (/^(text\/|application\/(json|xml))/u.test(mime) || /\.(txt|log|csv)$/iu.test(name) || /^(readme|license)$/iu.test(name)) return "text";
   return "unsupported";
 }
-interface Loaded { resolveResource?: (reference:string) => Promise<string|undefined>; binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; versions: FileVersionMetadata[]; signal: AbortSignal }
+interface Loaded { resolveResource?: (reference:string) => Promise<string|undefined>; binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; reload: number; versions: FileVersionMetadata[]; signal: AbortSignal }
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
   return a?.workspaceId === b.workspaceId && a.id === b.id && a.kind === b.kind && a.scope?.kind === "project" && b.scope.kind === "project" && a.scope.projectId === b.scope.projectId;
 }
@@ -217,7 +217,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
         prepareOffice(selected.name);
         if (editorDirty.current && selection === undefined) return;
         sourceCallback.current?.({object,revision:selected.contentHash,fileVersion:version,recordVersion:null,blockId:null,locator:null,title:selected.name,excerpt:""});
-        setLoaded({binding,object,name:live?.name ?? selected.name,renderName:selected.name,kind:"office",resources:{},warnings:[],version,contentHash:selected.contentHash,rendererId:++rendererSequence.current,versions,signal});
+        setLoaded({binding,object,name:live?.name ?? selected.name,renderName:selected.name,kind:"office",resources:{},warnings:[],version,contentHash:selected.contentHash,rendererId:++rendererSequence.current,reload,versions,signal});
         return;
       }
       const result = await projectFileApi.readBytes(binding, input);
@@ -232,7 +232,6 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       else if (kind === "code") text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       signal.throwIfAborted();
       const resources: Record<string,string> = {}; const warnings: string[] = [];
-      let displayBytes = bytes;
       let assetCount = 0; let totalBytes = bytes.byteLength;
       const resourceCache = new Map<string, Promise<Awaited<ReturnType<typeof projectFileApi.readBytes>>>>();
       const readRelated = (relativePath: string, resourceSignal: AbortSignal) => {
@@ -271,9 +270,6 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
             resources[reference] = await resolveMarkdownImage(reference, signal);
           } catch (failure) { signal.throwIfAborted(); warnings.push(`${reference}：${message(failure)}`); }
         }
-      } else if (kind === "html") {
-        const prepared = await prepareStaticHtml(bytes, readRelated, signal);
-        displayBytes = prepared.data; warnings.push(...prepared.warnings);
       }
       signal.throwIfAborted();
       if (live && assetCount > 0) {
@@ -296,8 +292,8 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
         return image;
       } : undefined;
       setLoaded(previous => {
-        const sameHtml = previous?.kind === "html" && kind === "html" && previous.version === version && previous.contentHash === result.contentHash && previous.bytes?.byteLength === displayBytes.byteLength && previous.bytes.every((byte, index) => byte === displayBytes[index]);
-        return { binding, object: result.object, name: live?.name ?? result.name, renderName: result.name, kind, text, resources, resolveResource, warnings, bytes: kind === "image" || kind === "pdf" || kind === "html" ? (sameHtml ? previous.bytes : displayBytes) : undefined, version, contentHash: result.contentHash, rendererId: sameHtml ? previous.rendererId : rendererId, versions, signal };
+        const sameHtml = previous?.kind === "html" && kind === "html" && previous.version === version && previous.contentHash === result.contentHash && previous.reload === reload && previous.binding.workspaceId === binding.workspaceId && previous.binding.generation === binding.generation;
+        return { binding, object: result.object, name: live?.name ?? result.name, renderName: result.name, kind, text, resources, resolveResource, warnings, bytes: kind === "image" || kind === "pdf" ? bytes : undefined, version, contentHash: result.contentHash, rendererId: sameHtml ? previous.rendererId : rendererId, reload, versions, signal };
       });
     })().catch(failure => { if (!signal.aborted) { if (!editorDirty.current) setLoaded(undefined); setError(message(failure)); sourceCallback.current?.(null); } }).finally(() => { if (!signal.aborted) setReading(false); });
     return () => { lifetime.abort(); dependentIds.current.clear(); sourceCallback.current?.(null); };
@@ -347,7 +343,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
         versions={availableVersions.some(item => item.versionNumber === selection) || selection === undefined ? availableVersions : [...availableVersions, { id: String(selection), versionNumber: selection }]}
         selectedVersion={selection} includeLatest latestVersion={selection === undefined ? valid?.version : availableVersions.find(item => item.isCurrent)?.versionNumber}
         visible={visible} onSelect={choose} />
-      {valid?.kind === "html" ? <button type="button" className="project-file-content__icon-button" aria-label={source ? "静态预览" : "源码 / 行定位"} title={source ? "返回阅读预览" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
+      {valid?.kind === "html" ? <button type="button" className="project-file-content__icon-button" aria-label={source ? "网页" : "源码 / 行定位"} title={source ? "返回网页" : "查看原始源码 / 行定位"} aria-pressed={source} onClick={() => { const next = !source; setSource(next); callbacks.current?.({ sourceMode: next }); }}>{source ? <Eye size={14} aria-hidden="true" /> : <Code2 size={14} aria-hidden="true" />}</button> : null}
       {(valid?.kind === "office" || valid?.kind === "markdown") ? <span ref={setEditorToolbar} className="project-file-content__office-actions" /> : null}
       <button type="button" className="project-file-content__icon-button" aria-label="刷新" title="刷新当前查看版本" disabled={reading} onClick={() => void refresh()}><RefreshCw size={14} aria-hidden="true" /></button>
       <FileOpenWithButton workspaceRoot={workspaceRoot} projectId={projectId} fileId={fileId} fileName={fileName} visible={visible} beforeOpen={flushEditor}
@@ -358,8 +354,8 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     {needsRecovery ? identityRecovery : null}
     {error ? <p role="alert">{error}</p> : null}
     {reading && visible && valid ? <p role="status">正在读取固定版本…</p> : null}
-    {valid?.kind === "html" ? <p className="project-file-content__notice">静态 HTML 预览：脚本、导航与表单提交已禁用，不提供交互执行。复杂 CSS 依赖未递归加载。</p> : null}
-    {valid?.kind === "html" && !source ? <p className="project-file-content__notice">静态预览隐藏后保留当前位置；关闭重开、内容变化或应用重启后无法恢复内部位置。源码视图支持位置恢复。</p> : null}
+    {valid?.kind === "html" && !source ? <p className="project-file-content__notice">网页可交互与联网；隐藏保留状态，刷新或切换源码/版本会重新加载。</p> : null}
+    {valid?.kind === "html" && !source && selection !== undefined ? <p className="project-file-content__notice">历史版本缺少依赖快照时，相关资源无法加载。</p> : null}
     {valid && sourceLocator?.kind === "paragraph" ? <p className="project-file-content__notice">引用提取段落 {sourceLocator.start}–{sourceLocator.end}。此定位不是源码行号，当前显示对应固定版本全文。</p> : null}
     {valid && sourceLocator?.kind === "page" ? <p className="project-file-content__notice">已定位到第 {sourceLocator.page} 页；引用的页内字符范围 {sourceLocator.start}–{sourceLocator.end} 暂不支持高亮。</p> : null}
     {valid?.warnings.map(warning => <p key={warning} role="status" className="project-file-content__notice">未加载资源：{warning}</p>)}
@@ -367,6 +363,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       {!valid && reading && visible ? <EditorLoading fileName={fileName} stage="resolve" /> : valid?.kind === "unsupported" ? <p role="status">此格式暂不支持应用内预览或编辑；文件身份和版本仍保留。可使用工具栏在外部应用打开当前原件。</p>
         : valid?.kind === "office" ? (officeHostError ? <p role="alert">{officeHostError}</p> : OfficeFileContent ? <OfficeFileContent fileName={valid.renderName} toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty => {editorDirty.current = dirty; editorEditRevision.current++;}} onSaved={editorSaved} /> : <EditorLoading fileName={valid.renderName} stage="runtime" />)
         : valid?.kind === "markdown" ? <Suspense fallback={<EditorLoading format="markdown" stage="runtime" />}><MarkdownFileContent toolbar={editorToolbar} menuToolbar={editorMenu} binding={valid.binding} baseline={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} text={valid.text!} resources={valid.resources} resolveResource={valid.resolveResource} line={line} sourceMode={source} initialView={initialView || views.current.has(valid.version) ? {...initialView,...views.current.get(valid.version)} : undefined} onViewChange={viewChanged} readOnly={selection !== undefined} registerFlush={registerEditorFlush} onDirtyChange={dirty=>{editorDirty.current=dirty; editorEditRevision.current++;}} onSaved={editorSaved}/></Suspense>
+        : valid?.kind === "html" && !showSource ? <HtmlWebviewContent key={`${valid.version}:${valid.rendererId}`} binding={valid.binding} input={{object:valid.object,versionNumber:valid.version,expectedContentHash:valid.contentHash}} historical={selection !== undefined} visible={visible} />
         : valid ? <DshFilePreview key={`${valid.version}:${valid.rendererId}:${valid.kind}:${showSource}`} kind={showSource ? "text" : valid.kind} name={valid.renderName} text={valid.text} bytes={showSource ? undefined : valid.bytes} resources={valid.resources} signal={valid.signal} line={line} page={page} initialView={initialView || views.current.has(valid.version) ? { ...initialView, ...views.current.get(valid.version) } : undefined} onViewChange={viewChanged} /> : null}
     </div>
   </section>;

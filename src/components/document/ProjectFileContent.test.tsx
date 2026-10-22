@@ -6,6 +6,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { projectFileApi } from "../../services/projectFileApi";
+import { htmlPreviewApi } from "../../services/htmlPreviewApi";
 import { ProjectFileContent } from "./ProjectFileContent";
 import { officeFileApi } from "../../services/officeFileApi";
 import { officePreviewCache } from "../../lib/office-preview-cache";
@@ -30,6 +31,7 @@ vi.mock("../office/XlsxEditor", () => ({ XlsxEditor: (props: { registerBeforeSav
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
 vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), openLocal: vi.fn(), applications: vi.fn(), openWith: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
+vi.mock("../../services/htmlPreviewApi", () => ({ htmlPreviewApi: { create: vi.fn(), layout: vi.fn(), action: vi.fn(), status: vi.fn(), close: vi.fn() } }));
 const binding = { workspaceId: "w", generation: "g" };
 const object = { workspaceId: "w", scope: { kind: "project" as const, projectId: 2 }, kind: "file" as const, id: "7" };
 const input = { workspaceRoot: "/workspace", projectId: 2, fileId: 7, visible: true, focused: true };
@@ -49,6 +51,11 @@ function view(props = input) {
 beforeEach(() => {
   officePreviewCache.clear();
   vi.resetAllMocks();
+  let sequence = 0;
+  vi.mocked(htmlPreviewApi.create).mockImplementation(async () => ({id:`native-${++sequence}`,url:'http://127.0.0.1:1234/'}));
+  vi.mocked(htmlPreviewApi.layout).mockResolvedValue();
+  vi.mocked(htmlPreviewApi.close).mockResolvedValue();
+  vi.mocked(htmlPreviewApi.status).mockResolvedValue({url:'http://127.0.0.1:1234/',loading:false,diagnostics:[]});
   vi.spyOn(desktopApi, "confirm").mockResolvedValue(false);
   vi.spyOn(agentApi, "statusGet").mockResolvedValue({ binding } as Awaited<ReturnType<typeof agentApi.statusGet>>);
   vi.mocked(projectFileApi.applications).mockResolvedValue([]);
@@ -317,9 +324,8 @@ it('uses fixed HTML TextBody source with exact line location and no extra servic
   vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 2, contentHash: 'hash2', name: 'sample.html', mime: 'text/html', byteLength: html.length, base64: btoa(html) });
   vi.mocked(fileDocumentApi.sourceRead).mockResolvedValue(source(2, html, 'sample.html', 'html'));
   const rendered = view({ ...input, versionNumber: 2, line: 2 } as typeof input);
-  const frame = await screen.findByTitle('HTML 文档预览');
-  expect(frame).toHaveAttribute('sandbox', '');
-  expect(frame.getAttribute('srcdoc')).not.toContain('<script');
+  await screen.findByLabelText('原生网页显示区域');
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledWith(binding, {object,versionNumber:2,expectedContentHash:'hash2'},true));
   expect(rendered.container.querySelector('script')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '源码 / 行定位' }));
   const original = rendered.container.querySelector('[data-textpreview-target="2"]');
@@ -398,26 +404,22 @@ it('does not mix current images into historical Markdown when dependent snapshot
   expect(projectFileApi.resolveRelated).not.toHaveBeenCalled();
   expect(rendered.container.querySelector('img[src]')).toBeNull();
 });
-it('loads static HTML current image and stylesheet before fixed DSH sanitization in an opaque sandbox', async () => {
-  relatedFixture('<link rel="stylesheet" href="style.css"><h1 onclick="attack()">Preview</h1><img src="a.png"><a href="https://example.com">link</a><script>attack()</script>', 'sample.html', 'text/html', 'html');
-  view();
-  const frame = await screen.findByTitle('HTML 文档预览');
-  const html = frame.getAttribute('srcdoc')!;
-  expect(html).toContain('h1{color:red}'); expect(html).toContain('data:image/png;base64,');
-  expect(html).not.toContain('<script'); expect(html).not.toContain('onclick='); expect(html).not.toContain('href=');
-  expect(html).toContain("script-src 'none'"); expect(html).toContain("connect-src 'none'");
-  expect(frame).toHaveAttribute('sandbox', '');
-  expect(projectFileApi.resolveRelated).toHaveBeenCalledTimes(2);
+it('runs HTML through a fixed native session without reading dependencies in React', async () => {
+  relatedFixture('<script>run()</script><link rel="stylesheet" href="style.css">', 'sample.html', 'text/html', 'html');
+  const rendered = view();
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledWith(binding, { object, versionNumber: 2, expectedContentHash: 'hash2' }, false));
+  expect(projectFileApi.resolveRelated).not.toHaveBeenCalled();
+  expect(rendered.container.querySelector('iframe')).toBeNull();
+  expect(screen.queryByText('历史版本缺少依赖快照时，相关资源无法加载。')).toBeNull();
 });
-it('reports actual denied resources without granting iframe IPC or arbitrary path access', async () => {
-  relatedFixture('<h1>Static</h1><img src="../other-project/a.png">', 'sample.html', 'text/html', 'html');
-  vi.mocked(projectFileApi.resolveRelated).mockRejectedValue({ code: 'ownership_mismatch', message: '资源不属于此项目' });
-  view();
-  await screen.findByText(/未加载资源.*资源不属于此项目/);
-  const frame = await screen.findByTitle('HTML 文档预览');
-  expect(frame.getAttribute('srcdoc')).not.toContain('../other-project');
-  expect(frame.getAttribute('srcdoc')).not.toContain('tauri');
+it('passes historical HTML dependency policy to native without mixing current resources', async () => {
+  relatedFixture('<img src="a.png"><script>run()</script>', 'sample.html', 'text/html', 'html');
+  const rendered = view({...input,versionNumber:1} as typeof input);
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledWith(binding,{object,versionNumber:1,expectedContentHash:'hash1'},true));
+  expect(projectFileApi.resolveRelated).not.toHaveBeenCalled();
   expect(projectFileApi.readBytes).toHaveBeenCalledOnce();
+  expect(rendered.container.querySelector('iframe')).toBeNull();
+  expect(screen.getByText('历史版本缺少依赖快照时，相关资源无法加载。')).toBeVisible();
 });
 it('ignores late current-image resolution when switching the same File to fixed history', async () => {
   relatedFixture('![image](images/a.png)', 'sample.md', 'text/markdown', 'markdown');
@@ -583,139 +585,104 @@ it('keeps sourceReady null when the returned bytes do not match the requested ve
   expect(ready.mock.calls.every(([value]) => value === null)).toBe(true);
 });
 
-function staticHtmlFixture() {
+function htmlFixture() {
   vi.mocked(projectFileApi.readBytes).mockImplementation(async (_, request) => {
     const text = `<h1>HTML version ${request.versionNumber}</h1>`;
     return { object: request.object, versionNumber: request.versionNumber, contentHash: request.expectedContentHash, name: 'sample.html', mime: 'text/html', base64: btoa(text), byteLength: text.length };
   });
   vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, request) => source(request.versionNumber, `<h1>HTML version ${request.versionNumber}</h1>`, 'sample.html', 'html'));
 }
-it('keeps the opaque HTML iframe and its browsing context while hidden and after same-version revalidation without writing srcDoc', async () => {
-  staticHtmlFixture();
-  const ready = vi.fn(); const client = new QueryClient();
-  const wrap = (visible: boolean) => <QueryClientProvider client={client}><ProjectFileContent {...input} visible={visible} onSourceReady={ready} /></QueryClientProvider>;
-  const rendered = render(wrap(true));
-  const frame = await screen.findByTitle('HTML 文档预览') as HTMLIFrameElement;
-  const context = frame.contentWindow; const documentSource = frame.srcdoc;
-  const mutations: MutationRecord[] = [];
-  const observer = new MutationObserver(records => mutations.push(...records)); observer.observe(frame, { attributes: true, attributeFilter: ['srcdoc'] });
-  rendered.rerender(wrap(false));
-  expect(ready).toHaveBeenLastCalledWith(null);
-  expect(rendered.container.querySelector('iframe')).toBe(frame);
-  expect(frame.contentWindow).toBe(context);
-  expect(frame).toHaveAttribute('sandbox', '');
-  let finish!: (value: Awaited<ReturnType<typeof projectFileApi.readBytes>>) => void;
-  vi.mocked(projectFileApi.readBytes).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  rendered.rerender(wrap(true));
-  await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2));
-  expect(ready).toHaveBeenLastCalledWith(null);
-  expect(rendered.container.querySelector('iframe')).toBe(frame);
-  await act(async () => finish({ object, versionNumber: 2, contentHash: 'hash2', name: 'sample.html', mime: 'text/html', base64: btoa('<h1>HTML version 2</h1>'), byteLength: 23 }));
-  await waitFor(() => expect(ready).toHaveBeenLastCalledWith(expect.objectContaining({ fileVersion: 2, revision: 'hash2' })));
-  expect(rendered.container.querySelector('iframe')).toBe(frame);
-  expect(frame.contentWindow).toBe(context); expect(frame.srcdoc).toBe(documentSource);
-  expect(mutations).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', {name:'刷新'}));
-  await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledTimes(3));
-  await waitFor(() => expect(ready).toHaveBeenLastCalledWith(expect.objectContaining({ fileVersion: 2 })));
-  expect(rendered.container.querySelector('iframe')).toBe(frame);
-  expect(mutations).toHaveLength(0);
-  rendered.unmount(); observer.disconnect();
-  expect(frame.isConnected).toBe(false); expect(ready).toHaveBeenLastCalledWith(null);
-});
-it('retires hidden HTML immediately when revalidation discovers a different latest version, before its bytes arrive', async () => {
-  staticHtmlFixture(); const rendered = view();
-  const oldFrame = await screen.findByTitle('HTML 文档预览');
-  rendered.rerender(rendered.wrap({ ...input, visible: false }));
-  vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath: 'sample.html', name: 'sample.html', versionNumber: 3, contentHash: 'hash3', state: 'ready', reason: null });
-  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: 3, currentContentHash: 'hash3', versions: [version(3), version(2), version(1)], nextCursor: null });
-  let finish!: (value: Awaited<ReturnType<typeof projectFileApi.readBytes>>) => void;
-  vi.mocked(projectFileApi.readBytes).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+it('retains the native HTML session while hidden and revalidating, then rebuilds it on refresh', async () => {
+  htmlFixture(); const rendered = view();
+  const host = await screen.findByLabelText('原生网页显示区域');
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledOnce());
+  rendered.rerender(rendered.wrap({...input,visible:false}));
+  expect(host.isConnected).toBe(true); expect(htmlPreviewApi.close).not.toHaveBeenCalled();
   rendered.rerender(rendered.wrap(input));
-  await waitFor(() => expect(oldFrame.isConnected).toBe(false));
-  expect(rendered.container.querySelector('iframe')).toBeNull();
-  await act(async () => finish({ object, versionNumber: 3, contentHash: 'hash3', name: 'sample.html', mime: 'text/html', base64: btoa('<h1>HTML version 3</h1>'), byteLength: 23 }));
-  const newFrame = await screen.findByTitle('HTML 文档预览');
-  expect(newFrame).not.toBe(oldFrame); expect(newFrame.getAttribute('srcdoc')).toContain('HTML version 3');
+  await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2));
+  expect(screen.getByLabelText('原生网页显示区域')).toBe(host);
+  expect(htmlPreviewApi.create).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button',{name:'刷新'}));
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledTimes(2));
+  expect(htmlPreviewApi.close).toHaveBeenCalledWith('native-1');
+  expect(screen.queryByRole('alert')).toBeNull();
+  rendered.unmount(); expect(htmlPreviewApi.close).toHaveBeenCalledWith('native-2');
 });
-it('removes retained HTML after a read failure and never publishes the old source as ready', async () => {
-  staticHtmlFixture(); const ready = vi.fn(); const client = new QueryClient();
+it('retires hidden HTML immediately when revalidation discovers a different latest version before bytes arrive', async () => {
+  htmlFixture(); const rendered = view();
+  await screen.findByLabelText('原生网页显示区域');
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledOnce());
+  rendered.rerender(rendered.wrap({...input,visible:false}));
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({object,relativePath:'sample.html',name:'sample.html',versionNumber:3,contentHash:'hash3',state:'ready',reason:null});
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:3,currentContentHash:'hash3',versions:[version(3),version(2),version(1)],nextCursor:null});
+  let finish!: (value: Awaited<ReturnType<typeof projectFileApi.readBytes>>) => void;
+  vi.mocked(projectFileApi.readBytes).mockImplementationOnce(() => new Promise(resolve => {finish=resolve;}));
+  rendered.rerender(rendered.wrap(input));
+  await waitFor(() => expect(htmlPreviewApi.close).toHaveBeenCalledWith('native-1'));
+  expect(screen.queryByLabelText('原生网页显示区域')).toBeNull();
+  await act(async () => finish({object,versionNumber:3,contentHash:'hash3',name:'sample.html',mime:'text/html',base64:btoa('<h1>HTML version 3</h1>'),byteLength:23}));
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenLastCalledWith(binding,{object,versionNumber:3,expectedContentHash:'hash3'},false));
+});
+it('releases retained HTML after a real read failure and never publishes old source as ready', async () => {
+  htmlFixture(); const ready = vi.fn(); const client = new QueryClient();
   const wrap = (visible: boolean) => <QueryClientProvider client={client}><ProjectFileContent {...input} visible={visible} onSourceReady={ready} /></QueryClientProvider>;
-  const rendered = render(wrap(true)); const oldFrame = await screen.findByTitle('HTML 文档预览');
+  const rendered = render(wrap(true)); await screen.findByLabelText('原生网页显示区域');
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledOnce());
   rendered.rerender(wrap(false)); ready.mockClear();
   vi.mocked(projectFileApi.readBytes).mockRejectedValueOnce({message:'snapshot unavailable'});
   rendered.rerender(wrap(true));
   expect(await screen.findByRole('alert')).toHaveTextContent('snapshot unavailable');
-  expect(oldFrame.isConnected).toBe(false); expect(rendered.container.querySelector('iframe')).toBeNull();
+  expect(htmlPreviewApi.close).toHaveBeenCalledWith('native-1');
   expect(ready.mock.calls.every(([value]) => value === null)).toBe(true);
 });
-it('replaces the frame when same-root-version related HTML bytes change', async () => {
-  relatedFixture('<link rel="stylesheet" href="style.css"><h1>Preview</h1>', 'sample.html', 'text/html', 'html');
-  const rendered = view(); const oldFrame = await screen.findByTitle('HTML 文档预览');
-  rendered.rerender(rendered.wrap({ ...input, visible: false }));
-  const read = vi.mocked(projectFileApi.readBytes).getMockImplementation()!;
-  vi.mocked(projectFileApi.readBytes).mockImplementation(async (binding, request) => {
-    const result = await read(binding, request);
-    return request.object.id === '9' ? { ...result, base64: btoa('h1{color:blue}'), byteLength: 14 } : result;
-  });
-  rendered.rerender(rendered.wrap(input));
-  await waitFor(() => expect(rendered.container.querySelector('iframe')?.getAttribute('srcdoc')).toContain('h1{color:blue}'));
-  expect(rendered.container.querySelector('iframe')).not.toBe(oldFrame); expect(oldFrame.isConnected).toBe(false);
-});
-it('retires retained HTML on a fixed-version change while hidden and ignores a late result from the old read', async () => {
-  staticHtmlFixture(); const rendered = view(); const oldFrame = await screen.findByTitle('HTML 文档预览');
+it('retires HTML on a fixed-version change while hidden and ignores the late old refresh read', async () => {
+  htmlFixture(); const rendered = view();
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledOnce());
   let finish!: (value: Awaited<ReturnType<typeof projectFileApi.readBytes>>) => void;
-  vi.mocked(projectFileApi.readBytes).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  fireEvent.click(screen.getByRole('button', {name:'刷新'}));
+  vi.mocked(projectFileApi.readBytes).mockImplementationOnce(() => new Promise(resolve => {finish=resolve;}));
+  fireEvent.click(screen.getByRole('button',{name:'刷新'}));
   await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2));
-  rendered.rerender(rendered.wrap({ ...input, visible: false, versionNumber: 1 } as typeof input));
-  expect(oldFrame.isConnected).toBe(false);
-  await act(async () => finish({ object, versionNumber: 2, contentHash: 'hash2', name: 'sample.html', mime: 'text/html', base64: btoa('<h1>old</h1>'), byteLength: 12 }));
-  expect(rendered.container.querySelector('iframe')).toBeNull();
-  rendered.rerender(rendered.wrap({ ...input, versionNumber: 1 } as typeof input));
-  expect((await screen.findByTitle('HTML 文档预览')).getAttribute('srcdoc')).toContain('HTML version 1');
+  rendered.rerender(rendered.wrap({...input,visible:false,versionNumber:1} as typeof input));
+  await waitFor(() => expect(htmlPreviewApi.close).toHaveBeenCalledWith('native-1'));
+  await act(async () => finish({object,versionNumber:2,contentHash:'hash2',name:'sample.html',mime:'text/html',base64:btoa('<h1>old</h1>'),byteLength:12}));
+  expect(htmlPreviewApi.create).toHaveBeenCalledOnce();
+  rendered.rerender(rendered.wrap({...input,versionNumber:1} as typeof input));
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenLastCalledWith(binding,{object,versionNumber:1,expectedContentHash:'hash1'},true));
+  expect(screen.queryByRole('alert')).toBeNull();
 });
-it('binds HTML source mode to the shell, preserves it through reload/hide and releases source-mode bodies', async () => {
-  staticHtmlFixture(); const changed = vi.fn(); const client = new QueryClient();
+it('binds HTML source mode to the shell, closes native, preserves source through refresh and hide', async () => {
+  htmlFixture(); const changed = vi.fn(); const client = new QueryClient();
   const wrap = (visible: boolean, mode = true) => <QueryClientProvider client={client}><ProjectFileContent {...input} visible={visible} initialSourceMode={mode} onViewChange={changed} /></QueryClientProvider>;
   const rendered = render(wrap(true)); await screen.findByText('<h1>HTML version 2</h1>');
-  expect(rendered.container.querySelector('iframe')).toBeNull();
-  fireEvent.click(screen.getByRole('button', {name:'静态预览'}));
+  expect(htmlPreviewApi.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'网页',exact:true}));
   expect(changed).toHaveBeenLastCalledWith({sourceMode:false});
-  await screen.findByTitle('HTML 文档预览');
-  rendered.rerender(wrap(true, false));
-  fireEvent.click(screen.getByRole('button', {name:'源码 / 行定位'}));
+  await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledOnce());
+  rendered.rerender(wrap(true,false));
+  fireEvent.click(screen.getByRole('button',{name:'源码 / 行定位'}));
+  expect(htmlPreviewApi.close).toHaveBeenCalledWith('native-1');
   expect(changed).toHaveBeenLastCalledWith({sourceMode:true});
-  rendered.rerender(wrap(true, true));
-  fireEvent.click(screen.getByRole('button', {name:'刷新'}));
+  rendered.rerender(wrap(true,true)); fireEvent.click(screen.getByRole('button',{name:'刷新'}));
   await screen.findByText('<h1>HTML version 2</h1>');
   rendered.rerender(wrap(false)); expect(rendered.container.querySelector('.dsh-file-preview')).toBeNull();
   rendered.rerender(wrap(true)); await screen.findByText('<h1>HTML version 2</h1>');
-  expect(rendered.container.querySelector('iframe')).toBeNull();
-  rendered.unmount();
-  const reopened = render(wrap(true)); await screen.findByText('<h1>HTML version 2</h1>');
-  expect(reopened.container.querySelector('iframe')).toBeNull();
+  expect(htmlPreviewApi.create).toHaveBeenCalledOnce(); expect(rendered.container.querySelector('iframe')).toBeNull();
 });
-it('retains separate static HTML contexts in visited Projects while sources remain visible-Project scoped', async () => {
-  staticHtmlFixture(); const client = new QueryClient(); const readyA = vi.fn(); const readyB = vi.fn();
-  vi.mocked(projectFileApi.resolve).mockImplementation(async (_, target) => ({ object: target, relativePath: 'sample.html', name: 'sample.html', versionNumber: 2, contentHash: 'hash2', state: 'ready', reason: null }));
-  vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_, request) => ({ object: request.object, currentVersionNumber: 2, currentContentHash: 'hash2', versions: [version(2), version(1)], nextCursor: null }));
-  vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, request) => ({ ...source(request.versionNumber, `<h1>HTML version ${request.versionNumber}</h1>`, 'sample.html', 'html'), object: request.object }));
+it('retains separate native sessions in visited Projects with source readiness scoped to the visible Project', async () => {
+  htmlFixture(); const client = new QueryClient(); const readyA = vi.fn(); const readyB = vi.fn();
+  vi.mocked(projectFileApi.resolve).mockImplementation(async (_, target) => ({object:target,relativePath:'sample.html',name:'sample.html',versionNumber:2,contentHash:'hash2',state:'ready',reason:null}));
+  vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_, request) => ({object:request.object,currentVersionNumber:2,currentContentHash:'hash2',versions:[version(2),version(1)],nextCursor:null}));
+  vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, request) => ({...source(request.versionNumber,`<h1>HTML version ${request.versionNumber}</h1>`,'sample.html','html'),object:request.object}));
   const wrap = (active: number) => <QueryClientProvider client={client}>
-    <ProjectFileContent {...input} visible={active === 2} onSourceReady={readyA} />
-    <ProjectFileContent {...input} projectId={3} visible={active === 3} onSourceReady={readyB} />
+    <ProjectFileContent {...input} visible={active===2} onSourceReady={readyA} />
+    <ProjectFileContent {...input} projectId={3} visible={active===3} onSourceReady={readyB} />
   </QueryClientProvider>;
-  const rendered = render(wrap(2)); const a = await screen.findByTitle('HTML 文档预览') as HTMLIFrameElement;
-  const contextA = a.contentWindow;
-  rendered.rerender(wrap(3));
-  await waitFor(() => expect(rendered.container.querySelectorAll('iframe')).toHaveLength(2));
-  const b = rendered.container.querySelectorAll('iframe')[1]; const contextB = b.contentWindow;
-  expect(a.contentWindow).toBe(contextA); expect(readyA).toHaveBeenLastCalledWith(null);
-  expect(readyB).toHaveBeenLastCalledWith(expect.objectContaining({ object: expect.objectContaining({scope:{kind:'project',projectId:3}}) }));
-  rendered.rerender(wrap(2));
-  await waitFor(() => expect(readyA).toHaveBeenLastCalledWith(expect.objectContaining({ object })));
-  expect(rendered.container.querySelectorAll('iframe')[0]).toBe(a);
-  expect(rendered.container.querySelectorAll('iframe')[1]).toBe(b); expect(b.contentWindow).toBe(contextB);
+  const rendered = render(wrap(2)); await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledOnce());
+  rendered.rerender(wrap(3)); await waitFor(() => expect(htmlPreviewApi.create).toHaveBeenCalledTimes(2));
+  expect(htmlPreviewApi.close).not.toHaveBeenCalled(); expect(readyA).toHaveBeenLastCalledWith(null);
+  expect(readyB).toHaveBeenLastCalledWith(expect.objectContaining({object:expect.objectContaining({scope:{kind:'project',projectId:3}})}));
+  rendered.rerender(wrap(2)); await waitFor(() => expect(readyA).toHaveBeenLastCalledWith(expect.objectContaining({object})));
+  expect(htmlPreviewApi.create).toHaveBeenCalledTimes(2); expect(htmlPreviewApi.close).not.toHaveBeenCalled();
   expect(readyB).toHaveBeenLastCalledWith(null);
 });
 it('releases image bodies and Blob resources when hidden instead of retaining non-HTML content', async () => {
