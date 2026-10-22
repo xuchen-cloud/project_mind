@@ -64,3 +64,53 @@ test('alternative frames reject duplicate/reserved identities and invalid endpoi
     assert.throws(() => readSharedModel(JSON.stringify({ type: 'configure', provider, providers })), error => !error.message.includes(alternative.apiKey));
   }
 });
+
+// These are fixed synthetic keys; assertion messages never include key values or patches.
+const catalogLabelCases = [
+  { label: 'main name repeats its own key', mainName: `主配置 ${provider.apiKey} / ${provider.apiKey}`, alternativeName: '备用模型 · 日本語 🌙' },
+  { label: 'main name repeats the alternative key', mainName: `主配置 ${alternative.apiKey} / ${alternative.apiKey}`, alternativeName: '备用模型 · 日本語 🌙' },
+  { label: 'alternative name repeats its own key', mainName: '主模型 · café 🧠', alternativeName: `备用配置 ${alternative.apiKey} / ${alternative.apiKey}` },
+  { label: 'alternative name repeats the main key', mainName: '主模型 · café 🧠', alternativeName: `备用配置 ${provider.apiKey} / ${provider.apiKey}` },
+  { label: 'both names repeat both keys', mainName: `主 ${provider.apiKey} ${alternative.apiKey} ${provider.apiKey} ${alternative.apiKey}`, alternativeName: `备用 ${alternative.apiKey} ${provider.apiKey} ${alternative.apiKey} ${provider.apiKey}` },
+  { label: 'names consist only of their own keys', mainName: provider.apiKey, alternativeName: alternative.apiKey },
+  { label: 'names consist only of each other key', mainName: alternative.apiKey, alternativeName: provider.apiKey },
+  { label: 'ordinary Unicode names remain unchanged', mainName: '主模型 · café 🧠', alternativeName: '备用模型 · 日本語 🌙' },
+];
+
+for (const { label, mainName, alternativeName } of catalogLabelCases) {
+  test(`public model catalog labels: ${label}`, async t => {
+    const parsed = readSharedModel(JSON.stringify({
+      type: 'configure', provider: { ...provider, name: mainName },
+      providers: [{ ...alternative, name: alternativeName }],
+    }));
+    const patches = sharedModelPatches(parsed);
+    const models = patches.find(patch => patch.id === 'llm-pi-ai').config.providers;
+    assert.deepEqual(Object.keys(models), ['mind-main', 'mind-profile-42']);
+    assert.deepEqual(patches.find(patch => patch.id === 'agent-default-model').config, { provider: 'mind-main', model: 'shared-model' });
+    assert.equal(models['mind-main'].models[0].id, 'shared-model');
+    assert.equal(models['mind-profile-42'].models[0].id, 'alternative-model');
+    assert.equal(models['mind-main'].apiKeyEnv, SHARED_KEY_REF);
+    assert.equal(models['mind-profile-42'].apiKeyEnv, 'MIND_PROFILE_42_AI_KEY');
+
+    const credentials = { async resolve(ref) { return { value: `local:${ref}` }; } };
+    installSharedCredential({ inject(_, apply) {
+      apply({ credentials, effect(register) { t.after(register()); } });
+    } }, parsed);
+    for (const [id, key] of [['mind-main', provider.apiKey], ['mind-profile-42', alternative.apiKey]]) {
+      const resolved = await credentials.resolve(models[id].apiKeyEnv);
+      assert.ok(resolved.value === key, 'credential resolution must preserve the configured key');
+      assert.equal(resolved.source, 'main-app');
+    }
+    assert.deepEqual(await credentials.resolve('OTHER_KEY'), { value: 'local:OTHER_KEY' });
+
+    const keys = [provider.apiKey, alternative.apiKey];
+    for (const [id, name] of [['mind-main', mainName], ['mind-profile-42', alternativeName]]) {
+      const displayName = models[id].displayName;
+      assert.ok(typeof displayName === 'string' && displayName.trim().length > 0, 'public display names must remain nonempty');
+      if (keys.every(key => !name.includes(key))) {
+        assert.ok(displayName === name, 'ordinary Unicode display names must remain unchanged');
+      }
+    }
+    assert.ok(keys.every(key => !JSON.stringify(patches).includes(key)), 'public patches must not contain any configured key');
+  });
+}

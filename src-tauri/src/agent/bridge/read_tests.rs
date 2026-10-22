@@ -622,6 +622,20 @@ async fn file_extraction_rechecks_revocation_workspace_and_enabled_state() {
 }
 
 #[tokio::test]
+async fn todo_inventory_uses_read_only_connection_without_index_and_enforces_scope() {
+    let f = Fixture::new();
+    let utility = TextUtility::immediate();
+    let page = f.read("list", "todo.list", json!({"scope":f.scope(),"status":"unfinished","undated":true,"limit":1}), &utility).await.unwrap();
+    assert_eq!(page["items"][0]["object"], json!(f.todo));
+    assert_eq!(page["items"][0]["content"], "Bridge Todo");
+    assert_eq!(page["hasMore"], false);
+    let forbidden = f.read("foreign-list", "todo.list", json!({"scope":{"kind":"project","projectId":f.other_project_id}}), &utility).await.unwrap_err();
+    assert_eq!(forbidden.code, ErrorCode::ScopeDenied);
+    let forbidden = f.read("workspace-list", "todo.list", json!({"scope":{"kind":"workspace"}}), &utility).await.unwrap_err();
+    assert_eq!(forbidden.code, ErrorCode::ScopeDenied);
+}
+
+#[tokio::test]
 async fn object_reads_return_native_versions_bodies_and_enforce_current_policy() {
     let f = Fixture::new();
     let utility = TextUtility::immediate();

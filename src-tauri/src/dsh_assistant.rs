@@ -3509,15 +3509,20 @@ input.on('close', () => process.exit(0));
 
     #[tokio::test]
     async fn pinned_runtime_native_carrier_creates_lists_uploads_and_streams_without_gui() {
-        verify_native_carrier(Some(1)).await;
+        verify_native_carrier(Some(1), false).await;
     }
 
     #[tokio::test]
     async fn workspace_native_carrier_creates_lists_uploads_and_streams_without_gui() {
-        verify_native_carrier(None).await;
+        verify_native_carrier(None, false).await;
     }
 
-    async fn verify_native_carrier(project_id: Option<i64>) {
+    #[tokio::test]
+    async fn native_carrier_model_catalog_keeps_credentials_out_of_profile_labels() {
+        verify_native_carrier(Some(1), true).await;
+    }
+
+    async fn verify_native_carrier(project_id: Option<i64>, credential_labels: bool) {
         use tokio_tungstenite::tungstenite::Message;
         let temp = tempfile::tempdir().unwrap();
         let directory = if project_id.is_some() { temp.path().join("project") } else { temp.path().to_path_buf() };
@@ -3551,6 +3556,10 @@ input.on('close', () => process.exit(0));
             config["workspace"] = serde_json::json!({"id":"2f3dc81a-bb8d-42c0-bf7d-517f8a7e8d84","name":"Native Workspace fixture","directory":directory});
             AssistantContext::Workspace { directory: directory.clone() }
         };
+        if credential_labels {
+            config["provider"]["name"] = serde_json::json!("Native native-fixture-model-key / other-fixture-key");
+            config["providers"] = serde_json::json!([{"id":"mind-profile-2","name":"Other native-fixture-model-key / other-fixture-key","baseUrl":"http://127.0.0.1:9/v1","modelId":"other-fixture-model","apiKey":"other-fixture-key","supportsImage":false}]);
+        }
         let mut process = AssistantProcess::launch(fixture_command(), &config).await.unwrap();
         authenticate(
             &process.url,
@@ -3559,6 +3568,16 @@ input.on('close', () => process.exit(0));
         )
         .await
         .unwrap();
+        let catalog_request = serde_json::json!({"type":"client-request","rpcId":session_rpc_id(),"method":"session/modelCatalog","payload":{"args":{}}});
+        let catalog = fetch_bytes(&process.session_http, process.url.join("/api/session/modelCatalog").unwrap(),
+            process.session_cookie.clone().unwrap(), "POST", serde_json::to_vec(&catalog_request).unwrap(), false, &process.sensitive)
+            .await.expect("modelCatalog must pass the native credential guard even when profile labels contain keys");
+        let catalog_bytes = BASE64.decode(catalog.body_base64).unwrap();
+        assert!(!contains_secret(&catalog_bytes, &process.sensitive));
+        let catalog: serde_json::Value = serde_json::from_slice(&catalog_bytes).unwrap();
+        assert_eq!(catalog["result"]["ok"], true);
+        assert_eq!(catalog["result"]["value"]["default"]["provider"], "mind-main");
+        assert_eq!(catalog["result"]["value"]["groups"].as_array().unwrap().len(), if credential_labels {2} else {1});
         let rpc_id = session_rpc_id();
         let request = serde_json::json!({"type":"client-request","rpcId":rpc_id,"method":"workspace/initializeDefault","payload":{"args":{}}});
         let bytes = serde_json::to_vec(&request).unwrap();

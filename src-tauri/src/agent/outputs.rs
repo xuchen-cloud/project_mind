@@ -82,13 +82,56 @@ pub struct RecordPatch {
 fn required_date<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
     Option::<String>::deserialize(value)
 }
+pub(crate) const TODO_PRIORITIES: &[&str] = &[
+    "urgent_important",
+    "urgent_not_important",
+    "not_urgent_important",
+    "not_urgent_not_important",
+];
+pub(crate) const TODO_STATUSES: &[&str] = &["unfinished", "finished"];
+
+pub(crate) fn todo_priority_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let mut schema = <String as schemars::JsonSchema>::json_schema(generator);
+    schema.insert("enum".into(), serde_json::json!(TODO_PRIORITIES));
+    schema.insert("description".into(), serde_json::json!(
+        "Todo priority by urgency and importance: urgent_important, urgent_not_important, not_urgent_important, or not_urgent_not_important."
+    ));
+    schema
+}
+
+pub(crate) fn todo_status_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let mut schema = <String as schemars::JsonSchema>::json_schema(generator);
+    schema.insert("enum".into(), serde_json::json!(TODO_STATUSES));
+    schema.insert("description".into(), serde_json::json!(
+        "Todo or child completion status: unfinished for open work, finished for completed work."
+    ));
+    schema
+}
+
+fn progress_date_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let mut schema = <String as schemars::JsonSchema>::json_schema(generator);
+    schema.insert("format".into(), serde_json::json!("date"));
+    schema.insert("pattern".into(), serde_json::json!("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+    schema.insert("description".into(), serde_json::json!(
+        "Legacy child record date as a valid YYYY-MM-DD calendar date. The UI uses the local date on creation and preserves the existing date on edit. Native writes store the supplied date separately from the deadline and completion timestamp."
+    ));
+    schema
+}
+
 pub(crate) fn nullable_due_date_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-    <Option<String> as schemars::JsonSchema>::json_schema(generator)
+    let mut schema = <Option<String> as schemars::JsonSchema>::json_schema(generator);
+    schema.insert("format".into(), serde_json::json!("date"));
+    schema.insert("pattern".into(), serde_json::json!("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+    schema.insert("description".into(), serde_json::json!(
+        "Todo or child deadline as a valid YYYY-MM-DD calendar date. Required field: null means no deadline on creation and clears the deadline on update; omission is invalid."
+    ));
+    schema
 }
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TodoNewChild {
     pub content: String,
+    #[schemars(schema_with = "progress_date_schema")]
     pub progress_date: String,
     #[serde(deserialize_with = "required_date")]
     #[schemars(required, schema_with = "nullable_due_date_schema")]
@@ -111,9 +154,11 @@ pub enum TodoMutation {
         due_date: Option<String>,
     },
     Status {
+        #[schemars(schema_with = "todo_status_schema")]
         status: String,
     },
     Priority {
+        #[schemars(schema_with = "todo_priority_schema")]
         priority: String,
     },
     Tags {
@@ -121,6 +166,7 @@ pub enum TodoMutation {
     },
     ChildCreate {
         content: String,
+        #[schemars(schema_with = "progress_date_schema")]
         progress_date: String,
         #[serde(deserialize_with = "required_date")]
         #[schemars(required, schema_with = "nullable_due_date_schema")]
@@ -129,10 +175,12 @@ pub enum TodoMutation {
     ChildUpdate {
         child_id: i64,
         content: String,
+        #[schemars(schema_with = "progress_date_schema")]
         progress_date: String,
         #[serde(deserialize_with = "required_date")]
         #[schemars(required, schema_with = "nullable_due_date_schema")]
         due_date: Option<String>,
+        #[schemars(schema_with = "todo_status_schema")]
         status: String,
     },
     ChildDelete {
