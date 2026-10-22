@@ -31,14 +31,19 @@ const configuredProviders = provider => [
 ];
 
 export function sharedModelPatches(provider) {
+  const providers = configuredProviders(provider);
+  // A credential pasted into a profile name must stay out of public catalogs.
+  const publicName = value => providers.some(item => value.name.includes(item.apiKey))
+    ? (value.id === 'mind-main' ? '默认配置' : `配置 ${value.id.slice('mind-profile-'.length)}`)
+    : value.name;
   return [
     { id: 'web-runtime', config: { printUrl: false, openBrowser: false, surfaceContext: true, trustedHosts: [] } },
     { id: 'llm-deepseek', disabled: true },
     { id: 'llm-deepseek-account', disabled: true },
     { id: 'ui-settings-models', disabled: true },
     { id: 'agent-default-model', config: { provider: 'mind-main', model: provider.modelId } },
-    { id: 'llm-pi-ai', config: { providers: Object.fromEntries(configuredProviders(provider).map(value => [value.id, {
-      displayName: value.name, api: 'openai-completions', baseURL: value.baseUrl,
+    { id: 'llm-pi-ai', config: { providers: Object.fromEntries(providers.map(value => [value.id, {
+      displayName: publicName(value), api: 'openai-completions', baseURL: value.baseUrl,
       apiKeyEnv: value.keyRef, models: [{ id: value.modelId,
         input: value.supportsImage ? ['text', 'image'] : ['text'] }],
     }])) } },
