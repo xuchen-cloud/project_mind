@@ -6,7 +6,7 @@
 - 基线：`codex/builtin-cli-compat`，接手 HEAD `22a89a0`；先保留已有七文件改动，再合入 `origin/develop@77afa4f`（含 PR #223 会话标题同步）。
 - 需求依据：本轮用户明确要求首问标题预算、heading 新增按钮前的加载状态、无文字运行 spinner、Workspace / Project 导航密度与高亮一致；滚动规范见 [设计系统](../design-system.md#滚动区域与边缘遮罩默认规范)，发布分工遵循 [发布流程](../agents/publish-flow.md)。
 - 交付：OpenAI 兼容首问标题保留完整输入、短标题/语言/超时策略，并为 reasoning 提供有界输出预算；加载及运行 spinner 可访问；记录、文件、会话导航排版与高亮统一，复用连续边缘遮罩及 reduced-motion。
-- 非目标：模型/业务协议重构、HTML、其他 runtime 工作树、`codex/memory-system`；不启动 review 子 agent，不运行 UI/Tauri，不 push / 创建 PR / 远端合并。
+- 非目标：模型/业务协议重构、HTML、其他 runtime 工作树、`codex/memory-system`。实现 agent 不启动 review 子 agent、UI/Tauri 或发布；最终验证、检查和发布由主 agent 执行。
 - 验收：长中文首问及含 reasoning 的输出能生成标题；输入和输出预算边界仍生效，原 prompt 不变；加载 spinner 紧邻新增按钮之前，运行状态只有可访问图标；导航共享密度/颜色规则，既有遮罩与 reduced-motion 不回退。
 - 验证范围：定向 Node 标题/共享模型用例、真实本地 provider 子进程标题集成、DSH check；定向 Vitest 会话/导航/滚动遮罩和上游标题同步回归。生产构建及双轴检查由主 agent 集中完成，不重复 Cargo 或整个前端测试。
 - 修改前进程检查：已有本工作树 Vite（PID 43147）；未发现 Tauri dev。验证全部静默，无窗口启动。
@@ -39,9 +39,14 @@
 
 有效不重复覆盖：Node 单元 18、runtime 集成 4；Vitest 101（Node 24 下 93，首轮未失败的 host-events 8）。后续只调整本文与删除无实际匹配节点的 CSS selector；以上相关代码/依赖没有其他改动。无 Cargo、前端全量、最终生产构建、review 子 agent 或可见 UI 验收。
 
-### 集中 UI 检查与交接
+### 集中检查与发布门禁
 
-由主 agent 完成最终生产构建及 Standards / Spec 双轴检查，再按 #226 发布；此分支未 push / 建 PR / 远端合并。待集中 UI 验收：
+- 主 agent 以 `origin/develop@77afa4f` 为固定基线，检查完整八文件差异。Standards：复用上游 title 服务，输入/输出预算仍有界，原 prompt 与标题生成分离，导航复用既有遮罩和 reduced-motion；无剩余发现。Spec：#226 的完整首问、短标题/语言/超时、heading 加载图标、无文字运行图标及共享导航密度均已实现，回归保留 #223 标题同步和手动命名；无剩余发现。未启动 review 子 agent。
+- 复用 root 同源码树的 Office dist（docx `e0d3b79677ebe901bdaf012da27f3c7e292ff530`、xlsx `fcf1beaf39ffccfae3c8b98eeb04d814a2257b0e`、pptx `e0eb2ec744d3d67eaaee126661c7b49948eb2391`），生成物未提交。固定 Node 24 执行 `tsc --noEmit` 与 Vite 生产构建均通过；`check-bundle-boundaries` 通过，入口 249 KiB / 250 KiB；最终文档 `git diff --check` 通过。
+- 在现有开发测试窗口作只读外观检查：真实加载状态位于新增按钮之前，加载完成后消失且按钮恢复；项目记录/会话/文件密度、图标对齐与文件选中色可见；溢出的会话列表底部显示渐变，未溢出的列表无渐变。没有创建会话、发送 prompt 或修改数据。CUA 滚动输入因窗口路由报错未执行，连续/反向滚动与内容/尺寸变化的证据使用已通过的组件测试；不将截图当作这些交互的实测。
+- 有界标题行为由真实本地 provider 子进程的 RPC/mux/SSE 集成覆盖；没有以任意外部供应商输出保证验收。该供应商的手动端到端体验不是 #226 的合并门禁。
+
+以下完整产品体验清单保留为后续人工抽查范围，当前没有逐项声称实测：
 
 1. 项目会话初始加载、打开现有/新建会话时，只有 heading 新增按钮前出现加载图标；已有会话仍可读，按钮禁用/恢复正确。
 2. 运行状态在标题行末尾显示无文字 spinner；长标题省略、置顶图标及焦点高亮不被挤压。减少动态效果时图标静止且可访问名称保留。
@@ -49,4 +54,4 @@
 4. 窄/宽侧栏在无溢出、顶部、中间、底部和反向滚动时遮罩随距离连续变化；过滤/增删/树展开和尺寸改变后更新，heading/按钮/滚动条不被覆盖。
 5. 真实 OpenAI 兼容配置发送多段中文首问，确认短标题同时到侧栏、聊天 heading、前后台 Tab，手动重命名不被旧目录覆盖。本包确定性 reasoning fixture 不等同真实供应商验收。
 
-环境交接：主 agent 已确认 fe83 的 Office docx `dist/editor-types.d.ts` 落后源码（缺 `captureSelection` / `replaceSelection`）；仓库根 `/Users/xuchen/project_mind` 三类 Office 源码与 develop 相同且 dist 类型完整，可复用其产物。此项不是本包源码错误；本包未运行大型 Office 构建或修改生成物。
+环境处理：fe83 的 Office docx `dist/editor-types.d.ts` 原先落后源码（缺 `captureSelection` / `replaceSelection`）；按上述相同源码树复用产物后类型检查和构建已通过，没有修改源码或提交生成物。
