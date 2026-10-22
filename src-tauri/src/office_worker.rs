@@ -159,7 +159,7 @@ impl OfficeWorker {
     pub(crate) fn bundled(resources: &Path) -> AgentResult<Self> {
         let root = resources.join("office-editor");
         Self::from_paths(
-            root.join(node_name()),
+            resources.join("agent-host").join(node_name()),
             root.join("src/office-worker-entry.mjs"),
         )
     }
@@ -499,6 +499,39 @@ impl OfficeUtility for AppOfficeUtility {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bundled_office_uses_the_shared_node_and_requires_it() {
+        let fixture = tempfile::tempdir().unwrap();
+        let resources = fixture.path();
+        let office = resources.join("office-editor");
+        let source = office.join("src");
+        let dist = office.join("office-dist");
+        let shared = resources.join("agent-host");
+        for directory in [&source, &dist, &shared] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        std::fs::write(source.join("office-worker-entry.mjs"), "fixture").unwrap();
+        for name in [
+            "worker.mjs",
+            "docx-engine.mjs",
+            "xlsx-engine.mjs",
+            "pptx-engine.mjs",
+            sidecar_name(),
+        ] {
+            std::fs::write(dist.join(name), "fixture").unwrap();
+        }
+        let node = shared.join(node_name());
+        std::fs::write(&node, "shared-node").unwrap();
+        let worker = OfficeWorker::bundled(resources).unwrap();
+        assert_eq!(worker.node, node.canonicalize().unwrap());
+        assert_eq!(worker.distribution, dist.canonicalize().unwrap());
+        assert!(!office.join(node_name()).exists());
+        std::fs::remove_file(node).unwrap();
+        // An old duplicate must not mask a missing shared runtime.
+        std::fs::write(office.join(node_name()), "stale-node").unwrap();
+        assert!(OfficeWorker::bundled(resources).is_err());
+    }
+
     fn calculation() -> OfficeRecalculation {
         serde_json::from_value(json!({"edits":[{"sheetId":"s","row":0,"column":0,"input":"=1+1"}],
             "reads":[{"sheetId":"s","range":{"startRow":0,"endRow":0,"startColumn":0,"endColumn":0}}]})).unwrap()
