@@ -14,11 +14,16 @@ let sequence = 0;
 export const useDshFileReferences = create<{
   workspaceRoot: string | null; pending: FileReference[];
 }>(() => ({ workspaceRoot: null, pending: [] }));
+// Catalog snapshots outlive individual conversation seats, but never a Workspace.
+export const useDshSessionTitles = create<{
+  workspaceRoot: string | null; byProject: Record<number, Record<string, string>>;
+}>(() => ({ workspaceRoot: null, byProject: {} }));
 
 export function setDshWorkspaceRoot(workspaceRoot: string | null) {
   if (useDshFileReferences.getState().workspaceRoot !== workspaceRoot) {
     window.dispatchEvent(new Event('mind:dsh-workspace-close'));
     useDshFileReferences.setState({ workspaceRoot, pending: [] });
+    useDshSessionTitles.setState({ workspaceRoot, byProject: {} });
     useAgentPanelStore.getState().bindWorkspace(workspaceRoot);
   }
 }
@@ -60,4 +65,11 @@ window.addEventListener('mind:dsh-session-runs', event => {
   if (!workspaceRoot) return;
   const { projectId, runningBySession } = (event as CustomEvent<{ projectId: number | null; runningBySession: Record<string, boolean> }>).detail;
   useAgentPanelStore.getState().setSessionRuns(workspaceRoot, projectId, runningBySession);
+});
+
+window.addEventListener('mind:dsh-session-titles', event => {
+  if (!useDshSessionTitles.getState().workspaceRoot) return;
+  const { projectId, titlesBySession } = (event as CustomEvent<{ projectId: number | null; titlesBySession: Record<string, string> }>).detail;
+  if (projectId === null) return;
+  useDshSessionTitles.setState(state => ({ byProject: { ...state.byProject, [projectId]: titlesBySession } }));
 });
