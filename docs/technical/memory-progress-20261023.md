@@ -4,7 +4,7 @@
 
 **状态：按用户要求暂停，保存阶段提交。功能尚未完整验收，不合并 develop、不关闭 #219。** 当前默认策略仍为预算内精简 `snapshot`；实验性 `layered` 的真实评测未过门槛。最终 Standards / Spec 发布审查尚未完成，已有自查与定向修复不能替代发布门禁。
 
-保存状态：代码和本文已作本地阶段提交。`git push -u origin codex/memory-system` 因 GitHub TLS 连接错误 `SSL_ERROR_SYSCALL` 失败，远端尚未同步；GitHub API 读取也返回 EOF。网络恢复后先推送该分支并同步进度，不因此触发合并或关闭 Issue。
+保存状态：阶段提交 `2520988` 已于 2026-10-23 成功推送至 `origin/codex/memory-system`。首次推送曾因 GitHub TLS 连接错误 `SSL_ERROR_SYSCALL` 失败，后按用户要求重试成功。本次仅同步分支与进度，不触发合并或关闭 Issue。
 
 ## 本包范围及已确认决策
 
