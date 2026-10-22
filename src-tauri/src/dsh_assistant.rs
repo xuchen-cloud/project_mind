@@ -492,7 +492,7 @@ impl AssistantProcess {
                     let task_handler = handler.clone();
                     let task_revoked = revoked.clone();
                     let task_alive = alive.clone();
-                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeInspect"|"officeEdit"));
+                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeInspect"|"officeEdit"|"officeSelectionRead"|"officeSelectionApply"));
                     let task_gate = gate.clone();
                     let task_url = source_url.clone();
                     let source_id = frame.id.clone();
@@ -518,6 +518,7 @@ impl AssistantProcess {
                     if revoked.load(Ordering::SeqCst) { break; }
                     if stdin.write_all(&bytes).await.is_err() { break; }
                 }
+                alive.store(false, Ordering::SeqCst);
                 revoked.store(true, Ordering::SeqCst);
                 writer.lock().await.take();
             } else {
@@ -581,6 +582,8 @@ enum SourceRequest {
     Prepare { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize },
     OfficeInspect { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef> },
     OfficeEdit { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, #[serde(rename="sourceRef")] source_ref: crate::agent::models::SourceRef, edits: Vec<serde_json::Value> },
+    OfficeSelectionRead { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String },
+    OfficeSelectionApply { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String, #[serde(rename="requestId")] request_id: String, mode: String, change: serde_json::Value },
     Delivery { #[serde(rename="sessionId")] session_id: String, #[serde(rename="deliveryId")] delivery_id: String, projection: String, #[serde(rename="projectionHash")] projection_hash: String },
 }
 
@@ -678,7 +681,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
         identity.project()?;
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
-        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
+        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
         let state = app.state::<crate::AppState>();
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("Source Workspace closed")?;
@@ -686,7 +689,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let mut db = crate::lock_mutex(&runtime.db);
         if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project()?.id)? != *identity.project()? { return Err("Source Project binding changed".into()); }
         let result = match operation {
-            SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => unreachable!("Office is dispatched outside storage locks"),
+            SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
             SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &identity, &runtime.agent_binding, &session_id, &format!("{runtime_generation}:{}", session_rpc_id()), path.as_deref(), source_ref, offset, limit),
             SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
@@ -1719,7 +1722,7 @@ fn spawn_socket(
 fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     if matches!(
         endpoint,
-        "$events" | "$events/result" | "mind/session/delete" | "mind/source/prepare" | "mind/source/resolve"
+        "$events" | "$events/result" | "mind/session/delete" | "mind/source/prepare" | "mind/source/resolve" | "mind/office-selection/prepare"
     ) {
         return Ok(());
     }
@@ -2515,6 +2518,7 @@ mod tests {
         assert_eq!(called.load(Ordering::SeqCst), 1);
         process.stop().await.unwrap();
         assert!(process.source_revoked.load(Ordering::SeqCst));
+        assert!(!process.office_alive.load(Ordering::SeqCst));
         assert!(process.source_stdin.as_ref().unwrap().lock().await.is_none());
         assert!(serde_json::from_value::<SourceRequest>(serde_json::json!({"operation":"prepare","workspaceId":"forged","sessionId":"a","path":"fixed.txt","offset":1,"limit":1})).is_err());
     }
@@ -2540,7 +2544,7 @@ mod tests {
         let handler: SourceHandler = Arc::new(move |payload, revoked, _, _, _| {
             let db = crate::lock_mutex(&shared);
             match serde_json::from_value::<SourceRequest>(payload).map_err(|_| "Invalid source operation")? {
-                SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } => Err("Office not used by this text fixture".into()),
+                SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => Err("Office not used by this text fixture".into()),
                 SourceRequest::Resolve { session_id, path } => source_resolve(&db, &source_identity, &source_binding, &session_id, &path),
                 SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &source_identity, &source_binding, &session_id, &session_rpc_id(), path.as_deref(), source_ref, offset, limit),
                 SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
@@ -3225,6 +3229,24 @@ input.on('close', () => process.exit(0));
             b"do not return private",
             &["private".into()]
         ));
+    }
+
+    #[test]
+    fn office_selection_prepare_endpoint_is_exact_and_carrier_accepts_its_rpc_frame() {
+        let endpoint="mind/office-selection/prepare";
+        for denied in [
+            "mind/office-selection", "mind/office-selection/read", "mind/office-selection/apply",
+            "mind/office-selection/prepare-extra", "mind/office-selection/prepare/extra",
+            "mind/office-selection/prepare/", "mind/office-selection/prepare?extra=1",
+            "mind/office-selection/../prepare", "mind/office-selection/%70repare",
+        ] {
+            assert!(validate_endpoint(denied).is_err(),"must reject adjacent endpoint {denied}");
+        }
+        validate_endpoint(endpoint).expect("registered Office selection prepare must be reachable");
+        let payload=serde_json::json!({"sessionId":"owned-session","selectionId":"frozen-selection"});
+        let frame=serde_json::json!({"type":"client-request","rpcId":"selection-prepare","method":endpoint,"payload":payload});
+        let (actual,forwarded,rpc)=carrier_path("/api/mind/office-selection/prepare","POST",&serde_json::to_vec(&frame).unwrap()).unwrap();
+        assert_eq!(actual,endpoint);assert_eq!(forwarded,Some(payload));assert_eq!(rpc.as_deref(),Some("selection-prepare"));
     }
 
     #[test]

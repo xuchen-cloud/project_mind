@@ -178,3 +178,26 @@ test('unmount drops native output completion and replacement rejects an outstand
  ctx.unmount();await act(async()=>finish(true));
  expect(ctx.post).not.toHaveBeenCalledWith(expect.objectContaining({type:'export-finished',requestId:501}));
 });
+
+test('selection controller uses live frame channel and rejects outstanding captures on replacement',async()=>{
+ let controller:any;
+ const h=setup({registerSelection:(value:any)=>{controller=value;return()=>{controller=undefined}}});
+ expect(controller).toBeDefined();
+ const capture=controller.captureSelection();
+ const request=h.post.mock.calls.findLast(c=>c[0].type==='capture-selection')![0];
+ h.message({type:'selection-done',requestId:request.requestId,result:{selectionId:'frozen-1',text:'selected'}});
+ await expect(capture).resolves.toEqual({selectionId:'frozen-1',text:'selected'});
+ const apply=controller.applySelection({selectionId:'frozen-1',change:{elements:[{id:'e_5',text:'new'}]}});
+ const rejected=expect(apply).rejects.toThrow(/替换/);
+ h.rerender(<PptxEditor {...h.props} model={{...model,originalHash:'replacement'}}/>);
+ await rejected;
+ h.unmount();expect(controller).toBeUndefined();
+});
+
+test('selection controller rejects preview and retained controller after unmount',async()=>{
+ let controller:any;
+ const h=setup({presentationMode:'preview',registerSelection:(value:any)=>{controller=value;return()=>{}}});
+ await expect(controller.captureSelection()).rejects.toThrow(/只读/);
+ h.unmount();
+ await expect(controller.applySelection({selectionId:'old',change:{elements:[]}})).rejects.toThrow(/关闭/);
+});

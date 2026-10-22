@@ -1,3 +1,4 @@
+import {officeRendererResources} from '../../../../scripts/office-renderer-resources.mjs';
 import { defineConfig } from 'vite';
 import tailwind from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +8,7 @@ const fixture = new Uint8Array(await readFile(new URL('../fixtures/complex.pptx'
 let bytes=fixture;
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
-  plugins: [tailwind(), { name: 'office-pptx-fixture', configureServer(server) {
+  plugins: [officeRendererResources(),tailwind(), { name: 'office-pptx-fixture', configureServer(server) {
     server.middlewares.use(async (request, response, next) => {
       if (request.url !== '/model' && request.url !== '/save' && request.url !== '/reset') return next();
       try {

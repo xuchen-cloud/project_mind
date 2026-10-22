@@ -52,6 +52,7 @@ mod file_content;
 mod file_source_read;
 mod file_read_commands;
 mod file_office;
+mod office_selection;
 mod office_worker;
 mod office_process;
 mod file_office_commands;
@@ -276,6 +277,7 @@ pub(crate) struct AppState {
     exit_authorized: std::sync::atomic::AtomicBool,
     record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
     external_bridge: agent::bridge::BridgeRuntime,
+    office_selections: office_selection::Selections,
 }
 
 impl AppState {
@@ -327,6 +329,7 @@ impl AppState {
             previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
         }
+        self.office_selections.clear();
         *current = runtime;
     }
 
@@ -388,6 +391,7 @@ impl AppState {
             previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+            self.office_selections.clear();
         })?;
         self.status_snapshot()
     }
@@ -414,6 +418,7 @@ impl AppState {
     fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
         let runtime = self.current_workspace()?;
         runtime.cancel_agent_runs();
+        self.office_selections.clear();
         if let Some(error) = runtime.set_secret_password(None)? {
             let _ = self.app_handle.emit("record:checkpoint-error", error);
         }
@@ -1471,6 +1476,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(state)=window.app_handle().try_state::<AppState>() {state.office_selections.close_window(window.label());}
                 dsh_assistant::DshAssistantState::detach_parent(window.app_handle().clone(), window.label().into());
             }
         })
@@ -1501,6 +1507,7 @@ pub fn run() {
             }
             // A document reload skips React cleanup; release its carriers while
             // retaining the runtime and any executing task.
+            if let Some(state)=webview.app_handle().try_state::<AppState>() {state.office_selections.close_window(label);}
             dsh_assistant::DshAssistantState::detach_parent(webview.app_handle().clone(), label.into());
 
         })
@@ -1519,6 +1526,7 @@ pub fn run() {
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
                 external_bridge: agent::bridge::BridgeRuntime::default(),
+                office_selections: office_selection::Selections::default(),
             };
 
             let local_session = load_local_session(&local_session_path)?;
@@ -1638,6 +1646,11 @@ pub fn run() {
             file_read_commands::file_versions_list,
             file_read_commands::file_versions_get,
             file_read_commands::file_version_restore,
+            office_selection::office_selection_register,
+            office_selection::office_selection_bind,
+            office_selection::office_selection_unregister,
+            office_selection::office_selection_claim,
+            office_selection::office_selection_reply,
             file_office_commands::file_office_inspect,
             file_office_commands::file_office_recalculate,
             file_office_commands::file_office_save,

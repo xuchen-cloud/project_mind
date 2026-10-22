@@ -57,3 +57,12 @@ At the 1200px viewport, measured thumbnail width was 156px, inspector width was
 226px, and no horizontal overflow occurred. No added watermark appeared.
 Document style is independent of host shell tokens. Advanced rendering fidelity
 limitations and unsupported edits remain explicit in the package README/model.
+
+### 2026-10-23 — #212 PPT current-selection bridge
+
+- `npm run build --prefix packages/office-pptx`: passed; pinned 501 core / 4 Web adaptation sources verified unchanged.
+- `npm run check --prefix packages/office-pptx`: passed.
+- `npm run test:ui --prefix packages/office-pptx -- --run test/editor.test.tsx`: 24 passed. Registration/channel lifecycle, replacement rejection, preview and retained controller destruction are covered.
+- `OFFICE_PLAYWRIGHT_MODULE=<bundled playwright>/index.mjs OFFICE_ACCEPTANCE_URL=http://127.0.0.1:4183 node packages/office-pptx/test/browser-selection.mjs`: passed in headless Chrome. Actual selected element capture, different subsequent selection, text/layout apply, original undo/redo, File save/reopen, atomic invalid-batch rejection, composition/readonly rejection, mutation/undo/external replacement invalidation and mixed-run bold preservation.
+- Red-before-green evidence: controller undefined (registration test), selection response timeout (real channel), and `Bold: changed` flattened into one run (persistence assertion), each resolved by its corresponding implementation.
+- Scope: package bridge only; parent integration, real model use and native desktop product acceptance are not represented by these checks.

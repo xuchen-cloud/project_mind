@@ -34,10 +34,10 @@ function acquire(projectId) {
   } };
 }
 
-export async function insertDshFileReference(projectId, sessionId, path, sourceRef) {
+export async function insertDshFileReference(projectId, sessionId, path, sourceRef, selection) {
   const entry = clients.get(projectId);
   if (entry === undefined) throw new Error('请先打开当前项目的助手，再引用文件');
-  await (await entry.promise).insertFile(sessionId, path, sourceRef);
+  await (await entry.promise).insertFile(sessionId, path, sourceRef, selection);
 }
 
 function Host({ projectId, sessionId, focused = true, mode, ...callbacks }) {

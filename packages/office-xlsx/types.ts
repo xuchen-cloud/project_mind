@@ -76,7 +76,11 @@ export interface EditorProps {
   onCaptureScreenSource?: (request: ScreenCaptureRequest) => Promise<ScreenCaptureResult | null>
 }
 export type OutputCommand = 'pdf' | 'csv' | 'print'
-export interface MountedEditor {
+export interface SelectionController {
+  captureSelection: () => Promise<{selectionId: string; text: string}>
+  applySelection: (input: {selectionId: string; change: unknown}) => Promise<{text: string}>
+}
+export interface MountedEditor extends SelectionController {
   readonly ready: Promise<void>
   commitEditing: () => Promise<void>
   /** PDF/CSV await the output callback; print opens the original print settings dialog. */

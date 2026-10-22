@@ -22,5 +22,5 @@ export interface DshConversationHostProps {
 }
 export function DshConversationHost(props: DshConversationHostProps): ReactElement;
 export function DshSettingsHost(props: { projectId: number | null; mode: 'settings' | 'plugins'; onError?: (message: string) => void }): ReactElement;
-export function insertDshFileReference(projectId: number, sessionId: string, path: string, sourceRef?: AgentSourceRef): Promise<void>;
+export function insertDshFileReference(projectId: number, sessionId: string, path: string, sourceRef?: AgentSourceRef, selection?: {selectionId:string;format:'docx'|'xlsx'|'pptx'}): Promise<void>;
 export function disposeDshClients(): Promise<void>;

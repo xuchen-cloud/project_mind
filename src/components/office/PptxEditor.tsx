@@ -6,7 +6,12 @@ import {samePptxEdits} from '../../../packages/office-pptx/parity-edits';
 import './PptxEditor.css';
 import type {RegisterEditorOutput} from '../../lib/editor-output';
 export type {PptxEdit,PptxModel,PptxOutputDocument} from '../../../packages/office-pptx/types';
+export interface PptxSelectionController {
+ captureSelection:()=>Promise<{selectionId:string;text:string}>;
+ applySelection:(input:{selectionId:string;change:unknown})=>Promise<{text:string}>;
+}
 export interface PptxEditorProps {
+ registerSelection?:(controller:PptxSelectionController)=>()=>void;
  model:PptxModel; edits:PptxEdit[]; onChange:(edits:PptxEdit[])=>void; readOnly:boolean;
  presentationMode?:'preview'|'edit';
  registerOutput?:RegisterEditorOutput;
@@ -23,7 +28,7 @@ export function PptxEditor(props:PptxEditorProps){
  const channel=useRef<MessagePort|null>(null);
  const ready=useRef(false);const initialized=useRef(false);
  const initialization=useRef(new Set<{resolve:()=>void;reject:(error:Error)=>void}>());const lastEdits=useRef(props.edits);
- const requests=useRef(new Map<number,{resolve:()=>void;reject:(e:Error)=>void}>());const seq=useRef(0);
+ const requests=useRef(new Map<number,{resolve:(value?:any)=>void;reject:(e:Error)=>void}>());const seq=useRef(0);
  const [error,setError]=useState('');
  const [renderedEpoch,setRenderedEpoch]=useState(0);
  const saveFocusPending=useRef(false);
@@ -88,7 +93,7 @@ export function PptxEditor(props:PptxEditorProps){
     if(latest.current.onSaveRequest){try{void Promise.resolve(latest.current.onSaveRequest()).then(()=>reply({type:'save-finished',requestId:m.requestId}),e=>reply({type:'save-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)}))}catch(e){reply({type:'save-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)})}}
     else {const message='PPTX 保存尚未接入宿主';setError(message);post({type:'save-finished',requestId:m.requestId,error:message})}
    }
-   else if(m.type==='flushed'||m.type==='output-done'){const req=requests.current.get(m.requestId);requests.current.delete(m.requestId);if(m.error)req?.reject(new Error(m.error));else req?.resolve()}
+   else if(m.type==='flushed'||m.type==='output-done'||m.type==='selection-done'){const req=requests.current.get(m.requestId);requests.current.delete(m.requestId);if(m.error)req?.reject(new Error(m.error));else req?.resolve(m.result)}
   };
   window.addEventListener('message',receive);
   requestReady();
@@ -103,6 +108,17 @@ export function PptxEditor(props:PptxEditorProps){
  useEffect(()=>{if(sentEpoch.current!==epoch.current)init()},[props.edits]);
  useEffect(()=>{if(ready.current)post({type:'capabilities',export:!!props.onExport,print:!!props.onPrint,renderPdf:!!props.onRenderPdf})},[props.onExport,props.onPrint,props.onRenderPdf]);
  useEffect(()=>post({type:'readonly',readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit'}),[props.readOnly,props.presentationMode]);
+ useEffect(()=>{
+  let active=true;
+  const request=(type:string,input:object={})=>{
+   if(!active||!mounted.current)return Promise.reject(new Error('PPTX 编辑器已关闭'));
+   if(latest.current.readOnly||latest.current.presentationMode==='preview')return Promise.reject(new Error('PPTX 当前为只读预览'));
+   if(!initialized.current)return Promise.reject(new Error('PPTX 编辑器尚未就绪'));
+   return new Promise<any>((resolve,reject)=>{const requestId=++seq.current;requests.current.set(requestId,{resolve,reject});post({type,requestId,...input})});
+  };
+  const unregister=props.registerSelection?.({captureSelection:()=>request('capture-selection'),applySelection:input=>request('apply-selection',input)});
+  return()=>{active=false;unregister?.()};
+ },[props.registerSelection]);
  useEffect(()=>props.registerBeforeSave?.(async()=>{
   if(!ready.current)throw new Error('PPTX 编辑器尚未加载');
   if(!initialized.current)await new Promise<void>((resolve,reject)=>initialization.current.add({resolve,reject}));

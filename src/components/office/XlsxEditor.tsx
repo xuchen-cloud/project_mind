@@ -1,12 +1,13 @@
 import { EditorLoading } from "../document/EditorLoading"
 import { useEffect, useRef, useState } from 'react'
-import type { EditorProps, MountedEditor } from '../../../packages/office-xlsx/types'
+import type { EditorProps, MountedEditor, SelectionController } from '../../../packages/office-xlsx/types'
 import '../../../packages/office-xlsx/dist/browser.css'
 import rendererUrl from '../../../packages/office-xlsx/dist/renderer.html?office-resource'
 import type {RegisterEditorOutput} from '../../lib/editor-output'
 
 export type { Model, Edit } from '../../../packages/office-xlsx/types'
 export type XlsxEditorProps = EditorProps & {
+  registerSelection?: (controller: SelectionController) => () => void
   registerOutput?: RegisterEditorOutput
   registerBeforeSave?: (callback: () => Promise<void>) => () => void
 }
@@ -43,6 +44,10 @@ export function XlsxEditor(props: XlsxEditorProps) {
   useEffect(() => {
     const node=host.current; const failed=(event:Event)=>setError(String((event as CustomEvent).detail)); node?.addEventListener('office-error',failed); return()=>node?.removeEventListener('office-error',failed)
   }, [])
+  useEffect(() => props.registerSelection?.({
+    async captureSelection() { const mounted = editor.current; if (!mounted) throw new Error('Excel 编辑器尚未加载'); return mounted.captureSelection() },
+    async applySelection(input) { const mounted = editor.current; if (!mounted) throw new Error('Excel 编辑器尚未加载'); return mounted.applySelection(input) },
+  }), [props.registerSelection])
   useEffect(() => props.registerBeforeSave?.(async () => {
     const mounted = await mounting.current
     if (!mounted) throw new Error('Excel 编辑器尚未加载')

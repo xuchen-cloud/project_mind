@@ -14,7 +14,7 @@
     "start": "node scripts/desktop.mjs start",
     "check": "node scripts/desktop.mjs check",
     "test": "node --test test/*.test.mjs",
-    "test:integration": "node --test test/runtime.integration.mjs"
+    "test:integration": "node --test test/*.integration.mjs"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.4",
