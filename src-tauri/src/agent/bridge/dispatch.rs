@@ -164,7 +164,7 @@ fn encode(value: impl serde::Serialize) -> AgentResult<Value> {
 }
 
 /// History resources are opened only for an authorized history request.
-struct AppHistoryUtility(tauri::AppHandle);
+pub(crate) struct AppHistoryUtility(pub(crate) tauri::AppHandle);
 impl AppHistoryUtility {
     fn reader(
         &self,
@@ -207,7 +207,7 @@ impl SessionHistoryUtility for AppHistoryUtility {
 }
 
 /// Resolve packaged extraction resources only when a File read needs them.
-struct AppSourceUtility(tauri::AppHandle);
+pub(crate) struct AppSourceUtility(pub(crate) tauri::AppHandle);
 impl SourceUtility for AppSourceUtility {
     async fn request(
         &self,
@@ -256,18 +256,27 @@ impl BridgeHandler for AppBridge {
                 "The requested Workspace is not open",
             ));
         }
-        lock_mutex(&runtime.db).agent_connection_authenticate(
+        let request = lock_mutex(&runtime.db).agent_connection_authenticate(
             &runtime.agent_binding,
             &input.grant_id,
             token,
             &input.request_id,
         )?;
+        super::embedded::require_external(&request)?;
         Ok(runtime.agent_binding.clone())
     }
 
     fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
         Box::pin(async move {
             let state = self.0.state::<AppState>();
+            if super::embedded::is_internal_grant(&input.grant_id) {
+                ConnectionStore {
+                    inner: &*state,
+                    enabled: &state.external_bridge.enabled,
+                    token,
+                    input: &input,
+                }.with_authenticated(|_, _, _, request| super::embedded::require_external(&request))?;
+            }
             let started = std::time::Instant::now();
             let binding = input.binding.clone();
             let label = match input.method.as_str() {

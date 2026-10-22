@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 1420",
-    "dev:tauri": "tauri dev",
-    "dev:tauri:manual": "tauri dev --no-watch",
+    "dev:tauri": "npm run prepare:cli:dev && tauri dev",
+    "dev:tauri:manual": "npm run prepare:cli:dev && tauri dev --no-watch",
+    "prepare:cli:dev": "cargo build --manifest-path src-tauri/Cargo.toml --bin mind --quiet",
     "dev:dsh": "npm --prefix packages/dsh-assistant run dev",
     "start:dsh": "npm --prefix packages/dsh-assistant run start",
     "build:dsh": "npm --prefix packages/dsh-assistant run build",

@@ -56,6 +56,16 @@ npm --prefix packages/dsh-assistant ci --no-audit --no-fund
 
 `skills/project-mind-cli/SKILL.md` 是给 Agent 使用的 Mind CLI 内置 Skill。整个 `skills/` 目录随桌面资源默认打包并参与资源清单校验。启动时在全局助手数据目录的 `skills/builtin` 中准备指向安装包资源的托管链接，设置与运行时助手使用该根目录；工作区与项目助手共享其启用状态。独立启动从助手数据目录派生同一布局。本机用户安装的技能从其原目录发现。
 
+### 原生 CLI 绑定 / #204
+
+内置会话由原生端在启动帧提供应用附带的 `mind` 路径、Workspace 根目录、当前 Project 或 Workspace 范围、独立桥接发现文件及连接 ID。模型可通过 `--help`、`capabilities` 和 `schema` 发现现有接口；Record/Todo/File 操作复用原生授权、编辑器协调、版本 CAS、幂等和 Operation Receipt。独立调试入口没有原生绑定时仍按原流程工作。
+
+每次真实工具 shell 执行根据 DSH 已解析的 sandbox policy，在父进程私有通道申请短期凭据；只读执行不能通过 CLI 写业务对象。凭据只放该子进程环境，执行及后台进程完全结束后失效；运行时停止、Workspace 锁定或切换后同时撤销。长期连接凭据保留在原生系统凭据存储，模型提示与配置帧不包含密钥。连接稳定归属当前作用域，收据身份跨运行时重启保留；显式禁用或撤销连接后不会自动重授。
+
+独立桥接不更改用户外部连接开关，不安装系统 CLI 或修改用户 PATH。`npm run dev:tauri` 和 `npm run dev:tauri:manual` 会先编译 debug CLI；正式安装包使用已有 CLI sidecar。原生 CLI 仅在当前 shell 中获得 PATH 与短期桥接配置，其他 Project 和 Workspace 的授权仍独立检查。
+
+2026-10-22 已在 macOS 原生界面用真实 Provider 验证 Record/Todo 的创建与更新、Subtask、目录 File 续改和版本历史。同步修复待办侧栏收到原生变更后仍复用旧页面缓存的问题；当前项目与工作区两个视图均验证了自动新增、完成状态和子任务更新，无需手动刷新。普通 bash 输出中的源码 marker 也不会再被误认为固定 File 投影而阻断后续会话。具体红绿测试、原生 ID、版本及检索覆盖限制见[会话验收记录](../../docs/technical/agent-session-acceptance-20261022.json)。
+
 禁用将整个 Skill 条目移入同一扫描根的 `.disabled/`，启用时移回，遇到同名目标时拒绝覆盖。设置会额外展示其中的禁用项，助手不会扫描这些嵌套条目。内置技能仅移动托管链接，安装包资源不变，重启和资源路径升级后保留禁用状态；内置技能不可删除。外部技能需在确认弹窗后删除完整目录（含脚本、资源），flat Markdown 仅删除该文件，符号链接仅删除链接。
 
 ### 独立调试入口
@@ -89,7 +99,7 @@ DSH 历史当前仍单独存储，默认 `DSH_HOME` 如下，不读取默认 `~/
 - DSH 官方运行包固定为 `0.2.0-rc.2`，Desktop UI 来源固定为 `115a0b474cc2c4794316171c640a8898398591fe`，详见 [upstream.json](upstream.json)。保留上游版权与许可证。
 - Web UI 使用官方 Connection 的 HTTP unary RPC；Typert Remote 流走 API gateway 的 WebSocket mux `/api/remote.mux`。会话与历史由同一个 Node Web runtime 提供，主页面 React 组件通过 Tauri 通信适配保留完整客户端协议与会话语义，不增加第二个 SDK runtime。
 - 模型 Provider 流式响应使用 SSE；它不是 UI Remote 流的传输协议。
-- 已评估 `@deepseek-ai/dsh-sdk-client@0.2.0-rc.2`，其传递依赖引入完整 DSH CLI 与 Office/PPT adapters，当前不安装或使用 SDK client。未来业务接入的 adapter 与契约另行确定。
+- 已评估 `@deepseek-ai/dsh-sdk-client@0.2.0-rc.2`，其传递依赖引入完整 DSH CLI 与 Office/PPT adapters，当前不安装或使用 SDK client。原生业务接入复用项目自己的 Mind CLI，不依赖该 SDK。
 - 官方 `dsh-web-app` 仍带有 `dsh-office-to-pdf` / `libreoffice-kit` 传递依赖；本包 overlay 禁用 `office-to-pdf`，不执行 Office/PPT build、Office prepare 或引擎准备。
 - rc.2 stdio JSON-RPC SDK 没有轮次中取消方法；当前 UI 使用官方 Web session controller 的 `cancel`，停止后 runtime 可继续服务，已通过本地测试 Provider 验证。
 

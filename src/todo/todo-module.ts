@@ -111,9 +111,10 @@ export function createTodoModule({
   const todoMutationRevisions = new Map<number, number>();
 
   async function load(scope: TodoViewScope, options: { force?: boolean } = {}) {
-    const readQuery = options.force
-      ? queryClient.fetchQuery.bind(queryClient)
-      : queryClient.ensureQueryData.bind(queryClient);
+    // Native changes invalidate the source page and the derived view together.
+    // Join its refetch before projecting collections; ensureQueryData would
+    // immediately return the previous page even when it has been invalidated.
+    const readQuery = queryClient.fetchQuery.bind(queryClient);
     const projectsPromise = readQuery({
       queryKey: queryKeys.projects.all,
       queryFn: () => transport.projectsList({ includeArchived: true }),

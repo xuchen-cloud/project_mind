@@ -25,6 +25,9 @@ use tokio::{
 #[path = "dsh_office.rs"]
 mod office;
 
+#[path = "dsh_cli.rs"]
+mod cli;
+
 #[cfg(test)]
 #[path = "dsh_workspace_tests.rs"]
 mod workspace_tests;
@@ -397,6 +400,7 @@ struct AssistantProcess {
     source_revoked: Arc<AtomicBool>,
     office_alive: Arc<AtomicBool>,
     source_gate: Arc<std::sync::Mutex<()>>,
+    native_cli: Option<crate::agent::bridge::embedded::EmbeddedCli>,
 }
 
 impl Drop for AssistantProcess {
@@ -545,6 +549,7 @@ impl AssistantProcess {
             source_revoked,
             office_alive,
             source_gate,
+            native_cli: None,
         })
     }
 
@@ -557,6 +562,7 @@ impl AssistantProcess {
     }
 
     fn revoke_sources(&self) {
+        if let Some(cli) = &self.native_cli { cli.revoke(); }
         self.office_alive.store(false, Ordering::SeqCst);
         let _guard = crate::lock_mutex(&self.source_gate);
         self.source_revoked.store(true, Ordering::SeqCst);
@@ -1297,8 +1303,7 @@ impl RuntimeState {
             self.reject_running_replacement().await?;
         }
         self.stop().await?;
-        let process = AssistantProcess::launch_with_source(runtime_command(app, &config)?, &config.message(),
-            Some(source_handler(app.clone(), config.identity.clone(), session_rpc_id()))).await?;
+        let process = cli::launch(app, &config).await?;
         // Workspace/settings can change while Node boots. Never expose that stale runtime.
         let current = Configuration::resolve(app, project_id);
         if current.as_ref().map(|config| &config.identity).ok() != Some(&config.identity) {

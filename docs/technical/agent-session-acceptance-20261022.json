@@ -149,5 +149,707 @@
     "automated": "6 component regressions passed after 2 failing regressions reproduced the bug; vendor integrity 3/3; adapters browser closure build passed.",
     "gui": "Native macOS app with real deepseek-flash: three consecutive short shell calls; live thinking/tools initially collapsed; latest command label updates; manually opened second group; group collapsed on completion; completed group can reopen and collapse.",
     "review": "Main agent Standards and Spec self-review completed with no remaining findings. No review subagents used."
+  },
+  "cliCompatibility": {
+    "issue": 204,
+    "branch": "codex/builtin-cli-compat",
+    "baseCommit": "bcdad80088d2781cf8622ce14578b7eaa048ddd9",
+    "scope": "Built-in native Mind CLI binding and real project conversation acceptance; historical results above remain the pre-fix baseline.",
+    "rootCause": "DSH had no bundled CLI path or native Workspace/Project connection. Todo change notifications also rebuilt derived collections from stale source-page cache; Workspace views did not invalidate their Project Todo source page.",
+    "sessions": [
+      "session-0ac316ad-51c2-41f9-9f29-78ad3ab56247",
+      "session-217464f3-527f-444b-93a0-e54116995e53"
+    ],
+    "results": [
+      {
+        "scenario": "natural language create and modify native Record",
+        "status": "passed",
+        "evidence": "Record6 created at revision1, body replaced and appended at revision2; native receipts committed."
+      },
+      {
+        "scenario": "natural language create and complete Todos, append/update Subtasks",
+        "status": "passed",
+        "evidence": "Todo3 due2026-10-22 urgent_important completed; Todo4 due2026-10-23 with Subtasks2/3. Todo7 Subtask4 created and later finished."
+      },
+      {
+        "scenario": "create Files and update same File with immutable versions",
+        "status": "passed",
+        "evidence": "Files11/12 auto-managed; File12 v1 to v2, File10 v3 to v4 via native staged directory replacement. Original history retained."
+      },
+      {
+        "scenario": "automatic sidebar refresh before fix",
+        "status": "failed and reproduced",
+        "evidence": "In one live turn Record7 and File11 appeared automatically; Todo6 persisted but stayed absent from the visible Current Project rail until refresh. User correction confirmed against GUI."
+      },
+      {
+        "scenario": "automatic sidebar refresh after fix",
+        "status": "passed",
+        "evidence": "Without manual refresh or navigation, Record8/File12 and Todo7 appeared, Todo6 disappeared from unfinished view, and Subtask4 appeared. With Workspace rail already selected, Todo8 appeared automatically and completed Subtask4 disappeared from its unfinished children."
+      },
+      {
+        "scenario": "native summary of recent events and today actions",
+        "status": "passed after correcting retrieval scope",
+        "evidence": "First answer only read current Session objects. Follow-up scoped native reads found Record5/6 and Todos2 through8: today unfinished5/7/8, finished3/6 plus Subtask4; tomorrow4; undated2 and Subtasks2/3. Skill now requires scope-wide source searches and explicit coverage instead of treating unread categories as empty."
+      },
+      {
+        "scenario": "old Session resumes after restart",
+        "status": "passed",
+        "evidence": "A literal source marker in bash output previously poisoned later model turns with Invalid source projection. Native-envelope detection fixed it; restarted old Session continued and committed File10 v4. Same persistent native grant reused."
+      }
+    ],
+    "checks": [
+      {
+        "command": "node --test packages/dsh-assistant/test/mind-cli.test.mjs packages/dsh-assistant/test/source-bridge.test.mjs packages/dsh-assistant/test/project-workspace.test.mjs",
+        "passed": 28,
+        "note": "Initial final binding checks; 26 unaffected checks reused after source marker fix."
+      },
+      {
+        "command": "node --test packages/dsh-assistant/test/source-bridge.test.mjs",
+        "passed": 7,
+        "note": "Final source marker fix; 2 regression failures reproduced first."
+      },
+      {
+        "command": "node --test --test-name-pattern='Mind CLI lease rc.2 runtime' packages/dsh-assistant/test/runtime.integration.mjs",
+        "passed": 1
+      },
+      {
+        "command": "node --test --test-name-pattern='^(fixed source auto titles|source stdio delivers|PTC nested read)' packages/dsh-assistant/test/runtime.integration.mjs",
+        "passed": 3,
+        "note": "Worker ran these three plus one unrelated title test; all four passed. Only the three affected checks belong to this change."
+      },
+      {
+        "command": "node --test --test-name-pattern='same bundled skill configuration' packages/dsh-assistant/test/skills.test.mjs",
+        "passed": 1
+      },
+      {
+        "command": "cargo test --manifest-path src-tauri/Cargo.toml --target-dir /Users/xuchen/project_mind/src-tauri/target --config profile.test.package.project_mind_alpha.debug=0 --lib agent::bridge:: --quiet",
+        "passed": 92,
+        "ignored": 4,
+        "note": "91 initially passed; corrected one invalid test-only priority and reran only failed restart_reuses_native_identity_and_original_receipt, which passed."
+      },
+      {
+        "command": "cargo test --manifest-path src-tauri/Cargo.toml --target-dir /Users/xuchen/project_mind/src-tauri/target --config profile.test.package.project_mind_alpha.debug=0 --lib dsh_assistant::cli::tests",
+        "passed": 3
+      },
+      {
+        "command": "cargo build --manifest-path src-tauri/Cargo.toml --target-dir /Users/xuchen/project_mind/src-tauri/target --config profile.dev.package.project_mind_alpha.debug=0 --bin project_mind_alpha --bin mind --quiet",
+        "status": "passed"
+      },
+      {
+        "command": "node node_modules/vitest/vitest.mjs run src/todo/use-todo-module.test.tsx src/todo/todo-module.test.ts src/lib/business-change-sync.test.ts src/hooks/useWorkspaceBusinessChanges.test.tsx --maxWorkers=2",
+        "passed": 38,
+        "note": "Both new workspace/current-project regressions first failed, then passed."
+      },
+      {
+        "command": "node --test scripts/prepare-cli.test.mjs scripts/stage-dsh-runtime.test.mjs",
+        "passed": 16
+      },
+      {
+        "command": "node node_modules/typescript/bin/tsc",
+        "status": "passed"
+      },
+      {
+        "command": "node node_modules/vite/bin/vite.js build",
+        "status": "passed",
+        "note": "Office prebuild download was unavailable. Reused existing generated dist only after comparing all tracked inputs byte-for-byte against worktree6284: html2docx18, docx85, xlsx805, pptx602 files; no Office source changes."
+      },
+      {
+        "command": "git diff --check",
+        "status": "passed"
+      }
+    ],
+    "review": "Main agent Standards and Spec self-review completed. No review subagents used.",
+    "limits": [
+      "macOS arm64 real-provider GUI acceptance; Windows physical-device acceptance not claimed.",
+      "Model summaries use bounded authorized source reads; this package does not complete all AI knowledge/Overview maintenance in the parent requirements.",
+      "Existing debug Workspace unlock initialization was required again after app restart; original user password was entered only in the native unlock UI."
+    ],
+    "nativeState": {
+      "todos": [
+        {
+          "id": 2,
+          "content": "完成会话联动验收",
+          "status": "unfinished",
+          "priority": "urgent_important",
+          "due_date": null
+        },
+        {
+          "id": 3,
+          "content": "CLI回归：完成会话联动验收",
+          "status": "finished",
+          "priority": "urgent_important",
+          "due_date": "2026-10-22"
+        },
+        {
+          "id": 4,
+          "content": "CLI回归：整理演示反馈",
+          "status": "unfinished",
+          "priority": "not_urgent_important",
+          "due_date": "2026-10-23"
+        },
+        {
+          "id": 5,
+          "content": "CLI回归：发送演示确认",
+          "status": "unfinished",
+          "priority": "not_urgent_important",
+          "due_date": "2026-10-22"
+        },
+        {
+          "id": 6,
+          "content": "侧栏自动刷新验收A",
+          "status": "finished",
+          "priority": "not_urgent_not_important",
+          "due_date": "2026-10-22"
+        },
+        {
+          "id": 7,
+          "content": "侧栏自动刷新验收B",
+          "status": "unfinished",
+          "priority": "not_urgent_not_important",
+          "due_date": "2026-10-22"
+        },
+        {
+          "id": 8,
+          "content": "工作区侧栏自动刷新验收C",
+          "status": "unfinished",
+          "priority": "not_urgent_not_important",
+          "due_date": "2026-10-22"
+        }
+      ],
+      "subtasks": [
+        {
+          "id": 2,
+          "todo_id": 4,
+          "content": "汇总现场反馈",
+          "status": "unfinished",
+          "due_date": null
+        },
+        {
+          "id": 3,
+          "todo_id": 4,
+          "content": "确认后续安排",
+          "status": "unfinished",
+          "due_date": null
+        },
+        {
+          "id": 4,
+          "todo_id": 7,
+          "content": "确认前端已同步",
+          "status": "finished",
+          "due_date": "2026-10-22"
+        }
+      ],
+      "records": [
+        {
+          "id": 5,
+          "title": "演示范围决定",
+          "markdown": "2026-10-22 上午决定：演示版本先支持项目会话联动，文件导出放到下一轮。",
+          "head_revision": 2
+        },
+        {
+          "id": 6,
+          "title": "CLI回归：演示范围决定",
+          "markdown": "## 背景\n\n2026-10-22 上午，确定本轮演示范围。\n\n## 决定\n\n* 本轮演示范围：项目会话联动。\n\n* 文件导出暂不纳入演示\n\n## 记录信息\n\n* 决定日期：2026-10-22\n\n* 记录方式：内置项目 CLI 原生记录（CLI 兼容回归）\n\n下午补充：文件版本管理加入本轮验收",
+          "head_revision": 2
+        },
+        {
+          "id": 7,
+          "title": "侧栏自动刷新记录A",
+          "markdown": "检查会话写入后的自动刷新",
+          "head_revision": 1
+        },
+        {
+          "id": 8,
+          "title": "侧栏自动刷新记录B",
+          "markdown": "确认自动刷新修复",
+          "head_revision": 1
+        }
+      ],
+      "files": [
+        {
+          "id": 10,
+          "name": "演示计划.md",
+          "storage_mode": "project_directory",
+          "current_version_number": 4,
+          "version_count": 4
+        },
+        {
+          "id": 11,
+          "name": "侧栏自动刷新A.md",
+          "storage_mode": "project_directory",
+          "current_version_number": 1,
+          "version_count": 1
+        },
+        {
+          "id": 12,
+          "name": "侧栏自动刷新B.md",
+          "storage_mode": "project_directory",
+          "current_version_number": 2,
+          "version_count": 2
+        }
+      ],
+      "fileVersions": [
+        {
+          "id": 14,
+          "document_id": 10,
+          "version_number": 1,
+          "content_hash": "sha256:15b9d8bf1305ea3d404efde99cc34618297f85166d9befc8db3000a3651e5c5b",
+          "snapshot_hash_matches": true,
+          "content": "# 演示计划\n\n- 范围：项目会话联动\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n"
+        },
+        {
+          "id": 15,
+          "document_id": 10,
+          "version_number": 2,
+          "content_hash": "sha256:195f67d929656ee25b3eeb26b8d9ef3f6f1b42bad446bc64716abed88ba843f2",
+          "snapshot_hash_matches": true,
+          "content": "# 演示计划\n\n- 范围：项目会话联动、文件版本管理\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n3. 演示前核对版本\n"
+        },
+        {
+          "id": 16,
+          "document_id": 10,
+          "version_number": 3,
+          "content_hash": "sha256:019142fc47e8b96fb8e06e5143441037699ebe656f03201539bb7f4c5c775a05",
+          "snapshot_hash_matches": true,
+          "content": "# 演示计划\n\n- 范围：项目会话联动、文件版本管理\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n3. 演示前核对版本\n\n## 验收状态\n\n文件创建和续改已验证；原生记录和待办联动因缺少业务连接待解决。\n"
+        },
+        {
+          "id": 20,
+          "document_id": 10,
+          "version_number": 4,
+          "content_hash": "sha256:09346e2a00a6cfb1d021c1f26f8739b8c2f5c6beb782457666d1b584fe8f0b8c",
+          "snapshot_hash_matches": true,
+          "content": "# 演示计划\n\n- 范围：项目会话联动、文件版本管理\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n3. 演示前核对版本\n\n## 验收状态\n\n文件创建和续改已验证；原生记录、待办和子任务联动已验证。\n\n## CLI兼容回归\n\n已接通原生记录和待办。\n"
+        },
+        {
+          "id": 17,
+          "document_id": 11,
+          "version_number": 1,
+          "content_hash": "sha256:5f5b1babe05bc3a59a259fcaab4b694e1b58922d8b427d7bab18e237f2933781",
+          "snapshot_hash_matches": true,
+          "content": "# 侧栏自动刷新验收"
+        },
+        {
+          "id": 18,
+          "document_id": 12,
+          "version_number": 1,
+          "content_hash": "sha256:b60377a26c91062ed6e626513fb017873eb457ba174f628f0a9f20d1c9529b9a",
+          "snapshot_hash_matches": true,
+          "content": "# 自动刷新B"
+        },
+        {
+          "id": 19,
+          "document_id": 12,
+          "version_number": 2,
+          "content_hash": "sha256:a1c2c69b091782aeb0aa961776ba349a2a73a6fec6a3194e0cc310b2b6e8cdfb",
+          "snapshot_hash_matches": true,
+          "content": "# 自动刷新B\n文件续改版本已验证"
+        }
+      ],
+      "receipts": [
+        {
+          "operation_id": "878af4e6594bde76f5002f74aefeccfa",
+          "operation": "record.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "record",
+            "id": "6"
+          }
+        },
+        {
+          "operation_id": "2f26ecc0d6fbc5db847b73c358101920",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "3"
+          }
+        },
+        {
+          "operation_id": "6168e67e7931d523e3afbd7900a7fe0c",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "4"
+          }
+        },
+        {
+          "operation_id": "8e5cbed669ca0fcf1d1bb783c356c4cb",
+          "operation": "record.patch",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 2,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "record",
+            "id": "6"
+          }
+        },
+        {
+          "operation_id": "ea22995f360a1e7b992a44ef89c0fcea",
+          "operation": "todo.update",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 2,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "3"
+          }
+        },
+        {
+          "operation_id": "7d7d56ef52ef2523b9238cec1ec00c2c",
+          "operation": "todo.update",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 2,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "4"
+          }
+        },
+        {
+          "operation_id": "4516b6d803f3d32caf43597699ec3efa",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "5"
+          }
+        },
+        {
+          "operation_id": "55a944ba9475179cdbb9a31be32ea462",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "6"
+          }
+        },
+        {
+          "operation_id": "961c342d68cf86aabac650e2cb634233",
+          "operation": "record.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "record",
+            "id": "7"
+          }
+        },
+        {
+          "operation_id": "81ddbf267ff0c70cc595d2fafe1f1d3c",
+          "operation": "file.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "file",
+            "id": "11"
+          }
+        },
+        {
+          "operation_id": "b83b02c27e02a60060916374cb6c6191",
+          "operation": "todo.update",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 2,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "6"
+          }
+        },
+        {
+          "operation_id": "ced6560604f7631193ef472b5ea29525",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 2,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "7"
+          }
+        },
+        {
+          "operation_id": "b8ce2e2c3405d6500f401ee604ebc22d",
+          "operation": "record.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "record",
+            "id": "8"
+          }
+        },
+        {
+          "operation_id": "d0d0f1dfc3a31b8be8c2489b285b1fb7",
+          "operation": "file.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "file",
+            "id": "12"
+          }
+        },
+        {
+          "operation_id": "70358996908f79f7a01c896d92fc55ac",
+          "operation": "todo.update",
+          "state": "committed",
+          "before_revision": 2,
+          "after_revision": 3,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "7"
+          }
+        },
+        {
+          "operation_id": "f9212bfae5f9256d3705379d0861b9ff",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "8"
+          }
+        },
+        {
+          "operation_id": null,
+          "operation": "file.content.stage.begin",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": null,
+          "target": null
+        },
+        {
+          "operation_id": null,
+          "operation": "file.content.stage.chunk",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": null,
+          "target": null
+        },
+        {
+          "operation_id": null,
+          "operation": "file.content.stage.finish",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": null,
+          "target": null
+        },
+        {
+          "operation_id": "66cb9c9848f76c691a41450a0de4c8c6",
+          "operation": "file.version.commit",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 2,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "file",
+            "id": "12"
+          }
+        },
+        {
+          "operation_id": "49af805459162faa95f4eebf9c370329",
+          "operation": "todo.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "9"
+          }
+        },
+        {
+          "operation_id": "786ccf1724df6529d21ea123ac2abd00",
+          "operation": "record.create",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "record",
+            "id": "9"
+          }
+        },
+        {
+          "operation_id": null,
+          "operation": "file.content.stage.begin",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": null,
+          "target": null
+        },
+        {
+          "operation_id": null,
+          "operation": "file.content.stage.chunk",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": null,
+          "target": null
+        },
+        {
+          "operation_id": null,
+          "operation": "file.content.stage.finish",
+          "state": "committed",
+          "before_revision": null,
+          "after_revision": null,
+          "target": null
+        },
+        {
+          "operation_id": "60946c002510fa9d488188e8748ec43e",
+          "operation": "file.version.commit",
+          "state": "committed",
+          "before_revision": 3,
+          "after_revision": 4,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "file",
+            "id": "10"
+          }
+        },
+        {
+          "operation_id": "600833454ee16f99cc42a5ccffa5bbee",
+          "operation": "todo.withdraw",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "todo",
+            "id": "9"
+          }
+        },
+        {
+          "operation_id": "0aa401bc0f90b0a88c4874d04a351fad",
+          "operation": "record.withdraw",
+          "state": "committed",
+          "before_revision": 1,
+          "after_revision": 1,
+          "target": {
+            "workspaceId": "6751b8fff4fe5208fcb4c90ff5528e39",
+            "scope": {
+              "kind": "project",
+              "projectId": 3
+            },
+            "kind": "record",
+            "id": "9"
+          }
+        }
+      ],
+      "nativeGrantCountAfterRestart": 1,
+      "fixtureCleanup": "Pending old intent created Record9 and Todo9 with new request IDs. Exactly these two duplicates were withdrawn via native receipt undo at expectedHeadRevision1; original Record7/Todo6 and all Files retained. Visible native lists exclude withdrawn objects."
+    }
   }
 }
