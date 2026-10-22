@@ -10,9 +10,8 @@ const base = loadOverlayPatches('title-test', fileURLToPath(new URL('../node_mod
 const upstream = base.flatMap(patch => patch.insert ?? []).find(row => row.id === 'session-title-llm').config;
 const config = resolveSessionTitleLlmConfig(sharedModelPatches(provider).find(row => row.id === 'session-title-llm')?.config ?? upstream);
 
-async function generate(text, thinkingTokens = 0) {
+async function generate(text, thinkingTokens = 0, { calls = [], appended = [] } = {}) {
   const messages = [{ seq: 8, text }];
-  const calls = [], appended = [];
   const ctx = { llm: { async *stream(options) {
     calls.push(options);
     if (thinkingTokens) yield { type: 'reasoning-delta', index: 0, text: 'Synthetic private reasoning' };
@@ -41,6 +40,9 @@ test('first-prompt title can finish after a reasoning response instead of retain
   assert.deepEqual(result.model, { provider: 'mind-main', model: provider.modelId });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].purpose, 'session-title');
+  assert.equal(calls[0].maxTokens, 1024);
+  assert.ok(calls[0].system.includes('Use the language of the messages.'));
+  assert.ok(calls[0].system.includes('5 words in non-CJK languages or 10 CJK characters'));
   assert.deepEqual(messages, [{ seq: 8, text }], 'title generation does not rewrite the original prompt');
 });
 
@@ -54,12 +56,35 @@ test('a multi-paragraph Chinese first question is summarized rather than rejecte
   assert.equal(appended[0].type, 'session/title-llm-request');
 });
 
+test('the framed UTF-8 input fits at the byte limit and rejects overflow without dispatch or clipping', async () => {
+  const sample = '项目\n"\\';
+  const { calls: sampleCalls } = await generate(sample);
+  const sampleBytes = Buffer.byteLength(sampleCalls[0].messages[0].content[0].text);
+  const text = sample + 'a'.repeat(config.maxInputBytes - sampleBytes);
+  const { calls } = await generate(text);
+  const framed = calls[0].messages[0].content[0].text;
+  assert.equal(Buffer.byteLength(framed), 32768);
+  assert.deepEqual(JSON.parse(framed.slice(framed.indexOf('\n') + 1)), [{ seq: 8, text }]);
+  const rejectedCalls = [], appended = [];
+  await assert.rejects(generate(text + 'a', 0, { calls: rejectedCalls, appended }), /exceeding maxInputBytes 32768/);
+  assert.equal(rejectedCalls.length, 0);
+  assert.equal(appended.length, 0);
+});
+
+test('reasoning that exhausts the bounded output budget is rejected without treating it as a title', async () => {
+  const calls = [], appended = [];
+  await assert.rejects(generate('请检查项目会话。', 1024, { calls, appended }), /title output reached maxOutputTokens/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].maxTokens, 1024);
+  assert.deepEqual(appended.map(event => event.type), ['session/title-llm-request']);
+});
+
 test('title policy keeps upstream language-aware short titles and bounded auxiliary work', () => {
   assert.equal(config.targetWords, upstream.targetWords);
   assert.equal(config.targetCjkCharacters, upstream.targetCjkCharacters);
   assert.equal(config.timeoutMs, upstream.timeoutMs);
-  assert.ok(config.maxInputBytes <= 32768);
-  assert.ok(config.maxOutputTokens <= 1024);
+  assert.equal(config.maxInputBytes, 32768);
+  assert.equal(config.maxOutputTokens, 1024);
   assert.deepEqual(sharedModelPatches(provider).find(row => row.id === 'agent-default-model').config,
     { provider: 'mind-main', model: provider.modelId });
 });

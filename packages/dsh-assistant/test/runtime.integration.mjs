@@ -370,6 +370,14 @@ test('long first questions receive a summarized title through the embedded auxil
   const titleRequests = bodies.filter(body => body.messages.some(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title')));
   assert.equal(titleRequests.length, 1);
   assert.equal(titleRequests[0].max_tokens ?? titleRequests[0].max_completion_tokens, 1024);
+  const titleInput = titleRequests[0].messages.find(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title')).content;
+  const titleMessages = JSON.parse(titleInput.slice(titleInput.indexOf('\n') + 1));
+  assert.equal(titleMessages.length, 1);
+  assert.equal(titleMessages[0].text, text, 'the auxiliary model receives the full first prompt');
+  assert.ok(bodies.some(body => body !== titleRequests[0] && body.messages.some(message =>
+    message.role === 'user' && (typeof message.content === 'string' ? message.content :
+      message.content.filter(block => block.type === 'text').map(block => block.text).join('')).includes(text))),
+  'title generation preserves the original main-model prompt');
   const listed = (await runtime.rpc('session/list', {}, '_request')).items.find(item => item.sessionId === sessionId);
   assert.equal(listed.title ?? listed.projections.values.title, summarizedTitle);
   assert.equal(events(stream).find(event => event.type === 'user/message').data.content[0].text, text);
