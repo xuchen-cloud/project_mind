@@ -38,7 +38,11 @@ npm install
 npm run dev:tauri
 ```
 
-开发时需要避免源码变化自动重开窗口，可使用 `npm run dev:tauri:manual`。两个开发入口均先静默编译内置 `mind`，使会话使用与源码一致的 CLI，无需安装到系统 PATH。debug 工作区可使用开发专用本地密钥缓存自动解锁；正式构建仍执行密码与凭据保护。
+开发时需要避免源码变化自动重开窗口，可使用 `npm run dev:tauri:manual`。两个开发入口均先静默编译内置 `mind`，使会话使用与源码一致的 CLI，无需安装到系统 PATH。Tauri 的 `beforeDevCommand` 统一先运行 `npm run prepare:dev-runtime`，成功后再启动 Vite；准备失败会阻止启动。debug 工作区可使用开发专用本地密钥缓存自动解锁；正式构建仍执行密码与凭据保护。
+
+`prepare:dev-runtime` 复用桌面资源准备脚本的 `--development` 模式，支持本机 macOS arm64/x64、Windows x64 和 Linux x64：校验并准备 manifest 固定的 Node（不使用系统 Node 替代），构建 Record / Source worker，生成 Source 所需的共享 Node 与资源收据，并沿用 `build:office` 生成 Office 开发资源。首次会下载固定 Node 归档并按各 Office 包 lock 安装依赖；可用 `PROJECT_MIND_NODE_ARCHIVE` 指定已有归档，仍须通过原 checksum 校验。开发准备不安装或 stage DSH production，也不 stage Office 发行副本。
+
+开发模式按本机选 target；若设置 `TAURI_ENV_TARGET_TRIPLE` 或 `CARGO_BUILD_TARGET`，必须与本机一致。发行命令 `prepare:desktop-runtime` 仍必须通过参数或这两个环境变量显式提供一致的 Rust target，不会默认使用本机。
 
 仅启动前端：
 
@@ -52,7 +56,7 @@ npm run dev
 npm run build
 ```
 
-构建会按各包 lock 安装 Word、PPT、Excel、Markdown 的局部依赖，并校验固定上游源码。首次仅启动开发服务器前，先运行 `npm run build:office` 生成编辑器资源。Windows 构建使用 Windows 的 Node 与 XLSX sidecar，PDF/打印接入 WebView2；macOS 使用 WKWebView。
+构建会按各包 lock 安装 Word、PPT、Excel、Markdown 的局部依赖，并校验固定上游源码。仅启动前端开发服务器前，可先运行 `npm run prepare:dev-runtime` 准备上述资源；`npm run dev` 本身只启动 Vite。Windows 构建使用 Windows 的 Node 与 XLSX sidecar，PDF/打印接入 WebView2；macOS 使用 WKWebView。
 
 前端单元测试：
 

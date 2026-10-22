@@ -22,6 +22,7 @@
     "prepare:cli": "node scripts/prepare-cli.mjs",
     "build:tauri": "tauri build --config src-tauri/tauri.release.conf.json",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
+    "prepare:dev-runtime": "node scripts/prepare-desktop-runtime.mjs --development",
     "test:desktop-runtime": "node --test scripts/desktop-runtime.test.mjs scripts/stage-dsh-runtime.test.mjs",
     "build:icons": "tauri icon src-tauri/icons/icon-source.svg --output src-tauri/icons",
     "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",
