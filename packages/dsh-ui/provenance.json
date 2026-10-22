@@ -344,6 +344,12 @@
         "upstream/client/ui-conversation/src/client/input/editor/view-binding.ts",
         "upstream/client/ui-conversation/src/client/input/editor/ComposerContentEditable.tsx"
       ]
+    },
+    {
+      "reason": "Keep detailed-mode live process groups collapsed behind the existing latest-activity header; retain manual choices while streaming and reset group disclosure when work completes. Explicit verbose mode remains expanded.",
+      "paths": [
+        "upstream/client/ui-chat/src/client/chat/ChatGroupSeat.tsx"
+      ]
     }
   ],
   "derivedAssets": [
@@ -1182,7 +1188,7 @@
     },
     {
       "path": "upstream/client/ui-chat/src/client/chat/ChatGroupSeat.tsx",
-      "sha256": "261ba4fecdaad8922462faa9b0aef01b56788d78b2e08f0b2fb768df405ef18c",
+      "sha256": "771f6409245f0ffef40e9bb56948a5d1a0c4f3dc092ab2263a162b6c25e915e1",
       "originalSha256": "261ba4fecdaad8922462faa9b0aef01b56788d78b2e08f0b2fb768df405ef18c"
     },
     {

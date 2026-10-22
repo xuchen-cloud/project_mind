@@ -70,3 +70,16 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 ## Project File preview / #124 WP4
 
 新增独立 [preview](preview/README.md) 导出，真实复用固定 DSH documentpreview 格式正文、缩放和 PDF 生命周期；输入由主应用 File / File Version 读取，不依赖 Session/模型。PDF Worker 与 cmap/font/wasm 纳入正式构建，许可与 SHA-256 在 preview 清单。HTML 使用原 DSH BasicHtmlFrame / sanitizer / CSP 做空 sandbox 静态预览，源码直接用同一 fixed text 的 DSH TextBody 行定位；无调用的原 FileHtmlPreview 已移除；当前入口是 ProjectFileContent，#115 交互执行仍未验收。current Markdown 图片及静态 HTML 图片/stylesheet 经 bound native resolveRelated + 固定 readBytes 加载；历史未保留的关联资源明确限制。Office 编辑不在本包。验证与具体限制见 [WP4 交接](preview/HANDOVER.md)。
+
+## 运行中过程折叠适配（2026-10-22，#202）
+
+ChatGroupSeat 将详细模式（含旧设置映射）的运行中过程也保留在单行最新活动标题下；原来的 history 判断在 Turn 运行时跳过分组，导致思考与工具步骤全部展开。沿用原活动摘要、150ms 标题更新节流、搜索可揭示的隐藏正文和滚动控制器；点击展开/收起后，流式活动不重置用户选择，过程组完成时重置为收起。显式“完全展开”模式继续展示正文。全局 disclosure、Turn 外层策略与其他组件不变。
+
+针对真实 ChatGroupSeat / ChatNodeSeat 的回归（业务正文使用 fixture slot）：
+
+```sh
+npm run test:unit -- packages/dsh-ui/process-disclosure.test.tsx
+npm --prefix packages/dsh-ui run test:integrity
+```
+
+红测试：standard 默认折叠通过，detailed 的标题不可访问且正文可见，2 failed / 1 passed。修复后 6/6 通过，覆盖默认单行、活动更新、展开/收起、流式新增、完成折叠、显式 verbose，以及展开时滚动跟随、用户向上滚动停止跟随和 reduced-motion。vendor integrity 3/3 与 adapters 浏览器构建通过。主 agent 在 develop 335a31b 加本补丁的 macOS 原生界面中，使用真实模型连续执行三次短命令，确认运行中默认单行、手动展开、完成折叠及重新展开/收起。未重跑无关全仓构建。主 agent Standards / Spec 自查无剩余发现。

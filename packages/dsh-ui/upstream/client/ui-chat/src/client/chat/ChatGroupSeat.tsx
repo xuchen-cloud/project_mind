@@ -133,15 +133,16 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   const turn = useChatGroup(groupKey, group => group?.data.turn)
   const closed = useChatGroup(groupKey, group => group?.data.closed)
   const foldCompleted = props.usePresentation(policy => policy.foldCompletedTurns)
-  const { expanded: open, setExpanded: setOpen } = useDisclosure()
+  const { expanded: open, setExpanded: setOpen } = useDisclosure(closed === true ? 1 : 0)
   const firstKey = members?.[0]?.key ?? ''
   const presentation = props.useChatNodeProcess(firstKey)
   const turnLocation = props.useChatNode(firstKey, (node) => {
     const location = node?.location
     return location?.kind === 'turn' || location?.kind === 'step' ? location.turn : undefined
   })
-  const grouped = props.usePresentation(policy => policy.stepGrouping === 'collapsed'
-    || (policy.stepGrouping === 'history' && turnLocation?.status !== 'open'))
+  // Detailed mode also keeps live work behind its activity row. Only the
+  // explicit verbose mode bypasses the process-group disclosure.
+  const grouped = props.usePresentation(policy => policy.stepGrouping !== 'none')
   const reason = turnLocation?.end?.data.reason.kind
   const alwaysOpen = presentation?.turnClosed === false || presentation?.hasInterleavedInput === true
     || reason === 'aborted' || reason === 'error'
