@@ -1,0 +1,153 @@
+{
+  "date": "2026-10-22",
+  "timezone": "Asia/Shanghai",
+  "branch": "origin/develop",
+  "commit": "335a31b",
+  "platform": "macOS arm64 native Tauri debug with Vite",
+  "provider": "configured General profile / deepseek-flash",
+  "projectFixture": {
+    "id": 3,
+    "name": "会话端到端验收 2026-10-22",
+    "recordAndTodoCreatedManuallyForUpdateTests": true
+  },
+  "sessionId": "session-6c0424f9-4683-4bf5-8531-a74026e80ad2",
+  "results": [
+    {
+      "scenario": "natural language create Record and Todos",
+      "status": "blocked",
+      "evidence": "No native connection ID supplied to DSH; mind absent from PATH; no Record/Todo created."
+    },
+    {
+      "scenario": "update Todo completion",
+      "status": "blocked",
+      "evidence": "Manual fixture remains unfinished."
+    },
+    {
+      "scenario": "create Todo subtasks",
+      "status": "blocked",
+      "evidence": "No child rows after request."
+    },
+    {
+      "scenario": "modify and append Record",
+      "status": "blocked",
+      "evidence": "Manual fixture retains original content; model explicitly reports not executed."
+    },
+    {
+      "scenario": "create File and automatically manage it",
+      "status": "passed",
+      "evidence": "File appears in native sidebar and opens in Markdown editor; document ID 10."
+    },
+    {
+      "scenario": "edit File in same session with immutable history",
+      "status": "passed",
+      "evidence": "Same document ID 10 across v1/v2/v3; UI selected v1 read-only and retained original contents; all stored snapshot hashes match."
+    },
+    {
+      "scenario": "summarize recent project events",
+      "status": "partial",
+      "evidence": "Actual File sources and conversation history summarized; model explicitly cannot read native Records or Todos."
+    },
+    {
+      "scenario": "summarize today actions from saved Todos",
+      "status": "blocked",
+      "evidence": "No native Todo read connection. Returned items based on conversation, marked unverified; does not prove due-date retrieval."
+    }
+  ],
+  "nativeState": {
+    "files": [
+      {
+        "id": 10,
+        "name": "演示计划.md",
+        "current_version_number": 3,
+        "version_count": 3
+      }
+    ],
+    "fileVersions": [
+      {
+        "document_id": 10,
+        "version_number": 1,
+        "content_hash": "sha256:15b9d8bf1305ea3d404efde99cc34618297f85166d9befc8db3000a3651e5c5b",
+        "snapshot_hash_matches": true,
+        "content": "# 演示计划\n\n- 范围：项目会话联动\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n"
+      },
+      {
+        "document_id": 10,
+        "version_number": 2,
+        "content_hash": "sha256:195f67d929656ee25b3eeb26b8d9ef3f6f1b42bad446bc64716abed88ba843f2",
+        "snapshot_hash_matches": true,
+        "content": "# 演示计划\n\n- 范围：项目会话联动、文件版本管理\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n3. 演示前核对版本\n"
+      },
+      {
+        "document_id": 10,
+        "version_number": 3,
+        "content_hash": "sha256:019142fc47e8b96fb8e06e5143441037699ebe656f03201539bb7f4c5c775a05",
+        "snapshot_hash_matches": true,
+        "content": "# 演示计划\n\n- 范围：项目会话联动、文件版本管理\n- 日期：2026-10-22\n\n## 步骤\n\n1. 完成验收\n2. 整理反馈\n3. 演示前核对版本\n\n## 验收状态\n\n文件创建和续改已验证；原生记录和待办联动因缺少业务连接待解决。\n"
+      }
+    ],
+    "todos": [
+      {
+        "id": 2,
+        "content": "完成会话联动验收",
+        "status": "unfinished",
+        "priority": "urgent_important",
+        "due_date": null
+      }
+    ],
+    "subtasks": [],
+    "records": [
+      {
+        "id": 5,
+        "title": "演示范围决定",
+        "markdown": "2026-10-22 上午决定：演示版本先支持项目会话联动，文件导出放到下一轮。",
+        "head_revision": 2
+      }
+    ]
+  },
+  "targetedChecks": [
+    {
+      "command": "cargo build --manifest-path src-tauri/Cargo.toml --bin project_mind_alpha --quiet --target-dir /Users/xuchen/project_mind/src-tauri/target",
+      "status": "passed"
+    },
+    {
+      "command": "cargo build --manifest-path src-tauri/Cargo.toml --bin mind --quiet --target-dir /Users/xuchen/project_mind/src-tauri/target",
+      "status": "passed"
+    },
+    {
+      "command": "node --test packages/dsh-assistant/test/source-bridge.test.mjs packages/dsh-assistant/test/project-workspace.test.mjs",
+      "passed": 12,
+      "failed": 0
+    },
+    {
+      "command": "node node_modules/vitest/vitest.mjs run src/components/agent/DshAssistantPanel.test.tsx src/services/dshAssistantApi.test.ts src/lib/dsh-host-events.test.ts --maxWorkers=2",
+      "passed": 39,
+      "failed": 0,
+      "note": "Repeated once after isolating local dsh-ui package resolution."
+    },
+    {
+      "command": "npm run test:unit -- packages/dsh-ui/process-disclosure.test.tsx",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "command": "npm --prefix packages/dsh-ui run test:integrity",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "command": "npm --prefix packages/dsh-ui run check:adapters",
+      "status": "passed",
+      "note": "39 source entries / 1045 modules; no unresolved browser imports."
+    }
+  ],
+  "uiRegression": {
+    "issue": 202,
+    "branch": "codex/session-process-collapse",
+    "baseCommit": "335a31b",
+    "rootCause": "Detailed presentation bypassed process grouping while a Turn was open.",
+    "result": "passed",
+    "automated": "6 component regressions passed after 2 failing regressions reproduced the bug; vendor integrity 3/3; adapters browser closure build passed.",
+    "gui": "Native macOS app with real deepseek-flash: three consecutive short shell calls; live thinking/tools initially collapsed; latest command label updates; manually opened second group; group collapsed on completion; completed group can reopen and collapse.",
+    "review": "Main agent Standards and Spec self-review completed with no remaining findings. No review subagents used."
+  }
+}
