@@ -19,6 +19,8 @@ function acquire(projectId) {
         window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy: data } }));
       else if (type === 'sessionRuns')
         window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: data } }));
+      else if (type === 'sessionTitles')
+        window.dispatchEvent(new CustomEvent('mind:dsh-session-titles', { detail: { projectId, titlesBySession: data } }));
       else if (type === 'sessionsChanged')
         window.dispatchEvent(new CustomEvent('mind:dsh-sessions-changed', { detail: { projectId } }));
     }), () => {});
@@ -131,8 +133,10 @@ export function DshSettingsHost(props) { return <Host {...props} sessionId={null
 
 export async function disposeDshClients() {
   const entries = [...clients.values()];
-  for (const projectId of clients.keys())
+  for (const projectId of clients.keys()) {
     window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: {} } }));
+    window.dispatchEvent(new CustomEvent('mind:dsh-session-titles', { detail: { projectId, titlesBySession: {} } }));
+  }
   clients.clear();
   await Promise.all(entries.map(entry => entry.promise.then(client => client.dispose(), () => {})));
 }
