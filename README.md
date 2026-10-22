@@ -38,7 +38,7 @@ npm install
 npm run dev:tauri
 ```
 
-开发时需要避免源码变化自动重开窗口，可使用 `npm run dev:tauri:manual`。debug 工作区可使用开发专用本地密钥缓存自动解锁；正式构建仍执行密码与凭据保护。
+开发时需要避免源码变化自动重开窗口，可使用 `npm run dev:tauri:manual`。两个开发入口均先静默编译内置 `mind`，使会话使用与源码一致的 CLI，无需安装到系统 PATH。debug 工作区可使用开发专用本地密钥缓存自动解锁；正式构建仍执行密码与凭据保护。
 
 仅启动前端：
 
@@ -128,7 +128,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspa
 ## 当前限制
 
 - 当前数据库 schema 为 v37，包含原生 AI、Record/文件版本、会话索引、Overview 和记忆服务；旧领域数据通过兼容迁移复制为当前 Record。
-- DSH Project 聊天已接入固定 File 来源，尚未接通全部原生 Record/Todo/File 成果与记忆工具。Workspace 聊天及知识/记忆 GUI 暂未接回；后台 Pi、原生保存和 CLI/MCP 继续保留。
+- DSH 会话通过应用附带的 Mind CLI 接入当前作用域的原生 Record/Todo/File 读取与保存；固定 File 来源与自动版本管理仍沿用原生服务。知识/记忆的完整统一工作流仍未交付；原生保存和外部 CLI/MCP 继续保留。
 - Office 编辑仍处于候选验证阶段；静态 HTML 预览禁用脚本、导航与表单，不代表交互 HTML 执行能力已交付。
 - macOS 是当前主要开发和验证平台；Windows 的 Voice Record 与页面驻留仍缺完整实机验收。
 - 当前未完成事项统一记录在 [`docs/remaining-work.md`](docs/remaining-work.md)。

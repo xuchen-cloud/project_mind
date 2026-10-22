@@ -40,12 +40,21 @@ export function createSourceBridge(input, write) {
   };
 }
 
-// This marker is model-visible and persisted in the original DSH log. Its
-// contents are generated and revalidated by the native File service.
+// Only the native envelope is a delivery candidate. Bare markers also occur
+// in ordinary source code; syntax alone never authorizes source evidence.
+// Native still revalidates the complete projection against fixed File bytes.
 export function sourceProjections(text) {
-  return [...text.matchAll(/(?:@mind-source\/[A-Za-z0-9_-]+\/[^\s]+\n)?<mind-file-source>([^\n]*)<\/mind-file-source>/g)].map(match => ({
-    projection: match[0], metadata: JSON.parse(match[1]),
-  }));
+  const projections = [];
+  for (const match of text.matchAll(/@mind-source\/[A-Za-z0-9_-]+\/[^\s]+\n<mind-file-source>([^\n]*)<\/mind-file-source>/g)) {
+    let metadata;
+    try { metadata = JSON.parse(match[1]); } catch { continue; }
+    if (typeof metadata?.id !== 'string' || metadata.sourceRef?.object?.kind !== 'file'
+      || typeof metadata.content !== 'string' || typeof metadata.truncated !== 'boolean'
+      || !['offset', 'requestedLimit'].every(key => Number.isSafeInteger(metadata[key]) && metadata[key] > 0)
+      || !Number.isSafeInteger(metadata.limit) || metadata.limit < 0) continue;
+    projections.push({ projection: match[0], metadata });
+  }
+  return projections;
 }
 const hash = text => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -54,7 +63,7 @@ export function sourceTitleText(text) {
   return text.replace(/(?:@mind-source\/[A-Za-z0-9_-]+\/[^\s]+\n)?<mind-file-source>[^\n]*<\/mind-file-source>/g, (projection, offset, original) => {
     let sourceRef;
     try {
-      sourceRef = sourceProjections(projection)[0].metadata.sourceRef;
+      sourceRef = JSON.parse(/<mind-file-source>([^\n]*)<\/mind-file-source>/.exec(projection)[1]).sourceRef;
       const token = /^@mind-source\/([A-Za-z0-9_-]+)\//.exec(projection);
       if (token && !isDeepStrictEqual(JSON.parse(Buffer.from(token[1], 'base64url').toString('utf8')), sourceRef)) return projection;
     } catch { return projection; }

@@ -50,6 +50,9 @@ export function createBusinessChangeSync({ binding, queryClient, readChanges, in
       if (Number.isSafeInteger(id) && id > 0) invalidate(queryKeys.documentVersions(id));
     }
     if (object.kind === "todo" || object.kind === "project") {
+      // The Workspace rail includes Project-owned Todos, so its source page
+      // must be refreshed before rebuilding either derived Todo view.
+      invalidate(queryKeys.workspacePage);
       invalidate(queryKeys.todoCollections.workspaceRail);
       invalidate(queryKeys.todoViews.workspace);
       if (object.scope.kind === "project") {
