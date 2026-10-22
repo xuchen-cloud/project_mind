@@ -101,19 +101,13 @@ fn deadline(value: &Option<String>) -> AgentResult<()> {
     Ok(())
 }
 fn status(value: &str) -> AgentResult<()> {
-    if !matches!(value, "unfinished" | "finished") {
+    if !crate::agent::outputs::TODO_STATUSES.contains(&value) {
         return Err(invalid("Unsupported Todo status"));
     }
     Ok(())
 }
 fn priority(value: &str) -> AgentResult<()> {
-    if !matches!(
-        value,
-        "urgent_important"
-            | "urgent_not_important"
-            | "not_urgent_important"
-            | "not_urgent_not_important"
-    ) {
+    if !crate::agent::outputs::TODO_PRIORITIES.contains(&value) {
         return Err(invalid("Unsupported Todo priority"));
     }
     Ok(())
