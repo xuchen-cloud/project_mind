@@ -1052,6 +1052,9 @@ pub(crate) fn assistant_script_command(
         return Err("助手资源不完整，请重新安装应用".into());
     }
     let mut command = Command::new(node);
+    // Assistant scripts communicate over pipes and never need a console window.
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     command.current_dir(root).arg(script).env(
         "PROJECT_MIND_DSH_SKILLS_DATA",
         assistant_data_root()?.join("skills"),
