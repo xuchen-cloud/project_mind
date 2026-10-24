@@ -9,7 +9,7 @@ const args = ['build', '--locked', '--release', '--manifest-path', join(root, 'n
   '--target-dir', join(root, 'native/target'), ...(target ? ['--target', target] : [])]
 const env = { ...process.env }
 delete env.CARGO_BUILD_TARGET
-const result = spawnSync('cargo', args, { stdio: 'inherit', env })
+const result = spawnSync('cargo', args, { stdio: 'inherit', env, windowsHide: true })
 if (result.error) throw result.error
 if (result.status !== 0) process.exit(result.status ?? 1)
 const suffix = target?.includes('windows') || (!target && process.platform === 'win32') ? '.exe' : ''

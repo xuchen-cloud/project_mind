@@ -107,7 +107,14 @@ export const desktopApi = {
 
   async closeVoiceCaptionWindow() {
     const captionWindow = await webviewWindow.WebviewWindow.getByLabel("voice-caption");
-    if (captionWindow) await captionWindow.destroy();
+    if (!captionWindow) return;
+    try {
+      await captionWindow.destroy();
+    } catch (error) {
+      // The caption also closes itself after observing the ended session.
+      // Recheck after the failed async destruction before reporting a failure.
+      if (await webviewWindow.WebviewWindow.getByLabel("voice-caption")) throw error;
+    }
   },
 
   captionWindowOnCloseRequested(shouldClose: () => boolean) {

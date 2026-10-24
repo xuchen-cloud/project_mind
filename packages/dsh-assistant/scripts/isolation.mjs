@@ -2,14 +2,15 @@ import path from 'node:path';
 import os from 'node:os';
 
 export function assistantDataPath(environment = process.env, platform = process.platform, home = os.homedir()) {
+  const paths = platform === 'win32' ? path.win32 : path.posix;
   const override = environment.PROJECT_MIND_DSH_USER_DATA;
   if (override) {
-    if (!path.isAbsolute(override)) throw new Error('PROJECT_MIND_DSH_USER_DATA must be absolute');
+    if (!paths.isAbsolute(override)) throw new Error('PROJECT_MIND_DSH_USER_DATA must be absolute');
     return override;
   }
-  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'project-mind-dsh');
-  if (platform === 'win32') return path.join(environment.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'project-mind-dsh');
-  return path.join(environment.XDG_DATA_HOME ?? path.join(home, '.local', 'share'), 'project-mind-dsh');
+  if (platform === 'darwin') return paths.join(home, 'Library', 'Application Support', 'project-mind-dsh');
+  if (platform === 'win32') return paths.join(environment.APPDATA ?? paths.join(home, 'AppData', 'Roaming'), 'project-mind-dsh');
+  return paths.join(environment.XDG_DATA_HOME ?? paths.join(home, '.local', 'share'), 'project-mind-dsh');
 }
 
 export function assistantEnvironment(environment = process.env) {

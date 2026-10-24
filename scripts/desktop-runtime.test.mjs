@@ -17,6 +17,7 @@ test('development CLI rejects an unverified Node archive before building workers
   const archive = path.join(directory, 'invalid-archive');
   await writeFile(archive, 'not the pinned Node archive');
   await assert.rejects(exec(process.execPath, [fileURLToPath(new URL('./prepare-desktop-runtime.mjs', import.meta.url)), '--development'], {
+    windowsHide: true,
     env: { ...process.env, TAURI_ENV_TARGET_TRIPLE: '', CARGO_BUILD_TARGET: '',
       PROJECT_MIND_NODE_ARCHIVE: archive, npm_execpath: 'unused-npm-cli' },
   }), error => {
@@ -131,7 +132,7 @@ test('Tauri normal and manual development wait for preparation and stop before V
     dev: 'node vite-marker.mjs',
   } }));
   await assert.rejects(exec(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'hook'], {
-    cwd: directory, shell: process.platform === 'win32',
+    cwd: directory, shell: process.platform === 'win32', windowsHide: true,
     env: { ...process.env, TAURI_ENV_TARGET_TRIPLE: '', CARGO_BUILD_TARGET: '', PROJECT_MIND_NODE_ARCHIVE: archive },
   }), error => {
     assert.equal(error.code, 1);

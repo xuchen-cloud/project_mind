@@ -35,5 +35,8 @@ try {
   result = { ok: false, error: { code: error.message === 'BUDGET_EXCEEDED' ? 'BUDGET_EXCEEDED' : 'INVALID_REQUEST' } };
 } finally {
   clearTimeout(timer);
+  process.stdin.destroy();
 }
-process.stdout.write(JSON.stringify(result) + '\n', () => process.exit(0));
+// Let Node finish closing the adapter's async handles before exiting. Forcing
+// exit inside the write callback races their teardown on Windows.
+process.stdout.write(JSON.stringify(result) + '\n');

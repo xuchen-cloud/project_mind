@@ -101,7 +101,7 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     <section aria-label="语音记录设置" className="grid max-w-2xl gap-5">
       <div>
         <h2 className="text-title font-semibold text-text">语音记录</h2>
-        <p className="mt-1 text-body text-text-muted">麦克风始终跟随 macOS 系统默认输入设备；开始录音前切换系统输入即可。</p>
+        <p className="mt-1 text-body text-text-muted">麦克风始终跟随系统默认输入设备；开始录音前切换系统输入即可。</p>
       </div>
 
       <label className="grid gap-1.5 text-body text-text">

@@ -8,8 +8,13 @@ import React from "react";
 import { VoiceCaptionWindow } from "./components/voice/VoiceCaptionWindow";
 import { renderReactRoot } from "./lib/react-root";
 
+const root = document.getElementById("root")!;
+if (/Windows/i.test(navigator.userAgent)) {
+  root.dataset.platform = "windows";
+}
+
 renderReactRoot(
-  document.getElementById("root")!,
+  root,
   <React.StrictMode><VoiceCaptionWindow /></React.StrictMode>,
   import.meta.hot?.data,
 );

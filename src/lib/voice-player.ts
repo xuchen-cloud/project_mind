@@ -2,10 +2,11 @@ import type { VoicePlaybackChunk } from './voice-types';
 
 /** One audio clock schedules both sources and all pause/resume epochs. */
 export class VoicePlayer {
-  private context = new AudioContext();
+  private context: AudioContext | null = null;
   private buffers: { start: number; buffer: AudioBuffer }[] = [];
   private sources: AudioBufferSourceNode[] = [];
-  private gain = this.context.createGain();
+  private gain: GainNode | null = null;
+  private gainValue = 1;
   private offset = 0;
   private started = 0;
   private rate = 1;
@@ -13,10 +14,12 @@ export class VoicePlayer {
   duration = 0;
 
   async load(chunks: VoicePlaybackChunk[], url: (path: string) => string, signal: AbortSignal) {
+    // Decoding saved audio must not open a physical output device while recording.
+    const decoder = new OfflineAudioContext(2, 1, 48_000);
     const decoded = await Promise.all(chunks.map(async chunk => {
       const response = await fetch(url(chunk.path), { signal });
       if (!response.ok) throw new Error(`音频读取失败 (${response.status})`);
-      const buffer = await this.context.decodeAudioData(await response.arrayBuffer());
+      const buffer = await decoder.decodeAudioData(await response.arrayBuffer());
       return { chunk, buffer };
     }));
     if (signal.aborted) return;
@@ -35,30 +38,35 @@ export class VoicePlayer {
     }
     this.duration = offset;
     // Preserve quiet recordings while bounding the boost and two-source headroom.
-    this.gain.gain.value = peak > 0 ? Math.min(8, 0.45 / peak) : 1;
-    this.gain.connect(this.context.destination);
+    this.gainValue = peak > 0 ? Math.min(8, 0.45 / peak) : 1;
   }
 
   get position() {
-    return Math.min(this.duration, this.offset + (this.active ? (this.context.currentTime - this.started) * this.rate : 0));
+    return Math.min(this.duration, this.offset + (this.active ? (this.context!.currentTime - this.started) * this.rate : 0));
   }
 
   async play() {
+    if (!this.context) {
+      this.context = new AudioContext();
+      this.gain = this.context.createGain();
+      this.gain.gain.value = this.gainValue;
+      this.gain.connect(this.context.destination);
+    }
     await this.context.resume();
     this.schedule();
   }
 
   private schedule() {
     this.stopSources();
-    this.started = this.context.currentTime;
+    this.started = this.context!.currentTime;
     this.active = true;
     for (const { start, buffer } of this.buffers) {
       const elapsed = this.offset - start;
       if (elapsed >= buffer.duration) continue;
-      const source = this.context.createBufferSource();
+      const source = this.context!.createBufferSource();
       source.buffer = buffer;
       source.playbackRate.value = this.rate;
-      source.connect(this.gain);
+      source.connect(this.gain!);
       source.start(this.started + Math.max(0, -elapsed) / this.rate, Math.max(0, elapsed));
       this.sources.push(source);
     }
@@ -88,6 +96,6 @@ export class VoicePlayer {
 
   dispose() {
     this.pause();
-    void this.context.close();
+    if (this.context) void this.context.close();
   }
 }

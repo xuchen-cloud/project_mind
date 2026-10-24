@@ -16,7 +16,7 @@ if (!process.env.npm_execpath) throw new Error('Run preparation through npm run 
 
 const run = (command, args, cwd = repository) => new Promise((resolve, reject) => {
   // Inherit proxy, TLS trust and other build settings; never disable verification.
-  const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit' });
+  const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit', windowsHide: true });
   child.on('error', reject);
   child.on('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`${path.basename(command)} failed (${signal ?? code})`)));
 });

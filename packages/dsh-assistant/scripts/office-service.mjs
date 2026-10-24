@@ -1,11 +1,28 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
+// Match the native File SourceRef returned by inspect. An unconstrained JSON
+// parameter allowed models to quote the reference, which native cannot parse.
+const sourceRefParameter={type:'object',required:true,additionalProperties:false,
+  description:'file_office_inspect 返回的完整 sourceRef 对象，直接复制；不要转换为字符串或省略字段。',
+  properties:{
+    object:{type:'object',required:true,additionalProperties:false,properties:{
+      workspaceId:{type:'string',required:true},
+      scope:{type:'object',required:true,additionalProperties:false,properties:{
+        kind:{type:'string',const:'project',required:true},projectId:{type:'integer',required:true},
+      }},
+      kind:{type:'string',const:'file',required:true},id:{type:'string',required:true},
+    }},
+    revision:{type:'string',required:true},fileVersion:{type:'integer',required:true},
+    recordVersion:{type:'null',required:true},blockId:{type:'null',required:true},
+    locator:{type:'json',required:true},title:{type:'string',required:true},excerpt:{type:'string',required:true},
+  }};
+
 // Keep binary assets and renderer trees out of the model-facing projection.
 // These views issue the same semantic targets that the shared format SDK edits.
 function modelView(model) {
   switch (model.format) {
     case 'docx': return {format:model.format,nodes:model.nodes,readOnly:model.readOnly};
-    case 'xlsx': return {format:model.format,sheets:model.sheets.map(({id,name,hidden,veryHidden,rowCount,columnCount})=>({id,name,hidden,veryHidden,rowCount,columnCount})),
+    case 'xlsx': return {format:model.format,sheets:model.sheets.map(({id,name,hidden,veryHidden,rowCount,columnCount})=>({id,name,hidden,...(veryHidden!==undefined?{veryHidden}:{}),rowCount,columnCount})),
       ranges:Object.fromEntries(Object.entries(model.ranges).map(([id,range])=>[id,{area:range.area,cells:range.cells.map(({row,column,value,formula})=>({row,column,value,...(formula!==undefined?{formula}:{})}))}])),definedNames:model.definedNames};
     case 'pptx': return {format:model.format,size:model.size,textElements:model.textElements,pictureElements:model.pictureElements,limitations:model.limitations};
     default: throw new Error('Unsupported native Office model');
@@ -37,7 +54,7 @@ export async function installOfficeService(ctx,project,bridge) {
   disposers.push(ctx.tools.register(defineTool({
     name:'file_office_edit',
     description:'编辑并保存同一个 Office File，返回真实新版本与保存回执。source_ref 必须使用 file_office_inspect 返回的完整 sourceRef，旧版本/文件变化会拒绝覆盖。DOCX edits: {type:"text",nodeId,text,expectedText?}；XLSX: {sheetId,row,column,kind:"string"|"number"|"formula"|"blank",value?/formula?}，行列零基；PPTX: {kind:"text",slideIndex,cNvPrId,paragraphIndex,runIndex,text} 或 {kind:"move-image",slideIndex,cNvPrId,x,y}。仅简单内容修改，不能改字体、样式、页面结构。',
-    parameters:{source_ref:{type:'json',required:true,description:'刚读取的完整 sourceRef（包含原 File 身份、版本和内容 hash）。'},edits:{type:'array',required:true,items:{type:'json'},description:'格式模块支持的编辑操作，最多 256 项。'}},
+    parameters:{source_ref:sourceRefParameter,edits:{type:'array',required:true,items:{type:'json'},description:'格式模块支持的编辑操作，最多 256 项。'}},
     output,
     async execute(args,exec) {
       const sessionId=await owner(exec);

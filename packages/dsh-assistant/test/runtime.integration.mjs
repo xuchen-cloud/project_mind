@@ -61,8 +61,14 @@ async function launch(data, patch, sharedProvider, project, profileDirectory, so
     const timer = setTimeout(() => { if (!ended) child.kill('SIGKILL'); }, 8000);
     try {
       const result = await exited;
-      assert.equal(result.signal, null, 'runtime must shut down without forced termination');
-      assert.equal(result.code, 0, `runtime exit: ${redact(output).slice(-4000)}`);
+      if (!sharedProvider && process.platform === 'win32') {
+        // Windows child.kill cannot deliver a catchable POSIX signal. Embedded
+        // runtimes still prove graceful shutdown through the stdin protocol.
+        assert.equal(result.signal, 'SIGTERM');
+      } else {
+        assert.equal(result.signal, null, 'runtime must shut down without forced termination');
+        assert.equal(result.code, 0, `runtime exit: ${redact(output).slice(-4000)}`);
+      }
     } finally { clearTimeout(timer); }
   })();
   try {
@@ -552,14 +558,21 @@ async function prompt(runtime, stream, sessionId, text, expectedKind = 'complete
 
 async function assertNodeTree(child) {
   assert.equal(child.spawnfile, process.execPath);
-  const { stdout } = await promisify(execFile)('ps', ['-axo', 'pid=,ppid=,comm=']);
-  const rows = stdout.trim().split('\n').map((row) => row.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)).filter(Boolean);
+  let rows;
+  if (process.platform === 'win32') {
+    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress']);
+    rows = JSON.parse(stdout).map(row => [null, row.ProcessId, row.ParentProcessId, row.Name]);
+  } else {
+    const { stdout } = await promisify(execFile)('ps', ['-axo', 'pid=,ppid=,comm=']);
+    rows = stdout.trim().split('\n').map((row) => row.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)).filter(Boolean);
+  }
   const descendants = new Set([child.pid]);
   for (let changed = true; changed;) {
     changed = false;
     for (const [, pid, parent] of rows) if (descendants.has(Number(parent)) && !descendants.has(Number(pid))) { descendants.add(Number(pid)); changed = true; }
   }
-  for (const [, pid, , command] of rows) if (descendants.has(Number(pid))) assert.doesNotMatch(command, /electron|project_mind\.app/i, 'independent runtime must not spawn desktop app');
+  for (const [, pid, , command] of rows) if (descendants.has(Number(pid))) assert.doesNotMatch(command, /electron|project_mind\.(?:app|exe)/i, 'independent runtime must not spawn desktop app');
 }
 
 test('independent Node DSH: upstream UI, streaming, stop/recovery and durable history', { timeout: 120000 }, async (t) => {
@@ -1239,7 +1252,7 @@ test('bounded session fork preserves completed history and independent durable c
 });
 
 
-test('Mind CLI lease rc.2 runtime: model bash uses native Workspace binding and isolated shell lease', { timeout: 60000 }, async t => {
+test('Mind CLI lease rc.2 runtime: model shell uses native Workspace binding and isolated shell lease', { timeout: 60000 }, async t => {
   const temp = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-cli-runtime-')));
   const bodies = [], operations = [];
   const leases = new Set();
@@ -1253,12 +1266,18 @@ test('Mind CLI lease rc.2 runtime: model bash uses native Workspace binding and 
   const workspace = { id: randomUUID(), name: 'CLI Workspace', directory: path.join(temp, 'workspace') };
   await mkdir(workspace.directory);
   const bin = path.join(temp, 'bundle'); await mkdir(bin);
-  const executable = path.join(bin, 'mind');
+  const windows = process.platform === 'win32';
+  const executable = path.join(bin, windows ? 'mind.ps1' : 'mind');
   const discovery = path.join(temp, 'independent-bridge.json');
   // A fixture binary consumes credentials without echoing them. An active
   // marker is native-owned; closing the lease removes it. JSON remains public.
   const marker = path.join(temp, 'lease-active');
-  await writeFile(executable, `#!/bin/sh
+  await writeFile(executable, windows ? `
+if (!$env:PROJECT_MIND_CLI_TOKEN) { exit 31 }
+if ($env:PROJECT_MIND_CLI_DISCOVERY -ne '${discovery.replaceAll("'", "''")}') { exit 32 }
+if (!(Test-Path -LiteralPath '${marker.replaceAll("'", "''")}')) { exit 33 }
+'{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixture-receipt"}}'
+` : `#!/bin/sh
 [ -n "$PROJECT_MIND_CLI_TOKEN" ] || exit 31
 [ "$PROJECT_MIND_CLI_DISCOVERY" = '${discovery}' ] || exit 32
 [ -f '${marker}' ] || exit 33
@@ -1286,7 +1305,7 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
   await runtime.rpc('session/rename', { sessionId, title: 'CLI binding fixture' });
   stream = await follow(runtime, sessionId);
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'cli-runtime-bash', type: 'function', function: {
-    name: 'bash', arguments: JSON.stringify({ description: 'Inspect native Workspace CLI binding', command: `mind doctor --workspace '${cli.workspace}' --connection ${cli.connection} --json` }),
+    name: windows ? 'pwsh' : 'bash', arguments: JSON.stringify({ description: 'Inspect native Workspace CLI binding', command: `mind doctor --workspace '${cli.workspace.replaceAll("'", "''")}' --connection ${cli.connection} --json` }),
   } }] });
   await prompt(runtime, stream, sessionId, 'Use the bound native CLI to inspect this Workspace');
   const reply = providerToolReply(bodies, 'cli-runtime-bash');
@@ -1294,8 +1313,9 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
   assert.match(reply, /fixture-receipt/);
   assert.deepEqual(operations, [{ operation: 'cliLeaseOpen', sessionId, mode: 'read-only' }, { operation: 'cliLeaseClose', sessionId, leaseId: 'lease-1' }]);
   assert.equal(leases.size, 0);
-  const system = bodies[0].messages.filter(message => message.role === 'system').map(message => JSON.stringify(message.content)).join('\n');
-  for (const fact of ['project-mind-cli', executable, '--workspace-scope', cli.connection]) assert.ok(system.includes(fact), fact);
+  const system = bodies[0].messages.filter(message => message.role === 'system').map(message =>
+    typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n')).join('\n');
+  for (const fact of ['project-mind-cli', JSON.stringify(executable), '--workspace-scope', cli.connection]) assert.ok(system.includes(fact), fact);
   assert.ok(!JSON.stringify(bodies).includes(token), 'lease credentials must never enter model input');
   assert.ok(!runtime.diagnostics().includes(token), 'lease credentials must never enter runtime logs');
   assert.ok(!JSON.stringify(events(stream)).includes(token), 'lease credentials must never enter durable Session events');

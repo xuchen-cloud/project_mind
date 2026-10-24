@@ -75,6 +75,24 @@ fn call(value: Value) -> OfficeCall {
     OfficeCall::parse(serde_json::from_value(value).unwrap(), "native-frame-id").unwrap()
 }
 
+#[test]
+fn dsh_office_tool_source_ref_contract_reaches_native_without_coercion() {
+    // Shared with the actual DSH tool schema test, rather than a hand-built
+    // native-only reference that could hide a cross-runtime DTO mismatch.
+    let source: Value = serde_json::from_str(include_str!(
+        "../../packages/dsh-assistant/test/fixtures/office-source-ref.json"
+    )).unwrap();
+    let request = json!({"operation":"officeEdit","sessionId":"real-session",
+        "requestId":"tool-call","sourceRef":source,"edits":[]});
+    let parsed = call(request.clone());
+    assert_eq!(serde_json::to_value(parsed.fixed.unwrap()).unwrap(), source);
+    for invalid in [Value::String(source.to_string()), json!({})] {
+        let mut request = request.clone();
+        request["sourceRef"] = invalid;
+        assert!(serde_json::from_value::<SourceRequest>(request).is_err());
+    }
+}
+
 #[tokio::test]
 async fn dsh_office_operations_save_through_real_grant_replay_and_retain_history() {
     let temp = tempfile::tempdir().unwrap();
@@ -224,18 +242,31 @@ async fn dsh_office_operations_save_through_real_grant_replay_and_retain_history
 
 #[test]
 fn dsh_office_rejects_unbound_session_and_untrusted_authority_payload() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    let other = root.path().join("other");
+    std::fs::create_dir(&project).unwrap();
+    std::fs::create_dir(&other).unwrap();
+    let directory = project.canonicalize().unwrap();
     let list: SessionListValue =
-        serde_json::from_value(json!({"items":[{"sessionId":"real","cwd":"/fixed/project"}]}))
+        serde_json::from_value(json!({"items":[{"sessionId":"real","cwd":project}]}))
             .unwrap();
-    assert!(validate_session(&list, "real", std::path::Path::new("/fixed/project")).is_ok());
-    for (session, cwd) in [("forged", "/fixed/project"), ("real", "/other/project")] {
+    assert!(validate_session(&list, "real", &directory).is_ok());
+    for (session, cwd) in [
+        ("forged", directory.as_path()),
+        ("", directory.as_path()),
+        ("real", other.as_path()),
+        ("real", root.path()),
+    ] {
         assert_eq!(
-            validate_session(&list, session, std::path::Path::new(cwd))
+            validate_session(&list, session, cwd)
                 .unwrap_err()
                 .code,
             ErrorCode::ScopeDenied
         );
     }
+    std::fs::remove_dir(&project).unwrap();
+    assert_eq!(validate_session(&list, "real", &directory).unwrap_err().code, ErrorCode::ScopeDenied);
     for value in [
         json!({"operation":"officeInspect","sessionId":"real","path":"original.docx","projectId":9999}),
         json!({"operation":"officeEdit","sessionId":"real","sourceRef":{},"edits":[]}),

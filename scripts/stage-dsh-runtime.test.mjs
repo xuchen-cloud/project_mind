@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { checksum } from './record-worker-notices.mjs';
@@ -12,12 +13,22 @@ import { dshNoticeAssets, prepareDshProduction, stageDshRuntime, verifyDshDistri
 const exec = promisify(execFile);
 const put = async (file, value) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); };
 const json = (file, value) => put(file, JSON.stringify(value));
+const linkDirectory = (target, link) => symlink(
+  process.platform === 'win32' ? path.resolve(path.dirname(link), target) : target,
+  link,
+  process.platform === 'win32' ? 'junction' : 'dir',
+);
 const bundledSkills = {
   'project-mind-cli/SKILL.md': '---\nname: project-mind-cli\ndescription: Use mind CLI.\n---\n',
   'project-mind-cli/references/usage.md': 'CLI reference',
   'future-builtin/SKILL.md': 'Another builtin skill',
   'future-builtin/assets/template.bin': Buffer.from([0, 255, 10]),
 };
+// Windows cannot retain the POSIX execute bits required by Darwin spawn-helper.
+const fixturePlatform = process.platform === 'win32' ? 'linux' : 'darwin';
+const fixtureTarget = `${fixturePlatform}-x64`;
+const fixtureOtherTarget = `${fixturePlatform}-arm64`;
+const mismatchedTarget = process.platform === 'win32' ? 'win-x64' : 'darwin-arm64';
 const browser = 'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html';
 
 async function fixture(t) {
@@ -27,15 +38,15 @@ async function fixture(t) {
   const production = path.join(repository, 'production');
   const destination = path.join(repository, 'src-tauri/resources/dsh-assistant');
   const shared = path.join(repository, 'src-tauri/resources/agent-host');
-  const target = desktopRuntimeTarget('x86_64-apple-darwin', {});
+  const target = desktopRuntimeTarget(process.platform === 'win32' ? 'x86_64-unknown-linux-gnu' : 'x86_64-apple-darwin', {});
   const dependencies = { '@deepseek-ai/dsh-web-frontend': '1.0.0', 'dsh-desktop-client-ui': 'file:vendor/dsh-desktop-client-ui', 'node-pty': '1.2.0-beta.15' };
   const lock = { lockfileVersion: 3, packages: { '': { dependencies },
     'node_modules/@deepseek-ai/dsh-web-frontend': { version: '1.0.0' },
     'node_modules/dsh-desktop-client-ui': { link: true, resolved: 'vendor/dsh-desktop-client-ui' },
     'vendor/dsh-desktop-client-ui': { version: '0.1.0' },
     'node_modules/node-pty': { version: '1.2.0-beta.15' },
-    'node_modules/@fixture/darwin-x64': { version: '1.0.0', optional: true, os: ['darwin'], cpu: ['x64'] },
-    'node_modules/@fixture/darwin-arm64': { version: '1.0.0', optional: true, os: ['darwin'], cpu: ['arm64'] },
+    [`node_modules/@fixture/${fixtureTarget}`]: { version: '1.0.0', optional: true, os: [fixturePlatform], cpu: ['x64'] },
+    [`node_modules/@fixture/${fixtureOtherTarget}`]: { version: '1.0.0', optional: true, os: [fixturePlatform], cpu: ['arm64'] },
     'node_modules/dev-only': { version: '1.0.0', dev: true },
   } };
   await json(path.join(source, 'package.json'), { name: 'fixture-dsh', type: 'module', dependencies });
@@ -71,7 +82,7 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
   await rm(path.join(production, 'node_modules'), { recursive: true });
   for (const [name, os, cpu] of [
     ['@deepseek-ai/dsh-web-frontend'], ['node-pty'],
-    ['@fixture/darwin-x64', ['darwin'], ['x64']], ['@fixture/darwin-arm64', ['darwin'], ['arm64']],
+    [`@fixture/${fixtureTarget}`, [fixturePlatform], ['x64']], [`@fixture/${fixtureOtherTarget}`, [fixturePlatform], ['arm64']],
   ]) {
     const root = path.join(production, 'node_modules', name);
     await json(path.join(root, 'package.json'), { name, version: lock.packages[`node_modules/${name}`].version, license: 'MIT', os, cpu });
@@ -88,11 +99,11 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
       if (platform === 'darwin') await chmod(path.join(prebuilt, 'spawn-helper'), 0o755);
     }
   }
-  await symlink('../vendor/dsh-desktop-client-ui', path.join(production, 'node_modules/dsh-desktop-client-ui'), 'dir');
+  await linkDirectory('../vendor/dsh-desktop-client-ui', path.join(production, 'node_modules/dsh-desktop-client-ui'));
   await put(path.join(shared, 'node'), 'shared-pinned-node');
   await put(path.join(shared, 'dist/record-document-worker.mjs'), 'keep-record');
-  await json(path.join(repository, 'packages/agent-host/runtime-manifest.json'), { nodeVersion: '24.21.0', targets: { 'darwin-x64': { sha256: 'pinned-archive' } } });
-  await json(path.join(shared, 'runtime.json'), { target: 'darwin-x64', nodeVersion: '24.21.0', sourceArchiveChecksum: 'pinned-archive', nodeChecksum: checksum('shared-pinned-node') });
+  await json(path.join(repository, 'packages/agent-host/runtime-manifest.json'), { nodeVersion: '24.21.0', targets: { [fixtureTarget]: { sha256: 'pinned-archive' } } });
+  await json(path.join(shared, 'runtime.json'), { target: fixtureTarget, nodeVersion: '24.21.0', sourceArchiveChecksum: 'pinned-archive', nodeChecksum: checksum('shared-pinned-node') });
   return { repository, source, production, destination, shared, target, lock };
 }
 
@@ -101,7 +112,7 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
   const fresh = path.join(f.repository, 'fresh');
   await prepareDshProduction(f.source, fresh, f.target, async (command, args, cwd) => {
     assert.equal(command, process.execPath);
-    assert.deepEqual(args.slice(1), ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--os=darwin', '--cpu=x64']);
+    assert.deepEqual(args.slice(1), ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', `--os=${fixturePlatform}`, '--cpu=x64']);
     assert.equal(cwd, fresh);
     assert.equal(await readFile(path.join(cwd, 'vendor/dsh-desktop-client-ui/index.js'), 'utf8'), "export const brand = 'DSH';");
     for (const [name, contents] of Object.entries(bundledSkills)) {
@@ -112,20 +123,20 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fresh-helper');
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'), 'other-target');
   });
-  assert.equal((await lstat(path.join(fresh, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'))).mode & 0o777, 0o755);
+  if (process.platform !== 'win32') assert.equal((await lstat(path.join(fresh, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'))).mode & 0o777, 0o755);
   assert.equal((await lstat(path.join(fresh, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'))).mode & 0o111, 0);
 });
 
 test('DSH staging preserves imports/browser and independent home, selects target dependencies, licenses and shared Node', async t => {
   const f = await fixture(t);
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const verified = await verifyDshDistribution(f.destination, 'darwin-x64');
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const verified = await verifyDshDistribution(f.destination, fixtureTarget);
   assert.equal(verified.manifest.node.executable, '../agent-host/node');
-  assert.deepEqual(verified.manifest.packages.map(pkg => pkg.name), ['@deepseek-ai/dsh-web-frontend', '@fixture/darwin-x64', 'dsh-desktop-client-ui', 'node-pty']);
+  assert.deepEqual(verified.manifest.packages.map(pkg => pkg.name), ['@deepseek-ai/dsh-web-frontend', `@fixture/${fixtureTarget}`, 'dsh-desktop-client-ui', 'node-pty']);
   assert.equal((await lstat(path.join(f.destination, 'node_modules/dsh-desktop-client-ui'))).isSymbolicLink(), false);
   assert.equal(await readFile(path.join(f.destination, 'scripts/shared-model.mjs'), 'utf8'), 'export const mainModel = true;');
-  assert.equal((await lstat(path.join(f.destination, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'))).mode & 0o111, 0o111);
-  for (const name of ['node', 'node.exe', '.upstream', '.downloads', '.acceptance', 'node_modules/dev-only', 'node_modules/@fixture/darwin-arm64']) {
+  if (fixturePlatform === 'darwin') assert.equal((await lstat(path.join(f.destination, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'))).mode & 0o111, 0o111);
+  for (const name of ['node', 'node.exe', '.upstream', '.downloads', '.acceptance', 'node_modules/dev-only', `node_modules/@fixture/${fixtureOtherTarget}`]) {
     await assert.rejects(lstat(path.join(f.destination, name)), { code: 'ENOENT' });
   }
   assert.match(await readFile(path.join(f.destination, 'DSH-THIRD-PARTY-NOTICES.txt'), 'utf8'), /DSH Assistant production dependencies/);
@@ -133,13 +144,13 @@ test('DSH staging preserves imports/browser and independent home, selects target
   const home = path.join(f.repository, 'independent-home');
   const { stdout } = await exec(process.execPath, [path.join(f.destination, 'scripts/runtime.mjs')], { cwd: os.tmpdir(), env: { ...process.env, DSH_HOME: home } });
   assert.deepEqual(JSON.parse(stdout), { anchor: path.join(f.destination, 'package.json'), cwd: path.join(home, 'workspace'), brand: 'DSH', browser: '<html>DSH browser</html>' });
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  assert.equal((await verifyDshDistribution(f.destination, 'darwin-x64')).manifestChecksum, verified.manifestChecksum);
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  assert.equal((await verifyDshDistribution(f.destination, fixtureTarget)).manifestChecksum, verified.manifestChecksum);
   await put(path.join(f.destination, 'unlisted.txt'), 'unlisted');
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /inventory differs/);
   await rm(path.join(f.destination, 'unlisted.txt'));
   await put(path.join(f.destination, browser), 'tampered');
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /inventory differs/);
 });
 
 test('node-pty staging retains only target prebuilds and preserves all other package files', async t => {
@@ -152,12 +163,12 @@ test('node-pty staging retains only target prebuilds and preserves all other pac
     'src/unix/pty.cc': 'upstream native source',
     'README.md': 'upstream documentation',
     'third_party/conpty/LICENSE': 'upstream third-party license',
-    'prebuilds/darwin-x64/resources/extra.bin': Buffer.from([0, 255, 10]),
+    [`prebuilds/${fixtureTarget}/resources/extra.bin`]: Buffer.from([0, 255, 10]),
   };
   for (const [name, contents] of Object.entries(retained)) await put(path.join(f.production, location, name), contents);
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
-  assert.deepEqual(await readdir(path.join(f.destination, location, 'prebuilds')), ['darwin-x64']);
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, fixtureTarget);
+  assert.deepEqual(await readdir(path.join(f.destination, location, 'prebuilds')), [fixtureTarget]);
   for (const [name, contents] of Object.entries(retained)) {
     assert.deepEqual(await readFile(path.join(f.destination, location, name)), Buffer.from(contents));
     assert.ok(manifest.files.some(entry => entry.file === `${location}/${name}`));
@@ -168,7 +179,10 @@ test('node-pty staging retains only target prebuilds and preserves all other pac
 });
 
 test('arm64 and Linux staging select the release target and fail if its node-pty prebuild is missing', async t => {
-  for (const target of ['darwin-arm64', 'linux-x64']) await t.test(target, async t => {
+  for (const target of ['darwin-arm64', 'linux-x64']) await t.test(target, {
+    skip: target.startsWith('darwin-') && process.platform === 'win32'
+      ? 'Darwin spawn-helper requires POSIX execute bits unavailable on Windows' : false,
+  }, async t => {
     const f = await fixture(t);
     await json(path.join(f.repository, 'packages/agent-host/runtime-manifest.json'), {
       nodeVersion: '24.21.0', targets: { [target]: { sha256: 'pinned-archive' } },
@@ -181,7 +195,7 @@ test('arm64 and Linux staging select the release target and fail if its node-pty
     const prebuilds = 'node_modules/node-pty/prebuilds';
     assert.deepEqual(await readdir(path.join(f.destination, prebuilds)), [target]);
     assert.equal(await readFile(path.join(f.destination, prebuilds, target, 'pty.node'), 'utf8'), `${target}/pty.node`);
-    if (target === 'darwin-arm64') {
+    if (target.startsWith('darwin-')) {
       assert.equal((await lstat(path.join(f.destination, prebuilds, target, 'spawn-helper'))).mode & 0o111, 0o111);
     }
     await rm(path.join(f.production, prebuilds, target), { recursive: true });
@@ -192,20 +206,20 @@ test('arm64 and Linux staging select the release target and fail if its node-pty
 
 test('verification rejects non-target node-pty prebuilds even with a matching manifest inventory', async t => {
   const f = await fixture(t);
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, fixtureTarget);
   const file = 'node_modules/node-pty/prebuilds/win32-arm64/conpty.node';
   await put(path.join(f.destination, file), 'unexpected prebuild');
   const files = [...manifest.files, { file, checksum: checksum('unexpected prebuild'), executable: false }]
     .sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
   await json(path.join(f.destination, 'dsh-distribution.json'), { ...manifest, files });
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /non-target node-pty prebuild/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /non-target node-pty prebuild/);
 });
 
 test('all bundled skills and resources ship with verified inventory; required skill is mandatory', async t => {
   const f = await fixture(t);
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, fixtureTarget);
   assert.deepEqual(manifest.files.filter(entry => entry.file.startsWith('skills/')).map(entry => entry.file).sort(),
     Object.keys(bundledSkills).map(name => `skills/${name}`).sort());
   for (const [name, contents] of Object.entries(bundledSkills)) {
@@ -218,65 +232,65 @@ test('all bundled skills and resources ship with verified inventory; required sk
     assert.ok(manifest.files.some(entry => entry.file === module));
     const contents = await readFile(path.join(f.production, module));
     await rm(path.join(f.production, module));
-    await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
+    await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), { code: 'ENOENT' });
     await writeFile(path.join(f.production, module), contents);
-    await verifyDshDistribution(f.destination, 'darwin-x64');
+    await verifyDshDistribution(f.destination, fixtureTarget);
   }
   const resource = path.join(f.destination, 'skills/future-builtin/assets/template.bin');
   await put(resource, 'tampered');
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /inventory differs/);
   await writeFile(resource, bundledSkills['future-builtin/assets/template.bin']);
   const reference = path.join(f.destination, 'skills/project-mind-cli/references/usage.md');
   await rm(reference);
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /inventory differs/);
   await writeFile(reference, bundledSkills['project-mind-cli/references/usage.md']);
   await put(path.join(f.destination, 'skills/unlisted/SKILL.md'), 'unlisted skill');
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /inventory differs/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /inventory differs/);
   await rm(path.join(f.destination, 'skills/unlisted'), { recursive: true });
   await rm(path.join(f.production, 'skills/project-mind-cli/SKILL.md'));
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
-  await verifyDshDistribution(f.destination, 'darwin-x64');
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), { code: 'ENOENT' });
+  await verifyDshDistribution(f.destination, fixtureTarget);
   await rm(path.join(f.production, 'scripts/skills.mjs'));
   await put(path.join(f.production, 'skills/project-mind-cli/SKILL.md'), bundledSkills['project-mind-cli/SKILL.md']);
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
-  await verifyDshDistribution(f.destination, 'darwin-x64');
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), { code: 'ENOENT' });
+  await verifyDshDistribution(f.destination, fixtureTarget);
   // Even a self-consistent inventory cannot omit the required builtin entrypoint.
   await rm(path.join(f.destination, 'skills/project-mind-cli/SKILL.md'));
   await json(path.join(f.destination, 'dsh-distribution.json'), {
     ...manifest, files: manifest.files.filter(entry => entry.file !== 'skills/project-mind-cli/SKILL.md'),
   });
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), { code: 'ENOENT' });
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), { code: 'ENOENT' });
 });
 
 test('staging rejects wrong shared target, mismatched locks, missing browser, wrong required CPU, and leaves prior release intact', async t => {
   const f = await fixture(t);
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-arm64'), /target mismatch/);
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  await assert.rejects(verifyDshDistribution(f.destination, mismatchedTarget), /target mismatch/);
   const receiptPath = path.join(f.shared, 'runtime.json');
   const receipt = await readFile(receiptPath);
-  await json(receiptPath, { ...JSON.parse(receipt), target: 'darwin-arm64' });
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /same target/);
+  await json(receiptPath, { ...JSON.parse(receipt), target: mismatchedTarget });
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /same target/);
   await writeFile(receiptPath, receipt);
   await json(path.join(f.production, 'package-lock.json'), { ...f.lock, changed: true });
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /differs from repository/);
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /differs from repository/);
   await copyFile(path.join(f.source, 'package-lock.json'), path.join(f.production, 'package-lock.json'));
   await rm(path.join(f.production, browser));
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
-  await verifyDshDistribution(f.destination, 'darwin-x64');
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), { code: 'ENOENT' });
+  await verifyDshDistribution(f.destination, fixtureTarget);
   await put(path.join(f.production, browser), '<html>DSH browser</html>');
   await json(path.join(f.production, 'node_modules/@deepseek-ai/dsh-web-frontend/package.json'), { name: '@deepseek-ai/dsh-web-frontend', version: '1.0.0', license: 'MIT', cpu: ['arm64'] });
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /does not support darwin-x64/);
-  await verifyDshDistribution(f.destination, 'darwin-x64');
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), new RegExp(`does not support ${fixtureTarget}`));
+  await verifyDshDistribution(f.destination, fixtureTarget);
 });
 
 test('staging rejects dev packages and escaping vendor links from supplied production tree', async t => {
   const f = await fixture(t);
   await json(path.join(f.production, 'node_modules/dev-only/package.json'), { name: 'dev-only', version: '1.0.0' });
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /production lockfile/);
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /production lockfile/);
   await rm(path.join(f.production, 'node_modules/dev-only'), { recursive: true });
   await rm(path.join(f.production, 'node_modules/dsh-desktop-client-ui'));
-  await symlink(path.join(f.source, 'vendor/dsh-desktop-client-ui'), path.join(f.production, 'node_modules/dsh-desktop-client-ui'), 'dir');
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /escapes/);
+  await linkDirectory(path.join(f.source, 'vendor/dsh-desktop-client-ui'), path.join(f.production, 'node_modules/dsh-desktop-client-ui'));
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /escapes/);
 });
 
 test('Windows staging uses shared node.exe and requires target ConPTY assets with scripts disabled', async t => {
@@ -312,49 +326,49 @@ test('nested locked production dependencies retain their files and licenses; mis
   await put(path.join(f.production, location, 'LICENSE'), 'nested license');
   await put(path.join(f.production, location, 'index.js'), 'nested implementation');
   await put(path.join(f.production, location, '.downloads/secret'), 'cache');
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, fixtureTarget);
   assert.equal(manifest.packages.find(pkg => pkg.name === 'fixture-nested').version, '2.0.0');
   assert.equal(await readFile(path.join(f.destination, location, 'index.js'), 'utf8'), 'nested implementation');
   await assert.rejects(lstat(path.join(f.destination, location, '.downloads')), { code: 'ENOENT' });
   await rm(path.join(f.production, location), { recursive: true });
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), { code: 'ENOENT' });
 });
 
 test('license text is mandatory and receipt metadata is checked alongside file checksums', async t => {
   const f = await fixture(t);
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
   const receiptPath = path.join(f.destination, 'dsh-distribution.json');
   const receipt = JSON.parse(await readFile(receiptPath));
   await json(receiptPath, { ...receipt, lockfileChecksum: 'wrong' });
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /lockfile or notices/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /lockfile or notices/);
   await json(receiptPath, { ...receipt, packages: receipt.packages.slice(1) });
-  await assert.rejects(verifyDshDistribution(f.destination, 'darwin-x64'), /license inventory/);
+  await assert.rejects(verifyDshDistribution(f.destination, fixtureTarget), /license inventory/);
   await rm(path.join(f.production, 'node_modules/@deepseek-ai/dsh-web-frontend/LICENSE'));
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /Missing third-party license text/);
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /Missing third-party license text/);
 });
 
 test('Koffi target optional package and prebuilt are mandatory when Koffi is installed', async t => {
   const f = await fixture(t);
   f.lock.packages['node_modules/koffi'] = { version: '3.1.1' };
   for (const arch of ['x64', 'arm64']) {
-    const location = `node_modules/@koromix/koffi-darwin-${arch}`;
-    f.lock.packages[location] = { version: '3.1.1', optional: true, os: ['darwin'], cpu: [arch] };
-    await json(path.join(f.production, location, 'package.json'), { name: `@koromix/koffi-darwin-${arch}`, version: '3.1.1', license: 'MIT', os: ['darwin'], cpu: [arch] });
+    const location = `node_modules/@koromix/koffi-${fixturePlatform}-${arch}`;
+    f.lock.packages[location] = { version: '3.1.1', optional: true, os: [fixturePlatform], cpu: [arch] };
+    await json(path.join(f.production, location, 'package.json'), { name: `@koromix/koffi-${fixturePlatform}-${arch}`, version: '3.1.1', license: 'MIT', os: [fixturePlatform], cpu: [arch] });
     await put(path.join(f.production, location, 'LICENSE'), 'fixture Koffi license');
-    await put(path.join(f.production, location, `darwin_${arch}/koffi.node`), 'fixture Koffi prebuilt');
+    await put(path.join(f.production, location, `${fixturePlatform}_${arch}/koffi.node`), 'fixture Koffi prebuilt');
   }
   for (const root of [f.source, f.production]) await json(path.join(root, 'package-lock.json'), f.lock);
   await json(path.join(f.production, 'node_modules/koffi/package.json'), { name: 'koffi', version: '3.1.1', license: 'MIT' });
   await put(path.join(f.production, 'node_modules/koffi/LICENSE'), 'fixture Koffi license');
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
-  assert.ok(manifest.files.some(entry => entry.file === 'node_modules/@koromix/koffi-darwin-x64/darwin_x64/koffi.node'));
-  await assert.rejects(lstat(path.join(f.destination, 'node_modules/@koromix/koffi-darwin-arm64')), { code: 'ENOENT' });
-  await rm(path.join(f.production, 'node_modules/@koromix/koffi-darwin-x64/darwin_x64/koffi.node'));
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /Missing DSH Koffi prebuilt/);
-  await rm(path.join(f.production, 'node_modules/@koromix/koffi-darwin-x64'), { recursive: true });
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), { code: 'ENOENT' });
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, fixtureTarget);
+  assert.ok(manifest.files.some(entry => entry.file === `node_modules/@koromix/koffi-${fixturePlatform}-x64/${fixturePlatform}_x64/koffi.node`));
+  await assert.rejects(lstat(path.join(f.destination, `node_modules/@koromix/koffi-${fixturePlatform}-arm64`)), { code: 'ENOENT' });
+  await rm(path.join(f.production, `node_modules/@koromix/koffi-${fixturePlatform}-x64/${fixturePlatform}_x64/koffi.node`));
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /Missing DSH Koffi prebuilt/);
+  await rm(path.join(f.production, `node_modules/@koromix/koffi-${fixturePlatform}-x64`), { recursive: true });
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), { code: 'ENOENT' });
 });
 
 test('pinned omitted licenses retain original attribution and clearly labeled SPDX references', async t => {
@@ -398,14 +412,14 @@ test('staging materializes the pinned scoped web bundle and includes its MIT att
     await put(path.join(root, vendor, 'LICENSE'), 'MIT Copyright (c) 2026 DeepSeek');
     await put(path.join(root, vendor, 'lib/index.js'), "export const name = 'web-app';");
   }
-  await symlink(path.join(f.production, vendor), path.join(f.production, location), 'dir');
-  await stageDshRuntime(f.repository, 'darwin-x64', f.production);
-  const { manifest } = await verifyDshDistribution(f.destination, 'darwin-x64');
+  await linkDirectory(path.join(f.production, vendor), path.join(f.production, location));
+  await stageDshRuntime(f.repository, fixtureTarget, f.production);
+  const { manifest } = await verifyDshDistribution(f.destination, fixtureTarget);
   assert.equal((await lstat(path.join(f.destination, location))).isSymbolicLink(), false);
-  assert.equal((await import(path.join(f.destination, location, 'lib/index.js'))).name, 'web-app');
+  assert.equal((await import(pathToFileURL(path.join(f.destination, location, 'lib/index.js')).href)).name, 'web-app');
   assert.ok(manifest.packages.some(pkg => pkg.name === '@deepseek-ai/dsh-web-app' && pkg.version === '0.2.0-rc.2'));
   assert.match(await readFile(path.join(f.destination, 'DSH-THIRD-PARTY-NOTICES.txt'), 'utf8'), /Copyright \(c\) 2026 DeepSeek/);
   await rm(path.join(f.production, location));
-  await symlink(path.join(f.source, vendor), path.join(f.production, location), 'dir');
-  await assert.rejects(stageDshRuntime(f.repository, 'darwin-x64', f.production), /escapes/);
+  await linkDirectory(path.join(f.source, vendor), path.join(f.production, location));
+  await assert.rejects(stageDshRuntime(f.repository, fixtureTarget, f.production), /escapes/);
 });

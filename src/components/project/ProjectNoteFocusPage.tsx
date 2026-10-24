@@ -479,6 +479,10 @@ export function ProjectNoteFocusPage({
     const before = signature();
     if (!submitCurrentRecord()) throw new Error("编辑器尚未就绪，草稿已保留");
     try {
+      // Settle the editor's blur/autosave lifecycle as well as the storage
+      // queue. A queue flush alone can finish before its save continuation
+      // clears isBusy(), or while a scheduled blur save is about to start.
+      await editor?.save({ force: true });
       await saveCoordinator.flush(projectRecordSaveKey(projectId!, recordId!));
       // Recheck after I/O: preview, conflict and ordinary edits may have changed.
       const currentEditor = editorControllerRef.current;
@@ -741,11 +745,7 @@ export function ProjectNoteFocusPage({
                 visible={visible}
                 sourceTimeMs={sourceNavigation.error ? null : sourceNavigation.timeMs}
                 sourceNavigationKey={sourceNavigation.key}
-                onTitleUpdated={(nextTitle) => {
-                  setTitle(nextTitle);
-                  titleValueRef.current = nextTitle;
-                  lastSavedTitleRef.current = nextTitle;
-                }}
+                onMinutesCommitted={editingReady ? canonical.refreshIncoming : undefined}
                 onCopyMinutes={async (minutes) => {
                   const next = editorControllerRef.current?.appendMarkdown(minutes);
                   if (!next || !submitCurrentRecord(next)) throw new Error("未能写入正文");

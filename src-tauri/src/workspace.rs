@@ -209,6 +209,9 @@ pub fn cleanup_legacy_app_data(app_data_dir: &Path, session_path: &Path) -> Resu
         // Imported voice models belong to the current app and must survive restarts.
         if path == session_path
             || (path == app_data_dir.join("voice-models") && entry.file_type()?.is_dir())
+            || (cfg!(debug_assertions)
+                && path == app_data_dir.join("debug-workspace-keys")
+                && entry.file_type()?.is_dir())
         {
             continue;
         }
@@ -312,5 +315,61 @@ mod tests {
                 "first-workspace".to_string()
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod legacy_app_data_tests {
+    use super::cleanup_legacy_app_data;
+    use std::fs;
+
+    #[test]
+    #[cfg(debug_assertions)]
+    fn cleanup_preserves_debug_workspace_keys_across_restarts() {
+        let app_data = tempfile::tempdir().unwrap();
+        let session = app_data.path().join("session.json");
+        let keys = app_data.path().join("debug-workspace-keys");
+        let models = app_data.path().join("voice-models");
+        fs::write(&session, "session").unwrap();
+        fs::create_dir(&keys).unwrap();
+        fs::write(keys.join("workspace-id"), "workspace-key").unwrap();
+        fs::create_dir(&models).unwrap();
+        fs::write(models.join("model"), "voice-model").unwrap();
+        fs::write(app_data.path().join("legacy-data"), "obsolete").unwrap();
+
+        cleanup_legacy_app_data(app_data.path(), &session).unwrap();
+        cleanup_legacy_app_data(app_data.path(), &session).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(keys.join("workspace-id")).unwrap(),
+            "workspace-key"
+        );
+        assert!(session.is_file());
+        assert!(models.join("model").is_file());
+        assert!(!app_data.path().join("legacy-data").exists());
+    }
+
+    #[test]
+    fn cleanup_removes_file_named_as_debug_workspace_key_directory() {
+        let app_data = tempfile::tempdir().unwrap();
+        let keys = app_data.path().join("debug-workspace-keys");
+        fs::write(&keys, "not-a-directory").unwrap();
+
+        cleanup_legacy_app_data(app_data.path(), &app_data.path().join("session.json")).unwrap();
+
+        assert!(!keys.exists());
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn release_cleanup_removes_debug_workspace_keys() {
+        let app_data = tempfile::tempdir().unwrap();
+        let keys = app_data.path().join("debug-workspace-keys");
+        fs::create_dir(&keys).unwrap();
+        fs::write(keys.join("workspace-id"), "workspace-key").unwrap();
+
+        cleanup_legacy_app_data(app_data.path(), &app_data.path().join("session.json")).unwrap();
+
+        assert!(!keys.exists());
     }
 }

@@ -940,7 +940,7 @@ async fn list_sessions(
         .filter(|item| {
             item.cwd
                 .as_deref()
-                .is_some_and(|cwd| Path::new(cwd) == directory)
+                .is_some_and(|cwd| session_directory_matches(Path::new(cwd), directory))
         })
         .map(|item| {
             if item.id.is_empty() {
@@ -964,6 +964,16 @@ async fn list_sessions(
             })
         })
         .collect()
+}
+
+fn session_directory_matches(cwd: &Path, directory: &Path) -> bool {
+    // Node realpath and Rust canonicalize use different Windows spellings.
+    // Resolve both actual directories rather than weakening ownership to a
+    // textual prefix or trusting the runtime's reported path.
+    match (cwd.canonicalize(), directory.canonicalize()) {
+        (Ok(cwd), Ok(directory)) => cwd == directory,
+        _ => false,
+    }
 }
 
 async fn create_session(
@@ -2426,6 +2436,18 @@ pub(crate) async fn dsh_assistant_delete_session(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn session_directory_ownership_resolves_actual_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let other = root.path().join("other");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::create_dir(&other).unwrap();
+        let canonical = project.canonicalize().unwrap();
+        assert!(super::session_directory_matches(&project, &canonical));
+        assert!(!super::session_directory_matches(&other, &canonical));
+        assert!(!super::session_directory_matches(&root.path().join("missing"), &canonical));
+    }
     use super::*;
 
     #[test]

@@ -91,7 +91,7 @@ fn validate_session(
                 && item
                     .cwd
                     .as_deref()
-                    .is_some_and(|cwd| Path::new(cwd) == directory)
+                    .is_some_and(|cwd| session_directory_matches(Path::new(cwd), directory))
         })
     {
         return Err("Mind CLI 会话不属于当前助手范围".into());
@@ -174,16 +174,23 @@ mod tests {
 
     #[test]
     fn cli_lease_requires_real_session_in_exact_context_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let other = root.path().join("other");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::create_dir(&other).unwrap();
+        let directory = project.canonicalize().unwrap();
         let list: SessionListValue = serde_json::from_value(serde_json::json!({"items":[
-            {"sessionId":"owned","cwd":"/fixture/project"},
-            {"sessionId":"foreign","cwd":"/fixture/other"}
+            {"sessionId":"owned","cwd":project},
+            {"sessionId":"foreign","cwd":other},
+            {"sessionId":"removed","cwd":root.path().join("missing")}
         ]}))
         .unwrap();
-        assert!(validate_session(&list, "owned", Path::new("/fixture/project")).is_ok());
-        for id in ["", "missing", "foreign"] {
-            assert!(validate_session(&list, id, Path::new("/fixture/project")).is_err());
+        assert!(validate_session(&list, "owned", &directory).is_ok());
+        for id in ["", "missing", "foreign", "removed"] {
+            assert!(validate_session(&list, id, &directory).is_err());
         }
-        assert!(validate_session(&list, "owned", Path::new("/fixture")).is_err());
+        assert!(validate_session(&list, "owned", root.path()).is_err());
     }
 
     #[test]

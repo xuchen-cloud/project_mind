@@ -29,8 +29,14 @@ pub(crate) async fn run_utility_process(
     command
         .arg("--permission")
         .arg(format!("--max-old-space-size={}", limits.heap_mib))
-        .arg(format!("--allow-fs-read={}", source.display()))
-        .arg(format!("--allow-fs-read={}", distribution.display()))
+        .arg(format!(
+            "--allow-fs-read={}",
+            crate::node_paths::permission_path(source).display()
+        ))
+        .arg(format!(
+            "--allow-fs-read={}",
+            crate::node_paths::permission_path(distribution).display()
+        ))
         .arg(format!("--import={NODE_VERSION_GUARD}"))
         .arg(entry)
         .current_dir(temporary.path())

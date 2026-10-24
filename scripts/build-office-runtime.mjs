@@ -10,7 +10,7 @@ const hostTarget = Object.entries(DESKTOP_RUNTIME_TARGETS).find(([, target]) => 
 const target = requested ? desktopRuntimeTarget(requested) : desktopRuntimeTarget(hostTarget, {});
 if (!process.env.npm_execpath) throw new Error('Run through npm run build:office');
 const run = (args, cwd, env = process.env) => new Promise((resolve, reject) => {
-  const child = spawn(process.execPath, [process.env.npm_execpath, ...args], {cwd,env,stdio:'inherit'});
+  const child = spawn(process.execPath, [process.env.npm_execpath, ...args], {cwd,env,stdio:'inherit',windowsHide:true});
   child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(`Office build failed (${code})`)));
 });
 const checksum = bytes => createHash('sha256').update(bytes).digest('hex');

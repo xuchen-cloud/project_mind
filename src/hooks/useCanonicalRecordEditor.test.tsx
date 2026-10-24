@@ -141,6 +141,52 @@ it("ignores notifications from a different Workspace generation", async () => {
   expect(recordDocumentApi.editorGet).toHaveBeenCalledTimes(1);
 });
 
+it("refreshes committed voice metadata through the incoming path without saving it", async () => {
+  const persist = vi.fn(async () => ({ updatedAt: "saved" }));
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+  const receiveIncoming = vi.fn(() => true);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const incoming = { ...editor, metadata: { ...editor.metadata, title: "Minutes title", revision: "minutes-metadata" }, record: { ...editor.record, title: "Minutes title" } };
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  await act(async () => { await result.current.refreshIncoming(); });
+  expect(result.current.capture(document)).toMatchObject({ baseRevision: 4, metadataBase: incoming.metadata });
+  expect(receiveIncoming).toHaveBeenCalledWith(incoming, expect.objectContaining({ metadata: editor.metadata }));
+  expect(result.current.incomingConflict).toBeNull();
+  expect(persist).not.toHaveBeenCalled();
+});
+
+it("keeps a queued body draft and its old baseline when committed voice metadata arrives", async () => {
+  let finishSave!: () => void;
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => {
+    await new Promise<void>(resolve => { finishSave = resolve; });
+    return { updatedAt: "saved", headRevision: 5 };
+  } } });
+  const receiveIncoming = vi.fn(() => true);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  act(() => { coordinator.submit({ scope: "project", projectId: 1, recordId: 7, workspaceKey: "/workspace", title: "Title", tagIds: [], defaultCodeLanguage: null,
+    committedContent: { html: "<p>Draft</p>", markdown: "Draft", text: "Draft" }, canonicalBody: result.current.capture(document)! }); });
+  const incoming = { ...editor, metadata: { ...editor.metadata, title: "Minutes title", revision: "minutes-metadata" } };
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  await act(async () => { await result.current.refreshIncoming(); });
+  expect(result.current.incomingConflict).toBe(incoming);
+  expect(result.current.capture(document)?.metadataBase).toEqual(editor.metadata);
+  expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("Draft");
+  expect(receiveIncoming).not.toHaveBeenCalled();
+  await act(async () => { finishSave(); await coordinator.flush(); });
+});
+
+it("does not report the already loaded minutes snapshot as a conflict with a newer local draft", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const receiveIncoming = vi.fn(() => false);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  await act(async () => { await result.current.refreshIncoming(); });
+  expect(result.current.incomingConflict).toBeNull();
+  expect(receiveIncoming).not.toHaveBeenCalled();
+});
+
 it("reads the latest body after a failed CAS without advancing or replacing the draft baseline", async () => {
   const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => { throw new RecordSaveFailure("Conflict", { retryable: false, code: "REVISION_CONFLICT" }); } } });
   const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true }));

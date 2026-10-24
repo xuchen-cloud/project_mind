@@ -7,6 +7,9 @@ function componentModule<T>(load: () => Promise<T>, name: string): () => Promise
       pending = load().then(module => {
         if (import.meta.env.OFFICE_PERFORMANCE) performance.mark(`office-component:${name}:ready`);
         return module;
+      }).catch(error => {
+        pending = undefined;
+        throw error;
       });
     }
     return pending;

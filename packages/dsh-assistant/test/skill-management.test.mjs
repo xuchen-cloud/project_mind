@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, realpath, symlink, lstat, rename } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { once } from 'node:events';
@@ -127,7 +128,7 @@ test('discovery failure aborts mutations before touching a valid entry', async t
   const f = await fixture(t);
   const entry = await f.put(f.root, 'one');
   const loop = path.join(f.cwd, 'loop');
-  await symlink(loop, loop);
+  await symlink(loop, loop, process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(manageSkill(f.cwd, { action: 'delete', entryPath: entry }, {
     ...f.config, customSkillDirs: [f.root, loop],
   }));
@@ -162,7 +163,7 @@ test('CLI lists and mutates JSON using managed builtins and isolated assistant e
   const dataDir = path.join(f.cwd, 'data');
   const env = { ...process.env, PROJECT_MIND_DSH_SKILLS_DATA: dataDir, PROJECT_MIND_DSH_USER_DATA: path.join(f.cwd, 'assistant'), DSH_AGENTS_HOME: path.join(f.cwd, 'agents') };
   const cli = new URL('../scripts/skills.mjs', import.meta.url);
-  const run = async args => JSON.parse((await promisify(execFile)(process.execPath, [cli.pathname, '--cwd', f.cwd, ...args], { env })).stdout);
+  const run = async args => JSON.parse((await promisify(execFile)(process.execPath, [fileURLToPath(cli), '--cwd', f.cwd, ...args], { env })).stdout);
   const catalog = await run([]);
   const builtin = catalog.skills.find(s => s.source === 'bundled');
   assert.equal(builtin.canDelete, false);
@@ -233,7 +234,7 @@ test('standalone CLI derives managed builtin data from assistant user data and O
     const env = { ...process.env, HOME: home, USERPROFILE: home, DSH_AGENTS_HOME: path.join(f.cwd, 'agents') };
     for (const key of ['PROJECT_MIND_DSH_SKILLS_DATA', 'PROJECT_MIND_DSH_USER_DATA', 'XDG_DATA_HOME', 'APPDATA', 'DSH_BUNDLED_SKILL_DIR']) delete env[key];
     if (override) env.PROJECT_MIND_DSH_USER_DATA = override;
-    const args = [new URL('../scripts/skills.mjs', import.meta.url).pathname, '--cwd', f.cwd];
+    const args = [fileURLToPath(new URL('../scripts/skills.mjs', import.meta.url)), '--cwd', f.cwd];
     const run = async extra => JSON.parse((await promisify(execFile)(process.execPath, [...args, ...extra], { env })).stdout);
     const catalog = await run([]);
     const builtin = catalog.skills.find(s => s.source === 'bundled');
@@ -271,23 +272,35 @@ test('nested custom roots retain the actual flat entry and builtin aliases canno
   await assert.rejects(manageSkill(f.cwd, { action: 'delete', entryPath: builtin.entryPath }, config), /cannot be deleted/);
 });
 
-test('relative symlinks still resolve after disable and enable, including a flat file link', async t => {
+test('directory links still resolve after disable and enable', async t => {
   const f = await fixture(t);
   const target = await f.put(f.cwd, 'relative-resource');
   const link = path.join(f.root, 'relative');
-  await symlink(path.relative(f.root, target), link, 'dir');
+  await symlink(process.platform === 'win32' ? target : path.relative(f.root, target), link,
+    process.platform === 'win32' ? 'junction' : 'dir');
   const disabled = await f.manage('disable', link);
   assert.equal(disabled.skills[0].disabled, true);
   assert.equal(disabled.skills[0].path, path.join(target, 'SKILL.md'));
   const parked = path.join(f.root, '.disabled/relative');
   await f.manage('enable', parked);
   await f.manage('delete', link);
+  assert.ok((await lstat(target)).isDirectory());
+});
+
+test('relative flat file symlinks still resolve after disable and enable', async t => {
+  const f = await fixture(t);
   const flatTarget = await f.put(f.cwd, 'resource.md', 'flat-link');
   const flatLink = path.join(f.root, 'link.md');
-  await symlink(path.relative(f.root, flatTarget), flatLink, 'file');
+  try { await symlink(path.relative(f.root, flatTarget), flatLink, 'file'); }
+  catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') {
+      t.skip('Windows file symlinks require Developer Mode or the symlink privilege');
+      return;
+    }
+    throw error;
+  }
   assert.equal((await f.manage('disable', flatLink)).skills[0].path, flatTarget);
   await f.manage('enable', path.join(f.root, '.disabled/link.md'));
   await f.manage('delete', flatLink);
   assert.ok((await lstat(flatTarget)).isFile());
-  assert.ok((await lstat(target)).isDirectory());
 });

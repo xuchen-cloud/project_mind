@@ -16,11 +16,11 @@ for (const [path, entry] of Object.entries(lock.packages).sort(([a], [b]) => a.l
   sections.push(`${pkg.name} ${pkg.version}\nLicense: ${typeof pkg.license === 'string' ? pkg.license : JSON.stringify(pkg.license)}\nSource: ${entry.resolved ?? ''}`)
   sections.push(...await licenseTexts(dir))
 }
-const compiler = spawnSync('rustc', ['-vV'], { encoding: 'utf8' })
+const compiler = spawnSync('rustc', ['-vV'], { encoding: 'utf8', windowsHide: true })
 if (compiler.error || compiler.status !== 0) throw compiler.error ?? new Error(compiler.stderr)
 const target = process.env.OFFICE_RUST_TARGET ?? compiler.stdout.match(/^host: (.+)$/m)[1]
 const metadata = spawnSync('cargo', ['metadata', '--locked', '--format-version', '1', '--filter-platform', target,
-  '--manifest-path', join(root, 'native/engine/Cargo.toml')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+  '--manifest-path', join(root, 'native/engine/Cargo.toml')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, windowsHide: true })
 if (metadata.error || metadata.status !== 0) throw metadata.error ?? new Error(metadata.stderr)
 for (const pkg of JSON.parse(metadata.stdout).packages.sort((a, b) => a.name.localeCompare(b.name))) {
   sections.push(`Rust: ${pkg.name} ${pkg.version}\nLicense: ${pkg.license ?? 'See bundled LICENSE'}\nSource: ${pkg.source ?? 'GenOffice fixed source, locally patched'}`)

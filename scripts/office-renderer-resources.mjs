@@ -17,11 +17,14 @@ export function officeRendererResources() {
     configResolved(config) { serving = config.command === 'serve'; },
     resolveId(source, importer) {
       if (!source.endsWith(suffix)) return;
-      return virtualPrefix + resolve(importer ? dirname(importer.split('?')[0]) : process.cwd(), source.slice(0, -suffix.length)) + '.js';
+      // Virtual IDs become browser import URLs; native Windows separators would
+      // be rewritten by URL parsing before this plugin sees the ID again.
+      const entry = resolve(importer ? dirname(importer.split('?')[0]) : process.cwd(), source.slice(0, -suffix.length));
+      return virtualPrefix + entry.split(sep).join('/') + '.js';
     },
     load(id) {
       if (!id.startsWith(virtualPrefix)) return;
-      const entry = id.slice(virtualPrefix.length, -3);
+      const entry = resolve(id.slice(virtualPrefix.length, -3));
       const directory = dirname(entry);
       const manifestPath = resolve(directory, 'renderer-resources.json');
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));

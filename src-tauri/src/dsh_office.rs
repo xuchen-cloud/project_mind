@@ -539,7 +539,12 @@ fn validate_session(
     if !list
         .items
         .iter()
-        .any(|session| session.id == session_id && session.cwd.as_deref() == directory.to_str())
+        .any(|session| {
+            session.id == session_id
+                && session.cwd.as_deref().is_some_and(|cwd| {
+                    super::session_directory_matches(std::path::Path::new(cwd), directory)
+                })
+        })
     {
         return Err(AgentError::new(
             ErrorCode::ScopeDenied,

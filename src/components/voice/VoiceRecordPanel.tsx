@@ -14,7 +14,7 @@ export interface VoiceRecordPanelProps {
   visible?: boolean;
   sourceTimeMs?: number | null;
   sourceNavigationKey?: string;
-  onTitleUpdated?: (title: string) => void;
+  onMinutesCommitted?: () => void;
   onCopyMinutes?: (content: string) => Promise<void>;
 }
 
@@ -24,14 +24,25 @@ function formatTime(milliseconds: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceNavigationKey, onTitleUpdated, onCopyMinutes }: VoiceRecordPanelProps) {
+export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceNavigationKey, onMinutesCommitted, onCopyMinutes }: VoiceRecordPanelProps) {
   const queryClient = useQueryClient();
   const playbackQuery = useQuery({
     queryKey: ["voice-playback", target],
     queryFn: () => voiceApi.playbackGet(target),
     enabled: visible,
+    refetchInterval: (query) => visible && ["recording", "paused"].includes(query.state.data?.phase ?? "") ? 1_000 : false,
     retry: false,
   });
+  const previousPlayback = useRef(playbackQuery.data);
+  useEffect(() => {
+    const previous = previousPlayback.current;
+    const current = playbackQuery.data;
+    previousPlayback.current = current;
+    if (current?.phase === "ended" && previous?.sessionId === current.sessionId
+      && ["recording", "paused"].includes(previous.phase)) {
+      void queryClient.invalidateQueries({ queryKey: ["voice-transcript", target] });
+    }
+  }, [playbackQuery.data, queryClient, target]);
   const [loadedDuration, setLoadedDuration] = useState(0);
   const [ready, setReady] = useState(false);
   const totalMs = loadedDuration;
@@ -48,7 +59,7 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
   const [generatingMinutes, setGeneratingMinutes] = useState(false);
   const [copyingMinutes, setCopyingMinutes] = useState(false);
   const lastMinutesVersion = useRef<number | null>(null);
-  const lastMinutesTitle = useRef<string | null>(null);
+  const lastCommittedMinutes = useRef<{ sessionId: string; version: number } | null>(null);
   const minutesQuery = useQuery({
     queryKey: ["voice-minutes", target],
     queryFn: () => voiceApi.minutesGet(target),
@@ -69,10 +80,12 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
   }, [minutesQuery.data?.version, queryClient, target]);
   useEffect(() => {
     const snapshot = minutesQuery.data;
-    if (!snapshot?.version || !snapshot.title || snapshot.title === lastMinutesTitle.current) return;
-    lastMinutesTitle.current = snapshot.title;
-    onTitleUpdated?.(snapshot.title);
-  }, [minutesQuery.data, onTitleUpdated]);
+    if (!snapshot?.version || !onMinutesCommitted) return;
+    if (lastCommittedMinutes.current?.sessionId === snapshot.sessionId
+      && lastCommittedMinutes.current.version >= snapshot.version) return;
+    lastCommittedMinutes.current = { sessionId: snapshot.sessionId, version: snapshot.version };
+    onMinutesCommitted();
+  }, [minutesQuery.data, onMinutesCommitted]);
   const recoveryQuery = useQuery({
     queryKey: ["voice-recovery", target],
     queryFn: () => voiceApi.recoveryGet(target),
