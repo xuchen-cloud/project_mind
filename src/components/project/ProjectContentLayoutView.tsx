@@ -405,7 +405,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
     node.addEventListener("pointermove", move); node.addEventListener("pointerup", finish); node.addEventListener("pointercancel", finish);
   }
   const overviewVisible = active && layout.panes[0].selectedTabId === null && (!singlePane || !split || layout.focusedPaneId === "left");
-  return <section ref={root} className="project-content" aria-label="项目内容" data-split={split || undefined} data-narrow={narrow || undefined} data-dragging={dragging || undefined}
+  return <section ref={root} className="project-content" aria-label={scope.projectId === null ? "工作区内容" : "项目内容"} data-split={split || undefined} data-narrow={narrow || undefined} data-dragging={dragging || undefined}
     onClickCapture={event => {
       if (!suppressClick.current) return;
       suppressClick.current = false;
@@ -428,7 +428,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
       {layout.panes.map((pane, index) => {
         const shown = !singlePane || !split || pane.id === layout.focusedPaneId;
         return <div key={pane.id} id={`content-pane-${pane.id}`} className="project-content__pane-tabs" data-focused={pane.id === layout.focusedPaneId || undefined} style={{ gridColumn: singlePane ? 1 : index + 1, gridRow: 1, display: shown ? undefined : "none" }}>
-          {pane.id === "left" ? <button type="button" id={`content-home-${scope.projectId}`} className="project-content__icon-button project-content__home" aria-label="项目首页" title="项目首页"
+          {pane.id === "left" ? <button type="button" id={`content-home-${scope.projectId}`} className="project-content__icon-button project-content__home" aria-label={scope.projectId === null ? "工作区首页" : "项目首页"} title={scope.projectId === null ? "工作区首页" : "项目首页"}
             aria-pressed={pane.selectedTabId === null} aria-controls={`content-home-page-${scope.projectId}`} onClick={onOverview}
             onKeyDown={event => {
               if ((event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "End") && pane.tabIds.length) {
@@ -447,7 +447,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
           </div>
         </div>;
       })}
-      <div id={`content-home-page-${scope.projectId}`} role="region" aria-label="项目首页" className="project-content__page project-content__overview"
+      <div id={`content-home-page-${scope.projectId}`} role="region" aria-label={scope.projectId === null ? "工作区首页" : "项目首页"} className="project-content__page project-content__overview"
         hidden={!overviewVisible} inert={!overviewVisible} style={{ gridColumn: 1, gridRow: 2 }}
         onPointerDownCapture={() => useProjectContentStore.getState().focus(scope, "left")} onFocusCapture={() => useProjectContentStore.getState().focus(scope, "left")}>
         {renderOverview?.(overviewVisible)}
@@ -464,7 +464,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
         </div>;
       })}
       {layout.panes.filter(pane => pane.id === "right" && pane.selectedTabId === null).map(pane => <div key={`empty-${pane.id}`} className="project-content__empty" style={{ gridColumn: singlePane ? 1 : layout.panes.indexOf(pane) + 1, gridRow: 2 }} hidden={!active || (singlePane && split && pane.id !== layout.focusedPaneId)}
-        onPointerDown={() => useProjectContentStore.getState().focus(scope, pane.id)}><p>在这栏打开项目内容</p><span>从记录、文件或会话列表选择内容，或将 Tab 移到此栏。</span></div>)}
+        onPointerDown={() => useProjectContentStore.getState().focus(scope, pane.id)}><p>在这栏打开{scope.projectId === null ? "工作区" : "项目"}内容</p><span>从记录、文件或会话列表选择内容，或将 Tab 移到此栏。</span></div>)}
       {split && !singlePane ? <div className="project-content__divider" role="separator" aria-label="调整内容分栏比例" aria-orientation="vertical" aria-valuemin={Math.round(minRatio * 100)} aria-valuemax={Math.round((1 - minRatio) * 100)} aria-valuenow={Math.round(displayedRatio * 100)} tabIndex={0} onPointerDown={resize}
         onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); useProjectContentStore.getState().setRatio(scope, Math.max(minRatio, Math.min(1 - minRatio, displayedRatio + (event.key === "ArrowRight" ? 0.025 : -0.025)))); } }} /> : null}
     </div>

@@ -121,8 +121,12 @@ _Avoid_：Todo Progress、进展、子项
 ### 材料
 
 **File**：
-归属于一个 Project、被该工作现场持续管理的外部材料，可以被查找、引用、标记并随内容变化保留版本。
+归属于 Workspace 或一个 Project、被所属工作现场持续管理的外部材料，可以被查找、引用、标记并随内容变化保留版本。Workspace 与 Project 共用文件身份、导入、编辑、版本和引用流程，归属相互隔离。
 _Avoid_：Document、附件记录
+
+**Workspace File**：
+直接归属于 Workspace、不依赖 Project 的 File。普通文件根为工作区的 `files/`，与内部元数据和项目目录隔离；它复用共享内容 Tab 与双栏，不汇总或复制 Project File。
+_Avoid_：占位 Project、项目文件汇总、内部数据文件
 
 **File Version**：
 同一个 File 在特定时点的内容版本，依附于该 File，不是新的独立 File。

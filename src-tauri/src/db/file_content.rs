@@ -4,7 +4,7 @@ use crate::{
     agent::{
         access::RequestContext,
         errors::{AgentError, AgentResult, ErrorCode},
-        models::{Scope, WorkspaceBinding},
+        models::WorkspaceBinding,
     },
     file_content::{FileContentBegin, FileContentTicket},
 };
@@ -49,21 +49,13 @@ pub(crate) fn check_transaction(
     tx: &rusqlite::Transaction<'_>,
     input: &FileContentBegin,
 ) -> AgentResult<()> {
-    let project = match input.object.scope {
-        Scope::Project { project_id } => project_id,
-        _ => {
-            return Err(AgentError::new(
-                ErrorCode::ScopeDenied,
-                "File needs a Project",
-            ))
-        }
-    };
+    let project = super::file_scope::owner(&input.object.scope);
     let id: i64 = input
         .object
         .id
         .parse()
         .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File ID"))?;
-    let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM documents d JOIN projects p ON p.id=d.project_id WHERE d.id=?1 AND d.project_id=?2 AND p.is_archived=0 AND d.current_version_number=?3 AND d.storage_mode!='managed_note_image')",params![id,project,input.expected_version_number],|row|row.get(0)).map_err(io_error)?;
+    let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM documents d LEFT JOIN projects p ON p.id=d.project_id WHERE d.id=?1 AND d.project_id IS ?2 AND (d.project_id IS NULL OR p.is_archived=0) AND d.current_version_number=?3 AND d.storage_mode!='managed_note_image')",params![id,project,input.expected_version_number],|row|row.get(0)).map_err(io_error)?;
     if !valid {
         return Err(AgentError::new(
             ErrorCode::RevisionConflict,

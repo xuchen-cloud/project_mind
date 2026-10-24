@@ -1,12 +1,24 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+import { queryKeys } from "../../lib/queryKeys";
+import { useProjectContentStore } from "../../state/project-content-store";
+import { fireEvent, render as baseRender, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ScheduledTasksPanel } from "./ScheduledTasksPanel";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
-const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), run: vi.fn() }));
+const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), run: vi.fn(), openContent: vi.fn() }));
 vi.mock("../../services/dshAssistantApi", () => ({ dshAssistantApi: api }));
 vi.mock("../../services/dshScheduleApi", () => ({ dshScheduleApi: api }));
+vi.mock("../../services/projectContentApi", () => ({ openProjectContent: api.openContent }));
+const workspaceId = "scheduled-workspace";
+function render(element: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(queryKeys.projectContentBinding("/workspace"), { workspaceId, generation: "open-1" });
+  return baseRender(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+}
 beforeEach(() => {
   vi.resetAllMocks();
+  useProjectContentStore.setState({ layouts: {} });
   useAgentPanelStore.getState().clearWorkspace();
   useAgentPanelStore.getState().bindWorkspace("/workspace");
   api.start.mockResolvedValue(undefined);
@@ -80,11 +92,29 @@ it("runs a paused task once, blocks duplicate clicks and retains its request ide
   expect(api.run.mock.calls[1]).toEqual(api.run.mock.calls[0]);
   expect(screen.getByText("已暂停")).toBeInTheDocument();
   expect(api.update).not.toHaveBeenCalled();
-  expect(api.selectSession).toHaveBeenCalledWith("real-session", null);
-  expect(useAgentPanelStore.getState().workspaceSession?.id).toBe("real-session");
-  expect(useAgentPanelStore.getState().open).toBe(true);
+  expect(api.openContent).toHaveBeenCalledWith({ workspaceRoot: "/workspace", projectId: null, object: { kind: "session", id: "real-session", title: "每日工作" } });
   expect(onRunStarted).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "立即执行" }));
   await waitFor(() => expect(api.run).toHaveBeenCalledTimes(3));
   expect(api.run.mock.calls[2][1]).not.toEqual(api.run.mock.calls[0][1]);
+});
+
+it("defaults a new task to the focused shared Workspace Session instead of the old floating selection", async () => {
+  api.sessions.mockResolvedValue([{ id: "first", title: "列表首个会话" }, { id: "second", title: "当前工作区会话" }]);
+  useProjectContentStore.getState().open({ workspaceId, projectId: null }, { kind: "session", id: "second", title: "当前工作区会话" });
+  useProjectContentStore.getState().open({ workspaceId, projectId: 7 }, { kind: "session", id: "first", title: "项目会话同ID" });
+  useAgentPanelStore.setState({ workspaceSession: { workspaceRoot: "/workspace", id: "first", title: "旧浮层选择" } });
+  render(<ScheduledTasksPanel open />);
+  fireEvent.click(await screen.findByRole("button", { name: "新建定时任务" }));
+  expect(screen.getByRole("combobox", { name: "绑定会话" })).toHaveValue("second");
+});
+
+it("ignores a Project Session with the same id and uses the first real Workspace Session when Workspace has no Session selected", async () => {
+  api.sessions.mockResolvedValue([{ id: "first", title: "列表首个会话" }, { id: "second", title: "另一个工作区会话" }]);
+  useProjectContentStore.getState().open({ workspaceId, projectId: null }, { kind: "record", id: 7, title: "工作区记录" });
+  useProjectContentStore.getState().open({ workspaceId, projectId: 7 }, { kind: "session", id: "second", title: "项目会话同ID" });
+  useAgentPanelStore.setState({ workspaceSession: { workspaceRoot: "/workspace", id: "second", title: "旧浮层选择" } });
+  render(<ScheduledTasksPanel open />);
+  fireEvent.click(await screen.findByRole("button", { name: "新建定时任务" }));
+  expect(screen.getByRole("combobox", { name: "绑定会话" })).toHaveValue("first");
 });

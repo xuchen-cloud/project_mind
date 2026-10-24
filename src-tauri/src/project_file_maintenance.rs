@@ -26,7 +26,8 @@ struct ProjectProgress {
 struct Driver {
     binding: Option<WorkspaceBinding>,
     after_project: i64,
-    projects: HashMap<i64, ProjectProgress>,
+    projects: HashMap<Option<i64>, ProjectProgress>,
+    workspace_round: Option<u64>,
     round: u64,
     unfinished_round: bool,
 }
@@ -42,13 +43,19 @@ impl Driver {
             if self.binding.as_ref() != Some(binding) {
                 *self = Self { binding: Some(binding.clone()), ..Self::default() };
             }
-            let Some(project) = db.project_file_scan_next_project(self.after_project).map_err(io_error)? else {
-                self.after_project = 0;
-                self.projects.retain(|_, p| p.round == self.round);
-                self.round += 1;
-                return Ok((std::mem::take(&mut self.unfinished_round), None));
+            let project = match db.project_file_scan_next_project(self.after_project).map_err(io_error)? {
+                Some(project) => { self.after_project = project; Some(project) }
+                None if self.workspace_round != Some(self.round) => {
+                    self.workspace_round = Some(self.round);
+                    None
+                }
+                None => {
+                    self.after_project = 0;
+                    self.projects.retain(|_, p| p.round == self.round);
+                    self.round += 1;
+                    return Ok((std::mem::take(&mut self.unfinished_round), None));
+                }
             };
-            self.after_project = project;
             let progress = self.projects.entry(project).or_insert_with(|| ProjectProgress {
                 cursor: None, next_poll: now, error: None, round: self.round,
             });
@@ -87,7 +94,7 @@ impl Driver {
             // inaccessible entry does not log again on every discovery pass.
             if let Some(error) = error {
                 if progress.error.as_ref() != Some(&error) {
-                    eprintln!("Project File discovery workspace={} generation={} project={project}: {error}",
+                    eprintln!("Project File discovery workspace={} generation={} project={project:?}: {error}",
                         binding.workspace_id, binding.generation);
                     progress.error = Some(error);
                 }
@@ -211,6 +218,40 @@ mod tests {
             events: Mutex::new(vec![]),
         };
         (root, store, projects)
+    }
+    #[tokio::test]
+    async fn workspace_discovery_uses_only_files_root_and_shared_source_catalogue() {
+        use crate::agent::{access::{Caller, RequestContext, ScopeGrant}, models::{Scope, ObjectKind}};
+        let (root, store, _) = fixture();
+        fs::create_dir(root.path().join("files")).unwrap();
+        fs::write(root.path().join("files/copied.md"), b"uniqueworkspacecontenttoken").unwrap();
+        fs::write(root.path().join("never-register.md"), b"private root bytes").unwrap();
+        let mut driver = Driver::default();
+        for _ in 0..8 { driver.step(&store, Instant::now()).unwrap(); }
+        let mut current = store.current.lock().unwrap();
+        let binding = current.0.clone();
+        let page = current.1.workspace_page_get().unwrap();
+        assert_eq!(page.workspace_documents.len(), 1);
+        let id = page.workspace_documents[0].id.to_string();
+        assert_eq!(page.workspace_documents[0].name, "copied.md");
+        drop(current);
+        assert!(store.events.lock().unwrap().iter().flat_map(|event| &event.changed_refs).any(|object| object.scope == Scope::Workspace && object.kind == ObjectKind::File && object.id == id));
+        let request = RequestContext { binding: binding.clone(), caller: Caller::Gui, request_id: "workspace-file-index".into(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: true, project_ids: vec![], object_keys: None, operations: vec!["source.read".into()] } };
+        let service = crate::source_service::SourceService::new(&store);
+        let progress = service.backfill_index_queue(&request, &Scope::Workspace, 200).unwrap();
+        assert!(progress.queued >= 1);
+        let file_worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")).unwrap();
+        let record_worker = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+        let mut indexed_file = false;
+        for _ in 0..3 {
+            if let Some(object) = service.index_next_queued(&request, &Scope::Workspace, crate::source_service::SourceIndexBudget::default(), &record_worker, &file_worker).await.unwrap() {
+                indexed_file |= object.kind == ObjectKind::File && object.id == id;
+            }
+        }
+        assert!(indexed_file, "Workspace File must participate in the shared source catalogue");
+        let input = serde_json::from_value(serde_json::json!({"scope":{"kind":"workspace"},"query":"uniqueworkspacecontenttoken","kinds":["file"]})).unwrap();
+        let found = service.search(&request, &input).await.unwrap();
+        assert!(found.items.iter().any(|item| item.source_ref.object.id == id && item.source_ref.object.scope == Scope::Workspace));
     }
     #[test]
     fn background_discovers_copied_folders_fairly_without_ai_and_idle_passes_do_not_write() {

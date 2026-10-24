@@ -936,6 +936,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 
 .home-side__scroll.home-side__split { display:grid; overflow:hidden; gap:0; padding-right:4px; }
 .home-side__section { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.home-side__section > .home-rail__files { min-height:0; }
 .home-side__section > .home-side__heading, .home-side__section > .home-side__search { flex-shrink:0; margin-right:8px; }
 .home-side__list { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
 .home-side__split-handle { display:flex; align-items:center; padding:0 10px; cursor:row-resize; touch-action:none; user-select:none; outline:none; }
@@ -1222,7 +1223,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-tag-menu { width:140px; padding:4px; }
 
 /* The same file panel fits the draggable lower section of the note sidebar. */
-.home-note-sidebar .home-side__section > .home-rail__files { min-height:0; }
 
 /* One moving surface preserves continuity when switching tabs. */
 .workspace-topbar__indicator { display:none; }

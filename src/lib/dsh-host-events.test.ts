@@ -67,9 +67,9 @@ it("retains title snapshots by Project, replaces disposed catalogs, and clears t
   expect(useDshSessionTitles.getState().byProject).toEqual({});
   setDshWorkspaceRoot("/workspace");
   emit(7, { sameId: "项目七标题" }); emit(8, { sameId: "项目八标题" }); emit(null, { sameId: "工作区会话" });
-  expect(useDshSessionTitles.getState()).toEqual({ workspaceRoot: "/workspace", byProject: { 7: { sameId: "项目七标题" }, 8: { sameId: "项目八标题" } } });
+  expect(useDshSessionTitles.getState()).toEqual({ workspaceRoot: "/workspace", byProject: { 7: { sameId: "项目七标题" }, 8: { sameId: "项目八标题" }, null: { sameId: "工作区会话" } } });
   emit(7, {});
-  expect(useDshSessionTitles.getState().byProject).toEqual({ 7: {}, 8: { sameId: "项目八标题" } });
+  expect(useDshSessionTitles.getState().byProject).toEqual({ 7: {}, 8: { sameId: "项目八标题" }, null: { sameId: "工作区会话" } });
   setDshWorkspaceRoot("/other");
   expect(useDshSessionTitles.getState()).toEqual({ workspaceRoot: "/other", byProject: {} });
   setDshWorkspaceRoot(null); emit(8, { ignored: "关闭后忽略" });

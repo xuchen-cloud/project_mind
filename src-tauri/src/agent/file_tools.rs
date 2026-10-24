@@ -79,10 +79,6 @@ pub(crate) struct FileContentIdInput {
 pub(super) fn file_ref_schema() -> Value {
     let mut value = object_ref_schema();
     value["properties"]["kind"] = json!({"type":"string","maxLength":4,"const":"file"});
-    value["properties"]["scope"] = object(
-        json!({"kind":{"type":"string","maxLength":7,"const":"project"},"projectId":integer(SAFE_INTEGER)}),
-        &["kind", "projectId"],
-    );
     value
 }
 fn content_hash() -> Value {
@@ -133,7 +129,7 @@ pub(super) fn file_intent_schemas() -> Vec<Value> {
     );
     vec![
         object(
-            json!({"intent":{"type":"string","maxLength":32,"const":"file_create"},"projectId":integer(SAFE_INTEGER),"safeName":text(255),"utf8Content":text(CONTENT_BYTES)}),
+            json!({"intent":{"type":"string","maxLength":32,"const":"file_create"},"projectId":nullable(integer(SAFE_INTEGER)),"safeName":text(255),"utf8Content":text(CONTENT_BYTES)}),
             &["intent", "projectId", "safeName", "utf8Content"],
         ),
         object(

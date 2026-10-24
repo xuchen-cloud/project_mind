@@ -163,7 +163,7 @@ it("shows Session creation failure and retries creation on the next click",async
 it("rejects a Session that is absent from the current Project instead of referencing an active old Session",async()=>{
   vi.mocked(dshAssistantApi.selectSession).mockResolvedValueOnce("foreign-session");
   render(<ProjectFileSessionReference {...props} />); insert();
-  expect(await screen.findByRole("alert")).toHaveTextContent("会话不存在或不属于当前项目");
+  expect(await screen.findByRole("alert")).toHaveTextContent("会话不存在或不属于当前范围");
   expect(pending()).toHaveLength(0); expect(useProjectContentStore.getState().layouts).toEqual({});
 });
 it("cancels delivery when displayed-source identity changes during Session creation",async()=>{
@@ -172,4 +172,17 @@ it("cancels delivery when displayed-source identity changes during Session creat
   const view=render(<ProjectFileSessionReference {...props} />); insert(); await waitFor(()=>expect(finish).toBeTypeOf("function"));
   view.rerender(<ProjectFileSessionReference {...props} sourceRef={{...source,revision:"sha256:new-preview"}} />);
   await act(async()=>finish("session-new")); expect(pending()).toHaveLength(0); expect(useProjectContentStore.getState().layouts).toEqual({});
+});
+
+it("references a Workspace-owned fixed File version in a Workspace session using its real files path", async () => {
+  const workspaceObject = { ...object, scope: { kind: "workspace" as const } };
+  const workspaceSource = { ...source, object: workspaceObject };
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ object: workspaceObject, relativePath: "renamed/current.txt", name: "current.txt", versionNumber: 3, contentHash: "sha256:current-v3", state: "ready", reason: null });
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object: workspaceObject, currentVersionNumber: 3, currentContentHash: "sha256:current-v3", versions: [{ id: "retained-2", versionNumber: 2, name: bytes.name, contentHash: bytes.contentHash, createdAt: "yesterday", isCurrent: false }], nextCursor: null });
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ ...bytes, object: workspaceObject });
+  render(<ProjectFileSessionReference {...props} projectId={null} sourceRef={workspaceSource} />);
+  insert();
+  await waitFor(() => expect(pending()).toHaveLength(1));
+  expect(pending()[0]).toMatchObject({ projectId: null, path: "files/renamed/current.txt", sourceRef: workspaceSource });
+  expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: binding.workspaceId, projectId: null }).tabs.map(tab => tab.object.id)).toEqual(["session-new"]);
 });

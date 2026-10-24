@@ -65,3 +65,15 @@ test('XLSX inspect and edit expose lossless JSON when veryHidden is absent',asyn
     {agent:{session:{id:'actual'}},signal:new AbortController().signal});
   assert.equal(result.model.sheets[0].veryHidden,true);
 });
+test('Workspace Office tools accept both native File scopes while Project tools keep their owner',async()=>{
+ const h=harness();await installOfficeService(h.ctx,{kind:'workspace',directory:'/project'},h.bridge);
+ const sourceRef=structuredClone(officeSourceRef);sourceRef.object.scope={kind:'workspace'};
+ const tool=h.tools.get('file_office_edit'),exec={agent:{session:{id:'actual'}},callId:'workspace-edit',signal:new AbortController().signal};
+ await tool.execute({source_ref:sourceRef,edits:[]},exec);
+ assert.deepEqual(h.requests[0].payload.sourceRef.object.scope,{kind:'workspace'});
+ await tool.execute({source_ref:officeSourceRef,edits:[]},exec);
+ assert.equal(h.requests.length,2);
+ const p=harness();await installOfficeService(p.ctx,{kind:'project',directory:'/project'},p.bridge);
+ await assert.rejects(p.tools.get('file_office_edit').execute({source_ref:sourceRef,edits:[]},exec),/source_ref/);
+ assert.equal(p.requests.length,0);
+});

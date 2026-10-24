@@ -2,7 +2,7 @@
 //! stored in the existing document_versions / source_file_version_hashes tables.
 use super::{file_versions, Database};
 use crate::agent::models::{ObjectKind, ObjectRef, Scope};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -67,7 +67,7 @@ struct ScanFrame {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ScanCursor {
     workspace_id: String,
-    project_id: i64,
+    project_id: Option<i64>,
     stack: Vec<ScanFrame>,
 }
 #[derive(Debug, Serialize)]
@@ -111,16 +111,14 @@ pub(crate) struct FileBytesResult {
     pub base64: String,
 }
 
-fn file_id(object: &ObjectRef) -> Result<(i64, i64)> {
-    let Scope::Project { project_id } = object.scope else {
-        return Err(failure("ownership_mismatch", "File requires a Project"));
-    };
+fn file_id(object: &ObjectRef) -> Result<(Option<i64>, i64)> {
+    let project_id = super::file_scope::owner(&object.scope);
     let id = object
         .id
         .parse::<i64>()
         .ok()
         .filter(|id| *id > 0 && id.to_string() == object.id);
-    if object.kind != ObjectKind::File || project_id <= 0 || id.is_none() {
+    if object.kind != ObjectKind::File || project_id.is_some_and(|id| id <= 0) || id.is_none() {
         return Err(failure("invalid_argument", "Invalid File identity"));
     }
     Ok((project_id, id.unwrap()))
@@ -226,37 +224,18 @@ impl Database {
             .map_err(|e| anyhow!(e.message))?;
         Ok(())
     }
-    fn directory_owner(&self, workspace: &str, project: i64) -> Result<PathBuf> {
+    fn directory_owner(&self, workspace: &str, project: Option<i64>) -> Result<PathBuf> {
         if self.native_workspace_id.as_deref() != Some(workspace) {
             return Err(failure(
                 "ownership_mismatch",
                 "Workspace is no longer current",
             ));
         }
-        let project = self.project_record(project).map_err(|_| {
-            failure(
-                "ownership_mismatch",
-                "Project does not exist in this Workspace",
-            )
-        })?;
-        if project.is_archived {
-            return Err(failure("ownership_mismatch", "Project is archived"));
-        }
-        let root = PathBuf::from(project.root_path);
-        file_versions::relative(&self.workspace_root, &root)?;
-        let others: Vec<String> = self
-            .conn
-            .prepare("SELECT root_path FROM projects WHERE id!=?1")?
-            .query_map([project.id], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-        for other in others {
-            let other = self.decode_path_ref(&other);
-            if root.starts_with(&other) || other.starts_with(&root) {
-                return Err(failure(
-                    "ownership_mismatch",
-                    "Project directories overlap; resolve ownership before directory access",
-                ));
-            }
+        if self.file_scope_archived(project)? { return Err(failure("ownership_mismatch", "Project is archived")); }
+        let root = self.file_scope_root(project)
+            .map_err(|error| failure("ownership_mismatch", &error.to_string()))?;
+        if project.is_none() {
+            file_versions::create_owned_directories(&self.workspace_root, &root)?;
         }
         Ok(root)
     }
@@ -374,16 +353,17 @@ impl Database {
     pub(crate) fn project_file_register(
         &self,
         workspace: &str,
-        project: i64,
+        project: impl Into<Option<i64>>,
         relative: &str,
     ) -> Result<DirectoryFile> {
+        let project = project.into();
         self.directory_schema()?;
         let root = self.directory_owner(workspace, project)?;
         let path = business_path(&root, relative)?;
         let _project_lock = self.file_project_lock(project, false)?;
         let identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         // A registered path is only a candidate: resolve rechecks identity.
-        let ids: Vec<(i64,i64,String)> = self.conn.prepare("SELECT id,project_id,managed_path FROM documents WHERE storage_mode!='managed_note_image'")?.query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        let ids: Vec<(i64,Option<i64>,String)> = self.conn.prepare("SELECT id,project_id,managed_path FROM documents WHERE storage_mode!='managed_note_image'")?.query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
             return Err(failure(
@@ -426,9 +406,7 @@ impl Database {
                     }
                     let object = ObjectRef {
                         workspace_id: workspace.into(),
-                        scope: Scope::Project {
-                            project_id: project,
-                        },
+                        scope: super::file_scope::scope(project),
                         kind: ObjectKind::File,
                         id: id.to_string(),
                     };
@@ -438,9 +416,7 @@ impl Database {
         }
         let object = existing.map(|id| ObjectRef {
             workspace_id: workspace.into(),
-            scope: Scope::Project {
-                project_id: project,
-            },
+            scope: super::file_scope::scope(project),
             kind: ObjectKind::File,
             id: id.to_string(),
         });
@@ -482,9 +458,7 @@ impl Database {
         tx.execute("INSERT INTO project_directory_files(document_id,physical_identity,state,reason) VALUES (?1,?2,'unavailable','Initial snapshot pending')",params![id,serde_json::to_string(&current_identity)?])?;
         let object = ObjectRef {
             workspace_id: workspace.into(),
-            scope: Scope::Project {
-                project_id: project,
-            },
+            scope: super::file_scope::scope(project),
             kind: ObjectKind::File,
             id: id.to_string(),
         };
@@ -505,7 +479,7 @@ impl Database {
     fn directory_publish(
         &self,
         workspace: &str,
-        project: i64,
+        project: Option<i64>,
         path: &Path,
         existing: &ObjectRef,
         replacement: bool,
@@ -529,7 +503,7 @@ impl Database {
     fn directory_publish_locked(
         &self,
         workspace: &str,
-        project: i64,
+        project: Option<i64>,
         path: &Path,
         existing: &ObjectRef,
         replacement: bool,
@@ -667,9 +641,7 @@ impl Database {
         let id = document.id;
         let object = ObjectRef {
             workspace_id: workspace.into(),
-            scope: Scope::Project {
-                project_id: project,
-            },
+            scope: super::file_scope::scope(project),
             kind: ObjectKind::File,
             id: id.to_string(),
         };
@@ -741,7 +713,7 @@ impl Database {
         register_current_bytes: bool,
     ) -> crate::agent::errors::AgentResult<file_versions::FileVersionCommitOutcome> {
         use crate::agent::errors::{AgentError, ErrorCode};
-        let object = ObjectRef { workspace_id: workspace.into(), scope: Scope::Project { project_id: intent.project_id },
+        let object = ObjectRef { workspace_id: workspace.into(), scope: super::file_scope::scope(intent.project_id),
             kind: ObjectKind::File, id: intent.document_id.to_string() };
         let file = self.directory_publish_locked(workspace, intent.project_id, Path::new(&intent.managed_path),
             &object, true, None, None, Some((request_id, intent, register_current_bytes)))
@@ -1208,7 +1180,7 @@ impl Database {
                     .unwrap_or_else(|| document.tags.iter().map(|tag| tag.id).collect()),
             };
             for tag in &metadata.tags {
-                self.scoped_file_tag_record(Some(project), *tag)?;
+                self.scoped_file_tag_record(project, *tag)?;
             }
             tx.execute("INSERT INTO project_directory_metadata_intents(document_id,payload) VALUES (?1,?2)",params![id,serde_json::to_string(&metadata)?])?;
         }
@@ -1282,7 +1254,7 @@ impl Database {
     ) -> Result<()> {
         let (project, id) = file_id(object)?;
         for tag in &metadata.tags {
-            self.scoped_file_tag_record(Some(project), *tag)?;
+            self.scoped_file_tag_record(project, *tag)?;
         }
         tx.execute(
             "UPDATE documents SET is_starred=?1,updated_at=?2 WHERE id=?3",
@@ -1309,9 +1281,7 @@ impl Database {
             .ok_or_else(|| failure("ownership_mismatch", "Workspace is not bound"))?;
         let object = ObjectRef {
             workspace_id: workspace.into(),
-            scope: Scope::Project {
-                project_id: document.project_id,
-            },
+            scope: super::file_scope::scope(document.project_id),
             kind: ObjectKind::File,
             id: document.id.to_string(),
         };
@@ -1328,7 +1298,7 @@ impl Database {
                 .unwrap_or_else(|| document.tags.iter().map(|tag| tag.id).collect()),
         };
         for tag in &metadata.tags {
-            self.scoped_file_tag_record(Some(document.project_id), *tag)?;
+            self.scoped_file_tag_record(document.project_id, *tag)?;
         }
         let name = input
             .base_name
@@ -1404,26 +1374,28 @@ impl Database {
     pub(crate) fn project_file_scan_new(
         &self,
         workspace: &str,
-        project: i64,
+        project: impl Into<Option<i64>>,
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<DirectoryScan> {
+        let project = project.into();
         self.project_file_scan_page(workspace, project, cursor, limit, false, true)
     }
     pub(crate) fn project_file_scan(
         &self,
         workspace: &str,
-        project: i64,
+        project: impl Into<Option<i64>>,
         cursor: Option<&str>,
         limit: u32,
         cancelled: bool,
     ) -> Result<DirectoryScan> {
+        let project = project.into();
         self.project_file_scan_page(workspace, project, cursor, limit, cancelled, false)
     }
     fn project_file_scan_page(
         &self,
         workspace: &str,
-        project: i64,
+        project: Option<i64>,
         cursor: Option<&str>,
         limit: u32,
         cancelled: bool,
@@ -1669,7 +1641,7 @@ impl Database {
                 continue;
             }
             if only_new && self.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM documents WHERE project_id=?1 AND managed_path=?2 AND storage_mode='project_directory')",
+                "SELECT EXISTS(SELECT 1 FROM documents WHERE project_id IS ?1 AND managed_path=?2 AND storage_mode='project_directory')",
                 params![project, self.encode_path_ref(&root.join(&relative))], |r| r.get::<_, bool>(0),
             )? {
                 continue;

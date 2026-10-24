@@ -376,7 +376,7 @@ mod tests {
                 &binding,
                 &StageRecordInput {
                     intent: OutputIntent::FileCreate {
-                        project_id: project,
+                        project_id: Some(project),
                         safe_name: "actual.md".into(),
                         utf8_content: "native bytes".into(),
                     },
@@ -426,7 +426,7 @@ mod tests {
             &native_request,
             &binding,
             &AgentFileCreateInput {
-                project_id: project,
+                project_id: Some(project),
                 safe_name: "actual.md".into(),
                 utf8_content: "native bytes".into(),
             },

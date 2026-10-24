@@ -152,7 +152,6 @@ impl Selections {
         input: Registration,
     ) -> AgentResult<()> {
         if input.object.kind != ObjectKind::File
-            || !matches!(input.object.scope, Scope::Project { .. })
             || input.object.workspace_id != binding.workspace_id
             || !["docx", "xlsx", "pptx"].contains(&input.format.as_str())
             || input.text.len() > 128 * 1024
@@ -227,10 +226,11 @@ impl Selections {
     pub(crate) fn read(
         &self,
         binding: &WorkspaceBinding,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         session_id: &str,
         id: &str,
     ) -> AgentResult<(ObjectRef, Value)> {
+        let project_id = project_id.into();
         let entries = crate::lock_mutex(&self.entries);
         let s = entries.get(id).ok_or_else(expired)?;
         Self::owned(s, binding, project_id, session_id)?;
@@ -242,11 +242,12 @@ impl Selections {
     fn owned(
         s: &Selection,
         binding: &WorkspaceBinding,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         session_id: &str,
     ) -> AgentResult<()> {
+        let project_id = project_id.into();
         if s.binding != *binding
-            || s.registration.object.scope != (Scope::Project { project_id })
+            || s.registration.object.scope != crate::db::file_scope::scope(project_id)
             || s.session_id.as_deref() != Some(session_id)
         {
             return Err(expired());
@@ -256,13 +257,14 @@ impl Selections {
     pub(crate) fn begin(
         &self,
         binding: &WorkspaceBinding,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         session_id: &str,
         id: &str,
         request_id: &str,
         change: Value,
         alive: Arc<AtomicBool>,
     ) -> AgentResult<Dispatch> {
+        let project_id = project_id.into();
         if request_id.is_empty()
             || request_id.len() > 128
             || !change.is_object()

@@ -33,9 +33,9 @@ Usage:
   mind file versions list|get --input-file PATH|- --workspace PATH --connection ID --json
   mind file source read --input-file PATH|- --workspace PATH --connection ID --json
   mind file create|patch|update|restore --input-file PATH|- --workspace PATH --connection ID --json
-  mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json
+  mind file create --name NAME --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json
   mind file patch --patch-file PATH|- --workspace PATH --connection ID --json
-  mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash SHA256 --request-id ID --workspace PATH --connection ID --json
+  mind file update --id ID --source-file PATH|- (--project ID | --workspace-scope) --expected-version N --expected-hash SHA256 --request-id ID --workspace PATH --connection ID --json
   mind file content begin|chunk|complete|status --input-file PATH|- --workspace PATH --connection ID --json
   mind file upload --input-file TARGET.json --body-file PATH --request-id ID --workspace PATH --connection ID --json
   mind record create|restore --input-file PATH|- --workspace PATH --connection ID --json

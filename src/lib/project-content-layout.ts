@@ -1,7 +1,7 @@
 import { parseSourceNavigation } from "./source-navigation";
 import type { AgentSourceRef } from "./agent-types";
 
-export type ContentScope = { workspaceId: string; projectId: number };
+export type ContentScope = { workspaceId: string; projectId: number | null };
 export type ContentObject = { kind: "record" | "file" | "session"; id: number | string; title: string; isVoice?: boolean };
 export type ContentView = { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceQuery?: string;
   sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
@@ -20,7 +20,7 @@ export function emptyContentLayout(): ProjectContentLayout {
   return { tabs: [], panes: [{ id: "left", tabIds: [], selectedTabId: null }], focusedPaneId: "left", ratio: 0.5 };
 }
 
-// Missing projects must not return a fresh selector value on every render.
+// Missing scopes must not return a fresh selector value on every render.
 const EMPTY_LAYOUT = emptyContentLayout();
 Object.freeze(EMPTY_LAYOUT.tabs);
 Object.freeze(EMPTY_LAYOUT.panes[0].tabIds);
@@ -96,7 +96,7 @@ export function contentLayoutWorkspaceId(key: string): string | null {
   try {
     const scope: unknown = JSON.parse(key);
     if (!Array.isArray(scope) || scope.length !== 2 || typeof scope[0] !== "string"
-      || !scope[0] || !Number.isSafeInteger(scope[1]) || scope[1] <= 0) return null;
+      || !scope[0] || (scope[1] !== null && (!Number.isSafeInteger(scope[1]) || scope[1] <= 0))) return null;
     return contentLayoutKey({ workspaceId: scope[0], projectId: scope[1] }) === key ? scope[0] : null;
   } catch { return null; }
 }
@@ -144,7 +144,7 @@ function sanitizeLayout(value: unknown): ProjectContentLayout | null {
   return { tabs, panes, focusedPaneId: value.focusedPaneId, ratio: value.ratio };
 }
 
-/** Invalid projects are discarded independently; no object availability/authority is inferred. */
+/** Invalid scope layouts are discarded independently; no object authority is inferred. */
 export function sanitizeContentLayouts(value: unknown): Record<string, ProjectContentLayout> {
   if (!isObject(value)) return {};
   const layouts: Record<string, ProjectContentLayout> = {};

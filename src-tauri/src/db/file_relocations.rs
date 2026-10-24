@@ -10,7 +10,7 @@ use super::{
 use crate::{
     agent::{
         errors::{AgentError, ErrorCode},
-        models::{ObjectKind, ObjectRef, Scope},
+        models::{ObjectKind, ObjectRef},
     },
     models::{DocumentRecord, DocumentRelocateInput},
 };
@@ -30,7 +30,7 @@ struct RelocateJournal {
     workspace_id: Option<String>,
     request_id: String,
     document_id: i64,
-    project_id: i64,
+    project_id: Option<i64>,
     version_id: i64,
     version: i64,
     target: String,
@@ -96,7 +96,7 @@ impl Database {
             || journal.workspace_id != self.native_workspace_id
             || !nonce(&journal.request_id)
             || journal.document_id <= 0
-            || journal.project_id <= 0
+            || journal.project_id.is_some_and(|id| id <= 0)
             || journal.version_id <= 0
             || journal.version <= 0
             || journal.version > u32::MAX as i64
@@ -180,7 +180,7 @@ impl Database {
             if document_id <= 0 || document_id.to_string() != id || !nonce(request_id) {
                 bail!("Invalid relocation journal identity");
             }
-            let project_id: Option<i64> = self
+            let project_id: Option<Option<i64>> = self
                 .conn
                 .query_row(
                     "SELECT project_id FROM documents WHERE id=?1",
@@ -344,7 +344,7 @@ impl Database {
                 "gui", &journal.request_id, "file.relocate", &journal,
                 |tx| {
                     let unchanged: bool = tx.query_row(
-                        "SELECT project_id=?2 AND current_version_number=?3 AND managed_path=?4 AND original_path=?5 FROM documents WHERE id=?1",
+                        "SELECT project_id IS ?2 AND current_version_number=?3 AND managed_path=?4 AND original_path=?5 FROM documents WHERE id=?1",
                         params![current.id, current.project_id, journal.version,
                             self.encode_path_ref(target), journal.old_source_ref],
                         |r| r.get(0),
@@ -380,7 +380,7 @@ impl Database {
                     let change = if let Some(workspace_id) = &journal.workspace_id {
                         let object = ObjectRef {
                             workspace_id: workspace_id.clone(),
-                            scope: Scope::Project {project_id: current.project_id},
+                            scope: super::file_scope::scope(current.project_id),
                             kind: ObjectKind::File, id: current.id.to_string(),
                         };
                         Some(OperationChange {object_key: object.key()?,
@@ -428,7 +428,7 @@ mod tests {
         let source = root.join("original.txt");
         fs::write(&source, b"original\r\n").unwrap();
         let input = DocumentImportInput {
-            project_id: project.id,
+            project_id: Some(project.id),
             source_path: source.to_string_lossy().into(),
             is_starred: false,
             tag_ids: None,

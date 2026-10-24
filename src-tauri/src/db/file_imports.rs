@@ -30,7 +30,7 @@ use std::{
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentFileCreateInput {
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub safe_name: String,
     pub utf8_content: String,
 }
@@ -56,7 +56,7 @@ pub(crate) fn validate_agent_file_create(input: &AgentFileCreateInput) -> AgentR
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if input.project_id <= 0
+    if input.project_id.is_some_and(|id| id <= 0)
         || name.is_empty()
         || super::project_directory_files::excluded_component(name)
         || crate::project_file_exclusions::is_temporary_file_name(name)
@@ -132,7 +132,7 @@ struct ImportJournal {
     schema_version: u32,
     workspace_id: Option<String>,
     request_id: String,
-    project_id: i64,
+    project_id: Option<i64>,
     document_id: i64,
     name: String,
     target: String,
@@ -199,13 +199,19 @@ impl Database {
                 "File Workspace binding changed",
             ));
         }
+        let scope = super::file_scope::scope(input.project_id);
+        request.authorize(binding, &scope, "content.create")?;
+        self.agent_connection_require_live(request, binding, &scope, "content.create")?;
+        if input.project_id.is_none() {
+            request.require_scope_context()?;
+            self.file_scope_root(None).map_err(|_| AgentError::new(ErrorCode::ScopeDenied, "Workspace File directory is unavailable"))?;
+            return Ok(());
+        }
         let object = ObjectRef {
             workspace_id: binding.workspace_id.clone(),
-            scope: Scope::Project {
-                project_id: input.project_id,
-            },
+            scope: super::file_scope::scope(input.project_id),
             kind: ObjectKind::Project,
-            id: input.project_id.to_string(),
+            id: input.project_id.unwrap().to_string(),
         };
         request.authorize(binding, &object.scope, "content.create")?;
         let actual = self
@@ -289,7 +295,7 @@ impl Database {
     fn file_import_recover(&self, directory: &Path, journal: &ImportJournal) -> Result<()> {
         if journal.schema_version != 1
             || journal.workspace_id != self.native_workspace_id
-            || journal.project_id <= 0
+            || journal.project_id.is_some_and(|id| id <= 0)
             || journal.document_id <= 0
             || !valid_hash(&journal.content_hash)
             || journal.request_id.len() != 32
@@ -345,9 +351,7 @@ impl Database {
                                 .workspace_id
                                 .clone()
                                 .ok_or_else(|| anyhow!("Missing File Workspace identity"))?,
-                            scope: Scope::Project {
-                                project_id: journal.project_id,
-                            },
+                            scope: super::file_scope::scope(journal.project_id),
                             kind: ObjectKind::File,
                             id: journal.document_id.to_string(),
                         })
@@ -376,8 +380,8 @@ impl Database {
         if committed {
             return self.file_import_clear(directory);
         }
-        let project = self.project_record(journal.project_id)?;
-        if target != Path::new(&project.root_path).join(&journal.name) {
+        let root = self.file_scope_root(journal.project_id)?;
+        if target != root.join(&journal.name) {
             bail!("File import target is outside its actual Project");
         }
         if !journal.adopt_existing && target.exists() {
@@ -421,9 +425,9 @@ impl Database {
             let (id, nonce) = name
                 .split_once('-')
                 .ok_or_else(|| anyhow!("Invalid import directory"))?;
-            let project_id: i64 = id.parse()?;
-            if project_id <= 0
-                || project_id.to_string() != id
+            let project_id = if id == "workspace" { None } else { Some(id.parse::<i64>()?) };
+            if project_id.is_some_and(|id| id <= 0)
+                || super::file_scope::owner_key(project_id) != id
                 || nonce.len() != 32
                 || !nonce
                     .bytes()
@@ -433,7 +437,7 @@ impl Database {
             }
             // Same lock order as import, including descriptor-less live staging.
             let _project_lock = self.file_project_lock(project_id, false)?;
-            let _import_lock = self.file_storage_lock("file-import-locks", project_id, true)?;
+            let _import_lock = self.file_scope_storage_lock("file-import-locks", project_id, true)?;
             if !directory.exists() {
                 continue;
             }
@@ -461,7 +465,7 @@ impl Database {
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow!("Invalid File source name"))?
             .to_owned();
-        let root = PathBuf::from(self.project_record(input.project_id)?.root_path);
+        let root = PathBuf::from(self.file_scope_root(input.project_id)?);
         let excluded = if source.starts_with(&root) {
             super::project_directory_files::excluded_project_path(&root, &source)?
         } else {
@@ -551,7 +555,7 @@ impl Database {
             params![document_id, serde_json::to_string(&journal.identity).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid imported File identity"))?],
         ).map_err(io_error)?;
         for tag in &journal.tag_ids {
-            self.scoped_file_tag_record(Some(journal.project_id), *tag)
+            self.scoped_file_tag_record(journal.project_id, *tag)
                 .map_err(|_| {
                     AgentError::new(
                         ErrorCode::ScopeDenied,
@@ -572,9 +576,7 @@ impl Database {
         let change = if let Some(workspace_id) = &journal.workspace_id {
             let object = ObjectRef {
                 workspace_id: workspace_id.clone(),
-                scope: Scope::Project {
-                    project_id: journal.project_id,
-                },
+                scope: super::file_scope::scope(journal.project_id),
                 kind: ObjectKind::File,
                 id: document_id.to_string(),
             };
@@ -597,7 +599,7 @@ impl Database {
     }
     fn file_import_commit(
         &mut self,
-        project_id: i64,
+        project_id: Option<i64>,
         name: String,
         is_starred: bool,
         tags: &[i64],
@@ -610,7 +612,7 @@ impl Database {
     }
     fn file_import_commit_inner(
         &mut self,
-        project_id: i64,
+        project_id: Option<i64>,
         name: String,
         is_starred: bool,
         tags: &[i64],
@@ -619,7 +621,7 @@ impl Database {
     ) -> Result<ImportOutcome> {
         self.file_version_recover_pending()?;
         let _project_lock = self.file_project_lock(project_id, false)?;
-        let _import_lock = self.file_storage_lock("file-import-locks", project_id, true)?;
+        let _import_lock = self.file_scope_storage_lock("file-import-locks", project_id, true)?;
         if let Some(agent) = agent {
             self.agent_file_create_authorize(agent.request, agent.binding, agent.input)
                 .map_err(AgentImportFailure)?;
@@ -637,7 +639,7 @@ impl Database {
             }
         }
         self.ensure_project_file_layout(project_id)?;
-        let project = self.project_record(project_id)?;
+        let root = self.ensure_file_scope_root(project_id)?;
         if let ImportSource::File(path) = &source {
             regular(path)?;
         }
@@ -652,7 +654,7 @@ impl Database {
                     error
                 }
             })?;
-        let target = Path::new(&project.root_path).join(&name);
+        let target = root.join(&name);
         let target_ref = relative(&self.workspace_root, &target)?;
         let adopt_existing = matches!(&source, ImportSource::File(path) if path == &target);
         if target.exists() && !adopt_existing {
@@ -667,7 +669,7 @@ impl Database {
         }
         let tag_ids = super::normalize_file_tag_ids(tags);
         for tag in &tag_ids {
-            self.scoped_file_tag_record(Some(project_id), *tag)?;
+            self.scoped_file_tag_record(project_id, *tag)?;
         }
         // Existing tables allocate the authoritative File ID. Serialize its
         // reservation across Projects without inserting an uncommitted stub.
@@ -685,7 +687,7 @@ impl Database {
         let base = self.workspace_root.join(IMPORT_JOURNALS);
         create_owned_directories(&self.workspace_root, &base)?;
         let request_id = token();
-        let directory = base.join(format!("{project_id}-{request_id}"));
+        let directory = base.join(format!("{}-{request_id}", super::file_scope::owner_key(project_id)));
         fs::create_dir(&directory)?;
         sync_directory(&base)?;
         let prepared = (|| -> Result<ImportJournal> {
@@ -846,7 +848,7 @@ impl Database {
                                     operation_id: intent.operation_id.clone(),
                                     object: ObjectRef {
                                         workspace_id: agent.binding.workspace_id.clone(),
-                                        scope: Scope::Project { project_id },
+                                        scope: super::file_scope::scope(project_id),
                                         kind: ObjectKind::File,
                                         id: document_id.to_string(),
                                     },
@@ -918,7 +920,7 @@ mod tests {
     }
     fn agent_input(project_id: i64) -> super::AgentFileCreateInput {
         super::AgentFileCreateInput {
-            project_id,
+            project_id: Some(project_id),
             safe_name: "source.html".into(),
             utf8_content: String::from_utf8(BYTES.to_vec()).unwrap(),
         }
@@ -1087,12 +1089,12 @@ mod tests {
             )
             .unwrap();
         let mut missing = input.clone();
-        missing.project_id = project.id + 100;
+        missing.project_id = Some(project.id + 100);
         let mut missing_request = request.clone();
         missing_request
             .scope_grant
             .project_ids
-            .push(missing.project_id);
+            .push(missing.project_id.unwrap());
         assert_eq!(
             db.agent_file_create_bound(&missing_request, &request.binding, &missing, &fence)
                 .unwrap_err()
@@ -1280,7 +1282,7 @@ mod tests {
         } else if kind == "clipboard" {
             use base64::Engine;
             db.document_import_clipboard_image(crate::models::DocumentImportClipboardImageInput {
-                project_id,
+                project_id: Some(project_id),
                 file_name: "capture.png".into(),
                 mime_type: "image/png".into(),
                 data_base64: base64::engine::general_purpose::STANDARD.encode(BYTES),
@@ -1296,7 +1298,7 @@ mod tests {
                 root.join("source.html")
             };
             db.document_import(DocumentImportInput {
-                project_id,
+                project_id: Some(project_id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -1517,7 +1519,7 @@ mod tests {
             })
             .unwrap();
         let input = crate::models::DocumentImportClipboardImageInput {
-            project_id: project.id,
+            project_id: Some(project.id),
             file_name: "capture.png".into(),
             mime_type: "image/png".into(),
             data_base64: base64::engine::general_purpose::STANDARD.encode(BYTES),
@@ -1534,7 +1536,7 @@ mod tests {
         fs::write(&existing, BYTES).unwrap();
         assert!(db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: existing.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None
@@ -1578,7 +1580,7 @@ mod tests {
         let before = db.committed_change_watermark().unwrap();
         assert!(db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None
@@ -1676,7 +1678,7 @@ mod tests {
                 std::thread::spawn(move || {
                     barrier.wait();
                     db.document_import(DocumentImportInput {
-                        project_id: project.id,
+                        project_id: Some(project.id),
                         source_path: source.to_string_lossy().into(),
                         is_starred: false,
                         tag_ids: None,
@@ -1730,7 +1732,7 @@ mod tests {
         let source = root.path().join("source.html");
         fs::write(&source, BYTES).unwrap();
         let input = DocumentImportInput {
-            project_id: project.id,
+            project_id: Some(project.id),
             source_path: source.to_string_lossy().into(),
             is_starred: false,
             tag_ids: None,
@@ -1789,7 +1791,7 @@ mod tests {
         let bytes = b"\xef\xbb\xbf<script>original\r\nsource</script>\r\n";
         fs::write(&source, bytes).unwrap();
         let input = DocumentImportInput {
-            project_id: project.id,
+            project_id: Some(project.id),
             source_path: source.to_string_lossy().into(),
             is_starred: false,
             tag_ids: None,
@@ -1816,5 +1818,115 @@ mod tests {
         let imported = db.document_import(input).unwrap();
         assert_eq!(imported.current_version_number, 1);
         assert_eq!(fs::read(imported.managed_path).unwrap(), bytes);
+    }
+}
+
+#[cfg(test)]
+mod workspace_scope_tests {
+    use super::*;
+    #[test]
+    fn workspace_file_agent_creation_is_listed_with_receipt_and_project_isolation() {
+        let root = tempfile::tempdir().unwrap();
+        let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        let binding = WorkspaceBinding { workspace_id: metadata.workspace_id, generation: "test".into() };
+        let grant = crate::agent::connections::ConnectionCreateInput { client_label: "Workspace File test".into(), workspace_content: true, project_ids: vec![], all_projects: false, write_operations: vec!["content.create".into(), "file.update".into()] };
+        db.agent_connection_create(&binding, &grant, &"a".repeat(32), &"b".repeat(64)).unwrap();
+        let request = db.agent_connection_authenticate(&binding, &"a".repeat(32), &"b".repeat(64), "create-workspace-file").unwrap();
+        let input = AgentFileCreateInput { project_id: None, safe_name: "agent.md".into(), utf8_content: "Agent Workspace File".into() };
+        let result = db.agent_file_create_bound(&request, &binding, &input, &WorkspaceCommitFence::new()).unwrap();
+        assert_eq!(result.object.scope, Scope::Workspace);
+        assert_eq!(fs::read_to_string(root.path().join("files/agent.md")).unwrap(), "Agent Workspace File");
+        let query = serde_json::from_value(serde_json::json!({"scope":{"kind":"workspace"}})).unwrap();
+        let (_, inventory) = db.agent_file_inventory(&request, &binding, &query).unwrap();
+        assert_eq!(inventory.len(), 1);
+        assert_eq!(inventory[0]["object"]["id"], result.object.id);
+        let replay = db.agent_file_create_bound(&request, &binding, &input, &WorkspaceCommitFence::new()).unwrap();
+        assert_eq!(replay.operation_id, result.operation_id);
+        db.agent_connection_operation_get(&request, &binding, &result.operation_id).unwrap();
+        let project = db.project_create(crate::models::ProjectCreateInput { name: "Private Project".into(), summary: None, status: None }).unwrap();
+        let mut restricted = request.clone();
+        restricted.scope_grant.workspace_content = false;
+        restricted.scope_grant.project_ids = vec![project.id];
+        assert!(db.source_read_object(&restricted, &binding, &result.object).is_err());
+        assert!(db.agent_file_create_bound(&restricted, &binding, &input, &WorkspaceCommitFence::new()).is_err());
+    }
+    #[test]
+    fn workspace_file_references_are_searchable_resolved_and_scoped() {
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        let source = external.path().join("Referenceable.md");
+        fs::write(&source, b"Reference source").unwrap();
+        let file = db.document_import(DocumentImportInput { project_id: None, source_path: source.to_string_lossy().into(), is_starred: false, tag_ids: None }).unwrap();
+        let search = db.internal_reference_search(crate::models::InternalReferenceSearchInput { query: "Referenceable".into(), scope: "workspace".into(), project_id: None, limit: 8 }).unwrap();
+        assert_eq!(search.iter().filter(|item| item.kind == "document" && item.id == file.id).count(), 1);
+        let resolved = db.internal_reference_resolve(crate::models::InternalReferenceResolveInput { kind: "document".into(), id: file.id }).unwrap().unwrap();
+        assert_eq!(resolved.project_id, None);
+        assert_eq!(resolved.scope, crate::models::TodoScope::Workspace);
+        assert_eq!(resolved.route, format!("/?focus=document-{}", file.id));
+        let project = db.project_create(crate::models::ProjectCreateInput { name: "Isolated".into(), summary: None, status: None }).unwrap();
+        assert!(db.internal_reference_search(crate::models::InternalReferenceSearchInput { query: "Referenceable".into(), scope: "project".into(), project_id: Some(project.id), limit: 8 }).unwrap().iter().all(|item| item.kind != "document" || item.id != file.id));
+        let found = db.workspace_search(crate::models::WorkspaceSearchInput { query: "Referenceable".into(), include_archived: None, project_id: None }).unwrap();
+        assert!(found.iter().any(|item| item.kind == "document" && item.id == file.id && item.project_id.is_none()));
+        let fixed = serde_json::json!({"object":{"workspaceId":metadata.workspace_id,"scope":{"kind":"workspace"},"kind":"file","id":file.id.to_string()},"revision":checksum(Path::new(&file.managed_path)).unwrap(),"fileVersion":1,"recordVersion":null,"blockId":null,"locator":null,"title":file.name,"excerpt":""});
+        let reference = serde_json::json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"content":[{"type":"internalReference","attrs":{"refKind":"document","refId":file.id.to_string(),"label":"Workspace File","sourceRef":fixed}}]}]});
+        db.record_document_scope_from_gui(&Scope::Workspace, &reference).unwrap();
+        assert!(db.record_document_scope_from_gui(&Scope::Project { project_id: project.id }, &reference).is_err());
+        let attachment = serde_json::json!({"type":"doc","content":[{"type":"attachment","attrs":{"path":file.managed_path,"documentId":file.id.to_string(),"title":"Workspace File"}}]});
+        db.record_document_scope_from_gui(&Scope::Workspace, &attachment).unwrap();
+        assert!(db.record_document_scope_from_gui(&Scope::Project { project_id: project.id }, &attachment).is_err());
+        let markdown = format!("[[document:{}|Workspace source]]", file.id);
+        let record = db.workspace_record_upsert(crate::models::WorkspaceRecordUpsertInput { note_id: None, title: Some("Uses Workspace File".into()), markdown: markdown.clone(), html: format!("<p>{markdown}</p>"), default_code_language: None, tag_ids: vec![] }).unwrap();
+        let binding = WorkspaceBinding { workspace_id: metadata.workspace_id.clone(), generation: "test".into() };
+        let request = RequestContext { binding: binding.clone(), caller: crate::agent::access::Caller::Gui, request_id: "references".into(), scope_grant: crate::agent::access::ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: true, project_ids: vec![], object_keys: None, operations: vec!["source.read".into()] } };
+        let outgoing = db.agent_reference_list(&request, &binding, &crate::agent::references::ReferenceListInput { object: ObjectRef { workspace_id: binding.workspace_id.clone(), scope: Scope::Workspace, kind: ObjectKind::Record, id: record.id.to_string() }, direction: crate::agent::references::ReferenceDirection::Outgoing, cursor: None, limit: None, budget_chars: None }).unwrap();
+        assert!(outgoing.items.iter().any(|item| item.object.kind == ObjectKind::File && item.object.id == file.id.to_string() && item.object.scope == Scope::Workspace));
+        let target = crate::record_documents::RecordTarget { scope: Scope::Workspace, record_id: record.id };
+        let source = db.record_document_source(&target).unwrap();
+        let projection = crate::record_documents::RecordDocumentProjection {
+            schema_version: 1, body_hash: crate::record_documents::body_hash(&reference, &None),
+            document: reference, html: "<p>Workspace source</p>".into(), markdown: markdown.clone(),
+            text: "Workspace source".into(), code_language: None,
+        };
+        db.record_document_initialize("gui", "retain-workspace-file", &target, &source.source_hash, &projection, &metadata.workspace_id).unwrap();
+        // Isolate retained-version protection from the independently tested current-edge guard.
+        db.conn.execute("DELETE FROM content_reference_edges", []).unwrap();
+        assert!(db.document_delete(crate::models::DocumentDeleteInput { document_id: file.id }).is_err());
+        assert_eq!(fs::read(&file.managed_path).unwrap(), b"Reference source");
+
+    }
+    #[test]
+    fn workspace_file_import_retains_identity_bytes_versions_and_actual_scope() {
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        let source = external.path().join("workspace.md");
+        fs::write(&source, b"Workspace File\n").unwrap();
+        let input: DocumentImportInput = serde_json::from_value(serde_json::json!({
+            "projectId": null, "sourcePath": source, "isStarred": false, "tagIds": []
+        })).unwrap();
+        let document = db.document_import(input).unwrap();
+        assert_eq!(serde_json::to_value(&document).unwrap()["projectId"], serde_json::Value::Null);
+        assert_eq!(Path::new(&document.managed_path), root.path().join("files/workspace.md"));
+        assert_eq!(fs::read(&document.managed_path).unwrap(), b"Workspace File\n");
+        let binding = WorkspaceBinding { workspace_id: metadata.workspace_id, generation: "test".into() };
+        let request = RequestContext { binding: binding.clone(), caller: crate::agent::access::Caller::Gui,
+            request_id: "workspace-file".into(), scope_grant: crate::agent::access::ScopeGrant {
+                workspace_id: binding.workspace_id.clone(), workspace_content: true, project_ids: vec![],
+                object_keys: None, operations: vec!["source.read".into()] } };
+        let object = ObjectRef { workspace_id: binding.workspace_id.clone(), scope: Scope::Workspace,
+            kind: ObjectKind::File, id: document.id.to_string() };
+        assert_eq!(db.source_read_object(&request, &binding, &object).unwrap(), object);
+        let versions = db.document_list_versions(crate::models::DocumentListVersionsInput { document_id: document.id }).unwrap();
+        assert_eq!(versions.len(), 1);
+        let mut denied = request.clone();
+        denied.scope_grant.workspace_content = false;
+        assert!(db.source_read_object(&denied, &binding, &object).is_err());
+        drop(db);
+        let db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        assert_eq!(db.document_record(document.id).unwrap().id, document.id);
     }
 }

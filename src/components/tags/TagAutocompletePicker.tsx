@@ -9,7 +9,7 @@ import { cn } from "../../ui/lib/cn";
 import { buildTagSuggestions } from "./EntityTagEditor";
 
 interface TagAutocompletePickerProps {
-  projectId: number;
+  projectId: number | null;
   availableTags: ProjectTagRecord[];
   selectedTagIds: number[];
   busy?: boolean;

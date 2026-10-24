@@ -20,7 +20,7 @@ export const queryKeys = {
   projects: {
     all: ["projects", "all"] as const,
   },
-  projectDirectory: (rootPath: string, projectId: number, relativePath: string, revision: number) => ["project-directory", rootPath, projectId, relativePath, revision] as const,
+  projectDirectory: (rootPath: string, projectId: number | null, relativePath: string, revision: number) => ["project-directory", rootPath, projectId, relativePath, revision] as const,
   projectPage: (projectId: number | null) => ["project-page", projectId] as const,
   projectContentBinding: (workspaceRoot: string) => ["project-content-binding", workspaceRoot] as const,
   workspacePage: ["workspace-page"] as const,
@@ -40,7 +40,7 @@ export const queryKeys = {
   projectTags: {
     all: ["project-tag-settings"] as const,
     workspace: ["project-tag-settings", "workspace"] as const,
-    project: (projectId: number | null) => ["project-tag-settings", projectId] as const,
+    project: (projectId: number | null) => ["project-tag-settings", projectId ?? "workspace"] as const,
   },
   contacts: {
     all: ["contacts"] as const,

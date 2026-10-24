@@ -335,10 +335,10 @@ fn record_restore_params(options: &Options) -> AgentResult<Value> {
 }
 
 fn file_update_identity(options: &Options) -> AgentResult<(i64, u32, &str, &str)> {
-    if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
-        return Err(invalid("File update requires --project and does not accept scope, query or budget options"));
+    if options.query.is_some() || options.budget_chars.is_some() {
+        return Err(invalid("File update does not accept query or budget options"));
     }
-    options.project.ok_or_else(|| invalid("--project is required for file update"))?;
+    scoped(options)?;
     let id = positive_object_id(options)?;
     let version = options.expected_version.ok_or_else(|| invalid("--expected-version is required"))?;
     let hash = options.expected_hash.as_deref().ok_or_else(|| invalid("--expected-hash is required"))?;
@@ -351,7 +351,7 @@ fn file_update_identity(options: &Options) -> AgentResult<(i64, u32, &str, &str)
 fn file_update_target(options: &Options, binding: &WorkspaceBinding) -> AgentResult<cli_upload::FileUploadTargetInput> {
     let (id, version, hash, _) = file_update_identity(options)?;
     cli_upload::decode_target(json!({"object":{
-        "workspaceId":binding.workspace_id.clone(),"scope":{"kind":"project","projectId":options.project.expect("validated project")},
+        "workspaceId":binding.workspace_id.clone(),"scope":scoped(options)?,
         "kind":"file","id":id.to_string()},"expectedVersionNumber":version,"expectedContentHash":hash}))
 }
 
@@ -388,9 +388,6 @@ fn reference_list_identity(options: &Options) -> AgentResult<(i64, Scope, &str, 
     }
     let id = positive_object_id(options)?;
     let scope = scoped(options)?;
-    if kind == "file" && matches!(&scope, Scope::Workspace) {
-        return Err(invalid("File references require --project"));
-    }
     Ok((id, scope, kind, direction))
 }
 
@@ -401,11 +398,11 @@ fn reference_list_params(options: &Options, id: i64, scope: Scope, kind: &str, d
 }
 
 fn file_create_params(options: &Options) -> AgentResult<Value> {
-    if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some()
+    if options.query.is_some() || options.budget_chars.is_some()
         || options.priority.is_some() || options.due_date.is_some() {
-        return Err(invalid("File creation accepts --project, --name and --body-file"));
+        return Err(invalid("File creation accepts --project or --workspace-scope, --name and --body-file"));
     }
-    let project_id = options.project.ok_or_else(|| invalid("--project is required for file create"))?;
+    let project_id = crate::db::file_scope::owner(&scoped(options)?);
     let safe_name = options.name.clone().ok_or_else(|| invalid("--name is required for file create"))?;
     let request_id = options.request_id.as_deref().ok_or_else(|| invalid("--request-id is required for file create"))?;
     let body = read_text_body(options.body_file.as_deref().ok_or_else(|| invalid("--body-file is required"))?)?;
@@ -1584,7 +1581,6 @@ mod tests {
         check(&["reference", "list", "--kind", "other", "--id", "1", "--direction", "incoming", "--project", "1"], "--kind must be");
         check(&["reference", "list", "--kind", "record", "--id", "0", "--direction", "incoming", "--project", "1"], "Invalid object ID");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "both", "--project", "1"], "--direction must be");
-        check(&["reference", "list", "--kind", "file", "--id", "1", "--direction", "outgoing", "--workspace-scope"], "File references require --project");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming"], "Choose exactly one");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--limit", "51"], "Invalid reference limit");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--cursor", &"x".repeat(2049)], "Invalid reference cursor");

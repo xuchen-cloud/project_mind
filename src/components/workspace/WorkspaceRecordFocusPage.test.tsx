@@ -1136,4 +1136,20 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(screen.getByDisplayValue("失败快照最新正文")).toBeInTheDocument();
     expect(apiMocks.workspacePageGet).not.toHaveBeenCalled();
   });
+  it("embeds a Workspace Record without a second sidebar and preserves the shared Tab close guard", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
+    let close!: () => Promise<void>;
+    const unregister = vi.fn();
+    renderPage(<WorkspaceRecordFocusPage recordIdOverride={7} embedded focused={false}
+      registerCloseGuard={guard => { close = guard; return unregister; }} />, queryClient);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Open record 8" })).toBeNull();
+    await waitFor(() => expect(close).toBeTypeOf("function"));
+    recordMocks.pendingReviewCount = 1;
+    await expect(close()).rejects.toThrow(/AI|修改/);
+    recordMocks.pendingReviewCount = 0;
+    await expect(close()).resolves.toBeUndefined();
+  });
+
 });

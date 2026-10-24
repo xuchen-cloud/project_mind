@@ -125,7 +125,7 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "file.list",
-            description: "List authorized native File metadata; detail mode returns verified extracted text with completeness/status. Filter by ids, titleQuery, contentQuery, tag and all tagIds before pagination. limit:0 counts only. totalCount counts known matches; countComplete=false and unreadableCount disclose incomplete content search. No file paths or binary bytes are returned. Workspace scope has no Files.",
+            description: "List authorized native File metadata; detail mode returns verified extracted text with completeness/status. Filter by ids, titleQuery, contentQuery, tag and all tagIds before pagination. limit:0 counts only. totalCount counts known matches; countComplete=false and unreadableCount disclose incomplete content search. No file paths or binary bytes are returned. Workspace and Project scopes each list their own Files.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(RecordListInput)).expect("static schema"),
         },

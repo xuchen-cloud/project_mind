@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { contentLayoutKey, getContentLayout, type ProjectContentLayout } from "../lib/project-content-layout";
+import { contentLayoutKey, getContentLayout, sanitizeContentLayouts, type ProjectContentLayout } from "../lib/project-content-layout";
 import { useProjectContentStore } from "./project-content-store";
 
 const scope = { workspaceId: "workspace-a", projectId: 1 };
@@ -329,4 +329,16 @@ describe("project content state", () => {
     expect(layout(other)).toBe(otherLayout);
     expect(layout(other).tabs[0].id).toBe(id);
   });
+});
+
+it('restores Workspace and legacy Project layouts with independent selections', () => {
+  const store = useProjectContentStore.getState();
+  const workspaceScope = { workspaceId: 'workspace-a', projectId: null };
+  const projectScope = { workspaceId: 'workspace-a', projectId: 7 };
+  const record = { kind: 'record' as const, id: 1, title: 'Record' };
+  store.open(workspaceScope, record);
+  store.open(projectScope, record);
+  const restored = sanitizeContentLayouts(useProjectContentStore.getState().layouts);
+  expect(restored[JSON.stringify(['workspace-a', null])].tabs).toHaveLength(1);
+  expect(restored[JSON.stringify(['workspace-a', 7])].tabs).toHaveLength(1);
 });

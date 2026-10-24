@@ -291,7 +291,7 @@ export function validateInternalReferenceSourceRef(value: unknown): AgentSourceR
   const object = source.object;
   if (!object || object.kind !== "file" || typeof object.workspaceId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(object.workspaceId)
     || typeof object.id !== "string" || !/^[1-9]\d*$/.test(object.id) || !Number.isSafeInteger(Number(object.id))
-    || object.scope?.kind !== "project" || !Number.isSafeInteger(object.scope.projectId) || object.scope.projectId <= 0
+    || !(object.scope?.kind === "workspace" || (object.scope?.kind === "project" && Number.isSafeInteger(object.scope.projectId) && object.scope.projectId > 0))
     || typeof source.revision !== "string" || !/^sha256:[0-9a-f]{64}$/.test(source.revision)
     || !Number.isSafeInteger(source.fileVersion) || source.fileVersion! <= 0 || source.fileVersion! > 4294967295
     || source.recordVersion !== null || source.blockId !== null

@@ -73,7 +73,7 @@ it.each(["move", "rename"] as const)("%s retains File ID/version and invalidates
   expect(screen.getByText("v3")).toBeInTheDocument();
   expect(rendered.invalidate).toHaveBeenCalledWith({ queryKey: ["project-page", 2] });
   expect(rendered.invalidate).toHaveBeenCalledWith({ queryKey: ["documentVersions", 7] });
-  expect(notifyProjectFilesChanged).toHaveBeenCalledWith(2);
+  expect(notifyProjectFilesChanged).toHaveBeenCalledWith(2, "/workspace");
 });
 it("requires explicit replacement confirmation for ambiguous identity and keeps old references", async () => {
   vi.mocked(projectFileApi.resolve).mockResolvedValue({ ...file, state: "ambiguous", reason: "Physical identity changed" });
@@ -181,4 +181,20 @@ it("reports native boundary/read failures and rejects wrong object ownership", a
   fireEvent.click(screen.getByRole("button", { name: "刷新核对" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("身份或项目归属不符");
   expect(screen.queryByText("old.txt")).not.toBeInTheDocument();
+});
+
+it("moves a Workspace File with the same CAS checks and only refreshes its real owner", async () => {
+  const workspaceObject = { ...object, scope: { kind: "workspace" as const } };
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ ...file, object: workspaceObject });
+  vi.mocked(projectFileApi.move).mockResolvedValue({ ...file, object: workspaceObject, relativePath: "资料/new.txt", name: "new.txt" });
+  const client = new QueryClient();
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  render(<QueryClientProvider client={client}><ProjectFileIdentityActions {...props} projectId={null} /></QueryClientProvider>);
+  await open();
+  fireEvent.change(screen.getByLabelText("同工作区目标相对路径"), { target: { value: "资料/new.txt" } });
+  fireEvent.click(screen.getByRole("button", { name: "移动文件" }));
+  await screen.findByText("资料/new.txt");
+  expect(projectFileApi.move).toHaveBeenCalledWith(binding, workspaceObject, "资料/new.txt", 3, "hash3");
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspace-page"] });
+  expect(notifyProjectFilesChanged).toHaveBeenCalledWith(null, "/workspace");
 });

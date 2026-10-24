@@ -37,7 +37,7 @@ mod tests {
         let source = root.path().join("original.txt");
         std::fs::write(&source, "retained bytes").unwrap();
         let file = db.document_import(crate::models::DocumentImportInput {
-            project_id: project.id, source_path: source.to_string_lossy().into(),
+            project_id: Some(project.id), source_path: source.to_string_lossy().into(),
             is_starred: false, tag_ids: None,
         }).unwrap();
         db.conn.execute_batch("DROP VIEW agent_visible_files; DROP TABLE agent_run_source_dependencies; DROP TABLE agent_run_provenance; DROP TABLE agent_session_scan_state; DROP INDEX agent_session_search_rows_session; DROP TRIGGER agent_session_search_row_delete; DROP TABLE agent_session_search_rows; DROP TABLE agent_session_search_fts;").unwrap();

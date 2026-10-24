@@ -73,14 +73,11 @@ impl OfficeBridge {
                 ) {
                     let call = SelectionCall::parse(operation, frame_id)?;
                     let state = self.app.state::<AppState>();
-                    let project = self
-                        .identity
-                        .project()
-                        .map_err(|e| AgentError::new(ErrorCode::ScopeDenied, e))?;
+
                     call.execute(
                         &store,
                         &state.office_selections,
-                        project.id,
+                        self.identity.project_id(),
                         store.alive.clone(),
                         |request| {
                             self.app
@@ -95,17 +92,27 @@ impl OfficeBridge {
                     )
                     .await
                 } else {
-                    OfficeCall::parse(operation, frame_id)?
-                        .execute(
-                            &store,
-                            &SessionUtility {
-                                store: &store,
-                                worker: AppOfficeUtility(self.app.clone()),
-                            },
-                            &self.identity,
-                            &self.grants,
-                        )
-                        .await
+                    let call = OfficeCall::parse(operation, frame_id)?;
+                    let native_request = if self.identity.project_id().is_none() {
+                        Some(store.with_current(|binding, db| {
+                            crate::agent::bridge::embedded::native_workspace_request(
+                                db, binding, &call.id,
+                            )
+                        })?)
+                    } else {
+                        None
+                    };
+                    call.execute_with_request(
+                        &store,
+                        &SessionUtility {
+                            store: &store,
+                            worker: AppOfficeUtility(self.app.clone()),
+                        },
+                        &self.identity,
+                        &self.grants,
+                        native_request,
+                    )
+                    .await
                 }
             })
             .map_err(|e| e.message)?;
@@ -190,20 +197,10 @@ impl BoundSourceStore for Store<'_> {
             ));
         }
         let mut db = crate::lock_mutex(&runtime.db);
-        let project = self
-            .bridge
+        self.bridge
             .identity
-            .project()
+            .validate_context(&mut db, &runtime.paths.root_path)
             .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
-        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, project.id)
-            .map_err(|m| AgentError::new(ErrorCode::ScopeDenied, m))?
-            != *project
-        {
-            return Err(AgentError::new(
-                ErrorCode::ScopeDenied,
-                "DSH Project binding changed",
-            ));
-        }
         let result = action(&runtime.agent_binding, &db);
         if self.revoked.load(Ordering::SeqCst) || !self.alive.load(Ordering::SeqCst) {
             return Err(AgentError::new(
@@ -287,6 +284,7 @@ impl OfficeCall {
             edits,
         })
     }
+    #[cfg(test)]
     async fn execute<S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility>(
         self,
         store: &S,
@@ -294,37 +292,50 @@ impl OfficeCall {
         identity: &Identity,
         grants: &Mutex<HashMap<String, (String, String)>>,
     ) -> AgentResult<Value> {
-        let project = identity
-            .project()
-            .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
-        let request = store.with_current(|binding, db| {
-            let mut grants = crate::lock_mutex(grants);
-            let (grant, token) = if let Some(grant) = grants.get(&self.session_id) {
-                grant.clone()
-            } else {
-                let grant = format!("{:032x}", rand::random::<u128>());
-                let token = format!(
-                    "{:032x}{:032x}",
-                    rand::random::<u128>(),
-                    rand::random::<u128>()
-                );
-                db.agent_connection_create(
-                    binding,
-                    &ConnectionCreateInput {
-                        client_label: "DSH Office Session".into(),
-                        workspace_content: false,
-                        project_ids: vec![project.id],
-                        all_projects: false,
-                        write_operations: vec!["file.update".into()],
-                    },
-                    &grant,
-                    &token,
-                )?;
-                grants.insert(self.session_id.clone(), (grant.clone(), token.clone()));
-                (grant, token)
-            };
-            db.agent_connection_authenticate(binding, &grant, &token, &self.id)
-        })?;
+        self.execute_with_request(store, worker, identity, grants, None)
+            .await
+    }
+
+    async fn execute_with_request<S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility>(
+        self,
+        store: &S,
+        worker: &W,
+        identity: &Identity,
+        grants: &Mutex<HashMap<String, (String, String)>>,
+        native_request: Option<crate::agent::access::RequestContext>,
+    ) -> AgentResult<Value> {
+        let owner = identity.project_id();
+        let request = match native_request {
+            Some(request) => request,
+            None => store.with_current(|binding, db| {
+                let mut grants = crate::lock_mutex(grants);
+                let (grant, token) = if let Some(grant) = grants.get(&self.session_id) {
+                    grant.clone()
+                } else {
+                    let grant = format!("{:032x}", rand::random::<u128>());
+                    let token = format!(
+                        "{:032x}{:032x}",
+                        rand::random::<u128>(),
+                        rand::random::<u128>()
+                    );
+                    db.agent_connection_create(
+                        binding,
+                        &ConnectionCreateInput {
+                            client_label: "DSH Office Session".into(),
+                            workspace_content: owner.is_none(),
+                            project_ids: owner.into_iter().collect(),
+                            all_projects: owner.is_none(),
+                            write_operations: vec!["file.update".into()],
+                        },
+                        &grant,
+                        &token,
+                    )?;
+                    grants.insert(self.session_id.clone(), (grant.clone(), token.clone()));
+                    (grant, token)
+                };
+                db.agent_connection_authenticate(binding, &grant, &token, &self.id)
+            })?,
+        };
         let input = store.with_current(|binding, db| {
             super::source_file_input(db, identity, binding, self.path.as_deref(), self.fixed)
                 .map(|input| FileOfficeInput {
@@ -452,10 +463,11 @@ impl SelectionCall {
         self,
         store: &S,
         selections: &Selections,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         alive: Arc<AtomicBool>,
         emit: impl FnOnce(&EditRequest) -> AgentResult<()>,
     ) -> AgentResult<Value> {
+        let project_id = project_id.into();
         let Some(change) = self.change else {
             return store.with_current(|binding, db| {
                 let (object, value) =
@@ -536,16 +548,12 @@ fn validate_session(
     session_id: &str,
     directory: &std::path::Path,
 ) -> AgentResult<()> {
-    if !list
-        .items
-        .iter()
-        .any(|session| {
-            session.id == session_id
-                && session.cwd.as_deref().is_some_and(|cwd| {
-                    super::session_directory_matches(std::path::Path::new(cwd), directory)
-                })
-        })
-    {
+    if !list.items.iter().any(|session| {
+        session.id == session_id
+            && session.cwd.as_deref().is_some_and(|cwd| {
+                super::session_directory_matches(std::path::Path::new(cwd), directory)
+            })
+    }) {
         return Err(AgentError::new(
             ErrorCode::ScopeDenied,
             "Office Session belongs to another Project",

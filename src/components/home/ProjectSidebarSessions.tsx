@@ -90,8 +90,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
       const id = await dshAssistantApi.selectSession(session?.id ?? null, projectId);
       if (controller.signal.aborted) return;
       target = { id, title: session?.title || "新会话" };
-      if (projectId === null) useAgentPanelStore.getState().selectWorkspaceSession(workspaceRoot, id, target.title);
-      else await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", ...target }, signal: controller.signal });
+      await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", ...target }, signal: controller.signal });
       if (!controller.signal.aborted && !session) void load();
     } catch (reason) {
       // If creation succeeded but opening failed, retry the created session, never create a duplicate.
@@ -118,14 +117,11 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     try {
       await start();
       if (controller.signal.aborted) return;
-      const id = projectId === null
-        ? change.kind === "delete" ? (await dshAssistantApi.deleteSession(session.id, null), null) : await dshAssistantApi.manageSession(session.id, change, null)
-        : await manageProjectSession({ workspaceRoot, projectId, sessionId: session.id, action: change, signal: controller.signal });
+      const id = await manageProjectSession({ workspaceRoot, projectId, sessionId: session.id, action: change, signal: controller.signal });
       if (controller.signal.aborted) return;
       if (change.kind === "fork" && id) {
         forked = { id, title: session.title };
-        if (projectId === null) useAgentPanelStore.getState().selectWorkspaceSession(workspaceRoot, id, forked.title);
-        else await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", ...forked }, signal: controller.signal });
+        await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", ...forked }, signal: controller.signal });
       }
       if (!controller.signal.aborted) void load();
     } catch (reason) {

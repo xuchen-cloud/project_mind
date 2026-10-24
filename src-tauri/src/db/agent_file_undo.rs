@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 pub(super) const FILE_VISIBILITY_VIEW_SQL: &str = r#"
 CREATE VIEW agent_visible_files AS SELECT d.* FROM documents d WHERE NOT EXISTS (
  SELECT 1 FROM agent_object_withdrawals w WHERE w.withdrawn_at IS NOT NULL
- AND w.object_key GLOB '*/project:'||d.project_id||'/file/'||d.id
+ AND w.object_key GLOB '*/'||CASE WHEN d.project_id IS NULL THEN 'workspace' ELSE 'project:'||d.project_id END||'/file/'||d.id
 );
 "#;
 pub(crate) const FILE_UNDO_REQUEST_PREFIX: &str = "fileundo:";
@@ -47,7 +47,7 @@ fn encode(value: &impl Serialize) -> AgentResult<String> {
 }
 fn file_id(object: &ObjectRef) -> AgentResult<i64> {
     object.key()?;
-    if object.kind != ObjectKind::File || !matches!(object.scope, Scope::Project { .. }) {
+    if object.kind != ObjectKind::File {
         return Err(conflict());
     }
     object
@@ -58,7 +58,7 @@ fn file_id(object: &ObjectRef) -> AgentResult<i64> {
         .ok_or_else(conflict)
 }
 pub(super) fn require_file_visible(conn: &Connection, id: i64) -> AgentResult<()> {
-    let project: i64 = conn
+    let project: Option<i64> = conn
         .query_row(
             "SELECT project_id FROM documents WHERE id=?1",
             [id],
@@ -67,7 +67,7 @@ pub(super) fn require_file_visible(conn: &Connection, id: i64) -> AgentResult<()
         .optional()
         .map_err(io_error)?
         .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File is no longer present"))?;
-    let state:Option<(String,String,i64)>=conn.query_row("SELECT object_key,creation_operation_id,revision FROM agent_object_withdrawals WHERE object_key LIKE ?1 AND withdrawn_at IS NOT NULL",[format!("%/project:{project}/file/{id}")],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(io_error)?;
+    let state:Option<(String,String,i64)>=conn.query_row("SELECT object_key,creation_operation_id,revision FROM agent_object_withdrawals WHERE object_key LIKE ?1 AND withdrawn_at IS NOT NULL",[format!("%/{}/file/{id}", super::file_scope::scope(project).key())],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(io_error)?;
     if let Some((key, creation, revision)) = state {
         return Err(AgentError::new(ErrorCode::ObjectWithdrawn,"File has been withdrawn; restore it to use its current contents").with_details(json!({"workspaceId":key.split('/').next(),"objectKey":key,"creationOperationId":creation,"withdrawalRevision":revision,"restoreAvailable":true})));
     }
@@ -75,7 +75,7 @@ pub(super) fn require_file_visible(conn: &Connection, id: i64) -> AgentResult<()
 }
 /// Encoded paths remain private receipt evidence, never part of operation DTOs.
 pub(crate) fn agent_file_creation_metadata(conn: &Connection, id: i64) -> AgentResult<Value> {
-    let mut value:Value=conn.query_row("SELECT id,project_id,base_name,name,storage_mode,managed_path,history_dir_path,updated_at,is_starred,mime_type,health,created_at FROM documents WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"projectId":r.get::<_,i64>(1)?,"baseName":r.get::<_,String>(2)?,"name":r.get::<_,String>(3)?,"storageMode":r.get::<_,String>(4)?,"managedPath":r.get::<_,String>(5)?,"historyDirPath":r.get::<_,String>(6)?,"updatedAt":r.get::<_,String>(7)?,"isStarred":r.get::<_,i64>(8)?!=0,"mimeType":r.get::<_,String>(9)?,"health":r.get::<_,String>(10)?,"createdAt":r.get::<_,String>(11)?}))).map_err(io_error)?;
+    let mut value:Value=conn.query_row("SELECT id,project_id,base_name,name,storage_mode,managed_path,history_dir_path,updated_at,is_starred,mime_type,health,created_at FROM documents WHERE id=?1",[id],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"projectId":r.get::<_,Option<i64>>(1)?,"baseName":r.get::<_,String>(2)?,"name":r.get::<_,String>(3)?,"storageMode":r.get::<_,String>(4)?,"managedPath":r.get::<_,String>(5)?,"historyDirPath":r.get::<_,String>(6)?,"updatedAt":r.get::<_,String>(7)?,"isStarred":r.get::<_,i64>(8)?!=0,"mimeType":r.get::<_,String>(9)?,"health":r.get::<_,String>(10)?,"createdAt":r.get::<_,String>(11)?}))).map_err(io_error)?;
     let mut statement = conn
         .prepare("SELECT tag_id FROM document_tag_links WHERE document_id=?1 ORDER BY tag_id")
         .map_err(io_error)?;
@@ -180,7 +180,7 @@ fn baseline(conn: &Connection, entry: &OperationEntry) -> AgentResult<String> {
     let id = file_id(&entry.object)?;
     let number = entry.after_revision.ok_or_else(conflict)?;
     let version = entry.after_snapshot_ref.as_deref().ok_or_else(conflict)?;
-    let (current, project): (i64, i64) = conn
+    let (current, project): (i64, Option<i64>) = conn
         .query_row(
             "SELECT current_version_number,project_id FROM documents WHERE id=?1",
             [id],
@@ -191,9 +191,7 @@ fn baseline(conn: &Connection, entry: &OperationEntry) -> AgentResult<String> {
         .ok_or_else(conflict)?;
     if u64::try_from(current).ok() != Some(number)
         || entry.object.scope
-            != (Scope::Project {
-                project_id: project,
-            })
+            != (super::file_scope::scope(project))
     {
         return Err(conflict());
     }
@@ -648,7 +646,7 @@ fn chain(conn: &Connection, first_id: &str, last_id: &str) -> AgentResult<Vec<Op
         return Err(conflict());
     }
     let object = serde_json::to_value(&first.object).map_err(|_| conflict())?;
-    let mut stmt = conn.prepare("SELECT operation_id,request_id,output_context_json FROM agent_operation_receipts WHERE state='committed' AND operation_id IS NOT NULL AND rowid BETWEEN ?1 AND ?2 AND json_extract(target_ref_json,'$.workspaceId')=?3 AND json_extract(target_ref_json,'$.kind')='file' AND json_extract(target_ref_json,'$.id')=?4 AND json_extract(target_ref_json,'$.scope.kind')='project' AND json_extract(target_ref_json,'$.scope.projectId')=?5 ORDER BY rowid").map_err(io_error)?;
+    let mut stmt = conn.prepare("SELECT operation_id,request_id,output_context_json FROM agent_operation_receipts WHERE state='committed' AND operation_id IS NOT NULL AND rowid BETWEEN ?1 AND ?2 AND json_extract(target_ref_json,'$.workspaceId')=?3 AND json_extract(target_ref_json,'$.kind')='file' AND json_extract(target_ref_json,'$.id')=?4 AND json_extract(target_ref_json,'$.scope.kind')=CASE WHEN ?5 IS NULL THEN 'workspace' ELSE 'project' END AND json_extract(target_ref_json,'$.scope.projectId') IS ?5 ORDER BY rowid").map_err(io_error)?;
     let rows = stmt
         .query_map(
             params![

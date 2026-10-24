@@ -413,7 +413,7 @@ it('keeps two original Session scopes independently rendered and explicitly rout
   }
 });
 
-it('two actual Hosts scope composer and stop controls, keep hidden runs subscribed and restore the original draft', async () => {
+it.each([7, null])('two actual Hosts scope composer and stop controls, keep hidden runs subscribed and restore the original draft for owner %s', async (projectId) => {
   // Earlier fixtures use the same synthetic IDs; isolate their persisted drafts.
   localStorage.removeItem('dsh.conversation.fixture-session');
   localStorage.removeItem('dsh.conversation.second-session');
@@ -424,8 +424,8 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
   window.addEventListener('mind:dsh-project-busy', busy);
   window.addEventListener('mind:dsh-session-runs', sessionRuns);
   const shell = (first = true) => <div>
-    {first ? <DshConversationHost projectId={7} sessionId="fixture-session" focused={false} onReady={readyA} onModelChange={modelA} /> : null}
-    <DshConversationHost projectId={7} sessionId="second-session" focused onReady={readyB} onModelChange={modelB} />
+    {first ? <DshConversationHost projectId={projectId} sessionId="fixture-session" focused={false} onReady={readyA} onModelChange={modelA} /> : null}
+    <DshConversationHost projectId={projectId} sessionId="second-session" focused onReady={readyB} onModelChange={modelB} />
   </div>;
   const view = render(shell());
   try {
@@ -434,7 +434,7 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
     await waitFor(() => { expect(readyA).toHaveBeenCalledOnce(); expect(readyB).toHaveBeenCalledOnce(); });
     expect(modelA).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'fixture-session', running: false }));
     expect(modelB).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'second-session', running: false }));
-    await act(async () => { await insertDshFileReference(7, 'fixture-session', 'first.md'); });
+    await act(async () => { await insertDshFileReference(projectId, 'fixture-session', 'first.md'); });
     const hosts = [...document.querySelectorAll('[data-dsh-component-host]')] as HTMLElement[];
     expect(within(hosts[0]).getByRole('textbox')).toHaveTextContent('first.md');
     expect(within(hosts[1]).getByRole('textbox')).not.toHaveTextContent('first.md');
@@ -460,9 +460,9 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
     fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['fixture-session', false] });
     fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['second-session', false] });
     await waitFor(() => expect(busy.mock.calls.some(([event]) => event.detail.busy === false)).toBe(true));
-    await waitFor(() => expect(sessionRuns).toHaveBeenCalledWith(expect.objectContaining({ detail: { projectId: 7, runningBySession: { 'fixture-session': false, 'second-session': false } } })));
+    await waitFor(() => expect(sessionRuns).toHaveBeenCalledWith(expect.objectContaining({ detail: { projectId, runningBySession: { 'fixture-session': false, 'second-session': false } } })));
     expect(modelA).not.toHaveBeenCalled(); expect(modelB).not.toHaveBeenCalled();
-    render(<DshConversationHost projectId={7} sessionId="fixture-session" />);
+    render(<DshConversationHost projectId={projectId} sessionId="fixture-session" />);
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveTextContent('first.md'));
   } finally {
     cleanup(); await disposeDshClients(); window.removeEventListener('mind:dsh-project-busy', busy); window.removeEventListener('mind:dsh-session-runs', sessionRuns);

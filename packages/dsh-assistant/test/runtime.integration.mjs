@@ -187,7 +187,7 @@ function providerToolReply(bodies, callId) {
   return typeof message.content === 'string' ? message.content : message.content.filter(block => block.type === 'text').map(block => block.text).join('');
 }
 
-test('Office rc.2 transport: real provider discovers tools and actual Session forwards fixed File edits', { timeout: 60000 }, async t => {
+for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office rc.2 transport: real provider discovers tools and actual Session forwards fixed File edits (${owner})`, { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-office-transport-'));
   const directory = await realpath(temp);
   const bodies = [], operations = [];
@@ -201,13 +201,14 @@ test('Office rc.2 transport: real provider discovers tools and actual Session fo
   const data = path.join(temp, 'data');
   const shared = { name: 'Office local fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
   const project = { id: 118, name: 'Office transport', directory };
+  const workspace = owner.startsWith('workspace') ? { id: randomBytes(16).toString('hex'), name: 'Workspace Office', directory } : undefined;
   const handleSource = payload => {
     operations.push(payload);
     if (payload.operation === 'officeInspect') return fixture.inspected;
     if (payload.operation === 'officeEdit') return fixture.saved;
     throw new Error(`Unexpected native transport operation: ${payload.operation}`);
   };
-  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  runtime = await launch(data, undefined, shared, workspace ? undefined : project, undefined, handleSource, workspace);
   const { sessionId } = await runtime.rpc('session/create', {});
   await runtime.rpc('session/rename', { sessionId, title: 'Office transport fixture' });
   stream = await follow(runtime, sessionId);
@@ -226,6 +227,11 @@ test('Office rc.2 transport: real provider discovers tools and actual Session fo
 
   for (const format of ['docx', 'xlsx', 'pptx']) await t.test(format, async () => {
     fixture = officeFixture(format);
+    if (owner === 'workspace') {
+      fixture.sourceRef.object.scope = { kind: 'workspace' };
+      fixture.saved.sourceRef.object.scope = { kind: 'workspace' };
+      fixture.sourceRef.title = `files/${fixture.sourceRef.title}`;
+    }
     const inspectId = `office-inspect-${format}`;
     provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: inspectId, type: 'function', function: {
       name: 'file_office_inspect', arguments: JSON.stringify({ file_path: fixture.sourceRef.title }),
@@ -260,7 +266,7 @@ test('Office rc.2 transport: real provider discovers tools and actual Session fo
   const beforeRestart = events(stream).filter(event => event.type === 'tool/call' || event.type === 'tool/result');
   await stream.close(); stream = undefined;
   await runtime.stop();
-  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  runtime = await launch(data, undefined, shared, workspace ? undefined : project, undefined, handleSource, workspace);
   stream = await follow(runtime, sessionId);
   assert.deepEqual(events(stream).filter(event => event.type === 'tool/call' || event.type === 'tool/result'), beforeRestart);
   await prompt(runtime, stream, sessionId, 'Continue after restart without another edit');
@@ -437,14 +443,15 @@ test('fixed source auto titles reach the catalog and header without changing sto
   assert.equal(events(stream).find(event => event.type === 'session/title' && event.data.source.kind === 'fallback').data.title, '@ordinary/path unchanged');
 });
 
-test('source stdio delivers fixed composer and actual read projections to a local model with real message identities', { timeout: 60000 }, async t => {
+for (const owner of ['project', 'workspace']) test(`source stdio delivers fixed composer and actual read projections to a local model with real message identities (${owner})`, { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-integration-'));
   const bodies = [];
   const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
   let runtime, stream;
   t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
   const directory = await realpath(temp);
-  const sourceRef = { object: { workspaceId: 'synthetic', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'old.md', excerpt: '' };
+  const workspace = owner === 'workspace' ? { id: randomBytes(16).toString('hex'), name: 'Workspace Source', directory } : undefined;
+  const sourceRef = { object: { workspaceId: 'synthetic', scope: workspace ? { kind: 'workspace' } : { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'old.md', excerpt: '' };
   const operations = [];
   const sourceHandler = payload => {
     operations.push(payload);
@@ -457,7 +464,7 @@ test('source stdio delivers fixed composer and actual read projections to a loca
     const token = `mind-source/${Buffer.from(JSON.stringify(metadata.sourceRef)).toString('base64url')}/old.md`;
     return { sourceRef: metadata.sourceRef, projection: `@${token}\n<mind-file-source>${JSON.stringify(metadata).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e')}</mind-file-source>`, readValue: {path:token, offset:1, lines:[{number:1,text:metadata.content.slice(3)}], totalLines:1, truncated:false} };
   };
-  runtime = await launch(path.join(temp, 'data'), undefined, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, { id: 7, name: 'Source', directory }, undefined, sourceHandler);
+  runtime = await launch(path.join(temp, 'data'), undefined, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, workspace ? undefined : { id: 7, name: 'Source', directory }, undefined, sourceHandler, workspace);
   const { sessionId } = await runtime.rpc('session/create', {});
   stream = await follow(runtime, sessionId);
   const prepared = await runtime.rpc('mind/source/prepare', { sessionId, path: 'renamed.md', sourceRef });

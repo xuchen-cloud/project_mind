@@ -706,7 +706,7 @@ mod tests {
         fs::write(&source, bytes).unwrap();
         let document = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -714,7 +714,7 @@ mod tests {
             .unwrap();
         let input = GuiFileVersionPrepare {
             document_id: document.id,
-            project_id: project.id,
+            project_id: Some(project.id),
             managed_path: document.managed_path,
             expected_version_number: 1,
             source_path: None,
@@ -787,7 +787,7 @@ mod tests {
                 .unwrap()
                 .db
                 .project_set_archive(ProjectArchiveInput {
-                    project_id: input.project_id,
+                    project_id: input.project_id.unwrap(),
                     is_archived: true,
                 })
                 .unwrap();
@@ -1164,7 +1164,7 @@ mod tests {
         let (waiting_tx, waiting_rx) = mpsc::channel();
         let (done_tx, done_rx) = mpsc::channel();
         let writer_store = store.clone();
-        let project_id = input.project_id;
+        let project_id = input.project_id.unwrap();
         let writer = std::thread::spawn(move || {
             let mut state = writer_store.0.lock().unwrap();
             waiting_tx.send(()).unwrap();
@@ -1387,7 +1387,7 @@ mod tests {
                 object_keys: None,
                 workspace_id: binding.workspace_id.clone(),
                 workspace_content: false,
-                project_ids: vec![input.project_id],
+                project_ids: input.project_id.into_iter().collect(),
                 operations: vec!["file.update".into()],
             },
         };
@@ -1395,7 +1395,7 @@ mod tests {
             object: ObjectRef {
                 workspace_id: binding.workspace_id.clone(),
                 scope: Scope::Project {
-                    project_id: input.project_id,
+                    project_id: input.project_id.unwrap(),
                 },
                 kind: ObjectKind::File,
                 id: input.document_id.to_string(),
@@ -1567,7 +1567,7 @@ mod tests {
         );
         let mut forged = patch.clone();
         forged.object.scope = crate::agent::models::Scope::Project {
-            project_id: input.project_id + 1,
+            project_id: input.project_id.unwrap() + 1,
         };
         assert_eq!(
             service.patch_text(&request, &forged).unwrap_err().code,
@@ -1617,7 +1617,7 @@ mod tests {
             .unwrap()
             .db
             .project_set_archive(ProjectArchiveInput {
-                project_id: input.project_id,
+                project_id: input.project_id.unwrap(),
                 is_archived: true,
             })
             .unwrap();
@@ -2280,7 +2280,7 @@ mod tests {
         changed_scope
             .scope_grant
             .project_ids
-            .push(input.project_id + 1);
+            .push(input.project_id.unwrap() + 1);
         assert_eq!(
             service
                 .append(&changed_scope, &ticket.staged_content_id, 0, b"new bytes")

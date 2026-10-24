@@ -44,7 +44,7 @@ pub(crate) struct FileVersionUpdate {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct GuiFileVersionPrepare {
     pub document_id: i64,
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub managed_path: String,
     pub expected_version_number: u32,
     pub source_path: Option<String>,
@@ -61,7 +61,7 @@ pub(crate) struct GuiFileVersionMetadata {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct GuiFileVersionIntent {
     pub document_id: i64,
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub managed_path: String,
     pub expected_version_number: u32,
     pub expected_content_hash: String,
@@ -155,16 +155,16 @@ fn conflict(code: ErrorCode, message: &str) -> anyhow::Error {
 }
 /// Shared source policy at native File preflight and writer boundaries.
 pub(crate) fn require_file_source_policy(conn: &rusqlite::Connection, object: &ObjectRef) -> AgentResult<()> {
-    let Scope::Project { project_id } = object.scope else {
-        return Err(AgentError::new(ErrorCode::ScopeDenied, "File Project is unavailable"));
-    };
-    let project = ObjectRef {
-        workspace_id: object.workspace_id.clone(), scope: object.scope.clone(),
-        kind: ObjectKind::Project, id: project_id.to_string(),
+    let project_key = match object.scope {
+        Scope::Workspace => object.key()?,
+        Scope::Project { project_id } => ObjectRef {
+            workspace_id: object.workspace_id.clone(), scope: object.scope.clone(),
+            kind: ObjectKind::Project, id: project_id.to_string(),
+        }.key()?,
     };
     let excluded: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM source_access_policies WHERE object_key IN (?1,?2) AND excluded=1)",
-        params![object.key()?, project.key()?], |row| row.get(0),
+        params![object.key()?, project_key], |row| row.get(0),
     ).map_err(io_error)?;
     if excluded {
         return Err(AgentError::new(ErrorCode::ScopeDenied, "File or Project is excluded from AI access"));
@@ -290,7 +290,7 @@ struct Journal {
     caller_id: String,
     payload: CommitPayload,
     document_id: i64,
-    project_id: i64,
+    project_id: Option<i64>,
     expected_version: i64,
     next_version: i64,
     original: String,
@@ -531,8 +531,8 @@ impl Database {
     }
     /// Lock order is Project, File, SQLite transaction. Project directory and
     /// Archive writers take the Project lock exclusively; Files take it shared.
-    pub(super) fn file_project_lock(&self, project_id: i64, exclusive: bool) -> Result<File> {
-        self.file_storage_lock("file-project-locks", project_id, exclusive)
+    pub(super) fn file_project_lock(&self, project_id: impl Into<Option<i64>>, exclusive: bool) -> Result<File> {
+        self.file_scope_storage_lock("file-project-locks", project_id.into(), exclusive)
     }
     pub(super) fn file_native_write_locks(&self, document_id: i64) -> Result<(File, File)> {
         let locks = self.file_recovery_write_locks(document_id)?;
@@ -542,7 +542,7 @@ impl Database {
     }
     pub(super) fn file_recovery_write_locks(&self, document_id: i64) -> Result<(File, File)> {
         self.file_version_recover_pending()?;
-        let project_id: i64 = self.conn.query_row(
+        let project_id: Option<i64> = self.conn.query_row(
             "SELECT project_id FROM documents WHERE id=?1",
             [document_id],
             |row| row.get(0),
@@ -550,6 +550,12 @@ impl Database {
         let project = self.file_project_lock(project_id, false)?;
         let file = self.file_version_lock(document_id)?;
         Ok((project, file))
+    }
+    pub(super) fn file_scope_storage_lock(&self, directory: &str, project_id: Option<i64>, exclusive: bool) -> Result<File> {
+        match project_id {
+            Some(id) => self.file_storage_lock(directory, id, exclusive),
+            None => self.file_storage_lock(&format!("{directory}/workspace"), 1, exclusive),
+        }
     }
     pub(super) fn file_storage_lock(
         &self,
@@ -601,7 +607,7 @@ impl Database {
         if journal.schema_version != 1
             || journal.workspace_id != self.native_workspace_id
             || journal.document_id <= 0
-            || journal.project_id <= 0
+            || journal.project_id.is_some_and(|id| id <= 0)
             || journal.expected_version <= 0
             || journal.next_version
                 != journal
@@ -638,9 +644,7 @@ impl Database {
                     == journal.workspace_id.as_deref().unwrap_or_default()
                     && update.object.kind == ObjectKind::File
                     && update.object.scope
-                        == (Scope::Project {
-                            project_id: journal.project_id,
-                        })
+                        == (super::file_scope::scope(journal.project_id))
                     && update.object.id == journal.document_id.to_string()
                     && i64::from(update.expected_version_number) == journal.expected_version
                     && update.expected_content_hash == journal.original_captured_hash
@@ -656,9 +660,7 @@ impl Database {
             } if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
                 && object.kind == ObjectKind::File
                 && object.scope
-                    == (Scope::Project {
-                        project_id: journal.project_id,
-                    })
+                    == (super::file_scope::scope(journal.project_id))
                 && object.id == journal.document_id.to_string()
                 && i64::from(*expected_version_number) == journal.expected_version
                 && expected_content_hash == &journal.original_captured_hash
@@ -674,9 +676,7 @@ impl Database {
             } if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
                 && object.kind == ObjectKind::File
                 && object.scope
-                    == (Scope::Project {
-                        project_id: journal.project_id,
-                    })
+                    == (super::file_scope::scope(journal.project_id))
                 && object.id == journal.document_id.to_string()
                 && i64::from(*expected_version_number) == journal.expected_version
                 && expected_content_hash == &journal.original_captured_hash
@@ -692,9 +692,7 @@ impl Database {
             } if object.workspace_id == journal.workspace_id.as_deref().unwrap_or_default()
                 && object.kind == ObjectKind::File
                 && object.scope
-                    == (Scope::Project {
-                        project_id: journal.project_id,
-                    })
+                    == (super::file_scope::scope(journal.project_id))
                 && object.id == journal.document_id.to_string()
                 && i64::from(*expected_version_number) == journal.expected_version
                 && expected_content_hash == &journal.original_captured_hash
@@ -770,7 +768,7 @@ impl Database {
         let expected_archive = PathBuf::from(&current.history_dir_path).join(
             super::versioned_file_name(&current.base_name, current.current_version_number),
         );
-        let expected_next = PathBuf::from(self.project_record(current.project_id)?.root_path).join(
+        let expected_next = self.file_scope_root(current.project_id)?.join(
             super::versioned_file_name(&current.base_name, journal.next_version),
         );
         if archive != expected_archive || next != expected_next {
@@ -850,7 +848,7 @@ impl Database {
             // Staging may still be in progress in another database connection.
             // The directory identity lets recovery acquire its lock even before
             // the atomic descriptor exists, so it cannot delete live snapshots.
-            let project_id: Option<i64> = self
+            let project_id: Option<Option<i64>> = self
                 .conn
                 .query_row(
                     "SELECT project_id FROM documents WHERE id=?1",
@@ -896,7 +894,7 @@ impl Database {
         input: &GuiFileVersionPrepare,
     ) -> AgentResult<GuiFileVersionMetadata> {
         (|| -> Result<_> {
-            if input.document_id <= 0 || input.project_id <= 0 || input.expected_version_number == 0 {
+            if input.document_id <= 0 || input.project_id.is_some_and(|id| id <= 0) || input.expected_version_number == 0 {
                 return Err(conflict(ErrorCode::InvalidArgument, "Invalid File Version target"));
             }
             super::agent_file_undo::require_file_visible(&self.conn, input.document_id).map_err(CommitFailure)?;
@@ -910,7 +908,7 @@ impl Database {
                 || current.storage_mode == "managed_note_image" {
                 return Err(conflict(ErrorCode::RevisionConflict, "File changed since it was displayed"));
             }
-            if self.project_record(current.project_id)?.is_archived {
+            if self.file_scope_archived(current.project_id)? {
                 return Err(conflict(ErrorCode::ScopeDenied, "Archived Project is outside the active write scope"));
             }
             crate::source_search_index::SourceIndex::prepare(&self.conn).map_err(CommitFailure)?;
@@ -986,7 +984,7 @@ impl Database {
             if request_id.is_empty()
                 || request_id.len() > 128
                 || intent.document_id <= 0
-                || intent.project_id <= 0
+                || intent.project_id.is_some_and(|id| id <= 0)
                 || intent.expected_version_number == 0
                 || !valid_hash(&intent.expected_content_hash)
                 || !valid_hash(&intent.new_content_hash)
@@ -1498,7 +1496,7 @@ impl Database {
         };
         let stage_id = stage.map(|(id, _)| id);
         self.file_version_recover_pending()?;
-        let project_id: i64 = self.conn.query_row(
+        let project_id: Option<i64> = self.conn.query_row(
             "SELECT project_id FROM documents WHERE id=?1",
             [input.document_id],
             |row| row.get(0),
@@ -1586,7 +1584,7 @@ impl Database {
         }
         let original = PathBuf::from(&current.managed_path);
         if let Some((_, update)) = registered {
-            if self.project_record(current.project_id)?.is_archived {
+            if self.file_scope_archived(current.project_id)? {
                 return Err(conflict(
                     ErrorCode::ScopeDenied,
                     "Project was archived before File commit",
@@ -1629,7 +1627,7 @@ impl Database {
                     "File Version or location changed before GUI commit",
                 ));
             }
-            if self.project_record(current.project_id)?.is_archived {
+            if self.file_scope_archived(current.project_id)? {
                 return Err(conflict(
                     ErrorCode::ScopeDenied,
                     "Project was archived before File commit",
@@ -1733,7 +1731,7 @@ impl Database {
                     require_file_source_policy(tx, &update.object)?;
                 }
                 let unchanged: bool = tx.query_row(
-                    "SELECT current_version_number=?2 AND project_id=?3 AND managed_path=?4 FROM documents WHERE id=?1",
+                    "SELECT current_version_number=?2 AND project_id IS ?3 AND managed_path=?4 FROM documents WHERE id=?1",
                     params![current.id, current.current_version_number, current.project_id, self.encode_path_ref(&original)], |row| row.get(0)).map_err(io_error)?;
                 if !unchanged {
                     return Err(AgentError::new(ErrorCode::RevisionConflict, "File Version changed before no-change commit"));
@@ -1762,7 +1760,7 @@ impl Database {
             .ok_or_else(|| anyhow!("File version overflow"))?;
         let next_name = super::versioned_file_name(&current.base_name, next_version);
         let next =
-            PathBuf::from(self.project_record(current.project_id)?.root_path).join(&next_name);
+            self.file_scope_root(current.project_id)?.join(&next_name);
         // Validate ownership before making directories or touching bytes.
         let original_ref = relative(&self.workspace_root, &original)?;
         let archive_ref = relative(&self.workspace_root, &archive)?;
@@ -2003,7 +2001,7 @@ impl Database {
                         require_file_source_policy(tx, &update.object)?;
                     }
                     let unchanged: bool = tx.query_row(
-                        "SELECT project_id=?2 AND managed_path=?3 AND history_dir_path=?4 AND base_name=?5 FROM documents WHERE id=?1",
+                        "SELECT project_id IS ?2 AND managed_path=?3 AND history_dir_path=?4 AND base_name=?5 FROM documents WHERE id=?1",
                         params![current.id, current.project_id, self.encode_path_ref(&original), self.encode_path_ref(Path::new(&current.history_dir_path)), current.base_name],
                         |row| row.get(0),
                     ).map_err(io_error)?;
@@ -2034,7 +2032,7 @@ impl Database {
                     let change = if let Some(workspace_id) = &journal.workspace_id {
                         let object = ObjectRef {
                             workspace_id: workspace_id.clone(),
-                            scope: Scope::Project { project_id: current.project_id },
+                            scope: super::file_scope::scope(current.project_id),
                             kind: ObjectKind::File,
                             id: current.id.to_string(),
                         };
@@ -2154,7 +2152,7 @@ mod tests {
         fs::write(&original, b"unknown legacy").unwrap();
         let first = db
             .document_import_legacy_fixture(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: original.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -2420,9 +2418,9 @@ mod tests {
             fs::read(&fixture.document.managed_path).unwrap(),
             b"later external edit"
         );
-        prepare.project_id += 1;
+        prepare.project_id = prepare.project_id.map(|id| id + 1);
         assert!(fixture.db.file_version_prepare_gui(&prepare).is_err());
-        prepare.project_id -= 1;
+        prepare.project_id = prepare.project_id.map(|id| id - 1);
         prepare.managed_path.push_str(".other-workspace");
         assert!(fixture.db.file_version_prepare_gui(&prepare).is_err());
     }
@@ -2511,7 +2509,7 @@ mod tests {
         );
         wrong = fixture.update.clone();
         wrong.object.scope = crate::agent::models::Scope::Project {
-            project_id: fixture.document.project_id + 1,
+            project_id: fixture.document.project_id.unwrap() + 1,
         };
         assert_eq!(
             fixture
@@ -2645,7 +2643,7 @@ mod tests {
             fs::write(&original, old_bytes).unwrap();
             let document = db
                 .document_import_legacy_fixture(DocumentImportInput {
-                    project_id: project.id,
+                    project_id: Some(project.id),
                     source_path: original.to_string_lossy().into(),
                     is_starred: false,
                     tag_ids: None,
@@ -2744,7 +2742,7 @@ mod tests {
         fs::write(&original, b"<h1>original</h1>\r\n").unwrap();
         let document = db
             .document_import_legacy_fixture(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: original.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -2840,7 +2838,7 @@ mod tests {
                 object: ObjectRef {
                     workspace_id: binding.workspace_id.clone(),
                     scope: Scope::Project {
-                        project_id: document.project_id,
+                        project_id: document.project_id.unwrap(),
                     },
                     kind: ObjectKind::File,
                     id: id.to_string(),
@@ -3037,7 +3035,7 @@ mod tests {
         fixture
             .db
             .project_set_archive(crate::models::ProjectArchiveInput {
-                project_id: intent.project_id,
+                project_id: intent.project_id.unwrap(),
                 is_archived: true,
             })
             .unwrap();
@@ -3349,7 +3347,7 @@ mod tests {
                 .file_project_lock(fixture.document.project_id, false)
                 .unwrap();
             let root = fixture.root.path().to_path_buf();
-            let project_id = fixture.document.project_id;
+            let project_id = fixture.document.project_id.unwrap();
             let (started_tx, started_rx) = std::sync::mpsc::channel();
             let (done_tx, done_rx) = std::sync::mpsc::channel();
             let handle = std::thread::spawn(move || {
@@ -3565,7 +3563,7 @@ mod tests {
             fs::write(&original, b"<h1>original</h1>\r\n").unwrap();
             let document = db
                 .document_import_legacy_fixture(DocumentImportInput {
-                    project_id: project.id,
+                    project_id: Some(project.id),
                     source_path: original.to_string_lossy().into(),
                     is_starred: false,
                     tag_ids: None,

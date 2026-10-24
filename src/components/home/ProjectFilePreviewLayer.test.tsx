@@ -8,6 +8,7 @@ import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT } from "../../services/projectContentApi";
 import { getContentLayout } from "../../lib/project-content-layout";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { useProjectContentStore } from "../../state/project-content-store";
 import type { AgentSourceRef } from "../../lib/agent-types";
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { resolveReference: vi.fn(), preview: vi.fn(), open: vi.fn() } }));
@@ -20,6 +21,7 @@ const object = { workspaceId: binding.workspaceId, scope: { kind: "project" as c
 const registered = { object, relativePath: "notes/context.txt", name: "context.txt", versionNumber: 3, contentHash: "sha256:current", state: "ready" as const, reason: null };
 const layout = () => getContentLayout(useProjectContentStore.getState(), scope);
 beforeEach(() => {
+  useAgentPanelStore.getState().clearWorkspace();useAgentPanelStore.getState().bindWorkspace("/tmp/workspace");
   vi.resetAllMocks(); useProjectFileNavigation.setState({ request: null, revisions: {} }); useProjectContentStore.setState({ layouts: {} });
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
   vi.mocked(projectDirectoryApi.resolveReference).mockResolvedValue("notes/context.txt");
@@ -171,4 +173,46 @@ it("refuses a missing fixed snapshot without falling back to the current path or
     expect(layout().tabs).toEqual([expect.objectContaining({ id: first.tabId, view: { versionNumber: 3, line: 10 } })]);
     expect(useProjectFileNavigation.getState().request?.sourceRef).toEqual(fixedSource);
   } finally { window.removeEventListener(PROJECT_CONTENT_OPEN_EVENT, revealed); }
+});
+
+it("opens a Workspace Session cwd path through the shared File Tab without reading a Project", async () => {
+  const ownObject = { workspaceId: binding.workspaceId, scope: { kind: "workspace" as const }, kind: "file" as const, id: "72" };
+  vi.mocked(projectDirectoryApi.resolveReference).mockResolvedValue("workspace.txt");
+  vi.mocked(projectFileApi.register).mockResolvedValue({ ...registered, object: ownObject, name: "workspace.txt", relativePath: "workspace.txt" });
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object: ownObject, currentVersionNumber: 1, currentContentHash: "sha256:current",
+    versions: [{ id: "version-1", versionNumber: 1, name: "workspace.txt", createdAt: "now", contentHash: "sha256:current", isCurrent: true }], nextCursor: null });
+  render(<ProjectFilePreviewLayer currentProjectId={null} workspaceRoot="/tmp/workspace" />);
+  act(() => openProjectFilePreview(null, "files/workspace.txt", undefined, "workspace-session"));
+  await waitFor(() => expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: binding.workspaceId, projectId: null }).tabs).toHaveLength(1));
+  expect(projectDirectoryApi.resolveReference).toHaveBeenCalledWith(null, "workspace.txt");
+  expect(projectFileApi.register).toHaveBeenCalledWith(binding, null, "workspace.txt");
+  expect(layout().tabs).toHaveLength(0);
+});
+
+
+it("opens a Workspace Session's explicit Project reference in its real Project layout", async () => {
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 2,
+    contentHash: fixedSource.revision, name: "project-file.txt", mime: "text/plain", byteLength: 3, base64: btoa("old") });
+  const revealed = vi.fn(); window.addEventListener(PROJECT_CONTENT_OPEN_EVENT, revealed);
+  try {
+    render(<ProjectFilePreviewLayer currentProjectId={null} workspaceRoot="/tmp/workspace" />);
+    act(() => openProjectFilePreview(null, "obsolete/project-file.txt", undefined, "workspace-session", fixedSource));
+    await waitFor(() => expect(revealed).toHaveBeenCalledOnce());
+    expect(projectFileApi.readBytes).toHaveBeenCalledExactlyOnceWith(binding,
+      { object, versionNumber: 2, expectedContentHash: fixedSource.revision });
+    expect((revealed.mock.calls[0][0] as CustomEvent).detail.scope).toEqual(scope);
+    expect(layout().tabs).toEqual([expect.objectContaining({ object: expect.objectContaining({ kind: "file", id: 51 }) })]);
+    expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: binding.workspaceId, projectId: null }).tabs).toHaveLength(0);
+    expect(projectDirectoryApi.resolveReference).not.toHaveBeenCalled();
+    expect(projectFileApi.register).not.toHaveBeenCalled();
+  } finally { window.removeEventListener(PROJECT_CONTENT_OPEN_EVENT, revealed); }
+});
+
+it("refuses a foreign Project fixed reference from a Project Session before reading bytes", async () => {
+  const foreignSource = { ...fixedSource, object: { ...object, scope: { kind: "project" as const, projectId: 8 } } };
+  render(<ProjectFilePreviewLayer currentProjectId={7} workspaceRoot="/tmp/workspace" />);
+  act(() => openProjectFilePreview(7, "foreign.txt", undefined, "project-session", foreignSource));
+  expect(await screen.findByRole("alert")).toHaveTextContent("文件引用不属于当前范围");
+  expect(projectFileApi.readBytes).not.toHaveBeenCalled();
+  expect(layout().tabs).toHaveLength(0);
 });

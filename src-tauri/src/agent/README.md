@@ -4,7 +4,7 @@
 
 ## 当前接入路径
 
-GUI 的原生功能通过 Tauri 命令进入当前 Workspace 的共享服务。独立 Pi Host 与旧原生会话、run 执行及 Pi 历史读取接口已移除；来源读取、Overview/知识、Record/Todo/File 成果与收据服务保留后端和 CLI/MCP 调用路径；Project 聊天已由 `dsh_assistant.rs` 与独立 DSH runtime 承载，尚未接通这里的全部业务工具。当前 Workspace 聊天与知识/记忆 GUI 没有挂载，旧面板已清理；每项能力按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
+GUI 的原生功能通过 Tauri 命令进入当前 Workspace 的共享服务。独立 Pi Host 与旧原生会话、run 执行及 Pi 历史读取接口已移除；来源读取、Overview/知识、Record/Todo/File 成果与收据服务保留后端和 CLI/MCP 调用路径；Workspace 和 Project 聊天由 `dsh_assistant.rs` 与独立 DSH runtime 承载，共用内容 Tab 与分栏，尚未接通这里的全部业务工具。知识/记忆 GUI 没有挂载，旧面板已清理；每项能力按交付计划区分内部服务、产品接入和平台验收。`RequestContext`、`ScopeGrant` 与 Workspace generation 在服务边界验证，不从模型或外部请求直接反序列化。对象读取与写入还需按存储中的真实归属、版本和排除策略复核。
 
 本机外部调用路径为：
 
@@ -83,9 +83,9 @@ Markdown 快捷命令为 `mind record create --title TITLE --body-file PATH|- (-
 
 `mind file upload --input-file target.json --body-file PATH --request-id ID --workspace PATH --connection ID --json` 在 CLI 本地读入字节并执行 begin、status、chunk、complete、update。`target.json` 使用 `{ "object": { ... }, "expectedVersionNumber": 1, "expectedContentHash": "sha256:…" }`，绑定真实 File 对象及预期版本/hash；`--body-file` 支持路径或 `-`（stdin）。相同 ID 重试会使用稳定的阶段 ID，从已接收字节续传；若最后一个短块已收到，可直接继续 complete。阶段过期时只尝试原始最终 `file.update` 收据：已提交可返回同一结果，未提交则明确失败。CLI 不把本地路径传给服务端。
 
-文本 File 可用 `mind file create --name NAME --body-file PATH|- --project ID --request-id ID --workspace PATH --connection ID --json` 创建；复杂创建仍用 `--input-file` 提供完整 DTO。`mind file patch --patch-file PATH|- --workspace PATH --connection ID --json` 接受既有带 `requestId` 的 wrapped mutation JSON，与 `--input-file` 互斥。Todo/File 创建的 `--body-file` 在 CLI 本地按 UTF-8 读取，保留字符与换行，路径不会传到服务端；正文和生成的请求 JSON 均受 2 MiB 上限约束。二进制或较大 File 继续使用上述字节上传流程。
+File 可直接归属 Workspace 或一个 Project，工作区普通文件保存在 `files/`；两种归属复用相同身份、版本与收据服务，单 Project 连接不能访问 Workspace File。文本 File 可用 `mind file create --name NAME --body-file PATH|- (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json` 创建；复杂创建仍用 `--input-file` 提供完整 DTO。`mind file patch --patch-file PATH|- --workspace PATH --connection ID --json` 接受既有带 `requestId` 的 wrapped mutation JSON，与 `--input-file` 互斥。Todo/File 创建的 `--body-file` 在 CLI 本地按 UTF-8 读取，保留字符与换行，路径不会传到服务端；正文和生成的请求 JSON 均受 2 MiB 上限约束。二进制或较大 File 继续使用上述字节上传流程。
 
-完整替换也可直接使用 `mind file update --id ID --source-file PATH|- --project ID --expected-version N --expected-hash HASH --request-id ID --workspace PATH --connection ID --json`。版本与 `sha256:…` hash 从 File 版本读取取得，Workspace 身份由连接握手补齐；文件在 CLI 本地读取，复用同一 100 MiB 分段上传、续传和收据流程。便捷参数与 `--input-file` 互斥，旧 JSON/`file upload` 入口保持可用。
+完整替换也可直接使用 `mind file update --id ID --source-file PATH|- (--project ID | --workspace-scope) --expected-version N --expected-hash HASH --request-id ID --workspace PATH --connection ID --json`。版本与 `sha256:…` hash 从 File 版本读取取得，Workspace 身份由连接握手补齐；文件在 CLI 本地读取，复用同一 100 MiB 分段上传、续传和收据流程。便捷参数与 `--input-file` 互斥，旧 JSON/`file upload` 入口保持可用。
 
 ## 桌面安装包中的 CLI
 

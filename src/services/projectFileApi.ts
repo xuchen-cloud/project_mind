@@ -16,7 +16,7 @@ async function command<T>(name: string, payload: Record<string, unknown>): Promi
 }
 
 export const projectFileApi = {
-  register: (binding: AgentWorkspaceBinding, projectId: number, relativePath: string) =>
+  register: (binding: AgentWorkspaceBinding, projectId: number | null, relativePath: string) =>
     command<ProjectDirectoryFile>("project_file_register", { binding, projectId, relativePath }),
   resolve: (binding: AgentWorkspaceBinding, object: AgentObjectRef) =>
     command<ProjectDirectoryFile>("project_file_resolve", { binding, object }),
@@ -38,7 +38,7 @@ export const projectFileApi = {
     command<ProjectDirectoryFile>("project_file_reconcile", { binding, object, relativePath, expectedVersionNumber, expectedContentHash, confirmation }),
   // A bounded scan page is committed independently. Stop requesting pages to
   // cancel; cancelled=true acknowledges cancellation without losing prior work.
-  scan: (binding: AgentWorkspaceBinding, projectId: number, cursor: string | null = null, limit = 50, cancelled = false) =>
+  scan: (binding: AgentWorkspaceBinding, projectId: number | null, cursor: string | null = null, limit = 50, cancelled = false) =>
     command<ProjectDirectoryScanResult>("project_file_scan", { binding, projectId, cursor, limit, cancelled }),
 };
 

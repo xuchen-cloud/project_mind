@@ -95,9 +95,9 @@ WITH source(key,body,kind,id) AS (
  UNION ALL SELECT ?1||'/'||(CASE WHEN t.scope='workspace' THEN 'workspace' ELSE 'project:'||t.project_id END)||'/todo/'||t.id,t.content,'todo',t.id
  FROM agent_visible_todos t LEFT JOIN projects p ON p.id=t.project_id
  WHERE (t.scope='workspace' AND ?3=1) OR (t.scope='project' AND p.is_archived=0 AND EXISTS(SELECT 1 FROM json_each(?2) g WHERE g.value=t.project_id))
- UNION ALL SELECT ?1||'/project:'||f.project_id||'/file/'||f.id,'','file',f.id
- FROM agent_visible_files f JOIN projects p ON p.id=f.project_id AND p.is_archived=0
- WHERE f.storage_mode!='managed_note_image' AND EXISTS(SELECT 1 FROM json_each(?2) g WHERE g.value=f.project_id)
+ UNION ALL SELECT ?1||'/'||CASE WHEN f.project_id IS NULL THEN 'workspace' ELSE 'project:'||f.project_id END||'/file/'||f.id,'','file',f.id
+ FROM agent_visible_files f LEFT JOIN projects p ON p.id=f.project_id
+ WHERE f.storage_mode!='managed_note_image' AND ((f.project_id IS NULL AND ?3=1) OR (p.is_archived=0 AND EXISTS(SELECT 1 FROM json_each(?2) g WHERE g.value=f.project_id)))
 ), visible AS (
  SELECT s.key,s.body,s.kind,s.id FROM source s
  WHERE (?8 IS NULL OR s.key IN (SELECT value FROM json_each(?8)))

@@ -1,3 +1,4 @@
+import { fileOwnerScope, sameFileOwner } from "../../lib/file-types";
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, Quote } from "lucide-react";
 import type { AgentObjectRef, AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-types";
@@ -10,14 +11,14 @@ import { openProjectContent } from "../../services/projectContentApi";
 import "./project-file-content.css";
 
 interface ReferenceProps {
-  workspaceRoot: string; projectId: number; fileId: number; versionNumber?: number; sourceRef: AgentSourceRef | null; visible?: boolean;
+  workspaceRoot: string; projectId: number | null; fileId: number; versionNumber?: number; sourceRef: AgentSourceRef | null; visible?: boolean;
 }
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
   return a.workspaceId === b.workspaceId && a.kind === "file" && a.id === b.id
-    && a.scope.kind === "project" && b.scope.kind === "project" && a.scope.projectId === b.scope.projectId;
+    && sameFileOwner(a.scope, b.scope);
 }
 
-/** A click creates a new same-Project Session and inserts only the displayed, verified version. */
+/** A click creates a new same-scope Session and inserts only the displayed, verified version. */
 export function ProjectFileSessionReference(props: ReferenceProps) {
   const identity = JSON.stringify([props.workspaceRoot, props.projectId, props.fileId, props.versionNumber,
     props.sourceRef?.object, props.sourceRef?.fileVersion, props.sourceRef?.revision]);
@@ -47,7 +48,7 @@ function SessionReference({ workspaceRoot, projectId, fileId, versionNumber, sou
       if (versionNumber !== undefined && sourceRef.fileVersion !== versionNumber) throw new Error("预览版本已变化，请重新读取。");
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       signal.throwIfAborted();
-      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: fileOwnerScope(projectId), kind: "file", id: String(fileId) };
       if (!sameObject(sourceRef.object, object)) throw new Error("预览文件归属已变化，请重新读取。");
       const file = await projectFileApi.resolve(binding, object);
       signal.throwIfAborted();
@@ -75,7 +76,7 @@ function SessionReference({ workspaceRoot, projectId, fileId, versionNumber, sou
         blockId: null, locator: null, title: bytes.name, excerpt: "" };
       await openProjectContent({ workspaceRoot, projectId, object: { kind: "session", id: destination, title: "新会话" },
         expectedBinding: binding, signal, beforeOpen: () => {
-          requestDshFileReference(projectId, file.relativePath, destination, source);
+          requestDshFileReference(projectId, projectId === null ? `files/${file.relativePath}` : file.relativePath, destination, source);
           created.current = null;
         } });
     } catch (reason) { if (!signal.aborted) setError(reason instanceof Error ? reason.message : String(reason)); }

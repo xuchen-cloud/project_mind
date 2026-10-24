@@ -420,8 +420,8 @@ fn authorize(caller: &tauri::Webview) -> RemoteResult<String> {
     )?;
     Ok(caller.label().into())
 }
-fn authorize_project(label: &str, project: i64) -> RemoteResult<()> {
-    if label == "main" || project_label(label) == Some(project) {
+fn authorize_project(label: &str, project: impl Into<Option<i64>>) -> RemoteResult<()> {
+    if label == "main" || project.into().is_some_and(|project| project_label(label) == Some(project)) {
         Ok(())
     } else {
         Err(failure("caller_denied", "此页面不能读取其他项目的图片。"))

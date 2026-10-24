@@ -280,7 +280,7 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let file = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: path.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,

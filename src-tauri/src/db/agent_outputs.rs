@@ -191,10 +191,8 @@ pub(super) fn intent_scope(
                 Some(*expected_revision),
             ))
         }
-        OutputIntent::FileCreate { project_id, .. } if *project_id > 0 => Ok((
-            Scope::Project {
-                project_id: *project_id,
-            },
+        OutputIntent::FileCreate { project_id, .. } if project_id.is_none_or(|id| id > 0) => Ok((
+            super::file_scope::scope(*project_id),
             "content.create",
             "create",
             None,
@@ -1813,7 +1811,7 @@ mod tests {
         req.request_id = "file-outside-bound-scope".into();
         let todo = StageRecordInput {
             intent: OutputIntent::FileCreate {
-                project_id: 1,
+                project_id: Some(1),
                 safe_name: "file.txt".into(),
                 utf8_content: "File".into(),
             },

@@ -1,4 +1,4 @@
-import type { AgentObjectRef } from "./agent-types";
+import type { AgentObjectRef, AgentScope } from "./agent-types";
 
 /** Registered system handler; artwork is supplied by the host OS. */
 export interface NativeFileApplication {
@@ -81,4 +81,18 @@ export interface FileRestoreInput {
   versionId: string;
   expectedVersionNumber: number;
   expectedContentHash: string;
+}
+
+/** Physical file root and actual owner shared by Workspace and Project browsers. */
+export interface FileBrowserScope {
+  workspaceRoot: string;
+  projectId: number | null;
+  rootPath: string;
+  name: string;
+}
+export function fileOwnerScope(projectId: number | null): AgentScope {
+  return projectId === null ? { kind: "workspace" } : { kind: "project", projectId };
+}
+export function sameFileOwner(a: AgentScope, b: AgentScope) {
+  return a.kind === b.kind && (a.kind === "workspace" || (b.kind === "project" && a.projectId === b.projectId));
 }

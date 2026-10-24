@@ -54,8 +54,8 @@ fn source_visible(conn: &Connection, binding: &WorkspaceBinding, key: &str) -> A
             .query_row("SELECT 1 FROM agent_visible_todos WHERE id=?1 AND scope=?2 AND (project_id=?3 OR (?3 IS NULL AND project_id IS NULL))",
                 params![id, if matches!(scope, Scope::Workspace) { "workspace" } else { "project" }, match scope { Scope::Workspace => None, Scope::Project { project_id } => Some(*project_id) }], |_| Ok(true))
             .optional().map_err(io_error)?.unwrap_or(false),
-        (Scope::Project { project_id }, ObjectKind::File, Some(id)) => conn
-            .query_row("SELECT 1 FROM agent_visible_files WHERE id=?1 AND project_id=?2", params![id, project_id], |_| Ok(true))
+        (scope, ObjectKind::File, Some(id)) => conn
+            .query_row("SELECT 1 FROM agent_visible_files WHERE id=?1 AND project_id IS ?2", params![id, super::file_scope::owner(scope)], |_| Ok(true))
             .optional().map_err(io_error)?.unwrap_or(false),
         (Scope::Project { project_id }, ObjectKind::QuickNote, Some(id)) if *project_id == id => conn
             .query_row("SELECT 1 FROM projects WHERE id=?1", [id], |_| Ok(true))

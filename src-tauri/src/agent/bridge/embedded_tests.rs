@@ -552,3 +552,21 @@ fn in_flight_storage_rechecks_lease_and_workspace_binding() {
         ErrorCode::RuntimeUnavailable
     );
 }
+
+#[test]
+fn native_office_workspace_request_reuses_embedded_grant_and_actual_project_membership() {
+    let (_root, db, binding, first, second) = fixture();
+    let secrets = Secrets::default();
+    let original = ensure_grant(&db, &binding, None, &secrets).unwrap();
+    db.project_set_archive(crate::models::ProjectArchiveInput { project_id: first, is_archived: true }).unwrap();
+    let request = workspace_request_with_credentials(&db, &binding, "office-native", &secrets).unwrap();
+    assert!(matches!(&request.caller, crate::agent::access::Caller::Connection { grant_id } if grant_id == &original.0));
+    assert_eq!(request.scope_grant.project_ids, vec![first, second]);
+    assert!(request.scope_grant.workspace_content);
+    assert_eq!(request.request_id, "office-native");
+    request.authorize(&binding, &Scope::Workspace, "source.read").unwrap();
+    request.authorize(&binding, &Scope::Project { project_id: second }, "file.update").unwrap();
+    assert!(request.authorize(&binding, &Scope::Project { project_id: second + 100 }, "source.read").is_err());
+    db.agent_connection_revoke(&binding, &original.0).unwrap();
+    assert!(workspace_request_with_credentials(&db, &binding, "revoked-office", &secrets).is_err());
+}

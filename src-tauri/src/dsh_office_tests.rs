@@ -66,7 +66,7 @@ impl OfficeUtility for TestEngine {
         if method == "office.inspect" {
             Ok(json!({"model":{"text":String::from_utf8(bytes).unwrap()}}))
         } else {
-            assert_eq!(id, "session-a:stable-call");
+            assert!(["session-a:stable-call", "session-a:project-call"].contains(&id));
             Ok(json!({"model":{"text":"saved office"},"base64":STANDARD.encode(b"saved office")}))
         }
     }
@@ -81,7 +81,8 @@ fn dsh_office_tool_source_ref_contract_reaches_native_without_coercion() {
     // native-only reference that could hide a cross-runtime DTO mismatch.
     let source: Value = serde_json::from_str(include_str!(
         "../../packages/dsh-assistant/test/fixtures/office-source-ref.json"
-    )).unwrap();
+    ))
+    .unwrap();
     let request = json!({"operation":"officeEdit","sessionId":"real-session",
         "requestId":"tool-call","sourceRef":source,"edits":[]});
     let parsed = call(request.clone());
@@ -249,8 +250,7 @@ fn dsh_office_rejects_unbound_session_and_untrusted_authority_payload() {
     std::fs::create_dir(&other).unwrap();
     let directory = project.canonicalize().unwrap();
     let list: SessionListValue =
-        serde_json::from_value(json!({"items":[{"sessionId":"real","cwd":project}]}))
-            .unwrap();
+        serde_json::from_value(json!({"items":[{"sessionId":"real","cwd":project}]})).unwrap();
     assert!(validate_session(&list, "real", &directory).is_ok());
     for (session, cwd) in [
         ("forged", directory.as_path()),
@@ -259,14 +259,17 @@ fn dsh_office_rejects_unbound_session_and_untrusted_authority_payload() {
         ("real", root.path()),
     ] {
         assert_eq!(
-            validate_session(&list, session, cwd)
-                .unwrap_err()
-                .code,
+            validate_session(&list, session, cwd).unwrap_err().code,
             ErrorCode::ScopeDenied
         );
     }
     std::fs::remove_dir(&project).unwrap();
-    assert_eq!(validate_session(&list, "real", &directory).unwrap_err().code, ErrorCode::ScopeDenied);
+    assert_eq!(
+        validate_session(&list, "real", &directory)
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeDenied
+    );
     for value in [
         json!({"operation":"officeInspect","sessionId":"real","path":"original.docx","projectId":9999}),
         json!({"operation":"officeEdit","sessionId":"real","sourceRef":{},"edits":[]}),
@@ -593,4 +596,138 @@ async fn dsh_office_selection_timeout_is_final_and_late_claim_cannot_mutate() {
         .unwrap_err();
     assert_eq!(retried.code, error.code);
     assert_eq!(retried.message, error.message);
+}
+
+#[tokio::test]
+async fn workspace_dsh_office_commits_real_versions_and_scopes_live_selection() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let (metadata, paths) = create_workspace(&root, "password").unwrap();
+    let mut db = Database::open(&paths.db_path, &root, None).unwrap();
+    db.bind_native_workspace(&metadata.workspace_id).unwrap();
+    let file_root = db.ensure_file_scope_root(None).unwrap();
+    std::fs::write(file_root.join("original.docx"), b"old office").unwrap();
+    let binding = WorkspaceBinding {
+        workspace_id: metadata.workspace_id,
+        generation: "workspace-office-runtime".into(),
+    };
+    let identity = Identity {
+        workspace_id: binding.workspace_id.clone(),
+        workspace_generation: binding.generation.clone(),
+        root: root.clone(),
+        fingerprint: "fixture".into(),
+        context: AssistantContext::Workspace { directory: root },
+    };
+    let store = TestStore {
+        db: Mutex::new(db),
+        binding,
+        paths,
+        fence: Arc::new(WorkspaceCommitFence::new()),
+        alive: Arc::new(AtomicBool::new(true)),
+    };
+    let grants = Mutex::new(HashMap::new());
+    let old = call(
+        json!({"operation":"officeInspect","sessionId":"session-a","path":"files/original.docx"}),
+    )
+    .execute(&store, &TestEngine, &identity, &grants)
+    .await
+    .unwrap();
+    assert_eq!(
+        old["sourceRef"]["object"]["scope"],
+        json!({"kind":"workspace"})
+    );
+    let edit = json!({"operation":"officeEdit","sessionId":"session-a","requestId":"session-a:stable-call","sourceRef":old["sourceRef"],"edits":[{"text":"saved office"}]});
+    let saved = call(edit.clone())
+        .execute(&store, &TestEngine, &identity, &grants)
+        .await
+        .unwrap();
+    assert_eq!(saved["sourceRef"]["fileVersion"], 2);
+    assert_eq!(
+        std::fs::read(file_root.join("original.docx")).unwrap(),
+        b"saved office"
+    );
+    let replay = call(edit)
+        .execute(&store, &TestEngine, &identity, &grants)
+        .await
+        .unwrap();
+    assert_eq!(replay["sourceRef"], saved["sourceRef"]);
+    // A Project created after the first Workspace Office request is resolved
+    // from the current DB membership, not a grant snapshot or raw root access.
+    let project = crate::lock_mutex(&store.db)
+        .project_create(crate::models::ProjectCreateInput {
+            name: "Workspace readable Project".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    let project_path = std::path::PathBuf::from(&project.root_path).join("project.docx");
+    std::fs::write(&project_path, b"project office").unwrap();
+    let project_source =
+        call(json!({"operation":"officeInspect","sessionId":"session-a","path":project_path}))
+            .execute(&store, &TestEngine, &identity, &grants)
+            .await
+            .unwrap();
+    assert_eq!(
+        project_source["sourceRef"]["object"]["scope"],
+        json!({"kind":"project","projectId":project.id})
+    );
+    let project_saved = call(json!({"operation":"officeEdit","sessionId":"session-a","requestId":"session-a:project-call","sourceRef":project_source["sourceRef"],"edits":[{"text":"saved office"}]}))
+        .execute(&store, &TestEngine, &identity, &grants).await.unwrap();
+    assert_eq!(project_saved["sourceRef"]["fileVersion"], 2);
+    assert_eq!(std::fs::read(&project_path).unwrap(), b"saved office");
+    let restricted = Identity {
+        context: AssistantContext::Project(ProjectContext {
+            id: project.id,
+            name: project.name,
+            directory: std::path::PathBuf::from(&project.root_path),
+        }),
+        ..identity.clone()
+    };
+    assert!(call(json!({"operation":"officeInspect","sessionId":"session-a","path":file_root.join("original.docx")}))
+        .execute(&store, &TestEngine, &restricted, &Mutex::new(HashMap::new())).await.is_err());
+    let mut forged = old["sourceRef"].clone();
+    forged["object"]["scope"] = json!({"kind":"project","projectId":project.id + 100});
+    assert!(call(json!({"operation":"officeEdit","sessionId":"session-a","requestId":"forged-edit","sourceRef":forged,"edits":[]}))
+        .execute(&store, &TestEngine, &identity, &grants).await.is_err());
+    let selections = Selections::default();
+    let object = serde_json::from_value(saved["sourceRef"]["object"].clone()).unwrap();
+    register_selected(&selections, &store.binding, object, "workspace-selection");
+    let read = json!({"operation":"officeSelectionRead","sessionId":"session-a","selectionId":"workspace-selection"});
+    assert_eq!(
+        selected(read.clone())
+            .execute(&store, &selections, None, store.alive.clone(), |_| panic!())
+            .await
+            .unwrap()["text"],
+        "冻结原文"
+    );
+    assert!(selected(read)
+        .execute(
+            &store,
+            &selections,
+            Some(1),
+            store.alive.clone(),
+            |_| panic!()
+        )
+        .await
+        .is_err());
+    let draft = selected(apply_selection(
+        "workspace-selection",
+        "workspace-draft",
+        "Workspace revised draft",
+    ))
+    .execute(&store, &selections, None, store.alive.clone(), |request| {
+        selections.claim(&store.binding, "main", &editor_reply(request, None))?;
+        selections.reply(
+            &store.binding,
+            "main",
+            editor_reply(request, Some("Workspace revised draft")),
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(draft["saved"], false);
+    assert_eq!(
+        std::fs::read(file_root.join("original.docx")).unwrap(),
+        b"saved office"
+    );
 }

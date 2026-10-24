@@ -74,7 +74,7 @@ describe("useInternalReferenceNavigation", () => {
   });
 
   it("keeps an inaccessible File reference intact and reports refusal", async () => {
-    mocks.resolveReference.mockResolvedValue({ kind: "document", id: 51, label: "brief.pdf", projectId: 7 });
+    mocks.resolveReference.mockResolvedValue({ kind: "document", id: 51, label: "brief.pdf", projectId: 7, scope: "project" });
     mocks.openContent.mockRejectedValueOnce(new Error("归属不符"));
     const { result } = renderHook(() => useInternalReferenceNavigation());
     await expect(result.current({ refKind: "document", refId: 51, label: "brief.pdf" })).resolves.toBe(false);
@@ -243,4 +243,54 @@ it("rejects fixed evidence from another Workspace before reading bytes", async (
   expect(await result.current({ refKind: "document", refId: 51, label: "材料", sourceRef })).toBe(false);
   expect(mocks.readBytes).not.toHaveBeenCalled();
   expect(mocks.openContent).not.toHaveBeenCalled();
+});
+
+it("opens fixed Workspace File evidence at its original version in the shared Workspace tab", async () => {
+  vi.clearAllMocks();
+  const source = { ...sourceRef, object: { ...sourceRef.object, scope: { kind: "workspace" as const } } };
+  mocks.statusGet.mockResolvedValue({ binding: { workspaceId: "w1", generation: "g1" } });
+  mocks.readBytes.mockResolvedValue({});
+  mocks.workspace.mockResolvedValue({ currentWorkspace: { rootPath: "/workspace" } });
+  mocks.openContent.mockResolvedValue({});
+  const { result } = renderHook(() => useInternalReferenceNavigation());
+  expect(await result.current({ refKind: "document", refId: 51, label: "Workspace依据", sourceRef: source })).toBe(true);
+  expect(mocks.readBytes).toHaveBeenCalledWith({ workspaceId: "w1", generation: "g1" }, { object: source.object, versionNumber: 2, expectedContentHash: source.revision });
+  expect(mocks.openContent).toHaveBeenCalledWith(expect.objectContaining({ projectId: null, expectedBinding: { workspaceId: "w1", generation: "g1" }, view: expect.objectContaining({ versionNumber: 2, page: 3, sourceLocator: source.locator }) }));
+  expect(mocks.resolveReference).not.toHaveBeenCalled();
+  expect(mocks.openFile).not.toHaveBeenCalled();
+});
+
+it("opens a current Workspace File link in the shared tab and never falls back to its local path", async () => {
+  vi.clearAllMocks();
+  mocks.statusGet.mockResolvedValue({ binding: { workspaceId: "w1", generation: "g1" } });
+  mocks.resolveReference.mockResolvedValue({ kind: "document", id: 51, projectId: null, scope: "workspace", label: "工作区材料", managedPath: "/workspace/files/plan.md" });
+  mocks.workspace.mockResolvedValue({ currentWorkspace: { rootPath: "/workspace" } });
+  mocks.openContent.mockResolvedValue({});
+  const { result } = renderHook(() => useInternalReferenceNavigation());
+  expect(await result.current({ refKind: "document", refId: 51, label: "工作区材料" })).toBe(true);
+  expect(mocks.openContent).toHaveBeenCalledWith({ workspaceRoot: "/workspace", projectId: null, object: { kind: "file", id: 51, title: "工作区材料" }, expectedBinding: { workspaceId: "w1", generation: "g1" } });
+  expect(mocks.openFile).not.toHaveBeenCalled();
+});
+
+it("rejects an inconsistent resolved File owner instead of treating a Project File as Workspace File", async () => {
+  vi.clearAllMocks();
+  mocks.statusGet.mockResolvedValue({ binding: { workspaceId: "w1", generation: "g1" } });
+  mocks.resolveReference.mockResolvedValue({ kind: "document", id: 51, projectId: null, scope: "project", label: "错误归属", managedPath: "/workspace/files/plan.md" });
+  const { result } = renderHook(() => useInternalReferenceNavigation());
+  expect(await result.current({ refKind: "document", refId: 51, label: "错误归属" })).toBe(false);
+  expect(mocks.openContent).not.toHaveBeenCalled();
+  expect(mocks.openFile).not.toHaveBeenCalled();
+});
+
+it("keeps unavailable Workspace fixed evidence fixed instead of opening the latest file", async () => {
+  vi.clearAllMocks();
+  const source = { ...sourceRef, object: { ...sourceRef.object, scope: { kind: "workspace" as const } } };
+  mocks.statusGet.mockResolvedValue({ binding: { workspaceId: "w1", generation: "g1" } });
+  mocks.readBytes.mockRejectedValueOnce(new Error("Historical snapshot is missing"));
+  const { result } = renderHook(() => useInternalReferenceNavigation());
+  expect(await result.current({ refKind: "document", refId: 51, label: "历史依据", sourceRef: source })).toBe(false);
+  expect(mocks.openContent).not.toHaveBeenCalled();
+  expect(mocks.resolveReference).not.toHaveBeenCalled();
+  expect(mocks.openFile).not.toHaveBeenCalled();
+  expect(mocks.pushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "历史文件不可用", detail: "Historical snapshot is missing" }));
 });

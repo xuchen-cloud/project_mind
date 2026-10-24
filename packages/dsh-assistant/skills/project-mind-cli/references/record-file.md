@@ -7,7 +7,7 @@ Load this branch only for Record or File work. Discover the relevant subcommand 
 Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-authorization) and [write decision](../SKILL.md#4-apply-the-requested-change). Reuse already-read native references/content; when insufficient, follow relevant authorized source queries, references and necessary pages to establish the target. A bounded result cannot establish that the entire scope contains no related object.
 
 - **Record:** append new facts or correct affected passages in the same Record when that is the user's intended information unit. Apply the requested edit to the current body and preserve unrelated content; native versions retain prior committed text. Create a new Record for independently useful information or an explicitly separate entry. A shared topic/title alone does not justify combining independent entries.
-- **File:** continue edits, additions or replacements of the same managed material through its existing File ID, producing a new version. Create a File for an independent deliverable. A filename is neither object identity nor a ban on creating another File with that name; resolve the user's intended material and Project using native evidence.
+- **File:** continue edits, additions or replacements of the same managed material through its existing File ID, producing a new version. Create a File for an independent deliverable. A filename is neither object identity nor a ban on creating another File with that name; resolve the user's intended material and Workspace or Project scope using native evidence.
 
 ## List, count or batch-read
 
@@ -42,14 +42,16 @@ Use stdin (`--input-file -` / `--patch-file -`) for small transient JSON inputs 
 
 ## File create / replace
 
-Files belong to Projects. `file create --name NAME --body-file PATH --project ID` creates UTF-8 content. For full content replacement, preserve identity and use the current File version/hash:
+Files belong to a Workspace or one Project. They share the same import, version, editing and receipt pipeline. Workspace Files are managed under the Workspace `files` directory; they do not change the ownership of Project Files. `file create --name NAME --body-file PATH --project ID` creates UTF-8 content in a Project; use `--workspace-scope` for Workspace Files. Workspace authorization does not automatically include every Project. For full content replacement, preserve identity and use the current File version/hash:
 
 ```sh
 mind file update --id "$FILE_ID" --source-file replacement.bin --project "$PROJECT_ID" --expected-version "$FILE_VERSION" --expected-hash "$FILE_HASH" --request-id "$UPDATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
+For Workspace File replacement, use `--workspace-scope` instead of `--project "$PROJECT_ID"`; preserve the actual Workspace File object, ID, version and hash. Project-only callers cannot create or edit Workspace Files.
+
 Paths stay local; the CLI stages bytes before committing. Explicit staged uploads use `file.content.*` and `file.update` schemas; a completed upload stage is not a committed File version.
 
-If `file.patch` rejects a Project directory File with “Directory File updates must use the directory service”, use the existing `file update` staged full replacement: read its exact current bytes, apply the requested edit locally, retain its ID and submit with current version/hash. This is a storage-mode branch, not a permission workaround; other permission errors still require authorized resolution.
+If `file.patch` rejects a directory File with “Directory File updates must use the directory service”, use the existing `file update` staged full replacement: read its exact current bytes, apply the requested edit locally, retain its ID and submit with current version/hash. This is a storage-mode branch, not a permission workaround; other permission errors still require authorized resolution.
 
 Finish with the [receipt and readback criteria](../SKILL.md#5-verify-and-report). Use the shared [recovery process](../SKILL.md#recover-from-the-actual-outcome) for conflicts, uncertain outcomes and requested undo/restoration.

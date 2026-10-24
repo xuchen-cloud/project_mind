@@ -9,14 +9,14 @@ export function showDshBusyFeedback() {
   useFeedbackStore.getState().pushToast({ tone: "info", title: "助手正在执行", detail: DSH_BUSY_MESSAGE });
 }
 export interface DshOfficeSelection { selectionId: string; format: 'docx' | 'xlsx' | 'pptx' }
-interface FileReference { id: number; workspaceRoot: string; projectId: number; sessionId?: string; path: string; sourceRef?: AgentSourceRef; selection?: DshOfficeSelection }
+interface FileReference { id: number; workspaceRoot: string; projectId: number | null; sessionId?: string; path: string; sourceRef?: AgentSourceRef; selection?: DshOfficeSelection }
 let sequence = 0;
 export const useDshFileReferences = create<{
   workspaceRoot: string | null; pending: FileReference[];
 }>(() => ({ workspaceRoot: null, pending: [] }));
 // Catalog snapshots outlive individual conversation seats, but never a Workspace.
 export const useDshSessionTitles = create<{
-  workspaceRoot: string | null; byProject: Record<number, Record<string, string>>;
+  workspaceRoot: string | null; byProject: Record<string, Record<string, string>>;
 }>(() => ({ workspaceRoot: null, byProject: {} }));
 
 export function setDshWorkspaceRoot(workspaceRoot: string | null) {
@@ -27,16 +27,16 @@ export function setDshWorkspaceRoot(workspaceRoot: string | null) {
     useAgentPanelStore.getState().bindWorkspace(workspaceRoot);
   }
 }
-export function requestDshFileReference(projectId: number, path: string, sessionId?: string, sourceRef?: AgentSourceRef): void {
+export function requestDshFileReference(projectId: number | null, path: string, sessionId?: string, sourceRef?: AgentSourceRef): void {
   const workspaceRoot = useDshFileReferences.getState().workspaceRoot;
   if (!workspaceRoot) {
     useFeedbackStore.getState().pushToast({ tone: "error", title: "无法引用文件", detail: "请先打开工作区并进入项目" });
     return;
   }
   if (sessionId === undefined) {
-    useAgentPanelStore.getState().openPanel(workspaceRoot, { kind: "project", projectId });
+    useAgentPanelStore.getState().openPanel(workspaceRoot, projectId === null ? { kind: "workspace" } : { kind: "project", projectId });
     const binding = useAgentPanelStore.getState().binding;
-    if (binding?.workspaceRoot !== workspaceRoot || binding.scope.kind !== "project" || binding.scope.projectId !== projectId) return;
+    if (binding?.workspaceRoot !== workspaceRoot || (projectId === null ? binding.scope.kind !== "workspace" : binding.scope.kind !== "project" || binding.scope.projectId !== projectId)) return;
   }
   useDshFileReferences.setState(state => ({ pending: [...state.pending, { id: ++sequence, workspaceRoot, projectId, sessionId, path, sourceRef }] }));
 }
@@ -45,7 +45,7 @@ export function consumeDshFileReference(id: number) {
 }
 
 /** A selection has already been bound by the native editor to this exact Session. */
-export function requestDshOfficeSelection(projectId: number, path: string, sessionId: string, selection: DshOfficeSelection): void {
+export function requestDshOfficeSelection(projectId: number | null, path: string, sessionId: string, selection: DshOfficeSelection): void {
   const workspaceRoot = useDshFileReferences.getState().workspaceRoot;
   if (!workspaceRoot) throw new Error('工作区已关闭，无法引用选区');
   useDshFileReferences.setState(state => ({ pending: [...state.pending, { id: ++sequence, workspaceRoot, projectId, sessionId, path, selection }] }));
@@ -70,6 +70,5 @@ window.addEventListener('mind:dsh-session-runs', event => {
 window.addEventListener('mind:dsh-session-titles', event => {
   if (!useDshSessionTitles.getState().workspaceRoot) return;
   const { projectId, titlesBySession } = (event as CustomEvent<{ projectId: number | null; titlesBySession: Record<string, string> }>).detail;
-  if (projectId === null) return;
-  useDshSessionTitles.setState(state => ({ byProject: { ...state.byProject, [projectId]: titlesBySession } }));
+  useDshSessionTitles.setState(state => ({ byProject: { ...state.byProject, [String(projectId)]: titlesBySession } }));
 });

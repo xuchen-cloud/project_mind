@@ -58,9 +58,7 @@ impl Database {
                 |r| r.get(0),
             )
             .map_err(io_error)?;
-        let Scope::Project { project_id } = input.scope else {
-            return Ok((seq, vec![]));
-        };
+        let project_id = super::file_scope::owner(&input.scope);
         let objects = request
             .scope_grant
             .object_keys
@@ -72,7 +70,7 @@ impl Database {
         let tags = serde_json::to_string(&input.tag_ids).expect("tag IDs serialize");
         let mut stmt=self.conn.prepare(r#"
             SELECT d.id,d.name,d.mime_type,d.current_version_number,d.created_at,d.updated_at,d.health
-            FROM agent_visible_files d WHERE d.project_id=?1 AND d.storage_mode!='managed_note_image'
+            FROM agent_visible_files d WHERE d.project_id IS ?1 AND d.storage_mode!='managed_note_image'
             AND (?2 IS NULL OR ?3||'/'||?4||'/file/'||d.id IN (SELECT value FROM json_each(?2)))
             AND NOT EXISTS(SELECT 1 FROM source_access_policies p WHERE p.object_key=?3||'/'||?4||'/file/'||d.id AND p.excluded=1)
             AND (json_array_length(?5)=0 OR CAST(d.id AS TEXT) IN (SELECT value FROM json_each(?5)))

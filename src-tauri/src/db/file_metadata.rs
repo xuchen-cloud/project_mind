@@ -10,7 +10,7 @@ use super::{
 use crate::{
     agent::{
         errors::{AgentError, ErrorCode},
-        models::{ObjectKind, ObjectRef, Scope},
+        models::{ObjectKind, ObjectRef},
     },
     models::{DocumentRecord, DocumentUpdateMetaInput},
 };
@@ -30,7 +30,7 @@ const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct MetadataState {
-    project_id: i64,
+    project_id: Option<i64>,
     base_name: String,
     name: String,
     managed: String,
@@ -140,7 +140,7 @@ impl Database {
         if journal.schema_version != 1
             || journal.workspace_id != self.native_workspace_id
             || journal.document_id <= 0
-            || journal.old.project_id <= 0
+            || journal.old.project_id.is_some_and(|id| id <= 0)
             || !nonce(&journal.request_id)
             || !component(&journal.base_name)
             || journal.old.current_version <= 0
@@ -272,7 +272,7 @@ impl Database {
             if document_id <= 0 || document_id.to_string() != id || !nonce(request_id) {
                 bail!("Invalid metadata journal identity");
             }
-            let project_id: Option<i64> = self
+            let project_id: Option<Option<i64>> = self
                 .conn
                 .query_row(
                     "SELECT project_id FROM documents WHERE id=?1",
@@ -329,7 +329,7 @@ impl Database {
             .map(super::normalize_file_tag_ids)
             .unwrap_or_else(|| old.tags.clone());
         for tag in &tags {
-            self.scoped_file_tag_record(Some(current.project_id), *tag)?;
+            self.scoped_file_tag_record(current.project_id, *tag)?;
         }
         if base_name == old.base_name && starred == old.starred && tags == old.tags {
             return Ok(current);
@@ -509,7 +509,7 @@ impl Database {
                         }
                     }
                     for tag in &journal.tags {
-                        self.scoped_file_tag_record(Some(current.project_id), *tag)
+                        self.scoped_file_tag_record(current.project_id, *tag)
                             .map_err(|_| AgentError::new(ErrorCode::ScopeDenied,
                                 "File tag is outside actual Project"))?;
                     }
@@ -527,7 +527,7 @@ impl Database {
                         if let Some(workspace_id) = &journal.workspace_id {
                             let object = ObjectRef {
                                 workspace_id: workspace_id.clone(),
-                                scope: Scope::Project {project_id: current.project_id},
+                                scope: super::file_scope::scope(current.project_id),
                                 kind: ObjectKind::File, id: current.id.to_string(),
                             };
                             Some(OperationChange {object_key: object.key()?,
@@ -580,7 +580,7 @@ mod tests {
         fs::write(&source, b"v1\r\n").unwrap();
         let mut file = db
             .document_import_legacy_fixture(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -757,7 +757,7 @@ mod tests {
         let (mut db, file) = fixture(root.path(), false);
         let tag = db
             .file_tag_option_upsert(FileTagOptionUpsertInput {
-                project_id: Some(file.project_id),
+                project_id: file.project_id,
                 id: None,
                 label: "Useful".into(),
                 color_key: "blue".into(),
@@ -881,7 +881,7 @@ mod tests {
         fs::write(&source, b"old\r\n").unwrap();
         let file = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
