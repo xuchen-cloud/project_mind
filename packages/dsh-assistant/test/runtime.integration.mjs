@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork, execFile } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { mkdtemp, mkdir, realpath, writeFile, readFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -1349,7 +1349,7 @@ test('Workspace schedules deliver through real Session AI and do not repeat afte
  t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await rm(temp,{recursive:true,force:true});});
  const directory=await realpath(temp),data=path.join(temp,'data');
  const shared={name:'local',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false};
- const workspace={id:randomUUID(),name:'Schedule Workspace',directory};
+ const workspace={id:randomBytes(16).toString('hex'),name:'Schedule Workspace',directory};
  runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
  const {sessionId}=await runtime.rpc('session/create',{});
  stream=await follow(runtime,sessionId);

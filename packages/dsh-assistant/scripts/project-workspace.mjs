@@ -16,7 +16,7 @@ export async function readContext(line) {
   const context = frame[kind];
   const validId = kind === 'project'
     ? Number.isSafeInteger(context?.id) && context.id > 0
-    : typeof context?.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(context.id);
+    : typeof context?.id === 'string' && /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(context.id);
   if (!context || !validId
     || typeof context.name !== 'string' || !context.name.trim()
     || typeof context.directory !== 'string' || !path.isAbsolute(context.directory)) {
