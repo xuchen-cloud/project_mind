@@ -2452,6 +2452,15 @@ mod tests {
     }
     use super::*;
 
+    fn session_directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let root = tempfile::tempdir().unwrap();
+        let current = root.path().join("current");
+        let foreign = root.path().join("foreign");
+        std::fs::create_dir(&current).unwrap();
+        std::fs::create_dir(&foreign).unwrap();
+        (root, current, foreign)
+    }
+
     #[test]
     fn packaged_debug_caller_origin_accepts_only_local_tauri_urls() {
         let dev = Url::parse("http://localhost:1420").unwrap();
@@ -3028,6 +3037,9 @@ input.on('close', () => process.exit(0));
             routing::{get, post},
             Json, Router,
         };
+        let (_root, directory, foreign) = session_directories();
+        let current_cwd = directory.clone();
+        let foreign_cwd = foreign;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = Url::parse(&format!(
             "http://{}/?token=fixture",
@@ -3038,12 +3050,15 @@ input.on('close', () => process.exit(0));
         let observed = calls.clone();
         let app = Router::new()
             .route("/", get(|| async { (StatusCode::SEE_OTHER, [(header::SET_COOKIE, "fixture=cookie; HttpOnly")], "") }))
-            .route("/api/session/list", post(|Json(frame): Json<serde_json::Value>| async move {
+            .route("/api/session/list", post(move |Json(frame): Json<serde_json::Value>| {
+                let current_cwd = current_cwd.clone();
+                let foreign_cwd = foreign_cwd.clone();
+                async move {
                 Json(serde_json::json!({"type":"server-response", "rpcId":frame["rpcId"], "result":{"ok":true,"value":{"items":[
-                    {"sessionId":"owned","cwd":"/fixture/current","pinned":true,"running":true},
-                    {"sessionId":"foreign","cwd":"/fixture/foreign"}
+                    {"sessionId":"owned","cwd":current_cwd,"pinned":true,"running":true},
+                    {"sessionId":"foreign","cwd":foreign_cwd}
                 ]}}}))
-            }))
+            } }))
             .route("/api/{group}/{operation}", post(move |uri: Uri, Json(frame): Json<serde_json::Value>| {
                 let calls = observed.clone();
                 async move {
@@ -3068,7 +3083,7 @@ input.on('close', () => process.exit(0));
         });
         let client = session_http_client().unwrap();
         let mut cookie = None;
-        let sessions = list_sessions(&url, &client, &mut cookie, Path::new("/fixture/current"))
+        let sessions = list_sessions(&url, &client, &mut cookie, &directory)
             .await
             .unwrap();
         assert_eq!(sessions.len(), 1);
@@ -3146,6 +3161,9 @@ input.on('close', () => process.exit(0));
             Json, Router,
         };
         use std::sync::{atomic::AtomicUsize, Arc};
+        let (_root, directory, foreign) = session_directories();
+        let current_cwd = directory.clone();
+        let foreign_cwd = foreign;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let auth_count = Arc::new(AtomicUsize::new(0));
@@ -3165,6 +3183,8 @@ input.on('close', () => process.exit(0));
             .route("/api/session/list", post(move |headers: HeaderMap, Json(frame): Json<serde_json::Value>| {
                 let counter = list_counter.clone();
                 let origin = expected_origin.clone();
+                let current_cwd = current_cwd.clone();
+                let foreign_cwd = foreign_cwd.clone();
                 async move {
                     assert_eq!(headers[header::ORIGIN], origin);
                     assert_eq!(headers[header::COOKIE], "fixture=cookie-secret");
@@ -3172,9 +3192,9 @@ input.on('close', () => process.exit(0));
                     assert_eq!(frame["method"], "session/list");
                     assert_eq!(frame["payload"]["args"], serde_json::json!({"_request":{}}));
                     let value = serde_json::json!({"items":[
-                        {"sessionId":"current","cwd":"/fixture/current","projections":{"values":{"title":"Current project title"}}},
-                        {"sessionId":"explicit-title","cwd":"/fixture/current","title":"Explicit title"},
-                        {"sessionId":"foreign","cwd":"/fixture/other","title":"Private other project"},
+                        {"sessionId":"current","cwd":current_cwd,"projections":{"values":{"title":"Current project title"}}},
+                        {"sessionId":"explicit-title","cwd":current_cwd,"title":"Explicit title"},
+                        {"sessionId":"foreign","cwd":foreign_cwd,"title":"Private other project"},
                         {"sessionId":"unscoped"}
                     ]});
                     match counter.fetch_add(1, Ordering::SeqCst) {
@@ -3196,7 +3216,7 @@ input.on('close', () => process.exit(0));
         let url = Url::parse(&format!("{origin}/?token=fixture-token")).unwrap();
         let client = session_http_client().unwrap();
         let mut cookie = None;
-        let sessions = list_sessions(&url, &client, &mut cookie, Path::new("/fixture/current"))
+        let sessions = list_sessions(&url, &client, &mut cookie, &directory)
             .await
             .unwrap();
         assert_eq!(sessions.len(), 2);
@@ -3210,7 +3230,7 @@ input.on('close', () => process.exit(0));
             "new-current"
         );
         for _ in 0..2 {
-            let error = list_sessions(&url, &client, &mut cookie, Path::new("/fixture/current"))
+            let error = list_sessions(&url, &client, &mut cookie, &directory)
                 .await
                 .err()
                 .unwrap();
@@ -3632,8 +3652,8 @@ input.on('close', () => process.exit(0));
                 initialized["result"]["value"]["workspace"]["path"]
                     .as_str()
                     .unwrap()
-            ),
-            directory
+            ).canonicalize().unwrap(),
+            directory.canonicalize().unwrap()
         );
         let id = create_session(
             &process.url,
@@ -4052,6 +4072,8 @@ input.on('close', () => process.exit(0));
             routing::{get, post},
             Json, Router,
         };
+        let (temp, directory, _) = session_directories();
+        let current_cwd = directory.clone();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let running = Arc::new(AtomicBool::new(true));
@@ -4062,7 +4084,8 @@ input.on('close', () => process.exit(0));
             .route("/", get(|| async { (StatusCode::SEE_OTHER, [(header::SET_COOKIE,"fixture=guard-cookie; HttpOnly")], "") }))
             .route("/api/session/list", post(move |Json(frame): Json<serde_json::Value>| {
                 let status = status.clone();
-                async move { Json(serde_json::json!({"type":"server-response","rpcId":frame["rpcId"],"result":{"ok":true,"value":{"items":[{"sessionId":"owned","cwd":"/fixture/project","running":status.load(Ordering::SeqCst)}]}}})) }
+                let current_cwd = current_cwd.clone();
+                async move { Json(serde_json::json!({"type":"server-response","rpcId":frame["rpcId"],"result":{"ok":true,"value":{"items":[{"sessionId":"owned","cwd":current_cwd,"running":status.load(Ordering::SeqCst)}]}}})) }
             }))
             .route("/api/mind/session/delete", post(move |Json(frame): Json<serde_json::Value>| {
                 let deletion = deletion.clone();
@@ -4076,7 +4099,6 @@ input.on('close', () => process.exit(0));
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let temp = tempfile::tempdir().unwrap();
         let script = temp.path().join("guard.mjs");
         std::fs::write(&script, r#"import {createInterface} from 'node:readline'; const input=createInterface({input:process.stdin}); let configured=false; input.on('line',line=>{if(!configured){JSON.parse(line);configured=true;console.log('MIND_DSH_READY '+JSON.stringify({url:process.argv[2]}));}else if(line==='shutdown')process.exit(0);});input.on('close',()=>process.exit(0));"#).unwrap();
         let mut command = Command::new(
@@ -4093,12 +4115,12 @@ input.on('close', () => process.exit(0));
             identity: Some(Identity {
                 workspace_id: "fixture".into(),
                 workspace_generation: "generation".into(),
-                root: PathBuf::from("/fixture"),
+                root: temp.path().to_path_buf(),
                 fingerprint: "receipt".into(),
                 context: AssistantContext::Project(ProjectContext {
                     id: 1,
                     name: "Owned".into(),
-                    directory: PathBuf::from("/fixture/project"),
+                    directory: directory.clone(),
                 }),
             }),
             ..Default::default()

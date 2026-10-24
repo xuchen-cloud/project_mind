@@ -518,7 +518,7 @@ export function apply(ctx) {
   stream = await follow(runtime, sessionId);
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'nested-run', type: 'function', function: { name: 'run_code', arguments: JSON.stringify({ description: 'summarize a File', code: "await tools.read({ file_path: 'nested.md', offset: 1, limit: 1 }); return 'summary only';" }) } }] });
   await prompt(runtime, stream, sessionId, 'Read from a program and return only a summary');
-  assert.ok(operations.some(item => item.operation === 'prepare'), runtime.diagnostics());
+  assert.ok(operations.some(item => item.operation === 'prepare'), runtime.diagnostics() + '\nTool results: ' + JSON.stringify(bodies.flatMap(body => body.messages).filter(message => message.role === 'tool')).slice(0,4000));
   const finalTool = bodies.flatMap(body => body.messages).find(message => message.role === 'tool' && message.tool_call_id === 'nested-run' && JSON.stringify(message.content).includes('immutable nested bytes'));
   assert.ok(finalTool, JSON.stringify(bodies.at(-1)?.messages.filter(message => message.role === 'tool')));
   assert.ok(JSON.stringify(finalTool.content).includes('summary only'));
