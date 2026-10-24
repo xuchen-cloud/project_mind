@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { sessionInventory } from './session-inventory.mjs';
 import { realpath, stat } from 'node:fs/promises';
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 
@@ -116,6 +117,23 @@ export async function bindContext(ctx, context) {
         result = { ok: false, error: { code: 'gateway/internal', message: String(error.message ?? error), details: {} } };
       }
       return Response.json({ type: 'server-response', rpcId, result });
+    },
+  });
+  ctx.connection.fetch.register({
+    path: '/api/mind/session/inventory', methods: ['POST'], requestBody: 'buffered',
+    async fetch(request) {
+      if (request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') return new Response('invalid content type', { status: 415 });
+      let frame;
+      try { frame = clientRequestSchema.parse(await request.json()); } catch { return new Response('invalid request', { status: 400 }); }
+      if (frame.method !== 'mind/session/inventory') return new Response('invalid method', { status: 400 });
+      let value;
+      try {
+        const { input, authorization } = frame.payload.args.request;
+        if (typeof authorization !== 'string' || !authorization || input.scope?.kind !== context.kind
+          || (context.kind === 'project' && input.scope.projectId !== context.id)) throw Object.assign(new Error('Session scope mismatch'), { code: 'SCOPE_DENIED' });
+        value = { page: await sessionInventory(sessions, context, input, authorization, request.signal) };
+      } catch (error) { value = { error: { code: error.code ?? 'RUNTIME_UNAVAILABLE', message: String(error.message ?? error), retryable: false, ...(error.details ? { details: error.details } : {}) } }; }
+      return Response.json({ type: 'server-response', rpcId: frame.rpcId, result: { ok: true, value } });
     },
   });
   sessions.create = async request => {

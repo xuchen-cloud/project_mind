@@ -94,6 +94,15 @@ where
         });
     }
     let request = connection.with_authenticated(|_, _, _, request| Ok(request))?;
+    if input.method == "session.list" {
+        let params:crate::agent::record_list::RecordListInput=serde_json::from_value(input.params.clone()).map_err(|_|AgentError::new(ErrorCode::InvalidArgument,"Invalid session list input"))?;
+        crate::agent::file_list::validate(&params)?;
+        if params.tag.is_some() || !params.tag_ids.is_empty() {return Err(AgentError::new(ErrorCode::InvalidArgument,"Sessions do not have tags"));}
+        connection.with_authenticated(|binding,db,_,fresh|db.agent_session_inventory_authorize(&fresh,binding,&params.scope))?;
+        let value=source.session_inventory(&request.binding,&params,&crate::agent::file_list::query_hash(&request,&params,"session.list")).await;
+        connection.with_authenticated(|binding,db,_,fresh|db.agent_session_inventory_authorize(&fresh,binding,&params.scope))?;
+        return value;
+    }
     match input.method.as_str() {
         "file.create" | "file.patch" | "file.version.restore" | "file.update"
         | "file.content.begin" | "file.content.chunk" | "file.content.complete" | "file.content.status" => {
@@ -110,6 +119,8 @@ where
         | "record.versions.get"
         | "record.versions.compare"
         | "todo.get"
+        | "file.list"
+        | "record.list"
         | "todo.list"
         | "file.versions.list"
         | "file.versions.get"
@@ -120,6 +131,7 @@ where
                 &input.method,
                 input.params.clone(),
                 record,
+                source,
             )
             .await;
         }
@@ -139,6 +151,10 @@ where
 /// Resolve packaged extraction resources only when a File read needs them.
 pub(crate) struct AppSourceUtility(pub(crate) tauri::AppHandle);
 impl SourceUtility for AppSourceUtility {
+    async fn session_inventory(&self,binding:&WorkspaceBinding,input:&crate::agent::record_list::RecordListInput,authorization:&str)->AgentResult<Value> {
+        crate::dsh_assistant::cli_session_inventory(&self.0,binding,input,authorization).await
+    }
+
     async fn request(
         &self,
         workspace_id: &str,

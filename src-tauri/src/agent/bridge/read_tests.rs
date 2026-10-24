@@ -104,6 +104,11 @@ impl TextUtility {
     }
 }
 impl SourceUtility for TextUtility {
+    async fn session_inventory(&self, _: &WorkspaceBinding, input: &crate::agent::record_list::RecordListInput, _: &str) -> AgentResult<Value> {
+        if let Some(sender) = self.entered.lock().unwrap().take() { let _ = sender.send(()); }
+        self.resume.acquire().await.unwrap().forget();
+        Ok(json!({"scope":input.scope,"items":[],"totalCount":0,"staleCount":0,"hasMore":false,"nextCursor":null}))
+    }
     async fn request(&self, _: &str, _: &str, format: &str, bytes: &[u8]) -> AgentResult<Value> {
         assert_eq!(format, "text");
         let text = std::str::from_utf8(bytes).unwrap().to_owned();
@@ -900,4 +905,74 @@ impl crate::file_version_service::BoundFileCommitStore for Store {
     fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<crate::file_version_service::FileCommitHost> {
         panic!("This fixture does not perform File mutations")
     }
+}
+
+#[tokio::test]
+async fn record_list_returns_counts_and_metadata_without_document_conversion() {
+    let f = Fixture::new();
+    let page=f.read("record-list", "record.list", json!({"scope":f.scope(),"limit":1}), &TextUtility::immediate()).await.unwrap();
+    assert_eq!(page["totalCount"],1);
+    assert_eq!(page["staleCount"],0);
+    assert_eq!(page["items"][0]["object"],json!(f.record));
+    assert!(page["items"][0]["lastEditedAt"].is_string());
+    assert!(!page.to_string().contains("Record evidence"));
+    let denied=f.read("denied-record-list","record.list",json!({"scope":{"kind":"project","projectId":f.other_project_id}}),&TextUtility::immediate()).await.unwrap_err();
+    assert_eq!(denied.code,ErrorCode::ScopeDenied);
+}
+
+#[tokio::test]
+async fn file_list_filters_native_metadata_and_returns_verified_detail_without_paths() {
+    let f=Fixture::new();
+    let count=f.read("file-count","file.list",json!({"scope":f.scope(),"limit":0}),&TextUtility::immediate()).await.unwrap();
+    assert_eq!(count["totalCount"],1);assert_eq!(count["items"],json!([]));
+    let page=f.read("file-detail","file.list",json!({"scope":f.scope(),"ids":[f.file.id],"titleQuery":"evidence","contentQuery":"Bridge File","mode":"detail"}),&TextUtility::immediate()).await.unwrap();
+    assert_eq!(page["totalCount"],1);assert_eq!(page["items"][0]["content"],EVIDENCE);assert_eq!(page["countComplete"],true);
+    assert!(!page.to_string().contains("managedPath"));assert!(!page.to_string().contains("sourcePath"));
+    let denied=f.read("foreign-files","file.list",json!({"scope":{"kind":"project","projectId":f.other_project_id}}),&TextUtility::immediate()).await.unwrap_err();assert_eq!(denied.code,ErrorCode::ScopeDenied);
+}
+#[tokio::test]
+async fn read_aliases_accept_object_and_budget_failures_include_authorized_metadata() {
+    let f=Fixture::new();
+    for method in ["record.get","record.blocks.get","record.versions.list"] {
+        let canonical=f.read("canonical",method,json!({"object":f.record,"budgetChars":4000}),&TextUtility::immediate()).await.unwrap();
+        let legacy=f.read("legacy",method,json!({"record":f.record,"budgetChars":4000}),&TextUtility::immediate()).await.unwrap();assert_eq!(canonical,legacy);
+        assert!(f.read("duplicate",method,json!({"object":f.record,"record":f.record}),&TextUtility::immediate()).await.is_err());
+    }
+    let error=f.read("tiny","source.read",json!({"source":{"object":f.record},"view":"full","budgetChars":1}),&TextUtility::immediate()).await.unwrap_err();
+    assert_eq!(error.code,ErrorCode::BudgetExceeded);let details=error.details.unwrap();assert_eq!(details["title"],"Bridge Record");assert_eq!(details["object"],json!(f.record));assert!(details["minimumBudgetChars"].as_u64().unwrap()>1);
+    assert!(!details.to_string().contains("Record evidence"));
+}
+
+#[tokio::test]
+async fn session_inventory_checks_scope_and_rechecks_revocation_after_runtime_read() {
+    let f = Fixture::new();
+    let page = f.read("sessions", "session.list", json!({"scope":f.scope(),"limit":0}), &TextUtility::immediate()).await.unwrap();
+    assert_eq!(page["totalCount"], 0);
+    let denied = f.read("foreign-sessions", "session.list", json!({"scope":{"kind":"project","projectId":f.other_project_id}}), &TextUtility::immediate()).await.unwrap_err();
+    assert_eq!(denied.code, ErrorCode::ScopeDenied);
+    let (utility, entered) = TextUtility::paused();
+    let read = f.read("revoked-sessions", "session.list", json!({"scope":f.scope()}), &utility);
+    let revoke = async {
+        entered.await.unwrap();
+        f.store.db.lock().unwrap().agent_connection_revoke(&f.binding, GRANT).unwrap();
+        utility.resume.add_permits(1);
+    };
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(read, revoke) }).await.unwrap();
+    assert_eq!(result.unwrap_err().code, ErrorCode::ScopeDenied);
+}
+
+#[tokio::test]
+async fn file_inventory_rechecks_revocation_before_returning_budget_metadata() {
+    let f = Fixture::new();
+    let (utility, entered) = TextUtility::paused();
+    let read = f.read("revoked-file-list", "file.list", json!({"scope":f.scope(),"mode":"detail","budgetChars":1}), &utility);
+    let revoke = async {
+        entered.await.unwrap();
+        f.store.db.lock().unwrap().agent_connection_revoke(&f.binding, GRANT).unwrap();
+        utility.resume.add_permits(1);
+    };
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(read, revoke) }).await.unwrap();
+    let error = result.unwrap_err();
+    assert_eq!(error.code, ErrorCode::ScopeDenied);
+    assert!(error.details.is_none());
 }

@@ -244,7 +244,7 @@ pub(crate) fn paginate_window(
         return Err(AgentError::new(
             ErrorCode::BudgetExceeded,
             "Source metadata does not fit this read budget",
-        ));
+        ).with_details(serde_json::json!({"object":source.object,"title":source.title.chars().take(120).collect::<String>(),"minimumBudgetChars":crate::agent::context::serialized_chars(&make_page(usize::from(!tail.is_empty()))?)?})));
     }
     Ok(page)
 }

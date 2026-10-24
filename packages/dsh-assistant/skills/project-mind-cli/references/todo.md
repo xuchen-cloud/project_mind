@@ -10,6 +10,8 @@ Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-aut
 
 ## List the exact scope
 
+See the [unified List guide](lists.md) for metadata/detail modes, ID batches, title/content matching, tag/tagIds filters and one-call counts. Subtasks inherit parent tags; use includeChildren:false when counting parent Todos.
+
 Discover `mind todo list --help` and `mind schema todo.list --json`. For today/tomorrow, resolve the user's local calendar date, then pass that same explicit `YYYY-MM-DD` as both bounds. For undated work, use `undated:true` with no date bounds.
 
 | Input | Meaning |

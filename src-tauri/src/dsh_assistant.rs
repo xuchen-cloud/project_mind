@@ -799,6 +799,7 @@ pub(crate) enum SessionAction {
 
 enum SessionRequest {
     List,
+    Inventory(serde_json::Value),
     Create,
     Delete(String),
     Manage {
@@ -879,6 +880,7 @@ async fn session_request(
     authenticate(url, client, cookie).await?;
     let empty_result = matches!(&request, SessionRequest::Delete(_));
     let (method, args) = match request {
+        SessionRequest::Inventory(input) => ("mind/session/inventory", serde_json::json!({"request":input})),
         SessionRequest::List => ("session/list", serde_json::json!({"_request": {}})),
         SessionRequest::Create => ("session/create", serde_json::json!({"request": {}})),
         SessionRequest::Delete(id) => (
@@ -4316,4 +4318,33 @@ input.on('close', dispose);
             assert_eq!(std::fs::read_to_string(marker).unwrap(), "disposed");
         }
     }
+}
+
+/// Native-only bridge adapter: authority is checked before and after this runtime read.
+pub(crate) async fn cli_session_inventory(app: &tauri::AppHandle, binding: &crate::agent::models::WorkspaceBinding,
+    input: &crate::agent::record_list::RecordListInput, authorization: &str) -> crate::agent::errors::AgentResult<serde_json::Value> {
+    use crate::agent::errors::{AgentError,ErrorCode};
+    let unavailable = |message:String| AgentError::new(ErrorCode::RuntimeUnavailable,message);
+    let project = match input.scope {crate::agent::models::Scope::Workspace=>None,crate::agent::models::Scope::Project {project_id}=>Some(project_id)};
+    let state=app.state::<DshAssistantState>();
+    let mut runtimes=state.inner.lock().await;
+    if state.stopping.load(Ordering::SeqCst) { return Err(unavailable("Assistant is stopping".into())); }
+    let inner=runtimes.scopes.entry(project).or_default();
+    // Starting a headless runtime restores its durable Session catalog without opening UI.
+    let pending = crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project);
+    inner.ensure_ready(app,project,pending).await.map_err(unavailable)?;
+    inner.check_ready(app).map_err(unavailable)?;
+    {
+        let app_state=app.state::<crate::AppState>();
+        let current=crate::lock_mutex(&app_state.current_workspace);
+        let current=current.as_ref().ok_or_else(||unavailable("Workspace is closed".into()))?;
+        if &current.agent_binding!=binding {return Err(AgentError::new(ErrorCode::WorkspaceChanged,"Workspace changed"));}
+        inner.identity.as_ref().expect("ready identity").validate_context(&mut crate::lock_mutex(&current.db),&current.paths.root_path).map_err(unavailable)?;
+    }
+    let process=inner.process.as_mut().expect("ready runtime");
+    let value=session_request(&process.url,&process.session_http,&mut process.session_cookie,
+        SessionRequest::Inventory(serde_json::json!({"input":input,"authorization":authorization}))).await.map_err(unavailable)?;
+    inner.check_ready(app).map_err(unavailable)?;
+    if let Some(error)=value.get("error") {return Err(serde_json::from_value(error.clone()).unwrap_or_else(|_|unavailable("Invalid session inventory response".into())));}
+    value.get("page").cloned().ok_or_else(||unavailable("Invalid session inventory response".into()))
 }

@@ -28,6 +28,8 @@ pub(crate) mod todo_revisions;
 pub(crate) mod agent_todo_undo;
 pub(crate) mod agent_todo_outputs;
 pub(crate) mod agent_todo_list;
+pub(crate) mod agent_record_list;
+pub(crate) mod agent_file_list;
 mod file_output_schema;
 pub(crate) mod agent_file_outputs;
 pub(crate) mod agent_file_undo;

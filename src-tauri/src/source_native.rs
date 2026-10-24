@@ -295,16 +295,16 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 None,
                 offset,
                 more,
-            )?;
+            );
             self.verify_native(request, &input.source, &snapshot.revision)?;
-            return Ok(page);
+            return page;
         }
         let snapshot = self.store.with_current(|binding, db| {
             db.source_native_snapshot(request, binding, &input.source)
         })?;
-        let page = read_snapshot(input, &snapshot)?;
+        let page = read_snapshot(input, &snapshot);
         self.verify_native(request, &input.source, &snapshot.revision)?;
-        Ok(page)
+        page
     }
     fn verify_native(
         &self,

@@ -19,6 +19,9 @@ Usage:
   mind reference list --input-file PATH|- --workspace PATH --connection ID --json
   mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json
   mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json
+  mind file list --input-file PATH|- --workspace PATH --connection ID --json
+  mind session list --input-file PATH|- --workspace PATH --connection ID --json
+  mind record list --input-file PATH|- --workspace PATH --connection ID --json
   mind record get --input-file PATH|- --workspace PATH --connection ID --json
   mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json
   mind todo get|list --input-file PATH|- --workspace PATH --connection ID --json

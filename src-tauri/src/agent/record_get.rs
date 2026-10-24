@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordGetInput {
+    /// Canonical object reference; legacy record is accepted as an input alias.
+    #[serde(rename = "object", alias = "record")]
     pub record: ObjectRef,
     #[schemars(length(max = 128))]
     pub revision: Option<String>,

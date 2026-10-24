@@ -1320,3 +1320,23 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
   assert.ok(!runtime.diagnostics().includes(token), 'lease credentials must never enter runtime logs');
   assert.ok(!JSON.stringify(events(stream)).includes(token), 'lease credentials must never enter durable Session events');
 });
+
+test('native session inventory reads real durable chat metadata and history without resuming an Agent', { timeout: 60000 }, async t => {
+  const temporary=await mkdtemp(path.join(tmpdir(),'mind-session-inventory-'));
+  const directory=await realpath(temporary);
+  const provider=await startLocalProvider();
+  const shared={name:'Fixture',baseUrl:provider.url,modelId:'project-model',apiKey:'local-integration-key',supportsImage:false};
+  let runtime;
+  t.after(async()=>{try{await runtime?.stop();}finally{await provider.close();await rm(temporary,{recursive:true,force:true});}});
+  const project={id:1,name:'Inventory',directory};
+  runtime=await launch(path.join(temporary,'history'),undefined,shared,project);
+  const first=await runtime.rpc('session/create',{});
+  await runtime.rpc('session/rename',{sessionId:first.sessionId,title:'Inventory Needle'});
+  const scope={kind:'project',projectId:1};
+  const read=input=>runtime.rpc('mind/session/inventory',{input:{scope,...input},authorization:'native-fixture'});
+  const count=await read({limit:0});assert.equal(count.page.totalCount,1);assert.deepEqual(count.page.items,[]);
+  const detail=await read({mode:'detail',ids:[first.sessionId],titleQuery:'needle'});assert.equal(detail.page.totalCount,1);assert.equal(detail.page.items[0].title,'Inventory Needle');assert.equal(typeof detail.page.items[0].content,'string');
+  const denied=await read({scope:{kind:'project',projectId:2}});assert.equal(denied.error.code,'SCOPE_DENIED');
+  await runtime.stop();runtime=await launch(path.join(temporary,'history'),undefined,shared,project);
+  const cold=await read({titleQuery:'needle'});assert.equal(cold.page.totalCount,1);assert.equal(cold.page.items[0].id,first.sessionId);
+});
