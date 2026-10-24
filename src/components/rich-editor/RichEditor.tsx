@@ -6073,8 +6073,16 @@ function insertMarkdownAtPosition(editor: Editor, position: number, markdown: st
   const transaction = markEditorRewriteTransaction(
     editor.state.tr.insert(safePosition, slice.content),
   );
-  editor.view.dispatch(transaction);
-  if (!editor.state.doc.eq(transaction.doc)) {
+  let applied = false;
+  const onTransaction = (event: { transaction: typeof transaction }) => {
+    if (event.transaction === transaction) applied = true;
+  };
+  // StableRecordBlocks appends identity normalization, so the final document
+  // can differ from transaction.doc even when this insertion was applied.
+  editor.on("transaction", onTransaction);
+  try { editor.view.dispatch(transaction); }
+  finally { editor.off("transaction", onTransaction); }
+  if (!applied) {
     return false;
   }
   editor.commands.focus(undefined, { scrollIntoView: false });
