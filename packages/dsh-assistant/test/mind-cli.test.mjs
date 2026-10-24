@@ -71,6 +71,7 @@ test('prompt supplies binding facts without lease credentials; PATH and env are 
   assert.equal(f.executions[0].env.PATH, `/bundled/bin${path.delimiter}/caller/bin`);
   assert.equal(f.executions[0].env.CUSTOM, 'kept');
   assert.equal(f.executions[0].env.PROJECT_MIND_CLI_DISCOVERY, cli.discovery);
+  assert.equal(f.executions[0].env.PROJECT_MIND_SESSION_ID, 'a');
   assert.match(f.executions[0].env.PROJECT_MIND_CLI_TOKEN, /^secret-a-/);
   assert.equal(f.executions[0].sandboxPolicy, request.sandboxPolicy);
   for (const [key, value] of Object.entries(ambient)) assert.ok(process.env[key] === value, `${key} must stay unchanged`);

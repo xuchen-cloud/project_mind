@@ -381,3 +381,13 @@ it("cancels inline rename with Escape without saving", async () => {
   expect(screen.queryByRole("textbox")).toBeNull();
   expect(api.manage).not.toHaveBeenCalled();
 });
+
+it("opens a real Workspace session in its persistent assistant panel without project content", async () => {
+  render(component({ projectId: null }));
+  fireEvent.click(await screen.findByRole("button", { name: "Alpha 方案" }));
+  await waitFor(() => expect(useAgentPanelStore.getState().open).toBe(true));
+  expect(api.selectSession).toHaveBeenCalledWith("alpha", null);
+  expect(api.open).not.toHaveBeenCalled();
+  expect(useAgentPanelStore.getState().workspaceSession?.id).toBe("alpha");
+  expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
+});

@@ -1558,6 +1558,7 @@ pub fn run() {
             source_maintenance::start(app.handle());
             project_file_maintenance::start(app.handle());
             overview_maintenance::start(app.handle());
+            dsh_assistant::start_scheduled_tasks(app.handle());
             let record_handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("record-checkpoints".into())
@@ -1832,6 +1833,7 @@ pub fn run() {
             skills::skills_manage,
             skills::skills_import,
             dsh_assistant::dsh_assistant_start,
+            dsh_assistant::dsh_scheduled_tasks,
             dsh_assistant::dsh_assistant_sessions,
             dsh_assistant::dsh_assistant_runtime_status,
             dsh_assistant::dsh_assistant_select_session,

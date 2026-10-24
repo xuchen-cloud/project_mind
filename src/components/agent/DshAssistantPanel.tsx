@@ -37,6 +37,13 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
   const [deleting, setDeleting] = useState<Session | null>(null);
+  const selectCurrent = useCallback((session: Session) => {
+    setSelectedSession(session);
+    if (projectId === null && workspaceRoot && useAgentPanelStore.getState().workspaceRoot === workspaceRoot) {
+      const saved = useAgentPanelStore.getState().workspaceSession;
+      if (saved?.id !== session.id || saved.title !== session.title) useAgentPanelStore.setState({ workspaceSession: { workspaceRoot, ...session } });
+    }
+  }, [projectId, workspaceRoot]);
   const pendingReference = useDshFileReferences(state => state.pending.find(value => value.workspaceRoot === workspaceRoot && value.projectId === projectId && (value.sessionId === undefined || value.sessionId === selectedSession?.id)));
   const inserting = useRef<number | null>(null);
   const sessionMenu = useRef<HTMLDivElement>(null);
@@ -48,6 +55,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
   const settingsOpen = useUiStore(state => state.settingsOpen);
   const previousSettingsOpen = useRef(settingsOpen);
   const settingsRecheck = useRef(false);
+  const workspaceSession = useAgentPanelStore(state => state.workspaceSession);
   const discussionTarget = useAgentPanelStore(state => state.discussionTarget);
   const clearDiscussionTarget = useAgentPanelStore(state => state.clearDiscussionTarget);
   const runBusy = useAgentPanelStore(state => workspaceRoot !== undefined && !!state.runsByProject[dshProjectRunKey(workspaceRoot, projectId)]);
@@ -89,15 +97,29 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         if (workspaceRoot) useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, saved.some(session => session.running));
         return;
       }
-      const previous = saved.find(session => session.id === selectedSession?.id) ?? saved[0];
+      const requested = projectId === null ? useAgentPanelStore.getState().workspaceSession : null;
+      const previous = saved.find(session => session.id === (requested && requested.workspaceRoot === workspaceRoot ? requested.id : selectedSession?.id)) ?? saved[0];
       const id = await dshAssistantApi.selectSession(previous?.id ?? null, projectId);
       if (cancelled) return;
-      setSelectedSession({ id, title: previous?.title || "新会话" });
+      const latest = useAgentPanelStore.getState().workspaceSession;
+      if (projectId === null && latest !== requested && latest?.workspaceRoot === workspaceRoot) setSelectedSession({ id, title: previous?.title || "新会话" });
+      else selectCurrent({ id, title: previous?.title || "新会话" });
       setSyncedKey(syncKey);
       if (workspaceRoot) useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, saved.some(session => session.running));
     })().catch(reason => { if (!cancelled) setError(getErrorMessage(reason, "DSH 助手启动失败")); });
     return () => { cancelled = true; };
   }, [open, runBusy, syncKey, projectId]);
+
+  useEffect(() => {
+    if (projectId !== null || !open || !ready || !workspaceSession || workspaceSession.workspaceRoot !== workspaceRoot || workspaceSession.id === selectedSession?.id) return;
+    let cancelled = false;
+    setSessionBusy(true);
+    void dshAssistantApi.selectSession(workspaceSession.id, null).then(id => {
+      if (!cancelled) setSelectedSession({ id, title: workspaceSession.title });
+    }, reason => { if (!cancelled) setError(getErrorMessage(reason, "切换工作区会话失败")); })
+      .finally(() => { if (!cancelled) setSessionBusy(false); });
+    return () => { cancelled = true; };
+  }, [projectId, open, ready, workspaceRoot, workspaceSession, selectedSession?.id]);
 
   useEffect(() => {
     if (previousSettingsOpen.current && !settingsOpen) settingsRecheck.current = true;
@@ -117,7 +139,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
       onError: (message: string) => { if (valid()) setError(message); },
       onSessionChange: (id: string) => {
         if (!valid()) return;
-        setSelectedSession(previous => previous?.id === id ? previous : sessionsRef.current.find(value => value.id === id) ?? { id, title: "会话" });
+        selectCurrent(sessionsRef.current.find(value => value.id === id) ?? { id, title: "会话" });
       },
       onBusyChange: (busy: boolean) => {
         if (valid() && workspaceRoot) useAgentPanelStore.getState().setRunBusy(workspaceRoot, projectId, busy);
@@ -131,7 +153,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         void queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
       },
     };
-  }, [identity, projectId, workspaceRoot, openSettings, queryClient, selectedSession?.id]);
+  }, [identity, projectId, workspaceRoot, openSettings, queryClient, selectedSession?.id, selectCurrent]);
 
   useEffect(() => {
     if (!open || !ready || !hostReady || error) { setSessionsOpen(false); return; }
@@ -183,14 +205,14 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
           const next = sessions.find(value => value.id !== session.id);
           const id = await dshAssistantApi.selectSession(next?.id ?? null, projectId);
           if (!alive.current || current.current !== identity) return;
-          setSelectedSession({ id, title: next?.title || "新会话" });
+          selectCurrent({ id, title: next?.title || "新会话" });
         }
         setDeleting(null);
       } else {
         const id = await dshAssistantApi.selectSession(session?.id ?? null, projectId);
         if (!alive.current || current.current !== identity) return;
         if (onOpenSession) onOpenSession(id, session?.title || "新会话");
-        else setSelectedSession({ id, title: session?.title || "新会话" });
+        else selectCurrent({ id, title: session?.title || "新会话" });
         setSessionsOpen(false);
       }
     } catch (reason) {
@@ -231,6 +253,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
         </PopoverPanel> : null}
       </div>
       <Button size="sm" variant="ghost" aria-label="新建会话" leadingIcon={<Plus size={14} />} disabled={disabled || (!onOpenSession && runBusy)} onClick={() => void operate(null)} />
+      {projectId === null ? <Button size="sm" variant="ghost" onClick={() => openSettings("scheduled-tasks")}>定时任务</Button> : null}
       <Button size="sm" variant="ghost" onClick={() => openSettings("dsh-assistant")}>助手设置</Button>
       <Button size="sm" variant="ghost" aria-label={expanded ? "收起助手" : "展开助手"} aria-expanded={expanded}
         leadingIcon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />} onClick={onToggleExpanded} />

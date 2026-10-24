@@ -152,41 +152,62 @@ fn persistent_native_grants_are_exact_scope_and_excluded_from_external_bridge() 
     assert_ne!(project_id, workspace_id);
     assert_ne!(project_id, grant_id(&binding.workspace_id, Some(second)));
     assert_ne!(workspace_id, grant_id("another-workspace", None));
-    for (id, token, scope, outside) in [
-        (
-            &project_id,
-            &project_token,
-            Scope::Project { project_id: first },
-            Scope::Workspace,
-        ),
-        (
-            &workspace_id,
-            &workspace_token,
-            Scope::Workspace,
-            Scope::Project { project_id: first },
-        ),
+    let workspace = db
+        .agent_connection_authenticate(&binding, &workspace_id, &workspace_token, "workspace")
+        .unwrap();
+    for scope in [
+        Scope::Workspace,
+        Scope::Project { project_id: first },
+        Scope::Project { project_id: second },
     ] {
-        let request = db
-            .agent_connection_authenticate(&binding, id, token, "scope")
-            .unwrap();
-        request
+        workspace
             .authorize(&binding, &scope, "content.create")
             .unwrap();
-        assert!(request
-            .authorize(&binding, &outside, "content.create")
-            .is_err());
-        assert!(request
-            .authorize(
-                &binding,
-                &Scope::Project { project_id: second },
-                "context.read"
-            )
-            .is_err());
-        assert_eq!(
-            require_external(&request).unwrap_err().code,
-            ErrorCode::ScopeDenied
-        );
     }
+    let third = db
+        .project_create(crate::models::ProjectCreateInput {
+            name: "Later".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap()
+        .id;
+    let workspace = db
+        .agent_connection_authenticate(&binding, &workspace_id, &workspace_token, "later-project")
+        .unwrap();
+    workspace
+        .authorize(
+            &binding,
+            &Scope::Project { project_id: third },
+            "content.create",
+        )
+        .unwrap();
+    assert!(require_external(&workspace).is_err());
+    let project = db
+        .agent_connection_authenticate(&binding, &project_id, &project_token, "project")
+        .unwrap();
+    project
+        .authorize(
+            &binding,
+            &Scope::Project { project_id: first },
+            "content.create",
+        )
+        .unwrap();
+    for scope in [
+        Scope::Workspace,
+        Scope::Project { project_id: second },
+        Scope::Project { project_id: third },
+    ] {
+        assert!(project.authorize(&binding, &scope, "context.read").is_err());
+    }
+    assert!(require_external(&project).is_err());
+    let foreign = WorkspaceBinding {
+        workspace_id: "foreign".into(),
+        generation: binding.generation.clone(),
+    };
+    assert!(workspace
+        .authorize(&foreign, &Scope::Workspace, "context.read")
+        .is_err());
     // An existing random external connection with the same prefix is unaffected.
     let external_id = "d5c11ea5000000000000000000000000";
     let token = "a".repeat(64);
@@ -196,6 +217,206 @@ fn persistent_native_grants_are_exact_scope_and_excluded_from_external_bridge() 
         .agent_connection_authenticate(&binding, external_id, &token, "external")
         .unwrap();
     require_external(&request).unwrap();
+}
+
+#[test]
+fn legacy_workspace_native_grant_upgrades_without_rotating_identity_or_credentials() {
+    let (_root, db, binding, first, _) = fixture();
+    let secrets = Secrets::default();
+    let id = grant_id(&binding.workspace_id, None);
+    let token = "a".repeat(64);
+    let mut legacy = grant_input(None);
+    legacy.all_projects = false;
+    legacy
+        .write_operations
+        .retain(|operation| operation != "schedule.manage");
+    let original = db
+        .agent_connection_create(&binding, &legacy, &id, &token)
+        .unwrap();
+    secrets.save(&id, &token).unwrap();
+    let (reused_id, reused_token) = ensure_grant(&db, &binding, None, &secrets).unwrap();
+    assert_eq!((reused_id, reused_token), (id.clone(), token.clone()));
+    let upgraded = db.agent_connection_list(&binding).unwrap().remove(0);
+    assert!(upgraded.all_projects);
+    assert_eq!(upgraded.created_at, original.created_at);
+    let request = db
+        .agent_connection_authenticate(&binding, &id, &token, "upgraded")
+        .unwrap();
+    request
+        .authorize(
+            &binding,
+            &Scope::Project { project_id: first },
+            "content.create",
+        )
+        .unwrap();
+}
+
+#[test]
+fn scheduling_authority_requires_explicit_workspace_and_all_projects_grant() {
+    let (_root, db, binding, first, _) = fixture();
+    let secrets = Secrets::default();
+    let (id, token) = ensure_grant(&db, &binding, None, &secrets).unwrap();
+    let native = db
+        .agent_connection_authenticate(&binding, &id, &token, "schedule")
+        .unwrap();
+    for operation in ["schedule.read", "schedule.manage"] {
+        native
+            .authorize(&binding, &Scope::Workspace, operation)
+            .unwrap();
+    }
+    let (id, token) = ensure_grant(&db, &binding, Some(first), &secrets).unwrap();
+    let project = db
+        .agent_connection_authenticate(&binding, &id, &token, "schedule")
+        .unwrap();
+    assert!(project
+        .authorize(
+            &binding,
+            &Scope::Project { project_id: first },
+            "schedule.manage"
+        )
+        .is_err());
+    for (workspace_content, all_projects, project_ids) in [
+        (true, false, vec![]),
+        (false, true, vec![]),
+        (false, false, vec![first]),
+    ] {
+        let input = ConnectionCreateInput {
+            client_label: "Explicit external scheduling".into(),
+            workspace_content,
+            all_projects,
+            project_ids,
+            write_operations: vec!["schedule.manage".into()],
+        };
+        assert!(db
+            .agent_connection_create(&binding, &input, &"f".repeat(32), &"a".repeat(64))
+            .is_err());
+    }
+    let input = ConnectionCreateInput {
+        client_label: "Explicit external scheduling".into(),
+        workspace_content: true,
+        all_projects: true,
+        project_ids: vec![],
+        write_operations: vec!["schedule.manage".into()],
+    };
+    db.agent_connection_create(&binding, &input, &"f".repeat(32), &"a".repeat(64))
+        .unwrap();
+    let external = db
+        .agent_connection_authenticate(&binding, &"f".repeat(32), &"a".repeat(64), "schedule")
+        .unwrap();
+    for operation in ["schedule.read", "schedule.manage"] {
+        external
+            .authorize(&binding, &Scope::Workspace, operation)
+            .unwrap();
+    }
+    require_external(&external).unwrap();
+}
+
+#[test]
+fn workspace_native_identity_covers_archived_projects_without_changing_source_policy() {
+    let (_root, db, binding, first, _) = fixture();
+    let secrets = Secrets::default();
+    let (id, token) = ensure_grant(&db, &binding, None, &secrets).unwrap();
+    db.project_set_archive(crate::models::ProjectArchiveInput {
+        project_id: first,
+        is_archived: true,
+    })
+    .unwrap();
+    let native = db
+        .agent_connection_authenticate(&binding, &id, &token, "archived")
+        .unwrap();
+    native
+        .authorize(
+            &binding,
+            &Scope::Project { project_id: first },
+            "source.read",
+        )
+        .unwrap();
+    let object = crate::agent::models::ObjectRef {
+        workspace_id: binding.workspace_id.clone(),
+        scope: Scope::Project { project_id: first },
+        kind: crate::agent::models::ObjectKind::Project,
+        id: first.to_string(),
+    };
+    assert_eq!(
+        db.source_read_object(&native, &binding, &object)
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeDenied
+    );
+    let input = ConnectionCreateInput {
+        client_label: "External all projects".into(),
+        workspace_content: true,
+        all_projects: true,
+        project_ids: vec![],
+        write_operations: vec![],
+    };
+    db.agent_connection_create(&binding, &input, &"e".repeat(32), &"a".repeat(64))
+        .unwrap();
+    let external = db
+        .agent_connection_authenticate(&binding, &"e".repeat(32), &"a".repeat(64), "archived")
+        .unwrap();
+    assert!(external
+        .authorize(
+            &binding,
+            &Scope::Project { project_id: first },
+            "source.read"
+        )
+        .is_err());
+}
+
+#[test]
+fn legacy_workspace_upgrade_preserves_revocation_user_edits_and_credentials() {
+    for change in [
+        "revoked",
+        "label",
+        "operations",
+        "projects",
+        "wrong-token",
+        "missing-token",
+    ] {
+        let (_root, db, binding, first, _) = fixture();
+        let secrets = Secrets::default();
+        let id = grant_id(&binding.workspace_id, None);
+        let token = "a".repeat(64);
+        let mut legacy = grant_input(None);
+        legacy.all_projects = false;
+        legacy
+            .write_operations
+            .retain(|operation| operation != "schedule.manage");
+        match change {
+            "label" => legacy.client_label = "User changed connection".into(),
+            "operations" => {
+                legacy.write_operations.pop();
+            }
+            "projects" => legacy.project_ids = vec![first],
+            _ => {}
+        }
+        db.agent_connection_create(&binding, &legacy, &id, &token)
+            .unwrap();
+        if change == "revoked" {
+            db.agent_connection_revoke(&binding, &id).unwrap();
+        }
+        if change != "missing-token" {
+            let saved = if change == "wrong-token" {
+                "b".repeat(64)
+            } else {
+                token.clone()
+            };
+            secrets.save(&id, &saved).unwrap();
+        }
+        let before = serde_json::to_value(db.agent_connection_list(&binding).unwrap()).unwrap();
+        let saved_secrets = secrets.0.borrow().clone();
+        assert!(
+            ensure_grant(&db, &binding, None, &secrets).is_err(),
+            "{change}"
+        );
+        assert_eq!(
+            serde_json::to_value(db.agent_connection_list(&binding).unwrap()).unwrap(),
+            before,
+            "{change}"
+        );
+        assert_eq!(*secrets.0.borrow(), saved_secrets, "{change}");
+    }
 }
 
 #[test]

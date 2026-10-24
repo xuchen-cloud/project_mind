@@ -28,6 +28,7 @@
     "@deepseek-ai/dsh-llm-pi-ai": "0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@deepseek-ai/dsh-web-app": "file:vendor/dsh-web-app",
+    "@js-temporal/polyfill": "0.5.1",
     "dsh-desktop-client-ui": "file:vendor/dsh-desktop-client-ui",
     "fflate": "0.8.3"
   },

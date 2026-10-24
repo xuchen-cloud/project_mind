@@ -14,6 +14,8 @@ export function canDiscussObject(panelScope: AgentScope, objectScope: AgentScope
 export function dshProjectRunKey(workspaceRoot: string, projectId: number | null) { return JSON.stringify([workspaceRoot, projectId]); }
 interface AgentPanelState {
   workspaceRoot: string | null;
+  workspaceSession: { workspaceRoot: string; id: string; title: string } | null;
+  selectWorkspaceSession: (workspaceRoot: string, id: string, title: string) => void;
   runsByProject: Record<string, AgentPanelBinding>;
   sessionsByProject: Record<string, Record<string, boolean>>;
   setSessionRuns: (workspaceRoot: string, projectId: number | null, runningBySession: Record<string, boolean>) => void;
@@ -34,11 +36,11 @@ interface AgentPanelState {
 
 // Window-local UI seats and independently subscribed scope runtime facts.
 export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
-  workspaceRoot: null, runsByProject: {}, sessionsByProject: {},
+  workspaceRoot: null, workspaceSession: null, runsByProject: {}, sessionsByProject: {},
   binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null,
   bindWorkspace: workspaceRoot => {
     if (get().workspaceRoot === workspaceRoot) return;
-    set({ workspaceRoot, runsByProject: {}, sessionsByProject: {}, runningBinding: null, binding: null, open: false, discussionTarget: null });
+    set({ workspaceRoot, workspaceSession: null, runsByProject: {}, sessionsByProject: {}, runningBinding: null, binding: null, open: false, discussionTarget: null });
   },
   setSessionRuns: (workspaceRoot, projectId, runningBySession) => {
     if (get().workspaceRoot !== workspaceRoot) return;
@@ -82,7 +84,12 @@ export const useAgentPanelStore = create<AgentPanelState>((set, get) => ({
       discussionTarget: same ? state.discussionTarget : null };
     });
   },
+  selectWorkspaceSession: (workspaceRoot, id, title) => {
+    if (get().workspaceRoot !== workspaceRoot) return;
+    set({ workspaceSession: { workspaceRoot, id, title } });
+    get().openPanel(workspaceRoot, { kind: "workspace" });
+  },
   closePanel: () => set({ open: false }),
   toggleExpanded: () => set(state => ({ expanded: !state.expanded })),
-  clearWorkspace: () => set({ workspaceRoot: null, runsByProject: {}, sessionsByProject: {}, binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null }),
+  clearWorkspace: () => set({ workspaceRoot: null, workspaceSession: null, runsByProject: {}, sessionsByProject: {}, binding: null, open: false, expanded: true, discussionTarget: null, runningBinding: null }),
 }));

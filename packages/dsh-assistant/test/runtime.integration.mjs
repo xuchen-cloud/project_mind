@@ -1340,3 +1340,134 @@ test('native session inventory reads real durable chat metadata and history with
   await runtime.stop();runtime=await launch(path.join(temporary,'history'),undefined,shared,project);
   const cold=await read({titleQuery:'needle'});assert.equal(cold.page.totalCount,1);assert.equal(cold.page.items[0].id,first.sessionId);
 });
+
+test('Workspace schedules deliver through real Session AI and do not repeat after normal restart', { timeout: 90000 }, async t => {
+ const temp=await mkdtemp(path.join(tmpdir(),'mind-schedules-'));
+ const bodies=[];
+ const provider=await startLocalProvider({onSyntheticRequest:body=>bodies.push(body)});
+ let runtime,stream;
+ t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await rm(temp,{recursive:true,force:true});});
+ const directory=await realpath(temp),data=path.join(temp,'data');
+ const shared={name:'local',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false};
+ const workspace={id:randomUUID(),name:'Schedule Workspace',directory};
+ runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ const {sessionId}=await runtime.rpc('session/create',{});
+ stream=await follow(runtime,sessionId);
+ const requestId='schedule:create:'+randomUUID();
+ const task=await runtime.rpc('mind/schedules',{operation:'create',requestId,task:{title:'Scheduled proof',prompt:'scheduled-fixture-proof',sessionId,enabled:true,rule:{kind:'hours',interval:24,startDate:'2026-01-01',time:'00:00'}}});
+ assert.ok(Date.parse(task.nextRunAt)>Date.now(),'creating a past anchor schedules the next future occurrence');
+ assert.equal(events(stream).filter(event=>event.type==='user/message').length,0,'creation must not deliver a historical occurrence');
+ assert.equal(bodies.length,0);
+ await stream.close();stream=undefined;await runtime.stop();
+ // Model an actual missed persisted deadline while the runtime was offline.
+ const stored=JSON.parse(await readFile(path.join(data,'scheduled-tasks.json'),'utf8'));
+ stored.tasks[0].nextRunAt='2026-01-02T00:00:00.000Z';
+ await writeFile(path.join(data,'scheduled-tasks.json'),JSON.stringify(stored));
+ runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ stream=await follow(runtime,sessionId);
+ await stream.read(frame=>frame.type==='event'&&frame.event.type==='assistant/message'||frame.type==='snapshot'&&frame.records.some(record=>record.event.type==='assistant/message'),'scheduled AI response');
+ assert.ok(bodies.some(body=>JSON.stringify(body.messages).includes('scheduled-fixture-proof')));
+ assert.ok(bodies.every(body=>!(body.tools??[]).some(tool=>/^schedule_/.test(tool.function?.name??''))),'embedded profile has no second schedule tool system');
+ const listed=await waitFor(async()=>{const rows=await runtime.rpc('mind/schedules',{operation:'list'});return rows.find(row=>row.id===task.id&&row.lastRunAt);},'durable schedule receipt');
+ assert.equal(listed.lastError,null);
+ assert.equal((await runtime.rpc('mind/schedules',{operation:'create',requestId,task:{title:task.title,prompt:task.prompt,sessionId,enabled:true,rule:task.rule}})).id,task.id);
+ assert.equal((await runtime.rpc('mind/schedules',{operation:'list'})).length,1);
+ const before=events(stream).filter(event=>event.type==='user/message').length;
+ await stream.close();stream=undefined;await runtime.stop();
+ runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ stream=await follow(runtime,sessionId);
+ assert.equal(events(stream).filter(event=>event.type==='user/message').length,before);
+ assert.equal((await runtime.rpc('mind/schedules',{operation:'list'}))[0].lastRunAt,listed.lastRunAt);
+ const paused=await runtime.rpc('mind/schedules',{operation:'update',id:task.id,task:{title:task.title,prompt:task.prompt,sessionId,enabled:false,rule:task.rule}});
+ assert.equal(paused.nextRunAt,null);
+ const resumed=await runtime.rpc('mind/schedules',{operation:'update',id:task.id,task:{title:task.title,prompt:task.prompt,sessionId,enabled:true,rule:task.rule}});
+ assert.ok(Date.parse(resumed.nextRunAt)>Date.now());
+ for(const deniedSession of ['../../outside',randomUUID()]) {
+ const rejected=await fetch(`${runtime.origin}/api/mind/schedules`,{method:'POST',headers:{...runtime.headers,'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'mind/schedules',payload:{args:{request:{operation:'create',task:{title:task.title,prompt:task.prompt,rule:task.rule,enabled:true,sessionId:deniedSession}}}}})});
+ assert.equal((await rejected.json()).result.ok,false,'unowned and path-like Session identifiers must be refused');
+ }
+ const deletionId=randomUUID();
+ await runtime.rpc('mind/schedules',{operation:'delete',id:task.id,requestId:deletionId});
+ await runtime.rpc('mind/schedules',{operation:'delete',id:task.id,requestId:deletionId});
+ assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),[]);
+});
+
+test('natural language creates a durable schedule through model bash and the real Mind CLI', { timeout: 90000 }, async t => {
+  const executable=path.resolve(root,'../../src-tauri/target/debug',process.platform==='win32'?'mind.exe':'mind');
+  try { await readFile(executable); } catch(error) {
+    if(process.platform==='win32') { t.skip('real built Mind CLI unavailable on this Windows fixture');return; }
+    throw new Error(`Build the real Mind CLI before this integration: ${error.message}`);
+  }
+  const temp=await realpath(await mkdtemp(path.join(tmpdir(),'mind-real-cli-schedule-')));
+  const workspace={id:randomUUID(),name:'Natural language schedules',directory:path.join(temp,'workspace')};
+  await mkdir(workspace.directory);
+  const binding={workspaceId:workspace.id,generation:randomUUID()},connection='b'.repeat(32);
+  const token='synthetic-real-cli-schedule-lease',calls=[],leases=new Set(),bodies=[];
+  let runtime,stream,currentSession;
+  // Only native HTTP transport is a fixture here. The executable, model tool
+  // execution, authenticated DSH scheduling, Session, and task persistence are real.
+  // Native lease/grant authorization is covered separately by Rust bridge tests.
+  const bridge=createServer(async(request,response)=>{
+    let input;
+    try {
+      const chunks=[];for await(const chunk of request)chunks.push(chunk);
+      input=JSON.parse(Buffer.concat(chunks));
+      assert.equal(request.headers.authorization,`Bearer ${token}`);
+      assert.equal(leases.size,1,'the real CLI must execute inside an active shell lease');
+      assert.equal(input.instanceId,'native-transport-fixture');
+      assert.equal(input.grantId,connection);
+      let data;
+      if(request.url==='/v1/connect') {
+        assert.equal(input.workspacePath,workspace.directory);data=binding;
+      } else {
+        assert.equal(request.url,'/v1/call');assert.deepEqual(input.binding,binding);calls.push(input);
+        if(input.method==='schedule.create') {
+          assert.equal(input.params.input.sessionId,currentSession,'model shell supplies the actual current Session');
+          data=await runtime.rpc('mind/schedules',{operation:'create',requestId:input.params.requestId,task:input.params.input});
+        } else {
+          assert.equal(input.method,'schedule.list');data=await runtime.rpc('mind/schedules',{operation:'list'});
+        }
+      }
+      response.writeHead(200,{'content-type':'application/json'});
+      response.end(JSON.stringify({apiVersion:1,requestId:input.requestId,ok:true,data}));
+    } catch(error) {
+      response.writeHead(500,{'content-type':'application/json'});
+      response.end(JSON.stringify({apiVersion:1,requestId:input?.requestId??'',ok:false,error:{code:'INVALID_ARGUMENT',message:error.message,retryable:false}}));
+    }
+  });
+  await new Promise(resolve=>bridge.listen(0,'127.0.0.1',resolve));
+  const provider=await startLocalProvider({onSyntheticRequest:body=>bodies.push(body)});
+  t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await new Promise(resolve=>bridge.close(resolve));await rm(temp,{recursive:true,force:true});});
+  const discovery=path.join(temp,'native-transport-fixture.json');
+  await writeFile(discovery,JSON.stringify({instanceId:'native-transport-fixture',endpointVersion:1,port:bridge.address().port}));
+  const cli={executable,workspace:workspace.directory,connection,discovery,projectId:null};
+  const patch=path.join(temp,'write.patch.yml');await writeFile(patch,'- id: sandbox-policy\n  config:\n    mode: workspace-write\n');
+  runtime=await launch(path.join(temp,'data'),patch,{name:'Local CLI model',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false},undefined,undefined,async payload=>{
+    assert.equal(payload.sessionId,currentSession);
+    if(payload.operation==='cliLeaseOpen') {assert.equal(payload.mode,'workspace-write');leases.add('real-cli-lease');return {leaseId:'real-cli-lease',token};}
+    assert.equal(payload.operation,'cliLeaseClose');assert.ok(leases.delete(payload.leaseId));return null;
+  },workspace,cli);
+  ({sessionId:currentSession}=await runtime.rpc('session/create',{}));
+  stream=await follow(runtime,currentSession);
+  const requestId='natural-language:'+randomUUID();
+  const task={title:'每周工作总结',prompt:'总结工作区当前项目进展并提出下一步行动',sessionId:'CURRENT_SESSION',enabled:true,rule:{kind:'weekdays',startDate:'2026-10-24',time:'09:00'}};
+  const input=JSON.stringify({requestId,input:task});
+  const [prefix,suffix]=input.split('CURRENT_SESSION');
+  const quote=value=>`'${value.replaceAll("'","'\\''")}'`;
+  const inputFile=path.join(workspace.directory,'schedule-input.json');
+  const flags=`--workspace ${quote(cli.workspace)} --connection ${connection} --json`;
+  const command=`set -e\nprintf '%s' ${quote(prefix)} "$PROJECT_MIND_SESSION_ID" ${quote(suffix)} > ${quote(inputFile)}\nmind schedule create --input-file ${quote(inputFile)} ${flags}\nmind schedule create --input-file ${quote(inputFile)} ${flags}\nmind schedule list ${flags}`;
+  provider.enqueueResponse({chunks:[''],toolCalls:[{index:0,id:'real-schedule-cli',type:'function',function:{name:'bash',arguments:JSON.stringify({description:'Create requested recurring Workspace task',command})}}]});
+  await prompt(runtime,stream,currentSession,'请创建一个每个工作日早上9点总结工作区项目进展的定时任务，保存到当前会话。');
+  const reply=providerToolReply(bodies,'real-schedule-cli');
+  assert.match(reply,/每周工作总结/);
+  assert.deepEqual(calls.map(call=>call.method),['schedule.create','schedule.create','schedule.list']);
+  const tasks=await runtime.rpc('mind/schedules',{operation:'list'});
+  assert.equal(tasks.length,1,'reusing the real CLI requestId must not duplicate the saved task');
+  assert.equal(tasks[0].sessionId,currentSession);
+  assert.equal(tasks[0].prompt,task.prompt);
+  assert.equal(leases.size,0);
+  await stream.close();stream=undefined;await runtime.stop();
+  runtime=await launch(path.join(temp,'data'),patch,{name:'Local CLI model',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false},undefined,undefined,undefined,workspace);
+  assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),tasks,'task survives a real runtime restart');
+});

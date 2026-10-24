@@ -2,6 +2,8 @@
 
 日期：2026-10-15。关联 [#161](https://github.com/xuchen-cloud/project_mind/issues/161)，承接 #108/#121 中 Workspace 聊天入口差距；本包不关闭这两个更大范围的 Issue。
 
+2026-10-24 后续：[工作区会话与 Scheduled Task](workspace-scheduled-tasks.md)（#239）将 Workspace 会话加入左栏，并经内置 CLI 授予本工作区项目业务权限；下文“Workspace 聊天不授予所有 Project 的原生 File/Office 权限”仍描述原有直连桥边界，跨项目业务改由已授权 CLI 执行。
+
 ## 工作包
 
 - 依赖：现有 DSH Chat / Trajectory / composer、原生传输和模型配置、Workspace 身份与 generation、独立 Project 运行时。

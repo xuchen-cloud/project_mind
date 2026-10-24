@@ -1,3 +1,5 @@
+import { ProjectSidebarSessions } from "../home/ProjectSidebarSessions";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "../home/SidebarTagItem";
 import { HomeSidebarList } from "../home/HomeSidebarList";
@@ -106,6 +108,7 @@ export function WorkspaceOverviewSidebar({
   onRenameRecord,
   onDeleteRecord,
 }: WorkspaceOverviewSidebarProps) {
+  const workspaceSession = useAgentPanelStore(state => state.workspaceSession);
   const {
     projectSidebarCollapsed,
     projectSidebarWidthPx,
@@ -319,7 +322,7 @@ export function WorkspaceOverviewSidebar({
                 )}
               </HomeSidebarList>
 
-        </>} lower={<>
+        </>} middle={<ProjectSidebarSessions workspaceRoot={workspaceRootPath} projectId={null} query="" enabled={!!workspaceRootPath} activeSessionId={workspaceSession?.workspaceRoot === workspaceRootPath ? workspaceSession.id : null} />} lower={<>
           <div className="home-side__heading">
             <span>记录</span>
             <button type="button" className="home-side__workspace-action" aria-label="新增工作区记录" title="新增记录" onClick={onCreateRecord}><Plus size={13} /></button>
