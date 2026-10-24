@@ -23,14 +23,16 @@ struct Cursor {
     query_hash: String,
     seq: i64,
     record: i64,
+    updated_at: String,
 }
 
-fn cursor(hash: &str, seq: i64, record: i64) -> AgentResult<String> {
+fn cursor(hash: &str, seq: i64, record: i64, updated_at: &str) -> AgentResult<String> {
     Ok(URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&Cursor {
             query_hash: hash.into(),
             seq,
             record,
+            updated_at: updated_at.into(),
         })
         .map_err(|_| invalid("Cannot encode Record cursor"))?,
     ))
@@ -103,7 +105,7 @@ impl Database {
                 |row| row.get(0),
             )
             .map_err(io_error)?;
-        let after = if let Some(raw) = &input.cursor {
+        let (after, after_time) = if let Some(raw) = &input.cursor {
             if raw.len() > 2048 {
                 return Err(invalid("Invalid Record cursor"));
             }
@@ -123,9 +125,9 @@ impl Database {
                     "Record list changed; restart without a cursor",
                 ));
             }
-            c.record
+            (c.record, c.updated_at)
         } else {
-            0
+            (0, String::new())
         };
         // These identifiers are internal constants, never caller-supplied SQL.
         let (table, links, id_column, head_column, scope_filter, project) = match input.scope {
@@ -215,7 +217,7 @@ impl Database {
                 (SELECT h.updated_at FROM record_document_heads h WHERE h.{head_column}=n.id),
                 EXISTS(SELECT 1 FROM voice_records v WHERE v.{head_column}=n.id),
                 CASE WHEN ?12 THEN {body} END
-            {predicate} AND n.id>?10 ORDER BY n.id LIMIT ?11
+            {predicate} AND (?10=0 OR n.updated_at<?13 OR (n.updated_at=?13 AND n.id<?10)) ORDER BY n.updated_at DESC,n.id DESC LIMIT ?11
         "#
             ))
             .map_err(io_error)?;
@@ -233,7 +235,8 @@ impl Database {
                     input.content_query,
                     after,
                     (limit + 1) as i64,
-                    input.mode == crate::agent::listing::ListMode::Detail
+                    input.mode == crate::agent::listing::ListMode::Detail,
+                    after_time
                 ],
                 |row| {
                     Ok(RecordListItem {
@@ -272,7 +275,7 @@ impl Database {
             page.items.push(item);
             page.has_more = index + 1 < count;
             page.next_cursor = if page.has_more {
-                Some(cursor(&hash, seq, id)?)
+                Some(cursor(&hash, seq, id, &page.items.last().expect("item").updated_at)?)
             } else {
                 None
             };
@@ -291,6 +294,7 @@ impl Database {
                     &hash,
                     seq,
                     last.object.id.parse().expect("native Record ID"),
+                    &last.updated_at,
                 )?);
                 break;
             }
@@ -413,6 +417,7 @@ mod tests {
         let first = f.create(true, "First");
         let second = f.create(true, "Second");
         f.create(false, "Workspace");
+        f.db.conn.execute("UPDATE notes SET updated_at=CASE WHEN id=?1 THEN '2099-01-01' ELSE '2000-01-01' END WHERE id IN (?1,?2)", params![first,second]).unwrap();
         f.db.conn
             .execute(
                 "INSERT INTO voice_records(project_note_id,created_at) VALUES (?1,'now')",

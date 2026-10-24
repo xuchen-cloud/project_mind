@@ -1809,6 +1809,7 @@ pub fn run() {
             workspace_search,
             skills::skills_list,
             skills::skills_manage,
+            skills::skills_import,
             dsh_assistant::dsh_assistant_start,
             dsh_assistant::dsh_assistant_sessions,
             dsh_assistant::dsh_assistant_runtime_status,

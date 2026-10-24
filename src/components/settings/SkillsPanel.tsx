@@ -121,6 +121,24 @@ function SkillsCatalog({ projectId }: { projectId: number | null }) {
     }
   }
 
+  async function importSkill() {
+    if (busy) return;
+    const current = generation.current;
+    setBusy(true);
+    setManageError(null);
+    try {
+      const archive = await desktopApi.pickFile({ title: "导入 Skill", filters: [{ name: "Skill 压缩包", extensions: ["zip", "skill"] }] });
+      if (archive && generation.current === current) {
+        const result = await skillsApi.import(projectId, archive);
+        if (generation.current === current) setCatalog(result);
+      }
+    } catch (reason) {
+      if (generation.current === current) setManageError(getErrorMessage(reason, "导入 Skill 失败"));
+    } finally {
+      if (generation.current === current) setBusy(false);
+    }
+  }
+
   if (error) return <div role="alert" className="space-y-2 text-body text-text-muted">
     <p>{error}</p>
     <Button size="sm" variant="secondary" onClick={() => setAttempt(value => value + 1)}>重试</Button>
@@ -130,6 +148,10 @@ function SkillsCatalog({ projectId }: { projectId: number | null }) {
   const skills = [...catalog.skills].sort((a, b) => Number(b.source === "bundled") - Number(a.source === "bundled"));
 
   return <div className="space-y-4">
+    <div className="flex items-start justify-between gap-3">
+      <p className="text-caption text-text-muted">导入包含 SKILL.md 的 ZIP，安装到当前范围的 Skills 目录。同名 Skill 不会被覆盖。</p>
+      <Button size="sm" variant="secondary" disabled={busy || !catalog.complete} onClick={() => void importSkill()}>导入 Skill</Button>
+    </div>
     <p role="status" className="text-body text-text-muted">
       {catalog.complete ? `已发现 ${catalog.skills.length} 个 Skills` : "发现尚未完成，当前列表可能不完整。可刷新重试。"}
     </p>

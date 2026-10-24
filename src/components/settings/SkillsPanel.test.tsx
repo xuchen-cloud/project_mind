@@ -6,10 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "../../lib/queryKeys";
 import { SkillsPanel } from "./SkillsPanel";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), manage: vi.fn(), workspace: vi.fn(), projects: vi.fn(), file: vi.fn(), folder: vi.fn() }));
-vi.mock("../../services/skillsApi", () => ({ skillsApi: { list: mocks.list, manage: mocks.manage } }));
+const mocks = vi.hoisted(() => ({ import: vi.fn(), pick: vi.fn(), list: vi.fn(), manage: vi.fn(), workspace: vi.fn(), projects: vi.fn(), file: vi.fn(), folder: vi.fn() }));
+vi.mock("../../services/skillsApi", () => ({ skillsApi: { list: mocks.list, manage: mocks.manage, import: mocks.import } }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { workspaceStatusGet: mocks.workspace, projectsList: mocks.projects } }));
-vi.mock("../../services/desktopApi", () => ({ desktopApi: { openFile: mocks.file, openFolder: mocks.folder } }));
+vi.mock("../../services/desktopApi", () => ({ desktopApi: { openFile: mocks.file, openFolder: mocks.folder, pickFile: mocks.pick } }));
 
 const catalog = { skills: [
   { name: "CLI", description: "使用命令行管理工作区", path: "/builtin/CLI/SKILL.md", source: "bundled", disabled: false, entryPath: "/builtin/CLI", directory: "/builtin/CLI", canDelete: false },
@@ -39,6 +39,24 @@ beforeEach(() => {
 });
 
 describe("SkillsPanel", () => {
+  it("imports a chosen archive in the selected scope and refreshes the visible catalog", async () => {
+    mocks.pick.mockResolvedValue("/downloads/research.zip");
+    mocks.import.mockResolvedValue({ ...catalog, skills: [...catalog.skills, { ...catalog.skills[1], name: "Imported", description: "Imported instructions" }] });
+    mount("/projects/7");
+    await userEvent.click(await screen.findByRole("button", { name: "导入 Skill" }));
+    expect(mocks.import).toHaveBeenCalledWith(7, "/downloads/research.zip");
+    expect(await screen.findByText("Imported instructions")).toBeInTheDocument();
+  });
+  it("cancels import without invoking native mutation and reports import failures", async () => {
+    mocks.pick.mockResolvedValueOnce(null).mockResolvedValueOnce("/bad.zip");
+    mocks.import.mockRejectedValue(new Error("SKILL.md 无效"));
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "导入 Skill" }));
+    expect(mocks.import).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "导入 Skill" }));
+    expect(await screen.findByText("SKILL.md 无效")).toBeInTheDocument();
+    expect(screen.getByText("CLI")).toBeInTheDocument();
+  });
   it("disables and re-enables builtins, keeping them visible without a delete action", async () => {
     const disabled = { ...catalog, skills: [{ ...catalog.skills[0], disabled: true, entryPath: "/builtin/.disabled/CLI", directory: "/builtin/.disabled/CLI" }] };
     mocks.manage.mockResolvedValueOnce(disabled).mockResolvedValueOnce(catalog);

@@ -1637,16 +1637,15 @@ impl Database {
         if current_version != i64::try_from(expected_version)? {
             return Err(anyhow!("minutes version conflict"));
         }
-        let (project_note_id, workspace_note_id, started_at): (Option<i64>, Option<i64>, String) = transaction.query_row(
-            "SELECT vr.project_note_id, vr.workspace_note_id, s.started_at FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
-            [session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        let (project_note_id, workspace_note_id): (Option<i64>, Option<i64>) = transaction.query_row(
+            "SELECT vr.project_note_id, vr.workspace_note_id FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
+            [session_id], |row| Ok((row.get(0)?, row.get(1)?))
         )?;
         transaction.execute(
             "INSERT INTO voice_minutes (session_id, version, source_max_rowid, content, generated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET version = excluded.version, source_max_rowid = excluded.source_max_rowid, content = excluded.content, generated_at = excluded.generated_at",
             params![session_id, i64::try_from(expected_version + 1)?, source_max_rowid, content.trim(), now_iso()],
         )?;
-        let started = chrono::DateTime::parse_from_rfc3339(&started_at)?.with_timezone(&Local);
-        let titled = format!("{} · {}", title.trim(), started.format("%Y-%m-%d %H:%M"));
+        let titled = title.trim();
         if let Some(id) = project_note_id {
             transaction.execute(
                 "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
@@ -9438,7 +9437,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .starts_with("发布计划 · "));
+            .eq("发布计划"));
 
         database
             .workspace_record_upsert(WorkspaceRecordUpsertInput {
@@ -9494,7 +9493,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .starts_with("新 AI 标题 · "));
+            .eq("新 AI 标题"));
     }
 
     #[test]
