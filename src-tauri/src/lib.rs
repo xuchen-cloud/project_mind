@@ -4,6 +4,9 @@ mod dsh_assistant;
 mod dsh_model;
 mod skills;
 mod project_directory;
+mod html_preview_files;
+mod html_preview;
+mod html_preview_http;
 mod project_file_exclusions;
 mod native_file_icons;
 mod ai_provider;
@@ -323,6 +326,9 @@ impl AppState {
     }
 
     fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
+        if let Some(previews) = self.app_handle.try_state::<html_preview::HtmlPreviewState>() {
+            previews.close_all(&self.app_handle);
+        }
         let mut current = lock_mutex(&self.current_workspace);
         if let Some(previous) = current.as_ref() {
             previous.cancel_agent_runs();
@@ -393,6 +399,9 @@ impl AppState {
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
             self.office_selections.clear();
         })?;
+        if let Some(previews) = self.app_handle.try_state::<html_preview::HtmlPreviewState>() {
+            previews.close_all(&self.app_handle);
+        }
         self.status_snapshot()
     }
 
@@ -1476,6 +1485,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<html_preview::HtmlPreviewState>().detach_parent(window.app_handle(), window.label());
                 if let Some(state)=window.app_handle().try_state::<AppState>() {state.office_selections.close_window(window.label());}
                 dsh_assistant::DshAssistantState::detach_parent(window.app_handle().clone(), window.label().into());
             }
@@ -1505,6 +1515,7 @@ pub fn run() {
             if !local {
                 return;
             }
+            webview.state::<html_preview::HtmlPreviewState>().detach_parent(webview.app_handle(), label);
             // A document reload skips React cleanup; release its carriers while
             // retaining the runtime and any executing task.
             if let Some(state)=webview.app_handle().try_state::<AppState>() {state.office_selections.close_window(label);}
@@ -1512,6 +1523,7 @@ pub fn run() {
 
         })
         .setup(|app| {
+            app.manage(html_preview::HtmlPreviewState::default());
             ensure_main_window(app)?;
 
             let app_data_dir = default_app_data_dir()?;
@@ -1602,6 +1614,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            html_preview::html_preview_create,
+            html_preview::html_preview_layout,
+            html_preview::html_preview_action,
+            html_preview::html_preview_status,
+            html_preview::html_preview_close,
             source_maintenance::agent_source_maintenance,
             overview_commands::agent_overview_maintenance,
             overview_commands::agent_overview_corrections_get,
@@ -1843,6 +1860,7 @@ pub fn run() {
                     });
                 }
             } else if let tauri::RunEvent::Exit = event {
+                app.state::<html_preview::HtmlPreviewState>().close_all(app);
                 app.state::<dsh_assistant::DshAssistantState>().exit_fallback();
             }
         });

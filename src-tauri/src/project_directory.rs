@@ -288,7 +288,7 @@ fn authorize_identity(
     Ok(())
 }
 
-fn authorize_caller(caller: &Webview, project_id: i64) -> Result<(), String> {
+pub(crate) fn authorize_caller(caller: &Webview, project_id: i64) -> Result<(), String> {
     let url = caller.url().map_err(|_| "无法验证目录浏览调用窗口")?;
     let local_origin = if cfg!(dev) {
         caller

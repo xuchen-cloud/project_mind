@@ -27,3 +27,12 @@
   .project-file-content__toolbar {padding-inline:8px;gap:2px;}
   .office-file-content__status {max-width:84px;overflow:hidden;text-overflow:ellipsis;}
 }
+
+.html-webview { display:flex; flex-direction:column; min-width:0; min-height:0; height:100%; }
+.html-webview__toolbar { flex-wrap:wrap; }
+.html-webview__toolbar label { display:inline-flex; align-items:center; gap:4px; color:var(--color-text-muted); }
+.html-webview__toolbar select { font:inherit; color:var(--color-text); background:var(--color-bg); border:1px solid var(--color-border); border-radius:var(--radius-4); min-height:28px; }
+.html-webview__toolbar select:focus-visible { outline:2px solid var(--color-accent); outline-offset:2px; }
+.html-webview__stage { flex:1; min-height:0; min-width:0; display:flex; justify-content:center; overflow:hidden; background:var(--color-bg-muted); }
+.html-webview__host { max-width:100%; height:100%; flex:none; background:var(--color-bg); }
+.html-webview > .project-file-content__notice { flex:none; overflow-wrap:anywhere; }

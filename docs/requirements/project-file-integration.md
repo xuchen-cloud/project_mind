@@ -1,6 +1,6 @@
 # 项目文件预览、编辑与开源集成
 
-更新：2026-10-09。状态：独立需求已建立，尚未完成组件选型或各格式交付。父 Issue：[#118](https://github.com/xuchen-cloud/project_mind/issues/118)；HTML 子包沿用 [#115](https://github.com/xuchen-cloud/project_mind/issues/115)，保留已有实现与试验记录。
+更新：2026-10-23。状态：HTML 原生独立 WebView + 本地 HTTP 服务已接入项目文件组件，macOS 原生组件验收通过，Windows 与完整产品验收待完成；各格式交付以实际验收记录为准。父 Issue：[#118](https://github.com/xuchen-cloud/project_mind/issues/118)；HTML 子包沿用 [#115](https://github.com/xuchen-cloud/project_mind/issues/115)，保留已有实现与试验记录。
 
 ## 1. 为什么独立出来
 
@@ -27,7 +27,7 @@
 
 | 格式 | 预览 | 项目内编辑 | 当前边界 |
 | --- | --- | --- | --- |
-| HTML / HTM | 单文件内联 CSS/JS 交互，当前/历史版本，响应式宽度，依赖与错误提示 | 原始源码编辑，保留无关 JS/CSS，不把索引抽取结果写回原稿 | 已有只读源码、版本和助手续改接缝；源码编辑器和隔离执行仍待交付 |
+| HTML / HTM | 项目标签页内独立 WebView 运行原始网页，支持多文件资源、JS、CDN/API、导航、当前/历史版本与诊断 | 原始源码编辑，保留无关 JS/CSS，不把索引抽取结果写回原稿 | 已有只读源码、版本和助手续改接缝；源码编辑器和隔离执行仍待交付 |
 | Markdown / MD | 渲染标题、列表、表格、代码、链接和已支持的资源 | 源码编辑与预览切换，保存仍是 Markdown File | 不以 Record 编辑器或聊天 Markdown 已存在，宣称 Markdown File 编辑已交付 |
 | Word | 文本、段落、表格、图片等实际文档内容 | 应用内修改并保存，重新打开保持内容和支持的版式 | 优先核实 `.docx`；具体格式覆盖与保真度在选型中验证 |
 | Excel | 工作表、单元格、公式结果及支持的样式 | 修改单元格/公式并保存，重开验证数据和计算结果 | 优先核实 `.xlsx`；宏、外部连接等不能默认视为支持 |
@@ -49,23 +49,18 @@
 
 不先建设通用插件平台、任意扩展加载器、Office 格式解析器或新的版本仓库。组件需要哪些适配，就围绕已选格式补哪些接缝。
 
-## 5. HTML 子包：继承已有成果和隔离要求
+## 5. HTML 子包：项目标签页内运行网页
 
-原 R08 / E11 的预览职责迁到 #115。当前 `ProjectFileContent` 复用 DSH 静态预览与原生固定版本读取、恢复入口；旧无调用 `FileHtmlPreview` 已移除。源码要完整、版本与 hash 一致后才加载为该版本的预览；未读全不能把片段当成完整页面。历史预览不跟随新版本跳转，流式生成过程中不逐 token 重载。交互执行预览仍待 #115 验收。
+2026-10-22 用户确定采用 **独立原生 WebView + 仅本机 HTTP 服务**，网页直接在现有项目文件标签页中打开。该决定替换此前禁止联网的 iframe 交互候选；旧探针只作历史证据。详细契约、工作包和 macOS/Windows 验收见 [HTML 网页运行需求](html-webview-preview.md)。
 
-先支持自包含单 HTML：内联样式/脚本、嵌入图片、表单本地校验、标签切换、筛选、模拟增删和同文档 hash 导航。外部 CDN、相对资源、真实后端和多文件工程不因能导入而自动成为完整支持；预览明确显示未加载依赖及实际错误，保存的原始源码不被清洗改写。
-
-隔离仍是开放执行的条件，拆分不放宽：
-
-- 不将文件 HTML 注入带应用权限的主页面；不暴露 Tauri IPC、连接凭据、Workspace 路径或任意本机读写。
-- 原 iframe 候选的 `sandbox="allow-scripts"`、预览专用 CSP、宿主网络/导航拦截继续作为待测方案，不视为已验证实现。禁止外部请求、跳转、下载和真实表单提交，保留单文件内联交互。
-- 原 CSP 候选为 `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`。策略只作用于预览副本；不得因不兼容就改为在主应用执行。
-- 单靠点击拦截或 `connect-src` 不能证明导航和全部网络路径被阻断；`location`、meta refresh、链接、子框架等要用实际引擎验证。不加 `allow-same-origin`，也不把不可信诊断或 postMessage 变成应用命令。
-- 若 iframe 路线无法证明隔离，再验证无应用能力的独立 WebView；不为尚未出现的需求同时维护两套预览后端。刷新、切版本或关闭时销毁旧执行环境，演示中的临时状态不保存为项目业务数据。
-
-已有证据：`874841a` 的源码/历史组件与无窗口 Chromium 场景可复用；#115 保留详细记录。普通 HTTP/导航阻断已有候选结果，RTC UDP、DNS/preconnect 缺成功正对照，不能当成通过；macOS WebKit 和 Windows WebView2 尚需实包验证。今后可直接使用导入文件验收，不依赖真实模型、助手界面或 AI Issue 关闭。
-
-参考：[MDN iframe sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe)、[MDN CSP sandbox](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox)。这些是候选依据，不能代替项目实测。
+- 复用现有 File ID、固定版本/hash、源码与恢复；HTML/CSS/JS 原字节不清洗、不改写。
+- 当前 HTML 所在目录作为只读站点根，支持目录内 JS/CSS/图片/字体、ES modules 和页面跳转；允许 CDN、HTTP(S) 请求和表单，遵循浏览器 CORS/HTTPS 规则。站点根之外、其他 Project、应用数据不开放。
+- 网页由无 Tauri IPC、asset/app 协议、应用初始化脚本及凭据的独立原生子视图运行；主页面仅承载工具栏、源码与版本，不能用主页面 HTML 注入代替隔离。
+- 首选复用已锁定的底层 Wry 创建子 WebView，避免 Tauri 自动向子视图注册全局 asset 协议。仅限制 capabilities 不足以证明资源隔离。
+- 仅本机随机端口 HTTP 服务按执行会话隔离来源，使用不可猜测的初始入口与会话认证，核验 Host/Origin、路径与 File 归属，不提供目录列表、写文件或任意代理。
+- 固定历史主 HTML 不混入当前依赖；依赖快照尚不存在时明确报缺失。刷新、切版本、关闭、主页面重载和 Workspace 切换释放旧执行环境与 HTTP 服务。
+- Windows WebView2 与 macOS WKWebView 分别验证原生标签嵌入、DPI/缩放/分栏、遮挡、路径、资源和隔离，不以 Chromium DOM fixture 代替原生验收。
+- 本次先交付网页运行；#115 原有源码编辑、完整历史依赖快照等未完成项保持开放，不因底层接通关闭整个 Issue。
 
 ## 6. 分包顺序与验收
 
@@ -73,7 +68,7 @@
 
 | 包 | 交付与依赖 | 验收 |
 | --- | --- | --- |
-| F01 HTML / #115 | 复用现有 File 基础，源码编辑、隔离预览、当前/历史版本、诊断及宽度切换 | 导入 HTML→编辑→保存新版→点击/输入/筛选→历史预览→恢复，分别记录 macOS/Windows 隔离结果；不需 AI 生成文件 |
+| F01 HTML / #115 | 复用 File 基础，按网页运行需求分包接入原生 WebView/HTTP/标签生命周期；源码编辑保留后续范围 | 导入 HTML→编辑→保存新版→点击/输入/筛选→历史预览→恢复，分别记录 macOS/Windows 隔离结果；不需 AI 生成文件 |
 | F02 Markdown | 复用文件存储和适合的现有渲染代码；补源文件编辑/预览接缝 | 标题、表格、代码、链接/已支持资源编辑后重开一致；文件身份不变，不强制转成 Record |
 | F03 Office 开源选型 | 少量 Word/Excel/PPT 真文件，比较候选预览、编辑、回存及部署 | 给出可复核结果、适用许可证/打包方式、每种格式的限制和后续最小接入方案；试验不能记作格式交付 |
 | F04 Word | F03 选定组件与现有 File 服务 | 编辑段落/表格并保存 `.docx`，重开和历史恢复正确，支持的版式未丢失 |
