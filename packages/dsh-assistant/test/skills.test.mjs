@@ -60,8 +60,8 @@ test('catalog keeps shared, empty and symlink scan roots for directory and flat 
   await mkdir(empty);
   await writeFile(path.join(shared, 'flat.md'), '---\nname: flat\ndescription: Flat Markdown\n---\nFlat body.\n');
   const external = await f.put(target, 'external', 'Linked skill');
-  await symlink(target, linked, 'dir');
-  await symlink(path.dirname(external), path.join(shared, 'linked-skill'), 'dir');
+  await symlink(target, linked, process.platform === 'win32' ? 'junction' : 'dir');
+  await symlink(path.dirname(external), path.join(shared, 'linked-skill'), process.platform === 'win32' ? 'junction' : 'dir');
   const catalog = await discoverSkills(f.cwd, {
     ...f, includeDefaultRoots: false, customSkillDirs: [shared, empty, missing, linked],
   });

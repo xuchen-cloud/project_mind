@@ -1,0 +1,15 @@
+{
+  "object": {
+    "workspaceId": "office-tool-contract-workspace",
+    "scope": { "kind": "project", "projectId": 3 },
+    "kind": "file",
+    "id": "42"
+  },
+  "revision": "sha256:fixture-base",
+  "fileVersion": 2,
+  "recordVersion": null,
+  "blockId": null,
+  "locator": null,
+  "title": "work.docx",
+  "excerpt": ""
+}

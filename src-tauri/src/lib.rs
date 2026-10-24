@@ -37,6 +37,7 @@ mod knowledge_service;
 mod memory_commands;
 mod knowledge_registry;
 mod utility_process;
+mod node_paths;
 mod record_document_service;
 mod record_version_reads;
 mod record_document_commands;

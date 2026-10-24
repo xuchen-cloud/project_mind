@@ -72,7 +72,7 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
         if (!cancelled) setError(failure);
       }
     })();
-    return () => { cancelled = true; unregister?.(); };
+    return () => { cancelled = true; ++refreshSequence.current; unregister?.(); };
   }, [key, coordinator, enabled, attempt]);
 
   useEffect(() => coordinator.subscribeSaved((snapshot, result) => {
@@ -87,6 +87,32 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     if (result.metadata && body.metadataBase?.revision === base.metadata.revision) base.metadata = result.metadata;
   }), [coordinator]);
 
+  const refreshIncoming = useCallback(async () => {
+    const base = baseline.current;
+    const currentTarget = targetRef.current;
+    if (!enabled || !key || !base || base.key !== key || !currentTarget) return;
+    const sequence = ++refreshSequence.current;
+    try {
+      const state = await recordDocumentApi.editorGet(base.binding, currentTarget);
+      if (sequence !== refreshSequence.current || baseline.current !== base || state.head.headRevision < base.revision) return;
+      // A minutes panel can first observe a snapshot already present at load.
+      // It is a committed-state hint, not a reason to reapply content or reject a draft.
+      if (state.head.headRevision === base.revision && state.metadata.revision === base.metadata.revision) return;
+      if (coordinator.getLatestSnapshot(base.key) || !incomingReceiver.current?.(state, { metadata: base.metadata, codeLanguage: base.codeLanguage })) {
+        setIncomingConflict(state);
+        return;
+      }
+      base.revision = state.head.headRevision;
+      base.metadata = state.metadata;
+      base.codeLanguage = state.head.projection.codeLanguage;
+      setIncomingConflict(null);
+      setSyncError(null);
+      setLoaded({ key: base.key, attempt, binding: base.binding, state });
+    } catch (failure) {
+      if (sequence === refreshSequence.current && baseline.current === base) setSyncError(failure);
+    }
+  }, [coordinator, enabled, key, attempt]);
+
   useEffect(() => {
     if (!enabled || !key) return;
     let disposed = false;
@@ -98,24 +124,11 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
         || coordinator.ownsRequest(change.requestId)
         || ((change.headRevision === null || change.headRevision <= base.revision)
           && (change.metadataRevision === null || change.metadataRevision === base.metadata.revision))) return;
-      const sequence = ++refreshSequence.current;
-      void recordDocumentApi.editorGet(base.binding, change.target).then((state) => {
-        if (disposed || sequence !== refreshSequence.current || baseline.current !== base || state.head.headRevision < base.revision) return;
-        if (coordinator.getLatestSnapshot(base.key) || !incomingReceiver.current?.(state, base)) {
-          setIncomingConflict(state);
-          return;
-        }
-        base.revision = state.head.headRevision;
-        base.metadata = state.metadata;
-        base.codeLanguage = state.head.projection.codeLanguage;
-        setIncomingConflict(null);
-        setSyncError(null);
-        setLoaded({ key: base.key, attempt, binding: base.binding, state });
-      }).catch((failure) => { if (!disposed) setSyncError(failure); });
+      void refreshIncoming();
     }).then((stop) => { if (disposed) stop(); else unlisten = stop; })
       .catch((failure) => { if (!disposed) setSyncError(failure); });
     return () => { disposed = true; unlisten?.(); };
-  }, [coordinator, enabled, key, attempt]);
+  }, [coordinator, enabled, key, refreshIncoming]);
 
   useEffect(() => {
     if (!enabled || !key || !ready) return;
@@ -163,5 +176,5 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     binding: currentLoad && loaded ? loaded.binding : null,
     loadIdentity: currentLoad && loaded ? `${loaded.binding.workspaceId}:${key}:${loaded.attempt}` : null,
     recordKey: loaded?.key === key ? `${loaded.binding.workspaceId}:${key}` : undefined,
-    capture, checkpoint, acknowledgeMetadata, retry: () => setAttempt((value) => value + 1) };
+    capture, checkpoint, acknowledgeMetadata, refreshIncoming, retry: () => setAttempt((value) => value + 1) };
 }

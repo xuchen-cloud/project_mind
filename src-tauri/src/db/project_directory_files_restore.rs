@@ -471,6 +471,7 @@ impl Database {
                     true,
                     Some((input.version(), input.hash())),
                     Some((request, input)),
+                    None,
                 )
                 .map_err(error)?;
             if published.state != "ready" {

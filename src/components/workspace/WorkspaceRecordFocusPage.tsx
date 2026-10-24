@@ -636,10 +636,7 @@ export function WorkspaceRecordFocusPage({
                   visible={visible}
                   sourceTimeMs={sourceNavigation.error ? null : sourceNavigation.timeMs}
                   sourceNavigationKey={sourceNavigation.key}
-                  onTitleUpdated={(nextTitle) => {
-                    setTitle(nextTitle);
-                    titleValueRef.current = nextTitle;
-                  }}
+                  onMinutesCommitted={editingReady ? canonical.refreshIncoming : undefined}
                   onCopyMinutes={async (minutes) => {
                     const next = editorControllerRef.current?.appendMarkdown(minutes);
                     if (!next || !submitCurrentRecord(next)) throw new Error("未能写入正文");

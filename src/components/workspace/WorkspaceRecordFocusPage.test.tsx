@@ -23,6 +23,11 @@ import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
 
+vi.mock("../voice/VoiceRecordPanel", () => ({
+  VoiceRecordPanel: ({ onMinutesCommitted }: { onMinutesCommitted?: () => void }) =>
+    <button onClick={() => onMinutesCommitted?.()}>测试纪要已提交</button>,
+}));
+
 import { fixtureDocument, fixtureEditorState, fixtureBodySave } from "../../test/recordDocumentFixture";
 import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-document-types";
 const recordMocks = vi.hoisted(() => ({
@@ -178,6 +183,7 @@ vi.mock("../rich-editor", () => ({
     controllerRef?: {
       current: {
         acknowledgeCommittedContent: () => void;
+        applyIncomingContent: (html: string) => boolean;
         isBusy: () => boolean;
         getPendingAiReviewCount: () => number;
         getValue: () => { html: string; text: string; markdown: string };
@@ -200,6 +206,8 @@ vi.mock("../rich-editor", () => ({
 
       controllerRef.current = {
         acknowledgeCommittedContent: vi.fn(),
+        applyIncomingContent: () => !recordMocks.busy && !recordMocks.pendingReviewCount
+          && recordExportMocks.committedValue === toPlainText(html ?? "") && !recordExportMocks.editorValue.includes("[AI preview]"),
         isBusy: () => recordMocks.busy,
         getPendingAiReviewCount: () => recordMocks.pendingReviewCount,
         getValue: () => buildMockRichValue(recordExportMocks.editorValue),
@@ -381,6 +389,47 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       ] };
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("refreshes a committed voice title and its canonical metadata without saving it again", async () => {
+    apiMocks.workspacePageGet.mockResolvedValue({ ...buildWorkspacePage(), records: [{ ...noteA, isVoice: true }] });
+    recordExportMocks.editorValue = recordExportMocks.committedValue;
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const incoming = fixtureEditorState({ scope: { kind: "workspace" }, recordId: 7 }, { ...noteA, title: "纪要标题" });
+    incoming.metadata.revision = "minutes-metadata";
+    recordMocks.editorGet.mockResolvedValue(incoming);
+    fireEvent.click(screen.getByText("测试纪要已提交"));
+    await waitFor(() => expect(recordMocks.editorGet).toHaveBeenCalledTimes(2));
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("纪要标题");
+    expect(screen.queryByText("测试重载冲突")).not.toBeInTheDocument();
+    expect(persist).not.toHaveBeenCalled();
+    act(() => { requestWorkspaceRecordFocusSave({ recordId: 7 }); });
+    expect(coordinator.getLatestSnapshot("workspace:7")?.canonicalBody?.metadataBase).toEqual(incoming.metadata);
+    await act(async () => { await coordinator.flush(); });
+    view.unmount();
+  });
+
+  it.each(["body", "title"])("preserves an unsaved %s draft when voice minutes commit metadata", async (field) => {
+    apiMocks.workspacePageGet.mockResolvedValue({ ...buildWorkspacePage(), records: [{ ...noteA, isVoice: true }] });
+    recordExportMocks.editorValue = recordExportMocks.committedValue;
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    if (field === "body") recordExportMocks.editorValue = recordExportMocks.committedValue = "用户未保存正文";
+    else fireEvent.change(screen.getByPlaceholderText("记录标题"), { target: { value: "用户未保存标题" } });
+    const incoming = fixtureEditorState({ scope: { kind: "workspace" }, recordId: 7 }, { ...noteA, title: "纪要标题" });
+    incoming.metadata.revision = "minutes-metadata";
+    recordMocks.editorGet.mockResolvedValue(incoming);
+    fireEvent.click(screen.getByText("测试纪要已提交"));
+    expect(await screen.findByText("测试重载冲突")).toBeInTheDocument();
+    if (field === "body") expect(recordExportMocks.committedValue).toBe("用户未保存正文");
+    else expect(screen.getByPlaceholderText("记录标题")).toHaveValue("用户未保存标题");
+    expect(persist).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   async function renderDeletedRecord() {
@@ -570,6 +619,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
     await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     fireEvent.change(screen.getByPlaceholderText("记录标题"), { target: { value: "local draft" } });
+    recordMocks.editorGet.mockResolvedValueOnce(fixtureEditorState({ scope: { kind: "workspace" }, recordId: 7 }, noteA, 20));
     await notifyWorkspaceRecordChanged();
     await screen.findByText("测试重载冲突");
     await expect(prepareWorkspaceContentClose("/tmp/workspace")).rejects.toThrow();

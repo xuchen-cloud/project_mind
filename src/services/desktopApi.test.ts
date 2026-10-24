@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import voiceCaptionCapability from "../../src-tauri/capabilities/voice-caption.json";
+import mainWindowCapability from "../../src-tauri/capabilities/default.json";
 const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
@@ -568,7 +569,15 @@ describe("desktopApi", () => {
     });
     expect(tauriMocks.webviewWindowInstances[0]?.options).not.toHaveProperty("windowEffects");
     expect(tauriMocks.invokeMock).toHaveBeenCalledWith("voice_caption_apply_material");
-    const existing = { show: vi.fn(), setFocus: vi.fn(), setTheme: vi.fn() };
+    const existing = {
+      show: vi.fn(),
+      setFocus: vi.fn(),
+      setTheme: vi.fn(async () => {
+        if (!mainWindowCapability.permissions.includes("core:window:allow-set-theme")) {
+          throw new Error("window.set_theme not allowed");
+        }
+      }),
+    };
     tauriMocks.getByLabelMock.mockResolvedValueOnce(existing);
     await desktopApi.openVoiceCaptionWindow();
     expect(tauriMocks.webviewWindowInstances).toHaveLength(1);
@@ -618,6 +627,26 @@ describe("desktopApi", () => {
     await desktopApi.closeVoiceCaptionWindow();
     expect(tauriMocks.getByLabelMock).toHaveBeenCalledWith("voice-caption");
     expect(tauriMocks.destroyWindowMock).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a caption that closes itself between lookup and destruction", async () => {
+    const caption = { destroy: vi.fn().mockRejectedValue(new Error("window not found")) };
+    tauriMocks.getByLabelMock.mockResolvedValueOnce(caption).mockResolvedValueOnce(null);
+
+    await expect(desktopApi.closeVoiceCaptionWindow()).resolves.toBeUndefined();
+
+    expect(caption.destroy).toHaveBeenCalledOnce();
+    expect(tauriMocks.getByLabelMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a destruction failure when the caption is still present", async () => {
+    const failure = new Error("window destruction failed");
+    const caption = { destroy: vi.fn().mockRejectedValue(failure) };
+    tauriMocks.getByLabelMock.mockResolvedValue(caption);
+
+    await expect(desktopApi.closeVoiceCaptionWindow()).rejects.toBe(failure);
+
+    expect(caption.destroy).toHaveBeenCalledOnce();
   });
 
   it("focuses and navigates an existing project window", async () => {

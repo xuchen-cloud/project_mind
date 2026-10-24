@@ -13,4 +13,6 @@ test('relative explicit data paths fail', () => assert.throws(() => assistantDat
 test('platform defaults use project-mind-dsh', () => {
   assert.equal(assistantDataPath({}, 'darwin', '/home/me'), '/home/me/Library/Application Support/project-mind-dsh');
   assert.equal(assistantDataPath({}, 'linux', '/home/me'), '/home/me/.local/share/project-mind-dsh');
+  assert.equal(assistantDataPath({}, 'win32', 'C:\\Users\\me'), 'C:\\Users\\me\\AppData\\Roaming\\project-mind-dsh');
+  assert.equal(assistantDataPath({ APPDATA: 'D:\\profiles' }, 'win32', 'C:\\Users\\me'), 'D:\\profiles\\project-mind-dsh');
 });

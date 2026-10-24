@@ -2,7 +2,7 @@
 
 状态：当前唯一仓库内待办总表
 
-更新时间：2026-10-14
+更新时间：2026-10-24
 
 GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品与工程事项，不重复已经实现的历史计划。
 
@@ -10,7 +10,11 @@ GitHub Issues 是正式任务跟踪器。本文件只汇总仍需处理的产品
 
 | 优先级 | 事项 | 当前结论 | 完成条件 |
 | --- | --- | --- | --- |
-| P0 | [#94 Voice Record](https://github.com/xuchen-cloud/project_mind/issues/94) | 主体、FSMN-VAD、有界重连和缺口回填已有实现；真实设备与跨平台验收仍未完成 | 完成下述实机验收，更新 Issue 后关闭 |
+| P0 | [#94 Voice Record](https://github.com/xuchen-cloud/project_mind/issues/94) | Windows 原生构建及部分播放、字幕、转写、纪要验收通过；麦克风采集仍有 P0 失败，保持 OPEN | 修复真实采集并完成下述实机验收后关闭 |
+| P1 | [#115 HTML 交互执行](https://github.com/xuchen-cloud/project_mind/issues/115) | Windows H04 部分通过；完整历史、源码编辑、安全与平台矩阵未完成，保持 OPEN | 补齐需求验收及安装包、多屏/DPI 等证据 |
+| P1 | [#118 文件集成](https://github.com/xuchen-cloud/project_mind/issues/118) / [#191 Office](https://github.com/xuchen-cloud/project_mind/issues/191) | Windows Office 编辑、保存重开及 GenOffice 真实回执已有证据；完整上游功能矩阵、macOS 与安装包未完成，保持 OPEN | 完成四格式上游功能矩阵和目标平台产品验收 |
+| P1 | [#192 Windows File](https://github.com/xuchen-cloud/project_mind/issues/192) | 仅大小写改名尚未实现；网络/云盘、长路径与共享锁矩阵未覆盖，保持 OPEN | 实现仅大小写改名并补齐文件系统场景 |
+| P1 | [#187 便携路径](https://github.com/xuchen-cloud/project_mind/issues/187) | 既有便携路径基线仍失败；bundle 249/250 通过不能替代验收，保持 OPEN | 修复失败基线并通过对应验证 |
 | P1 | [#56 Project 驻留验证](https://github.com/xuchen-cloud/project_mind/issues/56) | 驻留、预取、LRU 和缓存契约已有自动化覆盖；两平台的真实切换和内存证据未完成 | macOS 与 Windows WebView2 完成同一套场景并记录结果 |
 | P1 | [#60 帮助中心收尾](https://github.com/xuchen-cloud/project_mind/issues/60) | 文案草稿在独立分支；当前界面经历了较大调整，截图与操作说明需要重新核对 | 内容基于当前 UI，素材、首轮工作流和两平台说明验收完成 |
 
@@ -29,9 +33,9 @@ AI 部分更新：2026-10-15。父需求 [#97](https://github.com/xuchen-cloud/p
 [#124](https://github.com/xuchen-cloud/project_mind/issues/124) 的 Record / File / Session 内容 Tab、双栏、固定版本来源与独立项目运行时已有实现；阅读工具栏和 Tab 辨识见[优化规格](requirements/tab-strip-refinement-20261013.md)。[#125](https://github.com/xuchen-cloud/project_mind/issues/125) 已接入会话内配置模型选择。剩余条件：
 
 - 真实 Provider 验证多 Project/Session 并行、停止目标归属、运行中模型配置变更与下一次请求绑定；当前原生助手设置不能视为已完整控制 DSH 行为。
-- Windows 环境提供后，验证文件身份/移动、预览、双栏、快捷键、模型入口与后台任务。macOS 既有观察和自动化结果不能替代此验收。
+- Windows 已开展部分实际验收；文件身份/移动、预览、双栏、快捷键、模型入口与后台任务仍按各自证据判断，不能由原生构建成功或单一路径通过推定全部完成。
 - 临时放大聚焦阅读栏：先确定临时状态存续范围；放大/恢复须保留原双栏成员、比例、选中项、Record 草稿和 File 查看状态，后台 Session 继续。复用现有聚焦/可见性/保存协调，不改持久布局、不新增第三栏；覆盖键盘恢复、窄窗和 reduced-motion。
-- 文件 Office 预览/编辑与 HTML 交互执行分别由 #118/#115 验收；当前预览仅声明已支持的文本、Markdown、图片、PDF 和静态 HTML。iCloud 未下载文件导入问题仍待样本复现与根因证据。
+- 文件 Office 预览/编辑与 HTML 交互执行分别由 #118/#115 验收。当前 HTML WebView 允许正常网络访问，不提供 Tauri IPC；已不再局限于静态 HTML。iCloud 未下载文件导入问题仍待样本复现与根因证据。
 
 ## P0：Voice Record 收尾
 
@@ -41,14 +45,26 @@ AI 部分更新：2026-10-15。父需求 [#97](https://github.com/xuchen-cloud/p
 
 当前 GUI 轮询权威快照并丢弃过期请求结果，不声明已提供带 epoch/sequence 的事件流或事件缺口协议。真实设备与服务的恢复效果仍按下述证据验收。
 
-### 尚缺的验收证据
+### 2026-10-24 Windows 实机结果与剩余条件
+
+- 麦克风 P0 仍失败：Record 28 冷启动约 120 ms 即 fault，实际设备缺口为 4,320 frames（90 ms）；结束后录音已保存为 ended，但没有 ASR submit/decode，`captureIntegrityPassed=false`。不得将该记录视为采集通过，也尚不能指定驱动、DSP 或 APO 为根因。
+- 模型就绪后的 SenseVoice 官方样本、本地字幕与 Transcript 已通过；Record 26 纪要新标题、复制到正文及重开通过。输出播放、暂停、继续，以及字幕结束后主界面刷新已有通过证据；最新独立 Wry 负载仅覆盖一次播放至暂停，不扩张为新的继续播放证据。
+- 全局 Transcript 搜索可返回独立 Record；段落点击定位误差在 100 ms 内。全局结果自动精确跳转、删除后同步尚未通过验收。
+- Windows 原生构建成功；完整安装包、多屏/DPI、麦克风与系统 loopback 双轨及两种识别链路的整体验收仍未完成。外部 ASR 负载与 Wry 播放负载各自通过，不能排除完整应用间歇采集故障。
+- 设置已恢复为 DeepSeek profile 1、SenseVoice，`livePreviewEnabled=true`，凭据未变。Windows 黑窗口修复 `959d0aa1` / `d8975da0` 已在两个 Project 验证无可见黑窗口，Provider 未变；麦克风采集问题仍未解决，原生采集、ASR 诊断及性能相关改动暂保留在本地。
 
 - 使用真实 Paraformer 服务验证断网、重连、去重和缺口补转写。
 - 在 macOS 上集中验证真实设备切换、长录音、磁盘异常、退出保存和多屏浮窗。
-- 在 Windows 上完成全量构建、安装包、麦克风与系统 loopback 双轨、两种识别链路和多屏/DPI 验收。
-- 验证 Transcript 搜索结果的点击定位与删除后同步。
+- 本轮没有新增 macOS 或真实 Paraformer 验收证据。
 
 保守润色、实时翻译、Context Lexicon、通用模型下载器、AEC、分轨音量控制等仍是暂缓范围；恢复时需要重新确认范围，不属于 #94 当前关闭条件。
+
+## P1：文件集成与 Windows 验收
+
+- #115 的 H04 Windows 部分证据覆盖同应用 HTML/CSS/ESM/JSON 与中文、可信按钮和筛选、第二页前进/后退、`target=_blank`、应用内外部 Example 页面、公共 CORS、375/768/1440 宽度、设置遮挡恢复，以及源码重建清空 store；对应 Rust 16/16、前端 149 项通过。完整历史与源码编辑尚未全部验证；安装包、多屏/DPI、junction 物理路径及恶意探针仍缺证据。
+- #118/#191 已验证 Windows DOCX/PPTX 编辑、保存、重开；XLSX 数值粘贴 25 后 SUM=45，AI 修改为 30 后 SUM=50；三条 GenOffice 真实回执共 12 个历史 hash。以上不等于四格式上游完整功能矩阵通过；macOS 与完整安装包仍待验收。
+- #192 的网络文件系统、云盘、长路径及共享锁组合未覆盖，仅大小写改名尚未实现；#187 的便携路径基线仍失败，两项保持 OPEN。
+- [#224](https://github.com/xuchen-cloud/project_mind/issues/224) 的上游 [PR #229](https://github.com/xuchen-cloud/project_mind/pull/229) 启动修复已合并，Issue 已 CLOSED。本轮已验证的会话、Office、Record 与 Windows 窗口修复归 [#230](https://github.com/xuchen-cloud/project_mind/issues/230) 独立收口；该修复包不代表上述父需求完成，原生录音诊断与性能相关改动暂保留本地。
 
 ## P1：Project 页面驻留与性能
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -84,7 +84,66 @@ describe("VoiceRecordPanel", () => {
     });
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["recording", "paused"])("refreshes a visible %s recording after another window ends it, then stops polling", async (phase) => {
+    vi.useFakeTimers();
+    const saved = await mocks.playbackGet();
+    mocks.playbackGet.mockClear().mockResolvedValue({ ...saved, phase, chunks: [] });
+    mocks.transcriptList.mockResolvedValue({ segments: [{ id: "first", startMs: 0, endMs: 500, text: "录制中的转写", language: "zh" }], nextCursor: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} />
+    </QueryClientProvider>);
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(screen.getByText("录制尚未结束")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "播放录音" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "转写" }));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(screen.getByText("录制中的转写")).toBeInTheDocument();
+
+    // The resident panel receives no local action or query invalidation from the caption window.
+    mocks.playbackGet.mockResolvedValue(saved);
+    mocks.transcriptList.mockResolvedValue({ segments: [{ id: "final", startMs: 0, endMs: 60000, text: "结束后保存的最终转写", language: "zh" }], nextCursor: null });
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(screen.getByText("已保存")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "播放录音" })).toBeEnabled();
+    expect(screen.getByText("结束后保存的最终转写")).toBeInTheDocument();
+    expect(mocks.load).toHaveBeenCalledOnce();
+    expect(mocks.playbackGet).toHaveBeenCalledTimes(2);
+    const transcriptCalls = mocks.transcriptList.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    expect(mocks.playbackGet).toHaveBeenCalledTimes(2);
+    expect(mocks.transcriptList).toHaveBeenCalledTimes(transcriptCalls);
+    fireEvent.click(screen.getByRole("button", { name: "播放录音" }));
+    expect(mocks.play).toHaveBeenCalledOnce();
+    view.unmount();
+    queryClient.clear();
+  });
+
+  it("does not poll an active recording while its resident panel is hidden", async () => {
+    vi.useFakeTimers();
+    mocks.playbackGet.mockResolvedValue({ sessionId: "session-one", phase: "recording", chunks: [] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = (visible: boolean) => <QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} visible={visible} />
+    </QueryClientProvider>;
+    const view = render(panel(true));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(mocks.playbackGet).toHaveBeenCalledOnce();
+    view.rerender(panel(false));
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    expect(mocks.playbackGet).toHaveBeenCalledOnce();
+    view.rerender(panel(true));
+    await act(() => vi.advanceTimersByTimeAsync(1_010));
+    expect(mocks.playbackGet.mock.calls.length).toBeGreaterThan(1);
+    view.unmount();
+    queryClient.clear();
+  });
 
   it("shows one combined transport with seeking and playback speed", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -156,6 +215,29 @@ describe("VoiceRecordPanel", () => {
     expect(await screen.findByRole("region", { name: "会议纪要" })).toHaveTextContent("讨论了发布计划。");
     fireEvent.click(screen.getByRole("button", { name: "生成纪要" }));
     expect(mocks.minutesGenerate).toHaveBeenCalledWith(expect.objectContaining({ target: { scope: "workspace", recordId: 7 } }));
+    view.unmount();
+  });
+
+  it("announces authoritative committed versions including the first snapshot, without treating a title as a draft", async () => {
+    const committed = vi.fn();
+    const target = { scope: "workspace" as const, recordId: 7 };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const snapshot = { sessionId: "session-one", version: 1, title: "AI title", content: "## 摘要\n纪要", status: "ready", error: null };
+    mocks.minutesGet.mockResolvedValue(snapshot);
+    const panel = (ready: boolean) => <QueryClientProvider client={queryClient}>
+      <VoiceRecordPanel target={target} onMinutesCommitted={ready ? committed : undefined} />
+    </QueryClientProvider>;
+    const view = render(panel(false));
+    await screen.findByText("纪要");
+    expect(committed).not.toHaveBeenCalled();
+    view.rerender(panel(true));
+    await waitFor(() => expect(committed).toHaveBeenCalledTimes(1));
+    act(() => { queryClient.setQueryData(["voice-minutes", target], { ...snapshot, status: "running", preview: "## 摘要\n新预览" }); });
+    expect(committed).toHaveBeenCalledTimes(1);
+    act(() => { queryClient.setQueryData(["voice-minutes", target], { ...snapshot, version: 2 }); });
+    await waitFor(() => expect(committed).toHaveBeenCalledTimes(2));
+    view.rerender(panel(true));
+    expect(committed).toHaveBeenCalledTimes(2);
     view.unmount();
   });
 

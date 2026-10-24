@@ -48,8 +48,12 @@ test('development serves complete renderer dependencies with correct MIME and re
     await server.listen();
     const origin = server.resolvedUrls.local[0];
     const lazy = await (await fetch(new URL('lazy.js', origin))).text();
-    const imported = lazy.match(/import url from "([^"]+)"/)[1];
-    const module = await (await fetch(new URL(imported, origin))).text();
+    // A browser first parses the JS string, then normalizes the import URL.
+    const imported = JSON.parse(lazy.match(/import url from ("[^"]+")/)[1]);
+    assert.ok(!imported.includes('\\'), 'virtual import IDs use URL separators');
+    const response = await fetch(new URL(imported, origin));
+    assert.equal(response.status, 200);
+    const module = await response.text();
     assert.match(module, /export default/, module);
     assert.match(module, /\["main.mjs","modulepreload","script"\]/);
     const path = module.match(/const url\s*=\s*"([^"]+)"/)[1];

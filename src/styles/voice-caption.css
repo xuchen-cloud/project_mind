@@ -17,6 +17,20 @@ body,
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
 }
 
+/* Windows has no native frosted material. Keep the CSS shadow inside the
+   transparent window bounds so the undecorated webview does not clip it. */
+#root[data-platform="windows"] {
+  padding: 6px;
+}
+
+#root[data-platform="windows"] .voice-caption-shell {
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-text) 18%, transparent),
+    0 2px 4px color-mix(in srgb, var(--color-text) 25%, transparent),
+    0 0 1px color-mix(in srgb, var(--color-text) 16%, transparent);
+}
+
 .voice-caption-header {
   display: flex;
   flex: none;

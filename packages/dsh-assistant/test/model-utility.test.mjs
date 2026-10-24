@@ -5,9 +5,10 @@ import { once } from 'node:events';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-const entry = new URL('../scripts/model-utility-entry.mjs', import.meta.url);
+const entry = fileURLToPath(new URL('../scripts/model-utility-entry.mjs', import.meta.url));
 const profile = baseUrl => ({ providerFamily: 'openai_compatible', baseUrl,
   defaultModel: 'fixture-model', supportsText: true, enabled: true });
 const frame = baseUrl => ({ operation: 'generate', profile: profile(baseUrl), modelId: 'fixture-model',
@@ -15,7 +16,7 @@ const frame = baseUrl => ({ operation: 'generate', profile: profile(baseUrl), mo
   capacity: { contextWindow: 32768, maxTokens: 4096, source: 'conservative' } });
 
 function launch(input, options = {}) {
-  const child = spawn(process.execPath, [entry.pathname], { env: { ...process.env,
+  const child = spawn(process.execPath, [entry], { env: { ...process.env,
     OPENAI_API_KEY: 'ambient-key-must-not-be-used', ...options.env },
     cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
@@ -191,7 +192,9 @@ test('internal timeout cancels a stalled HTTP provider', async t => {
   await closed;
 });
 
-test('native SIGTERM cancels a stalled provider and emits one sanitized response', async t => {
+test('native SIGTERM cancels a stalled provider and emits one sanitized response', {
+  skip: process.platform === 'win32' && 'Windows child.kill terminates the process without delivering SIGTERM',
+}, async t => {
   let received, aborted;
   const ready = new Promise(resolve => { received = resolve; });
   const closed = new Promise(resolve => { aborted = resolve; });

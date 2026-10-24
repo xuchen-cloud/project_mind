@@ -56,6 +56,19 @@ unsafe fn shell_string(value: PWSTR) -> Result<String, String> {
     result
 }
 
+fn handler_name(value: windows::core::Result<PWSTR>) -> Result<Option<String>, String> {
+    match value {
+        Ok(value) => unsafe { shell_string(value) }.map(Some),
+        // Windows can enumerate an association candidate whose identity lookup
+        // returns E_FAIL. It has no registered ID we can safely offer or invoke.
+        // This does not apply to other lookup failures or to Invoke failures.
+        Err(error) if error.code() == windows::Win32::Foundation::E_FAIL => Ok(None),
+        Err(error) => Err(format!(
+            "Windows application identity lookup failed: {error}"
+        )),
+    }
+}
+
 struct Icon(HICON);
 impl Drop for Icon {
     fn drop(&mut self) {
@@ -307,6 +320,7 @@ impl Applications {
                 .map_err(|e| e.to_string())?;
         let mut entries: Vec<NativeFileApplication> = Vec::new();
         let mut handlers = Vec::new();
+        let mut unavailable_identity = false;
         // One extra fetch distinguishes a complete list from a budget overflow.
         for _ in 0..=64 {
             let mut next = [None];
@@ -314,6 +328,12 @@ impl Applications {
             unsafe { enumeration.Next(&mut next, Some(&mut fetched)) }
                 .map_err(|e| e.to_string())?;
             if fetched == 0 {
+                if entries.is_empty() && unavailable_identity {
+                    return Err(
+                        "Windows registered application identities are unavailable (0x80004005)"
+                            .into(),
+                    );
+                }
                 return Ok(Self {
                     entries,
                     handlers,
@@ -324,7 +344,14 @@ impl Applications {
                 return Err("Too many registered applications".into());
             }
             let handler = next[0].take().expect("Shell fetched handler");
-            let id = unsafe { shell_string(handler.GetName().map_err(|e| e.to_string())?) }?;
+            let Some(id) = handler_name(unsafe { handler.GetName() })? else {
+                unavailable_identity = true;
+                eprintln!(
+                    "Windows application enumeration excluded a candidate without a registered identity: extension={:?} GetName HRESULT=0x80004005",
+                    path.extension().unwrap_or_default()
+                );
+                continue;
+            };
             if entries.iter().any(|entry| entry.id == id) {
                 continue;
             }
@@ -360,5 +387,54 @@ impl Applications {
         let data: IDataObject = unsafe { item.BindToHandler(None, &BHID_DataObject) }?;
         unsafe { self.handlers[index].Invoke(&data) }?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Foundation::{E_ACCESSDENIED, E_FAIL};
+
+    #[test]
+    fn unidentified_shell_candidate_is_not_an_application_id() {
+        assert_eq!(
+            handler_name(Err(windows::core::Error::from(E_FAIL))).unwrap(),
+            None
+        );
+        let error = handler_name(Err(windows::core::Error::from(E_ACCESSDENIED))).unwrap_err();
+        assert!(error.contains("0x80070005"), "{error}");
+    }
+
+    #[test]
+    fn registered_shell_identity_is_preserved() {
+        let identity: Vec<u16> = "registered-app.exe".encode_utf16().chain(Some(0)).collect();
+        let allocated = unsafe {
+            windows::Win32::System::Com::CoTaskMemAlloc(identity.len() * size_of::<u16>())
+        }
+        .cast::<u16>();
+        assert!(!allocated.is_null());
+        unsafe { std::ptr::copy_nonoverlapping(identity.as_ptr(), allocated, identity.len()) };
+        assert_eq!(
+            handler_name(Ok(PWSTR(allocated))).unwrap().as_deref(),
+            Some("registered-app.exe")
+        );
+    }
+
+    #[test]
+    fn shell_application_enumeration_returns_identified_handlers_without_launching() {
+        for extension in ["md", "docx", "txt"] {
+            let filename = format!("association-regression.{extension}");
+            let entries = Applications::load(Path::new(&filename)).unwrap().list();
+            assert!(entries.len() <= 64);
+            assert!(entries
+                .iter()
+                .all(|entry| !entry.id.is_empty() && !entry.name.is_empty()));
+            if extension == "txt" {
+                assert!(
+                    !entries.is_empty(),
+                    "Windows text handlers must remain available"
+                );
+            }
+        }
     }
 }

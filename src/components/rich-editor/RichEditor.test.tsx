@@ -3,6 +3,8 @@ import { projectFileApi } from "../../services/projectFileApi";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Copy } from "lucide-react";
+import type { Editor } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as aiJobs from "../../lib/aiJobs";
@@ -5895,6 +5897,45 @@ describe("RichEditor context menus", () => {
     expect(value?.markdown).toContain("原有笔记");
     expect(value?.markdown).toContain("## 摘要");
     expect(value?.markdown).toContain("周五上线");
+  });
+
+  it("returns appended minutes after canonical Record blocks receive their stable identities", async () => {
+    const controllerRef = { current: null as RichEditorController | null };
+    const existingId = "a".repeat(32);
+    const { container } = render(<RichEditor variant="bare" recordKey="workspace/record/26"
+      defaultHtml={`<p data-block-id="${existingId}">原有笔记</p>`} controllerRef={controllerRef} />);
+    const surface = await getEditorSurface(container);
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    let value: ReturnType<RichEditorController["appendMarkdown"]> = null;
+    act(() => { value = controllerRef.current!.appendMarkdown("## 摘要\n周五上线"); });
+
+    expect(surface).toHaveTextContent("周五上线");
+    const blocks = controllerRef.current!.getCommittedDocumentJson().content!;
+    expect(blocks[0].attrs?.blockId).toBe(existingId);
+    expect(blocks).toHaveLength(3);
+    const blockIds = blocks.map((block) => block.attrs?.blockId);
+    expect(blockIds.every((id) => /^[0-9a-f]{32}$/.test(id))).toBe(true);
+    expect(new Set(blockIds).size).toBe(blockIds.length);
+    expect(value).toEqual(controllerRef.current!.getCommittedValue());
+    expect(value?.markdown).toBe("原有笔记\n\n## 摘要\n\n周五上线");
+    expect(value?.html).toContain(`data-block-id="${blockIds[1]}"`);
+  });
+
+  it("reports a rejected minutes insertion without changing canonical Record content", async () => {
+    const controllerRef = { current: null as RichEditorController | null };
+    const { container } = render(<RichEditor variant="bare" recordKey="workspace/record/26"
+      defaultHtml="<p>原有笔记</p>" controllerRef={controllerRef} />);
+    const surface = await getEditorSurface(container);
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    const editor = (surface as HTMLElement & { editor: Editor }).editor;
+    editor.registerPlugin(new Plugin({ filterTransaction: (transaction) => !transaction.docChanged }));
+    const before = controllerRef.current!.getCommittedDocumentJson();
+    let value: ReturnType<RichEditorController["appendMarkdown"]> = null;
+    act(() => { value = controllerRef.current!.appendMarkdown("## 摘要\n周五上线"); });
+
+    expect(value).toBeNull();
+    expect(controllerRef.current!.getCommittedDocumentJson()).toEqual(before);
+    expect(surface).not.toHaveTextContent("周五上线");
   });
 
   it("keeps managed image identity metadata in the committed snapshot", async () => {

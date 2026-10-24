@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bindContext, readContext } from '../scripts/project-workspace.mjs';
 
 test('native project frame resolves an existing absolute directory', async t => {
@@ -77,7 +78,7 @@ test('configure rejects ambiguous scopes and malformed Workspace frames', async 
 
 test('configure rejects missing paths and files as directories', async () => {
   await assert.rejects(readContext(JSON.stringify({ workspace: { id: workspaceId, name: 'Workspace', directory: '/nonexistent/mind-workspace' } })));
-  await assert.rejects(readContext(JSON.stringify({ workspace: { id: workspaceId, name: 'Workspace', directory: new URL(import.meta.url).pathname } })), /directory is unavailable/);
+  await assert.rejects(readContext(JSON.stringify({ workspace: { id: workspaceId, name: 'Workspace', directory: fileURLToPath(import.meta.url) } })), /directory is unavailable/);
 });
 
 test('Workspace binding rejects other directories and workspace IDs while retaining upstream session creation', async t => {

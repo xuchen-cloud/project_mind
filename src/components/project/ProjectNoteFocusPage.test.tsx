@@ -18,6 +18,11 @@ import { queryKeys } from "../../lib/queryKeys";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
 
+vi.mock("../voice/VoiceRecordPanel", () => ({
+  VoiceRecordPanel: ({ onMinutesCommitted }: { onMinutesCommitted?: () => void }) =>
+    <button onClick={() => onMinutesCommitted?.()}>测试纪要已提交</button>,
+}));
+
 vi.mock("../../todo", () => ({
   TodoModuleRail: ({ scope, enabled }: { scope: { kind: string; projectId?: number }; enabled?: boolean }) => (
     <aside aria-label="笔记待办" data-scope={scope.kind} data-project-id={scope.projectId} data-enabled={enabled} />
@@ -32,6 +37,7 @@ vi.mock("../../services/desktopApi", async (importOriginal) => {
 const richEditorMocks = vi.hoisted(() => ({
   pendingReviews: 0,
   busy: false,
+  save: vi.fn(),
   focus: vi.fn(),
   sourceReveal: vi.fn((_blockId: string) => true),
 }));
@@ -169,6 +175,7 @@ vi.mock("../rich-editor", () => ({
         isBusy: () => boolean;
         getPendingAiReviewCount: () => number;
         acknowledgeCommittedContent: ReturnType<typeof vi.fn>;
+        applyIncomingContent: (html: string) => boolean;
         getValue: () => { html: string; text: string; markdown: string };
         getCommittedValue: () => { html: string; text: string; markdown: string };
         getCommittedDocumentJson: () => ReturnType<typeof fixtureDocument>;
@@ -197,11 +204,20 @@ vi.mock("../rich-editor", () => ({
         isBusy: () => richEditorMocks.busy,
         getPendingAiReviewCount: () => richEditorMocks.pendingReviews,
         acknowledgeCommittedContent: vi.fn(),
+        applyIncomingContent: (incomingHtml: string) => {
+          if (richEditorMocks.busy || richEditorMocks.pendingReviews || valueRef.current !== toPlainText(html ?? "")) return false;
+          setValue(toPlainText(incomingHtml));
+          return true;
+        },
         getValue: () => buildMockRichValue(valueRef.current),
         getCommittedValue: () => buildMockRichValue(valueRef.current.replace("[AI preview]", "")),
         getCommittedDocumentJson: () => fixtureDocument(valueRef.current.replace("[AI preview]", "")),
         focus: richEditorMocks.focus,
-        save: vi.fn(() => onSave?.(buildMockRichValue(valueRef.current.replace("[AI preview]", ""))) ?? Promise.resolve()),
+        save: vi.fn(async () => {
+          richEditorMocks.save();
+          try { return await onSave?.(buildMockRichValue(valueRef.current.replace("[AI preview]", ""))); }
+          finally { richEditorMocks.busy = false; }
+        }),
       };
 
       return () => {
@@ -386,6 +402,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     headChanges.listeners.clear();
   richEditorMocks.pendingReviews = 0;
   richEditorMocks.busy = false;
+  richEditorMocks.save.mockClear();
     recordMocks.queryClient = null;
     recordMocks.bodySave.mockReset();
     recordMocks.editorGet.mockReset();
@@ -442,6 +459,44 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       currentNote = record;
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("refreshes a committed voice title and its canonical metadata without saving it again", async () => {
+    currentNote.isVoice = true;
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const incoming = fixtureEditorState({ scope: { kind: "project", projectId: 1 }, recordId: 7 }, { ...currentNote, title: "纪要标题" });
+    incoming.metadata.revision = "minutes-metadata";
+    recordMocks.editorGet.mockResolvedValue(incoming);
+    fireEvent.click(screen.getByText("测试纪要已提交"));
+    await waitFor(() => expect(recordMocks.editorGet).toHaveBeenCalledTimes(2));
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("纪要标题");
+    expect(screen.queryByText(/这条记录已在别处更新/)).not.toBeInTheDocument();
+    expect(persist).not.toHaveBeenCalled();
+    act(() => { requestProjectRecordFocusSave({ projectId: 1, recordId: 7 }); });
+    expect(coordinator.getLatestSnapshot("project:1:7")?.canonicalBody?.metadataBase).toEqual(incoming.metadata);
+    await act(async () => { await coordinator.flush(); });
+    view.unmount();
+  });
+
+  it.each(["body", "title"])("preserves an unsaved %s draft when voice minutes commit metadata", async (field) => {
+    currentNote.isVoice = true;
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const input = field === "body" ? screen.getByLabelText("正文编辑器") : screen.getByPlaceholderText("记录标题");
+    fireEvent.change(input, { target: { value: "用户未保存草稿" } });
+    recordMocks.editorGet.mockResolvedValue({ ...fixtureEditorState({ scope: { kind: "project", projectId: 1 }, recordId: 7 }, { ...currentNote, title: "纪要标题" }),
+      metadata: { title: "纪要标题", tagIds: [], revision: "minutes-metadata", updatedAt: "now" } });
+    fireEvent.click(screen.getByText("测试纪要已提交"));
+    expect(await screen.findByText(/这条记录已在别处更新/)).toBeInTheDocument();
+    expect(input).toHaveValue("用户未保存草稿");
+    expect(persist).not.toHaveBeenCalled();
+    view.unmount();
+    await act(async () => { await coordinator.flush(); });
   });
 
   it("source navigation waits for canonical data and reports old revisions without revealing a block", async () => {
@@ -623,6 +678,27 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(persist.mock.calls.some(([snapshot]) => snapshot.recordId === 8)).toBe(false);
   });
 
+  it("awaits the editor save lifecycle before checking post-flush busy state", async () => {
+    let guard!: () => Promise<void>;
+    const persist = vi.fn(async (snapshot) => {
+      // A blur save may become active while the close operation awaits I/O.
+      // Its busy flag clears in the editor's own save continuation, after flush.
+      richEditorMocks.busy = true;
+      return { headRevision: snapshot.canonicalBody.baseRevision + 1 };
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "First line\nSecond line" } });
+    await act(async () => { await expect(guard()).resolves.toBeUndefined(); });
+    expect(richEditorMocks.save).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({
+      committedContent: expect.objectContaining({ markdown: "First line\nSecond line" }),
+    }));
+  });
+
   it.each(["save", "conflict", "review", "busy"])("preserves the editor and rejects explicit close on %s failure", async (failure) => {
     let guard!: () => Promise<void>;
     const persist = vi.fn(async () => {
@@ -643,6 +719,30 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(editor).toHaveValue("Kept[AI preview]");
     if (failure === "save" || failure === "conflict") expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("Kept");
     else expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("still rejects close if the draft changes while the editor save is pending", async () => {
+    let guard!: () => Promise<void>;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const persist = vi.fn(async (snapshot) => {
+      await pending;
+      return { headRevision: snapshot.canonicalBody.baseRevision + 1 };
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage embedded
+      registerCloseGuard={(value) => { guard = value; return () => undefined; }} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    let closing!: Promise<void>;
+    act(() => { closing = guard(); void closing.catch(() => undefined); });
+    await waitFor(() => expect(persist).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("正文编辑器"), { target: { value: "Newer draft during close" } });
+    await act(async () => {
+      release();
+      await expect(closing).rejects.toThrow("记录状态已变化");
+    });
+    expect(screen.getByLabelText("正文编辑器")).toHaveValue("Newer draft during close");
   });
 
   it("confirms discarding a deleted Record before close and does not resubmit it on leave", async () => {

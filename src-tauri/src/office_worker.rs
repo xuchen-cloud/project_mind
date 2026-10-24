@@ -341,20 +341,39 @@ impl OfficeUtility for OfficeWorker {
                 "Cannot resolve Office temporary directory",
             )
         })?;
+        // Native XLSX children use the OS temp-directory API, independently
+        // of the JS engine's explicit tempRoot. Keep both inside this request's
+        // private directory after clearing the inherited environment.
+        let process_temp = crate::node_paths::permission_path(&temp);
         let mut command = Command::new(&self.node);
         command
             .arg("--permission")
             .arg("--max-old-space-size=1024")
-            .arg(format!("--allow-fs-read={}", self.entry.display()))
-            .arg(format!("--allow-fs-read={}", self.distribution.display()))
-            .arg(format!("--allow-fs-read={}", temp.display()))
-            .arg(format!("--allow-fs-write={}", temp.display()))
+            .arg(format!(
+                "--allow-fs-read={}",
+                crate::node_paths::permission_path(&self.entry).display()
+            ))
+            .arg(format!(
+                "--allow-fs-read={}",
+                crate::node_paths::permission_path(&self.distribution).display()
+            ))
+            .arg(format!(
+                "--allow-fs-read={}",
+                crate::node_paths::permission_path(&temp).display()
+            ))
+            .arg(format!(
+                "--allow-fs-write={}",
+                crate::node_paths::permission_path(&temp).display()
+            ))
             .arg("--allow-child-process")
             .arg(format!("--import={NODE_GUARD}"))
             .arg(&self.entry)
             .current_dir(&temp)
             .env_clear()
             .env("PATH", "")
+            .env("TEMP", &process_temp)
+            .env("TMP", &process_temp)
+            .env("TMPDIR", &process_temp)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -712,7 +731,7 @@ let request;for await (const chunk of process.stdin) {{request=JSON.parse(chunk.
 let readDenied=false,writeDenied=false;try{{await readFile({0});}}catch(error){{readDenied=error.code==='ERR_ACCESS_DENIED';}}
 try{{await writeFile({0},'changed');}}catch(error){{writeDenied=error.code==='ERR_ACCESS_DENIED';}}
 await writeFile('office-test-temp','candidate');const temporary=await readFile('office-test-temp','utf8');
-process.stdout.write(JSON.stringify({{requestId:request.requestId,ok:true,data:{{model:{{readDenied,writeDenied,temporary,path:process.env.PATH,home:process.env.HOME??null,options:process.env.NODE_OPTIONS??null,received:request}}}}}})+'\n');"#,
+process.stdout.write(JSON.stringify({{requestId:request.requestId,ok:true,data:{{model:{{readDenied,writeDenied,temporary,path:process.env.PATH,home:process.env.HOME??null,options:process.env.NODE_OPTIONS??null,temp:process.env.TEMP,tmp:process.env.TMP,tmpdir:process.env.TMPDIR,cwd:process.cwd(),received:request}}}}}})+'\n');"#,
             serde_json::to_string(&outside.to_string_lossy()).unwrap()
         );
         std::fs::write(&entry, script).unwrap();
@@ -737,6 +756,9 @@ process.stdout.write(JSON.stringify({{requestId:request.requestId,ok:true,data:{
         assert_eq!(result["model"]["home"], Value::Null);
         assert_eq!(result["model"]["path"], "");
         assert_eq!(result["model"]["options"], Value::Null);
+        for variable in ["temp", "tmp", "tmpdir"] {
+            assert_eq!(result["model"][variable], result["model"]["cwd"]);
+        }
         assert_eq!(std::fs::read(outside).unwrap(), b"secret");
         std::fs::write(&entry, "setInterval(()=>{},1000)").unwrap();
         worker.timeout = Duration::from_millis(250);

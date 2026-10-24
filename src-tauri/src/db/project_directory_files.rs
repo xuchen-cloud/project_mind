@@ -523,6 +523,7 @@ impl Database {
             replacement,
             baseline,
             None,
+            None,
         )
     }
     fn directory_publish_locked(
@@ -537,6 +538,7 @@ impl Database {
             &crate::agent::access::RequestContext,
             &restore::DirectoryReplaceInput,
         )>,
+        gui: Option<(&str, &file_versions::GuiFileVersionIntent, bool)>,
     ) -> Result<DirectoryFile> {
         let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let root = self.directory_owner(workspace, project)?;
@@ -571,6 +573,11 @@ impl Database {
         file_versions::sync_directory(&snapshots)?;
         business_path(&root, &relative)?;
         let previous_hash = self.directory_hash(document.id, document.current_version_number)?;
+        if let Some((_, intent, _)) = gui {
+            if hash != intent.expected_content_hash {
+                return Err(failure("source_changed", "File changed after GUI preflight"));
+            }
+        }
         // An imported head still points at live bytes. Do not register a new
         // version while silently treating changed bytes as its frozen history.
         if !replacement
@@ -626,6 +633,15 @@ impl Database {
             rusqlite::TransactionBehavior::Immediate,
         )?;
         self.directory_unclaimed(path, existing)?;
+        if let Some((_, intent, _)) = gui {
+            let (current, _) = self.directory_target(existing)?;
+            if current.managed_path != intent.managed_path
+                || current.current_version_number != i64::from(intent.expected_version_number)
+                || self.directory_hash(current.id, current.current_version_number)? != intent.registered_content_hash
+            {
+                return Err(failure("revision_conflict", "File registration changed during GUI snapshot"));
+            }
+        }
         if let Some(source) = &restore_source {
             crate::file_version_restore::check_source_transaction(&tx, source, document.id)
                 .map_err(|e| anyhow!(e.message))?;
@@ -705,8 +721,47 @@ impl Database {
             )
             .map_err(|error| anyhow!(error.message))?;
         }
+        if let Some((request_id, intent, register_current_bytes)) = gui {
+            let payload = file_versions::CommitPayload::NativeCas { intent: intent.clone(), register_current_bytes };
+            let committed = file_versions::CommittedVersion { document_id: id, version_number: new_version,
+                content_hash: hash.clone(), no_change: new_version == document.current_version_number };
+            self.agent_atomic_operation_in_transaction(&tx, "gui", request_id, "file.version.commit", &payload,
+                |_| Ok((committed, None))).map_err(|error| anyhow!(error.message))?;
+        }
         tx.commit()?;
         self.directory_projection(&object)
+    }
+    /// Called by the GUI version kernel while its Project/File leases and
+    /// workspace fence are held. Only the immutable snapshot is written.
+    pub(super) fn project_file_register_gui_locked(
+        &self,
+        workspace: &str,
+        intent: &file_versions::GuiFileVersionIntent,
+        request_id: &str,
+        register_current_bytes: bool,
+    ) -> crate::agent::errors::AgentResult<file_versions::FileVersionCommitOutcome> {
+        use crate::agent::errors::{AgentError, ErrorCode};
+        let object = ObjectRef { workspace_id: workspace.into(), scope: Scope::Project { project_id: intent.project_id },
+            kind: ObjectKind::File, id: intent.document_id.to_string() };
+        let file = self.directory_publish_locked(workspace, intent.project_id, Path::new(&intent.managed_path),
+            &object, true, None, None, Some((request_id, intent, register_current_bytes)))
+            .map_err(|error| {
+                let error = FileServiceError::from_error(error);
+                let code = match error.code {
+                    "revision_conflict" => ErrorCode::RevisionConflict,
+                    "source_changed" => ErrorCode::FileChangedUnregistered,
+                    "ownership_mismatch" => ErrorCode::ScopeDenied,
+                    _ => ErrorCode::IoFailed,
+                };
+                AgentError::new(code, error.message)
+            })?;
+        if file.state != "ready" {
+            return Err(AgentError::new(ErrorCode::SourceNotReady, "Current File bytes could not form a registered version"));
+        }
+        Ok(file_versions::FileVersionCommitOutcome { committed: true,
+            receipt: file_versions::CommittedVersion { document_id: intent.document_id, version_number: i64::from(file.version_number),
+                content_hash: file.content_hash.expect("ready directory File has a registered hash"),
+                no_change: file.version_number == intent.expected_version_number } })
     }
     fn directory_refresh(&self, object: &ObjectRef) -> Result<DirectoryFile> {
         let (_, id) = file_id(object)?;
@@ -771,6 +826,7 @@ impl Database {
                 false,
                 None,
                 None,
+                None,
             );
         }
         if self
@@ -826,6 +882,7 @@ impl Database {
             &path,
             object,
             false,
+            None,
             None,
             None,
         )

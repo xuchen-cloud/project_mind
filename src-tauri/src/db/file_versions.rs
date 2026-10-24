@@ -1581,7 +1581,7 @@ impl Database {
         if current.storage_mode == "managed_note_image" {
             bail!("Inline assets are not File Versions");
         }
-        if current.storage_mode == "project_directory" {
+        if current.storage_mode == "project_directory" && gui.is_none() {
             return Err(conflict(ErrorCode::ScopeDenied,"Directory File updates must use the directory service; managed-copy commits cannot relocate its live path or immutable snapshots"));
         }
         let original = PathBuf::from(&current.managed_path);
@@ -1619,7 +1619,7 @@ impl Database {
                 ));
             }
         }
-        if let Some((_, intent, register_current_bytes)) = gui {
+        if let Some((request_id, intent, register_current_bytes)) = gui {
             if current.project_id != intent.project_id
                 || current.managed_path != intent.managed_path
                 || current.current_version_number != i64::from(intent.expected_version_number)
@@ -1654,6 +1654,18 @@ impl Database {
                     ErrorCode::FileChangedUnregistered,
                     "Confirm registration of current File bytes first",
                 ));
+            }
+            if current.storage_mode == "project_directory" {
+                if intent.source_path.is_some() || intent.new_content_hash != intent.expected_content_hash {
+                    return Err(conflict(ErrorCode::InvalidArgument, "Directory registration must snapshot current bytes at their original location"));
+                }
+                if known.as_ref() != Some(&intent.expected_content_hash) {
+                    let _permit = fence.map(|fence| fence.enter()).transpose().map_err(CommitFailure)?;
+                    let workspace = self.native_workspace_id.clone().expect("GUI binding was validated");
+                    return Ok(self.project_file_register_gui_locked(
+                        &workspace, intent, request_id, register_current_bytes,
+                    ).map_err(CommitFailure)?);
+                }
             }
         }
         // No filesystem mutation is needed for a registered identical body.
@@ -2080,6 +2092,16 @@ mod tests {
     use crate::models::{DocumentAddVersionInput, DocumentImportInput, ProjectCreateInput};
     use sha2::Digest;
     use std::fs;
+
+    fn hidden_test_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+        let mut command = std::process::Command::new(program);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        command
+    }
     fn assert_crashed(status: std::process::ExitStatus) {
         #[cfg(unix)]
         {
@@ -2632,7 +2654,7 @@ mod tests {
             fs::write(root.path().join("replacement.html"), new_bytes).unwrap();
             let before = db.committed_change_watermark().unwrap();
             drop(db);
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = hidden_test_command(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "db::file_versions::tests::file_version_crash_process_fixture",
@@ -2857,7 +2879,7 @@ mod tests {
             let root = fixture.root;
             let binding = fixture.binding;
             drop(fixture.db);
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = hidden_test_command(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "db::file_versions::tests::file_version_crash_process_fixture",
@@ -3091,7 +3113,7 @@ mod tests {
             let binding = fixture.binding;
             let staged = fixture.staged;
             drop(fixture.db);
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = hidden_test_command(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "db::file_versions::tests::file_version_crash_process_fixture",
@@ -3458,7 +3480,7 @@ mod tests {
         drop(fixture.db);
         let ready = fixture.root.path().join("ready.marker");
         let resume = fixture.root.path().join("resume.marker");
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        let mut child = hidden_test_command(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "db::file_versions::tests::file_version_crash_process_fixture",
@@ -3553,7 +3575,7 @@ mod tests {
             fs::write(root.path().join("replacement.html"), new_bytes).unwrap();
             let before = db.committed_change_watermark().unwrap();
             drop(db);
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = hidden_test_command(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "db::file_versions::tests::file_version_crash_process_fixture",

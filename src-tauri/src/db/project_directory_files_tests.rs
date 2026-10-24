@@ -2,6 +2,16 @@ use super::*;
 use crate::models::ProjectCreateInput;
 use base64::{engine::general_purpose::STANDARD, Engine};
 
+fn hidden_test_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command
+}
+
 // Permission denial exercises the same failed-move branch as a Windows handle
 // opened without FILE_SHARE_DELETE. Restore permissions before asserting so a
 // failure also leaves the temporary fixture removable.
@@ -1383,7 +1393,7 @@ fn directory_restore_crash_open(root: &Path) -> Database {
 }
 
 fn directory_restore_crash(root: &Path, stage: u8) {
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
+    let output = hidden_test_command(std::env::current_exe().unwrap())
         .args([
             "--exact",
             "db::project_directory_files::tests::directory_file_restore_crash_process_fixture",
@@ -1629,7 +1639,7 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
     let (root, first, second, input) = directory_restore_crash_setup();
     let ready = root.path().join("restore-ready.marker");
     let resume = root.path().join("restore-resume.marker");
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+    let mut child = hidden_test_command(std::env::current_exe().unwrap())
         .args([
             "--exact",
             "db::project_directory_files::tests::directory_file_restore_crash_process_fixture",
@@ -1773,9 +1783,14 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
 #[test]
 fn directory_scan_failure_does_not_starve_later_files() {
     let (_root, db, project, path) = fixture();
-    // Invalid business path is a real per-file failure, independent of OS permissions.
-    fs::write(path.join("a:invalid"), b"bad path").unwrap();
+    // Fail one real registration without relying on OS-specific filenames or
+    // permissions. Windows interprets ':' as an alternate data stream.
+    fs::write(path.join("a.txt"), b"first file").unwrap();
     fs::write(path.join("z.txt"), b"later business file").unwrap();
+    db.conn.execute_batch(
+        "CREATE TRIGGER fail_first_scan_entry BEFORE INSERT ON documents \
+         WHEN NEW.name='a.txt' BEGIN SELECT RAISE(ABORT,'fixture scan failure'); END;"
+    ).unwrap();
     let first = db
         .project_file_scan("wp1-workspace", project, None, 1, false)
         .unwrap();
@@ -2189,13 +2204,13 @@ fn hidden_project_page_hides_legacy_hidden_directory_descendant_and_preserves_re
 #[cfg(any(target_os = "macos", windows))]
 fn hidden_set_native_attribute(path: &Path) {
     #[cfg(target_os = "macos")]
-    let output = std::process::Command::new("chflags")
+    let output = hidden_test_command("chflags")
         .arg("hidden")
         .arg(path)
         .output()
         .unwrap();
     #[cfg(windows)]
-    let output = std::process::Command::new("attrib")
+    let output = hidden_test_command("attrib")
         .arg("+h")
         .arg(path)
         .output()
@@ -2506,4 +2521,103 @@ fn temporary_legacy_missing_record_is_hidden_without_deleting_record_or_versions
             b"retained snapshot"
         );
     }
+}
+
+fn directory_gui_intent(db: &Database, file: &DirectoryFile) -> file_versions::GuiFileVersionIntent {
+    let document = db.document_record(file.object.id.parse().unwrap()).unwrap();
+    db.file_version_prepare_gui(&file_versions::GuiFileVersionPrepare {
+        document_id: document.id,
+        project_id: document.project_id,
+        managed_path: document.managed_path,
+        expected_version_number: file.version_number,
+        source_path: None,
+    }).unwrap()
+}
+
+#[test]
+fn directory_file_gui_registration_snapshots_external_bytes_and_replays_without_live_writes() {
+    use crate::agent::{errors::ErrorCode, models::WorkspaceBinding};
+    let (_root, mut db, project, path) = fixture();
+    let live = path.join("external.md");
+    fs::write(&live, b"first retained bytes").unwrap();
+    let first = db.project_file_register("wp1-workspace", project, "external.md").unwrap();
+    let id = first.object.id.parse().unwrap();
+    let original_versions = db.document_list_versions(crate::models::DocumentListVersionsInput { document_id: id }).unwrap();
+    fs::write(&live, b"external V2 and later marker").unwrap();
+    let external_identity = file_versions::path_identity(&live).unwrap();
+    let intent = directory_gui_intent(&db, &first);
+    let binding = WorkspaceBinding { workspace_id: "wp1-workspace".into(), generation: "opened".into() };
+    assert_eq!(db.file_version_commit_gui(&binding, "needs-confirm", &intent, false).unwrap_err().code,
+        ErrorCode::FileChangedUnregistered);
+    let committed = db.file_version_commit_gui(&binding, "register-external", &intent, true).unwrap();
+    assert_eq!(committed.version_number, 2);
+    assert_eq!(committed.content_hash, intent.expected_content_hash);
+    assert_eq!(db.document_record(id).unwrap().managed_path, intent.managed_path);
+    assert_eq!(fs::read(&live).unwrap(), b"external V2 and later marker");
+    assert_eq!(file_versions::path_identity(&live).unwrap(), external_identity);
+    assert_eq!(bytes(&db, &first), b"first retained bytes");
+    let after = db.document_list_versions(crate::models::DocumentListVersionsInput { document_id: id }).unwrap();
+    assert_eq!(after.len(), 2);
+    assert_eq!(after.iter().find(|v| v.id == original_versions[0].id).unwrap().managed_path, original_versions[0].managed_path);
+    let second = DirectoryFile { version_number: 2, content_hash: Some(committed.content_hash.clone()), ..first };
+    assert_eq!(bytes(&db, &second), b"external V2 and later marker");
+    let same = directory_gui_intent(&db, &second);
+    let unchanged = db.file_version_commit_gui(&binding, "same-content", &same, false).unwrap();
+    assert!(unchanged.no_change);
+    assert_eq!(unchanged.version_number, 2);
+    assert_eq!(db.document_list_versions(crate::models::DocumentListVersionsInput { document_id: id }).unwrap().len(), 2);
+    assert_eq!(file_versions::path_identity(&live).unwrap(), external_identity);
+    assert_eq!(db.file_version_commit_gui(&binding, "register-external", &intent, false).unwrap_err().code,
+        ErrorCode::IdempotencyConflict);
+    fs::write(&live, b"newer external V3 must stay untouched").unwrap();
+    assert_eq!(db.file_version_commit_gui(&binding, "register-external", &intent, true).unwrap(), committed);
+    assert_eq!(db.document_record(id).unwrap().current_version_number, 2);
+    assert_eq!(fs::read(&live).unwrap(), b"newer external V3 must stay untouched");
+    assert_eq!(bytes(&db, &second), b"external V2 and later marker");
+}
+
+#[test]
+fn directory_file_gui_registration_rejects_changed_bytes_and_stale_preflight() {
+    use crate::agent::{errors::ErrorCode, models::WorkspaceBinding};
+    let (_root, mut db, project, path) = fixture();
+    let live = path.join("external.md");
+    fs::write(&live, b"retained V1").unwrap();
+    let first = db.project_file_register("wp1-workspace", project, "external.md").unwrap();
+    fs::write(&live, b"external V2").unwrap();
+    let intent = directory_gui_intent(&db, &first);
+    let binding = WorkspaceBinding { workspace_id: "wp1-workspace".into(), generation: "opened".into() };
+    fs::write(&live, b"external V3 after confirmation").unwrap();
+    assert_eq!(db.file_version_commit_gui(&binding, "changed-after-preflight", &intent, true).unwrap_err().code,
+        ErrorCode::FileChangedUnregistered);
+    assert_eq!(db.document_record(intent.document_id).unwrap().current_version_number, 1);
+    assert_eq!(bytes(&db, &first), b"retained V1");
+    let stale = directory_gui_intent(&db, &first);
+    let registered = db.project_file_resolve(&first.object).unwrap();
+    assert_eq!(registered.version_number, 2);
+    assert_eq!(db.file_version_commit_gui(&binding, "stale-registration", &stale, true).unwrap_err().code,
+        ErrorCode::RevisionConflict);
+    assert_eq!(fs::read(&live).unwrap(), b"external V3 after confirmation");
+    assert_eq!(bytes(&db, &first), b"retained V1");
+}
+
+#[test]
+fn directory_file_gui_registration_sql_failure_preserves_live_and_history_then_retries() {
+    use crate::agent::models::WorkspaceBinding;
+    let (_root, mut db, project, path) = fixture();
+    let live = path.join("external.md");
+    fs::write(&live, b"retained V1").unwrap();
+    let first = db.project_file_register("wp1-workspace", project, "external.md").unwrap();
+    fs::write(&live, b"external bytes never replaced").unwrap();
+    let intent = directory_gui_intent(&db, &first);
+    let binding = WorkspaceBinding { workspace_id: "wp1-workspace".into(), generation: "opened".into() };
+    db.conn.execute_batch("CREATE TRIGGER fail_gui_registration BEFORE INSERT ON document_versions WHEN NEW.version_number=2 BEGIN SELECT RAISE(ABORT,'injected registration failure'); END;").unwrap();
+    assert!(db.file_version_commit_gui(&binding, "retry-registration", &intent, true).is_err());
+    assert_eq!(db.document_record(intent.document_id).unwrap().current_version_number, 1);
+    assert_eq!(fs::read(&live).unwrap(), b"external bytes never replaced");
+    assert_eq!(bytes(&db, &first), b"retained V1");
+    db.conn.execute_batch("DROP TRIGGER fail_gui_registration").unwrap();
+    let committed = db.file_version_commit_gui(&binding, "retry-registration", &intent, true).unwrap();
+    assert_eq!(committed.version_number, 2);
+    assert_eq!(fs::read(&live).unwrap(), b"external bytes never replaced");
+    assert_eq!(bytes(&db, &first), b"retained V1");
 }
