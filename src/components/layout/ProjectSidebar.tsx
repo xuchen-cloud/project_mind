@@ -1,3 +1,4 @@
+import type { FileBrowserScope } from "../../lib/file-types";
 import { projectFilePathMatches } from "../../lib/project-file-navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
@@ -83,7 +84,7 @@ export interface ProjectSidebarRecordItem {
 
 export interface ProjectSidebarDocumentItem {
   id: number;
-  projectId: number;
+  projectId: number | null;
   name: string;
   baseName: string;
   mimeType: string;
@@ -102,18 +103,11 @@ export interface ProjectFileMenuControls {
   renderRenameInput: (relativePath: string) => ReactNode;
 }
 
-interface ProjectSidebarProps {
+interface ProjectSidebarBaseProps {
   filesOnly?: boolean;
   fileHeaderActions?: ReactNode;
   fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode);
   fileFilter?: { query: string; tagId: number | null };
-  project: {
-    id: number;
-    name: string;
-    kind?: "normal";
-    rootPath: string;
-    isArchived?: boolean;
-  };
   records?: ProjectSidebarRecordItem[];
   documents?: ProjectSidebarDocumentItem[];
   activeRecordId?: number | null;
@@ -133,6 +127,14 @@ interface ProjectSidebarProps {
   onDeleteRecord?: (record: ProjectSidebarRecordItem) => Promise<unknown> | unknown;
   onOpenDocument?: (document: ProjectSidebarDocumentItem) => void;
 }
+
+type ProjectSidebarProps = ProjectSidebarBaseProps & ({ project: {
+    id: number;
+    name: string;
+    kind?: "normal";
+    rootPath: string;
+    isArchived?: boolean;
+  }; fileScope?: never } | { filesOnly: true; fileScope: FileBrowserScope; project?: never });
 
 interface ContextMenuState {
   documentId: number;
@@ -160,6 +162,7 @@ export function ProjectSidebar({
   fileContent,
   fileFilter,
   project,
+  fileScope,
   records: explicitRecords,
   documents = [],
   activeRecordId,
@@ -190,11 +193,15 @@ export function ProjectSidebar({
     setProjectFileQuery,
     setProjectDocumentTagId,
   } = useUiStore();
+  const owner = fileScope ?? { projectId: project!.id, rootPath: project!.rootPath, name: project!.name };
+  const ownerId = owner.projectId;
+  const [workspaceFileQuery, setWorkspaceFileQuery] = useState("");
+  const [workspaceFileTagId, setWorkspaceFileTagId] = useState<number | null>(null);
   const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
   const queryClient = useQueryClient();
   const refreshDirectory = () => queryClient.invalidateQueries({
-    queryKey: queryKeys.projectDirectory(project.rootPath, project.id, "", 0).slice(0, 3),
+    queryKey: queryKeys.projectDirectory(owner.rootPath, ownerId, "", 0).slice(0, 3),
   });
   const {
     documentMetaMutation,
@@ -211,7 +218,8 @@ export function ProjectSidebar({
     closeImportTagDialog,
     confirmImportTagDialog,
   } = useDocumentImportFlow({
-    projectId: project.id,
+    projectId: ownerId,
+    workspaceRoot: fileScope?.workspaceRoot,
     resident,
   });
 
@@ -223,10 +231,10 @@ export function ProjectSidebar({
   const openPreview = useDocumentPreview();
   const [localRecordQuery, setLocalRecordQuery] = useState("");
   const [localActiveRecordTagId, setLocalActiveRecordTagId] = useState<number | null>(null);
-  const fileQuery = fileFilter?.query ?? projectFileFilters[project.id]?.query ?? "";
-  const documentTagId = fileFilter ? fileFilter.tagId : projectFileFilters[project.id]?.tagId ?? null;
-  const setFileQuery = (query: string) => setProjectFileQuery(project.id, query);
-  const setDocumentTagId = (tagId: number | null) => setProjectDocumentTagId(project.id, tagId);
+  const fileQuery = fileFilter?.query ?? (ownerId === null ? workspaceFileQuery : projectFileFilters[ownerId]?.query) ?? "";
+  const documentTagId = fileFilter ? fileFilter.tagId : (ownerId === null ? workspaceFileTagId : projectFileFilters[ownerId]?.tagId) ?? null;
+  const setFileQuery = (query: string) => ownerId === null ? setWorkspaceFileQuery(query) : setProjectFileQuery(ownerId, query);
+  const setDocumentTagId = (tagId: number | null) => ownerId === null ? setWorkspaceFileTagId(tagId) : setProjectDocumentTagId(ownerId, tagId);
   const [dragActive, setDragActive] = useState(false);
 
   // Document editing state
@@ -334,7 +342,7 @@ export function ProjectSidebar({
   });
 
   async function pickAndImportFiles() {
-    const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${project.rootPath}` });
+    const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${owner.rootPath}` });
     if (sourcePaths.length > 0) await handleImportPaths(sourcePaths);
   }
 
@@ -573,7 +581,7 @@ export function ProjectSidebar({
   useEffect(() => {
     versionActionGeneration.current += 1;
     return () => { versionActionGeneration.current += 1; };
-  }, [project.id, project.rootPath, resident]);
+  }, [ownerId, owner.rootPath, resident]);
 
   const addDocumentVersionAndOpen = async (document: ProjectSidebarDocumentItem) => {
     if (document.health === "missing") {
@@ -755,7 +763,7 @@ export function ProjectSidebar({
       <aside className="sidebar-dock sidebar-dock--left" aria-label="项目导航侧边栏">
         <button
           type="button"
-          title={`展开项目侧边栏\n${project.name}\n${project.rootPath}`}
+          title={`展开项目侧边栏\n${project!.name}\n${owner.rootPath}`}
           aria-label="展开项目侧边栏"
           className="sidebar-dock__surface sidebar-dock__surface--icon-only"
           onClick={toggleProjectSidebarCollapsed}
@@ -779,7 +787,7 @@ export function ProjectSidebar({
       style={{
         width: filesOnly ? "100%" : `${projectSidebarWidthPx}px`,
       }}
-      aria-label={filesOnly ? "项目文件" : "项目导航侧边栏"}
+      aria-label={filesOnly ? (ownerId === null ? "工作区文件" : "项目文件") : "项目导航侧边栏"}
       onDragOver={(event) => {
         if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
           return;
@@ -824,7 +832,7 @@ export function ProjectSidebar({
       <div className="relative border-b border-border px-3 py-3">
         <button
           type="button"
-          title={`${project.name}\n${project.rootPath}`}
+          title={`${project!.name}\n${owner.rootPath}`}
           className={cn(
             "rounded-[var(--radius-8)] border border-transparent text-text transition-colors hover:border-border hover:bg-bg",
             "flex w-full items-center gap-3 px-3 py-2.5 pr-12 text-left",
@@ -835,9 +843,9 @@ export function ProjectSidebar({
             <FolderKanban size={16} />
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-title font-medium">{project.name}</span>
+            <span className="block truncate text-title font-medium">{project!.name}</span>
             <span className="mt-1 flex items-center gap-2">
-              <StatusBadge tone="neutral">{project.isArchived ? "archived" : "overview"}</StatusBadge>
+              <StatusBadge tone="neutral">{project!.isArchived ? "archived" : "overview"}</StatusBadge>
             </span>
           </span>
         </button>
@@ -939,14 +947,14 @@ export function ProjectSidebar({
 
             {(typeof fileContent === "function" ? fileContent({
               openContextMenu,
-              renderRenameInput: relativePath => editingDocument && projectFilePathMatches(editingDocument.managedPath, project.rootPath, relativePath) ? (
+              renderRenameInput: relativePath => editingDocument && projectFilePathMatches(editingDocument.managedPath, owner.rootPath, relativePath) ? (
                 <input autoFocus aria-label={`重命名 ${editingDocument.name}`} data-document-interactive="true"
                   className="inline-object-input h-6 min-w-0 flex-1 px-1.5 text-[12px] leading-4 text-text outline-none"
                   value={nameDraft} onChange={event => setNameDraft(event.target.value)}
                   onBlur={() => commitRename(editingDocument)}
                   onKeyDown={event => { event.stopPropagation(); handleRenameKeyDown(editingDocument as DocumentRecord, event, cancelRename, commitRename); }} />
               ) : null,
-            }) : fileContent) ?? <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
+            }) : fileContent) ?? <HomeSidebarList label={activeTab === "records" ? "侧栏记录列表" : ownerId === null ? "工作区文件列表" : "项目文件列表"} searchKey={`${activeTab}:${recordQuery}:${fileQuery}:${documentTagId}`}>
               {activeTab === "records" ? (
                 <div className="grid gap-1.5">
                 {filteredRecords.length > 0 ? (
@@ -1067,7 +1075,7 @@ export function ProjectSidebar({
                         data-health={document.health}
                         data-context-open={isContextOpen || undefined}
                         tabIndex={0}
-                        aria-label={buildDocumentAriaLabel(document.baseName, tags)}
+                        aria-label={buildDocumentAriaLabel(document.baseName, tags, ownerId)}
                         onClick={(event) => handleDocumentClick(document, event)}
                         onMouseDownCapture={(event) => handleDocumentMouseDownCapture(document, event)}
                         onContextMenu={(event) => {
@@ -1227,7 +1235,7 @@ export function ProjectSidebar({
           </div>
 
           <DocumentContextTags
-            projectId={project.id}
+            projectId={ownerId}
             availableTags={projectTags}
             tags={effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags}
             loading={projectTagSettingsQuery.isLoading}
@@ -1239,7 +1247,7 @@ export function ProjectSidebar({
       {/* Import Dialog */}
       {pendingImportPaths ? (
         <DocumentImportTagDialog
-          projectId={project.id}
+          projectId={ownerId}
           paths={pendingImportPaths}
           tags={projectTags}
           selectedTagIds={pendingImportTagIds}
@@ -1267,12 +1275,12 @@ function TagPreview({ tags }: { tags: ProjectSidebarRecordItem["tags"] }) {
   );
 }
 
-function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[]) {
+function buildDocumentAriaLabel(baseName: string, tags: DocumentTagRecord[], projectId: number | null) {
   if (tags.length === 0) {
     return baseName;
   }
 
-  return `${baseName}，项目标签：${tags.map((tag) => tag.label).join("、")}`;
+  return `${baseName}，${projectId === null ? "工作区" : "项目"}标签：${tags.map((tag) => tag.label).join("、")}`;
 }
 
 function buildEffectiveDocumentTags(

@@ -1,3 +1,4 @@
+import { fileOwnerScope, sameFileOwner } from "../../lib/file-types";
 import { EditorLoading } from "./EditorLoading";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Code2, Eye, RefreshCw } from "lucide-react";
@@ -22,7 +23,7 @@ import {loadOfficeHost, preloadOfficeComponents} from "../office/office-componen
 
 export interface ProjectFileView { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceLocator?: NonNullable<AgentSourceRef["locator"]>; sourceMode?: boolean }
 export interface ProjectFileContentProps {
-  workspaceRoot: string; projectId: number; fileId: number; versionNumber?: number; line?: number; page?: number;
+  workspaceRoot: string; projectId: number | null; fileId: number; versionNumber?: number; line?: number; page?: number;
   fileName?: string;
   /** View for the selected File version; zoom 0 means fit width. */
   initialView?: { scrollTop?: number; zoom?: number };
@@ -48,7 +49,7 @@ export function projectFilePreviewKind(name: string, mime: string): Kind {
 }
 interface Loaded { resolveResource?: (reference:string) => Promise<string|undefined>; binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; reload: number; versions: FileVersionMetadata[]; signal: AbortSignal }
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
-  return a?.workspaceId === b.workspaceId && a.id === b.id && a.kind === b.kind && a.scope?.kind === "project" && b.scope.kind === "project" && a.scope.projectId === b.scope.projectId;
+  return a?.workspaceId === b.workspaceId && a.id === b.id && a.kind === b.kind && sameFileOwner(a.scope, b.scope);
 }
 function message(error: unknown): string {
   if (typeof error === "object" && error && "message" in error) return String(error.message);
@@ -183,7 +184,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     void (async () => {
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       signal.throwIfAborted();
-      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: fileOwnerScope(projectId), kind: "file", id: String(fileId) };
       const live = selection === undefined ? await projectFileApi.resolve(binding, object) : undefined;
       signal.throwIfAborted();
       prepareOffice(live?.name);
@@ -246,7 +247,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
           if (resolved.state !== "ready" || !resolved.contentHash) throw new Error(resolved.reason ?? "关联资源尚无完整已登记版本");
           const related = await projectFileApi.readBytes(binding, { object: resolved.object, versionNumber: resolved.versionNumber, expectedContentHash: resolved.contentHash });
           resourceSignal.throwIfAborted();
-          if (related.object.scope.kind !== "project" || related.object.scope.projectId !== projectId || related.object.workspaceId !== binding.workspaceId || related.versionNumber !== resolved.versionNumber || related.contentHash !== resolved.contentHash || !sameObject(related.object, resolved.object)) throw new Error("关联资源所属项目或版本不符");
+          if (!sameFileOwner(related.object.scope, object.scope) || related.object.workspaceId !== binding.workspaceId || related.versionNumber !== resolved.versionNumber || related.contentHash !== resolved.contentHash || !sameObject(related.object, resolved.object)) throw new Error("关联资源所属项目或版本不符");
           dependentIds.current.add(Number(related.object.id));
           const actual = fileBytes(related);
           if (actual.byteLength !== related.byteLength) throw new Error("关联资源字节不完整");
@@ -329,13 +330,13 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       if (editorFlush.current) await editorFlush.current();
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       controller.signal.throwIfAborted();
-      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: fileOwnerScope(projectId), kind: "file", id: String(fileId) };
       await projectFileApi.openLocal(binding, object);
       controller.signal.throwIfAborted();
     } catch (failure) { if (!controller.signal.aborted) setError(message(failure)); }
     finally { if (!controller.signal.aborted) { externalRequest.current = null; setOpening(false); } }
   }
-  return <section className="project-file-content" hidden={!visible} data-focused={focused || undefined} aria-label="项目文件预览">
+  return <section className="project-file-content" hidden={!visible} data-focused={focused || undefined} aria-label={projectId === null ? "工作区文件预览" : "项目文件预览"}>
     <header className="project-file-content__toolbar">
       {(valid?.kind === "office" || valid?.kind === "markdown") ? <span ref={setEditorMenu} className="project-file-content__file-menu" /> : null}
       <strong title={valid?.name}>{valid?.name ?? "文件"}</strong>

@@ -70,7 +70,7 @@ impl Database {
             UNION ALL SELECT 'project',id FROM projects WHERE id=?1 AND is_archived=0
             UNION ALL SELECT 'quick_note',id FROM projects WHERE id=?1 AND is_archived=0
             UNION ALL SELECT 'record',id FROM agent_visible_notes WHERE project_id=?1
-            UNION ALL SELECT 'file',id FROM agent_visible_files WHERE project_id=?1 AND storage_mode!='managed_note_image'
+            UNION ALL SELECT 'file',id FROM agent_visible_files WHERE project_id IS ?1 AND storage_mode!='managed_note_image'
             UNION ALL SELECT 'transcript',v.id FROM voice_records v LEFT JOIN agent_visible_notes n ON n.id=v.project_note_id LEFT JOIN agent_visible_workspace_notes w ON w.id=v.workspace_note_id WHERE (?1 IS NULL AND w.id IS NOT NULL) OR n.project_id=?1
             ), owned AS (SELECT kind,id,EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=?4 || '/' || ?5 || '/' || kind || '/' || CAST(id AS TEXT) AND x.excluded=1) AS excluded FROM catalogue)
             SELECT kind,id,excluded FROM owned WHERE (kind>?2 OR (kind=?2 AND id>?3)) AND (?7 OR excluded=0) ORDER BY kind,id LIMIT ?6").map_err(io_error)?;

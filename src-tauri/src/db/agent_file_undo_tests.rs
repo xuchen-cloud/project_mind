@@ -67,7 +67,8 @@ fn open_db(f: &Fixture) -> Database {
         .database()
         .unwrap()
 }
-fn fixture() -> Fixture {
+fn fixture() -> Fixture { fixture_scope(false) }
+fn fixture_scope(workspace: bool) -> Fixture {
     let root = tempfile::tempdir().unwrap();
     let canonical_root = root.path().canonicalize().unwrap();
     let (metadata, paths) = create_workspace(&canonical_root, "password").unwrap();
@@ -91,8 +92,8 @@ fn fixture() -> Fixture {
         scope_grant: ScopeGrant {
             object_keys: None,
             workspace_id: binding.workspace_id.clone(),
-            workspace_content: false,
-            project_ids: vec![project.id],
+            workspace_content: workspace,
+            project_ids: if workspace { vec![] } else { vec![project.id] },
             operations: [
                 "operation.read",
                 "operation.undo",
@@ -113,9 +114,7 @@ fn fixture() -> Fixture {
             .collect(),
         },
     };
-    let scope = Scope::Project {
-        project_id: project.id,
-    };
+    let scope = if workspace { Scope::Workspace } else { Scope::Project { project_id: project.id } };
     let session = db
         .agent_session_create(&request, &binding, &scope, "Files", "pi", None)
         .unwrap();
@@ -137,7 +136,7 @@ fn fixture() -> Fixture {
     };
     request.request_id = "stage-create".into();
     let input = AgentFileCreateInput {
-        project_id: project.id,
+        project_id: if workspace { None } else { Some(project.id) },
         safe_name: "result.txt".into(),
         utf8_content: "Before bytes\r\n".into(),
     };
@@ -1137,7 +1136,7 @@ fn file_creation_withdraw_rejects_metadata_external_bytes_and_incoming_reference
             _ => {
                 db.todo_create(TodoCreateInput {
                     scope: TodoScope::Project,
-                    project_id: Some(current.project_id),
+                    project_id: current.project_id,
                     content: format!("[[document:{id}|File result]]"),
                     priority: "normal".into(),
                     due_date: None,
@@ -1227,4 +1226,17 @@ fn file_undo_receipt_failure_rolls_back_original_state_sql_and_managed_bytes() {
             .undo_state,
         "available"
     );
+}
+
+#[test]
+fn workspace_file_group_undo_reads_actual_committed_chain() {
+    let f = fixture_scope(true);
+    let first = modify(&f);
+    let last = modify_text(&f, "Agent after", "Second result");
+    let result = crate::agent::file_undo::undo_file_group(&f.store, &f.request, &batch(&f, &[&first, &last])).unwrap();
+    assert_eq!((result.before_version_number, result.after_version_number), (3, 4));
+    let db = open_db(&f);
+    let file = db.document_record(file_id(&f.object).unwrap()).unwrap();
+    assert_eq!(file.project_id, None);
+    assert_eq!(fs::read(file.managed_path).unwrap(), b"Before bytes\r\n");
 }

@@ -82,3 +82,16 @@ it("paginates bounded logs and resets Workspace caches when history has expired"
   expect(client.getQueryState(queryKeys.contacts.all)?.isInvalidated).toBe(true);
   sync.stop(); client.clear();
 });
+
+it("refreshes Workspace File lists and versions without invalidating a Project's page", async () => {
+  const client = new QueryClient();
+  client.setQueryData(queryKeys.workspacePage, { workspaceDocuments: [] });
+  client.setQueryData(queryKeys.documentVersions(51), []);
+  client.setQueryData(queryKeys.projectPage(7), { projectDocuments: [] });
+  const sync = createBusinessChangeSync({ binding, queryClient: client, readChanges: async () => ({ entries: [change(1, null, "file", "51")], cursor: 1, hasMore: false, resetRequired: false }) });
+  await sync.catchUp();
+  expect(client.getQueryState(queryKeys.workspacePage)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.documentVersions(51))?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.projectPage(7))?.isInvalidated).toBe(false);
+  sync.stop(); client.clear();
+});

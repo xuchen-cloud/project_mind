@@ -1,3 +1,4 @@
+import { fileOwnerScope } from "../../lib/file-types";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentWorkspaceBinding } from "../../lib/agent-types";
@@ -29,7 +30,7 @@ export default function FileVersionHistory({ document, onClose }: { document: Do
     <p role={error ? "alert" : "status"}>{error ?? (root ? "正在读取工作区信息…" : "请先打开工作区，再查看文件历史。")}</p><Button type="button" onClick={onClose}>关闭</Button>
   </Dialog>;
   return <FileVersions key={`${binding.workspaceId}:${binding.generation}:${document.id}`} binding={binding}
-    object={{ workspaceId: binding.workspaceId, scope: { kind: "project", projectId: document.projectId }, kind: "file", id: String(document.id) }}
+    object={{ workspaceId: binding.workspaceId, scope: fileOwnerScope(document.projectId), kind: "file", id: String(document.id) }}
     title={document.baseName} mimeType={document.mimeType} onClose={onClose}
     onPreviewVersion={version => {
       if (!root) return;

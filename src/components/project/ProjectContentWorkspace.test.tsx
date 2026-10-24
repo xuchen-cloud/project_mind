@@ -7,7 +7,7 @@ import { AgentApiError } from "../../services/agentApi";
 import { desktopApi } from "../../services/desktopApi";
 import { RecordSaveCoordinator, RecordSaveFailure } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
-import { ProjectContentWorkspace } from "./ProjectContentWorkspace";
+import { ProjectContentWorkspace, contentTabRoute } from "./ProjectContentWorkspace";
 import { prepareProjectContentClose, prepareWorkspaceContentClose } from "../../lib/project-content-lifecycle";
 import { openProjectContent } from "../../services/projectContentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
@@ -20,7 +20,7 @@ import voiceRecordIcon from "../../assets/icons/voice-record-color.svg";
 import { setDshWorkspaceRoot } from "../../lib/dsh-host-events";
 import { getContentLayout } from "../../lib/project-content-layout";
 
-const page = vi.hoisted(() => ({ mounts: vi.fn(), guard: vi.fn(async (_projectId: number, _recordId: number) => undefined) }));
+const page = vi.hoisted(() => ({ mounts: vi.fn(), guard: vi.fn(async (_projectId: number | null, _recordId: number) => undefined) }));
 // Page internals are covered by WP3/4/5; exercise the real route, authority service and layout here.
 vi.mock("./ProjectNoteFocusPage", () => ({ ProjectNoteFocusPage: function RecordPage(props: {
   recordIdOverride: number; projectIdOverride: number; visible: boolean; focused: boolean;
@@ -33,6 +33,12 @@ vi.mock("./ProjectNoteFocusPage", () => ({ ProjectNoteFocusPage: function Record
     <input aria-label={`编辑${props.recordIdOverride}`} value={value} onChange={event => setValue(event.target.value)} />
   </section>;
 } }));
+vi.mock("../workspace/WorkspaceRecordFocusPage", () => ({ WorkspaceRecordFocusPage: function RecordPage(props: {
+  recordIdOverride: number; visible: boolean; focused: boolean; registerCloseGuard: (guard: () => Promise<void>) => () => void;
+}) {
+  useEffect(() => props.registerCloseGuard(() => page.guard(null, props.recordIdOverride)), [props.registerCloseGuard]);
+  return <section aria-label={`Workspace Record ${props.recordIdOverride}`} data-visible={String(props.visible)} data-focused={String(props.focused)} />;
+} }));
 vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: (props: { fileId: number; versionNumber?: number; line?: number; toolbarActions?: ReactNode }) =>
   <section aria-label="文件页"><header aria-label="文件工具栏">{props.toolbarActions}</header><p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p></section> }));
 vi.mock("../agent/ProjectSessionContent", () => ({ ProjectSessionContent: () => <section aria-label="会话正文" /> }));
@@ -44,11 +50,11 @@ vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOri
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { confirm: vi.fn() } }));
 const binding = { workspaceId: "workspace-tabs", generation: "open-1" };
 const workspaceRoot = "/tmp/tabs";
-function fixture(route = "/projects/7/records/1", client = new QueryClient({ defaultOptions: { queries: { retry: false } } }), coordinator?: RecordSaveCoordinator) {
+function fixture(route = "/projects/7/records/1", client = new QueryClient({ defaultOptions: { queries: { retry: false } } }), coordinator?: RecordSaveCoordinator, projectId: number | null = 7) {
   function Root() {
     const [active, setActive] = useState(true);
     return <><button onClick={() => setActive(value => !value)}>切换项目活动状态</button>
-      <ProjectContentWorkspace workspaceRoot={workspaceRoot} projectId={7} active={active} overview={() => <p>项目概览入口</p>} /></>;
+      <ProjectContentWorkspace workspaceRoot={workspaceRoot} projectId={projectId} active={active} overview={() => <p>项目概览入口</p>} /></>;
   }
   const router = createMemoryRouter([{ path: "*", element: <Root /> }], { initialEntries: [route] });
   render(<QueryClientProvider client={client}>{coordinator
@@ -317,4 +323,18 @@ it("places the File reference action inside its toolbar and omits the normal loc
   expect(reference).toBeDisabled();
   expect(screen.queryByRole("button",{name:"文件位置"})).toBeNull();
   expect(screen.queryByRole("combobox",{name:"目标会话"})).toBeNull();
+});
+
+
+it("uses the same layout and close guards for Workspace Record tabs", async () => {
+  const router = fixture("/workspace/records/1", undefined, undefined, null);
+  await screen.findByRole("tab", { name: /Record 1/ });
+  await screen.findByLabelText("Workspace Record 1");
+  expect(screen.getByRole("button", { name: "工作区首页" })).toBeInTheDocument();
+  await prepareWorkspaceContentClose(workspaceRoot);
+  expect(page.guard).toHaveBeenCalledWith(null, 1);
+  expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: binding.workspaceId, projectId: null }).tabs).toHaveLength(1);
+  expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: binding.workspaceId, projectId: 7 }).tabs).toHaveLength(0);
+  expect(contentTabRoute(null, { id: "session-tab", object: { kind: "session", id: "session", title: "Session" }, view: {} })).toBe("/workspace?content=session-tab");
+  expect(router.state.location.pathname).toBe("/workspace/records/1");
 });

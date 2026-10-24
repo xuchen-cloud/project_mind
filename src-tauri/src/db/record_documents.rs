@@ -1375,6 +1375,7 @@ impl Database {
                             )
                     } else {
                         std::path::Path::new(relative).starts_with("assets")
+                            || std::path::Path::new(relative).starts_with("files")
                             || std::path::Path::new(relative).starts_with(
                                 std::path::Path::new(super::WORKSPACE_HIDDEN_DIR_NAME)
                                     .join(super::PROJECT_NOTE_ASSET_DIR_NAME)
@@ -1419,12 +1420,12 @@ impl Database {
                             .query_row(
                                 "SELECT project_id,managed_path FROM documents WHERE id=?1",
                                 [id],
-                                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, String>(1)?)),
                             )
                             .optional()
                             .map_err(io_error)?;
                         if let Some((owner, path)) = owner {
-                            if *scope != (Scope::Project { project_id: owner }) {
+                            if *scope != super::file_scope::scope(owner) {
                                 return Err(AgentError::new(
                                     ErrorCode::ScopeDenied,
                                     "Managed document belongs to another scope",
@@ -2267,7 +2268,7 @@ mod tests {
         std::fs::write(&source, "managed-image").unwrap();
         let document = database
             .document_import(crate::models::DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,

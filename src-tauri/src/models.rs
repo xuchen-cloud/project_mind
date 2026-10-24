@@ -116,7 +116,7 @@ pub struct WorkspaceRecord {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentRecord {
     pub id: i64,
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub name: String,
     pub base_name: String,
     pub original_path: String,
@@ -475,6 +475,7 @@ pub struct ProjectPageData {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspacePageData {
+    pub workspace_documents: Vec<DocumentRecord>,
     pub quick_note: Option<WorkspaceRecord>,
     pub records: Vec<WorkspaceRecord>,
     pub unfinished_todos: Vec<TodoRecord>,
@@ -852,7 +853,7 @@ pub struct TodoDeleteInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentImportInput {
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub source_path: String,
     pub is_starred: bool,
     pub tag_ids: Option<Vec<i64>>,
@@ -861,7 +862,7 @@ pub struct DocumentImportInput {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentImportClipboardImageInput {
-    pub project_id: i64,
+    pub project_id: Option<i64>,
     pub file_name: String,
     pub mime_type: String,
     pub data_base64: String,

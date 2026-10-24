@@ -334,7 +334,7 @@ fn native_file_preflight_and_transaction_recheck_persisted_connection_grant() {
     assert!(grant.operations.iter().any(|op| op == "file.restore"));
     let request = db.agent_connection_authenticate(&binding, &grant.id, &token, "file-request").unwrap();
     let input = super::super::file_imports::AgentFileCreateInput {
-        project_id: 1, safe_name: "connection.txt".into(), utf8_content: "bytes".into(),
+        project_id: Some(1), safe_name: "connection.txt".into(), utf8_content: "bytes".into(),
     };
     db.agent_file_create_authorize(&request, &binding, &input).unwrap();
     db.agent_connection_require_live(&request, &binding, &Scope::Project { project_id: 1 }, "file.update").unwrap();

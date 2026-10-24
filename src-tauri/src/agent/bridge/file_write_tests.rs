@@ -322,3 +322,86 @@ async fn upload_staging_stops_after_withdrawal_or_source_exclusion() {
         assert!(f.store.db.lock().unwrap().file_version_committed_path(&absent).unwrap().is_none());
     }
 }
+
+#[test]
+fn workspace_cli_process_fixture() {
+    let Ok(raw) = std::env::var("MIND_WORKSPACE_CLI_TEST_ARGS") else { return; };
+    let args: Vec<String> = serde_json::from_str(&raw).unwrap();
+    let result = super::cli::run(&args);
+    println!("MIND_CLI_RESULT:{}", json!({"code":result.exit_code,"stdout":result.stdout,"stderr":result.stderr}));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn workspace_cli_creates_lists_replaces_versions_and_references_real_native_file() {
+    use super::transport::{BridgeCallFuture, BridgeHandler};
+    const WORKSPACE: &str = "33333333333333333333333333333333";
+    struct Handler(Arc<Fixture>);
+    impl BridgeHandler for Handler {
+        fn connect(&self, token: &str, input: super::protocol::ConnectInput) -> AgentResult<WorkspaceBinding> {
+            self.0.store.db.lock().unwrap().agent_connection_authenticate(&self.0.binding, &input.grant_id, token, &input.request_id)?;
+            Ok(self.0.binding.clone())
+        }
+        fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
+            Box::pin(async move { dispatch::execute(&self.0.store, &self.0.enabled, token, input, &Unused, &Unused).await })
+        }
+    }
+    let f = Arc::new(Fixture::new());
+    f.store.db.lock().unwrap().agent_connection_create(&f.binding, &ConnectionCreateInput {
+        all_projects: false, client_label: "Workspace CLI".into(), workspace_content: true,
+        project_ids: vec![], write_operations: vec!["content.create".into(), "file.update".into(), "file.restore".into(), "operation.undo".into()],
+    }, WORKSPACE, TOKEN).unwrap();
+    let discovery = f._root.path().join("cli-discovery.json");
+    let _running = super::transport::start(Arc::new(Handler(f.clone())), discovery.clone()).await.unwrap();
+    let workspace = f._root.path().canonicalize().unwrap();
+    let run = |words: Vec<String>, grant: &str| {
+        let mut args = words;
+        args.extend(["--workspace".into(), workspace.to_string_lossy().into(), "--connection".into(), grant.into(), "--json".into()]);
+        let discovery = discovery.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "agent::bridge::file_write_tests::workspace_cli_process_fixture", "--nocapture"])
+                    .env("PROJECT_MIND_CLI_DISCOVERY", discovery).env("PROJECT_MIND_CLI_TOKEN", TOKEN)
+                    .env("MIND_WORKSPACE_CLI_TEST_ARGS", serde_json::to_string(&args).unwrap()).output().unwrap();
+                assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+                let stdout = String::from_utf8(output.stdout).unwrap();
+                let result = stdout.lines().find_map(|line| line.strip_prefix("MIND_CLI_RESULT:")).expect(&stdout);
+                serde_json::from_str::<Value>(result).unwrap()
+            }).await.unwrap()
+        }
+    };
+    let external = tempfile::tempdir().unwrap();
+    let body = external.path().join("body.md");
+    fs::write(&body, "Original CLI bytes\n").unwrap();
+    let created = run(vec!["file".into(),"create".into(),"--workspace-scope".into(),"--name".into(),"cli.md".into(),"--body-file".into(),body.to_string_lossy().into(),"--request-id".into(),"cli-create".into()], WORKSPACE).await;
+    assert_eq!(created["code"], 0, "{created}");
+    let created: Value = serde_json::from_str(created["stdout"].as_str().unwrap()).unwrap();
+    let object = created["data"]["result"]["object"].clone();
+    assert_eq!(object["scope"], json!({"kind":"workspace"}));
+    let list_input = external.path().join("list.json");
+    fs::write(&list_input, serde_json::to_vec(&json!({"scope":{"kind":"workspace"}})).unwrap()).unwrap();
+    let listed = run(vec!["file".into(),"list".into(),"--input-file".into(),list_input.to_string_lossy().into()], WORKSPACE).await;
+    assert_eq!(listed["code"], 0, "{listed}");
+    let list: Value = serde_json::from_str(listed["stdout"].as_str().unwrap()).unwrap();
+    assert_eq!(list["data"]["items"][0]["object"], object);
+    let replaced = external.path().join("replaced.md");
+    fs::write(&replaced, "Replaced CLI bytes\n").unwrap();
+    let updated = run(vec!["file".into(),"update".into(),"--workspace-scope".into(),"--id".into(),object["id"].as_str().unwrap().into(),"--expected-version".into(),"1".into(),"--expected-hash".into(),created["data"]["result"]["contentHash"].as_str().unwrap().into(),"--source-file".into(),replaced.to_string_lossy().into(),"--request-id".into(),"cli-update".into()], WORKSPACE).await;
+    assert_eq!(updated["code"], 0, "{updated}");
+    let input = external.path().join("versions.json");
+    fs::write(&input, serde_json::to_vec(&json!({"object":object})).unwrap()).unwrap();
+    let versions = run(vec!["file".into(),"versions".into(),"list".into(),"--input-file".into(),input.to_string_lossy().into()], WORKSPACE).await;
+    assert_eq!(versions["code"], 0, "{versions}");
+    let versions: Value = serde_json::from_str(versions["stdout"].as_str().unwrap()).unwrap();
+    assert_eq!(versions["data"]["currentVersionNumber"], 2);
+    assert_eq!(versions["data"]["versions"].as_array().unwrap().len(), 2);
+    let references = run(vec!["reference".into(),"list".into(),"--kind".into(),"file".into(),"--id".into(),object["id"].as_str().unwrap().into(),"--direction".into(),"incoming".into(),"--workspace-scope".into()], WORKSPACE).await;
+    assert_eq!(references["code"], 0, "{references}");
+    let page = f.store.db.lock().unwrap().workspace_page_get().unwrap();
+    let saved = &page.workspace_documents[0];
+    assert_eq!(saved.project_id, None);
+    assert!(std::path::Path::new(&saved.managed_path).starts_with(workspace.join("files")));
+    assert_eq!(fs::read(&saved.managed_path).unwrap(), b"Replaced CLI bytes\n");
+    let denied = run(vec!["file".into(),"list".into(),"--input-file".into(),list_input.to_string_lossy().into()], GRANT).await;
+    assert_ne!(denied["code"], 0, "Project grant cannot read Workspace Files");
+}

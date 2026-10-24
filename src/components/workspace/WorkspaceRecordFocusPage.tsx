@@ -69,13 +69,24 @@ const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 export function WorkspaceRecordFocusPage({
   recordIdOverride,
   visible = true,
+  focused = visible,
+  embedded = false,
+  searchParamsOverride,
+  onBack,
+  registerCloseGuard,
 }: {
   recordIdOverride?: number;
   visible?: boolean;
+  focused?: boolean;
+  embedded?: boolean;
+  searchParamsOverride?: URLSearchParams;
+  onBack?: () => void;
+  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
 } = {}) {
   const navigate = useNavigate();
   const params = useParams();
-  const [searchParams] = useSearchParams();
+  const [routeSearchParams] = useSearchParams();
+  const searchParams = searchParamsOverride ?? routeSearchParams;
   const queryClient = useQueryClient();
   const workspaceSaveCoordinator = useRecordSaveCoordinator();
   const recordId = recordIdOverride ?? parseRouteId(params.noteId);
@@ -309,7 +320,7 @@ export function WorkspaceRecordFocusPage({
   }, [recordId, saveCoordinator]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible && !embedded) return;
     const handleRequest = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceRecordFocusSaveRequestDetail>).detail;
       if (!detail || detail.recordId !== recordId) return;
@@ -322,14 +333,11 @@ export function WorkspaceRecordFocusPage({
     };
     window.addEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
     return () => window.removeEventListener(WORKSPACE_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleRequest);
-  }, [draftReady, recordId, submitCurrentRecord, visible, isDiscarded, saveCoordinator, hydratedRecordKey]);
+  }, [draftReady, recordId, submitCurrentRecord, visible, embedded, isDiscarded, saveCoordinator, hydratedRecordKey]);
 
   useEffect(() => {
     if (recordId === null) return;
-    return registerWorkspaceRecordCloseGuard({
-      workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "",
-      recordId,
-      prepare: () => prepareClose(async () => {
+    const prepare = () => prepareClose(async () => {
         if (!draftReady) return;
         const recordKey = workspaceRecordSaveKey(recordId);
         const current = canonicalRef.current;
@@ -360,9 +368,11 @@ export function WorkspaceRecordFocusPage({
         if (editor.isBusy() || editor.getPendingAiReviewCount() > 0 || getDraftSignature() !== before) {
           throw new Error("记录仍在编辑，草稿已保留，请稍后再关闭");
         }
-      }),
+      });
+    return registerCloseGuard ? registerCloseGuard(prepare) : registerWorkspaceRecordCloseGuard({
+      workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", recordId, prepare,
     });
-  }, [recordId, saveCoordinator, currentWorkspace?.rootPath, prepareClose, draftReady,
+  }, [registerCloseGuard, recordId, saveCoordinator, currentWorkspace?.rootPath, prepareClose, draftReady,
     canonical.error, canonical.syncError, hydratedRecordKey, editingReady, getDraftSignature, submitCurrentRecord]);
 
   const handleSave = useCallback(
@@ -421,6 +431,7 @@ export function WorkspaceRecordFocusPage({
   }, [availableTags, content, note?.updatedAt, queryClient, saveCurrentRecord, tagIds, title]);
 
   const handleBack = () => {
+    if (onBack) { onBack(); return; }
     const target = draftReady
       ? `${workspacePath()}?view=record&focus=record-${recordId}`
       : `${workspacePath()}?view=record`;
@@ -530,7 +541,7 @@ export function WorkspaceRecordFocusPage({
       data-focus-page-key={`workspace:${recordId}`}
       data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
     >
-      {currentWorkspace ? (
+      {currentWorkspace && !embedded ? (
         <HomeNoteSidebar workspaceRoot={currentWorkspace.rootPath}
           onRenameRecord={renameWorkspaceSidebarRecord} onDeleteRecord={deleteWorkspaceSidebarRecord}
           records={workspacePageQuery.data?.records ?? []} activeRecordId={recordId}
@@ -661,7 +672,7 @@ export function WorkspaceRecordFocusPage({
                 }}
                 variant="page"
                 showToolbar={false}
-                autoFocus={visible && !hasSavedPosition && !sourceNavigation.requested}
+                autoFocus={visible && focused && !hasSavedPosition && !sourceNavigation.requested}
                 readOnly={!visible || !editingReady}
                 assetHandlers={workspaceAssetHandlers}
                 placeholder="写记录，正文里的 #标签 会自动同步。"

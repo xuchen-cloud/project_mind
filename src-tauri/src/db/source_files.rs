@@ -32,14 +32,14 @@ impl Database {
              WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='file'
              AND (NOT EXISTS(SELECT 1 FROM agent_visible_files d JOIN document_versions v ON v.document_id=d.id
                  JOIN source_file_version_hashes h ON h.document_version_id=v.id
-                 WHERE d.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id=?3
+                 WHERE d.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id IS ?3
                  AND d.storage_mode!='managed_note_image' AND v.version_number=s.version AND h.content_hash=s.revision)
                  OR EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1))",
             params![binding.workspace_id, scope.key(), project_id],
         ).map_err(storage_error)?;
         self.conn.execute(
             "UPDATE source_index_snapshots AS s SET is_current=EXISTS(SELECT 1 FROM agent_visible_files d
-             WHERE d.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id=?3 AND d.current_version_number=s.version)
+             WHERE d.id=CAST(json_extract(s.object_json,'$.id') AS INTEGER) AND CAST(d.id AS TEXT)=json_extract(s.object_json,'$.id') AND d.project_id IS ?3 AND d.current_version_number=s.version)
              WHERE s.workspace_id=?1 AND s.scope_key=?2 AND json_extract(s.object_json,'$.kind')='file'",
             params![binding.workspace_id, scope.key(), project_id],
         ).map_err(storage_error)?;
@@ -282,7 +282,7 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let file = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: path.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -585,7 +585,7 @@ mod tests {
             std::fs::write(&path, b"abc").unwrap();
             let hidden = db
                 .document_import(DocumentImportInput {
-                    project_id: private.id,
+                    project_id: Some(private.id),
                     source_path: path.to_string_lossy().into(),
                     is_starred: false,
                     tag_ids: None,
@@ -1319,7 +1319,7 @@ mod tests {
             std::fs::write(&source, b"abc").unwrap();
             let file = db
                 .document_import_legacy_fixture(DocumentImportInput {
-                    project_id: project.id,
+                    project_id: Some(project.id),
                     source_path: source.to_string_lossy().into(),
                     is_starred: false,
                     tag_ids: None,

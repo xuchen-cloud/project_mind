@@ -37,12 +37,20 @@ export async function installOfficeService(ctx,project,bridge) {
     exec.signal.throwIfAborted();
     return sessionId;
   }
+  const sourceParameter=structuredClone(sourceRefParameter);
+  if(project.kind==='workspace') {
+    const {required,...projectScope}=sourceParameter.properties.object.properties.scope;
+    sourceParameter.properties.object.properties.scope={required,oneOf:[
+      {type:'object',additionalProperties:false,properties:{kind:{type:'string',const:'workspace',required:true}}},
+      projectScope,
+    ]};
+  }
   const output={schema:{type:'json'},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]};
   const disposers=[];
   disposers.push(ctx.tools.register(defineTool({
     name:'file_office_inspect',
-    description:'读取当前项目中的 DOCX、XLSX 或 PPTX 文件，返回固定 File 版本与可编辑内容。先调用本工具，再使用返回的 sourceRef 和节点/单元格/文本运行位置调用 file_office_edit。保留图片和原格式部件；此工具不修改文件。',
-    parameters:{file_path:{type:'string',required:true,description:'项目文件相对路径，或已登记的固定 File token。'}},
+    description:'读取当前范围中的 DOCX、XLSX 或 PPTX 文件，返回固定 File 版本与可编辑内容。先调用本工具，再使用返回的 sourceRef 和节点/单元格/文本运行位置调用 file_office_edit。保留图片和原格式部件；此工具不修改文件。',
+    parameters:{file_path:{type:'string',required:true,description:'相对于会话目录的已管理文件路径：工作区自身文件用 files/，项目文件用实际项目目录前缀；也可使用已登记的固定 File token。'}},
     output,
     async execute(args,exec) {
       const sessionId=await owner(exec);
@@ -54,7 +62,7 @@ export async function installOfficeService(ctx,project,bridge) {
   disposers.push(ctx.tools.register(defineTool({
     name:'file_office_edit',
     description:'编辑并保存同一个 Office File，返回真实新版本与保存回执。source_ref 必须使用 file_office_inspect 返回的完整 sourceRef，旧版本/文件变化会拒绝覆盖。DOCX edits: {type:"text",nodeId,text,expectedText?}；XLSX: {sheetId,row,column,kind:"string"|"number"|"formula"|"blank",value?/formula?}，行列零基；PPTX: {kind:"text",slideIndex,cNvPrId,paragraphIndex,runIndex,text} 或 {kind:"move-image",slideIndex,cNvPrId,x,y}。仅简单内容修改，不能改字体、样式、页面结构。',
-    parameters:{source_ref:sourceRefParameter,edits:{type:'array',required:true,items:{type:'json'},description:'格式模块支持的编辑操作，最多 256 项。'}},
+    parameters:{source_ref:sourceParameter,edits:{type:'array',required:true,items:{type:'json'},description:'格式模块支持的编辑操作，最多 256 项。'}},
     output,
     async execute(args,exec) {
       const sessionId=await owner(exec);

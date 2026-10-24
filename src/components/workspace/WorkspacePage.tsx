@@ -1,5 +1,5 @@
 import { useQuery,useQueryClient } from "@tanstack/react-query";
-import { useCallback,useEffect,useMemo,useRef,useState } from "react";
+import { useCallback,useEffect,useMemo,useRef,useState, type ReactNode } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
 import { AgentLauncher } from "../agent/AgentLauncher";
@@ -54,6 +54,7 @@ import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
 interface WorkspacePageProps {
+  renderContent?: (overview: (visible: boolean) => ReactNode) => ReactNode;
   activeProjectIdOverride?: number | null;
   searchParamsOverride?: URLSearchParams;
   visible?: boolean;
@@ -65,6 +66,7 @@ interface WorkspacePageProps {
 
 export function WorkspacePage({
   activeProjectIdOverride,
+  renderContent,
   searchParamsOverride,
   visible = true,
   onSearchParamsOverride,
@@ -467,64 +469,12 @@ export function WorkspacePage({
     return <PageLoadingSkeleton variant="overview" label="正在加载工作区" />;
   }
 
-  return (
-    <div
-      className="home-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
-      data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
-    >
-      <WorkspaceOverviewSidebar
-        workspaceRootPath={currentWorkspace.rootPath}
-        availableTags={availableTags}
-        projects={visibleProjects}
-        archivedProjects={archivedProjects}
-        records={(workspacePage.records ?? []).map((record) => ({
-          id: record.id,
-          title: record.title,
-          contentMarkdown: record.contentMarkdown,
-          isVoice: record.isVoice,
-          tags: record.tags ?? [],
-          updatedAt: record.updatedAt,
-        }))}
-        activeRecordId={focusedRecordId}
-        recordQuery={recordSearchQuery}
-        onRecordQueryChange={setWorkspaceRecordQuery}
-        activeRecordTagId={recordFilterTagId}
-        onActiveRecordTagIdChange={setWorkspaceRecordTagId}
-        onOpenOverview={() => navigate(preserveRecordFilters(workspacePath(), searchParams))}
-        onOpenProject={(projectId) => {
-          void openProject(projectId);
-        }}
-        onPrefetchProject={prefetchProject}
-        onOpenProjectInNewWindow={(projectId) => {
-          void openProjectInNewWindow(projectId);
-        }}
-        onCreateProject={() => {
-          void createProjectQuickly();
-        }}
-        createProjectPending={createProjectMutation.isPending}
-        onOpenArchivedProject={(projectId) => {
-          void openProject(projectId);
-        }}
-        onRestoreArchivedProject={(projectId) => {
-          archiveMutation.mutate({ projectId, isArchived: false });
-        }}
-        onRenameProject={(project, name) => renameProject(project.id, name)}
-        onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
-        onDeleteProject={(project) => deleteProject(project.id)}
-        onOpenRecord={openRecord}
-        onFocusRecord={(recordId) =>
-          navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams))
-        }
-        onCreateRecord={() => void createWorkspaceRecordInFocus()}
-        onRenameRecord={(record, title) => renameWorkspaceSidebarRecord(record.id, title)}
-        onDeleteRecord={(record) => deleteWorkspaceSidebarRecord(record.id)}
-      />
-
+  const renderOverview = (overviewVisible: boolean) => (
       <div className="project-overview-focus flex-1" data-testid="workspace-overview-focus-page">
         <div className="project-overview-focus__scroll" data-testid="workspace-overview-focus-scroll">
           <div className="home-content">
             <HomeCover identityKey={`workspace:${currentWorkspace.rootPath}`} defaultIcon="House" title={currentWorkspace.displayName || "我的工作区"} />
-            <AgentLauncher scope={{ kind: "workspace" }} workspaceRoot={currentWorkspace.rootPath} visible={visible} />
+            <AgentLauncher scope={{ kind: "workspace" }} workspaceRoot={currentWorkspace.rootPath} visible={overviewVisible} />
             <HomeQuickNote
             pageTitle={currentWorkspace.displayName || "我的工作区"}
             pageIcon={<HomeIdentityIcon name="House" size={20} />}
@@ -549,7 +499,7 @@ export function WorkspacePage({
                   renderToolbarExtras={() => toolbarExtras}
                   contentIdentity="workspace-quick-note"
                   html={quickNoteDraft.html}
-                  readOnly={!visible || readOnly}
+                  readOnly={!overviewVisible || readOnly}
                   aiSettings={aiSettings}
                   defaultCodeLanguage={quickNoteCodeLanguage}
                   onDefaultCodeLanguageChange={setQuickNoteCodeLanguage}
@@ -617,12 +567,68 @@ export function WorkspacePage({
                 contactMentionOptions={contactMentionOptions}
                 onOpenInternalReference={openInternalReference as (reference: unknown) => Promise<boolean>}
                 assetHandlers={workspaceAssetHandlers}
-                active={visible}
+                active={overviewVisible}
                 recordFilters={searchParams}
               />
           </div>
         </div>
       </div>
+  );
+  return (
+    <div
+      className="home-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
+    >
+      <WorkspaceOverviewSidebar
+        workspaceRootPath={currentWorkspace.rootPath}
+        availableTags={availableTags}
+        projects={visibleProjects}
+        archivedProjects={archivedProjects}
+        documents={workspacePage.workspaceDocuments ?? []}
+        records={(workspacePage.records ?? []).map((record) => ({
+          id: record.id,
+          title: record.title,
+          contentMarkdown: record.contentMarkdown,
+          isVoice: record.isVoice,
+          tags: record.tags ?? [],
+          updatedAt: record.updatedAt,
+        }))}
+        activeRecordId={focusedRecordId}
+        recordQuery={recordSearchQuery}
+        onRecordQueryChange={setWorkspaceRecordQuery}
+        activeRecordTagId={recordFilterTagId}
+        onActiveRecordTagIdChange={setWorkspaceRecordTagId}
+        onOpenOverview={() => navigate(preserveRecordFilters(workspacePath(), searchParams))}
+        onOpenProject={(projectId) => {
+          void openProject(projectId);
+        }}
+        onPrefetchProject={prefetchProject}
+        onOpenProjectInNewWindow={(projectId) => {
+          void openProjectInNewWindow(projectId);
+        }}
+        onCreateProject={() => {
+          void createProjectQuickly();
+        }}
+        createProjectPending={createProjectMutation.isPending}
+        onOpenArchivedProject={(projectId) => {
+          void openProject(projectId);
+        }}
+        onRestoreArchivedProject={(projectId) => {
+          archiveMutation.mutate({ projectId, isArchived: false });
+        }}
+        onRenameProject={(project, name) => renameProject(project.id, name)}
+        onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
+        onDeleteProject={(project) => deleteProject(project.id)}
+        onOpenRecord={openRecord}
+        onFocusRecord={(recordId) =>
+          navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams))
+        }
+        onCreateRecord={() => void createWorkspaceRecordInFocus()}
+        onRenameRecord={(record, title) => renameWorkspaceSidebarRecord(record.id, title)}
+        onDeleteRecord={(record) => deleteWorkspaceSidebarRecord(record.id)}
+      />
+
+      {renderContent ? <div className="h-full min-h-0 min-w-0 flex-1">{renderContent(renderOverview)}</div> : renderOverview(visible)}
 
     </div>
   );

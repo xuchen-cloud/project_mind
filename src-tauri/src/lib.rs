@@ -550,6 +550,12 @@ fn with_db<T>(
     state: State<'_, AppState>,
     task: impl FnOnce(&mut Database) -> Result<T>,
 ) -> CommandResult<T> {
+    with_bound_db(state, None, task)
+}
+fn with_bound_db<T>(
+    state: State<'_, AppState>, binding: Option<&agent::models::WorkspaceBinding>,
+    task: impl FnOnce(&mut Database) -> Result<T>,
+) -> CommandResult<T> {
     let runtime = state
         .current_workspace()
         .map_err(|error| error.to_string())?;
@@ -558,6 +564,9 @@ fn with_db<T>(
         let current = lock_mutex(&state.current_workspace);
         if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &runtime)) {
             return Err("Workspace changed before the command acquired storage".into());
+        }
+        if binding.is_some_and(|expected| expected != &runtime.agent_binding) {
+            return Err("Workspace binding changed before File import".into());
         }
         let mut db = lock_mutex(&runtime.db);
         committed_changes::capture_native_committed(&runtime.agent_binding, &mut db, &request_id, task)
@@ -1227,18 +1236,18 @@ fn workspace_clipboard_note_image_import(
 
 #[tauri::command]
 fn document_import(
-    state: State<'_, AppState>,
-    input: DocumentImportInput,
+    state: State<'_, AppState>, input: DocumentImportInput, binding: Option<agent::models::WorkspaceBinding>,
 ) -> CommandResult<DocumentRecord> {
-    with_db(state, |db| db.document_import(input))
+    if input.project_id.is_none() && binding.is_none() { return Err("Workspace File import requires its current binding".into()); }
+    with_bound_db(state, binding.as_ref(), |db| db.document_import(input))
 }
 
 #[tauri::command]
 fn document_import_clipboard_image(
-    state: State<'_, AppState>,
-    input: DocumentImportClipboardImageInput,
+    state: State<'_, AppState>, input: DocumentImportClipboardImageInput, binding: Option<agent::models::WorkspaceBinding>,
 ) -> CommandResult<DocumentRecord> {
-    with_db(state, |db| db.document_import_clipboard_image(input))
+    if input.project_id.is_none() && binding.is_none() { return Err("Workspace File import requires its current binding".into()); }
+    with_bound_db(state, binding.as_ref(), |db| db.document_import_clipboard_image(input))
 }
 
 #[tauri::command]

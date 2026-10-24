@@ -87,3 +87,11 @@ describe("fixed File locator coordinates", () => {
     expect(resolveFixedFileLocator({ ...fixedFileSource, locator: null })).toEqual({});
   });
 });
+
+it("round-trips Workspace fixed File chips while retaining their original owner and evidence", () => {
+  const source = { ...fixedFileSource, object: { ...fixedFileSource.object, scope: { kind: "workspace" as const } } };
+  const reference = { refKind: "document" as const, refId: Number(source.object.id), label: "工作区材料", sourceRef: source };
+  const container = document.createElement("div");
+  container.innerHTML = buildInternalReferenceHtml(reference);
+  expect(readInternalReferenceElement(container.firstElementChild as HTMLElement)).toEqual(reference);
+});

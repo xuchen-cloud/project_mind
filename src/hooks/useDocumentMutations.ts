@@ -1,3 +1,4 @@
+import type { DocumentImportInput } from "../lib/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { commitDocumentVersion } from "../services/documentVersionAction";
 import { projectMindApi } from "../services/projectMindApi";
@@ -10,7 +11,7 @@ export function useDocumentMutations() {
   const { pushToast, setStatus } = useFeedbackStore();
 
   const documentImportMutation = useMutation({
-    mutationFn: projectMindApi.documentImport,
+    mutationFn: (input: DocumentImportInput) => projectMindApi.documentImport(input),
     onSuccess: async (document) => {
       setStatus({ tone: "success", label: "Imported", message: `文件 ${document.name} 已导入` });
       await Promise.all([

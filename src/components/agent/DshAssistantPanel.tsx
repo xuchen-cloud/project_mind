@@ -265,7 +265,7 @@ export function DshAssistantPanel({ open, expanded, workspaceRoot, projectId, on
       {error ? <div className="dsh-assistant__status" role="alert"><p>{error}</p><Button size="sm" disabled={runBusy}
         onClick={() => { setError(null); setAttempt(value => value + 1); }}>重试</Button></div> : !ready ? <p className="dsh-assistant__status" role="status">正在启动 DSH 助手…</p> : null}
       {ready && !error && onOpenSession ? <div className="dsh-assistant__directory">
-        <h3>项目会话</h3>{sessionList}
+        <h3>{sessionLabel}</h3>{sessionList}
       </div> : null}
       {ready && selectedSession && !onOpenSession ? <DshConversationHost key={syncedKey!} projectId={projectId} sessionId={selectedSession.id} focused={open} {...callbacks} /> : null}
     </div>

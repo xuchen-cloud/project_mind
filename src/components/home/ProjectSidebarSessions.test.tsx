@@ -382,12 +382,10 @@ it("cancels inline rename with Escape without saving", async () => {
   expect(api.manage).not.toHaveBeenCalled();
 });
 
-it("opens a real Workspace session in its persistent assistant panel without project content", async () => {
+it("opens a real Workspace session through the same content Tabs as Project sessions", async () => {
   render(component({ projectId: null }));
   fireEvent.click(await screen.findByRole("button", { name: "Alpha 方案" }));
-  await waitFor(() => expect(useAgentPanelStore.getState().open).toBe(true));
+  await waitFor(() => expect(api.open).toHaveBeenCalledWith(expect.objectContaining({ workspaceRoot: "/workspace", projectId: null, object: { kind: "session", id: "alpha", title: "Alpha 方案" } })));
   expect(api.selectSession).toHaveBeenCalledWith("alpha", null);
-  expect(api.open).not.toHaveBeenCalled();
-  expect(useAgentPanelStore.getState().workspaceSession?.id).toBe("alpha");
-  expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "workspace" });
+  expect(useAgentPanelStore.getState().open).toBe(false);
 });

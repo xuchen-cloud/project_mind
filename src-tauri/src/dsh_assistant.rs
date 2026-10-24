@@ -612,12 +612,19 @@ fn source_file_token(source: &crate::agent::models::SourceRef) -> Result<String,
     Ok(format!("mind-source/{encoded}/{label}"))
 }
 
+fn source_project_ids(db: &crate::db::Database, identity: &Identity) -> Result<Vec<i64>, String> {
+    match identity.project_id() {
+        Some(id) => Ok(vec![id]),
+        None => db.file_project_ids().map_err(|error| error.to_string()),
+    }
+}
+
 fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, id: &str, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize) -> Result<serde_json::Value, String> {
     use crate::agent::access::{Caller, RequestContext, ScopeGrant};
     if session_id.is_empty() || session_id.len() > 512 || session_id.chars().any(char::is_control)
         || id.is_empty() || id.len() > 128 || offset == 0 || offset > u32::MAX as usize || limit == 0 || limit > 2000 { return Err("Invalid source read range or identity".into()); }
     let input = source_file_input(db, identity, binding, path, fixed)?;
-    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project()?.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: identity.project_id().is_none(), project_ids: source_project_ids(db, identity)?, operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
     let (bytes, mut source_ref) = db.project_file_read_source(&request, binding, &input).map_err(|e| e.message)?;
     let bytes = BASE64.decode(bytes.base64).map_err(|_| "Invalid File snapshot")?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "Unsupported: File is not UTF-8 text; text source read is unavailable")?;
@@ -644,8 +651,8 @@ fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate
 }
 
 fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>) -> Result<crate::db::project_directory_files::FileBytesInput, String> {
-    use crate::agent::models::Scope;
-    let project = identity.project()?;
+    let owner = identity.project_id();
+    let project_ids = source_project_ids(db, identity)?;
     // A model can continue reading a persisted fixed File token. The embedded
     // object is still untrusted and passes the same native ownership/policy gate.
     let fixed = if fixed.is_none() {
@@ -655,13 +662,37 @@ fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &cr
         } else { None }
     } else { fixed };
     Ok(if let Some(source) = fixed {
-        if source.object.workspace_id != binding.workspace_id || source.object.scope != (Scope::Project { project_id: project.id }) { return Err("File belongs to another Project".into()); }
+        let allowed = match source.object.scope {
+            crate::agent::models::Scope::Workspace => owner.is_none(),
+            crate::agent::models::Scope::Project { project_id } => project_ids.contains(&project_id),
+        };
+        if source.object.workspace_id != binding.workspace_id || !allowed { return Err("File belongs to another scope".into()); }
         crate::db::project_directory_files::FileBytesInput { object: source.object, version_number: source.file_version.ok_or("Fixed File version required")?, expected_content_hash: source.revision }
     } else {
         let requested = Path::new(path.ok_or("File path required")?);
-        let relative = if requested.is_absolute() { requested.strip_prefix(&project.directory).map_err(|_| "File belongs to another Project")? } else { requested };
+        if requested.components().any(|component| matches!(component, std::path::Component::ParentDir)) { return Err("File path cannot traverse parent directories".into()); }
+        let absolute = if requested.is_absolute() { requested.to_path_buf() } else { identity.directory().join(requested) };
+        // Select registered Project ownership before validating only that root.
+        // A legacy Project named files continues to own its original directory.
+        let workspace_directory = identity.root.canonicalize().map_err(|error| error.to_string())?;
+        let mut roots = db.file_project_roots().map_err(|error| error.to_string())?;
+        roots.retain(|(id, _)| project_ids.contains(id));
+        let mut target = None;
+        for (id, root) in roots {
+            let session_root = root.strip_prefix(&identity.root).ok().map(|relative| workspace_directory.join(relative));
+            let relative = absolute.strip_prefix(&root).ok().or_else(|| session_root.as_ref().and_then(|root| absolute.strip_prefix(root).ok()));
+            if let Some(relative) = relative { target = Some((Some(id), relative.to_path_buf())); break; }
+        }
+        if target.is_none() && owner.is_none() {
+            let root = identity.directory().join("files");
+            let raw_root = identity.root.join("files");
+            if let Some(relative) = absolute.strip_prefix(&root).ok().or_else(|| absolute.strip_prefix(&raw_root).ok()) { target = Some((None, relative.to_path_buf())); }
+        }
+        let (file_owner, relative) = target.ok_or("File belongs to another scope")?;
+        let file_root = db.file_scope_root(file_owner).map_err(|error| error.to_string())?;
+        if file_owner.is_some() { canonical_project_directory(&identity.root, &file_root)?; }
         let relative = relative.to_str().ok_or("Invalid File path")?;
-        let file = db.project_file_register(&binding.workspace_id, project.id, relative).map_err(|e| e.to_string())?;
+        let file = db.project_file_register(&binding.workspace_id, file_owner, relative).map_err(|error| error.to_string())?;
         if file.state != "ready" { return Err(format!("File requires confirmation: {}", file.state)); }
         crate::db::project_directory_files::FileBytesInput { object: file.object, version_number: file.version_number, expected_content_hash: file.content_hash.ok_or("File version not ready")? }
     })
@@ -670,7 +701,7 @@ fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &cr
 fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, path: &str) -> Result<serde_json::Value, String> {
     use crate::agent::{access::{Caller, RequestContext, ScopeGrant}, models::SourceRef};
     let input = source_file_input(db, identity, binding, Some(path), None)?;
-    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project()?.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: identity.project_id().is_none(), project_ids: source_project_ids(db, identity)?, operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
     let actual = db.source_read_historical_file(&request, binding, &input.object).map_err(|e| e.message)?;
     request.authorize_object(binding, &input.object, &actual, "source.read").map_err(|e| e.message)?;
     let file = db.project_file_resolve(&input.object).map_err(|e| e.to_string())?;
@@ -682,7 +713,6 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
     let offices = office::OfficeBridge::new(app.clone(), identity.clone());
     Arc::new(move |payload, revoked, url, frame_id, alive| {
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
-        identity.project()?;
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
         if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
         let state = app.state::<crate::AppState>();
@@ -690,7 +720,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let runtime = current.as_ref().ok_or("Source Workspace closed")?;
         if !identity.matches_workspace(&runtime.agent_binding, &runtime.paths.root_path) || !runtime.ai_secrets_unlocked() { return Err("Source Workspace binding expired".into()); }
         let mut db = crate::lock_mutex(&runtime.db);
-        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project()?.id)? != *identity.project()? { return Err("Source Project binding changed".into()); }
+        identity.validate_context(&mut db, &runtime.paths.root_path)?;
         let result = match operation {
             SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
@@ -712,7 +742,7 @@ fn source_delivery(db: &crate::db::Database, identity: &Identity, binding: &crat
     let expected = source_prepare(db, identity, binding, session_id, &metadata.id, None, Some(metadata.source_ref.clone()), metadata.offset, metadata.requested_limit)?;
     if expected["projection"].as_str() != Some(projection) || format!("{:x}", Sha256::digest(projection.as_bytes())) != projection_hash { return Err("Source projection does not match fixed bytes".into()); }
     if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
-    db.dsh_record_source_evidence(binding, identity.project()?.id, session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
+    db.dsh_record_source_evidence(binding, identity.project_id(), session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
     if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
     Ok(())
 }
@@ -2485,6 +2515,54 @@ mod tests {
     }
 
     #[test]
+    fn workspace_source_bridge_uses_managed_files_and_rejects_project_or_root_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        let mut db = crate::db::Database::open(&canonical.join("sources.sqlite"), &canonical, None).unwrap();
+        db.bind_native_workspace("workspace-source").unwrap();
+        let file_root = db.ensure_file_scope_root(None).unwrap();
+        std::fs::write(file_root.join("fixed.txt"), "workspace fixed bytes").unwrap();
+        std::fs::write(canonical.join("private.txt"), "not a managed File").unwrap();
+        let identity = Identity { workspace_id: "workspace-source".into(), workspace_generation: "opened".into(), root: canonical.clone(), fingerprint: "model".into(), context: AssistantContext::Workspace { directory: canonical } };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: identity.workspace_id.clone(), generation: identity.workspace_generation.clone() };
+        let prepared = source_prepare(&db, &identity, &binding, "workspace-session", "workspace-read", Some("files/fixed.txt"), None, 1, 10).unwrap();
+        let source: crate::agent::models::SourceRef = serde_json::from_value(prepared["sourceRef"].clone()).unwrap();
+        assert_eq!(source.object.scope, crate::agent::models::Scope::Workspace);
+        assert_eq!(prepared["readValue"]["lines"][0]["text"], "workspace fixed bytes");
+        let projection = prepared["projection"].as_str().unwrap();
+        let hash = format!("{:x}", Sha256::digest(projection.as_bytes()));
+        source_delivery(&db, &identity, &binding, "workspace-session", "composer:workspace-read", projection, &hash, &AtomicBool::new(false)).unwrap();
+        assert!(source_prepare(&db, &identity, &binding, "workspace-session", "root-read", Some("private.txt"), None, 1, 10).is_err());
+        assert!(source_prepare(&db, &identity, &binding, "workspace-session", "escape-read", Some("files/../private.txt"), None, 1, 10).is_err());
+        let mut forged = source;
+        forged.object.scope = crate::agent::models::Scope::Project { project_id: 1 };
+        assert!(source_prepare(&db, &identity, &binding, "workspace-session", "foreign-read", None, Some(forged), 1, 10).is_err());
+    }
+
+    #[test]
+    fn workspace_source_selects_legacy_files_project_before_workspace_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        let db_path = canonical.join("source.sqlite");
+        let mut db = crate::db::Database::open(&db_path, &canonical, None).unwrap();
+        db.bind_native_workspace("legacy-source").unwrap();
+        let project = db.project_create(crate::models::ProjectCreateInput { name: "Legacy".into(), summary: None, status: None }).unwrap();
+        let legacy = canonical.join("files");
+        std::fs::rename(&project.root_path, &legacy).unwrap();
+        rusqlite::Connection::open(&db_path).unwrap().execute("UPDATE projects SET name='files',root_path=?1 WHERE id=?2", rusqlite::params![legacy.to_str().unwrap(), project.id]).unwrap();
+        std::fs::write(legacy.join("legacy.txt"), "existing Project bytes").unwrap();
+        let other = db.project_create(crate::models::ProjectCreateInput { name: "Other".into(), summary: None, status: None }).unwrap();
+        std::fs::write(std::path::Path::new(&other.root_path).join("other.txt"), "other Project bytes").unwrap();
+        assert!(db.file_scope_root(None).is_err());
+        let identity = Identity { workspace_id: "legacy-source".into(), workspace_generation: "open".into(), root: canonical.clone(), fingerprint: "model".into(), context: AssistantContext::Workspace { directory: canonical } };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: identity.workspace_id.clone(), generation: identity.workspace_generation.clone() };
+        for (path, id) in [("files/legacy.txt".to_owned(), project.id), (std::path::Path::new(&other.root_path).join("other.txt").to_string_lossy().into_owned(), other.id)] {
+            let value = source_prepare(&db, &identity, &binding, "session", "legacy-read", Some(&path), None, 1, 10).unwrap();
+            assert_eq!(value["sourceRef"]["object"]["scope"], serde_json::json!({"kind":"project","projectId":id}));
+        }
+    }
+
+    #[test]
     fn source_bridge_fixed_version_survives_live_replacement_and_rejects_forged_projection() {
         let root = tempfile::tempdir().unwrap();
         let mut db = crate::db::Database::open(&root.path().join("sources.sqlite"), root.path(), None).unwrap();
@@ -2570,18 +2648,25 @@ mod tests {
 
     #[tokio::test]
     async fn source_bridge_real_node_model_and_native_file_evidence() {
+        for (workspace, project_source) in [(false, true), (true, false), (true, true)] { source_bridge_real_scope_fixture(workspace, project_source).await; }
+    }
+
+    async fn source_bridge_real_scope_fixture(workspace: bool, project_source: bool) {
         use axum::{routing::post, Json, Router};
         let root = tempfile::tempdir().unwrap();
         let db_path = root.path().join("source.sqlite");
         let mut db = crate::db::Database::open(&db_path, root.path(), None).unwrap();
-        db.bind_native_workspace("native-source").unwrap();
+        db.bind_native_workspace("0123456789abcdef0123456789abcdef").unwrap();
         let project = db.project_create(crate::models::ProjectCreateInput { name: "Source".into(), summary: None, status: None }).unwrap();
-        let directory = PathBuf::from(&project.root_path);
-        std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
-        let file = db.project_file_register("native-source", project.id, "fixed.txt").unwrap();
+        let owner = if project_source { Some(project.id) } else { None };
+        let file_root = db.ensure_file_scope_root(owner).unwrap();
+        let directory = if workspace { root.path().canonicalize().unwrap() } else { PathBuf::from(&project.root_path) };
+        let live_path = if workspace && project_source { file_root.join("fixed.txt").to_string_lossy().into_owned() } else if workspace { "files/fixed.txt".into() } else { "fixed.txt".into() };
+        std::fs::write(file_root.join("fixed.txt"), "historical bytes\n").unwrap();
+        let file = db.project_file_register("0123456789abcdef0123456789abcdef", owner, "fixed.txt").unwrap();
         let fixed = crate::agent::models::SourceRef { object: file.object, revision: file.content_hash.unwrap(), file_version: Some(file.version_number), record_version: None, block_id: None, locator: None, title: "fixed.txt".into(), excerpt: String::new() };
-        let binding = crate::agent::models::WorkspaceBinding { workspace_id: "native-source".into(), generation: "open-source".into() };
-        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), context: AssistantContext::Project(ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() }) };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: "0123456789abcdef0123456789abcdef".into(), generation: "open-source".into() };
+        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), context: if workspace { AssistantContext::Workspace { directory: directory.clone() } } else { AssistantContext::Project(ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() }) } };
         let database = Arc::new(std::sync::Mutex::new(db));
         let shared = database.clone();
         let source_identity = identity.clone();
@@ -2601,9 +2686,11 @@ mod tests {
         let bodies = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
         let received = bodies.clone();
         let ptc_token = source_file_token(&fixed).unwrap();
+        let read_path = live_path.clone();
         let router = Router::new().route("/v1/chat/completions", post(move |Json(body): Json<serde_json::Value>| {
             let captured = received.clone();
             let ptc_token = ptc_token.clone();
+            let live_path = read_path.clone();
             async move {
                 crate::lock_mutex(&captured).push(body.clone());
                 let messages = body["messages"].as_array().unwrap();
@@ -2612,7 +2699,7 @@ mod tests {
                 let wants_ptc = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use PTC" || m["content"] == "Use PTC replaced");
                 let replaced = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use PTC replaced");
                 let delta = if wants_read && !has_tool {
-                    serde_json::json!({"tool_calls":[{"index":0,"id":"native-read-call","type":"function","function":{"name":"read","arguments":"{\"file_path\":\"fixed.txt\",\"offset\":1,\"limit\":1}"}}]})
+                    serde_json::json!({"tool_calls":[{"index":0,"id":"native-read-call","type":"function","function":{"name":"read","arguments":serde_json::json!({"file_path":live_path,"offset":1,"limit":1}).to_string()}}]})
                 } else if wants_ptc && !has_tool {
                     let args = serde_json::json!({"description":if replaced { "replace parent" } else { "fixed nested source" },"code":format!("await tools.read({{ file_path: {}, offset: 1, limit: 1 }}); return 'summary only';", serde_json::to_string(&ptc_token).unwrap())});
                     serde_json::json!({"tool_calls":[{"index":0,"id":if replaced {"native-ptc-replaced"} else {"native-ptc-call"},"type":"function","function":{"name":"run_code","arguments":args.to_string()}}]})
@@ -2635,7 +2722,9 @@ mod tests {
         command.arg(package.join("scripts/runtime.mjs")).args(["--embedded", "--port", "0", "--no-open"])
             .current_dir(&package).env("PROJECT_MIND_DSH_USER_DATA", root.path().join("runtime"))
             .env("PROJECT_MIND_DSH_PROFILE_DIR", root.path().join("profile"));
-        let config = serde_json::json!({"type":"configure","provider":{"name":"local","baseUrl":origin,"modelId":"local-test-model","apiKey":"local-integration-key","supportsImage":false},"project":{"id":project.id,"name":project.name,"directory":directory}});
+        let mut config = serde_json::json!({"type":"configure","provider":{"name":"local","baseUrl":origin,"modelId":"local-test-model","apiKey":"local-integration-key","supportsImage":false}});
+        if workspace { config["workspace"] = serde_json::json!({"id":binding.workspace_id,"name":"Workspace Source","directory":directory}); }
+        else { config["project"] = serde_json::json!({"id":project.id,"name":project.name,"directory":directory}); }
         let mut process = AssistantProcess::launch_with_source(command, &config, Some(handler)).await.unwrap();
         async fn rpc(process: &mut AssistantProcess, method: &str, request: serde_json::Value) -> serde_json::Value {
             authenticate(&process.url, &process.session_http, &mut process.session_cookie).await.unwrap();
@@ -2649,8 +2738,8 @@ mod tests {
             value["result"]["value"].clone()
         }
         let session = rpc(&mut process, "session/create", serde_json::json!({})).await["sessionId"].as_str().unwrap().to_owned();
-        let prepared = rpc(&mut process, "mind/source/prepare", serde_json::json!({"sessionId":session,"path":"fixed.txt","sourceRef":fixed})).await;
-        std::fs::write(directory.join("fixed.txt"), "current changed bytes\n").unwrap();
+        let prepared = rpc(&mut process, "mind/source/prepare", serde_json::json!({"sessionId":session,"path":live_path,"sourceRef":fixed})).await;
+        std::fs::write(file_root.join("fixed.txt"), "current changed bytes\n").unwrap();
         rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":prepared["projection"]}]})).await;
         let evidence = rusqlite::Connection::open(&db_path).unwrap();
         let count = || evidence.query_row("SELECT count(*) FROM agent_evidence", [], |row| row.get::<_,i64>(0)).unwrap();
@@ -2659,17 +2748,17 @@ mod tests {
         assert_eq!(count(), 1);
         // The changed live file has not been confirmed as a new File version;
         // read must surface that state instead of silently using path bytes.
-        std::fs::write(directory.join("tool.txt"), "actual tool bytes\n").unwrap();
+        std::fs::write(file_root.join("tool.txt"), "actual tool bytes\n").unwrap();
         // Restore the original registered target before the model-driven read.
-        std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
+        std::fs::write(file_root.join("fixed.txt"), "historical bytes\n").unwrap();
         rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use read"}]})).await;
-        tokio::time::timeout(Duration::from_secs(15), async { while count() < 2 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(15), async { while count() < 2 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap_or_else(|error| { let last = crate::lock_mutex(&bodies).last().cloned().unwrap(); panic!("workspace={workspace}: {error}; last tool messages={:?}",last["messages"].as_array().unwrap().iter().filter(|m|m["role"]=="tool").collect::<Vec<_>>()); });
         let rows: Vec<String> = evidence.prepare("SELECT locator_json FROM content_reference_edges WHERE relation='evidence'").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
         assert!(rows.iter().any(|row| row.contains("composer:")));
         assert!(rows.iter().any(|row| row.contains("read:")));
         assert!(rows.iter().all(|row| row.contains(&session)));
         // PTC consumes the exact historical token even after its live path changes.
-        std::fs::write(directory.join("fixed.txt"), "current replacement during PTC\n").unwrap();
+        std::fs::write(file_root.join("fixed.txt"), "current replacement during PTC\n").unwrap();
         rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use PTC"}]})).await;
         tokio::time::timeout(Duration::from_secs(15), async { while count() < 3 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
         let captured = crate::lock_mutex(&bodies).clone();

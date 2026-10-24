@@ -161,7 +161,7 @@ impl Fixture {
         std::fs::write(&path, EVIDENCE).unwrap();
         let file = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: path.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -318,7 +318,7 @@ async fn e16_local_scale_reads() {
             corpus_bytes += text.len();
             let path = f._root.path().join(format!("source-{number:03}.txt"));
             std::fs::write(&path, text.as_bytes()).unwrap();
-            db.document_import(DocumentImportInput { project_id: f.project_id,
+            db.document_import(DocumentImportInput { project_id: Some(f.project_id),
                 source_path: path.to_string_lossy().into(), is_starred: false, tag_ids: None }).unwrap();
         }
     }

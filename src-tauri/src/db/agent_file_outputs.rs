@@ -96,7 +96,7 @@ impl Database {
             };
             super::file_imports::validate_agent_file_create(&input)?;
             self.agent_file_create_authorize(request, binding, &input)?;
-            self.agent_connection_require_live(captured, binding, &Scope::Project { project_id: *project_id }, "content.create")?;
+            self.agent_connection_require_live(captured, binding, &super::file_scope::scope(*project_id), "content.create")?;
             return Ok(());
         }
         let (target, version, hash) = baseline(intent)?;
@@ -222,7 +222,7 @@ pub(crate) fn agent_file_output_receipt_committed(
     } else {
         let result: CommittedVersion = serde_json::from_str(result_json)
             .map_err(|_| invalid("Invalid File Version result"))?;
-        let project: i64 = tx
+        let project: Option<i64> = tx
             .query_row(
                 "SELECT project_id FROM documents WHERE id=?1",
                 [result.document_id],
@@ -239,9 +239,7 @@ pub(crate) fn agent_file_output_receipt_committed(
         };
         let object = ObjectRef {
             workspace_id: workspace,
-            scope: Scope::Project {
-                project_id: project,
-            },
+            scope: super::file_scope::scope(project),
             kind: ObjectKind::File,
             id: result.document_id.to_string(),
         };
@@ -291,12 +289,10 @@ pub(crate) fn agent_file_output_receipt_committed(
                 "File output ownership changed",
             ));
         }
-        let Scope::Project { project_id } = scope else {
-            return Err(invalid("File output requires a Project"));
-        };
+        let project_id = super::file_scope::owner(&scope);
         let live: bool = tx
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND is_archived=0)",
+                "SELECT ?1 IS NULL OR EXISTS(SELECT 1 FROM projects WHERE id=?1 AND is_archived=0)",
                 [project_id],
                 |r| r.get(0),
             )
@@ -514,7 +510,7 @@ mod tests {
     fn candidate(f: &Fixture) -> StageRecordInput {
         StageRecordInput {
             intent: OutputIntent::FileCreate {
-                project_id: f.project,
+                project_id: Some(f.project),
                 safe_name: "result.txt".into(),
                 utf8_content: "Approved body".into(),
             },
@@ -541,7 +537,7 @@ mod tests {
         native.request_id = prepared.commit_request_id;
         let fence = WorkspaceCommitFence::new();
         let wrong = AgentFileCreateInput {
-            project_id: f.project,
+            project_id: Some(f.project),
             safe_name: "result.txt".into(),
             utf8_content: "Different body".into(),
         };
@@ -595,7 +591,7 @@ mod tests {
                 &native,
                 &native.binding,
                 &AgentFileCreateInput {
-                    project_id: f.project,
+                    project_id: Some(f.project),
                     safe_name: "result.txt".into(),
                     utf8_content: "Approved body".into(),
                 },

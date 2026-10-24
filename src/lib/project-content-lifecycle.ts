@@ -1,8 +1,8 @@
-type ProjectCloseGuard = { workspaceRoot: string; projectId: number; prepare: () => Promise<void> };
+type ProjectCloseGuard = { workspaceRoot: string; projectId: number | null; prepare: () => Promise<void> };
 type WorkspaceRecordCloseGuard = { workspaceRoot: string; recordId: number; prepare: () => Promise<void> };
 const workspaceRecords = new Map<string, WorkspaceRecordCloseGuard>();
 const projects = new Map<string, ProjectCloseGuard>();
-const key = (workspaceRoot: string, projectId: number) => JSON.stringify([workspaceRoot, projectId]);
+const key = (workspaceRoot: string, projectId: number | null) => JSON.stringify([workspaceRoot, projectId]);
 
 /** Window-local guards retain actual editor ownership; no business content is stored here. */
 export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
@@ -10,7 +10,7 @@ export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
   projects.set(id, guard);
   return () => { if (projects.get(id) === guard) projects.delete(id); };
 }
-export async function prepareProjectContentClose(workspaceRoot: string, projectId: number) {
+export async function prepareProjectContentClose(workspaceRoot: string, projectId: number | null) {
   await projects.get(key(workspaceRoot, projectId))?.prepare();
 }
 export function registerWorkspaceRecordCloseGuard(guard: WorkspaceRecordCloseGuard) {

@@ -171,7 +171,7 @@ fn fixture() -> (tempfile::TempDir, Database, i64, PathBuf) {
     db.bind_native_workspace("wp1-workspace").unwrap();
     let project = db
         .project_create(ProjectCreateInput {
-            name: "Files".into(),
+            name: "Project files".into(),
             summary: None,
             status: None,
         })
@@ -196,7 +196,7 @@ fn bytes(db: &Database, file: &DirectoryFile) -> Vec<u8> {
 fn import_for_location(db: &mut Database, project: i64, source: &Path) -> ObjectRef {
     let imported = db
         .document_import(crate::models::DocumentImportInput {
-            project_id: project,
+            project_id: Some(project),
             source_path: source.to_string_lossy().into_owned(),
             is_starred: false,
             tag_ids: None,
@@ -1434,7 +1434,7 @@ fn directory_file_restore_crash_process_fixture() {
         serde_json::from_slice(&fs::read(root.join(".project-mind/restore-fixture.json")).unwrap())
             .unwrap();
     let mut db = directory_restore_crash_open(root);
-    let request = restore_request(file_id(&input.object).unwrap().0);
+    let request = restore_request(file_id(&input.object).unwrap().0.unwrap());
     let source = db
         .file_version_restore_source(&request, &request.binding, &input)
         .unwrap();
@@ -1474,7 +1474,7 @@ fn directory_file_restore_process_crashes_recover_all_durable_boundaries_and_ret
             1,
             "durable intent at stage {stage}"
         );
-        let live = root.path().join("Files/live.bin");
+        let live = root.path().join("Project files/live.bin");
         match stage {
             1 => assert_eq!(fs::read(&live).unwrap(), RESTORE_CURRENT_BYTES),
             2 => assert!(!live.exists()),
@@ -1514,7 +1514,7 @@ fn directory_file_restore_process_crashes_recover_all_durable_boundaries_and_ret
             expected_number
         );
         assert_eq!(db.committed_change_watermark().unwrap(), after_recovery);
-        let request = restore_request(file_id(&first.object).unwrap().0);
+        let request = restore_request(file_id(&first.object).unwrap().0.unwrap());
         let source = db
             .file_version_restore_source(&request, &request.binding, &input)
             .unwrap();
@@ -1581,9 +1581,9 @@ fn directory_file_restore_process_crashes_never_overwrite_foreign_live_files() {
             .unwrap();
         let journal: serde_json::Value = serde_json::from_str(&journal).unwrap();
         let backup = db.decode_path_ref(journal["backup"].as_str().unwrap());
-        let live = root.path().join("Files/live.bin");
+        let live = root.path().join("Project files/live.bin");
         if live.exists() {
-            fs::rename(&live, root.path().join("Files/displaced.bin")).unwrap();
+            fs::rename(&live, root.path().join("Project files/displaced.bin")).unwrap();
         }
         // An uncommitted recovery must not adopt a foreign physical identity.
         // After SQL committed, cleanup can finish before normal same-path
@@ -1706,7 +1706,7 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
         2
     );
     assert_eq!(
-        fs::read(root.path().join("Files/live.bin")).unwrap(),
+        fs::read(root.path().join("Project files/live.bin")).unwrap(),
         RESTORE_OLD_BYTES
     );
     child.kill().unwrap();
@@ -1725,7 +1725,7 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
     assert_eq!(recovered.state, "ready");
     assert_eq!(recovered.version_number, 2);
     assert_eq!(
-        fs::read(root.path().join("Files/live.bin")).unwrap(),
+        fs::read(root.path().join("Project files/live.bin")).unwrap(),
         RESTORE_CURRENT_BYTES
     );
     assert_eq!(bytes(&db, &first), RESTORE_OLD_BYTES);
@@ -1743,7 +1743,7 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
             .version_number,
         2
     );
-    let request = restore_request(file_id(&first.object).unwrap().0);
+    let request = restore_request(file_id(&first.object).unwrap().0.unwrap());
     let source = db
         .file_version_restore_source(&request, &request.binding, &input)
         .unwrap();
@@ -1775,7 +1775,7 @@ fn directory_file_restore_process_kill_during_sql_transaction_recovers_and_retri
         .committed
     );
     assert_eq!(
-        fs::read(root.path().join("Files/live.bin")).unwrap(),
+        fs::read(root.path().join("Project files/live.bin")).unwrap(),
         RESTORE_OLD_BYTES
     );
 }
@@ -2026,7 +2026,7 @@ fn hidden_register_and_import_rejected(relative: &str, native: Option<&str>) {
         hidden_set_native_attribute(&import_path.join(mark));
     }
     let imported = import_db.document_import(crate::models::DocumentImportInput {
-        project_id: import_project,
+        project_id: Some(import_project),
         source_path: import_path.join(relative).to_string_lossy().into_owned(),
         is_starred: false,
         tag_ids: None,

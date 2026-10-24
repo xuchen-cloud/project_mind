@@ -1,3 +1,4 @@
+import { fileOwnerScope, sameFileOwner } from "../../lib/file-types";
 import { useEffect, useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AgentObjectRef, AgentWorkspaceBinding } from "../../lib/agent-types";
@@ -11,7 +12,7 @@ import { HomeSidebarList } from "../home/HomeSidebarList";
 
 export interface ProjectFileIdentityActionsProps {
   workspaceRoot: string;
-  projectId: number;
+  projectId: number | null;
   fileId: number;
   visible: boolean;
   onChanged?: () => void;
@@ -25,7 +26,7 @@ function message(error: unknown) {
 }
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
   return a.workspaceId === b.workspaceId && a.kind === "file" && a.id === b.id
-    && a.scope.kind === "project" && b.scope.kind === "project" && a.scope.projectId === b.scope.projectId;
+    && sameFileOwner(a.scope, b.scope);
 }
 
 /** Location is metadata of this File, never a substitute for its stable identity. */
@@ -33,6 +34,7 @@ export function ProjectFileIdentityActions(props: ProjectFileIdentityActionsProp
   return <IdentityActions key={JSON.stringify([props.workspaceRoot, props.projectId, props.fileId])} {...props} />;
 }
 function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged }: ProjectFileIdentityActionsProps) {
+  const ownerLabel = projectId === null ? "工作区" : "项目";
   const client = useQueryClient();
   const panelId = useId();
   const [open, setOpen] = useState(false);
@@ -67,11 +69,11 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
   async function changed(controller: AbortController, binding: AgentWorkspaceBinding) {
     check(controller);
     await Promise.all([
-      client.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) }),
+      client.invalidateQueries({ queryKey: projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId) }),
       client.invalidateQueries({ queryKey: queryKeys.documentVersions(fileId) }),
     ]);
     await checkBinding(controller, binding);
-    notifyProjectFilesChanged(projectId);
+    notifyProjectFilesChanged(projectId, workspaceRoot);
     callback.current?.();
   }
   async function refresh() {
@@ -81,7 +83,7 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
     try {
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       check(controller);
-      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: fileOwnerScope(projectId), kind: "file", id: String(fileId) };
       const file = await projectFileApi.resolve(binding, object);
       check(controller); validate(file, object);
       await checkBinding(controller, binding);
@@ -144,15 +146,15 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
       <HomeSidebarList label="文件位置操作">
       <header><strong>文件位置</strong><button type="button" disabled={busy} onClick={() => void refresh()}>刷新核对</button></header>
       {busy ? <p role="status">正在核对文件…</p> : null}
-      {file ? <dl><dt>项目相对路径</dt><dd>{file.relativePath}</dd><dt>状态</dt><dd>{states[file.state]}</dd>
+      {file ? <dl><dt>{ownerLabel}相对路径</dt><dd>{file.relativePath}</dd><dt>状态</dt><dd>{states[file.state]}</dd>
         {file.reason ? <><dt>原因</dt><dd>{file.reason}</dd></> : null}
         <dt>最新已登记版本</dt><dd>{file.contentHash ? `v${file.versionNumber}` : "尚未登记可核验的版本"}</dd></dl> : null}
       <button type="button" disabled={busy || file?.state !== "ready"} onClick={() => void openCurrent()}>在本地打开当前文件</button>
       <p className="project-file-identity__hint">此面板用于核对当前位置；文件缺失或身份待确认时，已保留的历史版本和引用仍可读取。</p>
       {file && !file.contentHash ? <p>缺少已登记内容校验信息，暂不能移动或确认身份。读取失败或超出原生快照预算不会建立新版本。</p> : null}
       {file?.state === "ready" || needsConfirmation ? <>
-        <label>同项目目标相对路径<input value={target} disabled={busy} placeholder="例如：资料/说明.md" onChange={event => { setTarget(event.target.value); setReplacementConfirmed(false); }} /></label>
-        <p className="project-file-identity__hint">目标必须位于当前项目内。操作前会核对文件内容和版本。</p>
+        <label>同{ownerLabel}目标相对路径<input value={target} disabled={busy} placeholder="例如：资料/说明.md" onChange={event => { setTarget(event.target.value); setReplacementConfirmed(false); }} /></label>
+        <p className="project-file-identity__hint">目标必须位于当前{ownerLabel}内。操作前会核对文件内容和版本。</p>
         {file.state === "ready" ? <>
           <button type="button" disabled={!canWrite || !target.trim()} onClick={() => void perform("move")}>移动文件</button>
           <label>新文件名<input value={name} disabled={busy} onChange={event => setName(event.target.value)} /></label>

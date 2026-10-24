@@ -1,3 +1,4 @@
+import type { AgentObjectRef } from "../../lib/agent-types";
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -27,11 +28,13 @@ vi.mock('../markdown/MarkdownEditor', async () => {
         } };
 });
 const binding = { workspaceId: 'w', generation: 'g' };
-const object = { workspaceId: 'w', scope: { kind: 'project' as const, projectId: 2 }, kind: 'file' as const, id: '7' };
+const projectObject = { workspaceId: 'w', scope: { kind: 'project' as const, projectId: 2 }, kind: 'file' as const, id: '7' };
+let object: AgentObjectRef = projectObject;
 let current: number;
 function resolved() { return { object, relativePath: 'sample.md', name: 'sample.md', versionNumber: current, contentHash: `hash${current}`, state: 'ready' as const, reason: null }; }
 beforeEach(() => {
     vi.resetAllMocks();
+    object = projectObject;
     current = 2;
     vi.mocked(projectFileApi.applications).mockResolvedValue([]);
     vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
@@ -41,10 +44,10 @@ beforeEach(() => {
     vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, input) => { const text = input.versionNumber === 2 ? '原文' : '保留草稿'; return { object, versionNumber: input.versionNumber, contentHash: `hash${input.versionNumber}`, title: 'sample.md', byteLength: new TextEncoder().encode(text).byteLength, format: 'markdown', text, startChar: 0, endChar: [...text].length, totalChars: [...text].length, nextCursor: null, complete: true }; });
     vi.mocked(fileTextApi.save).mockImplementation(async () => { current = 3; return { receipt: { documentId: 7, versionNumber: 3, contentHash: 'hash3', noChange: false }, versionPath: null }; });
 });
-async function mount() {
+async function mount(projectId: number | null = 2) {
     const client = new QueryClient();
     let close: () => Promise<void> = async () => { };
-    const wrap = (visible = true) => <QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible={visible} focused registerCloseGuard={guard => { close = guard; return () => { }; }}/></QueryClientProvider>;
+    const wrap = (visible = true) => <QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={projectId} fileId={7} visible={visible} focused registerCloseGuard={guard => { close = guard; return () => { }; }}/></QueryClientProvider>;
     const view = render(wrap());
     return { ...view, client, wrap, close: () => close() };
 }
@@ -152,4 +155,14 @@ it.each(['ready', 'wrong-owner', 'oversize'] as const)('resolves a newly typed M
         expect(vi.mocked(projectFileApi.readBytes).mock.calls.filter(([, input]) => input.object.id === '8')).toHaveLength(1);
     }
     view.unmount();
+});
+
+it('edits a Workspace Markdown File and commits a new version through the shared fixed baseline', async () => {
+    object = { ...projectObject, scope: { kind: 'workspace' } };
+    const view = await mount(null);
+    await screen.findByText('原文');
+    fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
+    await act(() => view.close());
+    expect(fileTextApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({ object, versionNumber: 2, expectedContentHash: 'hash2', text: '保留草稿' }), expect.any(String));
+    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('v3');
 });

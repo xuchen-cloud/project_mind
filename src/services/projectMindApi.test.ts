@@ -374,6 +374,16 @@ describe("projectMindApi", () => {
     });
   });
 
+  it("binds Workspace File imports to the displayed Workspace generation", async () => {
+    const input = { projectId: null, sourcePath: "/tmp/plan.md", isStarred: false };
+    const binding = { workspaceId: "workspace", generation: "opened" };
+    await projectMindApi.documentImport(input, binding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_import", { input, binding });
+    const image = { projectId: null, fileName: "screen.png", mimeType: "image/png", dataBase64: "AA==", isStarred: false };
+    await projectMindApi.documentImportClipboardImage(image, binding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("document_import_clipboard_image", { input: image, binding });
+  });
+
   it("maps note image import to the dedicated command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({ id: 18 });
 

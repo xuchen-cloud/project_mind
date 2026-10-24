@@ -1,3 +1,4 @@
+import { fileOwnerScope } from "../../lib/file-types";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ExternalLink } from "lucide-react";
@@ -11,7 +12,7 @@ import { PopoverPanel } from "../../ui/components";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import "./file-open-with.css";
 
-interface Props { workspaceRoot: string; projectId: number; fileId: number; fileName?: string; visible: boolean; beforeOpen?: () => Promise<void>; onOpen: () => void; opening?: boolean; title?: string }
+interface Props { workspaceRoot: string; projectId: number | null; fileId: number; fileName?: string; visible: boolean; beforeOpen?: () => Promise<void>; onOpen: () => void; opening?: boolean; title?: string }
 
 /** Application choice always targets the current original, independent of the viewed version. */
 export function FileOpenWithButton({ workspaceRoot, projectId, fileId, fileName, visible, beforeOpen, onOpen, opening: defaultOpening = false, title }: Props) {
@@ -75,7 +76,7 @@ export function FileOpenWithButton({ workspaceRoot, projectId, fileId, fileName,
       lifetime.signal.throwIfAborted();
       const binding: AgentWorkspaceBinding = await recordDocumentApi.bindingGet(workspaceRoot);
       lifetime.signal.throwIfAborted();
-      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: { kind: "project", projectId }, kind: "file", id: String(fileId) };
+      const object: AgentObjectRef = { workspaceId: binding.workspaceId, scope: fileOwnerScope(projectId), kind: "file", id: String(fileId) };
       await projectFileApi.openWith(binding, object, applicationId);
       lifetime.signal.throwIfAborted();
       close(true);

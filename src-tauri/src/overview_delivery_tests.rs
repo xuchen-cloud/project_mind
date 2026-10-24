@@ -196,7 +196,7 @@ async fn file_rename_does_not_regenerate_workspace_parent() {
     std::fs::write(&path, "Unchanged file contents").unwrap();
     let file = {
         let mut db = f.store.db.lock().unwrap();
-        db.document_import(DocumentImportInput { project_id: a,
+        db.document_import(DocumentImportInput { project_id: Some(a),
             source_path: path.to_string_lossy().into(), is_starred: false, tag_ids: None }).unwrap()
     };
     publish_parent(&f, a, "file-parent", Some("Stable file parent"),

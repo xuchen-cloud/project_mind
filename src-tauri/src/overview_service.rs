@@ -1277,7 +1277,7 @@ mod tests {
             .lock()
             .unwrap()
             .document_import(crate::models::DocumentImportInput {
-                project_id,
+                project_id: Some(project_id),
                 source_path: selected.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,

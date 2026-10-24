@@ -2,9 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Clock, Plus } from "lucide-react";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
 import { dshScheduleApi, type DshScheduledTask, type DshScheduledTaskInput, type DshScheduleRule } from "../../services/dshScheduleApi";
+import { openProjectContent } from "../../services/projectContentApi";
 import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
 import { getErrorMessage } from "../../lib/errors";
 import { Button, Dialog, TextField } from "../../ui/components";
+import { useFocusedProjectContent } from "../home/useFocusedProjectContent";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import "./scheduled-tasks.css";
 
@@ -49,7 +51,7 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
   const saveRequest = useRef<{ payload: string; id: string } | null>(null);
   const loadVersion = useRef(0);
   const scopeKey = dshProjectRunKey(workspaceRoot, null);
-  const selected = useAgentPanelStore(state => state.workspaceSession);
+  const { activeSessionId } = useFocusedProjectContent(workspaceRoot, null);
   useLayoutEffect(() => { alive.current = open; return () => { alive.current = false; }; }, [open]);
   async function start() { await dshAssistantApi.start(scopeKey, null); }
   async function load() {
@@ -89,9 +91,8 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
         const saved = await dshScheduleApi.run(task.id, requestId);
         if (!alive.current) return;
         setTasks(values => values.map(value => value.id === saved.id ? saved : value));
-        await dshAssistantApi.selectSession(saved.sessionId, null);
+        await openProjectContent({ workspaceRoot, projectId: null, object: { kind: "session", id: saved.sessionId, title: sessions.find(session => session.id === saved.sessionId)?.title || saved.title } });
         if (!alive.current) return;
-        useAgentPanelStore.getState().selectWorkspaceSession(workspaceRoot, saved.sessionId, sessions.find(session => session.id === saved.sessionId)?.title || saved.title);
         runRequests.current.delete(task.id);
         setNotice(`“${saved.title}”已发送到原会话，可在会话中查看 AI 执行结果。`);
         onRunStarted?.();
@@ -102,7 +103,7 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
     saveRequest.current = null;
     setError(null);
     setEditing(task ?? null);
-    setDraft(task ? { title: task.title, prompt: task.prompt, sessionId: task.sessionId, enabled: task.enabled, rule: { ...task.rule, weekdays: task.rule.weekdays?.slice() } } : fresh(selected?.workspaceRoot === workspaceRoot && sessions.some(session => session.id === selected.id) ? selected.id : sessions[0]?.id ?? ""));
+    setDraft(task ? { title: task.title, prompt: task.prompt, sessionId: task.sessionId, enabled: task.enabled, rule: { ...task.rule, weekdays: task.rule.weekdays?.slice() } } : fresh(activeSessionId && sessions.some(session => session.id === activeSessionId) ? activeSessionId : sessions[0]?.id ?? ""));
   }
   function ruleKind(kind: DshScheduleRule["kind"]) {
     if (!draft) return;

@@ -1,5 +1,5 @@
 import { isDebugBuild } from "./lib/build-mode";
-import { ProjectContentWorkspace, projectContentTabRoute } from "./components/project/ProjectContentWorkspace";
+import { ProjectContentWorkspace, contentTabRoute } from "./components/project/ProjectContentWorkspace";
 import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
 import { prepareProjectContentClose, prepareWorkspaceContentClose } from "./lib/project-content-lifecycle";
 import { useFilePreviewStore } from "./state/file-preview-store";
@@ -73,10 +73,9 @@ import { useResidentProjectShells } from "./hooks/useResidentProjectShells";
 import { RESIDENT_PROJECT_QUERY_OPTIONS } from "./lib/resident-pages";
 import { useResidentWorkspacePage } from "./hooks/useResidentWorkspacePage";
 import { createTodoModule, productionTodoTransport } from "./todo/todo-module";
-import {
-  ProjectSidebar,
-  type ProjectSidebarDocumentItem,
-  type ProjectSidebarRecordItem,
+import type {
+  ProjectSidebarDocumentItem,
+  ProjectSidebarRecordItem,
 } from "./components/layout/ProjectSidebar";
 import { RightSidebar } from "./components/layout/RightSidebar";
 import { WorkspaceTodoRail } from "./components/layout/WorkspaceTodoRail";
@@ -100,6 +99,7 @@ import {
   RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
 
+const ProjectSidebar = lazy(() => import("./components/layout/ProjectSidebar").then(module => ({ default: module.ProjectSidebar })));
 const HomeProjectSidebar = lazy(() => import("./components/home/HomeProjectSidebar").then(module => ({ default: module.HomeProjectSidebar })));
 const SettingsDialog = lazy(() =>
   import("./components/settings/SettingsDialog").then(module => ({ default: module.SettingsDialog })),
@@ -183,7 +183,7 @@ export function workspaceSearchResultRoute(result: WorkspaceSearchResult) {
         ? `${workspacePath()}?focus=todo-${result.id}`
         : projectPath(result.projectId, `todo-${result.id}`);
     case "document":
-      return projectPath(result.projectId);
+      return result.projectId === null ? workspacePath() : projectPath(result.projectId);
   }
 }
 
@@ -325,8 +325,8 @@ export function WorkspaceLayout({
     const open = (event: Event) => {
       const request = (event as CustomEvent<ProjectContentOpenResult>).detail;
       if (!request || request.workspaceRoot !== currentWorkspace?.rootPath) return;
-      openProjectTab(request.scope.projectId);
-      navigate(projectContentTabRoute(request.scope.projectId, { id: request.tabId, object: request.object, view: request.view ?? {} }));
+      if (request.scope.projectId !== null) openProjectTab(request.scope.projectId);
+      navigate(contentTabRoute(request.scope.projectId, { id: request.tabId, object: request.object, view: request.view ?? {} }));
     };
     window.addEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
     return () => window.removeEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
@@ -1069,14 +1069,12 @@ export function WorkspaceLayout({
           }
           navigate(route);
         }
+      } else if (result.kind === "document" && currentWorkspace) {
+        try {
+          await openProjectContent({ workspaceRoot: currentWorkspace.rootPath, projectId: result.projectId,
+            object: { kind: "file", id: result.id, title: result.title } });
+        } catch (reason) { pushToast({ tone: "error", title: "打开文件失败", detail: String(reason) }); }
       } else if (result.projectId !== null) {
-        if (result.kind === "document" && currentWorkspace) {
-          try {
-            await openProjectContent({ workspaceRoot: currentWorkspace.rootPath, projectId: result.projectId,
-              object: { kind: "file", id: result.id, title: result.title } });
-          } catch (reason) { pushToast({ tone: "error", title: "打开文件失败", detail: String(reason) }); }
-          return;
-        }
         const route = workspaceSearchResultRoute(result);
         if (route) {
           if (result.kind === "todo") {
@@ -1200,7 +1198,7 @@ export function WorkspaceLayout({
   }, [activeProjectId, openProjectTab]);
 
   const workspaceOverviewResident = useResidentWorkspacePage({
-    active: workspaceOverviewActive,
+    active: workspaceOverviewActive || activeRecordFocusRoute?.kind === "workspace",
     enabled: cacheProjectOverviewPages,
     workspaceKey: currentWorkspace?.rootPath ?? null,
   });
@@ -1493,12 +1491,12 @@ export function WorkspaceLayout({
         aria-hidden={workspaceResidentShellActive ? undefined : true}
         inert={!workspaceResidentShellActive}
       >
-        {workspaceOverviewActive || workspaceOverviewResident ? (
+        {workspaceResidentShellActive || workspaceOverviewResident ? (
           <div
             className="h-full min-h-0"
-            style={{ display: workspaceOverviewActive ? undefined : "none" }}
-            aria-hidden={workspaceOverviewActive ? undefined : true}
-            inert={!workspaceOverviewActive}
+            style={{ display: workspaceResidentShellActive ? undefined : "none" }}
+            aria-hidden={workspaceResidentShellActive ? undefined : true}
+            inert={!workspaceResidentShellActive}
           >
             <WorkspacePage
               key={currentWorkspace.rootPath}
@@ -1508,7 +1506,9 @@ export function WorkspaceLayout({
                   ? `${location.pathname}${location.search}`
                   : workspaceOverviewRoute,
               )}
-              visible={workspaceOverviewActive}
+              visible={workspaceResidentShellActive}
+              renderContent={overview => <ProjectContentWorkspace workspaceRoot={currentWorkspace.rootPath} projectId={null}
+                active={workspaceResidentShellActive} overview={overview} />}
               onSearchParamsOverride={(nextSearchParams, options) => {
                 const nextRoute = buildWorkspaceOverviewRoute(nextSearchParams);
                 setWorkspaceOverviewRoute(nextRoute);
@@ -1520,7 +1520,6 @@ export function WorkspaceLayout({
             />
           </div>
         ) : null}
-        <RecordFocusResidentPages projectId={null} />
       </div>
     ) : null;
   const cachedProjectResidentShells =
@@ -1606,7 +1605,7 @@ export function WorkspaceLayout({
             onRenameRecord={async (id, title) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await renameProjectSidebarRecord(record, title); }}
             onDeleteRecord={async (id) => { const record = projectSidebarRecords.find(record => record.id === id); if (record) await deleteProjectSidebarRecord(record); }} /></Suspense>
         ) : showProjectSidebarShell ? (
-          <ProjectSidebar
+          <Suspense fallback={<aside className="home-side" aria-label="项目导航侧边栏"><p role="status" className="home-side__empty">正在加载项目文件…</p></aside>}><ProjectSidebar
             project={{
               id: activeProject.id,
               name: activeProject.name,
@@ -1665,7 +1664,7 @@ export function WorkspaceLayout({
                 });
               });
             }}
-          />
+          /></Suspense>
         ) : null}
 
         <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>

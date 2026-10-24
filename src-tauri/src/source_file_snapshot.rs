@@ -3,7 +3,7 @@
 //! and current policy before capture, then recheck its binding and version.
 use crate::agent::{
     errors::{AgentError, AgentResult, ErrorCode},
-    models::{ObjectKind, ObjectRef, Scope},
+    models::{ObjectKind, ObjectRef},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -174,7 +174,6 @@ pub(crate) fn capture_file_update(plan: &FileReadPlan) -> AgentResult<FileByteSn
 fn capture_sync_bounded(plan: &FileReadPlan, limit: usize) -> AgentResult<FileByteSnapshot> {
     plan.object.key()?;
     if plan.object.kind != ObjectKind::File
-        || !matches!(plan.object.scope, Scope::Project { .. })
         || !plan
             .object
             .id

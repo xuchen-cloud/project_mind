@@ -35,7 +35,7 @@ fn workspace_history_is_stable_separate_and_preserves_existing_project_paths() {
 }
 
 #[test]
-fn workspace_identity_uses_workspace_directory_without_project_file_grants() {
+fn workspace_identity_uses_workspace_directory_and_registered_project_file_ownership() {
     let root = tempfile::tempdir().unwrap();
     let identity = Identity {
         workspace_id: "workspace-a".into(),
@@ -49,17 +49,20 @@ fn workspace_identity_uses_workspace_directory_without_project_file_grants() {
     assert_eq!(identity.project_id(), None);
     assert_eq!(identity.directory(), root.path());
     assert!(identity.project().is_err());
-    let db = crate::db::Database::open(&root.path().join("workspace.sqlite"), root.path(), None)
+    let mut db = crate::db::Database::open(&root.path().join("workspace.sqlite"), root.path(), None)
         .unwrap();
+    db.bind_native_workspace("workspace-a").unwrap();
+    let project = db.project_create(crate::models::ProjectCreateInput {
+        name: "Registered".into(), summary: None, status: None,
+    }).unwrap();
+    let file = std::path::Path::new(&project.root_path).join("file.txt");
+    std::fs::write(&file, "registered Project content").unwrap();
     let binding = crate::agent::models::WorkspaceBinding {
         workspace_id: "workspace-a".into(),
         generation: "open-a".into(),
     };
-    assert!(
-        source_file_input(&db, &identity, &binding, Some("project/file.txt"), None)
-            .unwrap_err()
-            .contains("项目范围")
-    );
+    assert!(source_file_input(&db, &identity, &binding, file.to_str(), None).is_ok());
+    assert!(source_file_input(&db, &identity, &binding, Some("unknown-project/file.txt"), None).is_err());
     assert!(identity.matches_workspace(&binding, root.path()));
     assert!(!identity.matches_workspace(
         &crate::agent::models::WorkspaceBinding {

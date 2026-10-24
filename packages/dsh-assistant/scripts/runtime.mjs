@@ -87,7 +87,7 @@ try {
     if (embedded) {
       installSharedCredential(host, sharedModel);
       mindCli = installMindCli(host, context, cli, sourceBridge);
-      if (context.kind === 'project') installSourceTitles(host);
+      installSourceTitles(host);
     }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });
   });
@@ -98,7 +98,7 @@ try {
   if (embedded) {
     await bindContext(ctx, context);
     await installScheduledTasks(ctx, context, home);
-    if (context.kind === 'project') {
+    {
       await installSourceService(ctx, context, sourceBridge);
       await installOfficeService(ctx, context, sourceBridge);
       await installOfficeSelectionService(ctx, context, sourceBridge);

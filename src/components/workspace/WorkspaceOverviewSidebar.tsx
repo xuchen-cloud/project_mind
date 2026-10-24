@@ -1,5 +1,5 @@
 import { LazySidebarSessions } from "../home/LazySidebarSessions";
-import { useAgentPanelStore } from "../../state/agent-panel-store";
+import { useFocusedProjectContent } from "../home/useFocusedProjectContent";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "../home/SidebarTagItem";
 import { HomeSidebarList } from "../home/HomeSidebarList";
@@ -16,10 +16,10 @@ Pencil,
 Plus,
 Trash2
 } from "lucide-react";
-import { useMemo,useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 
 import noriBust from "../../assets/home/nori-bust.png";
-import type { ProjectListItem,TagColorKey } from "../../lib/types";
+import type { DocumentRecord,ProjectListItem,TagColorKey } from "../../lib/types";
 import {
 PROJECT_SIDEBAR_WIDTH_MAX_PX,
 PROJECT_SIDEBAR_WIDTH_MIN_PX,
@@ -35,7 +35,10 @@ type ContextMenuAction
 } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import "../home/project-navigation.css";
+
 import "./workspace-navigation.css";
+
+const HomeProjectFiles = lazy(() => import("../home/HomeProjectFiles").then(module => ({ default: module.HomeProjectFiles })));
 
 export interface WorkspaceOverviewSidebarRecordItem {
   id: number;
@@ -51,6 +54,7 @@ interface WorkspaceOverviewSidebarProps {
   projects: ProjectListItem[];
   archivedProjects: ProjectListItem[];
   records: WorkspaceOverviewSidebarRecordItem[];
+  documents?: DocumentRecord[];
   availableTags?: Array<{ id: number; label: string; colorKey: TagColorKey }>;
   activeRecordId?: number | null;
   recordQuery: string;
@@ -85,6 +89,7 @@ export function WorkspaceOverviewSidebar({
   projects,
   archivedProjects,
   records,
+  documents = [],
   availableTags = [],
   activeRecordId,
   recordQuery,
@@ -108,7 +113,8 @@ export function WorkspaceOverviewSidebar({
   onRenameRecord,
   onDeleteRecord,
 }: WorkspaceOverviewSidebarProps) {
-  const workspaceSession = useAgentPanelStore(state => state.workspaceSession);
+  const focused = useFocusedProjectContent(workspaceRootPath, null);
+  const selectedRecordId = focused.activeRecordId ?? activeRecordId;
   const {
     projectSidebarCollapsed,
     projectSidebarWidthPx,
@@ -322,7 +328,8 @@ export function WorkspaceOverviewSidebar({
                 )}
               </HomeSidebarList>
 
-        </>} middle={<LazySidebarSessions workspaceRoot={workspaceRootPath} projectId={null} query="" enabled={!!workspaceRootPath} activeSessionId={workspaceSession?.workspaceRoot === workspaceRootPath ? workspaceSession.id : null} />} lower={<>
+        </>} middle={<LazySidebarSessions workspaceRoot={workspaceRootPath} projectId={null} query="" enabled={!!workspaceRootPath} activeSessionId={focused.activeSessionId} />} lower={<>
+
           <div className="home-side__heading">
             <span>记录</span>
             <button type="button" className="home-side__workspace-action" aria-label="新增工作区记录" title="新增记录" onClick={onCreateRecord}><Plus size={13} /></button>
@@ -340,8 +347,8 @@ export function WorkspaceOverviewSidebar({
           </section>
           <HomeSidebarList label="工作区记录列表" searchKey={`${recordQuery}:${activeRecordTagId}`}>
             {filteredRecords.map((record) => (
-              <button key={record.id} type="button" className={cn("home-side__item", record.id === activeRecordId && "is-active")}
-                aria-current={record.id === activeRecordId ? "page" : undefined}
+              <button key={record.id} type="button" className={cn("home-side__item", record.id === selectedRecordId && "is-active")}
+                aria-current={record.id === selectedRecordId ? "page" : undefined}
                 title={record.title?.trim() || "未命名记录"} onClick={() => onOpenRecord(record.id)}>
                 <RecordIcon size={16} isVoice={record.isVoice} />
                 <span>{record.title?.trim() || "未命名记录"}</span>
@@ -349,7 +356,8 @@ export function WorkspaceOverviewSidebar({
             ))}
             {!filteredRecords.length ? <p className="home-side__empty">{recordQuery.trim() || activeRecordTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
           </HomeSidebarList>
-        </>} />
+        </>} bottom={<Suspense fallback={<p role="status" className="home-side__empty">正在加载文件…</p>}><HomeProjectFiles fileScope={{ workspaceRoot: workspaceRootPath, projectId: null, rootPath: `${workspaceRootPath.replace(/[\\/]+$/, "")}/files`, name: "工作区" }}
+            documents={documents} activeFileId={focused.activeFileId} activeRelativePath={focused.activeRelativePath} filter={{ query: recordQuery, tagId: activeRecordTagId }} /></Suspense>} />
 
       <HomeSidebarFooter onOpenArchivedProjects={() => setArchiveDialogOpen(true)} />
       {projectContextMenu ? (

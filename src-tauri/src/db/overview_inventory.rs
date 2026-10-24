@@ -414,7 +414,7 @@ mod tests {
         let source = root.path().join("source.md");
         std::fs::write(&source, "file raw body").unwrap();
         db.document_import(DocumentImportInput {
-            project_id: project_id(&scope),
+            project_id: Some(project_id(&scope)),
             source_path: source.to_string_lossy().into_owned(),
             is_starred: false,
             tag_ids: None,
@@ -463,7 +463,7 @@ mod tests {
         std::fs::write(&source, "late file").unwrap();
         let file = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into_owned(),
                 is_starred: false,
                 tag_ids: None,

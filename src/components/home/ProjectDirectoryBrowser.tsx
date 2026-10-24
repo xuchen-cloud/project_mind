@@ -8,14 +8,14 @@ import { projectMindApi } from "../../services/projectMindApi";
 import type { WorkspaceStatusSnapshot } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { getErrorMessage } from "../../lib/errors";
-import { projectFilePathMatches, openProjectFilePreview, useProjectFileNavigation } from "../../lib/project-file-navigation";
+import { fileNavigationScopeKey, projectFilePathMatches, openProjectFilePreview, useProjectFileNavigation } from "../../lib/project-file-navigation";
 import { projectDirectoryApi } from "../../services/projectDirectoryApi";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { FileIcon } from "../document/FileIcon";
 import "./project-directory.css";
 
-function DirectoryBranch({ projectId, rootPath, relativePath, depth, revision, activeRelativePath, onFileContextMenu, renderRenameInput }: {
-  projectId: number; rootPath: string; relativePath: string; depth: number; revision: number; activeRelativePath?: string | null;
+function DirectoryBranch({ projectId, workspaceRoot, rootPath, relativePath, depth, revision, activeRelativePath, onFileContextMenu, renderRenameInput }: {
+  projectId: number | null; workspaceRoot?: string; rootPath: string; relativePath: string; depth: number; revision: number; activeRelativePath?: string | null;
   onFileContextMenu: (path: string, x: number, y: number) => void;
   renderRenameInput?: (path: string) => ReactNode;
 }) {
@@ -64,22 +64,22 @@ function DirectoryBranch({ projectId, rootPath, relativePath, depth, revision, a
           onFileContextMenu(entry.relativePath, rect.left + 12, rect.bottom + 6);
         }}
         onClick={() => {
-          if (entry.kind === "file") { openProjectFilePreview(projectId, entry.relativePath); return; }
+          if (entry.kind === "file") { openProjectFilePreview(projectId, entry.relativePath, undefined, undefined, undefined, workspaceRoot); return; }
           setExpanded(previous => { const next = new Set(previous); if (next.has(entry.relativePath)) next.delete(entry.relativePath); else next.add(entry.relativePath); return next; });
         }}>
         {entry.kind === "directory" ? <ChevronRight size={12} strokeWidth={1.5} className="project-directory__chevron" aria-hidden="true" /> : <FileIcon name={entry.name} size={12} />}
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
       </button>}
       {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
-        <DirectoryBranch rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} />
+        <DirectoryBranch workspaceRoot={workspaceRoot} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} revision={revision} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} />
       </div> : null}
     </div>; })}
   </>;
 }
 
 /** One scroll viewport for the entire expanded physical file hierarchy. */
-export function ProjectDirectoryBrowser({ projectId, rootPath, activeRelativePath, documents = [], fileMenu }: {
-  projectId: number; rootPath: string; activeRelativePath?: string | null;
+export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, activeRelativePath, documents = [], fileMenu }: {
+  projectId: number | null; workspaceRoot?: string; rootPath: string; activeRelativePath?: string | null;
   documents?: ProjectSidebarDocumentItem[]; fileMenu?: ProjectFileMenuControls;
 }) {
   const queryClient = useQueryClient();
@@ -99,28 +99,28 @@ export function ProjectDirectoryBrowser({ projectId, rootPath, activeRelativePat
     try {
       let document = documents.find(item => projectFilePathMatches(item.managedPath, rootPath, relativePath));
       if (!document) {
-        const workspaceRoot = queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
-        if (!workspaceRoot) throw new Error("工作区信息尚未就绪，请稍后重试。");
-        const binding = await recordDocumentApi.bindingGet(workspaceRoot);
+        const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
+        if (!activeWorkspaceRoot) throw new Error("工作区信息尚未就绪，请稍后重试。");
+        const binding = await recordDocumentApi.bindingGet(activeWorkspaceRoot);
         if (current !== request.current) return;
         const file = await projectFileApi.register(binding, projectId, relativePath);
         if (current !== request.current) return;
         if (file.state !== "ready") throw new Error(file.reason ?? "文件身份需要核对");
-        const page = await projectMindApi.projectPageGet({ projectId });
-        const after = await recordDocumentApi.bindingGet(workspaceRoot);
+        const listed = projectId === null ? (await projectMindApi.workspacePageGet()).workspaceDocuments : (await projectMindApi.projectPageGet({ projectId })).projectDocuments;
+        const after = await recordDocumentApi.bindingGet(activeWorkspaceRoot);
         if (current !== request.current) return;
         if (binding.workspaceId !== after.workspaceId || binding.generation !== after.generation) throw new Error("工作区已切换，请重试。");
-        document = page.projectDocuments.find(item => String(item.id) === file.object.id);
+        document = listed.find(item => String(item.id) === file.object.id);
         if (!document) throw new Error("无法读取已管理文件");
-        await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
+        await queryClient.invalidateQueries({ queryKey: projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId) });
       }
       if (current === request.current) fileMenu.openContextMenu(document, x, y);
     } catch (error) {
       if (current === request.current) setMenuError(getErrorMessage(error, "无法打开文件操作菜单"));
     }
   };
-  const revision = useProjectFileNavigation(state => state.revisions[projectId] ?? 0);
-  return <div className="project-directory">{menuError ? <p role="alert">{menuError}</p> : null}<HomeSidebarList label="项目目录内容">
-    <DirectoryBranch key={rootPath} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} revision={revision} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} />
+  const revision = useProjectFileNavigation(state => state.revisions[fileNavigationScopeKey(projectId, workspaceRoot)] ?? 0);
+  return <div className="project-directory">{menuError ? <p role="alert">{menuError}</p> : null}<HomeSidebarList label={projectId === null ? "工作区目录内容" : "项目目录内容"}>
+    <DirectoryBranch workspaceRoot={workspaceRoot} key={rootPath} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} revision={revision} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} />
   </HomeSidebarList></div>;
 }

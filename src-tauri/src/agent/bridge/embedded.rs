@@ -218,6 +218,26 @@ fn ensure_grant(
     Ok((id, token))
 }
 
+/// Native Office/source adapters reuse the same Workspace authority as CLI shells.
+/// Credentials remain native and this function is never exported through IPC.
+pub(crate) fn native_workspace_request(
+    db: &Database,
+    binding: &WorkspaceBinding,
+    request_id: &str,
+) -> AgentResult<crate::agent::access::RequestContext> {
+    workspace_request_with_credentials(db, binding, request_id, &NativeCredentials)
+}
+
+fn workspace_request_with_credentials(
+    db: &Database,
+    binding: &WorkspaceBinding,
+    request_id: &str,
+    secrets: &impl CredentialStore,
+) -> AgentResult<crate::agent::access::RequestContext> {
+    let (id, token) = ensure_grant(db, binding, None, secrets)?;
+    db.agent_connection_authenticate(binding, &id, &token, request_id)
+}
+
 struct Lease {
     token: String,
     mode: &'static str,
