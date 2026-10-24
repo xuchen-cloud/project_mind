@@ -397,6 +397,10 @@ mod tests {
     }
     #[tokio::test]
     async fn workspace_enable_indexes_direct_and_unenabled_project_without_page_activation() {
+        // Project creation also queues its QuickNote. It can become eligible
+        // before a Todo after the normal debounce, so this mixed-scope driver
+        // needs the real converter regardless of which job is claimed first.
+        let record = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("maintenance.sqlite"), root.path(), None).unwrap();
         db.bind_native_workspace("w").unwrap();
@@ -408,9 +412,9 @@ mod tests {
         let store = Store { db: Mutex::new(db), binding: binding.clone() };
         set_enabled(&store.db.lock().unwrap(), true, "enable");
         assert!(!store.db.lock().unwrap().agent_settings_get(&project).unwrap().enabled);
-        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert!(step(&store, &record, &NoUtility).await.unwrap());
         assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(Scope::Workspace));
-        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert!(step(&store, &record, &NoUtility).await.unwrap());
         assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(project.clone()));
         for _ in 0..12 {
             let request = request(binding.clone(), &project, "search-project".into());
@@ -419,7 +423,7 @@ mod tests {
                 include_history: false, limit: None, budget_chars: None,
             }).await.unwrap().items.len();
             if found == 1 { break; }
-            assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+            assert!(step(&store, &record, &NoUtility).await.unwrap());
         }
         for (scope, query) in [(Scope::Workspace, "Direct alpha"), (project.clone(), "Project beta")] {
             let request = request(binding.clone(), &scope, "search".into());
@@ -433,6 +437,10 @@ mod tests {
     }
     #[tokio::test]
     async fn cancelling_one_scope_leaves_other_scope_running_and_survives_reopen() {
+        // Project creation also queues its QuickNote. It can become eligible
+        // before a Todo after the normal debounce, so this mixed-scope driver
+        // needs the real converter regardless of which job is claimed first.
+        let record = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("maintenance.sqlite");
         let mut db = Database::open(&path, root.path(), None).unwrap();
@@ -446,10 +454,10 @@ mod tests {
         set_enabled(&db, true, "enable");
         db.source_maintenance_select(&workspace_request, &binding, &Scope::Workspace, MaintenanceAction::Cancel, chrono::Utc::now()).unwrap();
         let store = Store { db: Mutex::new(db), binding: binding.clone() };
-        assert!(step(&store, &NoUtility, &NoUtility).await.unwrap());
+        assert!(step(&store, &record, &NoUtility).await.unwrap());
         assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(project.clone()));
         for _ in 0..12 {
-            if !step(&store, &NoUtility, &NoUtility).await.unwrap() { break; }
+            if !step(&store, &record, &NoUtility).await.unwrap() { break; }
             assert_eq!(store.with_current(|b, db| db.source_maintenance_selected(b)).unwrap(), Some(project.clone()));
         }
         drop(store);
