@@ -99,6 +99,65 @@ pub(crate) async fn voice_model_import(
 }
 
 #[tauri::command]
+pub(crate) async fn voice_diarization_model_status_get() -> VoiceResult<ModelPackageStatus> {
+    let cache = crate::default_app_data_dir().map_err(|error| failed("diarization_model_status", error))?;
+    tauri::async_runtime::spawn_blocking(move || super::diarization_model::status(&cache))
+        .await.map_err(|error| failed("diarization_model_status", error))
+}
+
+#[tauri::command]
+pub(crate) async fn voice_diarization_model_import(source_directory: String) -> VoiceResult<ModelPackageStatus> {
+    let cache = crate::default_app_data_dir().map_err(|error| failed("diarization_model_import", error))?;
+    tauri::async_runtime::spawn_blocking(move || super::diarization_model::import(std::path::Path::new(&source_directory), &cache))
+        .await.map_err(|error| failed("diarization_model_import", error))?
+        .map_err(|error| failed("diarization_model_import", error))
+}
+
+fn with_diarization_db<T>(state: &AppState, operation: &'static str, expected_workspace: Option<&std::sync::Arc<crate::WorkspaceRuntime>>,
+    action: impl FnOnce(&mut crate::db::Database) -> anyhow::Result<T>) -> VoiceResult<T> {
+    let current = lock_mutex(&state.current_workspace);
+    let workspace = current.as_ref().ok_or_else(|| failed(operation, "请先打开 Workspace"))?;
+    if expected_workspace.is_some_and(|expected| !std::sync::Arc::ptr_eq(expected, workspace)) {
+        return Err(failed(operation, "Workspace 在请求期间已切换，请重新开始"));
+    }
+    let mut db = lock_mutex(&workspace.db);
+    action(&mut db).map_err(|error| failed(operation, error))
+}
+
+#[tauri::command]
+pub(crate) fn voice_diarization_get(state: State<'_, AppState>, input: VoiceRecordLookup) -> VoiceResult<Option<VoiceDiarizationSnapshot>> {
+    with_diarization_db(&state, "diarization_get", None, |db| db.voice_diarization_get(&input))
+}
+
+#[tauri::command]
+pub(crate) async fn voice_diarization_start(state: State<'_, AppState>, input: VoiceRecordLookup) -> VoiceResult<Option<VoiceDiarizationSnapshot>> {
+    let workspace = state.current_workspace().map_err(|error| failed("diarization_start", error))?;
+    let cache = crate::default_app_data_dir().map_err(|error| failed("diarization_start", error))?;
+    let status = tauri::async_runtime::spawn_blocking(move || super::diarization_model::status(&cache))
+        .await.map_err(|error| failed("diarization_start", error))?;
+    if !status.ready { return Err(failed("diarization_start", status.detail)); }
+    with_diarization_db(&state, "diarization_start", Some(&workspace), |db| {
+        let Some(snapshot) = db.voice_diarization_get(&input)? else { return Ok(None); };
+        let playback = db.voice_diarization_playback(&snapshot.session_id)?
+            .ok_or_else(|| anyhow::anyhow!("语音记录不存在"))?;
+        if playback.phase != "ended" { return Err(anyhow::anyhow!("请先结束录音，再区分说话人")); }
+        if playback.chunks.is_empty() { return Err(anyhow::anyhow!("没有可分析的已保存录音")); }
+        db.voice_diarization_enqueue(&snapshot.session_id)?;
+        db.voice_diarization_get(&input)
+    })
+}
+
+#[tauri::command]
+pub(crate) fn voice_speaker_rename(state: State<'_, AppState>, input: VoiceSpeakerRenameInput) -> VoiceResult<VoiceDiarizationSnapshot> {
+    with_diarization_db(&state, "speaker_rename", None, |db| db.voice_speaker_rename(&input.target, input.speaker_id, &input.name, input.expected_revision))
+}
+
+#[tauri::command]
+pub(crate) fn voice_speaker_link_contact(state: State<'_, AppState>, input: VoiceSpeakerLinkContactInput) -> VoiceResult<VoiceDiarizationSnapshot> {
+    with_diarization_db(&state, "speaker_link_contact", None, |db| db.voice_speaker_link_contact(&input.target, input.speaker_id, input.contact_id, input.expected_revision))
+}
+
+#[tauri::command]
 pub(crate) async fn voice_profile_test(
     state: State<'_, AppState>,
     input: VoiceProfileTestInput,
@@ -167,6 +226,7 @@ pub(crate) fn voice_start(
     workspace
         .voice_recovery_interrupt
         .store(true, std::sync::atomic::Ordering::Release);
+    workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
     with_voice_db(&state, &workspace, "start", |voice, db| {
         voice.start(db, &workspace.paths.root_path, &input.target, &input.request_id)
     })
@@ -196,6 +256,7 @@ pub(crate) fn voice_resume(
     workspace
         .voice_recovery_interrupt
         .store(true, std::sync::atomic::Ordering::Release);
+    workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
     with_voice_db(&state, &workspace, "resume", |voice, db| {
         voice.resume(db, &workspace.paths.root_path, &input.session_id, input.expected_revision)
     })

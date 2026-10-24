@@ -64,6 +64,7 @@ pub(crate) mod file_content;
 pub(crate) mod project_directory_files;
 pub(crate) mod dsh_source_evidence;
 mod voice_recovery;
+mod voice_diarization;
 pub(crate) use voice_recovery::CloudGap;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -850,6 +851,7 @@ impl Database {
             self.set_schema_version(VOICE_RELIABILITY_SCHEMA_VERSION)?;
         }
         self.ensure_cloud_recovery_schema()?;
+        self.ensure_voice_diarization_schema()?;
         if self.schema_version()? < VOICE_RECOVERY_SCHEMA_VERSION {
             self.set_schema_version(VOICE_RECOVERY_SCHEMA_VERSION)?;
         }

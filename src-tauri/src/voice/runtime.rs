@@ -499,13 +499,17 @@ fn save_stopped_session(db: &Database, active: &mut ActiveSession) -> Result<()>
     } else {
         "paused"
     };
-    active.persisted = db.voice_session_transition(
+    let auto_diarization = phase == "ended"
+        && matches!(db.voice_settings_get()?.speech_profile, Some(super::contracts::SpeechProfile::SenseVoiceOnnx { .. }))
+        && super::diarization_model::status(&crate::default_app_data_dir()?).ready;
+    active.persisted = db.voice_session_save_stopped(
         id,
         active.persisted.revision,
         phase,
         active.persisted.pause_reason.as_deref(),
         db.voice_saved_duration_ms(id)?,
         active.persisted.capture_epoch,
+        auto_diarization,
     )?;
     active.pending_save = None;
     active.pending_updates.clear();

@@ -129,6 +129,56 @@ pub struct VoiceTranscriptPage {
     pub next_cursor: Option<VoiceTranscriptCursor>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSpeaker {
+    pub id: u32,
+    pub name: String,
+    #[serde(default)]
+    pub contact_id: Option<i64>,
+    #[serde(default)]
+    pub association: Option<String>,
+    #[serde(default)]
+    pub voiceprint_ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSpeakerTurn {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub speaker_id: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceDiarizationSnapshot {
+    pub session_id: String,
+    pub revision: u64,
+    pub status: String,
+    pub error: Option<String>,
+    pub speakers: Vec<VoiceSpeaker>,
+    pub turns: Vec<VoiceSpeakerTurn>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSpeakerRenameInput {
+    pub target: VoiceRecordLookup,
+    pub speaker_id: u32,
+    pub name: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceSpeakerLinkContactInput {
+    pub target: VoiceRecordLookup,
+    pub speaker_id: u32,
+    pub contact_id: Option<i64>,
+    pub expected_revision: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceMinutesSnapshot {

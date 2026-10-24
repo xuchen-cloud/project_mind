@@ -87,6 +87,18 @@ export interface VoiceMinutesSnapshot {
   error: string | null;
 }
 export interface VoiceMinutesGenerateInput { target: VoiceRecordLookup; requestId: string }
+export interface VoiceSpeaker { id: number; name: string; contactId: number | null; association: "confirmed" | "automatic" | null; voiceprintReady: boolean }
+export interface VoiceSpeakerTurn { startMs: number; endMs: number; speakerId: number }
+export interface VoiceDiarizationSnapshot {
+  sessionId: string;
+  revision: number;
+  status: "not_started" | "pending" | "running" | "ready" | "failed";
+  error: string | null;
+  speakers: VoiceSpeaker[];
+  turns: VoiceSpeakerTurn[];
+}
+export interface VoiceSpeakerRenameInput { target: VoiceRecordLookup; speakerId: number; name: string; expectedRevision: number }
+export interface VoiceSpeakerLinkContactInput { target: VoiceRecordLookup; speakerId: number; contactId: number | null; expectedRevision: number }
 
 // The UI polls authoritative snapshots and discards stale request results.
 // Raw PCM stays in the native capture runtime. Lexicon and other deferred
