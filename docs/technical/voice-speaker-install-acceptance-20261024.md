@@ -38,3 +38,17 @@
 有界对照中，curl 原链接、reqwest HTTP/1.1、`?download=true`、单 Range 完整范围均未完成约 6 MB 文件；不能据此声称 HTTP 版本、查询参数或 Range 能解决网络问题，因此没有添加盲目镜像回退、分段框架或自动重试。排查另发现 blocking client timeout 并不等于整个响应体总 deadline，已用请求级 timeout 修正，并以连续慢 chunk 的真实 HTTP 回归验证。
 
 主 agent Standards / Spec 自查已处理状态读取失败恢复、安装 ready 后重新检查、离线导入后旧错误、已就绪 ASR 的配置噪音和请求总 deadline。仍需在可完整传输这些固定官方 HTTPS 文件的网络条件下，运行 `real_pinned_https_install`，验证完整下载、校验及激活成功。该项解锁前保持 PR 草稿、Issue 开放，遵循仓库发布门槛，不自动合并。
+
+## 国内镜像核实（同日后续）
+
+用户随后授权寻找国内源，并在下载失败时自动切换。此次先验证真实来源、完整字节与既定 SHA；不发送账号 token 或音频，不修改系统代理或全局下载端点。
+
+| 来源 | 实测结果 | 结论 |
+| --- | --- | --- |
+| 社区 `hf-mirror.com`，保留固定 HF revision | 最终重定向至 `us.aws.cdn.hf.co`；120 秒收到 908,179 / 5,992,913 B | 未完成模型下载；小文件 LICENSE 的完整 SHA 与固定包一致，不能代表模型成功 |
+| 社区 `hf-mirror.net`，保留固定 HF revision | 最终域名仍为 `hf-mirror.net`；120 秒收到 1,306,599 / 5,992,913 B | 未完成模型下载，不能标记为已验证可用 |
+| 作者的 ModelScope Studio 部署 | 官方 sherpa-onnx README 明确链接该 Studio；其 JS manifest 中 embedding 与 segmentation 长度分别为 39,593,761 与 5,992,913 B | 找到确切作者资源，但大小相同不足以确认模型相同 |
+
+ModelScope 具体入口为 [作者 Studio](https://www.modelscope.cn/studios/csukuangfj/web-assembly-speaker-diarization-sherpa-onnx)，实际部署为 `https://csukuangfj-web-assembly-speaker-diarization-sherpa.ms.show`。部署的 `sherpa-onnx-wasm-main-speaker-diarization.data` 支持分割模型区间 `39594772-45587684`，实际 HTTP 206、Content-Range 与声明长度均正确，但响应体在约 278.7 秒结束，仅收到 3,411,356 B，未达到本次 600 秒总期限。没有保留底层传输错误文本，不进一步推断 socket、TLS 或站点原因。
+
+三个候选均未取得分割模型完整 SHA，因此没有继续约 40 MB 的模型下载，也未把任何候选接入自动切换。此项仍待取得可完整校验的源，再实现有界切换及回归；现有安装器和草稿发布门槛保持不变。原始证据保存在本机验证目录的 `mirror-evidence.json` 与 `modelscope-range-evidence.json`。
