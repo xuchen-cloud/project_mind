@@ -233,7 +233,9 @@ impl BridgeHandler for AppBridge {
                 "record.create" | "record.patch" | "record.restore" | "todo.create" | "todo.update" => Some("output.commit"),
                 _ => None,
             };
-            let result = execute(
+            let result = if input.method.starts_with("schedule.") {
+                super::schedules::execute(&self.0, &state.external_bridge.enabled, token, input).await
+            } else { execute(
                 &*state,
                 &state.external_bridge.enabled,
                 token,
@@ -241,7 +243,7 @@ impl BridgeHandler for AppBridge {
                 &crate::record_document_service::AppDocumentUtility(self.0.clone()),
                 &AppSourceUtility(self.0.clone()),
             )
-            .await;
+            .await };
             if let Some(label) = label {
                 let paths = lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == binding).map(|runtime| runtime.paths.clone());
                 if let Some(paths) = paths {

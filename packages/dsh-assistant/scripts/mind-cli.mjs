@@ -67,6 +67,7 @@ export function installMindCli(ctx, context, cli, bridge) {
             PATH: `${path.dirname(cli.executable)}${path.delimiter}${spec.env?.PATH ?? process.env.PATH ?? ''}`,
             PROJECT_MIND_CLI_DISCOVERY: cli.discovery,
             PROJECT_MIND_CLI_TOKEN: lease.token,
+            PROJECT_MIND_SESSION_ID: sessionId,
           } });
           entry.handle = handle;
           if (disposed) handle.kill();

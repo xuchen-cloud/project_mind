@@ -44,6 +44,11 @@ const INTERNAL_PREFIX: &str = "d5c11ea5";
 pub(super) fn is_internal_grant(id: &str) -> bool {
     id.starts_with(INTERNAL_PREFIX)
 }
+/// Only this precise native identity has Workspace-wide Project membership.
+pub(crate) fn is_workspace_grant(id: &str, workspace_id: &str) -> bool {
+    id == grant_id(workspace_id, None)
+}
+
 /// Check the complete scope-derived ID, so a random external ID that merely
 /// shares the prefix retains its ordinary external semantics.
 pub(super) fn require_external(request: &crate::agent::access::RequestContext) -> AgentResult<()> {
@@ -52,7 +57,7 @@ pub(super) fn require_external(request: &crate::agent::access::RequestContext) -
     };
     let grant = &request.scope_grant;
     let project = match (grant.workspace_content, grant.project_ids.as_slice()) {
-        (true, []) => Some(None),
+        (true, _) => Some(None),
         (false, [id]) => Some(Some(*id)),
         _ => None,
     };
@@ -97,12 +102,16 @@ fn grant_id(workspace_id: &str, project_id: Option<i64>) -> String {
 }
 
 fn grant_input(project_id: Option<i64>) -> ConnectionCreateInput {
+    let mut write_operations: Vec<String> = WRITE_OPERATIONS.iter().map(|s| (*s).into()).collect();
+    if project_id.is_none() {
+        write_operations.push("schedule.manage".into());
+    }
     ConnectionCreateInput {
         client_label: "Built-in DSH Mind CLI".into(),
         workspace_content: project_id.is_none(),
         project_ids: project_id.into_iter().collect(),
-        all_projects: false,
-        write_operations: WRITE_OPERATIONS.iter().map(|s| (*s).into()).collect(),
+        all_projects: project_id.is_none(),
+        write_operations,
     }
 }
 fn validate_grant(
@@ -119,6 +128,9 @@ fn validate_grant(
     ];
     operations.extend(WRITE_OPERATIONS);
     operations.push("operation.restore_created");
+    if project_id.is_none() {
+        operations.extend(["schedule.read", "schedule.manage"]);
+    }
     operations.sort_unstable();
     let mut actual: Vec<&str> = grant.operations.iter().map(String::as_str).collect();
     actual.sort_unstable();
@@ -126,7 +138,7 @@ fn validate_grant(
         || grant.workspace_id != binding.workspace_id
         || grant.workspace_content != expected.workspace_content
         || grant.project_ids != expected.project_ids
-        || grant.all_projects
+        || grant.all_projects != expected.all_projects
         || grant.objects.is_some()
         || actual != operations
         || !grant.enabled
@@ -165,8 +177,26 @@ fn ensure_grant(
     let id = grant_id(&binding.workspace_id, project_id);
     let grants = db.agent_connection_list(binding)?;
     if let Some(grant) = grants.iter().find(|grant| grant.id == id) {
-        validate_grant(grant, binding, project_id)?;
         let token = secrets.load(&id)?;
+        if project_id.is_none() && !grant.all_projects {
+            let mut upgraded = grant.clone();
+            upgraded.all_projects = true;
+            upgraded
+                .operations
+                .extend(["schedule.read".into(), "schedule.manage".into()]);
+            if grant.client_label != grant_input(None).client_label {
+                return Err(denied());
+            }
+            validate_grant(&upgraded, binding, None)?;
+            db.agent_connection_upgrade_embedded_workspace_grant(
+                binding,
+                grant,
+                &token,
+                &upgraded.operations,
+            )?;
+        } else {
+            validate_grant(grant, binding, project_id)?;
+        }
         db.agent_connection_authenticate(binding, &id, &token, "embedded-start")?;
         return Ok((id, token));
     }
@@ -283,7 +313,10 @@ impl EmbeddedCliControl {
                 }
             }
         }
-        Ok(AuthorizedLease { enabled: lease.enabled.clone(), mode: lease.mode })
+        Ok(AuthorizedLease {
+            enabled: lease.enabled.clone(),
+            mode: lease.mode,
+        })
     }
     pub(crate) fn revoke(&self) {
         let mut leases = lock_mutex(&self.leases);
@@ -356,15 +389,20 @@ impl BridgeHandler for EmbeddedHandler {
             self.with_current(|_| Ok(()))?;
             let state = self.app.state::<AppState>();
             let is_status = input.method == "connection.status";
-            let mut result = dispatch::execute(
-                &*state,
-                &lease.enabled,
-                &self.native_token,
-                input,
-                &crate::record_document_service::AppDocumentUtility(self.app.clone()),
-                &AppSourceUtility(self.app.clone()),
-            )
-            .await?;
+            let mut result = if input.method.starts_with("schedule.") {
+                super::schedules::execute(&self.app, &lease.enabled, &self.native_token, input)
+                    .await?
+            } else {
+                dispatch::execute(
+                    &*state,
+                    &lease.enabled,
+                    &self.native_token,
+                    input,
+                    &crate::record_document_service::AppDocumentUtility(self.app.clone()),
+                    &AppSourceUtility(self.app.clone()),
+                )
+                .await?
+            };
             if is_status {
                 result["executionMode"] = json!(lease.mode);
             }

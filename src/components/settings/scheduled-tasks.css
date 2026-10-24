@@ -1,0 +1,14 @@
+.scheduled-tasks { display: grid; gap: 16px; min-height: 0; }
+.scheduled-tasks__heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.scheduled-tasks__heading > div { display: grid; gap: 6px; }
+.scheduled-tasks__heading h3 { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; }
+.scheduled-tasks__list { display: flex; min-height: 100px; max-height: 440px; }
+.scheduled-tasks__list > .home-side__list-frame { flex: 1; }
+.scheduled-tasks__item { display: grid; gap: 6px; padding: 14px 8px; border-bottom: 1px solid var(--color-border); }
+.scheduled-tasks__actions, .scheduled-tasks__days { display: flex; flex-wrap: wrap; gap: 8px; }
+.scheduled-tasks__form { display: grid; gap: 14px; }
+.scheduled-tasks__form > label, .scheduled-tasks__columns > label { display: grid; gap: 6px; font-size: 13px; }
+.scheduled-tasks__form select, .scheduled-tasks__textarea { width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-6); background: var(--color-bg); color: var(--color-text); padding: 7px 10px; font-size: 13px; }
+.scheduled-tasks__textarea { resize: vertical; min-height: 90px; }
+.scheduled-tasks__columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.scheduled-tasks__form .scheduled-tasks__enabled, .scheduled-tasks__days label { display: flex; align-items: center; gap: 6px; font-size: 12px; }

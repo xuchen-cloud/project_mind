@@ -3,9 +3,10 @@ import { useRef, useState, type ReactNode } from "react";
 const clamp = (value: number) => Math.min(80, Math.max(20, value));
 
 /** Two independent lists with fixed headers and a keyboard-accessible divider. */
-export function HomeSidebarSplit({ storageKey, upper, lower }: {
+export function HomeSidebarSplit({ storageKey, upper, middle, lower }: {
   storageKey: string;
   upper: ReactNode;
+  middle?: ReactNode;
   lower: ReactNode;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -23,7 +24,7 @@ export function HomeSidebarSplit({ storageKey, upper, lower }: {
     try { localStorage.setItem(storageKey, String(next)); } catch { /* Layout remains usable without storage. */ }
   }
   function stop() { drag.current = null; setDragging(false); }
-  return <div ref={container} className="home-side__scroll home-side__split" style={{ gridTemplateRows: `minmax(96px, ${ratio}fr) 16px minmax(var(--home-sidebar-lower-min-height, 64px), ${100 - ratio}fr)` }}>
+  return <div ref={container} className="home-side__scroll home-side__split" style={{ gridTemplateRows: middle ? `minmax(96px, ${ratio}fr) 16px minmax(100px, ${100 - ratio}fr) minmax(120px, ${100 - ratio}fr)` : `minmax(96px, ${ratio}fr) 16px minmax(var(--home-sidebar-lower-min-height, 64px), ${100 - ratio}fr)` }}>
     <section className="home-side__section">{upper}</section>
     <div role="separator" aria-label="调整列表区域比例" aria-orientation="horizontal" aria-valuemin={20} aria-valuemax={80} aria-valuenow={Math.round(ratio)} tabIndex={0}
       className="home-side__split-handle" data-resizing={dragging || undefined}
@@ -45,6 +46,7 @@ export function HomeSidebarSplit({ storageKey, upper, lower }: {
         if (next !== null) { event.preventDefault(); update(next); }
       }}
     />
+    {middle ? <section className="home-side__section">{middle}</section> : null}
     <section className="home-side__section">{lower}</section>
   </div>;
 }

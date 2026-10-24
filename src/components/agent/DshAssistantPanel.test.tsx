@@ -367,3 +367,25 @@ it("retains the selected older Workspace session, draft and reading node across 
   expect(screen.getByTestId("host")).toHaveAttribute("data-session", "latest");
   expect(screen.getByLabelText("DSH draft")).toHaveValue("");
 });
+
+it("honors Workspace sidebar selection arriving during startup and later while the panel stays mounted", async () => {
+  const pending = deferred();
+  mocks.command.mockImplementationOnce(() => pending.promise);
+  mocks.command.mockImplementation(async (command, args) => command === "dsh_assistant_sessions" ? [{ id: "saved", title: "历史会话" }, { id: "other", title: "另一个会话" }] : command === "dsh_assistant_select_session" ? args.sessionId : undefined);
+  setup({ ...props, projectId: null });
+  act(() => useAgentPanelStore.getState().selectWorkspaceSession("/workspace", "other", "另一个会话"));
+  await act(async () => pending.resolve());
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "other"));
+  act(() => useAgentPanelStore.getState().selectWorkspaceSession("/workspace", "saved", "历史会话"));
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "saved"));
+  expect(mocks.mounts).toBe(1);
+});
+
+it("keeps a Workspace conversation created from the panel after a sidebar selection", async () => {
+  act(() => useAgentPanelStore.getState().selectWorkspaceSession("/workspace", "saved", "历史会话"));
+  setup({ ...props, projectId: null });
+  await screen.findByTestId("host");
+  fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
+  await waitFor(() => expect(screen.getByTestId("host")).toHaveAttribute("data-session", "actual-created"));
+  expect(useAgentPanelStore.getState().workspaceSession?.id).toBe("actual-created");
+});

@@ -1,0 +1,62 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
+import { ScheduledTasksPanel } from "./ScheduledTasksPanel";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
+const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() }));
+vi.mock("../../services/dshAssistantApi", () => ({ dshAssistantApi: api }));
+vi.mock("../../services/dshScheduleApi", () => ({ dshScheduleApi: api }));
+beforeEach(() => {
+  vi.resetAllMocks();
+  useAgentPanelStore.getState().clearWorkspace();
+  useAgentPanelStore.getState().bindWorkspace("/workspace");
+  api.start.mockResolvedValue(undefined);
+  api.sessions.mockResolvedValue([{ id: "real-session", title: "每日工作" }]);
+  api.list.mockResolvedValue([]);
+  api.create.mockImplementation(async task => ({ ...task, id: "task", timeZone: "Asia/Shanghai", nextRunAt: "2026-10-25T01:00:00Z", lastRunAt: null, lastError: null }));
+});
+it("creates a scheduled prompt bound to an existing Workspace conversation with a calendar rule", async () => {
+  render(<ScheduledTasksPanel open />);
+  fireEvent.click(await screen.findByRole("button", { name: "新建定时任务" }));
+  fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "晨间整理" } });
+  fireEvent.change(screen.getByLabelText("任务内容"), { target: { value: "整理工作区所有项目的进展" } });
+  fireEvent.change(screen.getByLabelText("首次日期"), { target: { value: "2026-10-25" } });
+  fireEvent.change(screen.getByLabelText("执行时间"), { target: { value: "09:00" } });
+  fireEvent.change(screen.getByLabelText("重复方式"), { target: { value: "weekdays" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await waitFor(() => expect(api.create).toHaveBeenCalledWith({ title: "晨间整理", prompt: "整理工作区所有项目的进展", sessionId: "real-session", enabled: true, rule: { kind: "weekdays", startDate: "2026-10-25", time: "09:00" } }, expect.any(String)));
+  expect(api.start).toHaveBeenCalledWith(JSON.stringify(["/workspace", null]), null);
+  expect(api.sessions).toHaveBeenCalledWith(null);
+  expect(api.selectSession).not.toHaveBeenCalled();
+  expect(await screen.findByText("晨间整理")).toBeInTheDocument();
+});
+
+it("retains the same mutation identity when retrying a failed create", async () => {
+  api.create.mockRejectedValueOnce(new Error("连接中断"));
+  render(<ScheduledTasksPanel open />);
+  fireEvent.click(await screen.findByRole("button", { name: "新建定时任务" }));
+  fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "每日摘要" } });
+  fireEvent.change(screen.getByLabelText("任务内容"), { target: { value: "生成摘要" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await screen.findAllByText("连接中断");
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await waitFor(() => expect(api.create).toHaveBeenCalledTimes(2));
+  expect(api.create.mock.calls[0][1]).toEqual(api.create.mock.calls[1][1]);
+  expect(await screen.findByText("每日摘要")).toBeInTheDocument();
+});
+
+it("edits and pauses an existing task without changing its original conversation", async () => {
+  const task = { id: "task", title: "周总结", prompt: "总结进展", sessionId: "real-session", enabled: true, rule: { kind: "weeks", startDate: "2026-10-25", time: "09:00", interval: 2, weekdays: [1, 5] }, timeZone: "Asia/Shanghai", nextRunAt: null, lastRunAt: null, lastError: "上次运行失败" };
+  api.list.mockResolvedValue([task]);
+  api.update.mockImplementation(async (id, input) => ({ ...task, ...input }));
+  render(<ScheduledTasksPanel open />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
+  expect(screen.getByLabelText("绑定会话")).toBeDisabled();
+  expect(screen.getByLabelText("周一")).toBeChecked();
+  fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "双周总结" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await screen.findByText("双周总结");
+  expect(api.update.mock.calls[0][1].sessionId).toBe("real-session");
+  fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+  await screen.findByText("已暂停");
+  expect(api.update.mock.calls[1][1].enabled).toBe(false);
+});

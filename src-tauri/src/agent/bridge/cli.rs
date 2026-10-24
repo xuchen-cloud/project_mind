@@ -563,6 +563,10 @@ fn run_with_bridge_call(
         ["todo", "get", ..] => ("todo.get", &args[2..], None),
         ["file", "list", ..] => ("file.list", &args[2..], None),
         ["session", "list", ..] => ("session.list", &args[2..], None),
+        ["schedule", "list", ..] => ("schedule.list", &args[2..], None),
+        ["schedule", "create", ..] => ("schedule.create", &args[2..], None),
+        ["schedule", "update", ..] => ("schedule.update", &args[2..], None),
+        ["schedule", "delete", ..] => ("schedule.delete", &args[2..], None),
         ["record", "list", ..] => ("record.list", &args[2..], None),
         ["todo", "list", ..] => ("todo.list", &args[2..], None),
         ["todo", "create", ..] => ("todo.create", &args[2..], None),
@@ -721,7 +725,7 @@ fn run_with_bridge_call(
         }
         let method = bridge_method(command, options.dry_run);
         let params = match command {
-            "doctor" | "connection.status" | "project.list" => {
+            "doctor" | "connection.status" | "project.list" | "schedule.list" => {
                 if options.input_file.is_some() || options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
                     return Err(invalid("This command accepts only Workspace and connection options"));
                 }
@@ -811,6 +815,47 @@ fn run_with_bridge_call(
 mod tests {
     use super::*;
     fn invoke(args: &[&str]) -> CliOutput { run(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()) }
+    #[test]
+    fn schedule_commands_publish_help_and_exact_schema_without_connecting() {
+        for verb in ["list", "create", "update", "delete"] {
+            let output = invoke(&["schedule", verb, "--help"]);
+            assert_eq!(output.exit_code, 0, "{}", output.stderr);
+            assert!(output.stdout.contains(&format!("mind schema schedule.{verb} --json")));
+            let schema = invoke(&["schema", &format!("schedule.{verb}"), "--json"]);
+            assert_eq!(schema.exit_code, 0, "{}", schema.stderr);
+            let value: Value = serde_json::from_str(&schema.stdout).unwrap();
+            assert_eq!(value["ok"], true);
+        }
+        assert!(invoke(&["schedule", "--help"]).stdout.contains("mind schedule create"));
+    }
+    #[test]
+    fn schedule_commands_route_real_cli_inputs_and_stable_request_ids() {
+        let root = tempfile::tempdir().unwrap();
+        let input_file = root.path().join("task.json");
+        let task = json!({"title":"日报","prompt":"汇总项目","sessionId":"real-session","enabled":true,
+            "rule":{"kind":"weeks","startDate":"2026-10-26","time":"09:00","interval":2,"weekdays":[1,3]}});
+        for (verb, input) in [("create", task.clone()), ("update", json!({"id":"task","task":task})), ("delete", json!({"id":"task"}))] {
+            let params = json!({"requestId":"stable:cli-request","input":input});
+            std::fs::write(&input_file, serde_json::to_vec(&params).unwrap()).unwrap();
+            let args = ["schedule", verb, "--input-file", input_file.to_str().unwrap(), "--workspace", root.path().to_str().unwrap(),
+                "--connection", "0123456789abcdef0123456789abcdef", "--json"].into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let output = run_with_bridge_call(&args, |_, _, method, actual, request_id| {
+                assert_eq!(method, format!("schedule.{verb}"));
+                assert_eq!(actual, params);
+                assert_eq!(request_id, "stable:cli-request");
+                Ok(json!({"id":"task"}))
+            });
+            assert_eq!(output.exit_code, 0, "{}", output.stdout);
+        }
+        let args = ["schedule", "list", "--workspace", root.path().to_str().unwrap(), "--connection", "0123456789abcdef0123456789abcdef", "--json"]
+            .into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let output = run_with_bridge_call(&args, |_, _, method, actual, _| {
+            assert_eq!(method, "schedule.list");
+            assert_eq!(actual, json!({}));
+            Ok(json!([]))
+        });
+        assert_eq!(output.exit_code, 0, "{}", output.stdout);
+    }
     #[test]
     fn connection_status_help_is_offline_and_explains_snapshot_limits() {
         let out = invoke(&["connection", "status", "--help"]);

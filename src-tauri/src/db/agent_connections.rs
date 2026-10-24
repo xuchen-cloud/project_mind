@@ -21,7 +21,7 @@ pub struct ProjectPage {
 const MAX_PROJECTS: usize = 100;
 const MAX_ACTIVE_CONNECTIONS: i64 = 100;
 const READ_OPERATIONS: [&str; 2] = ["context.read", "source.read"];
-const WRITE_OPERATIONS: [&str; 7] = [
+const WRITE_OPERATIONS: [&str; 8] = [
     "content.create",
     "record.patch",
     "record.restore",
@@ -29,6 +29,7 @@ const WRITE_OPERATIONS: [&str; 7] = [
     "file.update",
     "file.restore",
     "operation.undo",
+    "schedule.manage",
 ];
 
 #[derive(Serialize, Deserialize)]
@@ -309,6 +310,15 @@ impl Database {
                 "Unsupported connection operation",
             ));
         }
+        if selected.contains("schedule.manage") {
+            if !input.workspace_content || !input.all_projects {
+                return Err(AgentError::new(
+                    ErrorCode::ScopeDenied,
+                    "Scheduling requires Workspace and all Projects authorization",
+                ));
+            }
+            operations.push("schedule.read".into());
+        }
         if !selected.is_empty() {
             operations.push("operation.read".into());
         }
@@ -379,6 +389,54 @@ impl Database {
             created_at,
             revoked_at: None,
         })
+    }
+
+    /// Native provisioning only. Preserve the credential and receipt identity,
+    /// and compare the exact previously validated grant before widening it.
+    pub(crate) fn agent_connection_upgrade_embedded_workspace_grant(
+        &self,
+        binding: &WorkspaceBinding,
+        previous: &ConnectionGrant,
+        token: &str,
+        operations: &[String],
+    ) -> AgentResult<()> {
+        self.connection_binding(binding)?;
+        let stored = self.stored_connection(&previous.id)?.ok_or_else(denied)?;
+        let mut scope: StoredScope = decode(&stored.scope_json)?;
+        let actual = public_grant(
+            StoredGrant {
+                id: stored.id.clone(),
+                client_label: stored.client_label.clone(),
+                scope_json: stored.scope_json.clone(),
+                operations_json: stored.operations_json.clone(),
+                enabled: stored.enabled,
+                created_at: stored.created_at.clone(),
+                revoked_at: stored.revoked_at.clone(),
+            },
+            decode(&stored.scope_json)?,
+        )?;
+        if serde_json::to_value(&actual).map_err(io_error)?
+            != serde_json::to_value(previous).map_err(io_error)?
+            || scope.workspace_id != binding.workspace_id
+            || !scope.workspace_content
+            || scope.all_projects
+            || !scope.project_ids.is_empty()
+            || scope.objects.is_some()
+            || !stored.enabled
+            || stored.revoked_at.is_some()
+            || !digest_matches(&scope.token_hash, token)
+        {
+            return Err(denied());
+        }
+        scope.all_projects = true;
+        let changed = self.conn.execute(
+            "UPDATE agent_connection_grants SET scope_grant_json=?1,operations_json=?2 WHERE id=?3 AND scope_grant_json=?4 AND operations_json=?5 AND client_label=?6 AND created_at=?7 AND enabled=1 AND revoked_at IS NULL",
+            params![serde_json::to_string(&scope).map_err(io_error)?, serde_json::to_string(operations).map_err(io_error)?, previous.id, stored.scope_json, stored.operations_json, stored.client_label, stored.created_at],
+        ).map_err(io_error)?;
+        if changed != 1 {
+            return Err(denied());
+        }
+        Ok(())
     }
 
     pub fn agent_connection_list(
@@ -452,11 +510,22 @@ impl Database {
         }
         let object_keys = object_keys(scope.objects.as_deref())?;
         let project_ids = if scope.all_projects {
-            let mut statement = self.conn.prepare(
-                "SELECT id FROM projects WHERE is_archived=0 ORDER BY id",
-            ).map_err(io_error)?;
-            let rows = statement.query_map([], |row| row.get(0)).map_err(io_error)?;
-            rows.collect::<rusqlite::Result<Vec<i64>>>().map_err(io_error)?
+            // Native Workspace identity includes historical Projects; content
+            // visibility and archived mutation rules remain with domain services.
+            let include_archived = scope.workspace_content
+                && crate::agent::bridge::embedded::is_workspace_grant(
+                    grant_id,
+                    &binding.workspace_id,
+                );
+            let mut statement = self
+                .conn
+                .prepare("SELECT id FROM projects WHERE (?1=1 OR is_archived=0) ORDER BY id")
+                .map_err(io_error)?;
+            let rows = statement
+                .query_map([include_archived], |row| row.get(0))
+                .map_err(io_error)?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>()
+                .map_err(io_error)?
         } else {
             scope.project_ids
         };

@@ -6,6 +6,7 @@ import { boot, initProfile, loadProfileDirectory, createRuntimeResolution, Plugi
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline';
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment';
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
+import { installScheduledTasks } from './scheduled-tasks.mjs';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readContext, bindContext } from './project-workspace.mjs';
@@ -96,6 +97,7 @@ try {
   }
   if (embedded) {
     await bindContext(ctx, context);
+    await installScheduledTasks(ctx, context, home);
     if (context.kind === 'project') {
       await installSourceService(ctx, context, sourceBridge);
       await installOfficeService(ctx, context, sourceBridge);

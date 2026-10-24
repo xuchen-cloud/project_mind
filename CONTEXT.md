@@ -158,6 +158,14 @@ Voice Record 的说话人可关联 Contact；用户确认声音后，其声纹�
 
 ### Context 与 Agent
 
+**Workspace Session（工作区会话）**：
+归属于整个 Workspace 的助手会话，以工作区及其各 Project 的授权内容为工作范围，保留独立于 Project 会话的对话历史。
+_Avoid_：占位 Project、全局跨工作区会话
+
+**Scheduled Task（定时任务）**：
+绑定一个工作区会话的持续执行安排，在指定时间把任务内容发入原会话并交由助手执行；它与用于跟踪行动完成情况的 Todo 相互独立。
+_Avoid_：Todo 截止日期、提醒消息、独立会话
+
 **Context（工作上下文）**：
 由 File、Record、Todo、会话、知识、Overview 和记忆等组成的持续工作现场，既为 Agent 提供理解依据，也承接其工作成果，并通过页面供用户与 Agent 共同查看、编辑和维护。Context 中的内容保留各自的业务身份、归属和生命周期，单次模型输入仅选取其中与任务相关且已授权的部分。
 _Avoid_：单次提示词、全量模型输入、只供 AI 读取的资料库

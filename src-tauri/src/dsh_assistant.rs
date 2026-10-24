@@ -25,6 +25,9 @@ use tokio::{
 #[path = "dsh_office.rs"]
 mod office;
 
+#[path = "dsh_schedules.rs"]
+mod schedules;
+
 #[path = "dsh_cli.rs"]
 mod cli;
 
@@ -800,6 +803,7 @@ pub(crate) enum SessionAction {
 enum SessionRequest {
     List,
     Inventory(serde_json::Value),
+    ScheduledTasks(serde_json::Value),
     Create,
     Delete(String),
     Manage {
@@ -878,8 +882,10 @@ async fn session_request(
     request: SessionRequest,
 ) -> Result<serde_json::Value, String> {
     authenticate(url, client, cookie).await?;
-    let empty_result = matches!(&request, SessionRequest::Delete(_));
+    let empty_result = matches!(&request, SessionRequest::Delete(_))
+        || matches!(&request, SessionRequest::ScheduledTasks(value) if value.get("operation").and_then(|v|v.as_str()) == Some("delete"));
     let (method, args) = match request {
+        SessionRequest::ScheduledTasks(input) => ("mind/schedules", serde_json::json!({"request":input})),
         SessionRequest::Inventory(input) => ("mind/session/inventory", serde_json::json!({"request":input})),
         SessionRequest::List => ("session/list", serde_json::json!({"_request": {}})),
         SessionRequest::Create => ("session/create", serde_json::json!({"request": {}})),
@@ -1088,11 +1094,10 @@ fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Com
     let data_root = assistant_data_root()?;
     command.env(
         "PROJECT_MIND_DSH_USER_DATA",
-        runtime_data_directory(
-            &data_root,
-            &config.identity.workspace_id,
-            config.identity.project_id(),
-        )?,
+        match config.identity.project_id() {
+            None => workspace_runtime_home(&config.identity.workspace_id)?,
+            project => runtime_data_directory(&data_root, &config.identity.workspace_id, project)?,
+        },
     );
     command.env(
         "PROJECT_MIND_DSH_PROFILE_DIR",
@@ -1158,6 +1163,10 @@ pub(crate) fn project_data_directory(
 
 fn workspace_profile_directory(root: &Path, workspace_id: &str) -> Result<PathBuf, String> {
     Ok(workspace_data_directory(root, workspace_id)?.join("profiles/assistant"))
+}
+
+fn workspace_runtime_home(workspace_id: &str) -> Result<PathBuf, String> {
+    runtime_data_directory(&assistant_data_root()?, workspace_id, None)
 }
 
 pub(crate) fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
@@ -4369,4 +4378,40 @@ pub(crate) async fn cli_session_inventory(app: &tauri::AppHandle, binding: &crat
     inner.check_ready(app).map_err(unavailable)?;
     if let Some(error)=value.get("error") {return Err(serde_json::from_value(error.clone()).unwrap_or_else(|_|unavailable("Invalid session inventory response".into())));}
     value.get("page").cloned().ok_or_else(||unavailable("Invalid session inventory response".into()))
+}
+
+pub(crate) async fn scheduled_request_with_admission(
+    app: &tauri::AppHandle,
+    binding: &crate::agent::models::WorkspaceBinding,
+    request: serde_json::Value,
+    admit: impl FnOnce() -> Result<(), String> + Send,
+) -> Result<serde_json::Value, String> {
+    schedules::request_with_admission(app, binding, request, admit).await
+}
+
+pub(crate) async fn scheduled_request(
+    app: &tauri::AppHandle,
+    binding: &crate::agent::models::WorkspaceBinding,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    scheduled_request_with_admission(app, binding, request, || Ok(())).await
+}
+
+pub(crate) fn start_scheduled_tasks(app: &tauri::AppHandle) {
+    schedules::start(app);
+}
+
+#[tauri::command]
+pub(crate) async fn dsh_scheduled_tasks(
+    caller: Webview,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), None)?;
+    let binding = {
+        let state = caller.app_handle().state::<crate::AppState>();
+        let current = crate::lock_mutex(&state.current_workspace);
+        current.as_ref().ok_or("请先打开工作区")?.agent_binding.clone()
+    };
+    scheduled_request(caller.app_handle(), &binding, request).await
 }
