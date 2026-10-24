@@ -57,6 +57,25 @@ export async function installScheduledTasks(ctx, context, home) {
   if(request?.operation==='delete'){
    const index=tasks.findIndex(t=>t.id===request.id);if(index<0)throw new Error('Scheduled task not found');tasks.splice(index,1);return null;
   }
+  if(request?.operation==='run'){
+   const task=tasks.find(t=>t.id===request.id);if(!task)throw new Error('Scheduled task not found');
+   // The message identity survives a lost response or a crash between Session
+   // persistence and receipt persistence. The same manual request only queues once.
+   const messageId='schedule-run-'+createHash('sha256').update(JSON.stringify([context.id,task.id,request.requestId])).digest('hex');
+   await ctx.agents.withoutInitiator(async()=>{
+    await owner(task.sessionId);
+    const resolved=await ctx.sessionController.resolveAgent(task.sessionId);if('error'in resolved)throw resolved.error;
+    await owner(task.sessionId);if(closed)throw new Error('Scheduled tasks are stopping');
+    const inspection=await ctx.sessionController.inspect(task.sessionId);
+    if(!inspection.events.some(event=>event.type==='user/message'&&event.data.id===messageId)){
+     const message=createUserMessage({content:[{type:'text',text:`定时任务：${task.title}\n立即执行时间：${new Date().toISOString()}\n时区：${task.timeZone}\n\n${task.prompt}`}],source:{kind:'schedule'}});
+     resolved.agent.followup(Object.freeze({...message,id:messageId}));
+    }
+    if(!await ctx.sessions.flush(resolved.agent.session))throw new Error('Session persistence did not acknowledge scheduled message');
+   });
+   task.lastRunAt=new Date().toISOString();task.lastError=null;
+   return view(task);
+  }
   if(!['create','update'].includes(request?.operation))throw new Error('Invalid scheduled task operation');
   const value=await input(request.task);const zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
   const old=request.operation==='update'?tasks.find(t=>t.id===request.id):null;
@@ -71,11 +90,11 @@ export async function installScheduledTasks(ctx, context, home) {
  };
  const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
  const dispatch=async body=>{
-  const fields={list:['operation'],create:['operation','task','requestId'],update:['operation','id','task','requestId'],delete:['operation','id','requestId']};
+  const fields={list:['operation'],create:['operation','task','requestId'],update:['operation','id','task','requestId'],delete:['operation','id','requestId'],run:['operation','id','requestId']};
   exact(body,fields[body?.operation]??[]);
   if(body?.operation==='list')return manage(body);
   const {requestId,...payload}=body??{};
-  if(requestId!==undefined&&!requestIdentity(requestId))throw new Error('Invalid schedule request identity');
+  if((requestId!==undefined||body.operation==='run')&&!requestIdentity(requestId))throw new Error('Invalid schedule request identity');
   const hash=createHash('sha256').update(JSON.stringify(canonical(payload))).digest('hex');
   if(requestId&&Object.hasOwn(requests,requestId)){
    const receipt=requests[requestId];if(receipt.hash!==hash)throw new Error('Schedule request identity was reused with different content');return receipt.value;

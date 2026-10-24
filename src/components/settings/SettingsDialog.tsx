@@ -122,7 +122,7 @@ export function SettingsDialog({
   const activePanel = (() => {
     switch (activeSection) {
       case "scheduled-tasks":
-        return <Suspense fallback={<SettingsPanelFallback />}><ScheduledTasksPanel open={open} /></Suspense>;
+        return <Suspense fallback={<SettingsPanelFallback />}><ScheduledTasksPanel open={open} onRunStarted={onClose} /></Suspense>;
       case "skills":
         return <Suspense fallback={<SettingsPanelFallback />}><SkillsPanel open={open} /></Suspense>;
       case "dsh-assistant":

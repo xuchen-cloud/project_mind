@@ -4,7 +4,7 @@ import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "./SidebarTagItem";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { HomeProjectFiles } from "./HomeProjectFiles";
-import { ProjectSidebarSessions } from "./ProjectSidebarSessions";
+import { LazySidebarSessions } from "./LazySidebarSessions";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -99,7 +99,7 @@ export function HomeProjectSidebar({
           {!visibleRecords.length ? <p className="home-side__empty">{query.trim() || selectedTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
         </HomeSidebarList>
       </section>
-      <ProjectSidebarSessions activeSessionId={activeSessionId} workspaceRoot={workspaceRoot} projectId={projectId} query={query} enabled={!projectSidebarCollapsed} />
+      <LazySidebarSessions activeSessionId={activeSessionId} workspaceRoot={workspaceRoot} projectId={projectId} query={query} enabled={!projectSidebarCollapsed} />
       <section className="project-navigation__section project-navigation__files" aria-label="项目文件导航"><HomeProjectFiles activeFileId={activeFileId} activeRelativePath={activeRelativePath} project={project} documents={documents} filter={{ query, tagId: selectedTagId }} /></section>
     </div>
     <HomeSidebarFooter />

@@ -26,5 +26,6 @@ export const dshScheduleApi = {
   list: () => desktopApi.command<DshScheduledTask[]>("dsh_scheduled_tasks", { request: { operation: "list" } }),
   create: (task: DshScheduledTaskInput, requestId: string = crypto.randomUUID()) => desktopApi.command<DshScheduledTask>("dsh_scheduled_tasks", { request: { operation: "create", task, requestId } }),
   update: (id: string, task: DshScheduledTaskInput, requestId: string = crypto.randomUUID()) => desktopApi.command<DshScheduledTask>("dsh_scheduled_tasks", { request: { operation: "update", id, task, requestId } }),
+  run: (id: string, requestId: string = crypto.randomUUID()) => desktopApi.command<DshScheduledTask>("dsh_scheduled_tasks", { request: { operation: "run", id, requestId } }),
   delete: (id: string, requestId: string = crypto.randomUUID()) => desktopApi.command<null>("dsh_scheduled_tasks", { request: { operation: "delete", id, requestId } }),
 };

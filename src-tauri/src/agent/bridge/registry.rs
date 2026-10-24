@@ -30,7 +30,7 @@ use crate::{
 use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use super::schedules::{ScheduleListInput, ScheduleCreateInput, ScheduleUpdateInput, ScheduleDeleteInput};
+use super::schedules::{ScheduleListInput, ScheduleCreateInput, ScheduleUpdateInput, ScheduleDeleteInput, ScheduleRunInput};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -316,6 +316,12 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             parameters: serde_json::to_value(schema_for!(ScheduleUpdateInput)).expect("static schema"),
         },
         RegisteredMethod {
+            method: "schedule.run",
+            description: "Run a Workspace Scheduled Task once in its original Session, including paused tasks, without changing its recurrence, enabled state or next run. Requires schedule.manage and a stable requestId. Success confirms the message was queued durably, not that AI finished the task. Replay the same requestId on uncertain outcomes.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ScheduleRunInput)).expect("static schema"),
+        },
+        RegisteredMethod {
             method: "schedule.delete",
             description: "Delete a Workspace Scheduled Task by id and stop future triggers. Retains its existing conversation messages. Requires schedule.manage and a stable requestId.",
             read_only: false,
@@ -344,7 +350,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         | "operation.restore_created" | "todo.create" | "todo.update"
         | "file.create" | "file.patch" | "file.version.restore" | "file.update"
         | "file.content.begin" | "file.content.chunk" | "file.content.complete"
-        | "schedule.create" | "schedule.update" | "schedule.delete" => Some(false),
+        | "schedule.create" | "schedule.update" | "schedule.delete" | "schedule.run" => Some(false),
         _ => None,
     }
 }
@@ -368,6 +374,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "schedule.create" => decode::<ScheduleCreateInput>(parameters),
         "schedule.update" => decode::<ScheduleUpdateInput>(parameters),
         "schedule.delete" => decode::<ScheduleDeleteInput>(parameters),
+        "schedule.run" => decode::<ScheduleRunInput>(parameters),
         "project.list" => decode::<ProjectListInput>(parameters),
         "context.get" => decode::<ContextGetInput>(parameters),
         "context.overview.get" => decode::<OverviewReadInput>(parameters),
@@ -453,7 +460,7 @@ mod tests {
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",
             "file.content.begin", "file.content.chunk", "file.content.complete",
-            "file.content.status", "schedule.list", "schedule.create", "schedule.update", "schedule.delete",
+            "file.content.status", "schedule.list", "schedule.create", "schedule.update", "schedule.run", "schedule.delete",
         ]);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         for method in ["session.search", "session.messages.read", "session.read", "session.create", "run.start", "run.cancel"] {

@@ -566,6 +566,7 @@ fn run_with_bridge_call(
         ["schedule", "list", ..] => ("schedule.list", &args[2..], None),
         ["schedule", "create", ..] => ("schedule.create", &args[2..], None),
         ["schedule", "update", ..] => ("schedule.update", &args[2..], None),
+        ["schedule", "run", ..] => ("schedule.run", &args[2..], None),
         ["schedule", "delete", ..] => ("schedule.delete", &args[2..], None),
         ["record", "list", ..] => ("record.list", &args[2..], None),
         ["todo", "list", ..] => ("todo.list", &args[2..], None),
@@ -817,7 +818,7 @@ mod tests {
     fn invoke(args: &[&str]) -> CliOutput { run(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()) }
     #[test]
     fn schedule_commands_publish_help_and_exact_schema_without_connecting() {
-        for verb in ["list", "create", "update", "delete"] {
+        for verb in ["list", "create", "update", "delete", "run"] {
             let output = invoke(&["schedule", verb, "--help"]);
             assert_eq!(output.exit_code, 0, "{}", output.stderr);
             assert!(output.stdout.contains(&format!("mind schema schedule.{verb} --json")));
@@ -834,7 +835,7 @@ mod tests {
         let input_file = root.path().join("task.json");
         let task = json!({"title":"日报","prompt":"汇总项目","sessionId":"real-session","enabled":true,
             "rule":{"kind":"weeks","startDate":"2026-10-26","time":"09:00","interval":2,"weekdays":[1,3]}});
-        for (verb, input) in [("create", task.clone()), ("update", json!({"id":"task","task":task})), ("delete", json!({"id":"task"}))] {
+        for (verb, input) in [("create", task.clone()), ("update", json!({"id":"task","task":task})), ("delete", json!({"id":"task"})), ("run", json!({"id":"task"}))] {
             let params = json!({"requestId":"stable:cli-request","input":input});
             std::fs::write(&input_file, serde_json::to_vec(&params).unwrap()).unwrap();
             let args = ["schedule", verb, "--input-file", input_file.to_str().unwrap(), "--workspace", root.path().to_str().unwrap(),
