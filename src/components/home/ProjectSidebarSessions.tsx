@@ -154,11 +154,11 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
   const visible = sessions.filter(session => session.title.toLocaleLowerCase().includes(needle));
   return <section className="project-navigation__section" aria-label="项目会话">
     <div className="home-side__heading"><span>会话</span><div className="home-side__heading-actions">
+      {loading || opening ? <span role="status" aria-label={opening ? busyLabel : "正在读取项目会话"} className="inline-flex"><LoaderCircle size={14} className="spin" aria-hidden="true" /></span> : null}
       <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || loading || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
     </div></div>
     <HomeSidebarList label="项目会话列表" searchKey={query}>
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}
-      {loading || opening ? <p role="status" aria-label={opening ? busyLabel : "正在读取项目会话"} className="home-side__empty"><LoaderCircle size={14} className="spin" aria-hidden="true" /></p> : null}
       {visible.map(session => editing?.session.id === session.id ? <input key={session.id} autoFocus aria-label="重命名会话" className="home-side__rename"
         value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })}
         onBlur={() => { const title = editing.title.trim(); if (title && title !== session.title) void manage(session, { kind: "rename", title }); else setEditing(null); }}
@@ -167,7 +167,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
         onContextMenu={event => { event.preventDefault(); if (!opening) setMenu({ session, x: event.clientX, y: event.clientY }); }}>
         <AiChatIcon size={12} /><span>{session.title || "新会话"}</span>
         {session.pinned ? <Pin size={12} aria-label="已置顶" /> : null}
-        {sessionRuns?.[session.id] ? <span aria-label="运行中">运行中</span> : null}
+        {sessionRuns?.[session.id] ? <LoaderCircle size={14} role="status" aria-label="运行中" aria-hidden={false} className="home-side__running spin" /> : null}
       </button>)}
       {enabled && !loading && !error && !visible.length ? <p className="home-side__empty">{needle ? "没有匹配的会话" : "暂无会话"}</p> : null}
     </HomeSidebarList>

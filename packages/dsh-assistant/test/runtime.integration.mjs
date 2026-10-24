@@ -344,6 +344,45 @@ export function apply(ctx) {
   }
 });
 
+test('long first questions receive a summarized title through the embedded auxiliary model', { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-long-title-'));
+  const bodies = [];
+  const summarizedTitle = '项目会话联动验收';
+  const provider = await startLocalProvider({ onSyntheticRequest(body) {
+    bodies.push(body);
+    const isTitle = body.messages.some(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title'));
+    provider.enqueueResponse({ chunks: [isTitle ? summarizedTitle : 'Synthetic answer'] });
+  } });
+  let runtime, stream;
+  t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
+  const directory = await realpath(temp);
+  const shared = { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  runtime = await launch(path.join(temp, 'data'), undefined, shared, { id: 7, name: 'Title', directory });
+  const { sessionId } = await runtime.rpc('session/create', {});
+  stream = await follow(runtime, sessionId);
+  const text = '请先检查项目会话。\n' + '验收包括待办状态、记录修订、文件版本和今日计划。\n'.repeat(90);
+  assert.ok(Buffer.byteLength(text) > 4096);
+  await prompt(runtime, stream, sessionId, text);
+  const generated = await stream.read(frame => frame.type === 'event' && frame.event.type === 'session/title' && frame.event.data.source.kind === 'provider', 'summarized long-question title');
+  assert.equal(generated.event.data.title, summarizedTitle);
+  const fallback = events(stream).find(event => event.type === 'session/title' && event.data.source.kind === 'fallback');
+  assert.notEqual(generated.event.data.title, fallback.data.title);
+  const titleRequests = bodies.filter(body => body.messages.some(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title')));
+  assert.equal(titleRequests.length, 1);
+  assert.equal(titleRequests[0].max_tokens ?? titleRequests[0].max_completion_tokens, 1024);
+  const titleInput = titleRequests[0].messages.find(message => typeof message.content === 'string' && message.content.startsWith('Generate the session title')).content;
+  const titleMessages = JSON.parse(titleInput.slice(titleInput.indexOf('\n') + 1));
+  assert.equal(titleMessages.length, 1);
+  assert.equal(titleMessages[0].text, text, 'the auxiliary model receives the full first prompt');
+  assert.ok(bodies.some(body => body !== titleRequests[0] && body.messages.some(message =>
+    message.role === 'user' && (typeof message.content === 'string' ? message.content :
+      message.content.filter(block => block.type === 'text').map(block => block.text).join('')).includes(text))),
+  'title generation preserves the original main-model prompt');
+  const listed = (await runtime.rpc('session/list', {}, '_request')).items.find(item => item.sessionId === sessionId);
+  assert.equal(listed.title ?? listed.projections.values.title, summarizedTitle);
+  assert.equal(events(stream).find(event => event.type === 'user/message').data.content[0].text, text);
+});
+
 test('fixed source auto titles reach the catalog and header without changing stored user/model projections', { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-title-'));
   const bodies = [], operations = [];

@@ -42,6 +42,14 @@ export function sharedModelPatches(provider) {
     { id: 'llm-deepseek-account', disabled: true },
     { id: 'ui-settings-models', disabled: true },
     { id: 'agent-default-model', config: { provider: 'mind-main', model: provider.modelId } },
+    // Unlike the official DeepSeek adapter, generic OpenAI-compatible routes
+    // may include reasoning in the output budget of this auxiliary request.
+    // Keep rc.2's first-prompt summarizer and short-title target, with enough
+    // room for reasoning and ordinary multi-paragraph project questions.
+    { id: 'session-title-llm', config: {
+      targetWords: 5, targetCjkCharacters: 10,
+      maxInputBytes: 32768, maxOutputTokens: 1024, timeoutMs: 60000,
+    } },
     { id: 'llm-pi-ai', config: { providers: Object.fromEntries(providers.map(value => [value.id, {
       displayName: publicName(value), api: 'openai-completions', baseURL: value.baseUrl,
       apiKeyEnv: value.keyRef, models: [{ id: value.modelId,
