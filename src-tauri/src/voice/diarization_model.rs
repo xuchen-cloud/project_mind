@@ -21,7 +21,7 @@ pub const EMBEDDING_FILE: &str = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspea
 // Save the latter as EMBEDDING-LICENSE beside the model files.
 // Embedding mirror revision 0743f301363dec56491a490f6d6cbc9d67f9a3bf at
 // https://huggingface.co/csukuangfj/speaker-embedding-models (official export author).
-const FILES: [(&str, &str); 4] = [
+pub(super) const FILES: [(&str, &str); 4] = [
     (
         "model.onnx",
         "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
@@ -39,6 +39,16 @@ const FILES: [(&str, &str); 4] = [
         "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     ),
 ];
+pub(super) const FILE_SIZES: [u64; 4] = [5_992_913, 1_061, 39_593_761, 11_357];
+
+#[cfg(test)]
+pub(super) fn import_install_fixture(
+    source: &Path,
+    cache_root: &Path,
+    files: &[(&str, &str)],
+) -> Result<()> {
+    import_verified(source, cache_root, files, "install-test")
+}
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 struct VerifiedPackage {
     package_id: String,

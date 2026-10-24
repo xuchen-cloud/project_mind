@@ -113,6 +113,17 @@ pub(crate) async fn voice_diarization_model_import(source_directory: String) -> 
         .map_err(|error| failed("diarization_model_import", error))
 }
 
+#[tauri::command]
+pub(crate) fn voice_diarization_model_install() -> VoiceResult<super::diarization_install::ModelInstallStatus> {
+    let cache = crate::default_app_data_dir().map_err(|error| failed("diarization_model_install", error))?;
+    super::diarization_install::start(cache).map_err(|error| failed("diarization_model_install", error))
+}
+
+#[tauri::command]
+pub(crate) fn voice_diarization_model_install_status_get() -> super::diarization_install::ModelInstallStatus {
+    super::diarization_install::snapshot()
+}
+
 fn with_diarization_db<T>(state: &AppState, operation: &'static str, expected_workspace: Option<&std::sync::Arc<crate::WorkspaceRuntime>>,
     action: impl FnOnce(&mut crate::db::Database) -> anyhow::Result<T>) -> VoiceResult<T> {
     let current = lock_mutex(&state.current_workspace);

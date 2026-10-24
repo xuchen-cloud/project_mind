@@ -20,3 +20,10 @@ it("passes lookup and CAS inputs to the native speaker commands", async () => {
   await voiceApi.diarizationModelImport("C:/models");
   expect(command).toHaveBeenLastCalledWith("voice_diarization_model_import", { sourceDirectory: "C:/models" });
 });
+
+it("starts installation and reads global installation status without command arguments", async () => {
+  await voiceApi.diarizationModelInstall();
+  expect(command).toHaveBeenLastCalledWith("voice_diarization_model_install");
+  await voiceApi.diarizationModelInstallStatusGet();
+  expect(command).toHaveBeenLastCalledWith("voice_diarization_model_install_status_get");
+});

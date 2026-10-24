@@ -5,6 +5,7 @@ pub mod capture;
 pub mod commands;
 pub mod contracts;
 pub mod diarization;
+pub mod diarization_install;
 pub mod diarization_model;
 pub mod diarization_worker;
 pub mod live_local;

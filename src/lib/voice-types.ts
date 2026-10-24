@@ -13,6 +13,12 @@ export interface VoiceModelPackageStatus {
   ready: boolean;
   detail: string;
 }
+export interface VoiceModelInstallStatus {
+  phase: "idle" | "downloading" | "verifying" | "ready" | "failed";
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
+}
 export interface VoiceProfileTestInput {
   endpoint: string;
   credentialProfileId: number;
