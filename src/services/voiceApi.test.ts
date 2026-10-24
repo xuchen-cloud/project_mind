@@ -1,0 +1,22 @@
+import { beforeEach, expect, it, vi } from "vitest";
+const command = vi.hoisted(() => vi.fn());
+vi.mock("./desktopApi", () => ({ desktopApi: { command } }));
+import { voiceApi } from "./voiceApi";
+beforeEach(() => command.mockReset());
+it("passes lookup and CAS inputs to the native speaker commands", async () => {
+  const target = { scope: "workspace", recordId: 7 } as const;
+  await voiceApi.diarizationGet(target);
+  expect(command).toHaveBeenLastCalledWith("voice_diarization_get", { input: target });
+  await voiceApi.diarizationStart(target);
+  expect(command).toHaveBeenLastCalledWith("voice_diarization_start", { input: target });
+  const input = { target, speakerId: 1, name: "小明", expectedRevision: 4 };
+  await voiceApi.speakerRename(input);
+  expect(command).toHaveBeenLastCalledWith("voice_speaker_rename", { input });
+  const link = { target, speakerId: 1, contactId: 9, expectedRevision: 4 };
+  await voiceApi.speakerLinkContact(link);
+  expect(command).toHaveBeenLastCalledWith("voice_speaker_link_contact", { input: link });
+  await voiceApi.diarizationModelStatusGet();
+  expect(command).toHaveBeenLastCalledWith("voice_diarization_model_status_get");
+  await voiceApi.diarizationModelImport("C:/models");
+  expect(command).toHaveBeenLastCalledWith("voice_diarization_model_import", { sourceDirectory: "C:/models" });
+});

@@ -154,6 +154,8 @@ _Avoid_：User、Assignee、Project Contact
 内容中指向 Contact 的上下文连接，用于表达人员相关性，不表示负责人、执行者或权限关系。
 _Avoid_：Assignee、任务分配、权限授予
 
+Voice Record 的说话人可关联 Contact；用户确认声音后，其声纹在本 Workspace 本地保存供后续录音匹配。自动匹配结果保留明确标记，未经确认的匹配不会更新联系人声纹。详细边界见[本地说话人区分](docs/requirements/voice-speaker-diarization.md)。
+
 ### Context 与 Agent
 
 **Context（工作上下文）**：

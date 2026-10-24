@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -19,12 +20,16 @@ const DEFAULT_SETTINGS: VoiceSettings = {
 };
 
 export function VoiceSettingsPanel({ open }: { open: boolean }) {
+  const queryClient = useQueryClient();
   const { pushToast } = useFeedbackStore();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [modelStatus, setModelStatus] = useState<VoiceModelPackageStatus | null>(null);
+  const [speakerModelStatus, setSpeakerModelStatus] = useState<VoiceModelPackageStatus | null>(null);
+  const [speakerModelError, setSpeakerModelError] = useState<string | null>(null);
+  const [importingSpeakers, setImportingSpeakers] = useState(false);
   const [credentialProfiles, setCredentialProfiles] = useState<AiProviderProfileRecord[]>([]);
   const [testingProfile, setTestingProfile] = useState(false);
 
@@ -38,6 +43,9 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     void voiceApi.modelStatusGet()
       .then(setModelStatus)
       .catch((error) => pushToast({ tone: "error", title: "读取本地模型状态失败", detail: String(error) }));
+    setSpeakerModelError(null);
+    void voiceApi.diarizationModelStatusGet().then(setSpeakerModelStatus)
+      .catch((error) => setSpeakerModelError(String(error)));
     void projectMindApi.aiSettingsGet()
       .then((snapshot) => setCredentialProfiles(snapshot.profiles.filter((profile) => profile.enabled && profile.hasStoredKey)))
       .catch((error) => pushToast({ tone: "error", title: "读取密钥配置失败", detail: String(error) }));
@@ -79,6 +87,19 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     } finally {
       setTestingProfile(false);
     }
+  }
+
+  async function importSpeakerModel() {
+    setImportingSpeakers(true);
+    setSpeakerModelError(null);
+    try {
+      const selected = await desktopApi.pickDirectory("选择包含说话人模型文件的文件夹");
+      if (!selected) return;
+      setSpeakerModelStatus(await voiceApi.diarizationModelImport(selected));
+      await queryClient.invalidateQueries({ queryKey: ["voice-diarization-model"] });
+      pushToast({ tone: "success", title: "说话人模型已校验并导入" });
+    } catch (error) { setSpeakerModelError(String(error)); }
+    finally { setImportingSpeakers(false); }
   }
 
   async function save() {
@@ -150,6 +171,21 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
           实时临时字幕{settings.speechProfile.kind === "sense_voice_onnx" ? "（增加本地模型推理开销）" : ""}
         </label>
       ) : null}
+
+      <section aria-label="本地说话人模型" className="grid gap-2 border-t border-border pt-4 text-body text-text">
+        <h3 className="font-medium">本地说话人模型</h3>
+        <p>{speakerModelStatus?.detail ?? (speakerModelError ? "说话人模型状态读取失败" : "正在检查说话人模型…")}</p>
+        <p className="text-text-muted">模型就绪后，本地识别录音结束时自动区分说话人，优先完成本地转写；其他录音可在记录中手动开始。说话人区分支持不超过两小时的有效录音，结果可手动命名。</p>
+        <p className="text-text-muted">确认联系人后，仅在本 Workspace 本地保存声音特征用于后续自动匹配；不确定仍匿名。</p>
+        <p className="break-words text-caption text-text-muted">解压分段模型包，将声纹模型和声纹许可放入同一目录。导入目录须包含 model.onnx、LICENSE、3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx 和 EMBEDDING-LICENSE（下载声纹许可后改名）。导入时校验固定版本的 SHA-256。</p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="secondary" disabled={importingSpeakers} onClick={() => void importSpeakerModel()}>{importingSpeakers ? "导入并校验中…" : speakerModelStatus?.ready ? "重新导入说话人模型" : "导入说话人模型"}</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2")}>下载分段模型</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx")}>下载声纹模型</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://raw.githubusercontent.com/modelscope/3D-Speaker/065629c313eaf1a01c65c640c46d77e61e9607b4/LICENSE")}>下载声纹许可</Button>
+        </div>
+        {speakerModelError ? <p role="alert" className="text-caption text-danger">{speakerModelError}</p> : null}
+      </section>
 
       <label className="grid gap-1.5 text-body text-text">
         <span className="font-medium">会议纪要和 AI 标题模型</span>

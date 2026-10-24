@@ -2,11 +2,14 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { Pause, Play, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { VoiceRecordLookup, VoiceTranscriptCursor } from "../../lib/voice-types";
+import type { VoiceRecordLookup, VoiceTranscriptCursor, VoiceSpeaker } from "../../lib/voice-types";
+import type { ContactRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
-import { Button } from "../../ui/components";
+import { projectMindApi } from "../../services/projectMindApi";
+import { ContactMentionPicker } from "../contact/ContactMentionPicker";
+import { Button, TextField } from "../../ui/components";
 import { VoicePlayer } from "../../lib/voice-player";
 
 export interface VoiceRecordPanelProps {
@@ -24,6 +27,38 @@ function formatTime(milliseconds: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function SpeakerContactSelector({ speaker, busy, onLink }: { speaker: VoiceSpeaker; busy: boolean; onLink: (contactId: number | null) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<ContactRecord | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const contactsQuery = useQuery({
+    queryKey: ["voice-speaker-contacts", query],
+    queryFn: () => projectMindApi.contactSearch({ query, limit: 5 }),
+    enabled: open,
+    retry: false,
+  });
+  async function confirm(contactId: number) {
+    if (await onLink(contactId)) { setSelected(null); setOpen(false); }
+  }
+  return <div className="grid w-full gap-2 text-caption text-text-muted">
+    {speaker.contactId !== null ? <p>{speaker.association === "automatic" ? "自动匹配联系人" : "已关联联系人"}：{speaker.name}</p> : null}
+    {speaker.contactId !== null ? <p>修改自定义名称将解除联系人关联。</p> : null}
+    {!speaker.voiceprintReady ? <p>声音样本不足，仅关联本次记录</p> : null}
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setOpen((current) => !current)} aria-expanded={open}>选择联系人</Button>
+      {!selected && speaker.association === "automatic" && speaker.contactId !== null ? <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void confirm(speaker.contactId!)}>{speaker.voiceprintReady ? "确认并记住声音" : "确认关联本次记录"}</Button> : null}
+      {speaker.contactId !== null ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void onLink(null)}>解除联系人关联</Button> : null}
+    </div>
+    {open ? <div className="grid gap-2">
+      <label className="grid gap-1"><span>搜索已有联系人</span><TextField value={query} onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }} /></label>
+      {contactsQuery.isError ? <div><p role="alert" className="text-danger">联系人加载失败：{String(contactsQuery.error)}</p><Button type="button" size="sm" variant="secondary" onClick={() => void contactsQuery.refetch()}>重试搜索联系人</Button></div> : <ContactMentionPicker open loading={contactsQuery.isPending} results={contactsQuery.data ?? []} activeIndex={activeIndex} query={query} canCreate={false} onHoverIndex={setActiveIndex} onSelect={setSelected} className="[&_.recommendation-list]:max-h-none! [&_.recommendation-list]:overflow-visible!" />}
+      {selected ? <div className="flex flex-wrap items-center gap-2"><span>已选择：{selected.name}</span><Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void confirm(selected.id)}>{speaker.voiceprintReady ? "确认并记住声音" : "确认关联本次记录"}</Button></div> : null}
+      {contactsQuery.data?.length === 0 ? <p>可在设置 → 联系人中新增联系人。</p> : null}
+    </div> : null}
+  </div>;
+}
+
 export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceNavigationKey, onMinutesCommitted, onCopyMinutes }: VoiceRecordPanelProps) {
   const queryClient = useQueryClient();
   const playbackQuery = useQuery({
@@ -34,6 +69,71 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
     retry: false,
   });
   const previousPlayback = useRef(playbackQuery.data);
+  const ended = playbackQuery.data?.phase === "ended";
+  const diarizationKey = ["voice-diarization", target];
+  const diarizationQuery = useQuery({
+    queryKey: diarizationKey,
+    queryFn: () => voiceApi.diarizationGet(target),
+    enabled: visible && ended,
+    refetchInterval: (query) => visible && ["pending", "running"].includes(query.state.data?.status ?? "") ? 1_000 : false,
+    retry: false,
+  });
+  const speakerModelQuery = useQuery({
+    queryKey: ["voice-diarization-model"],
+    queryFn: () => voiceApi.diarizationModelStatusGet(),
+    enabled: visible && ended,
+    retry: false,
+  });
+  const [speakerDrafts, setSpeakerDrafts] = useState<Record<number, string>>({});
+  const [speakerError, setSpeakerError] = useState<string | null>(null);
+  const [speakerBusy, setSpeakerBusy] = useState(false);
+  useEffect(() => { setSpeakerDrafts({}); setSpeakerError(null); }, [playbackQuery.data?.sessionId]);
+  async function startDiarization() {
+    setSpeakerBusy(true);
+    setSpeakerError(null);
+    try { queryClient.setQueryData(diarizationKey, await voiceApi.diarizationStart(target)); }
+    catch (error) { setSpeakerError(error instanceof Error ? error.message : String(error)); }
+    finally { setSpeakerBusy(false); }
+  }
+  async function renameSpeaker(speakerId: number, name: string) {
+    const snapshot = diarizationQuery.data;
+    if (!snapshot) return;
+    const trimmed = name.trim();
+    if ([...trimmed].length < 1 || [...trimmed].length > 80) {
+      setSpeakerError("说话人名称须为 1–80 个字符");
+      return;
+    }
+    setSpeakerBusy(true);
+    setSpeakerError(null);
+    try {
+      const next = await voiceApi.speakerRename({ target, speakerId, name: trimmed, expectedRevision: snapshot.revision });
+      queryClient.setQueryData(diarizationKey, next);
+      setSpeakerDrafts((current) => { const nextDrafts = { ...current }; delete nextDrafts[speakerId]; return nextDrafts; });
+    } catch (error) {
+      setSpeakerError(error instanceof Error ? error.message : String(error));
+      await diarizationQuery.refetch();
+    } finally { setSpeakerBusy(false); }
+  }
+  async function linkSpeakerContact(speakerId: number, contactId: number | null) {
+    const snapshot = diarizationQuery.data;
+    if (!snapshot) return false;
+    setSpeakerBusy(true);
+    setSpeakerError(null);
+    try {
+      queryClient.setQueryData(diarizationKey, await voiceApi.speakerLinkContact({ target, speakerId, contactId, expectedRevision: snapshot.revision }));
+      setSpeakerDrafts((current) => { const next = { ...current }; delete next[speakerId]; return next; });
+      return true;
+    } catch (error) {
+      setSpeakerError(error instanceof Error ? error.message : String(error));
+      await diarizationQuery.refetch();
+      return false;
+    } finally { setSpeakerBusy(false); }
+  }
+  function speakerLabel(startMs: number, endMs: number) {
+    const snapshot = diarizationQuery.data;
+    const ids = new Set(snapshot?.turns.filter((turn) => turn.startMs < endMs && turn.endMs > startMs).map((turn) => turn.speakerId));
+    return snapshot?.speakers.filter((speaker) => ids.has(speaker.id)).map((speaker) => speaker.name).join("、") || "未确定";
+  }
   useEffect(() => {
     const previous = previousPlayback.current;
     const current = playbackQuery.data;
@@ -298,6 +398,26 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
       )}
       {playbackError ? <p className="mt-2 text-caption text-danger">{playbackError}</p> : null}
       {visible && sourceSeekStatus ? <p role="status" className="mt-2 text-caption text-text-soft">{sourceSeekStatus}</p> : null}
+      {ended ? <section aria-label="说话人区分" className="mt-4 border-t border-border pt-3">
+        <h3 className="text-body font-medium text-text">说话人</h3>
+        {diarizationQuery.isPending ? <p className="mt-2 text-caption text-text-muted">正在读取说话人状态…</p> : null}
+        {["pending", "running"].includes(diarizationQuery.data?.status ?? "") ? <p role="status" className="mt-2 text-caption text-text-muted">{diarizationQuery.data?.status === "running" ? "正在本地区分说话人…" : "等待本地区分说话人（本地转写优先）"}</p> : null}
+        {diarizationQuery.data?.status === "ready" ? <div className="mt-2 grid gap-2">
+          {diarizationQuery.data.speakers.length === 0 ? <p className="text-caption text-text-muted">未检测到说话人</p> : null}
+          <p className="text-caption text-text-muted">名称用于此录音的全部转写标签，不修改原始转写；一段可能包含多位说话人。</p>
+          {diarizationQuery.data.speakers.map((speaker) => <div key={`${diarizationQuery.data?.sessionId}:${speaker.id}`} className="flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-caption text-text-muted"><span>说话人{speaker.id}的名称</span><TextField value={speakerDrafts[speaker.id] ?? speaker.name} onChange={(event) => setSpeakerDrafts((current) => ({ ...current, [speaker.id]: event.target.value }))} /></label>
+            <Button size="sm" variant="secondary" disabled={speakerBusy || speakerDrafts[speaker.id] === undefined} onClick={() => void renameSpeaker(speaker.id, speakerDrafts[speaker.id] ?? speaker.name)}>保存说话人{speaker.id}</Button>
+            <SpeakerContactSelector speaker={speaker} busy={speakerBusy} onLink={(contactId) => linkSpeakerContact(speaker.id, contactId)} />
+          </div>)}
+        </div> : null}
+        {!diarizationQuery.isPending && (!diarizationQuery.data || ["not_started", "failed"].includes(diarizationQuery.data.status)) ? (
+          speakerModelQuery.data?.ready ? <Button size="sm" variant="secondary" className="mt-2" disabled={speakerBusy} onClick={() => void startDiarization()}>{speakerBusy ? "提交中…" : diarizationQuery.data?.status === "failed" ? "重试说话人区分" : "开始区分说话人"}</Button>
+            : <p className="mt-2 text-caption text-text-muted">请前往设置 → 语音记录，导入本地说话人模型后开始区分。</p>
+        ) : null}
+        {speakerError || diarizationQuery.data?.error || diarizationQuery.error || speakerModelQuery.error ? <p role="alert" className="mt-2 text-caption text-danger">{speakerError || diarizationQuery.data?.error || String(diarizationQuery.error ?? speakerModelQuery.error)}</p> : null}
+        {diarizationQuery.isError ? <Button size="sm" variant="secondary" onClick={() => void diarizationQuery.refetch()}>重新读取说话人状态</Button> : null}
+      </section> : null}
       <section aria-label="会议纪要" className="mt-4 border-t border-border pt-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-body font-medium text-text">会议纪要</h3>
@@ -339,6 +459,7 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
                     onClick={() => seek(segment.startMs)}
                     title={segment.startMs > totalMs ? "对应音频尚不可用" : undefined}>
                     <span className="mr-2 font-mono text-caption tabular-nums text-text-muted">{formatTime(segment.startMs)}</span>
+                    {diarizationQuery.data?.status === "ready" ? <span className="mr-2 text-caption text-text-muted">{speakerLabel(segment.startMs, segment.endMs)}</span> : null}
                     {segment.text}
                   </button>
                 </li>

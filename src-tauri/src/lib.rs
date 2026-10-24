@@ -188,6 +188,7 @@ pub(crate) struct WorkspaceRuntime {
     voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) voice_recovery_running: std::sync::atomic::AtomicBool,
     pub(crate) voice_recovery_interrupt: std::sync::atomic::AtomicBool,
+    pub(crate) voice_diarization_interrupt: std::sync::atomic::AtomicBool,
 }
 
 impl WorkspaceRuntime {
@@ -223,6 +224,7 @@ impl WorkspaceRuntime {
             };
         db.agent_gui_interrupt_orphans(&agent_binding)
             .map_err(|error| anyhow!(error.message))?;
+        db.voice_diarization_recover()?;
         Ok(Self {
             agent_binding,
             agent_runs: Mutex::new(std::collections::HashMap::new()),
@@ -237,6 +239,7 @@ impl WorkspaceRuntime {
             voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             voice_recovery_running: std::sync::atomic::AtomicBool::new(false),
             voice_recovery_interrupt: std::sync::atomic::AtomicBool::new(true),
+            voice_diarization_interrupt: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
@@ -335,6 +338,7 @@ impl AppState {
             previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+            previous.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
         }
         self.office_selections.clear();
         *current = runtime;
@@ -398,6 +402,7 @@ impl AppState {
             previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+            previous.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
             self.office_selections.clear();
         })?;
         if let Some(previews) = self.app_handle.try_state::<html_preview::HtmlPreviewState>() {
@@ -1590,18 +1595,23 @@ pub fn run() {
                             Ok(captured) => captured,
                             Err(error) => (Err(error), None),
                         };
-                        let (recover, error) = match result {
+                        let (recover, diarize, error) = match result {
                             Ok(snapshot) => {
                                 let busy = !workspace.ai_secrets_unlocked()
                                     || snapshot.as_ref().is_some_and(|session| {
                                         matches!(session.phase.as_str(), "recording" | "preparing" | "ending")
                                     });
                                 workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
+                                workspace.voice_diarization_interrupt.store(busy, std::sync::atomic::Ordering::Release);
                                 let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
-                                (recover, None)
+                                match db.voice_diarization_has_pending() {
+                                    Ok(pending) => (recover, !busy && pending, None),
+                                    Err(error) => (recover, false, Some(error)),
+                                }
                             }
                             Err(error) => {
-                                (false, Some(error))
+                                workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
+                                (false, false, Some(error))
                             }
                         };
                         drop(db);
@@ -1610,6 +1620,11 @@ pub fn run() {
                         if let Some(changes) = changes { committed_changes::publish_to(&handle, changes); }
                         if let Some(error) = error { let _ = handle.emit("voice:error", error.to_string()); }
                         if recover { voice::recovery::kick(workspace.clone(), handle.clone()); }
+                        if diarize {
+                            if let Err(error) = voice::diarization_worker::kick(workspace.clone(), handle.clone()) {
+                                let _ = handle.emit("voice:error", error.to_string());
+                            }
+                        }
                     }
                 })?;
             Ok(())
@@ -1704,6 +1719,12 @@ pub fn run() {
             voice_caption_apply_material,
             voice::commands::voice_availability_get,
             voice::commands::voice_model_status_get,
+            voice::commands::voice_diarization_model_status_get,
+            voice::commands::voice_diarization_model_import,
+            voice::commands::voice_diarization_get,
+            voice::commands::voice_diarization_start,
+            voice::commands::voice_speaker_rename,
+            voice::commands::voice_speaker_link_contact,
             voice::commands::voice_model_import,
             voice::commands::voice_profile_test,
             voice::commands::voice_settings_get,

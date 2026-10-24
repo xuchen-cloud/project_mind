@@ -8,10 +8,17 @@ import type {
   VoiceProfileTestInput,
   VoiceTranscriptSegment, VoiceTranscriptTailInput,
   VoiceMinutesSnapshot, VoiceMinutesGenerateInput,
+  VoiceDiarizationSnapshot, VoiceSpeakerRenameInput, VoiceSpeakerLinkContactInput,
 } from "../lib/voice-types";
 
 /** Workspace-scoped Voice Record commands backed by the process-wide capture runtime. */
 export const voiceApi = {
+  diarizationGet: (input: VoiceRecordLookup) => desktopApi.command<VoiceDiarizationSnapshot | null>("voice_diarization_get", { input }),
+  diarizationStart: (input: VoiceRecordLookup) => desktopApi.command<VoiceDiarizationSnapshot | null>("voice_diarization_start", { input }),
+  speakerRename: (input: VoiceSpeakerRenameInput) => desktopApi.command<VoiceDiarizationSnapshot>("voice_speaker_rename", { input }),
+  speakerLinkContact: (input: VoiceSpeakerLinkContactInput) => desktopApi.command<VoiceDiarizationSnapshot>("voice_speaker_link_contact", { input }),
+  diarizationModelStatusGet: () => desktopApi.command<VoiceModelPackageStatus>("voice_diarization_model_status_get"),
+  diarizationModelImport: (sourceDirectory: string) => desktopApi.command<VoiceModelPackageStatus>("voice_diarization_model_import", { sourceDirectory }),
   availabilityGet: () => desktopApi.command<VoiceAvailability>("voice_availability_get"),
   modelStatusGet: () => desktopApi.command<VoiceModelPackageStatus>("voice_model_status_get"),
   modelImport: (sourceDirectory: string) => desktopApi.command<VoiceModelPackageStatus>("voice_model_import", { sourceDirectory }),
