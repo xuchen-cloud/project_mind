@@ -1,6 +1,6 @@
 ---
 name: project-mind-cli
-description: Read Project Mind context and sources, manage native Todos, Records and Files, and verify saved operations through the bound mind CLI.
+description: List and read Project Mind context, chat Sessions and sources, manage native Todos, Records and Files, and verify saved operations through the bound mind CLI.
 ---
 
 # Project Mind CLI
@@ -58,6 +58,8 @@ Project objects belong to one finite, outcome-oriented Project; Workspace object
 ## 3. Read enough native evidence
 
 For context questions, start with bounded `context get`, then follow relevant source/object references using the exact `source.search` / `source.read` schemas. Use returned revisions, selectors and cursors. `--input-file -` reads JSON from stdin (up to 2 MiB), avoiding transient input files in managed Project directories. Cite actual object/version references.
+
+For inventories, counts, ID batches or title/content matching, use the unified `record.list`, `todo.list`, `file.list` and real-chat `session.list` commands in the [List guide with examples](references/lists.md). Default to metadata; request detail only when needed. `limit:0` and `totalCount` answer a count in one call; check File `countComplete` for content searches. Voice Records stay in `record.list`.
 
 For today, tomorrow, undated tasks or status/deadline inventories, use `todo.list` in the [Todo guide](references/todo.md). Follow every page needed for the requested coverage. Use returned parent references and child IDs to select a target, then `todo.get` for its current full state.
 

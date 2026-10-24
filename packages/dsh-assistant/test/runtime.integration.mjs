@@ -518,7 +518,7 @@ export function apply(ctx) {
   stream = await follow(runtime, sessionId);
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'nested-run', type: 'function', function: { name: 'run_code', arguments: JSON.stringify({ description: 'summarize a File', code: "await tools.read({ file_path: 'nested.md', offset: 1, limit: 1 }); return 'summary only';" }) } }] });
   await prompt(runtime, stream, sessionId, 'Read from a program and return only a summary');
-  assert.ok(operations.some(item => item.operation === 'prepare'), runtime.diagnostics());
+  assert.ok(operations.some(item => item.operation === 'prepare'), runtime.diagnostics() + '\nTool results: ' + JSON.stringify(bodies.flatMap(body => body.messages).filter(message => message.role === 'tool')).slice(0,4000));
   const finalTool = bodies.flatMap(body => body.messages).find(message => message.role === 'tool' && message.tool_call_id === 'nested-run' && JSON.stringify(message.content).includes('immutable nested bytes'));
   assert.ok(finalTool, JSON.stringify(bodies.at(-1)?.messages.filter(message => message.role === 'tool')));
   assert.ok(JSON.stringify(finalTool.content).includes('summary only'));
@@ -1319,4 +1319,24 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
   assert.ok(!JSON.stringify(bodies).includes(token), 'lease credentials must never enter model input');
   assert.ok(!runtime.diagnostics().includes(token), 'lease credentials must never enter runtime logs');
   assert.ok(!JSON.stringify(events(stream)).includes(token), 'lease credentials must never enter durable Session events');
+});
+
+test('native session inventory reads real durable chat metadata and history without resuming an Agent', { timeout: 60000 }, async t => {
+  const temporary=await mkdtemp(path.join(tmpdir(),'mind-session-inventory-'));
+  const directory=await realpath(temporary);
+  const provider=await startLocalProvider();
+  const shared={name:'Fixture',baseUrl:provider.url,modelId:'project-model',apiKey:'local-integration-key',supportsImage:false};
+  let runtime;
+  t.after(async()=>{try{await runtime?.stop();}finally{await provider.close();await rm(temporary,{recursive:true,force:true});}});
+  const project={id:1,name:'Inventory',directory};
+  runtime=await launch(path.join(temporary,'history'),undefined,shared,project);
+  const first=await runtime.rpc('session/create',{});
+  await runtime.rpc('session/rename',{sessionId:first.sessionId,title:'Inventory Needle'});
+  const scope={kind:'project',projectId:1};
+  const read=input=>runtime.rpc('mind/session/inventory',{input:{scope,...input},authorization:'native-fixture'});
+  const count=await read({limit:0});assert.equal(count.page.totalCount,1);assert.deepEqual(count.page.items,[]);
+  const detail=await read({mode:'detail',ids:[first.sessionId],titleQuery:'needle'});assert.equal(detail.page.totalCount,1);assert.equal(detail.page.items[0].title,'Inventory Needle');assert.equal(typeof detail.page.items[0].content,'string');
+  const denied=await read({scope:{kind:'project',projectId:2}});assert.equal(denied.error.code,'SCOPE_DENIED');
+  await runtime.stop();runtime=await launch(path.join(temporary,'history'),undefined,shared,project);
+  const cold=await read({titleQuery:'needle'});assert.equal(cold.page.totalCount,1);assert.equal(cold.page.items[0].id,first.sessionId);
 });

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { importSkillArchive } from './skill-import.mjs';
 import os from 'node:os';
 import { access, lstat, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -159,16 +160,30 @@ export async function manageSkill(cwd, { action, entryPath }, config = {}) {
   });
 }
 
+export async function importSkill(cwd, archive, config = {}) {
+  const providerConfig = resolveConfig(config);
+  await importSkillArchive(archive, path.join(providerConfig.dshHome, 'skills'), async staging => {
+    const checked = await collect(cwd, { ...providerConfig, includeDefaultRoots: false, bundledSkillDir: undefined, customSkillDirs: [staging] });
+    if (!checked.snapshot.complete || checked.snapshot.skills.length !== 1) throw new Error('SKILL.md 格式无效：需要有效的 name、description 和 YAML 头部');
+    const name = checked.snapshot.skills[0].name;
+    const current = await discoverSkills(cwd, config);
+    if (!current.complete) throw new Error('Skills 发现未完成，请重试');
+    if (current.skills.some(skill => skill.name.toLowerCase() === name.toLowerCase())) throw new Error('同名 Skill 已存在：' + name);
+    return name;
+  });
+  return discoverSkills(cwd, config);
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    if (!((args.length === 2 || args.length === 6) && args[0] === '--cwd' && path.isAbsolute(args[1])) ||
-        args.length === 6 && (args[2] !== '--action' || args[4] !== '--entry')) {
-      throw new Error('Usage: skills.mjs --cwd ABSOLUTE_PATH [--action enable|disable|delete --entry ABSOLUTE_PATH]');
+    if (!((args.length === 2 || args.length === 4 || args.length === 6) && args[0] === '--cwd' && path.isAbsolute(args[1])) ||
+        args.length === 6 && (args[2] !== '--action' || args[4] !== '--entry') || args.length === 4 && args[2] !== '--import') {
+      throw new Error('Usage: skills.mjs --cwd ABSOLUTE_PATH [--action enable|disable|delete --entry ABSOLUTE_PATH | --import ABSOLUTE_ZIP]');
     }
     await prepareBundledSkills();
     Object.assign(process.env, assistantEnvironment(), bundledSkillEnvironment());
-    const result = args.length === 2 ? await discoverSkills(args[1]) : await manageSkill(args[1], { action: args[3], entryPath: args[5] });
+    const result = args.length === 4 ? await importSkill(args[1], args[3]) : args.length === 2 ? await discoverSkills(args[1]) : await manageSkill(args[1], { action: args[3], entryPath: args[5] });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);

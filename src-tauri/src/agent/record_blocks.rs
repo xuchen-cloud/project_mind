@@ -18,6 +18,8 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordBlocksInput {
+    /// Canonical object reference; legacy record is accepted as an input alias.
+    #[serde(rename = "object", alias = "record")]
     pub record: ObjectRef,
     #[schemars(range(min = 1, max = 9007199254740991_u64))]
     pub revision: Option<u64>,

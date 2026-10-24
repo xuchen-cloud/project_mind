@@ -55,13 +55,34 @@ fn query_hash(request: &RequestContext, input: &TodoListInput) -> AgentResult<St
             "projects":request.scope_grant.project_ids,"operations":request.scope_grant.operations,
             "objects":request.scope_grant.object_keys},
         "scope":input.scope,"status":input.status,"from":input.due_from,"to":input.due_to,
-        "undated":input.undated,"children":input.include_children,
+        "undated":input.undated,"children":input.include_children,"mode":input.mode,
+        "ids":input.ids,"tag":input.tag,"tagIds":input.tag_ids,"titleQuery":input.title_query,"contentQuery":input.content_query,
     }))
     .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot encode Todo query"))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 fn validate(input: &TodoListInput) -> AgentResult<()> {
     input.scope.validate()?;
+    crate::agent::listing::validate_filters(
+        &input.ids,
+        input.title_query.as_deref(),
+        input.content_query.as_deref(),
+    )?;
+    if input.tag_ids.len() > 50
+        || input.tag_ids.iter().any(|id| *id <= 0)
+        || input
+            .tag
+            .as_ref()
+            .is_some_and(|tag| tag.trim().is_empty() || tag.chars().count() > 240)
+        || input.ids.iter().any(|id| {
+            id.parse::<i64>()
+                .ok()
+                .filter(|n| *n > 0 && n.to_string() == *id)
+                .is_none()
+        })
+    {
+        return Err(invalid("Invalid Todo tags or IDs"));
+    }
     if input
         .status
         .as_deref()
@@ -89,8 +110,8 @@ fn validate(input: &TodoListInput) -> AgentResult<()> {
     {
         return Err(invalid("dueFrom must not be later than dueTo"));
     }
-    if !(1..=50).contains(&input.limit.unwrap_or(20)) {
-        return Err(invalid("Todo list limit must be between 1 and 50"));
+    if input.limit.unwrap_or(20) > 50 {
+        return Err(invalid("Todo list limit must be between 0 and 50"));
     }
     if !(1..=12000).contains(&input.budget_chars.unwrap_or(4000)) {
         return Err(invalid("Todo list budgetChars must be between 1 and 12000"));
@@ -120,7 +141,14 @@ impl Database {
         self.source_live_scope(&input.scope)?;
         self.source_prepare()?;
         let hash = query_hash(request, input)?;
-        let seq = self.committed_change_watermark()?;
+        let seq: i64 = self
+            .conn
+            .query_row(
+                "SELECT total_changes() + data_version FROM pragma_data_version",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(io_error)?;
         let (after_todo, after_child) = match &input.cursor {
             Some(raw) => {
                 let cursor = decode_cursor(raw)?;
@@ -151,9 +179,11 @@ impl Database {
             .transpose()
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot encode Todo object grant"))?;
         let limit = input.limit.unwrap_or(20);
-        // Bounded display text keeps one giant Todo from preventing inventory.
-        // Full bodies and children remain available from the returned todo.get target.
-        let mut statement = self.conn.prepare(r#"
+        let ids =
+            serde_json::to_string(&input.ids).map_err(|_| invalid("Cannot encode Todo IDs"))?;
+        let tags = serde_json::to_string(&input.tag_ids)
+            .map_err(|_| invalid("Cannot encode Todo tags"))?;
+        let common = r#"
           WITH visible AS (
             SELECT t.*,h.revision FROM agent_visible_todos t
             LEFT JOIN todo_revision_heads h ON h.todo_id=t.id
@@ -162,19 +192,63 @@ impl Database {
               AND (?2 IS NULL OR ?3||'/'||?4||'/todo/'||t.id IN (SELECT value FROM json_each(?2)))
               AND NOT EXISTS(SELECT 1 FROM source_access_policies p
                   WHERE p.object_key=?3||'/'||?4||'/todo/'||t.id AND p.excluded=1)
-          ), actions(todo,child,content,truncated,parent,status,priority,due,revision) AS (
-            SELECT id,0,substr(content,1,240),length(content)>240,NULL,status,priority,due_date,revision FROM visible
+              AND (?6 IS NULL OR EXISTS(SELECT 1 FROM todo_tag_links l JOIN file_tag_options f ON f.id=l.tag_id WHERE l.todo_id=t.id AND f.label=?6))
+              AND NOT EXISTS(SELECT 1 FROM json_each(?7) wanted WHERE NOT EXISTS(SELECT 1 FROM todo_tag_links l WHERE l.todo_id=t.id AND l.tag_id=wanted.value))
+              AND (json_array_length(?8)=0 OR CAST(t.id AS TEXT) IN (SELECT value FROM json_each(?8)))
+          ), actions(todo,child,content,parent,status,priority,due,revision) AS (
+            SELECT id,0,content,NULL,status,priority,due_date,revision FROM visible
             UNION ALL
-            SELECT t.id,c.id,substr(c.content,1,240),length(c.content)>240,substr(t.content,1,240),c.status,t.priority,c.due_date,t.revision
+            SELECT t.id,c.id,c.content,t.content,c.status,t.priority,c.due_date,t.revision
               FROM visible t JOIN todo_progresses c ON c.todo_id=t.id WHERE ?5
+          ), filtered AS (
+            SELECT * FROM actions WHERE (?9 IS NULL OR status=?9)
+             AND (NOT ?10 OR due IS NULL)
+             AND (?11 IS NULL OR due>=?11) AND (?12 IS NULL OR due<=?12)
+             AND (?13 IS NULL OR instr(lower(content),lower(?13))>0)
+             AND (?14 IS NULL OR instr(lower(content),lower(?14))>0)
           )
-          SELECT todo,child,content,truncated,parent,status,priority,due,revision FROM actions
-           WHERE (todo>?6 OR (todo=?6 AND child>?7))
-             AND (?8 IS NULL OR status=?8)
-             AND (NOT ?9 OR due IS NULL)
-             AND (?10 IS NULL OR due>=?10) AND (?11 IS NULL OR due<=?11)
-           ORDER BY todo,child LIMIT ?12
-        "#).map_err(io_error)?;
+        "#;
+        let total_count: i64 = self
+            .conn
+            .query_row(
+                &format!("{common} SELECT COUNT(*) FROM filtered"),
+                params![
+                    project_id,
+                    object_keys,
+                    binding.workspace_id,
+                    input.scope.key(),
+                    input.include_children,
+                    input.tag,
+                    tags,
+                    ids,
+                    input.status,
+                    input.undated,
+                    input.due_from,
+                    input.due_to,
+                    input.title_query,
+                    input.content_query
+                ],
+                |row| row.get(0),
+            )
+            .map_err(io_error)?;
+        let mut page = TodoListPage {
+            scope: input.scope.clone(),
+            items: vec![],
+            next_cursor: None,
+            has_more: false,
+            total_count: total_count as usize,
+            stale_count: 0,
+        };
+        if limit == 0 {
+            if serialized_chars(&page)? > input.budget_chars.unwrap_or(4000) {
+                return Err(AgentError::new(
+                    ErrorCode::BudgetExceeded,
+                    "Todo count budget cannot fit the response",
+                ));
+            }
+            return Ok(page);
+        }
+        let mut statement = self.conn.prepare(&format!("{common} SELECT todo,child,CASE WHEN ?18 THEN content ELSE substr(content,1,240) END,NOT ?18 AND length(content)>240,CASE WHEN ?18 THEN parent ELSE substr(parent,1,240) END,status,priority,due,revision FROM filtered WHERE (todo>?15 OR (todo=?15 AND child>?16)) ORDER BY todo,child LIMIT ?17")).map_err(io_error)?;
         let candidates = statement
             .query_map(
                 params![
@@ -183,13 +257,19 @@ impl Database {
                     binding.workspace_id,
                     input.scope.key(),
                     input.include_children,
-                    after_todo,
-                    after_child,
+                    input.tag,
+                    tags,
+                    ids,
                     input.status,
                     input.undated,
                     input.due_from,
                     input.due_to,
-                    (limit + 1) as i64
+                    input.title_query,
+                    input.content_query,
+                    after_todo,
+                    after_child,
+                    (limit + 1) as i64,
+                    input.mode == crate::agent::listing::ListMode::Detail,
                 ],
                 |row| {
                     let todo: i64 = row.get(0)?;
@@ -209,21 +289,19 @@ impl Database {
                         status: row.get(5)?,
                         priority: row.get(6)?,
                         due_date: row.get(7)?,
+                        tags: vec![],
                     })
                 },
             )
             .map_err(io_error)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(io_error)?;
-        let mut page = TodoListPage {
-            scope: input.scope.clone(),
-            items: vec![],
-            next_cursor: None,
-            has_more: false,
-        };
         let count = candidates.len();
-        for (index, item) in candidates.into_iter().take(limit).enumerate() {
+        for (index, mut item) in candidates.into_iter().take(limit).enumerate() {
             self.source_read_object(request, binding, &item.object)?;
+            item.tags = self
+                .fetch_todo_tags(item.object.id.parse().expect("native Todo ID"))
+                .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot read Todo tags"))?;
             page.items.push(item);
             page.has_more = index + 1 < count;
             page.next_cursor = if page.has_more {
@@ -516,7 +594,6 @@ mod tests {
             json!({"dueFrom":"2026-02-30"}),
             json!({"dueFrom":"2026-11-01","dueTo":"2026-10-22"}),
             json!({"undated":true,"dueTo":"2026-10-22"}),
-            json!({"limit":0}),
             json!({"limit":51}),
             json!({"budgetChars":12001}),
             json!({"cursor":"invalid"}),
@@ -549,5 +626,36 @@ mod tests {
         let two = f.list(&small).unwrap();
         assert!(two.items[0].content.starts_with("Next"));
         assert!(!two.has_more);
+    }
+    #[test]
+    fn common_filters_tags_counts_and_detail_mode_include_subtasks() {
+        let mut f = Fixture::new();
+        let a = f.create(true, &"needle".repeat(60), None);
+        f.child(a, "child needle", None);
+        f.create(true, "unmatched", None);
+        let tag =
+            f.db.upsert_project_tag_by_label(f.project, "Topic", "blue", "now")
+                .unwrap();
+        f.db.replace_todo_tags(a, &[tag], "now").unwrap();
+        let mut input = f.input();
+        input.ids = vec![a.to_string()];
+        input.tag = Some("topic".into());
+        input.tag_ids = vec![tag];
+        input.content_query = Some("NEEDLE".into());
+        input.limit = Some(0);
+        let counts = f.list(&input).unwrap();
+        assert_eq!(counts.total_count, 2);
+        assert!(counts.items.is_empty());
+        input.limit = Some(20);
+        input.mode = crate::agent::listing::ListMode::Detail;
+        let page = f.list(&input).unwrap();
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].content.len(), 360);
+        assert!(!page.items[0].content_truncated);
+        assert_eq!(page.items[1].tags[0].id, tag);
+        input.title_query = Some("child".into());
+        assert_eq!(f.list(&input).unwrap().total_count, 1);
+        input.tag_ids.push(99999);
+        assert_eq!(f.list(&input).unwrap().total_count, 0);
     }
 }

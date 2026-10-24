@@ -179,13 +179,15 @@ mod tests {
     fn runtime_credentials_require_a_complete_pair_without_secret_errors() {
         use std::ffi::OsString;
         assert!(runtime_credentials(None, None).unwrap().is_none());
-        let path = OsString::from("/tmp/embedded-discovery.json");
+        let root = tempfile::tempdir().unwrap();
+        let expected_path = root.path().join("embedded-discovery.json");
+        let path = expected_path.clone().into_os_string();
         let token = OsString::from("private-execution-token");
         let (actual_path, actual_token) =
             runtime_credentials(Some(path.clone()), Some(token.clone()))
                 .unwrap()
                 .unwrap();
-        assert_eq!(actual_path, PathBuf::from("/tmp/embedded-discovery.json"));
+        assert_eq!(actual_path, expected_path);
         assert_eq!(actual_token, "private-execution-token");
         for (path, token) in [
             (Some(path), None),

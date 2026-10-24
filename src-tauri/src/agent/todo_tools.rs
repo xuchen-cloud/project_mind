@@ -15,6 +15,25 @@ pub(crate) struct TodoGetInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TodoListInput {
     pub scope: super::models::Scope,
+    /// metadata (default) omits full bodies; detail includes complete available content within the response budget.
+    #[serde(default)]
+    pub mode: crate::agent::listing::ListMode,
+    /// Native object IDs. Empty means all. Filters combine with AND.
+    #[serde(default)]
+    #[schemars(length(max = 50))]
+    pub ids: Vec<String>,
+    /// Case-insensitive substring match; no wildcard syntax.
+    #[schemars(length(min = 1, max = 256))]
+    pub title_query: Option<String>,
+    /// Case-insensitive substring match in committed content, before pagination.
+    #[schemars(length(min = 1, max = 256))]
+    pub content_query: Option<String>,
+
+    /// Parent Todo tags also apply to Subtasks; native NOCASE label matching.
+    pub tag: Option<String>,
+    #[serde(default)]
+    #[schemars(length(max = 50))]
+    pub tag_ids: Vec<i64>,
     /// Omit to include both unfinished and finished actions.
     #[serde(default)]
     #[schemars(schema_with = "optional_status_schema")]
@@ -36,8 +55,8 @@ pub(crate) struct TodoListInput {
     /// Continue the same filters and authorization. Restart if sources changed.
     #[schemars(length(max = 2048))]
     pub cursor: Option<String>,
-    /// Maximum actions per page, 1–50; defaults to 20.
-    #[schemars(range(min = 1, max = 50))]
+    /// Maximum actions per page, 0–50; defaults to 20. Zero returns counts only.
+    #[schemars(range(min = 0, max = 50))]
     pub limit: Option<usize>,
     /// Maximum serialized page characters, 1–12000; defaults to 4000. A smaller budget may return fewer items or BUDGET_EXCEEDED.
     #[schemars(range(min = 1, max = 12000))]
@@ -65,7 +84,7 @@ fn optional_date_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     .expect("date schema")
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TodoListItem {
     /// Native parent Todo target, including for a Subtask.
@@ -82,6 +101,7 @@ pub(crate) struct TodoListItem {
     /// Subtasks use their parent Todo's priority.
     pub priority: String,
     pub due_date: Option<String>,
+    pub tags: Vec<crate::models::DocumentTagRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +111,8 @@ pub(crate) struct TodoListPage {
     pub items: Vec<TodoListItem>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
+    pub total_count: usize,
+    pub stale_count: usize,
 }
 
 pub(super) fn todo_ref_schema() -> Value {

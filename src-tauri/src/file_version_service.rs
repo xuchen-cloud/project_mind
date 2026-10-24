@@ -612,12 +612,14 @@ mod tests {
                 // Another legitimate writer may take its lease immediately
                 // after our commit releases it. Bounded waiting still detects
                 // an own lease retained across this synchronous publisher.
+                // fs2 reports Windows contention as ERROR_LOCK_VIOLATION,
+                // whose ErrorKind is not WouldBlock.
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
                 loop {
                     match fs2::FileExt::try_lock_exclusive(&lock) {
                         Ok(()) => break,
                         Err(error)
-                            if error.kind() == std::io::ErrorKind::WouldBlock
+                            if error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
                                 && std::time::Instant::now() < deadline =>
                         {
                             std::thread::sleep(std::time::Duration::from_millis(1))

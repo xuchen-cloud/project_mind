@@ -2691,7 +2691,8 @@ mod tests {
             projection.document["content"][2]["attrs"]["blockId"]
         );
         let mut outside = input.clone();
-        outside["content"][2]["attrs"]["path"] = json!("/outside/图片.png");
+        let outside_directory = tempfile::tempdir().unwrap();
+        outside["content"][2]["attrs"]["path"] = json!(outside_directory.path().join("图片.png"));
         assert_eq!(
             database
                 .record_document_from_gui(&target, &outside)

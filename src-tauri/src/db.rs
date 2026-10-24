@@ -28,6 +28,8 @@ pub(crate) mod todo_revisions;
 pub(crate) mod agent_todo_undo;
 pub(crate) mod agent_todo_outputs;
 pub(crate) mod agent_todo_list;
+pub(crate) mod agent_record_list;
+pub(crate) mod agent_file_list;
 mod file_output_schema;
 pub(crate) mod agent_file_outputs;
 pub(crate) mod agent_file_undo;
@@ -1635,16 +1637,15 @@ impl Database {
         if current_version != i64::try_from(expected_version)? {
             return Err(anyhow!("minutes version conflict"));
         }
-        let (project_note_id, workspace_note_id, started_at): (Option<i64>, Option<i64>, String) = transaction.query_row(
-            "SELECT vr.project_note_id, vr.workspace_note_id, s.started_at FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
-            [session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        let (project_note_id, workspace_note_id): (Option<i64>, Option<i64>) = transaction.query_row(
+            "SELECT vr.project_note_id, vr.workspace_note_id FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
+            [session_id], |row| Ok((row.get(0)?, row.get(1)?))
         )?;
         transaction.execute(
             "INSERT INTO voice_minutes (session_id, version, source_max_rowid, content, generated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET version = excluded.version, source_max_rowid = excluded.source_max_rowid, content = excluded.content, generated_at = excluded.generated_at",
             params![session_id, i64::try_from(expected_version + 1)?, source_max_rowid, content.trim(), now_iso()],
         )?;
-        let started = chrono::DateTime::parse_from_rfc3339(&started_at)?.with_timezone(&Local);
-        let titled = format!("{} · {}", title.trim(), started.format("%Y-%m-%d %H:%M"));
+        let titled = title.trim();
         if let Some(id) = project_note_id {
             transaction.execute(
                 "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
@@ -9200,6 +9201,20 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
 "#).unwrap();
     }
 
+    // HTML hydration may retain portable separators inside an absolute native path.
+    // Compare complete data-path values by Path components rather than spelling.
+    fn html_has_asset_path(html: &str, expected: &str) -> bool {
+        let mut found = false;
+        rewrite_html_tags(html, |tag| {
+            if let Some(value) = html_attribute_value(tag, "data-path") {
+                let decoded = unescape_html_attribute(&value);
+                found |= Path::new(&decoded) == Path::new(expected);
+            }
+            tag.to_string()
+        });
+        found
+    }
+
     fn setup_database() -> (TestHarness, Database) {
         let unique = next_test_unique();
         let root = std::env::temp_dir().join(format!("project-mind-db-test-{unique}"));
@@ -9436,7 +9451,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .starts_with("发布计划 · "));
+            .eq("发布计划"));
 
         database
             .workspace_record_upsert(WorkspaceRecordUpsertInput {
@@ -9492,7 +9507,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .starts_with("新 AI 标题 · "));
+            .eq("新 AI 标题"));
     }
 
     #[test]
@@ -9781,8 +9796,8 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert!(stored_html
             .contains(r#"data-path=".project-mind/embedded-note-assets/project/legacy.png""#));
         assert!(!stored_html.contains(&project.root_path));
-        assert!(repaired.summary_html.contains(&moved_image.managed_path));
-        assert!(!repaired.summary_html.contains(&image.managed_path));
+        assert!(html_has_asset_path(&repaired.summary_html, &moved_image.managed_path));
+        assert!(!html_has_asset_path(&repaired.summary_html, &image.managed_path));
     }
 
     #[test]
@@ -9846,7 +9861,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             r#"data-path=".project-mind/embedded-note-assets/workspace/legacy-workspace.png""#
         ));
         assert!(!stored_html.contains("old-machine"));
-        assert!(hydrated.content_html.contains(&image.path));
+        assert!(html_has_asset_path(&hydrated.content_html, &image.path));
     }
 
     fn expect_workspace_backup(workspace_root: &Path, expected_value: &str) {
@@ -10683,13 +10698,13 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert!(stored_html
             .contains(r#"data-path=".project-mind/embedded-note-assets/project/quick-note.png""#));
         assert!(!stored_html.contains(&project.root_path));
-        assert!(saved.summary_html.contains(&image.managed_path));
+        assert!(html_has_asset_path(&saved.summary_html, &image.managed_path));
         let listed = database
             .projects_list(ProjectsListInput {
                 include_archived: Some(true),
             })
             .unwrap();
-        assert!(listed[0].summary_html.contains(&image.managed_path));
+        assert!(html_has_asset_path(&listed[0].summary_html, &image.managed_path));
     }
 
     #[test]
@@ -10766,7 +10781,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
 
         assert_eq!(stored_quick_note_after, stored_quick_note_before);
         assert!(Path::new(&moved_image.managed_path).exists());
-        assert!(renamed.summary_html.contains(&moved_image.managed_path));
+        assert!(html_has_asset_path(&renamed.summary_html, &moved_image.managed_path));
 
         let resaved = database
             .project_record_upsert(ProjectRecordUpsertInput {
@@ -10792,8 +10807,8 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert!(
             stored_record_html.contains(".project-mind/embedded-note-assets/project/shared.png")
         );
-        assert!(resaved.content_html.contains(&moved_image.managed_path));
-        assert!(!resaved.content_html.contains(&image.managed_path));
+        assert!(html_has_asset_path(&resaved.content_html, &moved_image.managed_path));
+        assert!(!html_has_asset_path(&resaved.content_html, &image.managed_path));
     }
 
     #[test]
@@ -11022,6 +11037,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(ai_settings.profiles[0].name, "Legacy AI");
         assert_eq!(rich_text.headings.h2_size_px, 20);
 
+        drop(database);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -11429,9 +11445,10 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(fs::read(&second.path).unwrap(), b"second-image");
         assert_eq!(first.mime_type, "image/png");
         assert_eq!(second.mime_type, "image/png");
-        assert!(first
-            .path
-            .contains(".project-mind/embedded-note-assets/workspace/"));
+        assert!(Path::new(&first.path).starts_with(
+            harness.workspace_root.join(WORKSPACE_HIDDEN_DIR_NAME)
+                .join(PROJECT_NOTE_ASSET_DIR_NAME).join("workspace")
+        ));
         assert!(second.path.ends_with("workspace-clip-2.png"));
     }
 
@@ -11484,8 +11501,8 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             ));
             assert!(!stored_html.contains(&image.path));
         }
-        assert!(quick_note.content_html.contains(&image.path));
-        assert!(record.content_html.contains(&image.path));
+        assert!(html_has_asset_path(&quick_note.content_html, &image.path));
+        assert!(html_has_asset_path(&record.content_html, &image.path));
     }
 
     #[test]

@@ -14,6 +14,7 @@ ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当�
 - 在项目侧边栏浏览记录与文件，支持搜索、标签筛选、文件导入、重命名、标星、版本切换、删除与拖拽导入
 - 提供顶栏全局搜索、项目页签、归档项目入口、设置入口与工作区菜单
 - 提供可配置、可绑定模型的编辑器 AI 技能
+- 设置 → Skills 支持导入 `.zip` / `.skill` 压缩包：选择当前范围，点击“导入 Skill”。包内应有一个带 YAML `name`、`description` 的 `SKILL.md`（位于根目录或单层 Skill 文件夹），可附带 `scripts/`、`references/`、`assets/`。导入使用同一原生发现器校验并刷新列表，不覆盖同名 Skill；可继续启用、禁用或删除。压缩包上限 10 MB，展开后 50 MB / 1000 项。
 - 在 Project 内用独立内容页签打开 Record、File 和 DSH 会话，支持双栏、排序、移栏和布局恢复
 - 在应用内预览文本、代码、Markdown、图片、PDF 和静态 HTML；读取和引用绑定实际 File 身份及版本
 - Project 助手复用 DSH 原 Chat、Trajectory、输入框和插件设置，沿用工作区模型配置，可在输入区选择已配置模型

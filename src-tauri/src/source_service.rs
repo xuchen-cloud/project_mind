@@ -20,6 +20,10 @@ pub(crate) trait BoundSourceStore:
     ) -> AgentResult<T>;
 }
 pub(crate) trait SourceUtility {
+    fn session_inventory(&self, _binding: &WorkspaceBinding, _input: &crate::agent::record_list::RecordListInput, _authorization: &str)
+        -> impl std::future::Future<Output = AgentResult<Value>> + Send {
+        async { Err(AgentError::new(ErrorCode::RuntimeUnavailable,"Session inventory requires the native DSH runtime")) }
+    }
     fn request(
         &self,
         workspace_id: &str,
@@ -488,6 +492,12 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         crate::source_file_snapshot::verify_file(&extraction.plan, &extraction.snapshot).await?;
         self.verify_file_plan(request, source, &extraction.plan)
     }
+    pub(crate) async fn verify_inventory_file(&self, request: &RequestContext, source: &SourceReadTarget,
+        plan: &crate::source_file_snapshot::FileReadPlan, receipt: &crate::source_file_snapshot::FileVerification) -> AgentResult<()> {
+        self.verify_file_plan(request,source,plan)?;
+        crate::source_file_snapshot::verify_file_receipt(plan,receipt).await?;
+        self.verify_file_plan(request,source,plan)
+    }
     fn verify_file_plan(
         &self,
         request: &RequestContext,
@@ -935,13 +945,13 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             &spans,
             cursor,
             None,
-        )?;
+        );
         self.store.with_current(|binding, db| {
             let current = db.source_record_fingerprint(request, binding, &input.source)?;
             if current.revision != snapshot.revision {
                 return Err(changed());
             }
-            Ok(page)
+            page
         })
     }
 }

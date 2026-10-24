@@ -87,7 +87,7 @@ fn fit_page(
         return Err(error(
             ErrorCode::BudgetExceeded,
             "Session source budget is too small",
-        ));
+        ).with_details(serde_json::json!({"object":page.source_ref.object,"title":page.source_ref.title.chars().take(120).collect::<String>(),"minimumBudgetChars":page_size(&page)?})));
     }
     if page_size(&page)? <= budget {
         return Ok((page, starting + chars.len() as u32));
@@ -113,7 +113,7 @@ fn fit_page(
         return Err(error(
             ErrorCode::BudgetExceeded,
             "Session source budget is too small",
-        ));
+        ).with_details(serde_json::json!({"object":page.source_ref.object,"title":page.source_ref.title.chars().take(120).collect::<String>(),"minimumBudgetChars":page_size(&page)?})));
     }
     page.text = chars[..low].iter().collect();
     let end = starting + low as u32;
@@ -198,14 +198,14 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             range_complete: complete,
             extraction: None,
         };
-        let (page, end) = fit_page(
+        let fitted = fit_page(
             page,
             fragment.char_start,
             fragment.total_chars,
             budget,
             &record.runtime_entry_id,
             &record.message_id,
-        )?;
+        );
         self.store.with_current(|current, db| {
             if current != &binding {
                 return Err(error(
@@ -222,6 +222,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             }
             Ok(())
         })?;
+        let (page,end)=fitted?;
         Ok(SessionReadResult {
             page,
             char_start: fragment.char_start,

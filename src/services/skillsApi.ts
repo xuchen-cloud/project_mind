@@ -20,6 +20,8 @@ export interface SkillCatalog {
 }
 
 export const skillsApi = {
+  import: (projectId: number | null, archivePath: string) =>
+    desktopApi.command<SkillCatalog>("skills_import", { projectId, archivePath }),
   list: (projectId: number | null = null) =>
     desktopApi.command<SkillCatalog>("skills_list", { projectId }),
   manage: (projectId: number | null, entryPath: string, action: SkillAction) =>

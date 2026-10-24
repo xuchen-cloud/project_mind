@@ -39,14 +39,23 @@ fn encode(result: impl Serialize) -> AgentResult<Value> {
     })
 }
 
-pub(crate) async fn execute<S: BoundSourceStore, W: DocumentUtility>(
+pub(crate) async fn execute<S: BoundSourceStore, W: DocumentUtility, F: crate::source_service::SourceUtility>(
     store: &S,
     request: &RequestContext,
     method: &str,
     arguments: Value,
     utility: &W,
+    source_utility: &F,
 ) -> AgentResult<Value> {
     match method {
+        "file.list" => {
+            let input: crate::agent::record_list::RecordListInput = decode(arguments)?;
+            crate::agent::file_list::list(store, request, &input, source_utility).await
+        }
+        "record.list" => {
+            let input: crate::agent::record_list::RecordListInput = decode(arguments)?;
+            store.with_current(|binding, db| encode(db.agent_record_list(request, binding, &input)?))
+        }
         "todo.list" => {
             let input: TodoListInput = decode(arguments)?;
             store.with_current(|binding, db| {

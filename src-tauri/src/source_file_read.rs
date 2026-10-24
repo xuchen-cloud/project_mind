@@ -178,6 +178,17 @@ fn projection(
     Ok((text, spans))
 }
 impl<'a, S: BoundSourceStore> SourceService<'a, S> {
+    pub(crate) async fn file_inventory_content<W: SourceUtility>(
+        &self, request: &RequestContext, source: &crate::source_service::SourceReadTarget, utility: &W,
+    ) -> AgentResult<(Value, crate::source_file_snapshot::FileReadPlan, crate::source_file_snapshot::FileVerification)> {
+        let extraction = self.extract_file(request, source, utility).await?;
+        let data: Extraction = serde_json::from_value(extraction.data.clone()).map_err(|_| protocol())?;
+        let status = FileExtractionStatus {state:data.state,coverage:data.coverage,reason:data.reason};
+        let input=SourceReadInput {source:source.clone(),view:SourceReadView::Full,selection:None,cursor:None,budget_chars:None};
+        let (text,_) = projection(&status,text_locations(data.chunks)?,&input)?;
+        self.verify_file_extraction(request,source,&extraction).await?;
+        Ok((serde_json::json!({"text":text,"complete":status.coverage["complete"]==true,"state":status.state,"reason":status.reason}),extraction.plan.clone(),extraction.snapshot.verification()))
+    }
     pub(crate) async fn index_file<W: SourceUtility>(
         &self,
         request: &RequestContext,
@@ -334,9 +345,9 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             &spans,
             cursor,
             Some(status),
-        )?;
+        );
         self.verify_file_extraction(request, &input.source, &extraction)
             .await?;
-        Ok((page, extraction.plan.clone(), extraction.snapshot.verification()))
+        Ok((page?, extraction.plan.clone(), extraction.snapshot.verification()))
     }
 }

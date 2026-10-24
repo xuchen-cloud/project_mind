@@ -62,6 +62,8 @@ fn summary(version: &RecordVersion) -> RecordVersionSummary {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordVersionsListInput {
+    /// Canonical object reference; legacy record is accepted as an input alias.
+    #[serde(rename = "object", alias = "record")]
     pub record: ObjectRef,
     pub cursor: Option<u64>,
     #[schemars(range(min = 1, max = 100))]
@@ -72,6 +74,8 @@ pub(crate) struct RecordVersionsListInput {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordVersionsGetInput {
+    /// Canonical object reference; legacy record is accepted as an input alias.
+    #[serde(rename = "object", alias = "record")]
     pub record: ObjectRef,
     #[schemars(length(min = 32, max = 32))]
     pub version_id: String,
@@ -81,6 +85,8 @@ pub(crate) struct RecordVersionsGetInput {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RecordVersionsCompareInput {
+    /// Canonical object reference; legacy record is accepted as an input alias.
+    #[serde(rename = "object", alias = "record")]
     pub record: ObjectRef,
     #[schemars(length(min = 32, max = 32))]
     pub before_version_id: String,

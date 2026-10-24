@@ -11,6 +11,7 @@ use crate::{
         outputs::RecordPatch,
         record_blocks::RecordBlocksInput,
         record_get::RecordGetInput,
+        record_list::RecordListInput,
         references::ReferenceListInput,
         todo_tools::{TodoGetInput, TodoListInput},
     },
@@ -122,8 +123,26 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             parameters: serde_json::to_value(schema_for!(TodoGetInput)).expect("static schema"),
         },
         RegisteredMethod {
+            method: "file.list",
+            description: "List authorized native File metadata; detail mode returns verified extracted text with completeness/status. Filter by ids, titleQuery, contentQuery, tag and all tagIds before pagination. limit:0 counts only. totalCount counts known matches; countComplete=false and unreadableCount disclose incomplete content search. No file paths or binary bytes are returned. Workspace scope has no Files.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "session.list",
+            description: "List real DSH chat Sessions in one authorized scope with session.read. Supports ids, titleQuery/contentQuery substring filters, metadata/detail mode, limit:0 counts, cursor and budgetChars. Detail returns human conversation text (user/assistant/tool), excluding system prompts and non-text attachments. Sessions do not have tags. Restart on SOURCE_CHANGED.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.list",
+            description: "List native Records in metadata (default) or detail mode (complete Markdown within budget). Filter by ids, titleQuery/contentQuery substrings, exact tag label or all tagIds. Use limit:0 for counts only. totalCount covers every matching visible Record, independent of pagination; staleCount is zero (no search index). Types are text/voice. updatedAt includes metadata changes; lastEditedAt is the committed body head timestamp or null for legacy Records. Follow nextCursor for inventory; restart on SOURCE_CHANGED. record.get reads bodies.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
             method: "todo.list",
-            description: "List current native Todo and Subtask actions in one authorized scope with source.read. Filter each action by its own status and inclusive deadline bounds, or undated. Continue nextCursor until hasMore=false; restart on SOURCE_CHANGED. Display text is bounded; todo.get returns full details.",
+            description: "List current native Todo and Subtask actions in one authorized scope with source.read. Filter each action by its own status and inclusive deadline bounds, or undated. Continue nextCursor until hasMore=false; restart on SOURCE_CHANGED. Filter by ids, titleQuery/contentQuery and inherited tag/tagIds. metadata mode bounds display text; detail returns full action text. totalCount counts all matches; limit:0 counts only.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(TodoListInput)).expect("static schema"),
         },
@@ -292,7 +311,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
     match method {
         "connection.status" | "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
         | "knowledge.get" | "source.search" | "source.read"
-        | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list"
+        | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list" | "record.list" | "file.list" | "session.list"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
         | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" => Some(true),
@@ -330,6 +349,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "record.get" => decode::<RecordGetInput>(parameters),
         "record.blocks.get" => decode::<RecordBlocksInput>(parameters),
         "todo.get" => decode::<TodoGetInput>(parameters),
+        "record.list" | "file.list" | "session.list" => decode::<RecordListInput>(parameters),
         "todo.list" => decode::<TodoListInput>(parameters),
         "file.versions.list" => decode::<FileVersionsListInput>(parameters),
         "file.versions.get" => decode::<FileVersionsGetInput>(parameters),
@@ -395,7 +415,7 @@ mod tests {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
             "connection.status", "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read",
-            "reference.list", "record.get", "record.blocks.get", "todo.get", "todo.list",
+            "reference.list", "record.get", "record.blocks.get", "todo.get", "file.list", "session.list", "record.list", "todo.list",
             "file.versions.list", "file.versions.get", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
             "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
@@ -467,8 +487,8 @@ mod tests {
         let object = |kind| serde_json::json!({"workspaceId":"workspace-a","scope":scope,"kind":kind,"id":"1"});
         let cases = [
             ("reference.list", serde_json::json!({"object":object("record"),"direction":"incoming","limit":20,"budgetChars":4000})),
-            ("record.get", serde_json::json!({"record":object("record"),"budgetChars":4000})),
-            ("record.blocks.get", serde_json::json!({"record":object("record"),"budgetChars":4000})),
+            ("record.get", serde_json::json!({"object":object("record"),"budgetChars":4000})),
+            ("record.blocks.get", serde_json::json!({"object":object("record"),"budgetChars":4000})),
             ("todo.get", serde_json::json!({"target":object("todo")})),
             ("file.versions.list", serde_json::json!({"object":object("file"),"limit":10})),
             ("file.versions.get", serde_json::json!({"object":object("file"),"versionId":"version-1"})),
@@ -485,8 +505,8 @@ mod tests {
         assert_eq!(validate("reference.list", &serde_json::json!({"object":object("record"),"direction":"sideways"})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(validate("reference.list", &serde_json::json!({"object":object("record"),"direction":"outgoing","includeKnowledge":true})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(is_read_only("reference.list"), Some(true));
-        assert_eq!(validate("record.get", &serde_json::json!({"record":object("record"),"recordVersion":1})).unwrap_err().code, ErrorCode::InvalidArgument);
-        assert_eq!(validate("record.get", &serde_json::json!({"record":object("record"),"budgetChars":12001})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("record.get", &serde_json::json!({"object":object("record"),"recordVersion":1})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("record.get", &serde_json::json!({"object":object("record"),"budgetChars":12001})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert_eq!(is_read_only("record.get"), Some(true));
         assert!(!is_registered("record.delete"));
         assert!(!is_registered("file.delete"));
@@ -503,9 +523,9 @@ mod tests {
         let before = "a".repeat(32);
         let after = "b".repeat(32);
         let cases = [
-            ("record.versions.list", serde_json::json!({"record":record,"limit":8,"budgetChars":4000})),
-            ("record.versions.get", serde_json::json!({"record":record,"versionId":before,"budgetChars":4000})),
-            ("record.versions.compare", serde_json::json!({"record":record,"beforeVersionId":before,"afterVersionId":after,"budgetChars":4000})),
+            ("record.versions.list", serde_json::json!({"object":record,"limit":8,"budgetChars":4000})),
+            ("record.versions.get", serde_json::json!({"object":record,"versionId":before,"budgetChars":4000})),
+            ("record.versions.compare", serde_json::json!({"object":record,"beforeVersionId":before,"afterVersionId":after,"budgetChars":4000})),
         ];
         for (method, value) in cases {
             validate(method, &value).unwrap();
@@ -514,7 +534,7 @@ mod tests {
             let fields = schema["properties"].as_object().unwrap();
             assert!(value.as_object().unwrap().keys().all(|name| fields.contains_key(name)), "{method}");
         }
-        assert_eq!(validate("record.versions.get", &serde_json::json!({"record":record,"versionId":before,"restore":true})).unwrap_err().code, ErrorCode::InvalidArgument);
+        assert_eq!(validate("record.versions.get", &serde_json::json!({"object":record,"versionId":before,"restore":true})).unwrap_err().code, ErrorCode::InvalidArgument);
         assert!(!is_registered("file.delete"));
     }
 

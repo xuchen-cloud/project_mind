@@ -369,7 +369,7 @@ fn record_get_identity(options: &Options, id: &str) -> AgentResult<(i64, Scope)>
 }
 
 fn record_get_params(options: &Options, record_id: i64, scope: Scope, binding: &WorkspaceBinding) -> Value {
-    json!({"record":{"workspaceId":binding.workspace_id.clone(),"scope":scope,"kind":"record","id":record_id.to_string()},
+    json!({"object":{"workspaceId":binding.workspace_id.clone(),"scope":scope,"kind":"record","id":record_id.to_string()},
         "revision":options.revision.as_deref(),"cursor":options.cursor.as_deref(),"budgetChars":options.budget_chars})
 }
 
@@ -561,6 +561,9 @@ fn run_with_bridge_call(
         ["record", "versions", "get", ..] => ("record.versions.get", &args[3..], None),
         ["record", "versions", "compare", ..] => ("record.versions.compare", &args[3..], None),
         ["todo", "get", ..] => ("todo.get", &args[2..], None),
+        ["file", "list", ..] => ("file.list", &args[2..], None),
+        ["session", "list", ..] => ("session.list", &args[2..], None),
+        ["record", "list", ..] => ("record.list", &args[2..], None),
         ["todo", "list", ..] => ("todo.list", &args[2..], None),
         ["todo", "create", ..] => ("todo.create", &args[2..], None),
         ["todo", "update", ..] => ("todo.update", &args[2..], None),
@@ -829,7 +832,7 @@ mod tests {
     #[test]
     fn subcommand_help_is_offline_and_points_to_its_schema() {
         for method in [
-            "todo.create", "todo.get", "todo.update", "todo.list", "record.get",
+            "todo.create", "todo.get", "todo.update", "todo.list", "record.list", "record.get",
             "record.create", "record.patch", "record.patch.preview", "record.restore",
             "record.versions.compare", "file.upload", "file.version.restore",
             "context.overview.get", "source.read", "reference.list", "operation.restore-created",
@@ -1029,6 +1032,25 @@ mod tests {
         registry::validate("todo.list", &params).unwrap();
         std::fs::write(file.path(), serde_json::to_vec(&params).unwrap()).unwrap();
         let args = ["todo", "list", "--input-file", file.path().to_str().unwrap(),
+            "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
+        let out = invoke(&args);
+        assert_ne!(out.exit_code, 2, "{}", out.stderr);
+        let mut mixed = args.to_vec();
+        mixed.push("--workspace-scope");
+        let out = invoke(&mixed);
+        assert_eq!(out.exit_code, 2);
+        assert!(out.stderr.contains("cannot accompany --input-file"), "{}", out.stderr);
+        // The same bounded JSON reader services --input-file - for list and get.
+        assert_eq!(parse_input(std::io::Cursor::new(serde_json::to_vec(&params).unwrap())).unwrap(), params);
+    }
+    #[test]
+    fn record_list_accepts_registered_dto_and_rejects_mixed_scope_flags() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let params = json!({"scope":{"kind":"workspace"},"tag":"Topic","tagIds":[1],
+            "limit":20,"budgetChars":4000});
+        registry::validate("record.list", &params).unwrap();
+        std::fs::write(file.path(), serde_json::to_vec(&params).unwrap()).unwrap();
+        let args = ["record", "list", "--input-file", file.path().to_str().unwrap(),
             "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"];
         let out = invoke(&args);
         assert_ne!(out.exit_code, 2, "{}", out.stderr);
@@ -1440,7 +1462,7 @@ mod tests {
         let (id, scope) = record_get_identity(&options, "23").unwrap();
         let binding = WorkspaceBinding { workspace_id: "bound-workspace".into(), generation: "generation".into() };
         let params = record_get_params(&options, id, scope, &binding);
-        assert_eq!(params["record"], json!({"workspaceId":"bound-workspace","scope":{"kind":"project","projectId":7},"kind":"record","id":"23"}));
+        assert_eq!(params["object"], json!({"workspaceId":"bound-workspace","scope":{"kind":"project","projectId":7},"kind":"record","id":"23"}));
         assert_eq!(params["revision"], "sha256:abc");
         assert_eq!(params["cursor"], "page-2");
         assert_eq!(params["budgetChars"], 12000);

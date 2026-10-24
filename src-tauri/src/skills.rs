@@ -192,6 +192,22 @@ pub(crate) async fn skills_manage(
     run_catalog(&app, project_id, Some((&entry_path, action))).await
 }
 
+#[tauri::command]
+pub(crate) async fn skills_import(
+    app: tauri::AppHandle,
+    project_id: Option<i64>,
+    archive_path: String,
+) -> Result<SkillCatalog, String> {
+    let context = CatalogContext::resolve(&app, project_id)?;
+    let mut command = assistant_script_command(&app, "skills.mjs")?;
+    configure_catalog_command(&mut command, &context, None);
+    command.arg("--import").arg(archive_path);
+    context.verify(&CatalogContext::resolve(&app, project_id)?)?;
+    let result = read_catalog(command).await;
+    context.verify(&CatalogContext::resolve(&app, project_id)?)?;
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
