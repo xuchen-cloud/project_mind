@@ -6,7 +6,7 @@ A Scheduled Task sends instructions into its original Workspace conversation at 
 
 Use the supplied native Workspace/connection binding. `PROJECT_MIND_SESSION_ID` is supplied by the native shell adapter for the actual conversation; use it as `sessionId`, without guessing or selecting a similarly titled conversation. Creation from a Project conversation is denied: ask the user to use a Workspace conversation. Standalone CLI callers may select an existing Workspace Session from `mind session list --workspace-scope`; do not use Project Session IDs.
 
-Require `schedule.read` for listing and `schedule.manage` for mutations. Read-only execution cannot create, edit, pause or delete tasks. External connections must explicitly grant task management for the whole Workspace; ordinary content write access is insufficient.
+Require `schedule.read` for listing and `schedule.manage` for mutations. Read-only execution cannot create, edit, pause, delete or manually run tasks. External connections must explicitly grant task management for the whole Workspace; ordinary content write access is insufficient.
 
 ```sh
 mind schedule --help
@@ -52,6 +52,8 @@ Send JSON with `--input-file -` on stdin and the supplied Workspace/connection f
 ## Manage and verify
 
 Use `schedule.list` to obtain actual task IDs and current fields. Update takes `{ "requestId": "...", "input": { "id": "...", "task": { ...complete task input... } } }`. Preserve the original `sessionId`. Set `enabled:false` to pause and `enabled:true` to resume; do not delete/recreate for an edit.
+
+Manual execution takes `{ "requestId": "...", "input": { "id": "..." } }` through `mind schedule run --input-file -` and the supplied Workspace/connection flags. It sends the saved instructions to the original Session once, even when paused, and preserves the rule, enabled state and next scheduled occurrence. This starts real work: run only when the user requests a run or an immediate validation. Retain the requestId for uncertain retries; a deliberate second run needs a new requestId. Success confirms durable message delivery, not AI completion. In task management, **立即执行** opens the original conversation after delivery so the user can inspect the result.
 
 Delete takes `{ "requestId": "...", "input": { "id": "..." } }` and stops future triggers while retaining existing conversation messages. `mind schema schedule.update --json` and `mind schema schedule.delete --json` expose the precise DTOs.
 

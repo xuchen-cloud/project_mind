@@ -86,6 +86,13 @@ pub struct ScheduleDeleteInput {
     pub input: ScheduleIdentity,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ScheduleRunInput {
+    pub request_id: String,
+    pub input: ScheduleIdentity,
+}
+
 fn invalid() -> AgentError {
     AgentError::new(ErrorCode::InvalidArgument, "Invalid scheduled task input")
 }
@@ -128,6 +135,11 @@ fn runtime_request(method: &str, params: &Value) -> AgentResult<Value> {
             Ok(
                 json!({"operation":"update","requestId":value.request_id,"id":value.input.id,"task":value.input.task}),
             )
+        }
+        "schedule.run" => {
+            let value: ScheduleRunInput =
+                serde_json::from_value(params.clone()).map_err(|_| invalid())?;
+            Ok(json!({"operation":"run","requestId":value.request_id,"id":value.input.id}))
         }
         "schedule.delete" => {
             let value: ScheduleDeleteInput =
@@ -201,12 +213,15 @@ mod tests {
         request.scope_grant.operations = vec!["schedule.read".into()];
         assert!(authorize(&request, &binding, "schedule.list").is_ok());
         assert!(authorize(&request, &binding, "schedule.create").is_err());
+        assert!(authorize(&request, &binding, "schedule.run").is_err());
         request
             .scope_grant
             .operations
             .push("schedule.manage".into());
         assert!(authorize(&request, &binding, "schedule.create").is_ok());
+        assert!(authorize(&request, &binding, "schedule.run").is_ok());
         request.scope_grant.workspace_content = false;
+        assert!(authorize(&request, &binding, "schedule.run").is_err());
         assert!(authorize(&request, &binding, "schedule.create").is_err());
         request.scope_grant.workspace_content = true;
         request.scope_grant.object_keys = Some(vec![]);

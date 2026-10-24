@@ -26,13 +26,13 @@ function ruleLabel(rule: DshScheduleRule) {
   return `每月 ${rule.dayOfMonth} 日 ${rule.time}`;
 }
 
-export function ScheduledTasksPanel({ open }: { open: boolean }) {
+export function ScheduledTasksPanel({ open, onRunStarted }: { open: boolean; onRunStarted?: () => void }) {
   const workspaceRoot = useAgentPanelStore(state => state.workspaceRoot);
   if (!workspaceRoot) return <p className="text-ui text-text-soft">请先打开工作区。</p>;
-  return <WorkspaceScheduledTasks key={JSON.stringify([workspaceRoot, open])} workspaceRoot={workspaceRoot} open={open} />;
+  return <WorkspaceScheduledTasks key={JSON.stringify([workspaceRoot, open])} workspaceRoot={workspaceRoot} open={open} onRunStarted={onRunStarted} />;
 }
 
-function WorkspaceScheduledTasks({ workspaceRoot, open }: { workspaceRoot: string; open: boolean }) {
+function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { workspaceRoot: string; open: boolean; onRunStarted?: () => void }) {
   const [tasks, setTasks] = useState<DshScheduledTask[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +41,9 @@ function WorkspaceScheduledTasks({ workspaceRoot, open }: { workspaceRoot: strin
   const [draft, setDraft] = useState<DshScheduledTaskInput | null>(null);
   const [editing, setEditing] = useState<DshScheduledTask | null>(null);
   const [deleting, setDeleting] = useState<DshScheduledTask | null>(null);
+  const [runningTask, setRunningTask] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const runRequests = useRef(new Map<string, string>());
   const alive = useRef(false);
   const mutation = useRef(false);
   const saveRequest = useRef<{ payload: string; id: string } | null>(null);
@@ -77,6 +80,24 @@ function WorkspaceScheduledTasks({ workspaceRoot, open }: { workspaceRoot: strin
     catch (reason) { if (alive.current) setError(getErrorMessage(reason, "定时任务操作失败")); }
     finally { mutation.current = false; if (alive.current) { setBusy(false); setLoading(false); } }
   }
+  async function run(task: DshScheduledTask) {
+    const requestId = runRequests.current.get(task.id) ?? crypto.randomUUID();
+    runRequests.current.set(task.id, requestId);
+    await mutate(async () => {
+      setRunningTask(task.id); setNotice(null);
+      try {
+        const saved = await dshScheduleApi.run(task.id, requestId);
+        if (!alive.current) return;
+        setTasks(values => values.map(value => value.id === saved.id ? saved : value));
+        await dshAssistantApi.selectSession(saved.sessionId, null);
+        if (!alive.current) return;
+        useAgentPanelStore.getState().selectWorkspaceSession(workspaceRoot, saved.sessionId, sessions.find(session => session.id === saved.sessionId)?.title || saved.title);
+        runRequests.current.delete(task.id);
+        setNotice(`“${saved.title}”已发送到原会话，可在会话中查看 AI 执行结果。`);
+        onRunStarted?.();
+      } finally { if (alive.current) setRunningTask(null); }
+    });
+  }
   function begin(task?: DshScheduledTask) {
     saveRequest.current = null;
     setError(null);
@@ -104,6 +125,7 @@ function WorkspaceScheduledTasks({ workspaceRoot, open }: { workspaceRoot: strin
       <div className="scheduled-tasks__actions"><Button size="sm" variant="ghost" disabled={loading || busy} onClick={() => void load()}>刷新</Button><Button size="sm" leadingIcon={<Plus size={14} />} disabled={loading || busy} onClick={() => begin()}>新建定时任务</Button></div></div>
     <p className="text-ui text-text-soft">使用本机时区 {Intl.DateTimeFormat().resolvedOptions().timeZone}。应用运行且工作区已解锁时后台执行；恢复后补跑最近一次。</p>
     {error ? <div role="alert"><p>{error}</p><Button size="sm" disabled={busy} onClick={() => void load()}>重新读取</Button></div> : null}
+    {notice ? <p role="status">{notice}</p> : null}
     {loading ? <p role="status">正在读取定时任务…</p> : null}
     <div className="scheduled-tasks__list"><HomeSidebarList label="定时任务列表">
       {!loading && !tasks.length ? <p className="home-side__empty">暂无定时任务</p> : null}
@@ -112,7 +134,7 @@ function WorkspaceScheduledTasks({ workspaceRoot, open }: { workspaceRoot: strin
         <p className="text-ui text-text-muted">{ruleLabel(task.rule)} · {task.timeZone}</p><p className="text-ui text-text-soft">会话：{sessions.find(session => session.id === task.sessionId)?.title || task.sessionId}</p>
         <p className="text-ui text-text-soft">下次：{dateLabel(task.nextRunAt)}<br />上次：{dateLabel(task.lastRunAt)}</p>
         {task.lastError ? <p className="text-ui text-danger">{task.lastError}</p> : null}
-        <div className="scheduled-tasks__actions"><Button size="sm" variant="ghost" disabled={busy} onClick={() => begin(task)}>编辑</Button>
+        <div className="scheduled-tasks__actions"><Button size="sm" disabled={busy || loading} onClick={() => void run(task)}>{runningTask === task.id ? "正在触发…" : runRequests.current.has(task.id) ? "重试执行" : "立即执行"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => begin(task)}>编辑</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => void mutate(async () => { const saved = await dshScheduleApi.update(task.id, { title: task.title, prompt: task.prompt, sessionId: task.sessionId, rule: task.rule, enabled: !task.enabled }); if (alive.current) setTasks(values => values.map(value => value.id === saved.id ? saved : value)); })}>{task.enabled ? "暂停" : "启用"}</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDeleting(task)}>删除</Button></div>
       </article>)}

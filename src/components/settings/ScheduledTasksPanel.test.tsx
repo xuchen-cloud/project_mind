@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ScheduledTasksPanel } from "./ScheduledTasksPanel";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
-const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() }));
+const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), run: vi.fn() }));
 vi.mock("../../services/dshAssistantApi", () => ({ dshAssistantApi: api }));
 vi.mock("../../services/dshScheduleApi", () => ({ dshScheduleApi: api }));
 beforeEach(() => {
@@ -10,6 +10,7 @@ beforeEach(() => {
   useAgentPanelStore.getState().clearWorkspace();
   useAgentPanelStore.getState().bindWorkspace("/workspace");
   api.start.mockResolvedValue(undefined);
+  api.selectSession.mockImplementation(async id => id);
   api.sessions.mockResolvedValue([{ id: "real-session", title: "每日工作" }]);
   api.list.mockResolvedValue([]);
   api.create.mockImplementation(async task => ({ ...task, id: "task", timeZone: "Asia/Shanghai", nextRunAt: "2026-10-25T01:00:00Z", lastRunAt: null, lastError: null }));
@@ -59,4 +60,31 @@ it("edits and pauses an existing task without changing its original conversation
   fireEvent.click(screen.getByRole("button", { name: "暂停" }));
   await screen.findByText("已暂停");
   expect(api.update.mock.calls[1][1].enabled).toBe(false);
+});
+
+it("runs a paused task once, blocks duplicate clicks and retains its request identity after an uncertain response", async () => {
+  const task = { id: "task", title: "验证任务", prompt: "总结进展", sessionId: "real-session", enabled: false, rule: { kind: "days", startDate: "2026-10-25", time: "09:00", interval: 1 }, timeZone: "Asia/Shanghai", nextRunAt: null, lastRunAt: null, lastError: null };
+  api.list.mockResolvedValue([task]);
+  let reject!: (error: Error) => void;
+  api.run.mockImplementationOnce(() => new Promise((_, failure) => { reject = failure; }));
+  api.run.mockResolvedValue({ ...task, lastRunAt: "2026-10-24T06:00:00Z" });
+  const onRunStarted = vi.fn();
+  render(<ScheduledTasksPanel open onRunStarted={onRunStarted} />);
+  fireEvent.click(await screen.findByRole("button", { name: "立即执行" }));
+  await waitFor(() => expect(api.run).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("button", { name: "正在触发…" })).toBeDisabled();
+  reject(new Error("连接中断"));
+  await screen.findByText("连接中断");
+  fireEvent.click(screen.getByRole("button", { name: "重试执行" }));
+  await screen.findByText(/已发送到原会话/);
+  expect(api.run.mock.calls[1]).toEqual(api.run.mock.calls[0]);
+  expect(screen.getByText("已暂停")).toBeInTheDocument();
+  expect(api.update).not.toHaveBeenCalled();
+  expect(api.selectSession).toHaveBeenCalledWith("real-session", null);
+  expect(useAgentPanelStore.getState().workspaceSession?.id).toBe("real-session");
+  expect(useAgentPanelStore.getState().open).toBe(true);
+  expect(onRunStarted).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "立即执行" }));
+  await waitFor(() => expect(api.run).toHaveBeenCalledTimes(3));
+  expect(api.run.mock.calls[2][1]).not.toEqual(api.run.mock.calls[0][1]);
 });

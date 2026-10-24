@@ -1392,6 +1392,48 @@ test('Workspace schedules deliver through real Session AI and do not repeat afte
  assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),[]);
 });
 
+test('manual scheduled runs deliver to the original Session, preserve pauses and survive replay after restart', { timeout: 90000 }, async t => {
+ const temp=await mkdtemp(path.join(tmpdir(),'mind-manual-schedule-'));
+ const bodies=[],provider=await startLocalProvider({onSyntheticRequest:body=>bodies.push(body)});
+ let runtime,stream;
+ t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await rm(temp,{recursive:true,force:true});});
+ const directory=await realpath(temp),data=path.join(temp,'data');
+ const shared={name:'local',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false};
+ const workspace={id:randomBytes(16).toString('hex'),name:'Manual run fixture',directory};
+ const start=()=>launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ runtime=await start();
+ const {sessionId}=await runtime.rpc('session/create',{});
+ const task=await runtime.rpc('mind/schedules',{operation:'create',task:{title:'Manual proof',prompt:'manual-schedule-fixture-proof',sessionId,enabled:false,rule:{kind:'days',interval:1,startDate:'2026-01-01',time:'09:00'}}});
+ stream=await follow(runtime,sessionId);
+ const messageCount=()=>new Set(events(stream).filter(event=>event.type==='user/message'&&event.data.source?.kind==='schedule').map(event=>event.data.id)).size;
+ const request={operation:'run',id:task.id,requestId:'manual-run-fixture'};
+ const result=await runtime.rpc('mind/schedules',request);
+ assert.equal(result.enabled,false);assert.equal(result.nextRunAt,null);assert.deepEqual(result.rule,task.rule);
+ assert.ok(result.lastRunAt);assert.equal(result.lastError,null);
+ await stream.read(frame=>frame.type==='event'&&frame.event.type==='assistant/message'||frame.type==='snapshot'&&frame.records.some(record=>record.event.type==='assistant/message'),'manual AI response');
+ assert.ok(bodies.some(body=>JSON.stringify(body.messages).includes('manual-schedule-fixture-proof')));
+ assert.equal(messageCount(),1);
+ await runtime.rpc('mind/schedules',request);
+ assert.equal(messageCount(),1);
+ await stream.close();stream=undefined;await runtime.stop();
+ runtime=await start();stream=await follow(runtime,sessionId);
+ assert.deepEqual(await runtime.rpc('mind/schedules',request),result);
+ assert.equal(messageCount(),1);
+ // Model a crash after Session persistence but before the schedule receipt save.
+ await stream.close();stream=undefined;await runtime.stop();
+ const file=path.join(data,'scheduled-tasks.json'),saved=JSON.parse(await readFile(file,'utf8'));
+ delete saved.requests[request.requestId];await writeFile(file,JSON.stringify(saved));
+ runtime=await start();stream=await follow(runtime,sessionId);
+ await runtime.rpc('mind/schedules',request);
+ assert.equal(messageCount(),1,'uncertain delivery replay cannot send a second message');
+ const resumed=await runtime.rpc('mind/schedules',{operation:'update',id:task.id,task:{title:task.title,prompt:task.prompt,sessionId,enabled:true,rule:task.rule}});
+ const again=await runtime.rpc('mind/schedules',{...request,requestId:'another-manual-run'});
+ assert.equal(again.nextRunAt,resumed.nextRunAt);assert.equal(again.enabled,true);
+ await waitFor(async()=>!(await runtime.rpc('session/list',{},'_request')).items.find(row=>row.sessionId===sessionId)?.running,'manual run settles');
+ await runtime.rpc('mind/session/delete',{sessionId});
+ await assert.rejects(runtime.rpc('mind/schedules',{...request,requestId:'removed-session-run'}));
+});
+
 test('natural language creates a durable schedule through model bash and the real Mind CLI', { timeout: 90000 }, async t => {
   const executable=path.resolve(root,'../../src-tauri/target/debug',process.platform==='win32'?'mind.exe':'mind');
   try { await readFile(executable); } catch(error) {
