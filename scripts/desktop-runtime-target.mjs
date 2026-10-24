@@ -16,7 +16,21 @@ export function desktopRuntimeTarget(argument, env = process.env) {
   return { rustTarget, ...target };
 }
 
-export function desktopResourceCommands(target, archive, productionDsh) {
+export function desktopRuntimePreparation(args, env = process.env, host = process) {
+  const development = args[0] === '--development';
+  if (args.length > 1 || (args[0]?.startsWith('--') && !development)) {
+    throw new Error('Usage: prepare-desktop-runtime.mjs [--development | <Rust target triple>]');
+  }
+  let requested = args[0];
+  if (development) {
+    requested = Object.entries(DESKTOP_RUNTIME_TARGETS).find(([, target]) =>
+      target.platform === host.platform && target.arch === host.arch)?.[0];
+    if (!requested) throw new Error(`Unsupported desktop development host: ${host.platform}-${host.arch}`);
+  }
+  return { development, target: desktopRuntimeTarget(requested, env) };
+}
+
+export function desktopResourceCommands(target, archive, productionDsh, { development = false } = {}) {
   return [
     ['packages/agent-host/scripts/prepare-runtime.mjs', target.runtimeTarget, archive],
     ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--config', 'vite.record-worker.config.ts'],
@@ -24,7 +38,9 @@ export function desktopResourceCommands(target, archive, productionDsh) {
     ['scripts/stage-record-runtime.mjs', target.runtimeTarget],
     ['scripts/stage-source-runtime.mjs', target.runtimeTarget],
     ['scripts/build-office-runtime.mjs', target.rustTarget],
-    ['scripts/stage-office-runtime.mjs', target.runtimeTarget],
-    ['scripts/stage-dsh-runtime.mjs', target.runtimeTarget, productionDsh],
+    ...development ? [] : [
+      ['scripts/stage-office-runtime.mjs', target.runtimeTarget],
+      ['scripts/stage-dsh-runtime.mjs', target.runtimeTarget, productionDsh],
+    ],
   ];
 }

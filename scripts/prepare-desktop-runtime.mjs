@@ -3,17 +3,16 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { desktopResourceCommands, desktopRuntimeTarget } from './desktop-runtime-target.mjs';
+import { desktopResourceCommands, desktopRuntimePreparation } from './desktop-runtime-target.mjs';
 import { prepareDshProduction } from './stage-dsh-runtime.mjs';
 
 const repository = fileURLToPath(new URL('..', import.meta.url));
 const host = path.join(repository, 'packages/agent-host');
-const target = desktopRuntimeTarget(process.argv[2]);
-if (process.argv.length > 3) throw new Error('Usage: npm run prepare:desktop-runtime -- <Rust target triple>');
+const { development, target } = desktopRuntimePreparation(process.argv.slice(2));
 const manifest = JSON.parse(await readFile(path.join(host, 'runtime-manifest.json'), 'utf8'));
 const entry = manifest.targets[target.runtimeTarget];
 if (!entry) throw new Error(`No pinned Node archive for ${target.runtimeTarget}`);
-if (!process.env.npm_execpath) throw new Error('Run preparation through npm run prepare:desktop-runtime (npm CLI path is required)');
+if (!process.env.npm_execpath) throw new Error('Run preparation through npm run prepare:desktop-runtime or prepare:dev-runtime (npm CLI path is required)');
 
 const run = (command, args, cwd = repository) => new Promise((resolve, reject) => {
   // Inherit proxy, TLS trust and other build settings; never disable verification.
@@ -38,12 +37,15 @@ try {
     }
   }
   archive = path.resolve(archive);
-  const productionDsh = path.join(temporary, 'dsh-assistant');
-  await prepareDshProduction(path.join(repository, 'packages/dsh-assistant'), productionDsh, target, run);
-  for (const [script, ...args] of desktopResourceCommands(target, archive, productionDsh)) {
+  let productionDsh;
+  if (!development) {
+    productionDsh = path.join(temporary, 'dsh-assistant');
+    await prepareDshProduction(path.join(repository, 'packages/dsh-assistant'), productionDsh, target, run);
+  }
+  for (const [script, ...args] of desktopResourceCommands(target, archive, productionDsh, { development })) {
     await run(process.execPath, [path.join(repository, script), ...args]);
   }
-  process.stdout.write(`Desktop backend resources prepared for ${target.rustTarget} (${target.runtimeTarget})\n`);
+  process.stdout.write(`Desktop ${development ? 'development' : 'release'} backend resources prepared for ${target.rustTarget} (${target.runtimeTarget})\n`);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
