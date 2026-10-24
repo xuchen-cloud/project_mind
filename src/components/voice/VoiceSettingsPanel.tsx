@@ -1,6 +1,6 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { SpeechProfile, VoiceModelPackageStatus, VoiceSettings } from "../../lib/voice-types";
 import type { AiProviderProfileRecord } from "../../lib/types";
@@ -27,8 +27,36 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [modelStatus, setModelStatus] = useState<VoiceModelPackageStatus | null>(null);
-  const [speakerModelStatus, setSpeakerModelStatus] = useState<VoiceModelPackageStatus | null>(null);
+  const speakerModelQuery = useQuery({
+    queryKey: ["voice-diarization-model"],
+    queryFn: () => voiceApi.diarizationModelStatusGet(),
+    enabled: open,
+    retry: false,
+  });
+  const speakerModelStatus = speakerModelQuery.data;
+  const installKey = ["voice-diarization-model-install"];
+  const installQuery = useQuery({
+    queryKey: installKey,
+    queryFn: () => voiceApi.diarizationModelInstallStatusGet(),
+    enabled: open,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) => open && !query.state.error && ["downloading", "verifying"].includes(query.state.data?.phase ?? "") ? 500 : false,
+    retry: false,
+  });
+  const [startingInstall, setStartingInstall] = useState(false);
+  const installBusy = startingInstall || !installQuery.isError && ["downloading", "verifying"].includes(installQuery.data?.phase ?? "");
+  const handledInstallReady = useRef(false);
+  useEffect(() => {
+    if (installQuery.data?.phase !== "ready") { handledInstallReady.current = false; return; }
+    if (!open || handledInstallReady.current) return;
+    handledInstallReady.current = true;
+    void queryClient.invalidateQueries({ queryKey: ["voice-diarization-model"] });
+  }, [installQuery.data?.phase, open, queryClient]);
   const [speakerModelError, setSpeakerModelError] = useState<string | null>(null);
+  const displayedSpeakerError = speakerModelError
+    || (speakerModelQuery.error ? String(speakerModelQuery.error) : null)
+    || (!speakerModelStatus?.ready ? installQuery.data?.error || (installQuery.error ? String(installQuery.error) : null) : null);
   const [importingSpeakers, setImportingSpeakers] = useState(false);
   const [credentialProfiles, setCredentialProfiles] = useState<AiProviderProfileRecord[]>([]);
   const [testingProfile, setTestingProfile] = useState(false);
@@ -44,8 +72,6 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       .then(setModelStatus)
       .catch((error) => pushToast({ tone: "error", title: "读取本地模型状态失败", detail: String(error) }));
     setSpeakerModelError(null);
-    void voiceApi.diarizationModelStatusGet().then(setSpeakerModelStatus)
-      .catch((error) => setSpeakerModelError(String(error)));
     void projectMindApi.aiSettingsGet()
       .then((snapshot) => setCredentialProfiles(snapshot.profiles.filter((profile) => profile.enabled && profile.hasStoredKey)))
       .catch((error) => pushToast({ tone: "error", title: "读取密钥配置失败", detail: String(error) }));
@@ -95,11 +121,21 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     try {
       const selected = await desktopApi.pickDirectory("选择包含说话人模型文件的文件夹");
       if (!selected) return;
-      setSpeakerModelStatus(await voiceApi.diarizationModelImport(selected));
+      queryClient.setQueryData(["voice-diarization-model"], await voiceApi.diarizationModelImport(selected));
       await queryClient.invalidateQueries({ queryKey: ["voice-diarization-model"] });
       pushToast({ tone: "success", title: "说话人模型已校验并导入" });
     } catch (error) { setSpeakerModelError(String(error)); }
     finally { setImportingSpeakers(false); }
+  }
+
+  async function installSpeakerModel() {
+    if (speakerModelStatus?.ready || installBusy) return;
+    setStartingInstall(true);
+    setSpeakerModelError(null);
+    try {
+      queryClient.setQueryData(installKey, await voiceApi.diarizationModelInstall());
+    } catch (error) { setSpeakerModelError(String(error)); }
+    finally { setStartingInstall(false); }
   }
 
   async function save() {
@@ -117,6 +153,14 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
   if (loading) {
     return <div className="grid min-h-48 place-items-center text-text-muted"><LoaderCircle className="animate-spin motion-reduce:animate-none" /></div>;
   }
+
+  const localRecognitionManagement = <>
+    <p className="text-text-muted">选择包含 model.int8.onnx、tokens.txt 和 LICENSE 的文件夹，也可选择官方压缩包解压后的上一级目录。导入时会校验固定版本的 SHA-256。</p>
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant="secondary" disabled={importing} onClick={() => void importModel()}>{importing ? "导入并校验中…" : modelStatus?.ready ? "重新导入本地模型" : "导入本地模型"}</Button>
+      <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2")}>获取指定模型包</Button>
+    </div>
+  </>;
 
   return (
     <section aria-label="语音记录设置" className="grid max-w-2xl gap-5">
@@ -156,11 +200,7 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       {settings.speechProfile?.kind === "sense_voice_onnx" ? (
         <div className="grid gap-2 rounded-[var(--radius-8)] border border-border p-3 text-body text-text">
           <p>{modelStatus?.detail ?? "正在检查本地模型…"}</p>
-          <p className="text-text-muted">选择包含 model.int8.onnx、tokens.txt 和 LICENSE 的文件夹，也可选择官方压缩包解压后的上一级目录。导入时会校验固定版本的 SHA-256。</p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="secondary" disabled={importing} onClick={() => void importModel()}>{importing ? "导入并校验中…" : modelStatus?.ready ? "重新导入本地模型" : "导入本地模型"}</Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2")}>获取指定模型包</Button>
-          </div>
+          {modelStatus?.ready ? <details className="text-caption text-text-muted"><summary className="cursor-pointer">本地模型管理</summary><div className="mt-2 grid gap-2">{localRecognitionManagement}</div></details> : localRecognitionManagement}
         </div>
       ) : null}
 
@@ -173,18 +213,26 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
       ) : null}
 
       <section aria-label="本地说话人模型" className="grid gap-2 border-t border-border pt-4 text-body text-text">
-        <h3 className="font-medium">本地说话人模型</h3>
-        <p>{speakerModelStatus?.detail ?? (speakerModelError ? "说话人模型状态读取失败" : "正在检查说话人模型…")}</p>
-        <p className="text-text-muted">模型就绪后，本地识别录音结束时自动区分说话人，优先完成本地转写；其他录音可在记录中手动开始。说话人区分支持不超过两小时的有效录音，结果可手动命名。</p>
-        <p className="text-text-muted">确认联系人后，仅在本 Workspace 本地保存声音特征用于后续自动匹配；不确定仍匿名。</p>
-        <p className="break-words text-caption text-text-muted">解压分段模型包，将声纹模型和声纹许可放入同一目录。导入目录须包含 model.onnx、LICENSE、3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx 和 EMBEDDING-LICENSE（下载声纹许可后改名）。导入时校验固定版本的 SHA-256。</p>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="secondary" disabled={importingSpeakers} onClick={() => void importSpeakerModel()}>{importingSpeakers ? "导入并校验中…" : speakerModelStatus?.ready ? "重新导入说话人模型" : "导入说话人模型"}</Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2")}>下载分段模型</Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/0743f301363dec56491a490f6d6cbc9d67f9a3bf/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx")}>下载声纹模型</Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => void desktopApi.openExternalUrl("https://raw.githubusercontent.com/modelscope/3D-Speaker/065629c313eaf1a01c65c640c46d77e61e9607b4/LICENSE")}>下载声纹许可</Button>
-        </div>
-        {speakerModelError ? <p role="alert" className="text-caption text-danger">{speakerModelError}</p> : null}
+        <h3 className="font-medium">说话人区分</h3>
+        <p className="text-text-muted">录音结束后自动区分说话人，可关联联系人。</p>
+        {speakerModelStatus?.ready ? <p role="status">已启用</p> : <>
+          <p className="text-caption text-text-muted">约 46 MB，仅首次下载需要联网，完成后离线使用。</p>
+          {installQuery.data?.phase === "downloading" ? <div role="status" className="grid gap-1">
+            <p>正在下载…{installQuery.data.totalBytes > 0 ? " " + Math.min(100, Math.floor(installQuery.data.downloadedBytes / installQuery.data.totalBytes * 100)) + "%" : ""}（{(installQuery.data.downloadedBytes / 1_000_000).toFixed(1)} MB{installQuery.data.totalBytes > 0 ? " / " + (installQuery.data.totalBytes / 1_000_000).toFixed(1) + " MB" : ""}）</p>
+            <progress aria-label="说话人模型下载进度" className="w-full accent-[var(--color-accent)]" value={installQuery.data.downloadedBytes} max={Math.max(1, installQuery.data.totalBytes)} />
+          </div> : installQuery.data?.phase === "verifying" ? <p role="status">正在校验并启用…</p> : installQuery.data?.phase === "ready" && speakerModelQuery.isFetching ? <p role="status">正在确认启用状态…</p> : null}
+          {!installBusy && (installQuery.data?.phase !== "ready" || !speakerModelQuery.isFetching && !speakerModelQuery.isError) ? <div><Button type="button" size="sm" variant="primary" disabled={speakerModelQuery.isPending || installQuery.isPending || importingSpeakers} onClick={() => void installSpeakerModel()}>{installQuery.data?.phase === "ready" ? "重新准备" : installQuery.data?.phase === "failed" || speakerModelError || installQuery.isError ? "重试下载" : "下载并启用"}</Button></div> : null}
+          {speakerModelQuery.isError ? <div><Button type="button" size="sm" variant="secondary" onClick={() => void speakerModelQuery.refetch()}>重新检查</Button></div> : null}
+        </>}
+        {displayedSpeakerError ? <p role="alert" className="text-caption text-danger">{displayedSpeakerError}</p> : null}
+        <details className="text-caption text-text-muted">
+          <summary className="cursor-pointer">高级选项</summary>
+          <div className="mt-2 grid gap-2">
+            <p>无需联网时，可选择已有说话人模型包所在的文件夹，由应用校验并导入。</p>
+            <p>确认联系人后，仅在本 Workspace 本地保存声音特征用于后续自动匹配；不确定仍匿名。</p>
+            <div><Button type="button" size="sm" variant="secondary" disabled={importingSpeakers || installBusy} onClick={() => void importSpeakerModel()}>{importingSpeakers ? "导入中…" : "从本地导入"}</Button></div>
+          </div>
+        </details>
       </section>
 
       <label className="grid gap-1.5 text-body text-text">
