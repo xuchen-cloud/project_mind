@@ -56,8 +56,8 @@ pub struct LiveLocalHandle {
 impl LiveLocalHandle {
     pub fn spawn(
         worker: LocalAsrWorker,
-        mut microphone: AudioFrameStream,
-        mut system: AudioFrameStream,
+        microphone: AudioFrameStream,
+        system: AudioFrameStream,
         epoch_offset_ms: u64,
         preview_enabled: bool,
     ) -> Result<Self> {
@@ -73,19 +73,9 @@ impl LiveLocalHandle {
                 let result = runtime.block_on(async {
                     let mut pipeline =
                         Pipeline::new(worker, send.clone(), epoch_offset_ms, worker_preview)?;
-                    let mut microphone_open = true;
-                    let mut system_open = true;
-                    while microphone_open || system_open {
-                        tokio::select! {
-                            frame = microphone.next(), if microphone_open => match frame {
-                                Some(frame) => pipeline.feed(frame)?,
-                                None => microphone_open = false,
-                            },
-                            frame = system.next(), if system_open => match frame {
-                                Some(frame) => pipeline.feed(frame)?,
-                                None => system_open = false,
-                            },
-                        }
+                    let mut capture = CaptureReader::new(microphone, system);
+                    while let Some(frame) = capture.next(&pipeline.mixer).await {
+                        pipeline.feed(frame)?;
                     }
                     pipeline.finish()
                 });
@@ -116,6 +106,52 @@ impl LiveLocalHandle {
             results.push(Err(anyhow!("local recognition thread panicked")));
         }
         results
+    }
+}
+
+struct CaptureReader {
+    microphone: AudioFrameStream,
+    system: AudioFrameStream,
+    microphone_open: bool,
+    system_open: bool,
+}
+
+impl CaptureReader {
+    fn new(microphone: AudioFrameStream, system: AudioFrameStream) -> Self {
+        Self {
+            microphone,
+            system,
+            microphone_open: true,
+            system_open: true,
+        }
+    }
+
+    async fn next(&mut self, mixer: &Mixer) -> Option<AudioFrame> {
+        while self.microphone_open || self.system_open {
+            // Native callback sizes differ between tracks. Equal-probability
+            // consumption of ready queues can advance one track by seconds
+            // while the other track's matching audio is already queued.
+            let microphone_first = mixer.microphone.end() <= mixer.system.end();
+            let (source, frame) = if microphone_first {
+                tokio::select! {
+                    biased;
+                    frame = self.microphone.next(), if self.microphone_open => (AudioSource::Microphone, frame),
+                    frame = self.system.next(), if self.system_open => (AudioSource::System, frame),
+                }
+            } else {
+                tokio::select! {
+                    biased;
+                    frame = self.system.next(), if self.system_open => (AudioSource::System, frame),
+                    frame = self.microphone.next(), if self.microphone_open => (AudioSource::Microphone, frame),
+                }
+            };
+            match (source, frame) {
+                (_, Some(frame)) => return Some(frame),
+                (AudioSource::Microphone, None) => self.microphone_open = false,
+                (AudioSource::System, None) => self.system_open = false,
+            }
+        }
+        None
     }
 }
 
@@ -385,6 +421,276 @@ impl Pipeline {
 mod tests {
     use super::*;
     use crate::voice::capture::SourceTimeline;
+
+    fn callback_frames(
+        source: AudioSource,
+        sample_rate: u32,
+        channels: u16,
+        start_sample: u64,
+        samples: &[f32],
+        callback_samples: usize,
+    ) -> Vec<AudioFrame> {
+        let mut timeline = SourceTimeline::new(source, 1, 0, sample_rate, channels).unwrap();
+        let mut consumed = 0;
+        samples
+            .chunks(callback_samples * usize::from(channels))
+            .map(|chunk| {
+                let captured_at =
+                    (start_sample + consumed) * 1_000_000_000 / u64::from(sample_rate);
+                let frame = timeline.stamp(captured_at, chunk.to_vec()).unwrap();
+                consumed += (chunk.len() / usize::from(channels)) as u64;
+                frame
+            })
+            .collect()
+    }
+
+    fn interleave_callbacks(mut frames: Vec<AudioFrame>) -> Vec<AudioFrame> {
+        frames.sort_by_key(|frame| {
+            frame.media_position_ns()
+                + (frame.samples.len() / usize::from(frame.channels)) as u64 * 1_000_000_000
+                    / u64::from(frame.sample_rate)
+        });
+        frames
+    }
+
+    #[test]
+    fn native_callback_sizes_and_initial_offsets_remain_contiguous() {
+        // Native capture does not deliver 16 kHz VAD-sized callbacks. These
+        // fractional conversion boundaries and offsets come from device audio.
+        for (sample_rate, microphone_callback) in [(48_000, 512), (48_000, 1024), (44_100, 512)] {
+            let microphone = vec![0.25; sample_rate as usize * 4];
+            let system = vec![0.0; 48_000 * 4 * 2];
+            let mut frames = callback_frames(
+                AudioSource::Microphone,
+                sample_rate,
+                1,
+                22195 * u64::from(sample_rate) / 48_000,
+                &microphone,
+                microphone_callback,
+            );
+            frames.extend(callback_frames(
+                AudioSource::System,
+                48_000,
+                2,
+                14464,
+                &system,
+                480,
+            ));
+            let mut mixer = Mixer::new();
+            let mut mixed_samples = 0;
+            for frame in interleave_callbacks(frames) {
+                let position_ms = frame.media_position_ns() / 1_000_000;
+                let source = frame.source;
+                let ready = mixer.push(frame).unwrap_or_else(|error| {
+                    panic!("{sample_rate} Hz, callback {microphone_callback}, {source:?} at {position_ms} ms: {error}")
+                });
+                mixed_samples += ready.len() * VAD_FRAME;
+            }
+            mixed_samples += mixer.finish().len();
+            assert!(mixed_samples >= RATE as usize * 4);
+        }
+    }
+
+    #[test]
+    fn backlogged_native_callbacks_do_not_exceed_track_lag() {
+        let microphone = vec![0.0; 48_000 * 20];
+        let system = vec![0.0; 48_000 * 20 * 2];
+        let microphone =
+            callback_frames(AudioSource::Microphone, 48_000, 1, 22195, &microphone, 1024);
+        let system = callback_frames(AudioSource::System, 48_000, 2, 14464, &system, 480);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (mic_send, mic) = super::super::capture::bounded_audio_frames(4096).unwrap();
+            let (sys_send, sys) = super::super::capture::bounded_audio_frames(4096).unwrap();
+            for frame in microphone {
+                mic_send.try_push(frame).unwrap();
+            }
+            for frame in system {
+                sys_send.try_push(frame).unwrap();
+            }
+            drop(mic_send);
+            drop(sys_send);
+            let mut mixer = Mixer::new();
+            let mut capture = CaptureReader::new(mic, sys);
+            while let Some(frame) = capture.next(&mixer).await {
+                let position = frame.media_position_ns() / 1_000_000;
+                let source = frame.source;
+                mixer.push(frame).unwrap_or_else(|error| {
+                    panic!("backlogged {source:?} at {position} ms: {error}")
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn missing_capture_track_still_reaches_the_lag_limit() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (mic_send, mic) = super::super::capture::bounded_audio_frames(256).unwrap();
+            let (_sys_send, sys) = super::super::capture::bounded_audio_frames(256).unwrap();
+            for frame in callback_frames(
+                AudioSource::Microphone,
+                48_000,
+                1,
+                0,
+                &vec![0.0; 48_000 * 4],
+                1024,
+            ) {
+                mic_send.try_push(frame).unwrap();
+            }
+            drop(mic_send);
+            let mut mixer = Mixer::new();
+            let mut capture = CaptureReader::new(mic, sys);
+            while let Some(frame) = capture.next(&mixer).await {
+                if let Err(error) = mixer.push(frame) {
+                    assert_eq!(
+                        error.to_string(),
+                        "local recognition cannot keep up with both capture tracks"
+                    );
+                    return;
+                }
+            }
+            panic!("a missing source must retain the track lag bound");
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires private read-only WAV fixtures and verified model; set PROJECT_MIND_TEST_MIC_WAV, PROJECT_MIND_TEST_SYSTEM_WAV, PROJECT_MIND_TEST_MODEL_DIR"]
+    fn replays_saved_native_callbacks_through_live_pipeline() {
+        fn read_track(variable: &str, source: AudioSource, callback: usize) -> Vec<AudioFrame> {
+            let path = std::path::PathBuf::from(std::env::var(variable).expect(variable));
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(&bytes[..4], b"RIFF");
+            assert_eq!(&bytes[8..16], b"WAVEfmt ");
+            assert_eq!(&bytes[20..22], &3_u16.to_le_bytes());
+            assert_eq!(&bytes[36..40], b"data");
+            let channels = u16::from_le_bytes(bytes[22..24].try_into().unwrap());
+            let rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+            let start = path
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .rsplit('-')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let samples = bytes[44..]
+                .chunks_exact(4)
+                .map(|value| f32::from_le_bytes(value.try_into().unwrap()))
+                .collect::<Vec<_>>();
+            callback_frames(source, rate, channels, start, &samples, callback)
+        }
+        let mut frames = read_track("PROJECT_MIND_TEST_MIC_WAV", AudioSource::Microphone, 1024);
+        frames.extend(read_track(
+            "PROJECT_MIND_TEST_SYSTEM_WAV",
+            AudioSource::System,
+            480,
+        ));
+        let frames = interleave_callbacks(frames);
+        let backlogged_frames = frames.clone();
+        let mut mixer = Mixer::new();
+        for frame in &frames {
+            mixer.push(frame.clone()).unwrap_or_else(|error| {
+                panic!(
+                    "mixer {:?} at {} ms: {error}",
+                    frame.source,
+                    frame.media_position_ns() / 1_000_000
+                )
+            });
+        }
+        eprintln!("Mixer consumed {} native callbacks", frames.len());
+
+        let source =
+            std::path::PathBuf::from(std::env::var("PROJECT_MIND_TEST_MODEL_DIR").unwrap());
+        let cache = tempfile::tempdir().unwrap();
+        let models = cache.path().join("voice-models");
+        std::fs::create_dir(&models).unwrap();
+        std::os::unix::fs::symlink(
+            &source,
+            models.join(super::super::model_package::PACKAGE_ID),
+        )
+        .unwrap();
+        let worker = LocalAsrWorker::start(cache.path()).unwrap();
+        let (send, results) = mpsc::channel();
+        let mut pipeline = Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(true))).unwrap();
+        let mut final_count = 0;
+        let mut final_end_ms = 0;
+        let mut partial_count = 0;
+        let started = std::time::Instant::now();
+        for frame in frames {
+            let position = frame.media_position_ns() / 1_000_000;
+            pipeline
+                .feed(frame)
+                .unwrap_or_else(|error| panic!("pipeline at {position} ms: {error}"));
+            for result in results.try_iter() {
+                match result.unwrap() {
+                    RecognitionUpdate::Final(result) => {
+                        final_count += 1;
+                        final_end_ms = final_end_ms.max(result.end_ms);
+                    }
+                    RecognitionUpdate::Partial(text) if !text.is_empty() => partial_count += 1,
+                    _ => (),
+                }
+            }
+        }
+        pipeline.finish().unwrap();
+        for result in results.try_iter() {
+            if let RecognitionUpdate::Final(result) = result.unwrap() {
+                final_count += 1;
+                final_end_ms = final_end_ms.max(result.end_ms);
+            }
+        }
+        eprintln!(
+            "Pipeline finished in {:?}; final count {final_count}, partial count {partial_count}",
+            started.elapsed()
+        );
+        assert!(
+            final_count > 0,
+            "recorded speech must produce durable final results"
+        );
+        assert!(final_end_ms > 20_000, "recognition stopped before sustained recorded speech ended: final end {final_end_ms} ms");
+
+        // Both queues can be ready while synchronous preview inference runs.
+        // Exercise the product consumer rather than only ordered Pipeline::feed.
+        let (mic_send, microphone) = super::super::capture::bounded_audio_frames(4096).unwrap();
+        let (sys_send, system) = super::super::capture::bounded_audio_frames(4096).unwrap();
+        for frame in backlogged_frames {
+            match frame.source {
+                AudioSource::Microphone => mic_send.try_push(frame).unwrap(),
+                AudioSource::System => sys_send.try_push(frame).unwrap(),
+            }
+        }
+        drop(mic_send);
+        drop(sys_send);
+        let handle = LiveLocalHandle::spawn(
+            LocalAsrWorker::start(cache.path()).unwrap(),
+            microphone,
+            system,
+            0,
+            true,
+        )
+        .unwrap();
+        let mut live_final_end_ms = 0;
+        for update in handle.finish() {
+            match update.unwrap_or_else(|error| panic!("backlogged live handle: {error}")) {
+                RecognitionUpdate::Final(result) => {
+                    live_final_end_ms = live_final_end_ms.max(result.end_ms)
+                }
+                _ => (),
+            }
+        }
+        assert!(
+            live_final_end_ms > 20_000,
+            "backlogged live recognition stopped at {live_final_end_ms} ms"
+        );
+    }
 
     #[test]
     fn quiet_clicks_do_not_reach_preview_or_transcription() {

@@ -446,6 +446,7 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
         </Button>
         {transcriptOpen ? (
           <div className="mt-3" aria-label="语音转写">
+            {playbackQuery.data?.recognitionError ? <p role="alert" className="mb-2 text-caption text-danger">本次录音的转写曾中断，可能缺少部分内容。{playbackQuery.data.recognitionError}</p> : null}
             {transcriptQuery.isPending ? <p className="text-body text-text-muted">正在加载转写…</p> : null}
             {transcriptQuery.isError ? <p className="text-body text-danger">转写加载失败：{String(transcriptQuery.error)}</p> : null}
             {transcriptQuery.data?.pages.flatMap((page) => page.segments).length === 0 ? (

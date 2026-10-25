@@ -103,6 +103,14 @@ describe("VoiceRecordPanel", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows persisted local transcription failure beside the saved transcript", async () => {
+    mocks.playbackGet.mockResolvedValue({ sessionId: "session-one", phase: "ended", chunks: [], recognitionError: "local inference failed" });
+    render(<QueryClientProvider client={new QueryClient()}><VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "转写" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("本次录音的转写曾中断，可能缺少部分内容。local inference failed");
+    expect(await screen.findByText("暂无转写。")).toBeInTheDocument();
+  });
+
   it("labels overlapping speakers and preserves drafts after a rename conflict", async () => {
     const snapshot = { sessionId: "session-one", revision: 1, status: "ready", error: null,
       speakers: [{ id: 1, name: "说话人1", contactId: null, association: null, voiceprintReady: false }, { id: 2, name: "说话人2", contactId: null, association: null, voiceprintReady: false }],

@@ -123,11 +123,12 @@ impl VoiceRuntime {
                 .voice_session_by_request(request_id)?
                 .filter(|session| session.session_id == active.persisted.session_id)
                 .ok_or_else(|| anyhow!("another recording session already owns audio capture"))?;
-            return Ok(snapshot(
+            return snapshot(
+                db,
                 &persisted,
                 active.recording_since,
                 active.interim_text.as_deref(),
-            ));
+            );
         }
         preflight_storage(workspace_root)?;
         preflight_capture()?;
@@ -136,7 +137,7 @@ impl VoiceRuntime {
         let title = format!("语音记录 · {}", Local::now().format("%Y-%m-%d %H:%M"));
         let persisted = db.voice_session_create(target, request_id, &session_id, &title)?;
         if persisted.lifecycle != "preparing" {
-            return Ok(snapshot(&persisted, None, None));
+            return snapshot(db, &persisted, None, None);
         }
         register_cloud_epoch(db, &persisted, recognition.as_ref())?;
         let run = match start_capture_run(
@@ -191,12 +192,13 @@ impl VoiceRuntime {
             }
         }
         let result = snapshot(
+            db,
             &active.persisted,
             active.recording_since,
             active.interim_text.as_deref(),
         );
         self.active = Some(active);
-        Ok(result)
+        result
     }
 
     pub fn pause(
@@ -212,14 +214,14 @@ impl VoiceRuntime {
             .ok_or_else(|| anyhow!("voice session not found"))?;
         verify(active, session_id, expected_revision)?;
         if active.persisted.lifecycle == "paused" {
-            return Ok(snapshot(&active.persisted, None, None));
+            return snapshot(db, &active.persisted, None, None);
         }
         if active.persisted.lifecycle != "recording" {
             return Err(anyhow!("voice session cannot be paused from current state"));
         }
         stop_for_save(active, "paused", "user")?;
         save_stopped_session(db, active)?;
-        Ok(snapshot(&active.persisted, None, None))
+        snapshot(db, &active.persisted, None, None)
     }
 
     pub fn resume(
@@ -283,7 +285,7 @@ impl VoiceRuntime {
                 return Err(error);
             }
         }
-        Ok(snapshot(&active.persisted, active.recording_since, None))
+        snapshot(db, &active.persisted, active.recording_since, None)
     }
 
     pub fn end(
@@ -305,13 +307,13 @@ impl VoiceRuntime {
             .as_mut()
             .ok_or_else(|| anyhow!("voice session not found"))?;
         if active.persisted.lifecycle == "ended" {
-            return Ok(snapshot(&active.persisted, None, None));
+            return snapshot(db, &active.persisted, None, None);
         }
         stop_for_save(active, "ending", "user")?;
         save_stopped_session(db, active)?;
-        let result = snapshot(&active.persisted, None, None);
+        let result = snapshot(db, &active.persisted, None, None);
         self.active = None;
-        Ok(result)
+        result
     }
 
     pub fn snapshot(
@@ -415,13 +417,17 @@ impl VoiceRuntime {
                 active.persisted.pause_reason = Some(format!("保存待重试：{error}"));
             }
         }
-        Ok(self.active.as_ref().map(|active| {
-            snapshot(
-                &active.persisted,
-                active.recording_since,
-                active.interim_text.as_deref(),
-            )
-        }))
+        self.active
+            .as_ref()
+            .map(|active| {
+                snapshot(
+                    db,
+                    &active.persisted,
+                    active.recording_since,
+                    active.interim_text.as_deref(),
+                )
+            })
+            .transpose()
     }
 
     pub fn has_unfinished_session(
@@ -489,7 +495,7 @@ fn save_stopped_session(db: &Database, active: &mut ActiveSession) -> Result<()>
                 persist_recognition_update(db, id, active.persisted.capture_epoch, update)?
             }
             Err(error) => {
-                db.voice_cloud_open_gap(id, active.persisted.capture_epoch, &error.to_string())?
+                db.voice_recognition_failed(id, active.persisted.capture_epoch, &error.to_string())?
             }
         }
     }
@@ -500,7 +506,10 @@ fn save_stopped_session(db: &Database, active: &mut ActiveSession) -> Result<()>
         "paused"
     };
     let auto_diarization = phase == "ended"
-        && matches!(db.voice_settings_get()?.speech_profile, Some(super::contracts::SpeechProfile::SenseVoiceOnnx { .. }))
+        && matches!(
+            db.voice_settings_get()?.speech_profile,
+            Some(super::contracts::SpeechProfile::SenseVoiceOnnx { .. })
+        )
         && super::diarization_model::status(&crate::default_app_data_dir()?).ready;
     active.persisted = db.voice_session_save_stopped(
         id,
@@ -529,14 +538,17 @@ fn verify(active: &ActiveSession, session_id: &str, expected_revision: u64) -> R
 }
 
 fn snapshot(
+    db: &Database,
     session: &PersistedVoiceSession,
     recording_since: Option<Instant>,
     interim_text: Option<&str>,
-) -> VoiceSessionSnapshot {
+) -> Result<VoiceSessionSnapshot> {
     let elapsed = recording_since
         .map(|started| started.elapsed().as_millis() as u64)
         .unwrap_or_default();
-    VoiceSessionSnapshot {
+    Ok(VoiceSessionSnapshot {
+        recognition_error: db
+            .voice_recognition_error(&session.session_id, Some(session.capture_epoch))?,
         session_id: session.session_id.clone(),
         revision: session.revision,
         phase: session.lifecycle.clone(),
@@ -545,7 +557,7 @@ fn snapshot(
         interim_text: interim_text.map(str::to_string),
         project_note_id: session.project_note_id,
         workspace_note_id: session.workspace_note_id,
-    }
+    })
 }
 
 fn new_session_id() -> String {
@@ -681,7 +693,7 @@ fn persist_recognition_update(
             )?;
             db.voice_cloud_acknowledge(session, epoch, result.end_ms)?;
         }
-        RecognitionUpdate::CloudGap(error) => db.voice_cloud_open_gap(session, epoch, error)?,
+        RecognitionUpdate::CloudGap(error) => db.voice_recognition_failed(session, epoch, error)?,
         RecognitionUpdate::CloudConnected { start_ms } => {
             db.voice_cloud_connected(session, epoch, *start_ms)?
         }
@@ -708,7 +720,10 @@ fn persist_available_transcripts(
                 *interim_text = (!text.is_empty()).then_some(text)
             }
             Ok(update) => pending.push(update),
-            Err(error) => pending.push(RecognitionUpdate::CloudGap(error.to_string())),
+            Err(error) => {
+                *interim_text = None;
+                pending.push(RecognitionUpdate::CloudGap(error.to_string()));
+            }
         }
     }
     for update in pending.iter() {
@@ -1006,6 +1021,80 @@ mod tests {
         assert_eq!(captions.len(), 1);
         assert_eq!(captions[0].text, "第一句话。");
         assert_eq!((captions[0].start_ms, captions[0].end_ms), (1_000, 3_000));
+    }
+
+    #[test]
+    fn local_recognition_failure_stays_visible_without_stopping_audio_and_survives_resume() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "local-error",
+                "local-error",
+                "Voice",
+            )
+            .unwrap();
+        let persisted = db
+            .voice_session_transition(
+                &session.session_id,
+                session.revision,
+                "recording",
+                None,
+                1000,
+                1,
+            )
+            .unwrap();
+        persist_recognition_update(
+            &db,
+            &session.session_id,
+            1,
+            &RecognitionUpdate::CloudGap("local inference failed".into()),
+        )
+        .unwrap();
+        let mut runtime = VoiceRuntime {
+            active: Some(ActiveSession {
+                persisted,
+                recording_since: None,
+                run: None,
+                interim_text: None,
+                pending_save: None,
+                pending_updates: Vec::new(),
+            }),
+        };
+        let live = runtime.snapshot(&mut db, root.path()).unwrap().unwrap();
+        assert_eq!(live.phase, "recording");
+        assert_eq!(live.pause_reason, None);
+        assert_eq!(
+            serde_json::to_value(live).unwrap()["recognitionError"],
+            "local inference failed"
+        );
+        let active = runtime.active.as_mut().unwrap();
+        active.persisted = db
+            .voice_session_transition(
+                &session.session_id,
+                active.persisted.revision,
+                "recording",
+                None,
+                1000,
+                2,
+            )
+            .unwrap();
+        let resumed = runtime.snapshot(&mut db, root.path()).unwrap().unwrap();
+        assert!(serde_json::to_value(resumed).unwrap()["recognitionError"].is_null());
+        let revision = runtime.active.as_ref().unwrap().persisted.revision;
+        runtime.end(&mut db, &session.session_id, revision).unwrap();
+        let playback = db
+            .voice_playback_get(&super::super::contracts::VoiceRecordLookup::Workspace {
+                record_id: session.workspace_note_id.unwrap(),
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(playback).unwrap()["recognitionError"],
+            "local inference failed"
+        );
+        assert!(db.voice_cloud_gaps(&session.session_id).unwrap().is_empty());
     }
 
     #[test]
