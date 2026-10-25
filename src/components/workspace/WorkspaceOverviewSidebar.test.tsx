@@ -15,6 +15,18 @@ function render(element: ReactElement) {
   });
 }
 
+const lists = vi.hoisted(() => ({ fileProps: vi.fn(), fileMount: vi.fn(), sessionMount: vi.fn() }));
+vi.mock("../home/LazySidebarSessions", () => ({ LazySidebarSessions: ({ projectId }: { projectId: number | null }) => {
+  lists.sessionMount(projectId);
+  return <section><h3>会话</h3><div role="region" aria-label="工作区会话列表"><input aria-label="会话重命名" defaultValue="保留的会话草稿" /></div></section>;
+} }));
+vi.mock("../home/HomeProjectFiles", () => ({ HomeProjectFiles: (props: { fileScope: { projectId: number | null }; filter?: unknown }) => {
+  const { fileScope } = props;
+  lists.fileProps(props);
+  lists.fileMount(fileScope.projectId);
+  return <section><div role="region" aria-label="工作区文件列表"><input aria-label="文件重命名" defaultValue="原文件名" /></div></section>;
+} }));
+
 type SidebarProps = ComponentProps<typeof WorkspaceOverviewSidebar>;
 
 function sidebarProps(overrides: Partial<SidebarProps> = {}): SidebarProps {
@@ -104,8 +116,9 @@ describe("WorkspaceOverviewSidebar", () => {
     useUiStore.setState({ workspaceSidebarTab: "records" });
     const props = sidebarProps({ records, availableTags: [workTag, unusedTag] });
     const { rerender } = render(<WorkspaceOverviewSidebar {...props} />);
+    fireEvent.click(screen.getByRole("tab", { name: "记录" }));
 
-    expect(screen.getByText("记录", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "记录", selected: true })).toBeInTheDocument();
     expect(recordList().getByRole("button", { name: /Needle 标题/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部", pressed: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /#\s*尚未使用/, pressed: false }));
@@ -120,6 +133,7 @@ describe("WorkspaceOverviewSidebar", () => {
   it("reports raw search input and follows the controlled query prop", () => {
     const props = sidebarProps({ records, recordQuery: "initial" });
     const { rerender } = render(<WorkspaceOverviewSidebar {...props} />);
+    fireEvent.click(screen.getByRole("tab", { name: "记录" }));
     const search = screen.getByRole("textbox", { name: "搜索工作区记录" });
     expect(search).toHaveValue("initial");
 
@@ -135,6 +149,7 @@ describe("WorkspaceOverviewSidebar", () => {
   it("matches title, body and tags case-insensitively, then intersects the selected tag", () => {
     const props = sidebarProps({ records, availableTags: [workTag, unusedTag], recordQuery: "  nEeDlE  " });
     const { rerender } = render(<WorkspaceOverviewSidebar {...props} />);
+    fireEvent.click(screen.getByRole("tab", { name: "记录" }));
     expect(recordList().getAllByRole("button").map(button => button.textContent)).toEqual([
       expect.stringContaining("正文命中"),
       expect.stringContaining("标签命中"),
@@ -159,6 +174,7 @@ describe("WorkspaceOverviewSidebar", () => {
     { name: "an unused tag", items: records, query: "", tagId: 24, message: /没有匹配.*记录/ },
   ])("shows the empty state for $name", ({ items, query, tagId, message }) => {
     render(<WorkspaceOverviewSidebar {...sidebarProps({ records: items, recordQuery: query, activeRecordTagId: tagId, availableTags: [workTag, unusedTag] })} />);
+    fireEvent.click(screen.getByRole("tab", { name: "记录" }));
     expect(recordList().getByText(message)).toBeInTheDocument();
     expect(recordList().queryAllByRole("button")).toHaveLength(0);
   });
@@ -173,6 +189,7 @@ describe("WorkspaceOverviewSidebar", () => {
     }));
     const props = sidebarProps({ records: manyRecords, activeRecordId: 7 });
     const { rerender } = render(<WorkspaceOverviewSidebar {...props} />);
+    fireEvent.click(screen.getByRole("tab", { name: "记录" }));
     const buttons = recordList().getAllByRole("button");
     expect(buttons).toHaveLength(25);
     expect(buttons.map(button => button.textContent)).toEqual([
@@ -192,4 +209,89 @@ describe("WorkspaceOverviewSidebar", () => {
     expect(recordList().getByRole("button", { current: "page" })).toHaveAccessibleName("记录 1");
     expect(recordList().getByRole("button", { name: "记录 7", exact: true })).not.toHaveAttribute("aria-current", "page");
   });
+});
+
+it("defaults to Sessions without starting Files and exposes one mutually exclusive navigation panel", () => {
+  lists.fileMount.mockClear(); lists.sessionMount.mockClear();
+  const { container } = render(<WorkspaceOverviewSidebar {...sidebarProps()} />);
+  expect(screen.getByRole("tab", { name: "会话", selected: true })).toHaveAttribute("tabindex", "0");
+  expect(screen.getByRole("region", { name: "工作区会话列表" })).toBeVisible();
+  expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+  expect(screen.queryByRole("region", { name: "工作区记录列表" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "工作区文件列表" })).toBeNull();
+  expect(lists.fileMount).not.toHaveBeenCalled();
+  expect(lists.sessionMount).toHaveBeenCalledWith(null);
+  expect(container.querySelector('.home-side__top .home-side__workspace-tab')).toBeNull();
+  expect(screen.getByRole("separator", { name: "调整列表区域比例" })).toBeInTheDocument();
+});
+
+it("supports roving keyboard tabs with wraparound, Home and End", async () => {
+  render(<WorkspaceOverviewSidebar {...sidebarProps()} />);
+  const sessions = screen.getByRole("tab", { name: "会话" });
+  const recordsTab = screen.getByRole("tab", { name: "记录" });
+  const files = screen.getByRole("tab", { name: "文件" });
+  sessions.focus();
+  fireEvent.keyDown(sessions, { key: "ArrowRight" });
+  expect(recordsTab).toHaveFocus();
+  expect(recordsTab).toHaveAttribute("aria-selected", "true");
+  expect(sessions).toHaveAttribute("tabindex", "-1");
+  fireEvent.keyDown(recordsTab, { key: "End" });
+  expect(files).toHaveFocus();
+  await screen.findByRole("region", { name: "工作区文件列表" });
+  expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+  fireEvent.keyDown(files, { key: "ArrowRight" });
+  expect(sessions).toHaveFocus();
+  fireEvent.keyDown(sessions, { key: "ArrowLeft" });
+  expect(files).toHaveFocus();
+  fireEvent.keyDown(files, { key: "Home" });
+  expect(sessions).toHaveFocus();
+  expect(sessions).toHaveAttribute("aria-selected", "true");
+});
+
+it("preserves visited forms, scroll and record filters while switching lists", async () => {
+  const props = sidebarProps({ records, recordQuery: "Needle", activeRecordTagId: 23 });
+  const { rerender } = render(<WorkspaceOverviewSidebar {...props} />);
+  const sessionDraft = screen.getByRole("textbox", { name: "会话重命名" });
+  fireEvent.change(sessionDraft, { target: { value: "尚未提交的名称" } });
+  const sessionList = screen.getByRole("region", { name: "工作区会话列表" });
+  sessionList.scrollTop = 47;
+  fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+  const search = screen.getByRole("textbox", { name: "搜索工作区记录" });
+  expect(search).toHaveValue("Needle");
+  expect(recordList().getAllByRole("button")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "新增工作区记录" }));
+  expect(props.onCreateRecord).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("tab", { name: "文件" }));
+  const fileDraft = await screen.findByRole("textbox", { name: "文件重命名" });
+  fireEvent.change(fileDraft, { target: { value: "文件草稿" } });
+  expect(lists.fileMount).toHaveBeenCalledWith(null);
+  expect(screen.queryByRole("region", { name: "工作区记录列表" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "会话" }));
+  expect(screen.getByRole("textbox", { name: "会话重命名" })).toBe(sessionDraft);
+  expect(sessionDraft).toHaveValue("尚未提交的名称");
+  expect(sessionList.scrollTop).toBe(47);
+  fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+  expect(screen.getByRole("textbox", { name: "搜索工作区记录" })).toBe(search);
+  expect(search).toHaveValue("Needle");
+  fireEvent.click(recordList().getByRole("button", { name: /正文命中/ }));
+  expect(props.onOpenRecord).toHaveBeenLastCalledWith(12);
+  fireEvent.click(screen.getByRole("tab", { name: "文件" }));
+  expect(screen.getByRole("textbox", { name: "文件重命名" })).toBe(fileDraft);
+  expect(fileDraft).toHaveValue("文件草稿");
+  rerender(<WorkspaceOverviewSidebar {...props} workspaceRootPath="/tmp/another-workspace" />);
+  expect(screen.getByRole("tab", { name: "会话", selected: true })).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "会话重命名" })).toHaveValue("保留的会话草稿");
+  expect(screen.queryByRole("textbox", { name: "文件重命名", hidden: true })).toBeNull();
+});
+
+it("keeps Files independent from the Record query and selected tag", async () => {
+  lists.fileProps.mockClear();
+  render(<WorkspaceOverviewSidebar {...sidebarProps({ recordQuery: "记录专用搜索", activeRecordTagId: 23 })} />);
+  fireEvent.click(screen.getByRole("tab", { name: "文件" }));
+  await screen.findByRole("region", { name: "工作区文件列表" });
+  expect(lists.fileProps).toHaveBeenCalled();
+  const props = lists.fileProps.mock.lastCall?.[0];
+  expect(props.fileScope.projectId).toBeNull();
+  expect(props.fileScope.rootPath).toBe("/tmp/workspace/files");
+  expect(props.filter).toBeUndefined();
 });

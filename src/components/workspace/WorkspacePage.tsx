@@ -316,11 +316,7 @@ export function WorkspacePage({
   }
 
   function openRecord(recordId: number) {
-    const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.set("view", "record");
-    nextSearchParams.set("focus", `record-${recordId}`);
-    nextSearchParams.delete("compose");
-    setWorkspaceSearchParams(nextSearchParams);
+    navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams));
   }
 
   function setWorkspaceRecordQuery(value: string) {
@@ -620,9 +616,7 @@ export function WorkspacePage({
         onArchiveProject={(projectId) => archiveMutation.mutate({ projectId, isArchived: true })}
         onDeleteProject={(project) => deleteProject(project.id)}
         onOpenRecord={openRecord}
-        onFocusRecord={(recordId) =>
-          navigate(preserveRecordFilters(`/workspace/records/${recordId}`, searchParams))
-        }
+        onFocusRecord={openRecord}
         onCreateRecord={() => void createWorkspaceRecordInFocus()}
         onRenameRecord={(record, title) => renameWorkspaceSidebarRecord(record.id, title)}
         onDeleteRecord={(record) => deleteWorkspaceSidebarRecord(record.id)}

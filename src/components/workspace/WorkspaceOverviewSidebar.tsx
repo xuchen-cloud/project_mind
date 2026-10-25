@@ -1,3 +1,4 @@
+import { getRovingTabTargetIndex } from "../../ui/rovingTabs";
 import { LazySidebarSessions } from "../home/LazySidebarSessions";
 import { useFocusedProjectContent } from "../home/useFocusedProjectContent";
 import { RecordIcon } from "../icons/ContentTypeIcon";
@@ -16,7 +17,7 @@ Pencil,
 Plus,
 Trash2
 } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import noriBust from "../../assets/home/nori-bust.png";
 import type { DocumentRecord,ProjectListItem,TagColorKey } from "../../lib/types";
@@ -249,7 +250,7 @@ export function WorkspaceOverviewSidebar({
         className="right-0"
       />
 
-      <div data-tauri-drag-region className="home-side__top"><button type="button" aria-label="切换左侧栏" aria-expanded={true} onClick={toggleProjectSidebarCollapsed}><PanelLeft size={16} /></button><button type="button" className="home-side__workspace-tab" onClick={onOpenOverview}>我的工作区</button></div>
+      <div data-tauri-drag-region className="home-side__top"><button type="button" aria-label="切换左侧栏" aria-expanded={true} onClick={toggleProjectSidebarCollapsed}><PanelLeft size={16} /></button></div>
       <div className="home-side__brand"><img className="home-side__mascot" src={noriBust} alt="" /><HomeWorkspaceIdentity onOpenWorkspace={onOpenOverview} /><button type="button" aria-label="收起工作区侧边栏" onClick={toggleProjectSidebarCollapsed}><ChevronLeft size={17} /></button></div>
 
       <HomeSidebarSplit key={workspaceRootPath} storageKey={`home-sidebar-split:workspace:${workspaceRootPath}`} upper={<><div className="home-side__heading"><span>项目</span><div className="home-side__heading-actions"><button type="button" className="home-side__workspace-action" aria-label="新建项目" title="新建项目" disabled={createProjectPending} onClick={onCreateProject}><Plus size={13} /></button></div></div>
@@ -328,7 +329,9 @@ export function WorkspaceOverviewSidebar({
                 )}
               </HomeSidebarList>
 
-        </>} middle={<LazySidebarSessions workspaceRoot={workspaceRootPath} projectId={null} query="" enabled={!!workspaceRootPath} activeSessionId={focused.activeSessionId} />} lower={<>
+        </>} lower={<WorkspaceContentNavigation key={workspaceRootPath}
+          sessions={<LazySidebarSessions workspaceRoot={workspaceRootPath} projectId={null} query="" enabled={!!workspaceRootPath} activeSessionId={focused.activeSessionId} />}
+          records={<>
 
           <div className="home-side__heading">
             <span>记录</span>
@@ -356,8 +359,9 @@ export function WorkspaceOverviewSidebar({
             ))}
             {!filteredRecords.length ? <p className="home-side__empty">{recordQuery.trim() || activeRecordTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
           </HomeSidebarList>
-        </>} bottom={<Suspense fallback={<p role="status" className="home-side__empty">正在加载文件…</p>}><HomeProjectFiles fileScope={{ workspaceRoot: workspaceRootPath, projectId: null, rootPath: `${workspaceRootPath.replace(/[\\/]+$/, "")}/files`, name: "工作区" }}
-            documents={documents} activeFileId={focused.activeFileId} activeRelativePath={focused.activeRelativePath} filter={{ query: recordQuery, tagId: activeRecordTagId }} /></Suspense>} />
+        </>}
+          files={<Suspense fallback={<p role="status" className="home-side__empty">正在加载文件…</p>}><HomeProjectFiles fileScope={{ workspaceRoot: workspaceRootPath, projectId: null, rootPath: `${workspaceRootPath.replace(/[\\/]+$/, "")}/files`, name: "工作区" }}
+            documents={documents} activeFileId={focused.activeFileId} activeRelativePath={focused.activeRelativePath} /></Suspense>} />} />
 
       <HomeSidebarFooter onOpenArchivedProjects={() => setArchiveDialogOpen(true)} />
       {projectContextMenu ? (
@@ -426,4 +430,40 @@ export function WorkspaceOverviewSidebar({
       />
     </aside>
   );
+}
+
+const CONTENT_TABS = [
+  { id: "sessions", label: "会话" },
+  { id: "records", label: "记录" },
+  { id: "files", label: "文件" },
+] as const;
+type ContentNavigationTab = typeof CONTENT_TABS[number]["id"];
+
+/** Keep visited lists mounted so switching navigation never discards a draft or scroll position. */
+function WorkspaceContentNavigation({ sessions, records, files }: Record<ContentNavigationTab, ReactNode>) {
+  const [selected, setSelected] = useState<ContentNavigationTab>("sessions");
+  const [visited, setVisited] = useState<Set<ContentNavigationTab>>(() => new Set(["sessions"]));
+  const id = useId();
+  const buttons = useRef<Array<HTMLButtonElement | null>>([]);
+  const panels = { sessions, records, files };
+  function select(tab: ContentNavigationTab) {
+    setSelected(tab);
+    setVisited(previous => previous.has(tab) ? previous : new Set([...previous, tab]));
+  }
+  return <div className="workspace-navigation__content">
+    <div role="tablist" aria-label="工作区内容导航" className="workspace-navigation__tabs">
+      {CONTENT_TABS.map((tab, index) => <button key={tab.id} type="button" role="tab" id={`${id}-tab-${tab.id}`}
+        ref={element => { buttons.current[index] = element; }}
+        aria-selected={selected === tab.id} aria-controls={`${id}-panel-${tab.id}`} tabIndex={selected === tab.id ? 0 : -1}
+        onClick={() => select(tab.id)} onKeyDown={event => {
+          const next = getRovingTabTargetIndex({ key: event.key, currentIndex: index, itemCount: CONTENT_TABS.length });
+          if (next !== null) { event.preventDefault(); select(CONTENT_TABS[next].id); buttons.current[next]?.focus(); }
+        }}>{tab.label}</button>)}
+    </div>
+    {CONTENT_TABS.map(tab => <div key={tab.id} id={`${id}-panel-${tab.id}`} role="tabpanel" aria-labelledby={`${id}-tab-${tab.id}`}
+      className={`workspace-navigation__panel${tab.id === "files" ? " project-navigation__files" : ""}`}
+      hidden={selected !== tab.id} inert={selected !== tab.id}>
+      {visited.has(tab.id) ? panels[tab.id] : null}
+    </div>)}
+  </div>;
 }

@@ -11,6 +11,7 @@ vi.mock("./HomeCover", () => ({
 
 it.each([
   { scopeName: "我的工作区", projectRoot: undefined, showCover: true },
+  { scopeName: "我的工作区", projectRoot: undefined, showCover: false },
   { scopeName: "设计项目", projectRoot: "/project", showCover: false },
 ])("keeps $scopeName navigation available before and after docking", ({ scopeName, projectRoot, showCover }) => {
   const onOpenHome = vi.fn();
