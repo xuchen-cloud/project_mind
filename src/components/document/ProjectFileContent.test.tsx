@@ -764,3 +764,15 @@ it('preserves the compact toolbar and fixed version label through refresh withou
   await waitFor(()=>expect(projectFileApi.readBytes).toHaveBeenCalledTimes(2));
   expect(select).toHaveTextContent('v1'); expect(projectFileApi.resolve).not.toHaveBeenCalled();
 });
+
+it("opens a Workspace-owned file through the shared version and byte pipeline without a Project identity", async () => {
+  const workspaceFile = { ...object, scope: { kind: "workspace" as const } };
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ object: workspaceFile, relativePath: "sample.txt", name: "sample.txt", versionNumber: 2, contentHash: "hash2", state: "ready", reason: null });
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object: workspaceFile, currentVersionNumber: 2, currentContentHash: "hash2", versions: [version(2), version(1)], nextCursor: null });
+  vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object: workspaceFile, versionNumber: 2, contentHash: "hash2", name: "sample.txt", mime: "text/plain", byteLength: 9, base64: btoa("workspace") });
+  vi.mocked(fileDocumentApi.sourceRead).mockResolvedValue({ ...source(2, "workspace"), object: workspaceFile });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><ProjectFileContent {...input} projectId={null} /></QueryClientProvider>);
+  await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledWith(binding, { object: workspaceFile, versionNumber: 2, expectedContentHash: "hash2" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+});

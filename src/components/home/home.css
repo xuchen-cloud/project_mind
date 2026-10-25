@@ -777,10 +777,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-window-shell>.workspace-topbar { position:relative; display:grid; grid-template-columns:var(--home-navigation-width,auto) minmax(0,1fr) auto auto; column-gap:0; flex-shrink:0; min-width:0; border-bottom:0; backdrop-filter:none; }
 .workspace-topbar__navigation { position:relative; display:flex; align-items:center; gap:4px; min-width:0; padding-inline:12px; }
 .workspace-topbar__navigation::after { content:""; position:absolute; right:0; top:8px; bottom:8px; width:1px; background:var(--color-border); pointer-events:none; }
-.workspace-topbar__workspace-home { display:flex; align-items:center; gap:6px; flex:1; min-width:0; max-width:180px; height:28px; padding:4px 6px; border-radius:4px; background:transparent; color:var(--color-text-secondary); font-size:13px; line-height:20px; text-align:left; }
-.workspace-topbar__workspace-home svg { flex:none; }
-.workspace-topbar__workspace-home span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.workspace-topbar__workspace-home:hover, .workspace-topbar__workspace-home[aria-current=page] { color:var(--color-text-primary); }
 .home-side__footer { display:flex; align-items:center; gap:4px; flex:none; margin-top:auto; padding:4px 10px; border-top:1px solid var(--home-line); }
 .home-side__footer-workspace { display:flex; align-items:center; gap:8px; flex:1; min-width:0; height:28px; padding:4px 6px; border-radius:6px; color:var(--color-text-secondary); font-size:12px; line-height:20px; text-align:left; }
 .home-side__footer-workspace svg { flex:none; }
@@ -845,6 +841,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 /* Browser-style tabs: rounded shoulders join the active page at the bottom. */
 .home-window-shell>.workspace-topbar { background:var(--home-topbar); box-shadow:none; padding-left:0; }
 .home-window-shell .workspace-topbar__tablist { overflow:visible; align-items:flex-end; gap:2px; padding-inline:4px; }
+.home-window-shell .workspace-topbar__projects { align-items:flex-end; }
 .home-window-shell .workspace-topbar__tab {
   position:relative; height:30px; border:0; border-radius:10px 10px 0 0; padding-inline:6px 2px; overflow:visible;
   background:transparent; color:var(--color-text-secondary);
@@ -936,6 +933,7 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 
 .home-side__scroll.home-side__split { display:grid; overflow:hidden; gap:0; padding-right:4px; }
 .home-side__section { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.home-side__section > .home-rail__files { min-height:0; }
 .home-side__section > .home-side__heading, .home-side__section > .home-side__search { flex-shrink:0; margin-right:8px; }
 .home-side__list { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; }
 .home-side__split-handle { display:flex; align-items:center; padding:0 10px; cursor:row-resize; touch-action:none; user-select:none; outline:none; }
@@ -1222,7 +1220,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-tag-menu { width:140px; padding:4px; }
 
 /* The same file panel fits the draggable lower section of the note sidebar. */
-.home-note-sidebar .home-side__section > .home-rail__files { min-height:0; }
 
 /* One moving surface preserves continuity when switching tabs. */
 .workspace-topbar__indicator { display:none; }

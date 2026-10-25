@@ -62,6 +62,14 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("ProjectSidebar", () => {
+  it("uses the same File rail for Workspace ownership without a placeholder Project", async () => {
+    const document = buildDocument({ id: 29, projectId: null, name: "workspace.md", baseName: "workspace.md", managedPath: "/tmp/workspace/files/workspace.md" });
+    renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: null, name: "工作区", rootPath: "/tmp/workspace/files" }} documents={[document]} onOpenProject={() => undefined} />);
+    expect(screen.getByRole("region", { name: "工作区文件列表" })).toHaveTextContent("workspace.md");
+    fireEvent.click(screen.getByText("workspace.md"));
+    await waitFor(() => expect(useFilePreviewStore.getState().request).toMatchObject({ workspaceRoot: "/tmp/workspace", projectId: null, documentId: 29 }));
+    expect(projectMindApiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: null });
+  });
   it("keeps the tree toggle and file import together in the title row in either presentation", async () => {
     const view = renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId: null }}
       fileHeaderActions={<button type="button">文件树展示</button>} fileContent={<div>文件树内容</div>}
@@ -535,7 +543,7 @@ describe("ProjectSidebar", () => {
 function buildDocument(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
   return {
     id: overrides.id ?? 21,
-    projectId: overrides.projectId ?? 1,
+    projectId: overrides.projectId === undefined ? 1 : overrides.projectId,
     name: overrides.name ?? "brief.pdf",
     baseName: overrides.baseName ?? "brief.pdf",
     mimeType: overrides.mimeType ?? "application/pdf",

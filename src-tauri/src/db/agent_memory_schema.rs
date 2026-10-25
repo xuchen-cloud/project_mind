@@ -103,7 +103,7 @@ mod tests {
         db.set_schema_version(36).unwrap();
         drop(db);
         let db = Database::open(&path, root.path(), None).unwrap();
-        assert_eq!(db.schema_version().unwrap(), 37);
+        assert_eq!(db.schema_version().unwrap(), super::super::CURRENT_SCHEMA_VERSION);
         assert_eq!(
             db.conn
                 .query_row(

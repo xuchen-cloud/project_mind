@@ -1,6 +1,5 @@
 //! Read-only access to the current DB project's physical directory.
 use crate::{
-    models::ProjectIdInput,
     source_file_snapshot::{open_regular, FileStamp},
     AppState,
 };
@@ -262,24 +261,18 @@ fn preview(root: &Path, relative: &str) -> Result<DirectoryPreview> {
     }
 }
 
-fn project_root(state: State<'_, AppState>, project_id: i64) -> Result<PathBuf, String> {
-    crate::with_db(state, |db| {
-        Ok(PathBuf::from(
-            db.project_page_get(ProjectIdInput { project_id })?
-                .project
-                .root_path,
-        ))
-    })
+fn project_root(state: State<'_, AppState>, project_id: Option<i64>) -> Result<PathBuf, String> {
+    crate::with_db(state, |db| db.ensure_file_scope_root(project_id))
 }
 
 fn authorize_identity(
     label: &str,
     window_label: &str,
-    project_id: i64,
+    project_id: Option<i64>,
     local_origin: bool,
 ) -> Result<(), String> {
-    if project_id <= 0
-        || (label != "main" && label != format!("project-{project_id}"))
+    if project_id.is_some_and(|id| id <= 0)
+        || (label != "main" && project_id.map(|id| format!("project-{id}")).as_deref() != Some(label))
         || window_label != label
         || !local_origin
     {
@@ -288,7 +281,7 @@ fn authorize_identity(
     Ok(())
 }
 
-pub(crate) fn authorize_caller(caller: &Webview, project_id: i64) -> Result<(), String> {
+pub(crate) fn authorize_caller(caller: &Webview, project_id: impl Into<Option<i64>>) -> Result<(), String> {
     let url = caller.url().map_err(|_| "无法验证目录浏览调用窗口")?;
     let local_origin = if cfg!(dev) {
         caller
@@ -306,7 +299,7 @@ pub(crate) fn authorize_caller(caller: &Webview, project_id: i64) -> Result<(), 
     authorize_identity(
         caller.label(),
         caller.window().label(),
-        project_id,
+        project_id.into(),
         local_origin,
     )
 }
@@ -315,7 +308,7 @@ pub(crate) fn authorize_caller(caller: &Webview, project_id: i64) -> Result<(), 
 pub(crate) fn project_directory_list(
     caller: Webview,
     state: State<'_, AppState>,
-    project_id: i64,
+    project_id: Option<i64>,
     relative_path: Option<String>,
 ) -> Result<Vec<DirectoryEntry>, String> {
     authorize_caller(&caller, project_id)?;
@@ -330,7 +323,7 @@ pub(crate) fn project_directory_list(
 pub(crate) fn project_directory_preview(
     caller: Webview,
     state: State<'_, AppState>,
-    project_id: i64,
+    project_id: Option<i64>,
     relative_path: String,
 ) -> Result<DirectoryPreview, String> {
     authorize_caller(&caller, project_id)?;
@@ -369,7 +362,7 @@ fn reference_relative(root: &Path, reference: &str) -> Result<String> {
 pub(crate) fn project_directory_resolve_reference(
     caller: Webview,
     state: State<'_, AppState>,
-    project_id: i64,
+    project_id: Option<i64>,
     reference: String,
 ) -> Result<String, String> {
     authorize_caller(&caller, project_id)?;
@@ -381,7 +374,7 @@ pub(crate) fn project_directory_resolve_reference(
 pub(crate) fn project_directory_open(
     caller: Webview,
     state: State<'_, AppState>,
-    project_id: i64,
+    project_id: Option<i64>,
     relative_path: String,
 ) -> Result<(), String> {
     authorize_caller(&caller, project_id)?;
@@ -665,8 +658,8 @@ mod tests {
 
     #[test]
     fn only_local_business_parent_views_can_access_their_project() {
-        assert!(authorize_identity("main", "main", 2, true).is_ok());
-        assert!(authorize_identity("project-2", "project-2", 2, true).is_ok());
+        assert!(authorize_identity("main", "main", Some(2), true).is_ok());
+        assert!(authorize_identity("project-2", "project-2", Some(2), true).is_ok());
         for (label, window, project, local) in [
             ("project-1", "project-1", 2, true),
             ("dsh-assistant", "main", 2, true),
@@ -674,7 +667,7 @@ mod tests {
             ("project-2", "main", 2, true),
             ("main", "main", 0, true),
         ] {
-            assert!(authorize_identity(label, window, project, local).is_err());
+            assert!(authorize_identity(label, window, Some(project), local).is_err());
         }
     }
 
@@ -769,16 +762,12 @@ use crate::db::project_directory_files::{
     DirectoryFile, DirectoryScan, FileBytesInput, FileBytesResult, FileServiceError,
 };
 
-fn object_project(object: &ObjectRef) -> Result<i64, FileServiceError> {
-    match object.scope {
-        Scope::Project { project_id } if project_id > 0 => Ok(project_id),
-        _ => Err(FileServiceError {
-            code: "ownership_mismatch",
-            message: "File requires a Project".into(),
-        }),
-    }
+fn object_project(object: &ObjectRef) -> Result<Option<i64>, FileServiceError> {
+    object.scope.validate().map_err(|error| FileServiceError { code: "ownership_mismatch", message: error.message })?;
+    Ok(crate::db::file_scope::owner(&object.scope))
 }
-fn file_caller(caller: &Webview, project: i64) -> Result<(), FileServiceError> {
+
+fn file_caller(caller: &Webview, project: Option<i64>) -> Result<(), FileServiceError> {
     authorize_caller(caller, project).map_err(|message| FileServiceError {
         code: "ownership_mismatch",
         message,
@@ -834,7 +823,7 @@ pub(crate) fn project_file_register(
     caller: Webview,
     state: State<'_, AppState>,
     binding: WorkspaceBinding,
-    project_id: i64,
+    project_id: Option<i64>,
     relative_path: String,
 ) -> Result<DirectoryFile, FileServiceError> {
     file_caller(&caller, project_id)?;
@@ -929,7 +918,7 @@ pub(crate) fn project_file_scan(
     caller: Webview,
     state: State<'_, AppState>,
     binding: WorkspaceBinding,
-    project_id: i64,
+    project_id: Option<i64>,
     cursor: Option<String>,
     limit: Option<u32>,
     cancelled: Option<bool>,
@@ -1208,7 +1197,7 @@ mod bound_tests {
         assert!(bound_file_command(&store, &binding, |db| native_file_path(db, &foreign)).is_err());
         foreign = file.object.clone();
         foreign.scope = Scope::Project {
-            project_id: object_project(&file.object).unwrap() + 1,
+            project_id: object_project(&file.object).unwrap().unwrap() + 1,
         };
         assert!(bound_file_command(&store, &binding, |db| native_file_path(db, &foreign)).is_err());
         let replacement = path.with_file_name("replacement.txt");

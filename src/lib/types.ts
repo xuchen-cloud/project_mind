@@ -81,7 +81,7 @@ export interface WorkspaceRecord {
 
 export interface DocumentRecord {
   id: number;
-  projectId: number;
+  projectId: number | null;
   name: string;
   baseName: string;
   originalPath: string;
@@ -273,6 +273,7 @@ export interface ProjectPageData {
 }
 
 export interface WorkspacePageData {
+  workspaceDocuments: DocumentRecord[];
   quickNote: WorkspaceRecord | null;
   records: WorkspaceRecord[];
   unfinishedTodos: TodoRecord[];
@@ -585,14 +586,14 @@ export interface TodoDeleteInput {
 }
 
 export interface DocumentImportInput {
-  projectId: number;
+  projectId: number | null;
   sourcePath: string;
   isStarred: boolean;
   tagIds?: number[];
 }
 
 export interface DocumentImportClipboardImageInput {
-  projectId: number;
+  projectId: number | null;
   fileName: string;
   mimeType: string;
   dataBase64: string;
@@ -646,7 +647,7 @@ export interface DocumentListVersionsInput {
 
 export interface DocumentVersionPrepareInput {
   documentId: number;
-  projectId: number;
+  projectId: number | null;
   managedPath: string;
   expectedVersionNumber: number;
   sourcePath?: string | null;

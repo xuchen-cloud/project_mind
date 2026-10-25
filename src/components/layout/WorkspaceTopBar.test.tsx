@@ -35,9 +35,9 @@ describe("WorkspaceTopBar", () => {
     expect(left).toHaveAttribute("aria-expanded", String(leftOpen));
     expect(right).toHaveAttribute("aria-expanded", String(rightOpen));
     expect(left.closest("header")).toBe(screen.getByRole("tablist").closest("header"));
-    const home = screen.getByRole("button", { name: "Workspace 工作区首页" });
-    expect(home).toHaveTextContent(leftOpen ? "Workspace" : "");
-    expect(home.querySelector("span") !== null).toBe(leftOpen);
+    const home = screen.getByRole("tab", { name: "我的工作区" });
+    expect(home).toHaveTextContent("");
+    expect(home.querySelector("span")).toBeNull();
     expect(home.querySelector("svg")).toHaveClass("lucide-folder-kanban");
     expect(screen.queryByRole("button", { name: "切换 Workspace" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "设置", exact: true })).not.toBeInTheDocument();
@@ -48,7 +48,7 @@ describe("WorkspaceTopBar", () => {
     expect(screen.getByRole("button", { name: "切换左侧栏" })).toBe(left);
     expect(left).toHaveFocus();
     expect(left).toHaveAttribute("aria-expanded", String(!leftOpen));
-    expect(home.querySelector("span") !== null).toBe(!leftOpen);
+    expect(home.querySelector("span")).toBeNull();
 
     await user.click(right);
     expect(toggleRight).toHaveBeenCalledTimes(1);
@@ -64,37 +64,47 @@ describe("WorkspaceTopBar", () => {
     expect(props.onSearchInput).toHaveBeenCalledWith("a");
     rerender(<WorkspaceTopBar {...props} homePanels={{ ...props.homePanels, leftOpen: !leftOpen, rightOpen: !rightOpen, leftWidth: 320, rightWidth: 400 }} />);
     expect(search).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Workspace 工作区首页" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("places the named Workspace home in the left toolbar and keeps Project tabs keyboard reachable", async () => {
+  it.each([true, false])("keeps the icon-only Workspace first in the shared tablist with homePanels=%s", async (withHomePanels) => {
     const user = userEvent.setup();
-    const onOpenWorkspace = vi.fn(), onOpenProject = vi.fn();
+    const onOpenWorkspace = vi.fn(), onOpenProject = vi.fn(), onDetachProject = vi.fn();
     const projects = ["Alpha", "Beta"].map((name, index) => ({ id: index + 1, name, kind: "normal" as const, status: "active" as const, rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 }));
     const props = {
-      homePanels: { leftWidth: 280, workspaceName: "产品研发", leftOpen: true, rightOpen: true, toggleLeft: vi.fn(), toggleRight: vi.fn() },
+      homePanels: withHomePanels ? { leftWidth: 280, workspaceName: "产品研发", leftOpen: true, rightOpen: true, toggleLeft: vi.fn(), toggleRight: vi.fn() } : undefined,
       projects, activeProjectId: null, workspaceActive: true,
       searchInput: "", onSearchInput: vi.fn(), searchResults: [], searching: false,
-      onOpenProject, onOpenWorkspace, onSwitchWorkspace: vi.fn(), onOpenSettings: vi.fn(), onSearchSelect: vi.fn(),
+      onOpenProject, onOpenWorkspace, onDetachProject, onCloseProject: vi.fn(), onSwitchWorkspace: vi.fn(), onOpenSettings: vi.fn(), onSearchSelect: vi.fn(),
     };
     const { rerender } = render(<WorkspaceTopBar {...props} />);
-    const home = screen.getByRole("button", { name: "产品研发 工作区首页" });
-    expect(home.closest(".workspace-topbar__navigation")).toBeInTheDocument();
-    expect(home).toHaveTextContent("产品研发");
-    expect(home).toHaveAttribute("title", "产品研发 · 工作区首页");
-    expect(home.querySelector("svg")).toBeInTheDocument();
-    const projectTabs = screen.getByRole("tablist");
-    expect(projectTabs).not.toContainElement(home);
-    expect(within(projectTabs).getAllByRole("tab")).toHaveLength(2);
-    expect(screen.getByRole("tab", { name: "Alpha" })).toHaveAttribute("tabindex", "0");
-    await user.click(home);
-    expect(onOpenWorkspace).toHaveBeenCalledOnce();
-    act(() => screen.getByRole("tab", { name: "Alpha" }).focus());
+    const list = screen.getByRole("tablist"), home = within(list).getByRole("tab", { name: "我的工作区" });
+    expect(within(list).getAllByRole("tab").map(tab => tab.getAttribute("aria-label") || tab.textContent)).toEqual(["我的工作区", "Alpha", "Beta"]);
+    expect(home).toHaveTextContent("");
+    expect(home).toHaveAttribute("title", "工作区");
+    expect(home).toHaveAttribute("aria-selected", "true");
+    expect(home).toHaveAttribute("data-selected");
+    expect(home).toHaveAttribute("tabindex", "0");
+    expect(home.closest(".workspace-topbar__tab-scroll")).toBeNull();
+    expect(home.closest(".workspace-topbar__navigation")).toBeNull();
+    expect(screen.queryByRole("button", { name: "关闭 我的工作区" })).toBeNull();
+    fireEvent.pointerDown(home, { pointerId: 1, button: 0, clientX: 5, clientY: 5 });
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 100, clientY: 100 });
+    expect(onDetachProject).not.toHaveBeenCalled();
+    act(() => home.focus());
     await user.keyboard("{ArrowRight}");
-    expect(onOpenProject).toHaveBeenCalledWith(2);
-    rerender(<WorkspaceTopBar {...props} workspaceActive={false} activeProjectId={2} />);
-    expect(home).not.toHaveAttribute("aria-current");
-    expect(home).toBeEnabled();
+    expect(screen.getByRole("tab", { name: "Alpha" })).toHaveFocus();
+    expect(onOpenProject).toHaveBeenCalledWith(1);
+    rerender(<WorkspaceTopBar {...props} workspaceActive={false} activeProjectId={1} />);
+    expect(home).toHaveAttribute("aria-selected", "false");
+    expect(home).not.toHaveAttribute("data-selected");
+    await user.keyboard("{Home}");
+    expect(home).toHaveFocus();
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
+    rerender(<WorkspaceTopBar {...props} showWorkspace={false} workspaceActive={false} activeProjectId={1} />);
+    expect(screen.queryByRole("tab", { name: "我的工作区" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Alpha" })).toHaveAttribute("tabindex", "0");
   });
 
   it("scrolls width-bounded project tabs with continuous edge masks and keeps close separate from activation", () => {
@@ -105,7 +115,7 @@ describe("WorkspaceTopBar", () => {
     try {
       render(<WorkspaceTopBar projects={projects} activeProjectId={1} showWorkspace={false} searchInput="" onSearchInput={vi.fn()} searchResults={[]} searching={false} onOpenProject={onOpen} onCloseProject={onClose} onOpenWorkspace={vi.fn()} onSwitchWorkspace={vi.fn()} onOpenSettings={vi.fn()} onSearchSelect={vi.fn()} />);
       const list = screen.getByRole("tablist", { name: "Workspace 与项目" });
-      const viewport = list.parentElement!, frame = viewport.parentElement!;
+      const viewport = list.querySelector<HTMLDivElement>(".workspace-topbar__tab-scroll")!, frame = viewport.parentElement!;
       let width = 300;
       Object.defineProperties(viewport, { clientWidth: { configurable: true, get: () => width }, scrollWidth: { configurable: true, value: 700 } });
       const resize = () => act(() => callbacks.forEach(callback => callback()));
@@ -122,6 +132,47 @@ describe("WorkspaceTopBar", () => {
       width = 800; resize(); expect(edges()).toEqual([0, 0]); expect(screen.queryByRole("scrollbar")).toBeNull();
     } finally { vi.unstubAllGlobals(); }
   });
+  it("keeps the fixed Workspace surface and nested Project indicator aligned while scrolling and revealing selection", () => {
+    const onOpenWorkspace = vi.fn();
+    const projects = ["Alpha", "Beta"].map((name, index) => ({ id: index + 1, name, kind: "normal" as const, status: "active" as const, rootPath: "/", quickNote: "", isArchived: false, createdAt: "", updatedAt: "", openTodoCount: 0 }));
+    const props = { projects, activeProjectId: 1, workspaceActive: false, searchInput: "", onSearchInput: vi.fn(), searchResults: [], searching: false, onOpenProject: vi.fn(), onOpenWorkspace, onSwitchWorkspace: vi.fn(), onOpenSettings: vi.fn(), onSearchSelect: vi.fn() };
+    const { rerender } = render(<WorkspaceTopBar {...props} />);
+    const list = screen.getByRole("tablist");
+    const viewport = list.querySelector<HTMLDivElement>(".workspace-topbar__tab-scroll")!;
+    const indicator = list.querySelector<HTMLElement>(".workspace-topbar__indicator")!;
+    const home = screen.getByRole("tab", { name: "我的工作区" });
+    const alpha = screen.getByRole("tab", { name: "Alpha" }).closest<HTMLElement>(".workspace-topbar__tab")!;
+    const beta = screen.getByRole("tab", { name: "Beta" }).closest<HTMLElement>(".workspace-topbar__tab")!;
+    const rect = (left: number, width: number) => new DOMRect(left, 0, width, 40);
+    vi.spyOn(list, "getBoundingClientRect").mockImplementation(() => rect(100, 334));
+    vi.spyOn(home, "getBoundingClientRect").mockImplementation(() => rect(104, 30));
+    vi.spyOn(viewport, "getBoundingClientRect").mockImplementation(() => rect(136, 300));
+    vi.spyOn(alpha, "getBoundingClientRect").mockImplementation(() => rect(136 - viewport.scrollLeft, 96));
+    vi.spyOn(beta, "getBoundingClientRect").mockImplementation(() => rect(536 - viewport.scrollLeft, 96));
+    Object.defineProperties(viewport, { clientWidth: { configurable: true, value: 300 }, scrollWidth: { configurable: true, value: 700 } });
+    fireEvent.scroll(viewport);
+    expect(indicator.style.left).toBe("36px");
+    expect(indicator.style.width).toBe("96px");
+    expect(indicator.style.clipPath).toBe("inset(0 -10px 0 -10px)");
+    viewport.scrollLeft = 32;
+    fireEvent.scroll(viewport);
+    expect(indicator.style.left).toBe("4px");
+    expect(indicator.style.clipPath).toContain("32px");
+    expect(home.getBoundingClientRect().left).toBe(104);
+    rerender(<WorkspaceTopBar {...props} activeProjectId={2} />);
+    expect(viewport.scrollLeft).toBe(200);
+    fireEvent.scroll(viewport);
+    expect(indicator.style.left).toBe("236px");
+    rerender(<WorkspaceTopBar {...props} workspaceActive activeProjectId={2} />);
+    expect(viewport.scrollLeft).toBe(200);
+    expect(indicator.style.left).toBe("4px");
+    expect(indicator.style.width).toBe("30px");
+    expect(indicator.style.clipPath).toBe("none");
+    expect(screen.getByRole("tab", { name: "Beta" })).toHaveAttribute("aria-selected", "false");
+    fireEvent.click(home);
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
+  });
+
   it("exposes an explicit Workspace switch action", async () => {
     const user = userEvent.setup();
     const onSwitchWorkspace = vi.fn();
@@ -270,7 +321,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toBeInTheDocument();
     expect(screen.queryByText("ProjectMind")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
 
@@ -402,7 +453,7 @@ describe("WorkspaceTopBar", () => {
 
     fireEvent.focus(screen.getByRole("combobox", { name: "全局搜索" }));
     expect(screen.getAllByText("Workspace")).toHaveLength(1);
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveTextContent("");
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toHaveTextContent("");
     expect(screen.getByText("Alpha")).toBeInTheDocument();
 
     const results = screen.getAllByRole("option", { name: /同名 Todo/ });
@@ -624,7 +675,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("title", "Workspace");
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toHaveAttribute("title", "工作区");
     expect(screen.getByRole("tab", { name: "Alpha project with a very long title" })).toHaveAttribute(
       "title",
       "Alpha project with a very long title",
@@ -693,7 +744,7 @@ describe("WorkspaceTopBar", () => {
       />,
     );
 
-    const workspaceTab = screen.getByRole("tab", { name: "Workspace" });
+    const workspaceTab = screen.getByRole("tab", { name: "我的工作区" });
     const alphaTab = screen.getByRole("tab", { name: "Alpha" });
     const betaTab = screen.getByRole("tab", { name: "Beta" });
 

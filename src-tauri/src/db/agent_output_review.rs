@@ -291,7 +291,7 @@ mod tests {
             &f.binding,
             &StageRecordInput {
                 intent: OutputIntent::FileCreate {
-                    project_id: f.project,
+                    project_id: Some(f.project),
                     safe_name: name.into(),
                     utf8_content: format!("body:{name}"),
                 },
@@ -541,7 +541,7 @@ mod tests {
             expected_revision: 1,
             candidate: StageRecordInput {
                 intent: OutputIntent::FileCreate {
-                    project_id: f.project,
+                    project_id: Some(f.project),
                     safe_name: "changed.md".into(),
                     utf8_content: "edited".into(),
                 },
@@ -652,7 +652,7 @@ mod tests {
             expected_revision: 2,
             candidate: StageRecordInput {
                 intent: OutputIntent::FileCreate {
-                    project_id: f.project,
+                    project_id: Some(f.project),
                     safe_name: "edited.md".into(),
                     utf8_content: "new".into(),
                 },
@@ -739,7 +739,7 @@ mod tests {
                 &f.binding,
                 &StageRecordInput {
                     intent: OutputIntent::FileCreate {
-                        project_id: f.project,
+                        project_id: Some(f.project),
                         safe_name: "other.md".into(),
                         utf8_content: "other".into(),
                     },
@@ -810,7 +810,7 @@ mod tests {
             expected_revision: 1,
             candidate: StageRecordInput {
                 intent: OutputIntent::FileCreate {
-                    project_id: f.project,
+                    project_id: Some(f.project),
                     safe_name: "race-edited.md".into(),
                     utf8_content: "edited".into(),
                 },
@@ -1002,7 +1002,7 @@ mod tests {
             expected_revision: 2,
             candidate: StageRecordInput {
                 intent: OutputIntent::FileCreate {
-                    project_id: f.project,
+                    project_id: Some(f.project),
                     safe_name: "changed.md".into(),
                     utf8_content: "changed".into(),
                 },
@@ -1076,7 +1076,7 @@ mod tests {
                 &f.binding,
                 &StageRecordInput {
                     intent: OutputIntent::FileCreate {
-                        project_id: f.project,
+                        project_id: Some(f.project),
                         safe_name: "other.md".into(),
                         utf8_content: "private other".into(),
                     },

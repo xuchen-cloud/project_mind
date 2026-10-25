@@ -1,4 +1,4 @@
-//! DSH owns one Node process per Workspace/Project scope and authenticated carriers.
+//! One native Workspace owns a shared Node host; scoped identities fence every carrier.
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -25,6 +25,9 @@ use tokio::{
 #[path = "dsh_office.rs"]
 mod office;
 
+#[path = "dsh_schedules.rs"]
+mod schedules;
+
 #[path = "dsh_cli.rs"]
 mod cli;
 
@@ -49,11 +52,77 @@ pub(crate) struct DshAssistantState {
 #[derive(Default)]
 struct ScopedRuntimes {
     scopes: HashMap<Option<i64>, RuntimeState>,
+    host_identity: Option<Identity>,
+    generation: u64,
 }
 
 impl ScopedRuntimes {
     fn scope_mut(&mut self, project_id: Option<i64>) -> Result<&mut RuntimeState, String> {
-        self.scopes.get_mut(&project_id).ok_or_else(|| "助手尚未就绪，请重新打开助手".into())
+        if !self.scopes.contains_key(&project_id) {
+            return Err("助手尚未就绪，请重新打开助手".into());
+        }
+        // The pool mutex owns all mutations. Move the one physical host to the
+        // borrowed scope while its identity and carriers stay in their own slot.
+        if self.scopes[&project_id].process.is_none() {
+            let process = self.scopes.values_mut().find_map(|scope| scope.process.take());
+            self.scopes.get_mut(&project_id).expect("existing scope").process = process;
+        }
+        Ok(self.scopes.get_mut(&project_id).expect("existing scope"))
+    }
+
+    async fn ensure_ready(&mut self, app: &tauri::AppHandle, project_id: Option<i64>, pending: bool) -> Result<&mut RuntimeState, String> {
+        let host = match Configuration::resolve(app, None) {
+            Ok(config) => config,
+            Err(error) => { self.stop().await?; return Err(error); }
+        };
+        // Reject a missing/foreign Project without disrupting other scopes.
+        let target = Configuration::resolve(app, project_id)?;
+        let alive = self.active_count()? > 0;
+        let directory_changed = self.scopes.values().filter_map(|scope|scope.process.as_ref()).any(|process|process.context_directory_changed(&target.identity));
+        if !alive || self.host_identity.as_ref() != Some(&host.identity) || directory_changed {
+            if alive {
+                if pending { return Err(RUNNING_ERROR.into()); }
+                let owner = self.scopes.values_mut().find(|scope| scope.process.is_some()).expect("live host");
+                owner.reject_running_replacement().await?;
+            }
+            self.stop().await?;
+            let mut process = cli::launch(app, &host).await?;
+            let current = Configuration::resolve(app, None);
+            if current.as_ref().map(|config| &config.identity).ok() != Some(&host.identity) {
+                process.stop().await?;
+                return Err("工作区或模型设置已变化，请重新打开助手".into());
+            }
+            self.generation += 1;
+            self.host_identity = Some(host.identity.clone());
+            self.scopes.insert(None, RuntimeState { process: Some(process), identity: Some(host.identity), generation: self.generation, ..Default::default() });
+        }
+        self.scopes.entry(project_id).or_insert_with(|| RuntimeState { generation: self.generation, ..Default::default() });
+        let inner = self.scope_mut(project_id)?;
+        if inner.identity.as_ref() != Some(&target.identity) {
+            let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
+            cli::register_context(app, process, &target.identity).await?;
+            let current = Configuration::resolve(app, project_id)?;
+            if current.identity != target.identity { return Err("助手范围已变化，请重新打开助手".into()); }
+            inner.identity = Some(target.identity);
+        }
+        Ok(inner)
+    }
+
+    async fn ensure_scope(&mut self, app: &tauri::AppHandle, project_id: Option<i64>, pending: bool) -> Result<&mut RuntimeState, String> {
+        // Reads and stopping an existing Session keep using its admitted host.
+        // Only explicit start rechecks changed credentials while work is active.
+        let reusable = if self.scopes.contains_key(&project_id) {
+            let scope = self.scope_mut(project_id)?;
+            scope.check_ready(app).and_then(|_| {
+                let state = app.state::<crate::AppState>();
+                let current = crate::lock_mutex(&state.current_workspace);
+                let runtime = current.as_ref().ok_or("请先打开工作区")?;
+                let mut db = crate::lock_mutex(&runtime.db);
+                scope.identity.as_ref().ok_or(TRANSPORT_ERROR)?.validate_context(&mut db, &runtime.paths.root_path)
+            }).is_ok()
+        } else { false };
+        if reusable { return self.scope_mut(project_id); }
+        self.ensure_ready(app, project_id, pending).await
     }
 
     fn active_count(&mut self) -> Result<usize, String> {
@@ -72,6 +141,7 @@ impl ScopedRuntimes {
             if let Err(error) = runtime.stop().await { failure.get_or_insert(error); }
         }
         self.scopes.clear();
+        self.host_identity = None;
         failure.map_or(Ok(()), Err)
     }
 }
@@ -160,6 +230,13 @@ struct Configuration {
 }
 
 impl Identity {
+    fn context_message(&self) -> serde_json::Value {
+        match &self.context {
+            AssistantContext::Workspace { directory } => serde_json::json!({"kind":"workspace","id":self.workspace_id,"name":self.root.file_name().and_then(|s|s.to_str()).unwrap_or("Workspace"),"directory":directory}),
+            AssistantContext::Project(project) => serde_json::json!({"kind":"project","id":project.id,"name":project.name,"directory":project.directory}),
+        }
+    }
+
     fn project_id(&self) -> Option<i64> {
         match &self.context {
             AssistantContext::Workspace { .. } => None,
@@ -400,7 +477,8 @@ struct AssistantProcess {
     source_revoked: Arc<AtomicBool>,
     office_alive: Arc<AtomicBool>,
     source_gate: Arc<std::sync::Mutex<()>>,
-    native_cli: Option<crate::agent::bridge::embedded::EmbeddedCli>,
+    cli_registry: Option<Arc<cli::Registry>>,
+    context_directories: HashMap<Option<i64>, PathBuf>,
 }
 
 impl Drop for AssistantProcess {
@@ -416,7 +494,11 @@ impl AssistantProcess {
         Self::launch_with_source(command, config, None).await
     }
 
-    async fn launch_with_source(mut command: Command, config: &serde_json::Value, source: Option<SourceHandler>) -> Result<Self, String> {
+    async fn launch_with_source(command: Command, config: &serde_json::Value, source: Option<SourceHandler>) -> Result<Self, String> {
+        Self::launch_with_registry(command, config, source, None).await
+    }
+
+    async fn launch_with_registry(mut command: Command, config: &serde_json::Value, source: Option<SourceHandler>, registry: Option<Arc<cli::Registry>>) -> Result<Self, String> {
         let session_http = session_http_client()?;
         command
             .stdin(Stdio::piped())
@@ -496,6 +578,11 @@ impl AssistantProcess {
                     let task_gate = gate.clone();
                     let task_url = source_url.clone();
                     let source_id = frame.id.clone();
+                    let revoked = revoked.clone();
+                    let writer = writer.clone();
+                    let response_alive = alive.clone();
+                    let registry = registry.clone();
+                    tokio::spawn(async move {
                     let result = tokio::task::spawn_blocking(move || {
                         // Office compute releases the source gate. Its writes
                         // carry the native lifecycle fence below. Text/evidence
@@ -506,7 +593,7 @@ impl AssistantProcess {
                         if task_revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
                         result
                     }).await.unwrap_or_else(|_| Err("Source handler failed".into()));
-                    if revoked.load(Ordering::SeqCst) { break; }
+                    if revoked.load(Ordering::SeqCst) { return; }
                     let result = match result {
                         Ok(value) => serde_json::json!({"ok":true,"value":value}),
                         Err(message) => serde_json::json!({"ok":false,"error":{"message":message}}),
@@ -514,12 +601,19 @@ impl AssistantProcess {
                     let mut bytes = serde_json::to_vec(&serde_json::json!({"type":"mind-source-response","id":frame.id,"result":result})).expect("JSON values serialize");
                     bytes.push(b'\n');
                     let mut locked = writer.lock().await;
-                    let Some(stdin) = locked.as_mut() else { break; };
-                    if revoked.load(Ordering::SeqCst) { break; }
-                    if stdin.write_all(&bytes).await.is_err() { break; }
+                    let Some(stdin) = locked.as_mut() else { return; };
+                    if revoked.load(Ordering::SeqCst) { return; }
+                    if stdin.write_all(&bytes).await.is_err() {
+                        response_alive.store(false, Ordering::SeqCst);
+                        revoked.store(true, Ordering::SeqCst);
+                        if let Some(registry) = &registry { registry.revoke(); }
+                        locked.take();
+                    }
+                    });
                 }
                 alive.store(false, Ordering::SeqCst);
                 revoked.store(true, Ordering::SeqCst);
+                if let Some(registry) = &registry { registry.revoke(); }
                 writer.lock().await.take();
             } else {
                 let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
@@ -550,8 +644,13 @@ impl AssistantProcess {
             source_revoked,
             office_alive,
             source_gate,
-            native_cli: None,
+            cli_registry: None,
+            context_directories: HashMap::new(),
         })
+    }
+
+    fn context_directory_changed(&self, identity: &Identity) -> bool {
+        self.context_directories.get(&identity.project_id()).is_some_and(|directory|directory != identity.directory())
     }
 
     async fn stop(&mut self) -> Result<(), String> {
@@ -563,7 +662,7 @@ impl AssistantProcess {
     }
 
     fn revoke_sources(&self) {
-        if let Some(cli) = &self.native_cli { cli.revoke(); }
+        if let Some(registry) = &self.cli_registry { registry.revoke(); }
         self.office_alive.store(false, Ordering::SeqCst);
         let _guard = crate::lock_mutex(&self.source_gate);
         self.source_revoked.store(true, Ordering::SeqCst);
@@ -609,12 +708,19 @@ fn source_file_token(source: &crate::agent::models::SourceRef) -> Result<String,
     Ok(format!("mind-source/{encoded}/{label}"))
 }
 
+fn source_project_ids(db: &crate::db::Database, identity: &Identity) -> Result<Vec<i64>, String> {
+    match identity.project_id() {
+        Some(id) => Ok(vec![id]),
+        None => db.file_project_ids().map_err(|error| error.to_string()),
+    }
+}
+
 fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, id: &str, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize) -> Result<serde_json::Value, String> {
     use crate::agent::access::{Caller, RequestContext, ScopeGrant};
     if session_id.is_empty() || session_id.len() > 512 || session_id.chars().any(char::is_control)
         || id.is_empty() || id.len() > 128 || offset == 0 || offset > u32::MAX as usize || limit == 0 || limit > 2000 { return Err("Invalid source read range or identity".into()); }
     let input = source_file_input(db, identity, binding, path, fixed)?;
-    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project()?.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: identity.project_id().is_none(), project_ids: source_project_ids(db, identity)?, operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: id.into() };
     let (bytes, mut source_ref) = db.project_file_read_source(&request, binding, &input).map_err(|e| e.message)?;
     let bytes = BASE64.decode(bytes.base64).map_err(|_| "Invalid File snapshot")?;
     let text = std::str::from_utf8(&bytes).map_err(|_| "Unsupported: File is not UTF-8 text; text source read is unavailable")?;
@@ -641,8 +747,8 @@ fn source_prepare(db: &crate::db::Database, identity: &Identity, binding: &crate
 }
 
 fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, path: Option<&str>, fixed: Option<crate::agent::models::SourceRef>) -> Result<crate::db::project_directory_files::FileBytesInput, String> {
-    use crate::agent::models::Scope;
-    let project = identity.project()?;
+    let owner = identity.project_id();
+    let project_ids = source_project_ids(db, identity)?;
     // A model can continue reading a persisted fixed File token. The embedded
     // object is still untrusted and passes the same native ownership/policy gate.
     let fixed = if fixed.is_none() {
@@ -652,13 +758,37 @@ fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &cr
         } else { None }
     } else { fixed };
     Ok(if let Some(source) = fixed {
-        if source.object.workspace_id != binding.workspace_id || source.object.scope != (Scope::Project { project_id: project.id }) { return Err("File belongs to another Project".into()); }
+        let allowed = match source.object.scope {
+            crate::agent::models::Scope::Workspace => owner.is_none(),
+            crate::agent::models::Scope::Project { project_id } => project_ids.contains(&project_id),
+        };
+        if source.object.workspace_id != binding.workspace_id || !allowed { return Err("File belongs to another scope".into()); }
         crate::db::project_directory_files::FileBytesInput { object: source.object, version_number: source.file_version.ok_or("Fixed File version required")?, expected_content_hash: source.revision }
     } else {
         let requested = Path::new(path.ok_or("File path required")?);
-        let relative = if requested.is_absolute() { requested.strip_prefix(&project.directory).map_err(|_| "File belongs to another Project")? } else { requested };
+        if requested.components().any(|component| matches!(component, std::path::Component::ParentDir)) { return Err("File path cannot traverse parent directories".into()); }
+        let absolute = if requested.is_absolute() { requested.to_path_buf() } else { identity.directory().join(requested) };
+        // Select registered Project ownership before validating only that root.
+        // A legacy Project named files continues to own its original directory.
+        let workspace_directory = identity.root.canonicalize().map_err(|error| error.to_string())?;
+        let mut roots = db.file_project_roots().map_err(|error| error.to_string())?;
+        roots.retain(|(id, _)| project_ids.contains(id));
+        let mut target = None;
+        for (id, root) in roots {
+            let session_root = root.strip_prefix(&identity.root).ok().map(|relative| workspace_directory.join(relative));
+            let relative = absolute.strip_prefix(&root).ok().or_else(|| session_root.as_ref().and_then(|root| absolute.strip_prefix(root).ok()));
+            if let Some(relative) = relative { target = Some((Some(id), relative.to_path_buf())); break; }
+        }
+        if target.is_none() && owner.is_none() {
+            let root = identity.directory().join("files");
+            let raw_root = identity.root.join("files");
+            if let Some(relative) = absolute.strip_prefix(&root).ok().or_else(|| absolute.strip_prefix(&raw_root).ok()) { target = Some((None, relative.to_path_buf())); }
+        }
+        let (file_owner, relative) = target.ok_or("File belongs to another scope")?;
+        let file_root = db.file_scope_root(file_owner).map_err(|error| error.to_string())?;
+        if file_owner.is_some() { canonical_project_directory(&identity.root, &file_root)?; }
         let relative = relative.to_str().ok_or("Invalid File path")?;
-        let file = db.project_file_register(&binding.workspace_id, project.id, relative).map_err(|e| e.to_string())?;
+        let file = db.project_file_register(&binding.workspace_id, file_owner, relative).map_err(|error| error.to_string())?;
         if file.state != "ready" { return Err(format!("File requires confirmation: {}", file.state)); }
         crate::db::project_directory_files::FileBytesInput { object: file.object, version_number: file.version_number, expected_content_hash: file.content_hash.ok_or("File version not ready")? }
     })
@@ -667,7 +797,7 @@ fn source_file_input(db: &crate::db::Database, identity: &Identity, binding: &cr
 fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate::agent::models::WorkspaceBinding, session_id: &str, path: &str) -> Result<serde_json::Value, String> {
     use crate::agent::{access::{Caller, RequestContext, ScopeGrant}, models::SourceRef};
     let input = source_file_input(db, identity, binding, Some(path), None)?;
-    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: false, project_ids: vec![identity.project()?.id], operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
+    let request = RequestContext { binding: binding.clone(), scope_grant: ScopeGrant { workspace_id: binding.workspace_id.clone(), workspace_content: identity.project_id().is_none(), project_ids: source_project_ids(db, identity)?, operations: vec!["source.read".into()], object_keys: None }, caller: Caller::Connection { grant_id: format!("dsh:{session_id}") }, request_id: session_rpc_id() };
     let actual = db.source_read_historical_file(&request, binding, &input.object).map_err(|e| e.message)?;
     request.authorize_object(binding, &input.object, &actual, "source.read").map_err(|e| e.message)?;
     let file = db.project_file_resolve(&input.object).map_err(|e| e.to_string())?;
@@ -675,19 +805,46 @@ fn source_resolve(db: &crate::db::Database, identity: &Identity, binding: &crate
     Ok(serde_json::json!({"sourceRef":source}))
 }
 
+fn session_identity(app: &tauri::AppHandle, host: &Identity, url: &Url, session_id: &str) -> Result<Identity, String> {
+    if session_id.is_empty() { return Err("无效助手会话".into()); }
+    let value = tokio::runtime::Handle::current().block_on(session_request(url, &session_http_client()?, &mut None, SessionRequest::Private { method: "mind/session/context".into(), request: serde_json::json!({"sessionId":session_id}) }))?;
+    let context = value.get("context").ok_or("无法核验助手会话范围")?;
+    let state = app.state::<crate::AppState>();
+    let current = crate::lock_mutex(&state.current_workspace);
+    let runtime = current.as_ref().ok_or("助手工作区已关闭")?;
+    if !host.matches_workspace(&runtime.agent_binding, &runtime.paths.root_path) || !runtime.ai_secrets_unlocked() { return Err("助手工作区绑定已失效".into()); }
+    let mut identity = host.clone();
+    identity.context = match context["kind"].as_str() {
+        Some("workspace") if context["id"].as_str() == Some(host.workspace_id.as_str()) => AssistantContext::Workspace { directory: runtime.paths.root_path.canonicalize().map_err(|_|"工作区目录不可用")? },
+        Some("project") => AssistantContext::Project(ProjectContext::resolve(&mut crate::lock_mutex(&runtime.db), &runtime.paths.root_path, context["id"].as_i64().ok_or("无效助手项目归属")?)?),
+        _ => return Err("助手会话范围无效".into()),
+    };
+    if !context["directory"].as_str().is_some_and(|directory| session_directory_matches(Path::new(directory), identity.directory())) { return Err("助手会话目录已变化，请重新打开助手".into()); }
+    Ok(identity)
+}
+
 fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation: String) -> SourceHandler {
-    let offices = office::OfficeBridge::new(app.clone(), identity.clone());
+    let offices: std::sync::Mutex<HashMap<Option<i64>, (Identity, Arc<office::OfficeBridge>)>> = std::sync::Mutex::new(HashMap::new());
     Arc::new(move |payload, revoked, url, frame_id, alive| {
         if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
-        identity.project()?;
+        let session_id = payload["sessionId"].as_str().ok_or("Invalid native source Session")?;
+        let identity = session_identity(&app, &identity, url, session_id)?;
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
-        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) { return offices.execute(operation, revoked, url, frame_id, alive.clone()); }
+        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) {
+            let office = {
+                let mut offices = crate::lock_mutex(&offices);
+                let entry = offices.entry(identity.project_id()).or_insert_with(|| (identity.clone(), Arc::new(office::OfficeBridge::new(app.clone(), identity.clone()))));
+                if entry.0 != identity { *entry = (identity.clone(), Arc::new(office::OfficeBridge::new(app.clone(), identity.clone()))); }
+                entry.1.clone()
+            };
+            return office.execute(operation, revoked, url, frame_id, alive.clone());
+        }
         let state = app.state::<crate::AppState>();
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("Source Workspace closed")?;
         if !identity.matches_workspace(&runtime.agent_binding, &runtime.paths.root_path) || !runtime.ai_secrets_unlocked() { return Err("Source Workspace binding expired".into()); }
         let mut db = crate::lock_mutex(&runtime.db);
-        if ProjectContext::resolve(&mut db, &runtime.paths.root_path, identity.project()?.id)? != *identity.project()? { return Err("Source Project binding changed".into()); }
+        identity.validate_context(&mut db, &runtime.paths.root_path)?;
         let result = match operation {
             SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
@@ -709,7 +866,7 @@ fn source_delivery(db: &crate::db::Database, identity: &Identity, binding: &crat
     let expected = source_prepare(db, identity, binding, session_id, &metadata.id, None, Some(metadata.source_ref.clone()), metadata.offset, metadata.requested_limit)?;
     if expected["projection"].as_str() != Some(projection) || format!("{:x}", Sha256::digest(projection.as_bytes())) != projection_hash { return Err("Source projection does not match fixed bytes".into()); }
     if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
-    db.dsh_record_source_evidence(binding, identity.project()?.id, session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
+    db.dsh_record_source_evidence(binding, identity.project_id(), session_id, delivery_id, projection_hash, &[metadata.source_ref]).map_err(|e| e.message)?;
     if revoked.load(Ordering::SeqCst) { return Err("Source runtime revoked".into()); }
     Ok(())
 }
@@ -798,8 +955,10 @@ pub(crate) enum SessionAction {
 }
 
 enum SessionRequest {
+    Private { method: String, request: serde_json::Value },
     List,
     Inventory(serde_json::Value),
+    ScheduledTasks(serde_json::Value),
     Create,
     Delete(String),
     Manage {
@@ -878,8 +1037,12 @@ async fn session_request(
     request: SessionRequest,
 ) -> Result<serde_json::Value, String> {
     authenticate(url, client, cookie).await?;
-    let empty_result = matches!(&request, SessionRequest::Delete(_));
+    let empty_result = matches!(&request, SessionRequest::Private {method,..} if method == "mind/session/delete") || matches!(&request, SessionRequest::Delete(_))
+        || matches!(&request, SessionRequest::ScheduledTasks(value) if value.get("operation").and_then(|v|v.as_str()) == Some("delete"));
+    let private_method;
     let (method, args) = match request {
+        SessionRequest::Private { method, request } => { private_method = method; (private_method.as_str(), serde_json::json!({"request":request})) },
+        SessionRequest::ScheduledTasks(input) => ("mind/schedules", serde_json::json!({"request":input})),
         SessionRequest::Inventory(input) => ("mind/session/inventory", serde_json::json!({"request":input})),
         SessionRequest::List => ("session/list", serde_json::json!({"_request": {}})),
         SessionRequest::Create => ("session/create", serde_json::json!({"request": {}})),
@@ -929,6 +1092,26 @@ async fn session_request(
     }
 }
 
+async fn scope_session_request(url: &Url, client: &reqwest::Client, cookie: &mut Option<reqwest::header::HeaderValue>, identity: &Identity, request: SessionRequest) -> Result<serde_json::Value, String> {
+    let request = match request {
+        SessionRequest::List => SessionRequest::Private { method: "mind/session/list".into(), request: serde_json::json!({"context":identity.context_message()}) },
+        SessionRequest::Create => SessionRequest::Private { method: "mind/session/create".into(), request: serde_json::json!({"context":identity.context_message()}) },
+        SessionRequest::Delete(id) => SessionRequest::Private { method: "mind/session/delete".into(), request: serde_json::json!({"context":identity.context_message(),"sessionId":id}) },
+        request => request,
+    };
+    session_request(url, client, cookie, request).await
+}
+
+async fn list_scope_sessions(url: &Url, client: &reqwest::Client, cookie: &mut Option<reqwest::header::HeaderValue>, directory: &Path, identity: &Identity) -> Result<Vec<AssistantSession>, String> {
+    let value = scope_session_request(url, client, cookie, identity, SessionRequest::List).await?;
+    parse_session_list(value, directory)
+}
+
+async fn create_scope_session(url: &Url, client: &reqwest::Client, cookie: &mut Option<reqwest::header::HeaderValue>, identity: &Identity) -> Result<String, String> {
+    let value = scope_session_request(url, client, cookie, identity, SessionRequest::Create).await?;
+    value["sessionId"].as_str().filter(|id| !id.is_empty()).map(str::to_owned).ok_or_else(||SESSION_ERROR.into())
+}
+
 async fn list_sessions(
     url: &Url,
     client: &reqwest::Client,
@@ -936,6 +1119,10 @@ async fn list_sessions(
     directory: &Path,
 ) -> Result<Vec<AssistantSession>, String> {
     let value = session_request(url, client, cookie, SessionRequest::List).await?;
+    parse_session_list(value, directory)
+}
+
+fn parse_session_list(value: serde_json::Value, directory: &Path) -> Result<Vec<AssistantSession>, String> {
     let list: SessionListValue = serde_json::from_value(value).map_err(|_| SESSION_ERROR)?;
     list.items
         .into_iter()
@@ -1088,11 +1275,7 @@ fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Com
     let data_root = assistant_data_root()?;
     command.env(
         "PROJECT_MIND_DSH_USER_DATA",
-        runtime_data_directory(
-            &data_root,
-            &config.identity.workspace_id,
-            config.identity.project_id(),
-        )?,
+        workspace_runtime_home(&config.identity.workspace_id)?,
     );
     command.env(
         "PROJECT_MIND_DSH_PROFILE_DIR",
@@ -1158,6 +1341,10 @@ pub(crate) fn project_data_directory(
 
 fn workspace_profile_directory(root: &Path, workspace_id: &str) -> Result<PathBuf, String> {
     Ok(workspace_data_directory(root, workspace_id)?.join("profiles/assistant"))
+}
+
+fn workspace_runtime_home(workspace_id: &str) -> Result<PathBuf, String> {
+    Ok(workspace_data_directory(&assistant_data_root()?, workspace_id)?.join("shared-runtime"))
 }
 
 pub(crate) fn runtime_data_directory(root: &Path, workspace_id: &str, project_id: Option<i64>) -> Result<PathBuf, String> {
@@ -1252,12 +1439,7 @@ impl RuntimeState {
             let mut db = crate::lock_mutex(&runtime.db);
             identity.validate_context(&mut db, &runtime.paths.root_path)
         });
-        if let Err(error) = validation {
-            let stopped = self.stop().await;
-            stopped?;
-            return Err(error);
-        }
-        Ok(())
+        validation
     }
 
     async fn reject_running_replacement(&mut self) -> Result<(), String> {
@@ -1276,66 +1458,7 @@ impl RuntimeState {
         Ok(())
     }
 
-    async fn ensure_ready(
-        &mut self,
-        app: &tauri::AppHandle,
-        project_id: Option<i64>,
-        has_pending_requests: bool,
-    ) -> Result<(), String> {
-        // Reject an invalid Project target before resolving settings or replacing this scope.
-        {
-            let state = app.state::<crate::AppState>();
-            let current = crate::lock_mutex(&state.current_workspace);
-            if let (Some(runtime), Some(project_id)) = (current.as_ref(), project_id) {
-                ProjectContext::resolve(
-                    &mut crate::lock_mutex(&runtime.db),
-                    &runtime.paths.root_path,
-                    project_id,
-                )?;
-            }
-        }
-        let config = match Configuration::resolve(app, project_id) {
-            Ok(config) => config,
-            Err(error) => {
-                // Stop using a decrypted key after workspace lock or settings removal.
-                let stopped = self.stop().await;
-                stopped?;
-                return Err(error);
-            }
-        };
-        let alive = match self.process.as_mut() {
-            Some(process) => process
-                .child
-                .try_wait()
-                .map_err(|_| "无法检查助手进程状态")?
-                .is_none(),
-            None => false,
-        };
-        if alive && self.identity.as_ref() == Some(&config.identity) {
-            return Ok(());
-        }
-        if alive {
-            if has_pending_requests {
-                return Err(RUNNING_ERROR.into());
-            }
-            self.reject_running_replacement().await?;
-        }
-        self.stop().await?;
-        let process = cli::launch(app, &config).await?;
-        // Workspace/settings can change while Node boots. Never expose that stale runtime.
-        let current = Configuration::resolve(app, project_id);
-        if current.as_ref().map(|config| &config.identity).ok() != Some(&config.identity) {
-            let mut process = process;
-            process.stop().await?;
-            return Err(current
-                .err()
-                .unwrap_or_else(|| "工作区或模型设置已变化，请重新打开助手".into()));
-        }
-        self.generation += 1;
-        self.identity = Some(config.identity);
-        self.process = Some(process);
-        Ok(())
-    }
+
 }
 
 impl DshAssistantState {
@@ -1426,11 +1549,8 @@ pub(crate) async fn dsh_assistant_start(
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
-    let has_pending_requests = crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project_id);
-    let inner = runtimes.scopes.entry(project_id).or_default();
-    inner
-        .ensure_ready(caller.app_handle(), project_id, has_pending_requests)
-        .await
+    let has_pending_requests = !crate::lock_mutex(&state.requests).is_empty();
+    runtimes.ensure_ready(caller.app_handle(), project_id, has_pending_requests).await.map(|_| ())
 }
 
 #[tauri::command]
@@ -1440,8 +1560,11 @@ pub(crate) async fn dsh_assistant_sessions(
     project_id: Option<i64>,
 ) -> Result<Vec<AssistantSession>, String> {
     authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.scope_mut(project_id)?;
+    if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -1454,11 +1577,12 @@ pub(crate) async fn dsh_assistant_sessions(
         .directory()
         .to_path_buf();
     let process = inner.process.as_mut().expect("ready process");
-    let sessions = list_sessions(
+    let sessions = list_scope_sessions(
         &process.url,
         &process.session_http,
         &mut process.session_cookie,
         &directory,
+        inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
     )
     .await?;
     inner.ensure_current_scope(&caller).await?;
@@ -1473,8 +1597,11 @@ pub(crate) async fn dsh_assistant_select_session(
     session_id: Option<String>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.scope_mut(project_id)?;
+    if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -1488,20 +1615,22 @@ pub(crate) async fn dsh_assistant_select_session(
         .to_path_buf();
     let process = inner.process.as_mut().expect("ready process");
     let selected = if let Some(id) = session_id {
-        let sessions = list_sessions(
+        let sessions = list_scope_sessions(
             &process.url,
             &process.session_http,
             &mut process.session_cookie,
             &directory,
-        )
+        inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
+    )
         .await?;
         validate_session_selection(&id, &sessions)?;
         id
     } else {
-        create_session(
+        create_scope_session(
             &process.url,
             &process.session_http,
             &mut process.session_cookie,
+            inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
         )
         .await?
     };
@@ -1510,7 +1639,7 @@ pub(crate) async fn dsh_assistant_select_session(
 }
 
 const TRANSPORT_ERROR: &str = "助手通信失败，请重新连接";
-const RUNNING_ERROR: &str = "助手正在执行任务，请先停止当前范围任务后再切换";
+const RUNNING_ERROR: &str = "助手正在执行任务，请先停止所有范围的任务后再更新配置";
 const MAX_CARRIER_BYTES: usize = 300 * 1024 * 1024; // Pinned HTTP carrier limit.
 const MAX_MUX_BYTES: usize = 64 * 1024 * 1024;
 
@@ -1873,11 +2002,12 @@ impl RuntimeState {
                 .ok_or(TRANSPORT_ERROR)?
                 .directory();
             let process = self.process.as_mut().ok_or(TRANSPORT_ERROR)?;
-            let sessions = list_sessions(
+            let sessions = list_scope_sessions(
                 &process.url,
                 &process.session_http,
                 &mut process.session_cookie,
                 directory,
+                self.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
             )
             .await?;
             for id in ids {
@@ -1901,6 +2031,24 @@ pub(crate) struct FetchOutput {
     status: u16,
     headers: HashMap<String, String>,
     body_base64: String,
+}
+
+fn route_scope_frame(frame: &mut serde_json::Value, endpoint: &str, identity: &Identity) -> Result<(), String> {
+    let method = match endpoint {
+        "session/list" => "mind/session/list",
+        "session/create" => "mind/session/create",
+        "session/search" => "mind/session/search",
+        "mind/session/delete" => "mind/session/delete",
+        "workspace/initializeDefault" => "mind/workspace/initializeDefault",
+        _ => return Ok(()),
+    };
+    let args = frame.pointer_mut("/payload/args").and_then(serde_json::Value::as_object_mut).ok_or(TRANSPORT_ERROR)?;
+    if endpoint == "session/list" { args.remove("_request"); }
+    let request = args.entry("request").or_insert_with(||serde_json::json!({})).as_object_mut().ok_or(TRANSPORT_ERROR)?;
+    // Every caller-supplied context is replaced by the native capability.
+    request.insert("context".into(), identity.context_message());
+    frame["method"] = serde_json::json!(method);
+    Ok(())
 }
 
 fn carrier_path(
@@ -2054,7 +2202,7 @@ pub(crate) async fn dsh_assistant_fetch(
         if encoded.len() > MAX_CARRIER_BYTES.div_ceil(3) * 4 {
             return Err("助手请求超过大小限制".into());
         }
-        let body = BASE64.decode(encoded).map_err(|_| TRANSPORT_ERROR)?;
+        let mut body = BASE64.decode(encoded).map_err(|_| TRANSPORT_ERROR)?;
         if body.len() > MAX_CARRIER_BYTES {
             return Err("助手请求超过大小限制".into());
         }
@@ -2067,10 +2215,21 @@ pub(crate) async fn dsh_assistant_fetch(
             if let Some(payload) = payload {
                 inner.authorize_payload(&endpoint, &payload).await?;
             }
+            if endpoint == "$events/result" {
+                let mut frame: serde_json::Value = serde_json::from_slice(&body).map_err(|_|TRANSPORT_ERROR)?;
+                frame["payload"]["mindContext"] = inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?.context_message();
+                body = serde_json::to_vec(&frame).map_err(|_|TRANSPORT_ERROR)?;
+            }
+            let routed_path = if matches!(endpoint.as_str(), "session/list" | "session/create" | "session/search" | "mind/session/delete" | "workspace/initializeDefault") {
+                let mut frame: serde_json::Value = serde_json::from_slice(&body).map_err(|_|TRANSPORT_ERROR)?;
+                route_scope_frame(&mut frame, &endpoint, inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?)?;
+                body = serde_json::to_vec(&frame).map_err(|_|TRANSPORT_ERROR)?;
+                format!("api/{}", frame["method"].as_str().ok_or(TRANSPORT_ERROR)?)
+            } else { path.trim_start_matches('/').to_owned() };
             let process = inner.process.as_ref().ok_or(TRANSPORT_ERROR)?;
             let mut url = process
                 .url
-                .join(&format!("/{}", path.trim_start_matches('/')))
+                .join(&format!("/{routed_path}"))
                 .map_err(|_| TRANSPORT_ERROR)?;
             if endpoint == "session/uploadFileBinary" {
                 let mut pairs = HashMap::new();
@@ -2106,13 +2265,16 @@ pub(crate) async fn dsh_assistant_fetch(
                     project_id,
                 )?
                 .join("attachments/v1");
-                if !file.is_file()
-                    || (!file.starts_with(identity.directory())
-                        && !attachments
-                            .canonicalize()
-                            .is_ok_and(|root| file.starts_with(root)))
-                {
-                    return Err("不能读取当前范围之外的文件".into());
+                if !file.is_file() { return Err("助手引用文件不可用".into()); }
+                let in_scope = file.starts_with(identity.directory()) || attachments.canonicalize().is_ok_and(|root|file.starts_with(root));
+                if !in_scope {
+                    let shared = workspace_runtime_home(&identity.workspace_id)?.join("attachments/v1");
+                    if !shared.canonicalize().is_ok_and(|root|file.starts_with(root)) { return Err("不能读取当前范围之外的文件".into()); }
+                    let request = serde_json::json!({"context":identity.context_message(),"path":file});
+                    let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
+                    let access = session_request(&process.url, &process.session_http, &mut process.session_cookie,
+                        SessionRequest::Private { method: "mind/session/fileAccess".into(), request }).await?;
+                    if access["allowed"] != true { return Err("附件不属于当前助手范围".into()); }
                 }
                 url.query_pairs_mut()
                     .clear()
@@ -2245,7 +2407,7 @@ pub(crate) async fn dsh_assistant_send(
             if text.len() > MAX_MUX_BYTES {
                 return Err(TRANSPORT_ERROR.into());
             }
-            let value: serde_json::Value =
+            let mut value: serde_json::Value =
                 serde_json::from_str(&text).map_err(|_| TRANSPORT_ERROR)?;
             let _id = value["streamId"]
                 .as_str()
@@ -2254,8 +2416,14 @@ pub(crate) async fn dsh_assistant_send(
                 .to_owned();
             match value["type"].as_str() {
                 Some("open") => {
-                    let endpoint = value["endpoint"].as_str().ok_or(TRANSPORT_ERROR)?;
-                    inner.authorize_payload(endpoint, &value["payload"]).await?;
+                    let endpoint = value["endpoint"].as_str().ok_or(TRANSPORT_ERROR)?.to_owned();
+                    inner.authorize_payload(&endpoint, &value["payload"]).await?;
+                    if matches!(endpoint.as_str(), "session/list" | "session/create" | "session/search" | "mind/session/delete" | "workspace/initializeDefault") {
+                        return Err("此助手接口仅支持请求调用".into());
+                    }
+                    if matches!(endpoint.as_str(), "$events" | "workspace/follow") {
+                        value["payload"]["mindContext"] = inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?.context_message();
+                    }
                 }
                 Some("item") => {
                     // Bidirectional item values can themselves contain scoped Agent/Session IDs.
@@ -2266,7 +2434,7 @@ pub(crate) async fn dsh_assistant_send(
                 Some("end" | "cancel") => {}
                 _ => return Err(TRANSPORT_ERROR.into()),
             }
-            Message::Text(text.into())
+            Message::Text(serde_json::to_string(&value).map_err(|_|TRANSPORT_ERROR)?.into())
         }
         CarrierFrame::Binary { base64 } => {
             if base64.len() > MAX_MUX_BYTES.div_ceil(3) * 4 {
@@ -2325,16 +2493,20 @@ pub(crate) async fn dsh_assistant_create_session(
     project_id: Option<i64>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.scope_mut(project_id)?;
+    if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
     inner.authorize_scope(caller.label(), project_id)?;
     inner.ensure_current_scope(&caller).await?;
     let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
-    let id = create_session(
+    let id = create_scope_session(
         &process.url,
         &process.session_http,
         &mut process.session_cookie,
-    )
+            inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
+        )
     .await?;
     inner.ensure_current_scope(&caller).await?;
     Ok(id)
@@ -2349,8 +2521,11 @@ pub(crate) async fn dsh_assistant_manage_session(
     action: SessionAction,
 ) -> Result<Option<String>, String> {
     authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.scope_mut(project_id)?;
+    if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -2363,11 +2538,12 @@ pub(crate) async fn dsh_assistant_manage_session(
         .directory()
         .to_path_buf();
     let process = inner.process.as_mut().expect("ready process");
-    let sessions = list_sessions(
+    let sessions = list_scope_sessions(
         &process.url,
         &process.session_http,
         &mut process.session_cookie,
         &directory,
+        inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
     )
     .await;
     inner.ensure_current_scope(&caller).await?;
@@ -2392,8 +2568,11 @@ pub(crate) async fn dsh_assistant_delete_session(
     session_id: String,
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), project_id)?;
     let mut runtimes = state.inner.lock().await;
-    let inner = runtimes.scope_mut(project_id)?;
+    if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
     if crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project_id) {
         return Err("助手请求尚未完成，请稍后再删除会话".into());
     }
@@ -2412,11 +2591,12 @@ pub(crate) async fn dsh_assistant_delete_session(
         .directory()
         .to_path_buf();
     let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
-    let sessions = list_sessions(
+    let sessions = list_scope_sessions(
         &process.url,
         &process.session_http,
         &mut process.session_cookie,
         &directory,
+        inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
     )
     .await?;
     let session = sessions
@@ -2426,10 +2606,11 @@ pub(crate) async fn dsh_assistant_delete_session(
     if session.running {
         return Err("会话正在执行任务，请先停止再删除".into());
     }
-    session_request(
+    scope_session_request(
         &process.url,
         &process.session_http,
         &mut process.session_cookie,
+        inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
         SessionRequest::Delete(session_id),
     )
     .await?;
@@ -2473,6 +2654,54 @@ mod tests {
         assert!(local_caller_url(&dev, Some(&dev), true));
         assert!(!local_caller_url(&Url::parse("tauri://localhost/").unwrap(), Some(&dev), true));
         assert!(!local_caller_url(&dev, None, true));
+    }
+
+    #[test]
+    fn workspace_source_bridge_uses_managed_files_and_rejects_project_or_root_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        let mut db = crate::db::Database::open(&canonical.join("sources.sqlite"), &canonical, None).unwrap();
+        db.bind_native_workspace("workspace-source").unwrap();
+        let file_root = db.ensure_file_scope_root(None).unwrap();
+        std::fs::write(file_root.join("fixed.txt"), "workspace fixed bytes").unwrap();
+        std::fs::write(canonical.join("private.txt"), "not a managed File").unwrap();
+        let identity = Identity { workspace_id: "workspace-source".into(), workspace_generation: "opened".into(), root: canonical.clone(), fingerprint: "model".into(), context: AssistantContext::Workspace { directory: canonical } };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: identity.workspace_id.clone(), generation: identity.workspace_generation.clone() };
+        let prepared = source_prepare(&db, &identity, &binding, "workspace-session", "workspace-read", Some("files/fixed.txt"), None, 1, 10).unwrap();
+        let source: crate::agent::models::SourceRef = serde_json::from_value(prepared["sourceRef"].clone()).unwrap();
+        assert_eq!(source.object.scope, crate::agent::models::Scope::Workspace);
+        assert_eq!(prepared["readValue"]["lines"][0]["text"], "workspace fixed bytes");
+        let projection = prepared["projection"].as_str().unwrap();
+        let hash = format!("{:x}", Sha256::digest(projection.as_bytes()));
+        source_delivery(&db, &identity, &binding, "workspace-session", "composer:workspace-read", projection, &hash, &AtomicBool::new(false)).unwrap();
+        assert!(source_prepare(&db, &identity, &binding, "workspace-session", "root-read", Some("private.txt"), None, 1, 10).is_err());
+        assert!(source_prepare(&db, &identity, &binding, "workspace-session", "escape-read", Some("files/../private.txt"), None, 1, 10).is_err());
+        let mut forged = source;
+        forged.object.scope = crate::agent::models::Scope::Project { project_id: 1 };
+        assert!(source_prepare(&db, &identity, &binding, "workspace-session", "foreign-read", None, Some(forged), 1, 10).is_err());
+    }
+
+    #[test]
+    fn workspace_source_selects_legacy_files_project_before_workspace_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = root.path().canonicalize().unwrap();
+        let db_path = canonical.join("source.sqlite");
+        let mut db = crate::db::Database::open(&db_path, &canonical, None).unwrap();
+        db.bind_native_workspace("legacy-source").unwrap();
+        let project = db.project_create(crate::models::ProjectCreateInput { name: "Legacy".into(), summary: None, status: None }).unwrap();
+        let legacy = canonical.join("files");
+        std::fs::rename(&project.root_path, &legacy).unwrap();
+        rusqlite::Connection::open(&db_path).unwrap().execute("UPDATE projects SET name='files',root_path=?1 WHERE id=?2", rusqlite::params![legacy.to_str().unwrap(), project.id]).unwrap();
+        std::fs::write(legacy.join("legacy.txt"), "existing Project bytes").unwrap();
+        let other = db.project_create(crate::models::ProjectCreateInput { name: "Other".into(), summary: None, status: None }).unwrap();
+        std::fs::write(std::path::Path::new(&other.root_path).join("other.txt"), "other Project bytes").unwrap();
+        assert!(db.file_scope_root(None).is_err());
+        let identity = Identity { workspace_id: "legacy-source".into(), workspace_generation: "open".into(), root: canonical.clone(), fingerprint: "model".into(), context: AssistantContext::Workspace { directory: canonical } };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: identity.workspace_id.clone(), generation: identity.workspace_generation.clone() };
+        for (path, id) in [("files/legacy.txt".to_owned(), project.id), (std::path::Path::new(&other.root_path).join("other.txt").to_string_lossy().into_owned(), other.id)] {
+            let value = source_prepare(&db, &identity, &binding, "session", "legacy-read", Some(&path), None, 1, 10).unwrap();
+            assert_eq!(value["sourceRef"]["object"]["scope"], serde_json::json!({"kind":"project","projectId":id}));
+        }
     }
 
     #[test]
@@ -2561,18 +2790,25 @@ mod tests {
 
     #[tokio::test]
     async fn source_bridge_real_node_model_and_native_file_evidence() {
+        for (workspace, project_source) in [(false, true), (true, false), (true, true)] { source_bridge_real_scope_fixture(workspace, project_source).await; }
+    }
+
+    async fn source_bridge_real_scope_fixture(workspace: bool, project_source: bool) {
         use axum::{routing::post, Json, Router};
         let root = tempfile::tempdir().unwrap();
         let db_path = root.path().join("source.sqlite");
         let mut db = crate::db::Database::open(&db_path, root.path(), None).unwrap();
-        db.bind_native_workspace("native-source").unwrap();
+        db.bind_native_workspace("0123456789abcdef0123456789abcdef").unwrap();
         let project = db.project_create(crate::models::ProjectCreateInput { name: "Source".into(), summary: None, status: None }).unwrap();
-        let directory = PathBuf::from(&project.root_path);
-        std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
-        let file = db.project_file_register("native-source", project.id, "fixed.txt").unwrap();
+        let owner = if project_source { Some(project.id) } else { None };
+        let file_root = db.ensure_file_scope_root(owner).unwrap();
+        let directory = if workspace { root.path().canonicalize().unwrap() } else { PathBuf::from(&project.root_path) };
+        let live_path = if workspace && project_source { file_root.join("fixed.txt").to_string_lossy().into_owned() } else if workspace { "files/fixed.txt".into() } else { "fixed.txt".into() };
+        std::fs::write(file_root.join("fixed.txt"), "historical bytes\n").unwrap();
+        let file = db.project_file_register("0123456789abcdef0123456789abcdef", owner, "fixed.txt").unwrap();
         let fixed = crate::agent::models::SourceRef { object: file.object, revision: file.content_hash.unwrap(), file_version: Some(file.version_number), record_version: None, block_id: None, locator: None, title: "fixed.txt".into(), excerpt: String::new() };
-        let binding = crate::agent::models::WorkspaceBinding { workspace_id: "native-source".into(), generation: "open-source".into() };
-        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), context: AssistantContext::Project(ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() }) };
+        let binding = crate::agent::models::WorkspaceBinding { workspace_id: "0123456789abcdef0123456789abcdef".into(), generation: "open-source".into() };
+        let identity = Identity { workspace_id: binding.workspace_id.clone(), workspace_generation: binding.generation.clone(), root: root.path().into(), fingerprint: "local".into(), context: if workspace { AssistantContext::Workspace { directory: directory.clone() } } else { AssistantContext::Project(ProjectContext { id: project.id, name: project.name.clone(), directory: directory.clone() }) } };
         let database = Arc::new(std::sync::Mutex::new(db));
         let shared = database.clone();
         let source_identity = identity.clone();
@@ -2592,9 +2828,11 @@ mod tests {
         let bodies = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
         let received = bodies.clone();
         let ptc_token = source_file_token(&fixed).unwrap();
+        let read_path = live_path.clone();
         let router = Router::new().route("/v1/chat/completions", post(move |Json(body): Json<serde_json::Value>| {
             let captured = received.clone();
             let ptc_token = ptc_token.clone();
+            let live_path = read_path.clone();
             async move {
                 crate::lock_mutex(&captured).push(body.clone());
                 let messages = body["messages"].as_array().unwrap();
@@ -2603,7 +2841,7 @@ mod tests {
                 let wants_ptc = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use PTC" || m["content"] == "Use PTC replaced");
                 let replaced = messages.iter().rev().find(|m| m["role"] == "user").is_some_and(|m| m["content"] == "Use PTC replaced");
                 let delta = if wants_read && !has_tool {
-                    serde_json::json!({"tool_calls":[{"index":0,"id":"native-read-call","type":"function","function":{"name":"read","arguments":"{\"file_path\":\"fixed.txt\",\"offset\":1,\"limit\":1}"}}]})
+                    serde_json::json!({"tool_calls":[{"index":0,"id":"native-read-call","type":"function","function":{"name":"read","arguments":serde_json::json!({"file_path":live_path,"offset":1,"limit":1}).to_string()}}]})
                 } else if wants_ptc && !has_tool {
                     let args = serde_json::json!({"description":if replaced { "replace parent" } else { "fixed nested source" },"code":format!("await tools.read({{ file_path: {}, offset: 1, limit: 1 }}); return 'summary only';", serde_json::to_string(&ptc_token).unwrap())});
                     serde_json::json!({"tool_calls":[{"index":0,"id":if replaced {"native-ptc-replaced"} else {"native-ptc-call"},"type":"function","function":{"name":"run_code","arguments":args.to_string()}}]})
@@ -2626,7 +2864,9 @@ mod tests {
         command.arg(package.join("scripts/runtime.mjs")).args(["--embedded", "--port", "0", "--no-open"])
             .current_dir(&package).env("PROJECT_MIND_DSH_USER_DATA", root.path().join("runtime"))
             .env("PROJECT_MIND_DSH_PROFILE_DIR", root.path().join("profile"));
-        let config = serde_json::json!({"type":"configure","provider":{"name":"local","baseUrl":origin,"modelId":"local-test-model","apiKey":"local-integration-key","supportsImage":false},"project":{"id":project.id,"name":project.name,"directory":directory}});
+        let mut config = serde_json::json!({"type":"configure","provider":{"name":"local","baseUrl":origin,"modelId":"local-test-model","apiKey":"local-integration-key","supportsImage":false}});
+        if workspace { config["workspace"] = serde_json::json!({"id":binding.workspace_id,"name":"Workspace Source","directory":directory}); }
+        else { config["project"] = serde_json::json!({"id":project.id,"name":project.name,"directory":directory}); }
         let mut process = AssistantProcess::launch_with_source(command, &config, Some(handler)).await.unwrap();
         async fn rpc(process: &mut AssistantProcess, method: &str, request: serde_json::Value) -> serde_json::Value {
             authenticate(&process.url, &process.session_http, &mut process.session_cookie).await.unwrap();
@@ -2640,8 +2880,8 @@ mod tests {
             value["result"]["value"].clone()
         }
         let session = rpc(&mut process, "session/create", serde_json::json!({})).await["sessionId"].as_str().unwrap().to_owned();
-        let prepared = rpc(&mut process, "mind/source/prepare", serde_json::json!({"sessionId":session,"path":"fixed.txt","sourceRef":fixed})).await;
-        std::fs::write(directory.join("fixed.txt"), "current changed bytes\n").unwrap();
+        let prepared = rpc(&mut process, "mind/source/prepare", serde_json::json!({"sessionId":session,"path":live_path,"sourceRef":fixed})).await;
+        std::fs::write(file_root.join("fixed.txt"), "current changed bytes\n").unwrap();
         rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":prepared["projection"]}]})).await;
         let evidence = rusqlite::Connection::open(&db_path).unwrap();
         let count = || evidence.query_row("SELECT count(*) FROM agent_evidence", [], |row| row.get::<_,i64>(0)).unwrap();
@@ -2650,17 +2890,17 @@ mod tests {
         assert_eq!(count(), 1);
         // The changed live file has not been confirmed as a new File version;
         // read must surface that state instead of silently using path bytes.
-        std::fs::write(directory.join("tool.txt"), "actual tool bytes\n").unwrap();
+        std::fs::write(file_root.join("tool.txt"), "actual tool bytes\n").unwrap();
         // Restore the original registered target before the model-driven read.
-        std::fs::write(directory.join("fixed.txt"), "historical bytes\n").unwrap();
+        std::fs::write(file_root.join("fixed.txt"), "historical bytes\n").unwrap();
         rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use read"}]})).await;
-        tokio::time::timeout(Duration::from_secs(15), async { while count() < 2 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(15), async { while count() < 2 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap_or_else(|error| { let last = crate::lock_mutex(&bodies).last().cloned().unwrap(); panic!("workspace={workspace}: {error}; last tool messages={:?}",last["messages"].as_array().unwrap().iter().filter(|m|m["role"]=="tool").collect::<Vec<_>>()); });
         let rows: Vec<String> = evidence.prepare("SELECT locator_json FROM content_reference_edges WHERE relation='evidence'").unwrap().query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
         assert!(rows.iter().any(|row| row.contains("composer:")));
         assert!(rows.iter().any(|row| row.contains("read:")));
         assert!(rows.iter().all(|row| row.contains(&session)));
         // PTC consumes the exact historical token even after its live path changes.
-        std::fs::write(directory.join("fixed.txt"), "current replacement during PTC\n").unwrap();
+        std::fs::write(file_root.join("fixed.txt"), "current replacement during PTC\n").unwrap();
         rpc(&mut process, "session/prompt", serde_json::json!({"sessionId":session,"requestId":session_rpc_id(),"mode":"queue","content":[{"type":"text","text":"Use PTC"}]})).await;
         tokio::time::timeout(Duration::from_secs(15), async { while count() < 3 { tokio::time::sleep(Duration::from_millis(20)).await; } }).await.unwrap();
         let captured = crate::lock_mutex(&bodies).clone();
@@ -2694,34 +2934,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn project_runtime_pool_keeps_independent_instances_and_counts_active_processes() {
-        let temp = tempfile::tempdir().unwrap();
-        let script = temp.path().join("parallel-runtime.mjs");
-        std::fs::write(&script, r#"
-import { createInterface } from 'node:readline';
-const input = createInterface({ input: process.stdin });
-input.on('line', line => {
-  if (line === 'shutdown') process.exit(0);
-  else console.log('MIND_DSH_READY ' + JSON.stringify({ url: 'http://127.0.0.1:23456/?token=fixture-token' }));
-});
-input.on('close', () => process.exit(0));
-"#).unwrap();
-        let node = development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap();
+    async fn shared_runtime_pool_moves_one_host_without_changing_scope_generations() {
+        let mut command = Command::new(development_node(if cfg!(windows) { "node.exe" } else { "node" }).unwrap());
+        command.args(["--input-type=module", "-e", "import readline from 'node:readline'; const r=readline.createInterface({input:process.stdin}); r.on('line', l=>{if(l==='shutdown')process.exit(0);console.log('MIND_DSH_READY '+JSON.stringify({url:'http://127.0.0.1:23456/?token=fixture-token'}))});r.on('close',()=>process.exit(0));"]);
+        let mut process = AssistantProcess::launch(command, &serde_json::json!({"type":"configure"})).await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let mut target = Identity { workspace_id: "workspace".into(), workspace_generation:"opening".into(), root:directory.path().to_path_buf(), fingerprint:"profile".into(), context:AssistantContext::Project(ProjectContext {id:7,name:"Unopened".into(),directory:directory.path().join("original")}) };
+        process.context_directories.insert(Some(7), target.directory().to_path_buf());
+        assert!(!process.context_directory_changed(&target));
+        target.context = AssistantContext::Project(ProjectContext {id:7,name:"Renamed".into(),directory:directory.path().join("renamed")});
+        assert!(process.context_directory_changed(&target));
         let mut pool = ScopedRuntimes::default();
-        for (scope, generation) in [(None, 3), (Some(1), 1), (Some(2), 2)] {
-            let mut command = Command::new(&node);
-            command.arg(&script);
-            let process = AssistantProcess::launch(command, &serde_json::json!({"type":"configure"})).await.unwrap();
-            pool.scopes.insert(scope, RuntimeState { process: Some(process), generation, ..Default::default() });
+        pool.scopes.insert(None, RuntimeState { process: Some(process), generation: 3, ..Default::default() });
+        pool.scopes.insert(Some(1), RuntimeState { generation: 1, ..Default::default() });
+        pool.scopes.insert(Some(2), RuntimeState { generation: 2, ..Default::default() });
+        for scope in [None, Some(2), Some(1), None] {
+            assert!(pool.scope_mut(scope).unwrap().process.is_some());
+            assert_eq!(pool.active_count().unwrap(), 1);
         }
-        assert_eq!(pool.active_count().unwrap(), 3);
-        assert_eq!(pool.scope_mut(None).unwrap().generation, 3);
+        assert_eq!(pool.scope_mut(Some(1)).unwrap().generation, 1);
         assert_eq!(pool.scope_mut(Some(2)).unwrap().generation, 2);
         assert!(pool.scope_mut(Some(3)).is_err());
-        pool.scope_mut(Some(1)).unwrap().stop().await.unwrap();
-        assert_eq!(pool.active_count().unwrap(), 2);
-        assert!(pool.scope_mut(None).unwrap().process.as_mut().unwrap().child.try_wait().unwrap().is_none());
-        assert!(pool.scope_mut(Some(2)).unwrap().process.as_mut().unwrap().child.try_wait().unwrap().is_none());
         pool.stop().await.unwrap();
         assert_eq!(pool.active_count().unwrap(), 0);
         assert!(pool.scopes.is_empty());
@@ -3682,7 +3915,7 @@ input.on('close', () => process.exit(0));
         let mut inner = RuntimeState {
             process: Some(process),
             identity: Some(Identity {
-                workspace_id: "native-fixture".into(),
+                workspace_id: "2f3dc81a-bb8d-42c0-bf7d-517f8a7e8d84".into(),
                 workspace_generation: "native-generation".into(),
                 root: temp.path().canonicalize().unwrap(),
                 fingerprint: "native-profile".into(),
@@ -4080,13 +4313,15 @@ input.on('close', () => process.exit(0));
         let status = running.clone();
         let deleted = Arc::new(AtomicBool::new(false));
         let deletion = deleted.clone();
+        let catalog = post(move |Json(frame): Json<serde_json::Value>| {
+            let status = status.clone();
+            let current_cwd = current_cwd.clone();
+            async move { Json(serde_json::json!({"type":"server-response","rpcId":frame["rpcId"],"result":{"ok":true,"value":{"items":[{"sessionId":"owned","cwd":current_cwd,"running":status.load(Ordering::SeqCst)}]}}})) }
+        });
         let app = Router::new()
             .route("/", get(|| async { (StatusCode::SEE_OTHER, [(header::SET_COOKIE,"fixture=guard-cookie; HttpOnly")], "") }))
-            .route("/api/session/list", post(move |Json(frame): Json<serde_json::Value>| {
-                let status = status.clone();
-                let current_cwd = current_cwd.clone();
-                async move { Json(serde_json::json!({"type":"server-response","rpcId":frame["rpcId"],"result":{"ok":true,"value":{"items":[{"sessionId":"owned","cwd":current_cwd,"running":status.load(Ordering::SeqCst)}]}}})) }
-            }))
+            .route("/api/session/list", catalog.clone())
+            .route("/api/mind/session/list", catalog)
             .route("/api/mind/session/delete", post(move |Json(frame): Json<serde_json::Value>| {
                 let deletion = deletion.clone();
                 async move {
@@ -4351,10 +4586,9 @@ pub(crate) async fn cli_session_inventory(app: &tauri::AppHandle, binding: &crat
     let state=app.state::<DshAssistantState>();
     let mut runtimes=state.inner.lock().await;
     if state.stopping.load(Ordering::SeqCst) { return Err(unavailable("Assistant is stopping".into())); }
-    let inner=runtimes.scopes.entry(project).or_default();
     // Starting a headless runtime restores its durable Session catalog without opening UI.
-    let pending = crate::lock_mutex(&state.requests).values().any(|request| request.project_id == project);
-    inner.ensure_ready(app,project,pending).await.map_err(unavailable)?;
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(app,project,pending).await.map_err(unavailable)?;
     inner.check_ready(app).map_err(unavailable)?;
     {
         let app_state=app.state::<crate::AppState>();
@@ -4369,4 +4603,40 @@ pub(crate) async fn cli_session_inventory(app: &tauri::AppHandle, binding: &crat
     inner.check_ready(app).map_err(unavailable)?;
     if let Some(error)=value.get("error") {return Err(serde_json::from_value(error.clone()).unwrap_or_else(|_|unavailable("Invalid session inventory response".into())));}
     value.get("page").cloned().ok_or_else(||unavailable("Invalid session inventory response".into()))
+}
+
+pub(crate) async fn scheduled_request_with_admission(
+    app: &tauri::AppHandle,
+    binding: &crate::agent::models::WorkspaceBinding,
+    request: serde_json::Value,
+    admit: impl FnOnce() -> Result<(), String> + Send,
+) -> Result<serde_json::Value, String> {
+    schedules::request_with_admission(app, binding, request, admit).await
+}
+
+pub(crate) async fn scheduled_request(
+    app: &tauri::AppHandle,
+    binding: &crate::agent::models::WorkspaceBinding,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    scheduled_request_with_admission(app, binding, request, || Ok(())).await
+}
+
+pub(crate) fn start_scheduled_tasks(app: &tauri::AppHandle) {
+    schedules::start(app);
+}
+
+#[tauri::command]
+pub(crate) async fn dsh_scheduled_tasks(
+    caller: Webview,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    authorize_caller(&caller)?;
+    authorize_scope_label(caller.label(), None)?;
+    let binding = {
+        let state = caller.app_handle().state::<crate::AppState>();
+        let current = crate::lock_mutex(&state.current_workspace);
+        current.as_ref().ok_or("请先打开工作区")?.agent_binding.clone()
+    };
+    scheduled_request(caller.app_handle(), &binding, request).await
 }

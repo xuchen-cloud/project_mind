@@ -335,10 +335,10 @@ fn record_restore_params(options: &Options) -> AgentResult<Value> {
 }
 
 fn file_update_identity(options: &Options) -> AgentResult<(i64, u32, &str, &str)> {
-    if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
-        return Err(invalid("File update requires --project and does not accept scope, query or budget options"));
+    if options.query.is_some() || options.budget_chars.is_some() {
+        return Err(invalid("File update does not accept query or budget options"));
     }
-    options.project.ok_or_else(|| invalid("--project is required for file update"))?;
+    scoped(options)?;
     let id = positive_object_id(options)?;
     let version = options.expected_version.ok_or_else(|| invalid("--expected-version is required"))?;
     let hash = options.expected_hash.as_deref().ok_or_else(|| invalid("--expected-hash is required"))?;
@@ -351,7 +351,7 @@ fn file_update_identity(options: &Options) -> AgentResult<(i64, u32, &str, &str)
 fn file_update_target(options: &Options, binding: &WorkspaceBinding) -> AgentResult<cli_upload::FileUploadTargetInput> {
     let (id, version, hash, _) = file_update_identity(options)?;
     cli_upload::decode_target(json!({"object":{
-        "workspaceId":binding.workspace_id.clone(),"scope":{"kind":"project","projectId":options.project.expect("validated project")},
+        "workspaceId":binding.workspace_id.clone(),"scope":scoped(options)?,
         "kind":"file","id":id.to_string()},"expectedVersionNumber":version,"expectedContentHash":hash}))
 }
 
@@ -388,9 +388,6 @@ fn reference_list_identity(options: &Options) -> AgentResult<(i64, Scope, &str, 
     }
     let id = positive_object_id(options)?;
     let scope = scoped(options)?;
-    if kind == "file" && matches!(&scope, Scope::Workspace) {
-        return Err(invalid("File references require --project"));
-    }
     Ok((id, scope, kind, direction))
 }
 
@@ -401,11 +398,11 @@ fn reference_list_params(options: &Options, id: i64, scope: Scope, kind: &str, d
 }
 
 fn file_create_params(options: &Options) -> AgentResult<Value> {
-    if options.workspace_scope || options.query.is_some() || options.budget_chars.is_some()
+    if options.query.is_some() || options.budget_chars.is_some()
         || options.priority.is_some() || options.due_date.is_some() {
-        return Err(invalid("File creation accepts --project, --name and --body-file"));
+        return Err(invalid("File creation accepts --project or --workspace-scope, --name and --body-file"));
     }
-    let project_id = options.project.ok_or_else(|| invalid("--project is required for file create"))?;
+    let project_id = crate::db::file_scope::owner(&scoped(options)?);
     let safe_name = options.name.clone().ok_or_else(|| invalid("--name is required for file create"))?;
     let request_id = options.request_id.as_deref().ok_or_else(|| invalid("--request-id is required for file create"))?;
     let body = read_text_body(options.body_file.as_deref().ok_or_else(|| invalid("--body-file is required"))?)?;
@@ -563,6 +560,11 @@ fn run_with_bridge_call(
         ["todo", "get", ..] => ("todo.get", &args[2..], None),
         ["file", "list", ..] => ("file.list", &args[2..], None),
         ["session", "list", ..] => ("session.list", &args[2..], None),
+        ["schedule", "list", ..] => ("schedule.list", &args[2..], None),
+        ["schedule", "create", ..] => ("schedule.create", &args[2..], None),
+        ["schedule", "update", ..] => ("schedule.update", &args[2..], None),
+        ["schedule", "run", ..] => ("schedule.run", &args[2..], None),
+        ["schedule", "delete", ..] => ("schedule.delete", &args[2..], None),
         ["record", "list", ..] => ("record.list", &args[2..], None),
         ["todo", "list", ..] => ("todo.list", &args[2..], None),
         ["todo", "create", ..] => ("todo.create", &args[2..], None),
@@ -721,7 +723,7 @@ fn run_with_bridge_call(
         }
         let method = bridge_method(command, options.dry_run);
         let params = match command {
-            "doctor" | "connection.status" | "project.list" => {
+            "doctor" | "connection.status" | "project.list" | "schedule.list" => {
                 if options.input_file.is_some() || options.project.is_some() || options.workspace_scope || options.query.is_some() || options.budget_chars.is_some() {
                     return Err(invalid("This command accepts only Workspace and connection options"));
                 }
@@ -811,6 +813,47 @@ fn run_with_bridge_call(
 mod tests {
     use super::*;
     fn invoke(args: &[&str]) -> CliOutput { run(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()) }
+    #[test]
+    fn schedule_commands_publish_help_and_exact_schema_without_connecting() {
+        for verb in ["list", "create", "update", "delete", "run"] {
+            let output = invoke(&["schedule", verb, "--help"]);
+            assert_eq!(output.exit_code, 0, "{}", output.stderr);
+            assert!(output.stdout.contains(&format!("mind schema schedule.{verb} --json")));
+            let schema = invoke(&["schema", &format!("schedule.{verb}"), "--json"]);
+            assert_eq!(schema.exit_code, 0, "{}", schema.stderr);
+            let value: Value = serde_json::from_str(&schema.stdout).unwrap();
+            assert_eq!(value["ok"], true);
+        }
+        assert!(invoke(&["schedule", "--help"]).stdout.contains("mind schedule create"));
+    }
+    #[test]
+    fn schedule_commands_route_real_cli_inputs_and_stable_request_ids() {
+        let root = tempfile::tempdir().unwrap();
+        let input_file = root.path().join("task.json");
+        let task = json!({"title":"日报","prompt":"汇总项目","sessionId":"real-session","enabled":true,
+            "rule":{"kind":"weeks","startDate":"2026-10-26","time":"09:00","interval":2,"weekdays":[1,3]}});
+        for (verb, input) in [("create", task.clone()), ("update", json!({"id":"task","task":task})), ("delete", json!({"id":"task"})), ("run", json!({"id":"task"}))] {
+            let params = json!({"requestId":"stable:cli-request","input":input});
+            std::fs::write(&input_file, serde_json::to_vec(&params).unwrap()).unwrap();
+            let args = ["schedule", verb, "--input-file", input_file.to_str().unwrap(), "--workspace", root.path().to_str().unwrap(),
+                "--connection", "0123456789abcdef0123456789abcdef", "--json"].into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let output = run_with_bridge_call(&args, |_, _, method, actual, request_id| {
+                assert_eq!(method, format!("schedule.{verb}"));
+                assert_eq!(actual, params);
+                assert_eq!(request_id, "stable:cli-request");
+                Ok(json!({"id":"task"}))
+            });
+            assert_eq!(output.exit_code, 0, "{}", output.stdout);
+        }
+        let args = ["schedule", "list", "--workspace", root.path().to_str().unwrap(), "--connection", "0123456789abcdef0123456789abcdef", "--json"]
+            .into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let output = run_with_bridge_call(&args, |_, _, method, actual, _| {
+            assert_eq!(method, "schedule.list");
+            assert_eq!(actual, json!({}));
+            Ok(json!([]))
+        });
+        assert_eq!(output.exit_code, 0, "{}", output.stdout);
+    }
     #[test]
     fn connection_status_help_is_offline_and_explains_snapshot_limits() {
         let out = invoke(&["connection", "status", "--help"]);
@@ -1538,7 +1581,6 @@ mod tests {
         check(&["reference", "list", "--kind", "other", "--id", "1", "--direction", "incoming", "--project", "1"], "--kind must be");
         check(&["reference", "list", "--kind", "record", "--id", "0", "--direction", "incoming", "--project", "1"], "Invalid object ID");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "both", "--project", "1"], "--direction must be");
-        check(&["reference", "list", "--kind", "file", "--id", "1", "--direction", "outgoing", "--workspace-scope"], "File references require --project");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming"], "Choose exactly one");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--limit", "51"], "Invalid reference limit");
         check(&["reference", "list", "--kind", "record", "--id", "1", "--direction", "incoming", "--project", "1", "--cursor", &"x".repeat(2049)], "Invalid reference cursor");

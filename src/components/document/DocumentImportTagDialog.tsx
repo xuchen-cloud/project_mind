@@ -3,7 +3,7 @@ import { Button, Dialog } from "../../ui/components";
 import { TagAutocompletePicker } from "../tags/TagAutocompletePicker";
 
 interface DocumentImportTagDialogProps {
-  projectId: number;
+  projectId: number | null;
   paths: string[];
   tags: ProjectTagRecord[];
   selectedTagIds: number[];

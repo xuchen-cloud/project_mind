@@ -205,3 +205,13 @@ it("requests a supported caption count while showing the latest lines", async ()
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   view.unmount();
 });
+
+it("keeps a local recognition error visible in expanded and compact recording controls", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "s1", revision: 3, phase: "recording", activeMs: 1234, recognitionError: "local inference failed" });
+  const view = render(<VoiceCaptionWindow />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("实时转写已中断，录音继续保存。local inference failed");
+  fireEvent.click(screen.getByRole("button", { name: "折叠字幕" }));
+  expect(await screen.findByRole("img", { name: "转写已中断，录音继续" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "结束录音" })).toBeInTheDocument();
+  view.unmount();
+});

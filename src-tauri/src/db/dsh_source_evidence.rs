@@ -49,13 +49,14 @@ impl Database {
     pub(crate) fn dsh_record_source_evidence(
         &self,
         binding: &WorkspaceBinding,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         session_id: &str,
         delivery_id: &str,
         projection_hash: &str,
         source_refs: &[SourceRef],
     ) -> AgentResult<()> {
-        let scope = Scope::Project { project_id };
+        let project_id = project_id.into();
+        let scope = super::file_scope::scope(project_id);
         scope.validate()?;
         if !identity(session_id)
             || !identity(delivery_id)
@@ -83,12 +84,25 @@ impl Database {
             scope.key(),
             Sha256::digest(namespace.as_bytes())
         );
+        let workspace_projects = if project_id.is_none() {
+            self.file_project_ids().map_err(|_| {
+                AgentError::new(ErrorCode::IoFailed, "Cannot read native Project membership")
+            })?
+        } else {
+            Vec::new()
+        };
         let mut evidence = Vec::with_capacity(source_refs.len());
         let mut edges = BTreeSet::new();
         let mut payload_bytes = 0;
         for (ordinal, source) in source_refs.iter().enumerate() {
             let target = source.object.key()?;
-            if source.object.workspace_id != binding.workspace_id || source.object.scope != scope {
+            let source_scope_allowed = source.object.scope == scope
+                || project_id.is_none()
+                    && match source.object.scope {
+                        Scope::Workspace => true,
+                        Scope::Project { project_id } => workspace_projects.contains(&project_id),
+                    };
+            if source.object.workspace_id != binding.workspace_id || !source_scope_allowed {
                 return Err(AgentError::new(
                     ErrorCode::ScopeDenied,
                     "DSH evidence source belongs to another scope",
@@ -103,10 +117,11 @@ impl Database {
                 || source.excerpt.chars().count() > 2000
                 || !match &source.locator {
                     None => true,
-                    Some(SourceLocator::Line { start, end } | SourceLocator::Paragraph { start, end }) => *start > 0 && end >= start,
-                    Some(SourceLocator::Page { page, start, end }) => {
-                        *page > 0 && end > start
-                    }
+                    Some(
+                        SourceLocator::Line { start, end }
+                        | SourceLocator::Paragraph { start, end },
+                    ) => *start > 0 && end >= start,
+                    Some(SourceLocator::Page { page, start, end }) => *page > 0 && end > start,
                     _ => false,
                 }
             {

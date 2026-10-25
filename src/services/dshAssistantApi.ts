@@ -14,7 +14,8 @@ function runtimeCommand<T>(command: string, args: Record<string, unknown> & { pr
   return next;
 }
 
-// Window-local queues per scope; native owns each scope runtime, origin and credentials.
+// Window-local queues preserve scope ordering. Native owns the Workspace-shared
+// Harness and ensures readiness for each business API; scope permissions remain independent.
 export const dshAssistantApi = {
   start(syncKey: string, projectId: number | null): Promise<void> {
     const key = JSON.stringify([syncKey, projectId]);

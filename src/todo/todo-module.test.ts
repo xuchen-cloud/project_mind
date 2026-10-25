@@ -709,3 +709,18 @@ it("reports failed conflict refresh without retrying or restoring an obsolete sn
   expect(transport.todoUpdateContent).toHaveBeenCalledOnce();
   expect(transport.workspacePageGet).toHaveBeenCalledTimes(2);
 });
+
+it("reuses a resident Project source page on ordinary Todo loads but refreshes invalidated and forced reads", async () => {
+  const { module, queryClient, transport, projectPage, active, original } = await loadedProjectTodoModule();
+  await module.load({ kind: "current-project", projectId: active.id });
+  expect(transport.projectPageGet).toHaveBeenCalledTimes(1);
+  const external = { ...original, revision: 2, content: "原生已提交的新内容" };
+  vi.mocked(transport.projectPageGet).mockResolvedValue({ ...projectPage, unfinishedTodos: [external] });
+  await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(active.id), refetchType: "none" });
+  await module.load({ kind: "current-project", projectId: active.id });
+  expect(transport.projectPageGet).toHaveBeenCalledTimes(2);
+  expect(module.read({ kind: "current-project", projectId: active.id }).unfinishedTodos).toEqual([external]);
+  await module.load({ kind: "current-project", projectId: active.id }, { force: true });
+  expect(transport.projectPageGet).toHaveBeenCalledTimes(3);
+  queryClient.clear();
+});

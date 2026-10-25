@@ -205,7 +205,7 @@ pub enum OutputIntent {
         patch: RecordPatch,
     },
     FileCreate {
-        project_id: i64,
+        project_id: Option<i64>,
         safe_name: String,
         utf8_content: String,
     },

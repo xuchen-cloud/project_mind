@@ -1,3 +1,4 @@
+import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import { desktopApi } from "./desktopApi";
 import { callAgentCommand } from "./agentApi";
 import type {
@@ -185,11 +186,11 @@ export const projectMindApi = {
       "workspace_clipboard_note_image_import",
       { input },
     ),
-  documentImport: (input: DocumentImportInput) =>
-    desktopApi.command<DocumentRecord>("document_import", { input }),
-  documentImportClipboardImage: (input: DocumentImportClipboardImageInput) =>
+  documentImport: (input: DocumentImportInput, binding?: AgentWorkspaceBinding) =>
+    desktopApi.command<DocumentRecord>("document_import", { input, ...(binding ? { binding } : {}) }),
+  documentImportClipboardImage: (input: DocumentImportClipboardImageInput, binding?: AgentWorkspaceBinding) =>
     desktopApi.command<DocumentRecord>("document_import_clipboard_image", {
-      input,
+      input, ...(binding ? { binding } : {}),
     }),
   documentImportNoteImage: (input: DocumentImportNoteImageInput) =>
     desktopApi.command<DocumentRecord>("document_import_note_image", { input }),

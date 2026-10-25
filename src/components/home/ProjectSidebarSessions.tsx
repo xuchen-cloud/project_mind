@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Archive, GitFork, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { Archive, Clock, GitFork, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { useUiStore } from "../../state/ui-store";
 import { getErrorMessage } from "../../lib/errors";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
 import { manageProjectSession, openProjectContent, type ProjectSessionAction } from "../../services/projectContentApi";
@@ -11,7 +12,7 @@ import { ActionContextMenu, Button, Dialog } from "../../ui/components";
 
 export interface ProjectSidebarSessionsProps {
   workspaceRoot: string;
-  projectId: number;
+  projectId: number | null;
   query: string;
   enabled: boolean;
   activeSessionId?: string | null;
@@ -36,6 +37,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
   const read = useRef<AbortController | null>(null);
   const action = useRef<AbortController | null>(null);
   const active = useRef(false);
+  const scopeLabel = projectId === null ? "工作区" : "项目";
   const scopeKey = dshProjectRunKey(workspaceRoot, projectId);
   const sessionRuns = useAgentPanelStore(state => state.sessionsByProject[scopeKey]);
 
@@ -48,13 +50,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     };
   }, [enabled]);
 
-  async function start() {
-    // The runtime catalog owns running state; a sidebar refresh must not restart a run.
-    if (!useAgentPanelStore.getState().runsByProject[scopeKey]) {
-      await dshAssistantApi.start(scopeKey, projectId);
-    }
-  }
-
   async function load() {
     if (!active.current) return;
     read.current?.abort();
@@ -63,8 +58,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setLoading(true);
     setError(null);
     try {
-      await start();
-      if (controller.signal.aborted) return;
       const saved = await dshAssistantApi.sessions(projectId);
       if (!controller.signal.aborted) setSessions(saved);
     } catch (reason) {
@@ -83,8 +76,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setError(null);
     let target = session;
     try {
-      await start();
-      if (controller.signal.aborted) return;
       const id = await dshAssistantApi.selectSession(session?.id ?? null, projectId);
       if (controller.signal.aborted) return;
       target = { id, title: session?.title || "新会话" };
@@ -113,8 +104,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setError(null);
     let forked: Pick<Session, "id" | "title"> | null = null;
     try {
-      await start();
-      if (controller.signal.aborted) return;
       const id = await manageProjectSession({ workspaceRoot, projectId, sessionId: session.id, action: change, signal: controller.signal });
       if (controller.signal.aborted) return;
       if (change.kind === "fork" && id) {
@@ -152,12 +141,13 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
 
   const needle = query.trim().toLocaleLowerCase();
   const visible = sessions.filter(session => session.title.toLocaleLowerCase().includes(needle));
-  return <section className="project-navigation__section" aria-label="项目会话">
+  return <section className="project-navigation__section" aria-label={`${scopeLabel}会话`}>
     <div className="home-side__heading"><span>会话</span><div className="home-side__heading-actions">
       {loading || opening ? <span role="status" aria-label={opening ? busyLabel : "正在读取项目会话"} className="inline-flex"><LoaderCircle size={14} className="spin" aria-hidden="true" /></span> : null}
+      {projectId === null ? <button type="button" aria-label="定时任务" title="定时任务" onClick={() => useUiStore.getState().openSettings("scheduled-tasks")}><Clock size={15} /></button> : null}
       <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || loading || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
     </div></div>
-    <HomeSidebarList label="项目会话列表" searchKey={query}>
+    <HomeSidebarList label={`${scopeLabel}会话列表`} searchKey={query}>
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}
       {visible.map(session => editing?.session.id === session.id ? <input key={session.id} autoFocus aria-label="重命名会话" className="home-side__rename"
         value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })}
@@ -180,6 +170,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     ]} />, document.body) : null}
     <Dialog open={!!deleting} title="删除会话" onClose={() => setDeleting(null)} footer={<>
       <Button onClick={() => setDeleting(null)}>取消</Button><Button variant="danger" onClick={() => { if (deleting) void manage(deleting, { kind: "delete" }); }}>删除</Button>
-    </>}>{deleting ? <p>删除“{deleting.title || "新会话"}”？会话将从当前项目移除，历史文件保留。</p> : null}</Dialog>
+    </>}>{deleting ? <p>删除“{deleting.title || "新会话"}”？会话将从当前范围移除，历史文件保留。</p> : null}</Dialog>
   </section>;
 }

@@ -74,6 +74,7 @@ pub struct VoicePlaybackSnapshot {
     pub session_id: String,
     pub phase: String,
     pub chunks: Vec<VoicePlaybackChunk>,
+    pub recognition_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +229,7 @@ pub struct VoiceSessionSnapshot {
     pub active_ms: u64,
     pub pause_reason: Option<String>,
     pub interim_text: Option<String>,
+    pub recognition_error: Option<String>,
     pub project_note_id: Option<i64>,
     pub workspace_note_id: Option<i64>,
 }

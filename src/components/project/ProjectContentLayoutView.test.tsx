@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within, createEvent } from "@testing-li
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAgentPanelStore, dshProjectRunKey } from "../../state/agent-panel-store";
-import { getContentLayout } from "../../lib/project-content-layout";
+import { getContentLayout, type ContentScope } from "../../lib/project-content-layout";
 import { useProjectContentStore } from "../../state/project-content-store";
 import { ProjectContentLayoutView, type ContentPageProps } from "./ProjectContentLayoutView";
 import projectContentCss from "./project-content.css?raw";
@@ -22,7 +22,7 @@ function Editor({ tab, visible, focused, registerCloseGuard }: ContentPageProps)
     <div role="dialog"><button>弹窗操作</button></div>
   </div>;
 }
-function Harness({ active = true, contentScope = scope }: { active?: boolean; contentScope?: typeof scope }) {
+function Harness({ active = true, contentScope = scope }: { active?: boolean; contentScope?: ContentScope }) {
   const layout = useProjectContentStore(state => getContentLayout(state, contentScope));
   return <ProjectContentLayoutView scope={contentScope} layout={layout} active={active} onOverview={() => useProjectContentStore.getState().selectHome(contentScope)} renderOverview={() => <input aria-label="首页草稿" defaultValue="" />}
     onSelect={(pane, id) => useProjectContentStore.getState().select(contentScope, pane, id)}
@@ -598,4 +598,21 @@ it("suppresses the synthetic surface click after dragging from tab padding acros
   act(() => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(0)); });
   fireEvent.click(surface);
   expect(select).toHaveBeenCalledWith(scope, "right", a);
+});
+
+
+it("uses the same split, focus, move and Home behavior for Workspace content", () => {
+  const workspaceScope = { workspaceId: scope.workspaceId, projectId: null };
+  const state = useProjectContentStore.getState();
+  const first = state.open(workspaceScope, { kind: "record", id: 1, title: "甲" });
+  const second = state.open(workspaceScope, { kind: "record", id: 2, title: "乙" });
+  render(<Harness contentScope={workspaceScope} />);
+  fireEvent.click(screen.getByRole("button", { name: "分栏" }));
+  expect(screen.getByTestId("page-1")).toBeVisible();
+  expect(screen.getByTestId("page-2")).toHaveAttribute("data-focused", "true");
+  act(() => state.move(workspaceScope, second, "left"));
+  expect(getContentLayout(useProjectContentStore.getState(), workspaceScope).panes[0].tabIds).toEqual([first, second]);
+  fireEvent.click(screen.getByRole("button", { name: "工作区首页" }));
+  expect(getContentLayout(useProjectContentStore.getState(), workspaceScope).panes[0].selectedTabId).toBeNull();
+  expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toEqual([]);
 });

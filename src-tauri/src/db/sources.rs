@@ -69,7 +69,7 @@ impl Database {
         let resolved_scope=match (&object.kind,&object.scope) {
             (ObjectKind::Record,Scope::Workspace)=> self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='workspace_note'",[id],|_|Ok(Scope::Workspace)).optional(),
             (ObjectKind::Record,Scope::Project { .. })=>self.conn.query_row("SELECT n.project_id FROM notes n JOIN projects p ON p.id=n.project_id WHERE n.id=?1",[id],|row| Ok(Scope::Project { project_id:row.get(0)? })).optional(),
-            (ObjectKind::File,_)=>self.conn.query_row("SELECT d.project_id FROM documents d JOIN projects p ON p.id=d.project_id WHERE d.id=?1 AND d.storage_mode!='managed_note_image'",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
+            (ObjectKind::File,_)=>self.conn.query_row("SELECT d.project_id FROM documents d WHERE d.id=?1 AND d.storage_mode!='managed_note_image'",[id],|row|Ok(super::file_scope::scope(row.get(0)?))).optional(),
             (ObjectKind::Project,_)=>self.conn.query_row("SELECT id FROM projects WHERE id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),
             (ObjectKind::QuickNote,Scope::Workspace)=>self.conn.query_row("SELECT 1 FROM workspace_notes WHERE id=?1 AND note_kind='today_quick_note'",[id],|_|Ok(Scope::Workspace)).optional(),
             (ObjectKind::QuickNote,Scope::Project {..})=>self.conn.query_row("SELECT id FROM projects WHERE id=?1",[id],|row|Ok(Scope::Project {project_id:row.get(0)?})).optional(),

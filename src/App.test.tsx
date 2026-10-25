@@ -26,8 +26,11 @@ import { openProjectFilePreview, useProjectFileNavigation } from "./lib/project-
 import { projectDirectoryApi } from "./services/projectDirectoryApi";
 import { dshAssistantApi } from "./services/dshAssistantApi";
 import { voiceApi } from "./services/voiceApi";
+import { setDshWorkspaceRoot } from "./lib/dsh-host-events";
+import { useFeedbackStore } from "./state/feedback-store";
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { getContentLayout } from "./lib/project-content-layout";
+import { openProjectContent } from "./services/projectContentApi";
 import { useProjectContentStore } from "./state/project-content-store";
 // Keep native reads, canonical editors, content tabs and the assistant panel real.
 // Separately bundled DSH renderers have their own suites; loading their global
@@ -72,6 +75,7 @@ vi.mock("./services/desktopApi", () => ({
       return null;
     }),
     listSystemFontFamilies: vi.fn(async () => ["PingFang SC", "Segoe UI"]),
+    openFile: vi.fn(async () => undefined),
     focusProjectWindow: vi.fn(async () => false),
     openProjectWindow: vi.fn(async () => undefined),
     isProjectWindow: vi.fn(() => false),
@@ -279,6 +283,7 @@ describe("workspaceSearchResultRoute", () => {
       }),
     ).toBe("/workspace?focus=todo-10");
     expect(workspaceSearchResultRoute({ ...baseResult, kind: "document", id: 11 })).toBe("/projects/3");
+    expect(workspaceSearchResultRoute({ ...baseResult, projectId: null, kind: "document", id: 51 })).toBe("/workspace");
     expect(workspaceSearchResultRoute({ ...baseResult, kind: "project", id: 3 })).toBeNull();
   });
 });
@@ -303,7 +308,10 @@ describe("WorkspaceLayout", () => {
     await waitFor(() => expect(projectMindApi.workspaceCreate).toHaveBeenCalledWith({ rootPath: "/tmp/new-workspace", password: dev ? "" : "original-secret" }));
   });
   beforeEach(() => {
+    useFeedbackStore.setState({ toasts: [] });
+    useFeedbackStore.getState().resetStatus();
     closeFilePreview();
+    setDshWorkspaceRoot(null);
     useAgentPanelStore.getState().clearWorkspace();
     useProjectContentStore.setState({ layouts: {} });
     useProjectFileNavigation.setState({ request: null, revisions: {} });
@@ -317,6 +325,43 @@ describe("WorkspaceLayout", () => {
     vi.mocked(isProjectWindow).mockReturnValue(false);
     vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("opens Workspace Records and Sessions in the shared content Tabs and splits without duplicating the sidebar", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const timestamp = "2026-10-25T00:00:00Z";
+    const record = { id: 70, title: "Workspace shared record", isVoice: false, contentMarkdown: "Workspace body", contentHtml: "<p>Workspace body</p>", defaultCodeLanguage: null, tags: [], createdAt: timestamp, updatedAt: timestamp };
+    const page = { quickNote: null, records: [record], workspaceDocuments: [], unfinishedTodos: [], finishedTodos: [] };
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", metadataPath: "/tmp/workspace/.project-mind/workspace.json", displayName: "Test Workspace", createdAt: timestamp }, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" });
+    client.setQueryData(queryKeys.workspacePage, page);
+    client.setQueryData(queryKeys.projects.all, []);client.setQueryData(queryKeys.projectTags.workspace, { tags: [] });
+    client.setQueryData(queryKeys.aiSettings, null);configureCanonicalRecords(client);
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([]);
+    vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue(page);
+    const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
+    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockResolvedValue([{ id: "workspace-session", title: "Workspace shared session", running: false }]);
+    onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout cacheProjectOverviewPages />, children: [
+      { path: "workspace", element: <p>legacy workspace</p> }, { path: "workspace/records/:noteId", element: <p>legacy workspace record</p> },
+    ] }], { initialEntries: ["/workspace"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("tab", { name: "记录", exact: true }));
+    fireEvent.click(within(screen.getByRole("region", { name: "工作区记录列表" })).getByRole("button", { name: "Workspace shared record" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace/records/70"));
+    expect(await screen.findByRole("tab", { name: "Workspace shared record" })).toBeVisible();
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    await act(async () => { await openProjectContent({ workspaceRoot: "/tmp/workspace", projectId: null, object: { kind: "session", id: "workspace-session", title: "Workspace shared session" } }); });
+    expect(await screen.findByRole("tab", { name: "Workspace shared session" })).toBeVisible();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    fireEvent.click(within(screen.getByRole("region", { name: "工作区记录列表" })).getByRole("button", { name: "Workspace shared record" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Workspace shared record" })).toHaveAttribute("aria-selected", "true"));
+    expect(router.state.location.pathname).toBe("/workspace/records/70");
+    fireEvent.click(screen.getByRole("tab", { name: "Workspace shared session" }));
+    expect(screen.getAllByRole("button", { name: "工作区首页" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "分栏" }));
+    expect(screen.getByRole("region", { name: "工作区内容" })).toHaveAttribute("data-split", "true");
+    expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: null }).tabs).toHaveLength(2);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
   });
 
   it.each(["/workspace", "/workspace/records/999", "/projects/1", "/projects/1/records/999", "/projects/1?content=file-51"])("exposes the same floating and pinned right sidebar at %s", async (route) => {
@@ -694,7 +739,7 @@ describe("WorkspaceLayout", () => {
 
     expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
     expect(await screen.findByText("切换 Workspace 失败")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toBeInTheDocument();
   });
 
   it.each([["window", false], ["window", true], ["switch", false], ["switch", true]] as const)("handles deleted orphan Record drafts on %s with confirmation=%s", async (action, accepted) => {
@@ -994,7 +1039,7 @@ describe("WorkspaceLayout", () => {
 
     await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toBeInTheDocument();
   });
 
   it("uses /workspace as the canonical Workspace route", async () => {
@@ -1608,7 +1653,7 @@ describe("WorkspaceLayout", () => {
     window.removeEventListener(PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT, handleSaveRequest);
   });
 
-  it("keeps Project content Records resident independently of the Workspace Record LRU through production routes", async () => {
+  it("keeps Project and Workspace content Records independently resident through production routes", async () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
     const timestamp = "2026-08-23T00:00:00.000Z";
     const project = (id: number, name: string) => ({
@@ -1802,7 +1847,7 @@ describe("WorkspaceLayout", () => {
     await act(() => router.navigate("/projects/1/records/8"));
     await waitFor(() => expect(document.querySelector('[data-focus-page-key="1:8"]')).not.toBeNull());
     expect(document.querySelectorAll('[data-project-resident-id] [data-content-object^="record:"]')).toHaveLength(3);
-    expect(document.querySelectorAll("[data-record-focus-resident-key]")).toHaveLength(1);
+    expect(document.querySelectorAll('[data-workspace-resident-shell] [data-content-object^="record:"]')).toHaveLength(1);
     expect(alphaA).toBeInTheDocument();
     expect(alphaA).not.toBeVisible();
     expect(screen.getByRole("tab", { name: "Alpha B" })).toHaveAttribute("aria-selected", "true");
@@ -1988,33 +2033,44 @@ describe("WorkspaceLayout", () => {
     expect(activeLauncher.getByRole("button", { name: "助手" })).toBeEnabled();
   });
 
-  it("gives the expanded Workspace chat the content area and restores it after route changes and close/reopen", async () => {
+  it("opens Workspace conversations through the shared directory and preserves their content Tabs across Project switches", async () => {
     const start = vi.spyOn(dshAssistantApi, "start").mockResolvedValue(undefined);
-    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockImplementation(async projectId => [{ id: "workspace-history", title: "工作区历史", running: projectId === null }]);
+    const sessions = vi.spyOn(dshAssistantApi, "sessions").mockResolvedValue([{ id: "workspace-history", title: "工作区历史", running: false }]);
     const select = vi.spyOn(dshAssistantApi, "selectSession").mockResolvedValue("workspace-history");
-    useAgentPanelStore.getState().clearWorkspace();
     onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); select.mockRestore(); useAgentPanelStore.getState().clearWorkspace(); });
     const { router } = await renderResidentProjectFixture();
     await act(() => router.navigate("/workspace"));
     act(() => useAgentPanelStore.getState().openPanel("/tmp/workspace", { kind: "workspace" }));
-    await screen.findByTestId("dsh-conversation-host");
-    expect(document.querySelector(".workspace-content-shell")).toHaveClass("workspace-content-shell--expanded");
-    expect(document.querySelector(".workspace-content-main")).toHaveAttribute("inert");
-    expect(select).toHaveBeenCalledWith("workspace-history", null);
-    act(() => useAgentPanelStore.getState().setRunBusy("/tmp/workspace", null, true));
-    await act(() => router.navigate("/projects/2?view=overview"));
-    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
-    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
-    await act(() => router.navigate("/workspace"));
-    await screen.findByTestId("dsh-conversation-host");
-    expect(document.querySelector(".workspace-content-shell")).toHaveClass("workspace-content-shell--expanded");
-    await userEvent.click(screen.getByRole("button", { name: "关闭助手" }));
+    const heading = await screen.findByRole("heading", { name: "DSH 助手" });
+    const directory = within(heading.closest(".agent-workspace-panel")! as HTMLElement);
+    await userEvent.click(await directory.findByRole("button", { name: "工作区历史" }));
+    await waitFor(() => expect(useAgentPanelStore.getState().open).toBe(false));
+    expect(await screen.findByRole("tab", { name: "工作区历史" })).toBeVisible();
     expect(document.querySelector(".workspace-content-main")).not.toHaveAttribute("inert");
-    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+    const layout = getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: null });
+    expect(layout.tabs.filter(tab => tab.object.kind === "session")).toHaveLength(1);
     await act(() => router.navigate("/projects/2?view=overview"));
-    await userEvent.click(screen.getByRole("button", { name: "助手" }));
-    await waitFor(() => expect(useAgentPanelStore.getState().binding?.scope).toEqual({ kind: "project", projectId: 2 }));
-    expect(useAgentPanelStore.getState().runningBinding?.scope).toEqual({ kind: "workspace" });
+    expect(screen.queryByRole("tab", { name: "工作区历史" })).toBeNull();
+    await act(() => router.navigate("/workspace"));
+    expect(await screen.findByRole("tab", { name: "工作区历史" })).toBeVisible();
+    expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: null }).tabs).toEqual(layout.tabs);
+  });
+
+  it("opens a native Workspace File search result in the shared null-owner content Tab", async () => {
+    const object = { workspaceId: "fixture-workspace", scope: { kind: "workspace" as const }, kind: "file" as const, id: "51" };
+    const hash = `sha256:${"a".repeat(64)}`;
+    vi.mocked(projectMindApi.workspaceSearch).mockResolvedValue([{ kind: "document", id: 51, projectId: null, title: "Workspace search File.txt", subtitle: "Workspace", matchedText: "shared" }]);
+    vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: 1, currentContentHash: hash, versions: [{ id: "v1", versionNumber: 1, name: "Workspace search File.txt", contentHash: hash, createdAt: "2026-10-25", isCurrent: true }], nextCursor: null });
+    vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath: "Workspace search File.txt", name: "Workspace search File.txt", versionNumber: 1, contentHash: hash, state: "ready", reason: null });
+    vi.mocked(projectFileApi.readBytes).mockResolvedValue({ object, versionNumber: 1, contentHash: hash, name: "Workspace search File.txt", mime: "text/plain", byteLength: 6, base64: btoa("shared") });
+    vi.mocked(fileDocumentApi.sourceRead).mockResolvedValue({ object, versionNumber: 1, contentHash: hash, title: "Workspace search File.txt", byteLength: 6, format: "text", text: "shared", startChar: 0, endChar: 6, totalChars: 6, nextCursor: null, complete: true });
+    const { router } = await renderResidentProjectFixture();
+    await userEvent.setup().type(await screen.findByLabelText("全局搜索"), "shared");
+    fireEvent.click(await screen.findByText("Workspace search File.txt"));
+    await waitFor(() => expect(getContentLayout(useProjectContentStore.getState(), { workspaceId: "fixture-workspace", projectId: null }).tabs).toEqual([expect.objectContaining({ object: { kind: "file", id: 51, title: "Workspace search File.txt" } })]));
+    expect(await screen.findByRole("tab", { name: /Workspace search File.txt/ })).toBeVisible();
+    expect(router.state.location.pathname).toBe("/workspace");
+    expect(desktopApi.openFile).not.toHaveBeenCalled();
   });
 
   it("keeps five Project overviews resident while preserving all opened content shells", async () => {
@@ -2166,7 +2222,7 @@ describe("WorkspaceLayout", () => {
     render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
     await screen.findByText("记录未找到");
     fireEvent.click(destination === "/workspace"
-      ? screen.getByRole("button", { name: /工作区首页$/ })
+      ? screen.getByRole("tab", { name: "我的工作区" })
       : screen.getByRole("tab", { name: "Beta" }));
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
     expect(router.state.location.pathname).toBe(destination);

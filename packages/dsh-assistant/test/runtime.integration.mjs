@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork, execFile } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { mkdtemp, mkdir, realpath, writeFile, readFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
+import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference';
 import { startLocalProvider } from './fixtures/local-provider.mjs';
 
 // Run explicitly: node --test packages/dsh-assistant/test/runtime.integration.mjs
@@ -187,7 +188,7 @@ function providerToolReply(bodies, callId) {
   return typeof message.content === 'string' ? message.content : message.content.filter(block => block.type === 'text').map(block => block.text).join('');
 }
 
-test('Office rc.2 transport: real provider discovers tools and actual Session forwards fixed File edits', { timeout: 60000 }, async t => {
+for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office rc.2 transport: real provider discovers tools and actual Session forwards fixed File edits (${owner})`, { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-office-transport-'));
   const directory = await realpath(temp);
   const bodies = [], operations = [];
@@ -201,13 +202,14 @@ test('Office rc.2 transport: real provider discovers tools and actual Session fo
   const data = path.join(temp, 'data');
   const shared = { name: 'Office local fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
   const project = { id: 118, name: 'Office transport', directory };
+  const workspace = owner.startsWith('workspace') ? { id: randomBytes(16).toString('hex'), name: 'Workspace Office', directory } : undefined;
   const handleSource = payload => {
     operations.push(payload);
     if (payload.operation === 'officeInspect') return fixture.inspected;
     if (payload.operation === 'officeEdit') return fixture.saved;
     throw new Error(`Unexpected native transport operation: ${payload.operation}`);
   };
-  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  runtime = await launch(data, undefined, shared, workspace ? undefined : project, undefined, handleSource, workspace);
   const { sessionId } = await runtime.rpc('session/create', {});
   await runtime.rpc('session/rename', { sessionId, title: 'Office transport fixture' });
   stream = await follow(runtime, sessionId);
@@ -226,6 +228,11 @@ test('Office rc.2 transport: real provider discovers tools and actual Session fo
 
   for (const format of ['docx', 'xlsx', 'pptx']) await t.test(format, async () => {
     fixture = officeFixture(format);
+    if (owner === 'workspace') {
+      fixture.sourceRef.object.scope = { kind: 'workspace' };
+      fixture.saved.sourceRef.object.scope = { kind: 'workspace' };
+      fixture.sourceRef.title = `files/${fixture.sourceRef.title}`;
+    }
     const inspectId = `office-inspect-${format}`;
     provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: inspectId, type: 'function', function: {
       name: 'file_office_inspect', arguments: JSON.stringify({ file_path: fixture.sourceRef.title }),
@@ -260,7 +267,7 @@ test('Office rc.2 transport: real provider discovers tools and actual Session fo
   const beforeRestart = events(stream).filter(event => event.type === 'tool/call' || event.type === 'tool/result');
   await stream.close(); stream = undefined;
   await runtime.stop();
-  runtime = await launch(data, undefined, shared, project, undefined, handleSource);
+  runtime = await launch(data, undefined, shared, workspace ? undefined : project, undefined, handleSource, workspace);
   stream = await follow(runtime, sessionId);
   assert.deepEqual(events(stream).filter(event => event.type === 'tool/call' || event.type === 'tool/result'), beforeRestart);
   await prompt(runtime, stream, sessionId, 'Continue after restart without another edit');
@@ -437,14 +444,15 @@ test('fixed source auto titles reach the catalog and header without changing sto
   assert.equal(events(stream).find(event => event.type === 'session/title' && event.data.source.kind === 'fallback').data.title, '@ordinary/path unchanged');
 });
 
-test('source stdio delivers fixed composer and actual read projections to a local model with real message identities', { timeout: 60000 }, async t => {
+for (const owner of ['project', 'workspace']) test(`source stdio delivers fixed composer and actual read projections to a local model with real message identities (${owner})`, { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-source-integration-'));
   const bodies = [];
   const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
   let runtime, stream;
   t.after(async () => { await stream?.close(); await runtime?.stop(); await provider.close(); await rm(temp, { recursive: true, force: true }); });
   const directory = await realpath(temp);
-  const sourceRef = { object: { workspaceId: 'synthetic', scope: { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'old.md', excerpt: '' };
+  const workspace = owner === 'workspace' ? { id: randomBytes(16).toString('hex'), name: 'Workspace Source', directory } : undefined;
+  const sourceRef = { object: { workspaceId: 'synthetic', scope: workspace ? { kind: 'workspace' } : { kind: 'project', projectId: 7 }, kind: 'file', id: '9' }, revision: 'sha256:' + 'a'.repeat(64), fileVersion: 1, recordVersion: null, blockId: null, locator: null, title: 'old.md', excerpt: '' };
   const operations = [];
   const sourceHandler = payload => {
     operations.push(payload);
@@ -457,7 +465,7 @@ test('source stdio delivers fixed composer and actual read projections to a loca
     const token = `mind-source/${Buffer.from(JSON.stringify(metadata.sourceRef)).toString('base64url')}/old.md`;
     return { sourceRef: metadata.sourceRef, projection: `@${token}\n<mind-file-source>${JSON.stringify(metadata).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e')}</mind-file-source>`, readValue: {path:token, offset:1, lines:[{number:1,text:metadata.content.slice(3)}], totalLines:1, truncated:false} };
   };
-  runtime = await launch(path.join(temp, 'data'), undefined, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, { id: 7, name: 'Source', directory }, undefined, sourceHandler);
+  runtime = await launch(path.join(temp, 'data'), undefined, { name: 'local', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false }, workspace ? undefined : { id: 7, name: 'Source', directory }, undefined, sourceHandler, workspace);
   const { sessionId } = await runtime.rpc('session/create', {});
   stream = await follow(runtime, sessionId);
   const prepared = await runtime.rpc('mind/source/prepare', { sessionId, path: 'renamed.md', sourceRef });
@@ -1077,13 +1085,25 @@ test('Workspace runtime: real chat, stop, restore and isolation from Project his
     await Promise.all([runtime?.stop(), projectRuntime?.stop()]);
     await provider.close(); await rm(temp, { recursive: true, force: true });
   });
-  const startWorkspace = () => launch(path.join(data, 'workspace'), undefined, shared, undefined, profile, undefined, workspace);
+  const sourceOperations = [];
+  const workspaceSource = async payload => {
+    sourceOperations.push(payload);
+    if (payload.operation === 'delivery') return null;
+    assert.equal(payload.operation, 'prepare');
+    assert.equal(payload.path, 'files/workspace-note.txt');
+    const text = await readFile(path.join(directory, payload.path), 'utf8');
+    const sourceRef = { object: { workspaceId: workspace.id, scope: { kind: 'workspace' }, kind: 'file', id: 'workspace-file' }, revision: 'sha256:' + createHash('sha256').update(text).digest('hex'), fileVersion: 1, recordVersion: null, blockId: null, locator: { kind: 'line', start: 1, end: 1 }, title: 'workspace-note.txt', excerpt: '' };
+    const metadata = { id: randomUUID(), sourceRef, offset: 1, limit: 1, requestedLimit: payload.limit, truncated: false, content: '1: ' + text };
+    const token = `mind-source/${Buffer.from(JSON.stringify(sourceRef)).toString('base64url')}/workspace-note.txt`;
+    return { sourceRef, projection: `@${token}\n<mind-file-source>${JSON.stringify(metadata)}</mind-file-source>`, readValue: { path: token, offset: 1, lines: [{ number: 1, text }], totalLines: 1, truncated: false } };
+  };
+  const startWorkspace = () => launch(path.join(data, 'workspace'), undefined, shared, undefined, profile, workspaceSource, workspace);
   runtime = await startWorkspace();
   const sourceResponse = await fetch(`${runtime.origin}/api/mind/source/resolve`, {
     method: 'POST', headers: { ...runtime.headers, 'content-type': 'application/json' }, body: '{}',
   });
-  assert.equal(sourceResponse.status, 404, 'Workspace never installs the Project source route');
-  await sourceResponse.arrayBuffer();
+  assert.equal(sourceResponse.status, 200, 'shared source route also serves authorized Workspace Sessions');
+  assert.equal((await sourceResponse.json()).result.ok, false, 'a source request without an actual Session is rejected');
   const mapped = (await runtime.rpc('workspace/initializeDefault')).workspace;
   assert.equal(mapped.path, directory);
   assert.equal(mapped.title, workspace.name);
@@ -1104,15 +1124,17 @@ test('Workspace runtime: real chat, stop, restore and isolation from Project his
   assert.deepEqual((await runtime.rpc('session/selectModel', { sessionId, provider: 'mind-main', model: shared.modelId })).selected, { provider: 'mind-main', model: shared.modelId });
   const toolNames = bodies[0].tools.map(tool => tool.function.name);
   assert.ok(toolNames.length > 0, 'ordinary DSH tools remain available');
-  assert.ok(!toolNames.some(name => name.startsWith('file_office_')), 'Workspace never installs Project Office tools');
-  await writeFile(path.join(directory, 'workspace-note.txt'), 'Workspace ordinary file bytes');
+  assert.ok(toolNames.includes('file_office_inspect'), 'Workspace Sessions retain the authorized native File tools');
+  await mkdir(path.join(directory, 'files'));
+  await writeFile(path.join(directory, 'files/workspace-note.txt'), 'Workspace ordinary file bytes');
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'workspace-read-call', type: 'function', function: {
-    name: 'read', arguments: JSON.stringify({ file_path: 'workspace-note.txt', offset: 1, limit: 1 }),
+    name: 'read', arguments: JSON.stringify({ file_path: 'files/workspace-note.txt', offset: 1, limit: 1 }),
   } }] });
   await prompt(runtime, stream, sessionId, 'Read the ordinary Workspace file');
   assert.match(providerToolReply(bodies, 'workspace-read-call'), /Workspace ordinary file bytes/);
   const readResult = events(stream).find(event => event.type === 'tool/result' && event.data.message.source.callId === 'workspace-read-call');
-  assert.equal(readResult?.data.message.isError, false, 'ordinary read executes without the Project source bridge');
+  assert.equal(readResult?.data.message.isError, false, 'Workspace read uses its authorized native source bridge');
+  assert.ok(sourceOperations.some(operation => operation.operation === 'prepare' && operation.sessionId === sessionId));
   const uploadResponse = await fetch(`${runtime.origin}/api/session/uploadFileBinary?sessionId=${encodeURIComponent(sessionId)}&name=workspace-attachment.txt`, {
     method: 'POST', headers: { ...runtime.headers, 'content-type': 'application/octet-stream' }, body: 'Workspace attachment bytes',
   });
@@ -1295,7 +1317,7 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
       assert.equal(payload.mode, 'read-only');
       const leaseId = `lease-${operations.length}`;
       leases.add(leaseId); await writeFile(marker, 'active');
-      return { leaseId, token };
+      return { leaseId, token, cli };
     }
     assert.equal(payload.operation, 'cliLeaseClose');
     assert.ok(leases.delete(payload.leaseId)); await rm(marker);
@@ -1339,4 +1361,304 @@ test('native session inventory reads real durable chat metadata and history with
   const denied=await read({scope:{kind:'project',projectId:2}});assert.equal(denied.error.code,'SCOPE_DENIED');
   await runtime.stop();runtime=await launch(path.join(temporary,'history'),undefined,shared,project);
   const cold=await read({titleQuery:'needle'});assert.equal(cold.page.totalCount,1);assert.equal(cold.page.items[0].id,first.sessionId);
+});
+
+test('Workspace schedules deliver through real Session AI and do not repeat after normal restart', { timeout: 90000 }, async t => {
+ const temp=await mkdtemp(path.join(tmpdir(),'mind-schedules-'));
+ const bodies=[];
+ const provider=await startLocalProvider({onSyntheticRequest:body=>bodies.push(body)});
+ let runtime,stream;
+ t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await rm(temp,{recursive:true,force:true});});
+ const directory=await realpath(temp),data=path.join(temp,'data');
+ const shared={name:'local',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false};
+ const workspace={id:randomBytes(16).toString('hex'),name:'Schedule Workspace',directory};
+ runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ const {sessionId}=await runtime.rpc('session/create',{});
+ stream=await follow(runtime,sessionId);
+ const requestId='schedule:create:'+randomUUID();
+ const task=await runtime.rpc('mind/schedules',{operation:'create',requestId,task:{title:'Scheduled proof',prompt:'scheduled-fixture-proof',sessionId,enabled:true,rule:{kind:'hours',interval:24,startDate:'2026-01-01',time:'00:00'}}});
+ assert.ok(Date.parse(task.nextRunAt)>Date.now(),'creating a past anchor schedules the next future occurrence');
+ assert.equal(events(stream).filter(event=>event.type==='user/message').length,0,'creation must not deliver a historical occurrence');
+ assert.equal(bodies.length,0);
+ await stream.close();stream=undefined;await runtime.stop();
+ // Model an actual missed persisted deadline while the runtime was offline.
+ const stored=JSON.parse(await readFile(path.join(data,'scheduled-tasks.json'),'utf8'));
+ stored.tasks[0].nextRunAt='2026-01-02T00:00:00.000Z';
+ await writeFile(path.join(data,'scheduled-tasks.json'),JSON.stringify(stored));
+ runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ stream=await follow(runtime,sessionId);
+ await stream.read(frame=>frame.type==='event'&&frame.event.type==='assistant/message'||frame.type==='snapshot'&&frame.records.some(record=>record.event.type==='assistant/message'),'scheduled AI response');
+ assert.ok(bodies.some(body=>JSON.stringify(body.messages).includes('scheduled-fixture-proof')));
+ assert.ok(bodies.every(body=>!(body.tools??[]).some(tool=>/^schedule_/.test(tool.function?.name??''))),'embedded profile has no second schedule tool system');
+ const listed=await waitFor(async()=>{const rows=await runtime.rpc('mind/schedules',{operation:'list'});return rows.find(row=>row.id===task.id&&row.lastRunAt);},'durable schedule receipt');
+ assert.equal(listed.lastError,null);
+ assert.equal((await runtime.rpc('mind/schedules',{operation:'create',requestId,task:{title:task.title,prompt:task.prompt,sessionId,enabled:true,rule:task.rule}})).id,task.id);
+ assert.equal((await runtime.rpc('mind/schedules',{operation:'list'})).length,1);
+ const before=events(stream).filter(event=>event.type==='user/message').length;
+ await stream.close();stream=undefined;await runtime.stop();
+ runtime=await launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ stream=await follow(runtime,sessionId);
+ assert.equal(events(stream).filter(event=>event.type==='user/message').length,before);
+ assert.equal((await runtime.rpc('mind/schedules',{operation:'list'}))[0].lastRunAt,listed.lastRunAt);
+ const paused=await runtime.rpc('mind/schedules',{operation:'update',id:task.id,task:{title:task.title,prompt:task.prompt,sessionId,enabled:false,rule:task.rule}});
+ assert.equal(paused.nextRunAt,null);
+ const resumed=await runtime.rpc('mind/schedules',{operation:'update',id:task.id,task:{title:task.title,prompt:task.prompt,sessionId,enabled:true,rule:task.rule}});
+ assert.ok(Date.parse(resumed.nextRunAt)>Date.now());
+ for(const deniedSession of ['../../outside',randomUUID()]) {
+ const rejected=await fetch(`${runtime.origin}/api/mind/schedules`,{method:'POST',headers:{...runtime.headers,'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'mind/schedules',payload:{args:{request:{operation:'create',task:{title:task.title,prompt:task.prompt,rule:task.rule,enabled:true,sessionId:deniedSession}}}}})});
+ assert.equal((await rejected.json()).result.ok,false,'unowned and path-like Session identifiers must be refused');
+ }
+ const deletionId=randomUUID();
+ await runtime.rpc('mind/schedules',{operation:'delete',id:task.id,requestId:deletionId});
+ await runtime.rpc('mind/schedules',{operation:'delete',id:task.id,requestId:deletionId});
+ assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),[]);
+});
+
+test('manual scheduled runs deliver to the original Session, preserve pauses and survive replay after restart', { timeout: 90000 }, async t => {
+ const temp=await mkdtemp(path.join(tmpdir(),'mind-manual-schedule-'));
+ const bodies=[],provider=await startLocalProvider({onSyntheticRequest:body=>bodies.push(body)});
+ let runtime,stream;
+ t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await rm(temp,{recursive:true,force:true});});
+ const directory=await realpath(temp),data=path.join(temp,'data');
+ const shared={name:'local',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false};
+ const workspace={id:randomBytes(16).toString('hex'),name:'Manual run fixture',directory};
+ const start=()=>launch(data,undefined,shared,undefined,undefined,undefined,workspace);
+ runtime=await start();
+ const {sessionId}=await runtime.rpc('session/create',{});
+ const task=await runtime.rpc('mind/schedules',{operation:'create',task:{title:'Manual proof',prompt:'manual-schedule-fixture-proof',sessionId,enabled:false,rule:{kind:'days',interval:1,startDate:'2026-01-01',time:'09:00'}}});
+ stream=await follow(runtime,sessionId);
+ const messageCount=()=>new Set(events(stream).filter(event=>event.type==='user/message'&&event.data.source?.kind==='schedule').map(event=>event.data.id)).size;
+ const request={operation:'run',id:task.id,requestId:'manual-run-fixture'};
+ const result=await runtime.rpc('mind/schedules',request);
+ assert.equal(result.enabled,false);assert.equal(result.nextRunAt,null);assert.deepEqual(result.rule,task.rule);
+ assert.ok(result.lastRunAt);assert.equal(result.lastError,null);
+ await stream.read(frame=>frame.type==='event'&&frame.event.type==='assistant/message'||frame.type==='snapshot'&&frame.records.some(record=>record.event.type==='assistant/message'),'manual AI response');
+ assert.ok(bodies.some(body=>JSON.stringify(body.messages).includes('manual-schedule-fixture-proof')));
+ assert.equal(messageCount(),1);
+ await runtime.rpc('mind/schedules',request);
+ assert.equal(messageCount(),1);
+ await stream.close();stream=undefined;await runtime.stop();
+ runtime=await start();stream=await follow(runtime,sessionId);
+ assert.deepEqual(await runtime.rpc('mind/schedules',request),result);
+ assert.equal(messageCount(),1);
+ // Model a crash after Session persistence but before the schedule receipt save.
+ await stream.close();stream=undefined;await runtime.stop();
+ const file=path.join(data,'scheduled-tasks.json'),saved=JSON.parse(await readFile(file,'utf8'));
+ delete saved.requests[request.requestId];await writeFile(file,JSON.stringify(saved));
+ runtime=await start();stream=await follow(runtime,sessionId);
+ await runtime.rpc('mind/schedules',request);
+ assert.equal(messageCount(),1,'uncertain delivery replay cannot send a second message');
+ const resumed=await runtime.rpc('mind/schedules',{operation:'update',id:task.id,task:{title:task.title,prompt:task.prompt,sessionId,enabled:true,rule:task.rule}});
+ const again=await runtime.rpc('mind/schedules',{...request,requestId:'another-manual-run'});
+ assert.equal(again.nextRunAt,resumed.nextRunAt);assert.equal(again.enabled,true);
+ await waitFor(async()=>!(await runtime.rpc('session/list',{},'_request')).items.find(row=>row.sessionId===sessionId)?.running,'manual run settles');
+ await runtime.rpc('mind/session/delete',{sessionId});
+ await assert.rejects(runtime.rpc('mind/schedules',{...request,requestId:'removed-session-run'}));
+});
+
+test('natural language creates a durable schedule through model bash and the real Mind CLI', { timeout: 90000 }, async t => {
+  const executable=path.resolve(root,'../../src-tauri/target/debug',process.platform==='win32'?'mind.exe':'mind');
+  try { await readFile(executable); } catch(error) {
+    if(process.platform==='win32') { t.skip('real built Mind CLI unavailable on this Windows fixture');return; }
+    throw new Error(`Build the real Mind CLI before this integration: ${error.message}`);
+  }
+  const temp=await realpath(await mkdtemp(path.join(tmpdir(),'mind-real-cli-schedule-')));
+  const workspace={id:randomUUID(),name:'Natural language schedules',directory:path.join(temp,'workspace')};
+  await mkdir(workspace.directory);
+  const binding={workspaceId:workspace.id,generation:randomUUID()},connection='b'.repeat(32);
+  const token='synthetic-real-cli-schedule-lease',calls=[],leases=new Set(),bodies=[];
+  let runtime,stream,currentSession;
+  // Only native HTTP transport is a fixture here. The executable, model tool
+  // execution, authenticated DSH scheduling, Session, and task persistence are real.
+  // Native lease/grant authorization is covered separately by Rust bridge tests.
+  const bridge=createServer(async(request,response)=>{
+    let input;
+    try {
+      const chunks=[];for await(const chunk of request)chunks.push(chunk);
+      input=JSON.parse(Buffer.concat(chunks));
+      assert.equal(request.headers.authorization,`Bearer ${token}`);
+      assert.equal(leases.size,1,'the real CLI must execute inside an active shell lease');
+      assert.equal(input.instanceId,'native-transport-fixture');
+      assert.equal(input.grantId,connection);
+      let data;
+      if(request.url==='/v1/connect') {
+        assert.equal(input.workspacePath,workspace.directory);data=binding;
+      } else {
+        assert.equal(request.url,'/v1/call');assert.deepEqual(input.binding,binding);calls.push(input);
+        if(input.method==='schedule.create') {
+          assert.equal(input.params.input.sessionId,currentSession,'model shell supplies the actual current Session');
+          data=await runtime.rpc('mind/schedules',{operation:'create',requestId:input.params.requestId,task:input.params.input});
+        } else {
+          assert.equal(input.method,'schedule.list');data=await runtime.rpc('mind/schedules',{operation:'list'});
+        }
+      }
+      response.writeHead(200,{'content-type':'application/json'});
+      response.end(JSON.stringify({apiVersion:1,requestId:input.requestId,ok:true,data}));
+    } catch(error) {
+      response.writeHead(500,{'content-type':'application/json'});
+      response.end(JSON.stringify({apiVersion:1,requestId:input?.requestId??'',ok:false,error:{code:'INVALID_ARGUMENT',message:error.message,retryable:false}}));
+    }
+  });
+  await new Promise(resolve=>bridge.listen(0,'127.0.0.1',resolve));
+  const provider=await startLocalProvider({onSyntheticRequest:body=>bodies.push(body)});
+  t.after(async()=>{await stream?.close();await runtime?.stop();await provider.close();await new Promise(resolve=>bridge.close(resolve));await rm(temp,{recursive:true,force:true});});
+  const discovery=path.join(temp,'native-transport-fixture.json');
+  await writeFile(discovery,JSON.stringify({instanceId:'native-transport-fixture',endpointVersion:1,port:bridge.address().port}));
+  const cli={executable,workspace:workspace.directory,connection,discovery,projectId:null};
+  const patch=path.join(temp,'write.patch.yml');await writeFile(patch,'- id: sandbox-policy\n  config:\n    mode: workspace-write\n');
+  runtime=await launch(path.join(temp,'data'),patch,{name:'Local CLI model',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false},undefined,undefined,async payload=>{
+    assert.equal(payload.sessionId,currentSession);
+    if(payload.operation==='cliLeaseOpen') {assert.equal(payload.mode,'workspace-write');leases.add('real-cli-lease');return {leaseId:'real-cli-lease',token,cli};}
+    assert.equal(payload.operation,'cliLeaseClose');assert.ok(leases.delete(payload.leaseId));return null;
+  },workspace,cli);
+  ({sessionId:currentSession}=await runtime.rpc('session/create',{}));
+  stream=await follow(runtime,currentSession);
+  const requestId='natural-language:'+randomUUID();
+  const task={title:'每周工作总结',prompt:'总结工作区当前项目进展并提出下一步行动',sessionId:'CURRENT_SESSION',enabled:true,rule:{kind:'weekdays',startDate:'2026-10-24',time:'09:00'}};
+  const input=JSON.stringify({requestId,input:task});
+  const [prefix,suffix]=input.split('CURRENT_SESSION');
+  const quote=value=>`'${value.replaceAll("'","'\\''")}'`;
+  const inputFile=path.join(workspace.directory,'schedule-input.json');
+  const flags=`--workspace ${quote(cli.workspace)} --connection ${connection} --json`;
+  const command=`set -e\nprintf '%s' ${quote(prefix)} "$PROJECT_MIND_SESSION_ID" ${quote(suffix)} > ${quote(inputFile)}\nmind schedule create --input-file ${quote(inputFile)} ${flags}\nmind schedule create --input-file ${quote(inputFile)} ${flags}\nmind schedule list ${flags}`;
+  provider.enqueueResponse({chunks:[''],toolCalls:[{index:0,id:'real-schedule-cli',type:'function',function:{name:'bash',arguments:JSON.stringify({description:'Create requested recurring Workspace task',command})}}]});
+  await prompt(runtime,stream,currentSession,'请创建一个每个工作日早上9点总结工作区项目进展的定时任务，保存到当前会话。');
+  const reply=providerToolReply(bodies,'real-schedule-cli');
+  assert.match(reply,/每周工作总结/);
+  assert.deepEqual(calls.map(call=>call.method),['schedule.create','schedule.create','schedule.list']);
+  const tasks=await runtime.rpc('mind/schedules',{operation:'list'});
+  assert.equal(tasks.length,1,'reusing the real CLI requestId must not duplicate the saved task');
+  assert.equal(tasks[0].sessionId,currentSession);
+  assert.equal(tasks[0].prompt,task.prompt);
+  assert.equal(leases.size,0);
+  await stream.close();stream=undefined;await runtime.stop();
+  runtime=await launch(path.join(temp,'data'),patch,{name:'Local CLI model',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false},undefined,undefined,undefined,workspace);
+  assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),tasks,'task survives a real runtime restart');
+});
+
+test('one shared assistant process isolates workspace and two project Sessions across concurrency and restart', {timeout:90000},async t=>{
+ const scopedFeeds=[];
+ const temporary=await realpath(await mkdtemp(path.join(tmpdir(),'mind-runtime-shared-')));
+ const providerBodies=[];
+ const provider=await startLocalProvider({onSyntheticRequest:body=>providerBodies.push(body)});const streams=[];let runtime;
+ const searchQuery='shared-scope-query-'+randomUUID();
+ t.after(async()=>{try{for(const feed of scopedFeeds)await feed.close();for(const stream of streams)await stream.close();await runtime?.stop();}finally{await provider.close();await rm(temporary,{recursive:true,force:true});}});
+ const workspace={kind:'workspace',id:randomUUID(),name:'Shared workspace',directory:path.join(temporary,'workspace')};
+ const projects=[{kind:'project',id:251,name:'Shared project A',directory:path.join(workspace.directory,'a')},{kind:'project',id:252,name:'Shared project B',directory:path.join(workspace.directory,'b')}];
+ for(const context of [workspace,...projects])await mkdir(context.directory,{recursive:true});
+ const data=path.join(temporary,'shared-data');
+ const shared={name:'Shared model',baseUrl:provider.url,modelId:'local-test-model',apiKey:'local-integration-key',supportsImage:false};
+ const sourceRequests=[];
+ const sourceHandler=async payload=>{sourceRequests.push(payload);return {scopeSession:payload.sessionId};};
+ const start=()=>launch(data,undefined,shared,undefined,undefined,sourceHandler,workspace);
+ runtime=await start();const pid=runtime.child.pid;
+ const mapped=[];
+ for(const context of [workspace,...projects])mapped.push((await runtime.rpc('mind/context',{context})).workspaceId);
+ assert.equal(new Set(mapped).size,3);
+ const sessions=[];
+ for(const context of [workspace,...projects]){
+  const created=await runtime.rpc('mind/session/create',{context});sessions.push(created.sessionId);
+  await runtime.rpc('session/rename',{sessionId:created.sessionId,title:context.name+' history'});
+  const stream=await follow(runtime,created.sessionId);streams.push(stream);assert.equal(stream.snapshot.header.cwd,context.directory);
+  const source=await runtime.rpc('mind/source/resolve',{sessionId:created.sessionId,path:'files/scope.txt'});
+  assert.equal(source.scopeSession,created.sessionId);
+ }
+ assert.deepEqual(sourceRequests.map(value=>value.sessionId),sessions);
+ for(let i=0;i<sessions.length;i++){
+  const list=await runtime.rpc('mind/session/list',{context:[workspace,...projects][i]});
+  assert.deepEqual(list.items.map(row=>row.sessionId),[sessions[i]]);
+ }
+ const openScoped=async(endpoint,context)=>{
+  const socket=new WebSocket(`${runtime.origin.replace('http:','ws:')}/api/remote.mux`,{headers:runtime.headers});
+  const frames=[];let failure;
+  socket.on('error',error=>{failure=error;});
+  socket.on('message',data=>{const frame=JSON.parse(data.toString());if(frame.type==='error')failure=new Error(JSON.stringify(frame.error));else if(frame.type==='item')frames.push(frame.value);});
+  const read=(predicate,description)=>waitFor(()=>{if(failure)throw failure;return frames.find(predicate);},description);
+  const close=async()=>{if(socket.readyState===WebSocket.CLOSED)return;const ended=new Promise(resolve=>socket.once('close',resolve));socket.terminate();await ended;};
+  const feed={frames,read,close};scopedFeeds.push(feed);
+  await waitFor(()=>{if(failure)throw failure;return socket.readyState===WebSocket.OPEN;},'scoped mux opens');
+  socket.send(JSON.stringify({type:'open',streamId:'scoped-feed',endpoint,payload:{args:{},mindContext:context}}));
+  return feed;
+ };
+ const eventFeeds=[],workspaceFeeds=[];
+ for(let i=0;i<projects.length;i++){
+  const context=projects[i],mappedIndex=i+1;
+  const initialized=await runtime.rpc('mind/workspace/initializeDefault',{context});
+  assert.equal(initialized.workspace.workspaceId,mapped[mappedIndex]);
+  assert.deepEqual(initialized.workspace.sessionIds,[sessions[mappedIndex]]);
+  const workspaceFeed=await openScoped('workspace/follow',context);workspaceFeeds.push(workspaceFeed);
+  const baseline=(await workspaceFeed.read(frame=>frame.type==='baseline','scoped workspace baseline')).value;
+  assert.deepEqual(baseline.items.map(item=>item.workspaceId),[mapped[mappedIndex]]);
+  assert.deepEqual(baseline.items[0].sessionIds,[sessions[mappedIndex]]);
+  const eventFeed=await openScoped('$events',context);eventFeeds.push(eventFeed);
+  await eventFeed.read(frame=>frame.type==='ready','scoped events ready');
+ }
+ const probes=[];
+ for(let i=0;i<projects.length;i++){
+  const probe=await runtime.rpc('mind/session/create',{context:projects[i]});probes.push(probe.sessionId);
+  await eventFeeds[i].read(frame=>frame.event==='api-session/added'&&frame.args[0].sessionId===probe.sessionId,'own scoped Session added');
+  const update=await workspaceFeeds[i].read(frame=>frame!==workspaceFeeds[i].frames[0],'new blank Session Workspace attachment update');
+  assert.equal(update.type,'upsert','a connected Client Workspace stream requires deltas after its single opening baseline');
+  assert.equal(update.workspace.workspaceId,mapped[i+1]);
+  assert.ok(update.workspace.sessionIds.includes(probe.sessionId),'new blank Session must resolve its owning Workspace in the client catalog');
+  assert.equal(workspaceFeeds[i].frames.filter(frame=>frame.type==='baseline').length,1);
+ }
+ for(let i=0;i<probes.length;i++)await runtime.rpc('mind/session/delete',{context:projects[i],sessionId:probes[i]});
+ await assert.rejects(runtime.rpc('mind/session/create',{context:projects[0],sessionId:sessions[2]}),/another context/);
+ await assert.rejects(runtime.rpc('mind/session/create',{context:projects[0],cwd:projects[1].directory}),/another context/);
+ await assert.rejects(runtime.rpc('mind/session/delete',{context:projects[0],sessionId:sessions[2]}),/another context/);
+ const blocked=provider.enqueueResponse({manual:true,chunks:['A partial','A MUST NOT ARRIVE']});
+ const turnA=prompt(runtime,streams[1],sessions[1],`Shared A blocked ${searchQuery}`,'aborted');
+ await waitFor(()=>provider.requests.length===1,'project A provider admission');blocked.advance();
+ await streams[1].read(frame=>frame.type==='assistant-stream'&&frame.frame.type==='chunk'&&frame.frame.chunk.type==='text-delta'&&frame.frame.chunk.text==='A partial','project A partial');
+ const blockedB=provider.enqueueResponse({manual:true,chunks:['B continues','B completed']});
+ const turnB=prompt(runtime,streams[2],sessions[2],`Shared B concurrent ${searchQuery}`);
+ await waitFor(()=>provider.requests.length===2,'project B provider admission');blockedB.advance();
+ await streams[2].read(frame=>frame.type==='assistant-stream'&&frame.frame.type==='chunk'&&frame.frame.chunk.type==='text-delta'&&frame.frame.chunk.text==='B continues','project B partial');
+ assert.equal(runtime.child.pid,pid);
+ await runtime.rpc('session/cancel',{sessionId:sessions[1]});await turnA;
+ assert.equal(provider.requests[1].outcome,'streaming','stopping A must leave B running');
+ blockedB.advance();await turnB;
+ await prompt(runtime,streams[0],sessions[0],'Workspace independent turn');
+ assert.ok(!JSON.stringify(streams[2].frames).includes('A partial'));assert.ok(!JSON.stringify(streams[1].frames).includes('B completed'));
+ const attachmentBytes='Shared attachment belongs only to project A';
+ const upload=await fetch(`${runtime.origin}/api/session/uploadFileBinary?sessionId=${encodeURIComponent(sessions[1])}&name=shared-scope.txt`,{method:'POST',headers:{...runtime.headers,'content-type':'application/octet-stream'},body:attachmentBytes});
+ assert.equal(upload.status,200);const uploaded=await upload.json();assert.equal(uploaded.ok,true);
+ const attachmentFrom=streams[1].frames.length;
+ await runtime.rpc('session/prompt',{sessionId:sessions[1],requestId:randomUUID(),mode:'queue',content:[{type:'text',text:'Use this project A attachment'},{type:'file',receiptId:uploaded.value.receiptId}]});
+ await streams[1].read(frame=>streams[1].frames.indexOf(frame)>=attachmentFrom&&frame.type==='event'&&frame.event.type==='turn/end','shared attachment turn ends');
+ const attachmentHash=createHash('sha256').update(attachmentBytes).digest('hex');
+ const attachmentPath=path.join(data,'attachments/v1/files',attachmentHash.slice(0,2),attachmentHash,'shared-scope.txt');
+ assert.equal(await readFile(attachmentPath,'utf8'),attachmentBytes);
+ for(const context of [workspace,...projects])assert.equal((await runtime.rpc('mind/session/fileAccess',{context,path:attachmentPath})).allowed,context.id===projects[0].id);
+ const admittedBeforeReference=provider.requests.length;
+ const crossed=await prompt(runtime,streams[1],sessions[1],`Read the other project history @[other project](${encodeSessionReferenceUri(sessions[2])})`,'error');
+ assert.match(crossed.data.reason.error.message,/Referenced Session belongs to another context/);
+ assert.equal(provider.requests.length,admittedBeforeReference,'cross-scope canonical Session reference must fail before model admission');
+ assert.equal(providerBodies.length,admittedBeforeReference);
+ for(const body of [providerBodies[0],providerBodies[3]])assert.ok(!JSON.stringify(body).includes('Shared B concurrent'),'project B history must never reach a project A model request');
+ for(let i=0;i<projects.length;i++){
+  const result=await runtime.rpc('mind/session/search',{context:projects[i],query:searchQuery});
+  assert.deepEqual(result.items.map(item=>item.sessionId),[sessions[i+1]],'search must restrict identical query matches to its actual scope');
+  assert.equal(result.hasMore,false);
+ }
+ for(let i=0;i<eventFeeds.length;i++){
+  await eventFeeds[i].read(frame=>frame.event==='api-session/status'&&frame.args[0]===sessions[i+1],'own scoped Session status');
+  const own=new Set([sessions[i+1],probes[i]]);
+  const observed=eventFeeds[i].frames.filter(frame=>['api-session/added','api-session/status'].includes(frame.event));
+  assert.ok(observed.length>0);
+  for(const frame of observed){const id=frame.event==='api-session/added'?frame.args[0].sessionId:frame.args[0];assert.ok(own.has(id),`foreign Session leaked through ${frame.event}`);}
+ }
+ for(const feed of scopedFeeds)await feed.close();scopedFeeds.length=0;
+ const before=streams.map(events);
+ for(const stream of streams)await stream.close();streams.length=0;await runtime.stop();
+ runtime=await start();
+ for(let i=0;i<3;i++){
+  const context=[workspace,...projects][i];
+  const registered=await runtime.rpc('mind/context',{context});assert.equal(registered.workspaceId,mapped[i]);
+  const list=await runtime.rpc('mind/session/list',{context});assert.deepEqual(list.items.map(row=>row.sessionId),[sessions[i]]);
+  const stream=await follow(runtime,sessions[i]);streams.push(stream);assertRestoredHistory(stream,before[i]);
+ }
+ for(const context of [workspace,...projects])assert.equal((await runtime.rpc('mind/session/fileAccess',{context,path:attachmentPath})).allowed,context.id===projects[0].id);
+ assert.equal(provider.requests.length,4,'history restore must not send model requests');
 });

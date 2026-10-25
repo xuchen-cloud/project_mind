@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { access, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 
@@ -31,9 +32,14 @@ function bindingPrompt(cli) {
 }
 
 export function installMindCli(ctx, context, cli, bridge) {
-  if (cli === undefined) return;
+  const registry = typeof context.forSession === 'function' ? context : undefined;
+  if (!registry && cli === undefined) return;
   return ctx.inject(['shell', 'sessionController', 'systemPrompt'], scope => {
-    scope.systemPrompt.section({ name: 'mind:native-cli', order: scope.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'), text: bindingPrompt(cli), interpolate: false });
+    scope.systemPrompt.section({ name: 'mind:native-cli', order: scope.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'), text: registry ? assembly => {
+      if (!assembly.agent) return '';
+      const binding = registry.forAgent(assembly.agent).cli;
+      return binding ? bindingPrompt(binding) : '';
+    } : bindingPrompt(cli), interpolate: false });
     const shell = scope.shell;
     const original = shell.execute;
     const active = new Set();
@@ -43,10 +49,16 @@ export function installMindCli(ctx, context, cli, bridge) {
       const mode = spec.sandboxPolicy?.mode;
       if (typeof sessionId !== 'string' || !sessionId) throw new Error('Mind CLI shell requires an actual Session');
       if (!['read-only', 'workspace-write', 'danger-full-access'].includes(mode)) throw new Error('Mind CLI shell requires a resolved sandbox mode');
-      const catalog = await scope.sessionController.list({}, spec.signal);
-      if (!catalog.items.some(item => item.sessionId === sessionId && item.cwd === context.directory)) throw new Error('Mind CLI Session belongs to another context');
+      let sessionContext;
+      if (registry) sessionContext = await registry.forSession(sessionId, spec.signal);
+      else {
+        const catalog = await scope.sessionController.list({ cwd: context.directory }, spec.signal);
+        if (!catalog.items.some(item => item.sessionId === sessionId && item.cwd === context.directory)) throw new Error('Mind CLI Session belongs to another context');
+        sessionContext = context;
+      }
       spec.signal?.throwIfAborted();
       if (disposed) throw new Error('Mind CLI shell binding disposed');
+      if (registry && !sessionContext.cli) return original.call(this, spec);
       const entry = { handle: undefined, completion: undefined };
       active.add(entry);
       // Do not cancel this correlated request: if cancellation races a minted
@@ -60,13 +72,16 @@ export function installMindCli(ctx, context, cli, bridge) {
         };
         try {
           if (typeof lease.token !== 'string' || !lease.token) throw new Error('Invalid native Mind CLI lease');
+          const binding = registry ? lease.cli : cli;
+          if (registry && (!binding || !sessionContext.cli || !isDeepStrictEqual(binding, sessionContext.cli))) throw new Error('Native Mind CLI lease belongs to another context');
           spec.signal?.throwIfAborted();
           if (disposed) throw new Error('Mind CLI shell binding disposed');
           const handle = await original.call(this, { ...spec, env: {
             ...spec.env,
-            PATH: `${path.dirname(cli.executable)}${path.delimiter}${spec.env?.PATH ?? process.env.PATH ?? ''}`,
-            PROJECT_MIND_CLI_DISCOVERY: cli.discovery,
+            PATH: `${path.dirname(binding.executable)}${path.delimiter}${spec.env?.PATH ?? process.env.PATH ?? ''}`,
+            PROJECT_MIND_CLI_DISCOVERY: binding.discovery,
             PROJECT_MIND_CLI_TOKEN: lease.token,
+            PROJECT_MIND_SESSION_ID: sessionId,
           } });
           entry.handle = handle;
           if (disposed) handle.kill();

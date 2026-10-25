@@ -65,3 +65,27 @@ test('XLSX inspect and edit expose lossless JSON when veryHidden is absent',asyn
     {agent:{session:{id:'actual'}},signal:new AbortController().signal});
   assert.equal(result.model.sheets[0].veryHidden,true);
 });
+test('Workspace Office tools accept both native File scopes while Project tools keep their owner',async()=>{
+ const h=harness();await installOfficeService(h.ctx,{kind:'workspace',directory:'/project'},h.bridge);
+ const sourceRef=structuredClone(officeSourceRef);sourceRef.object.scope={kind:'workspace'};
+ const tool=h.tools.get('file_office_edit'),exec={agent:{session:{id:'actual'}},callId:'workspace-edit',signal:new AbortController().signal};
+ await tool.execute({source_ref:sourceRef,edits:[]},exec);
+ assert.deepEqual(h.requests[0].payload.sourceRef.object.scope,{kind:'workspace'});
+ await tool.execute({source_ref:officeSourceRef,edits:[]},exec);
+ assert.equal(h.requests.length,2);
+ const p=harness();await installOfficeService(p.ctx,{kind:'project',directory:'/project'},p.bridge);
+ await assert.rejects(p.tools.get('file_office_edit').execute({source_ref:sourceRef,edits:[]},exec),/source_ref/);
+ assert.equal(p.requests.length,0);
+});
+
+test('shared Office tools dispatch both registered scopes and reject unknown Sessions',async()=>{
+ const h=harness();const checked=[];
+ const registry={async forSession(id,signal){signal.throwIfAborted();checked.push(id);if(!['workspace-session','project-session'].includes(id))throw new Error('Unknown Session');return {kind:id.startsWith('workspace')?'workspace':'project'};}};
+ await installOfficeService(h.ctx,registry,h.bridge);
+ for(const id of ['workspace-session','project-session'])await h.tools.get('file_office_inspect').execute({file_path:'work.docx'},{agent:{session:{id}},signal:new AbortController().signal});
+ const sourceRef=structuredClone(officeSourceRef);sourceRef.object.scope={kind:'workspace'};
+ await h.tools.get('file_office_edit').execute({source_ref:sourceRef,edits:[]},{agent:{session:{id:'workspace-session'}},callId:'workspace-edit',signal:new AbortController().signal});
+ await assert.rejects(h.tools.get('file_office_inspect').execute({file_path:'work.docx'},{agent:{session:{id:'foreign'}},signal:new AbortController().signal}),/Unknown Session/);
+ assert.deepEqual(h.requests.map(({payload})=>payload.sessionId),['workspace-session','project-session','workspace-session']);
+ assert.equal(checked.length,4);
+});

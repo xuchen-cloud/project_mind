@@ -1,4 +1,5 @@
 import {
+  Clock,
   Contact,
   Cable,
   Pencil,
@@ -19,6 +20,8 @@ import { useUiStore } from "../../state/ui-store";
 import { Dialog } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { PageWidthSettingsPanel } from "./PageWidthSettingsPanel";
+
+const ScheduledTasksPanel = lazy(() => import("./ScheduledTasksPanel").then(module => ({ default: module.ScheduledTasksPanel })));
 
 const SkillsPanel = lazy(() =>
   import("./SkillsPanel").then((module) => ({ default: module.SkillsPanel })),
@@ -89,6 +92,7 @@ const SETTINGS_SECTIONS: Array<{
   { value: "skills", label: "Skills", icon: BookOpen },
   { value: "agent", label: "助手", icon: Bot },
   { value: "dsh-assistant", label: "DSH 助手", icon: MessagesSquare },
+  { value: "scheduled-tasks", label: "定时任务", icon: Clock },
   {
     value: "ai-rewrite",
     label: "AI 技能",
@@ -117,6 +121,8 @@ export function SettingsDialog({
 
   const activePanel = (() => {
     switch (activeSection) {
+      case "scheduled-tasks":
+        return <Suspense fallback={<SettingsPanelFallback />}><ScheduledTasksPanel open={open} onRunStarted={onClose} /></Suspense>;
       case "skills":
         return <Suspense fallback={<SettingsPanelFallback />}><SkillsPanel open={open} /></Suspense>;
       case "dsh-assistant":
@@ -257,6 +263,7 @@ export function SettingsRouteBridge() {
 
 function normalizeSettingsSection(section: string | undefined): SettingsSection {
   if (section === "skills") return "skills";
+  if (section === "scheduled-tasks") return "scheduled-tasks";
   if (section === "dsh-assistant") return "dsh-assistant";
   if (section === "agent") return "agent";
   if (section === "updates") {

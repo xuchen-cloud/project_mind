@@ -2,11 +2,13 @@
 
 日期：2026-10-11。关联规格：#121 及[组件融入方案](dsh-ui-component-integration.md)。旧独立助手交接已被主应用接入取代并移除；本文保留当时实施证据。无独立 DSH Issue；本包不发布、不关闭历史 Issue。
 
+2026-10-25 架构更新：[#250](https://github.com/xuchen-cloud/project_mind/issues/250) 将物理承载统一为当前 Workspace 的单个常驻 Harness，Workspace / Project 保留各自 Session、cwd 与原生权限。早期“运行中拦截项目切换”已被 A27 的后台并发、定向停止要求取代。下文验证表保留 2026-10-11 当时证据，不作为 #250 的验收结论；重构范围见 [共享后端交接](dsh-shared-runtime-handover.md)。
+
 ## 依赖与交付行为
 
 - 复用 DSH 0.2.0-rc.2 的原 Chat、Trajectory、composer、工具结果、权限与 Plugin 组件。前端源码固定于 `639ed015397290b3745d163aafe02ffee4aa3f84`，闭包、许可与必要改造见 [组件 README](../../packages/dsh-ui/README.md)。同一个 React 19 根树加载这些组件。
 - 主应用 Project 对应 DSH workspace，cwd 使用数据库记录的真实项目目录；项目下列出、创建、选择及移除对应会话。移除使用上游 archive，保留历史文件。
-- 原生端管理唯一项目 Node runtime，读取主工作区的 General 模型、解密凭据及网络配置，通过私有 stdin 注入；前端只接收项目范围的 HTTP RPC 和 WebSocket mux 数据，不接收密钥或 runtime 认证令牌。
+- 原生端管理当前 Workspace 的一个常驻 Node Harness，读取主工作区的 General 模型、解密凭据及网络配置，通过私有 stdin 注入；前端只接收经过当前 Session scope 授权的 HTTP RPC 和 WebSocket mux 数据，不接收密钥或 runtime 认证令牌。
 - 主应用“助手”入口使用组件面板，替换旧 Pi 聊天面板及消息 UI。保留原业务后台 Overview/Memory 与文档 worker。
 - DSH 自带侧栏不挂载。设置和 Plugin 组件进入主应用设置面板；项目文件树、只读预览、行定位和文件引用由主应用负责。
 - 全 debug 构建适用自动解锁：新工作区自动生成密码并保存至系统钥匙串；已有工作区验证密码后缓存，之后打开自动解锁。原有加密工作区没有缓存时需要一次初始化，不能跳过解密。仅 debug 接受专用开发密码环境变量，正式构建保留原密码行为。
@@ -18,7 +20,7 @@
 ## 验收条件与验证范围
 
 1. 在主应用当前窗口完成真实发送、流式、Chat / Trajectory 切换、停止与失败恢复；无需 Electron 或独立浏览器。
-2. 两个真实 Project 的目录和会话互相隔离；运行中阻止切换项目，停止后可切换；关闭后重新读取历史。
+2. 两个真实 Project 的目录、会话和权限互相隔离，共用 Workspace 常驻 Harness；运行中切换项目保留任务，停止仅作用于目标 Session；关闭后重新读取历史。
 3. 会话创建、选择、移除和档案持久化使用真实 runtime。模型沿用统一 General 配置，无独立登录步骤。
 4. 原生传输支持项目归属校验、请求取消、二进制附件、连接关闭及原组件重连。文件访问须在实际项目目录内，拒绝越界与 symlink 逃逸。
 5. 设置及 Plugin 数据来自同一个 runtime；文件预览及引用融入主应用。组件 Portal 继承主应用主题；有界列表按实际溢出显示渐变边缘。

@@ -184,3 +184,28 @@ it("drops an old install response after the Workspace changes", async () => {
   expect(screen.getByText("未安装")).toBeInTheDocument();
   expect(screen.getByText("应用内 CLI：/new/mind")).toBeInTheDocument();
 });
+
+it("excludes scheduled task management from a read-only Workspace connection", async () => {
+  const user = userEvent.setup();
+  setup();
+  await screen.findByText("服务未运行");
+  const schedules = screen.getByLabelText("管理定时任务（可让 AI 操作整个工作区）");
+  await user.click(schedules);
+  expect(schedules).toBeChecked();
+  await user.click(screen.getByLabelText("只读"));
+  expect(schedules).toBeDisabled();
+  expect(schedules).not.toBeChecked();
+  await user.type(screen.getByPlaceholderText("例如：终端助手"), "只读助手");
+  await user.click(screen.getByRole("button", { name: "创建连接" }));
+  await waitFor(() => expect(externalConnectionsApi.create).toHaveBeenCalledWith(binding, {
+    clientLabel: "只读助手", projectIds: [], workspaceContent: true, allProjects: true, writeOperations: [],
+  }));
+  await user.click(screen.getByLabelText("协作（推荐）"));
+  expect(schedules).toBeEnabled();
+  expect(schedules).toBeChecked();
+  await user.click(schedules);
+  expect(schedules).not.toBeChecked();
+  await user.click(schedules);
+  await user.click(screen.getByRole("button", { name: "创建连接" }));
+  await waitFor(() => expect(vi.mocked(externalConnectionsApi.create).mock.lastCall?.[1].writeOperations).toContain("schedule.manage"));
+});

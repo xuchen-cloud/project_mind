@@ -11,12 +11,12 @@
 - 主应用统一 AI 设置是唯一配置权威。嵌入助手默认使用 Workspace 的 General AI 模型，同时提供已配置且可用的兼容文本模型；原生端复用 `db.agent_resolve_profile` 解析模型、密钥和代理配置，启动时经 stdin 提供给 Node。
 - 模型名称和下拉菜单位于会话输入框内，每个 Session 独立持久保存选择，运行中也可切换；已发出的模型请求继续完成，后续请求使用新选择。重开会话保留选择；模型不可用时在菜单提示并允许选择替代模型。菜单采用紧凑行距，只显示模型名称，不附加生效时机标记或提示。
 - 密钥仅通过各模型独立的内存凭据引用供 DSH 使用，不写入 DSH credentials。嵌入模式禁用独立 **Models** UI；菜单内“管理模型…”打开主应用 AI 设置，不需要再次配置 Provider 或登录。
-- 打开助手时按需启动 Node，参数为 `--embedded --port 0 --no-open`。面板隐藏或组件卸载须保留历史，退出主应用时自动关闭 Node。
+- 打开助手时按需启动当前 Workspace 唯一的常驻 Node Harness，参数为 `--embedded --port 0 --no-open`。面板隐藏或组件卸载须保留历史，退出主应用时自动关闭 Node。
 - 主应用模型、密钥或代理配置变化后刷新模型运行时，保留已有 DSH 会话历史。
 
 ## Workspace / Project 会话与主应用融合
 
-- DSH workspace 映射原生提供的真实 Workspace 或 Project，工作目录分别为 Workspace 根目录和 `project.root_path`。每个范围独立运行，切换页面不停止后台任务；主应用负责导航和运行时生命周期。历史按 stable workspace ID / scope 分配独立子目录，旧范围延迟事件不得写入当前范围界面。
+- DSH workspace 映射原生提供的真实 Workspace 或 Project，工作目录分别为 Workspace 根目录和 `project.root_path`。当前 Workspace 与其 Project 共用一个常驻 Harness（[#250](https://github.com/xuchen-cloud/project_mind/issues/250)），各 scope 保留独立 Session、cwd、输入输出、停止目标与原生权限；切换页面不停止后台任务，主应用统一管理导航和后端生命周期。历史由同一存储中的 DSH workspace / Session 归属区分，旧范围延迟事件不得写入当前范围界面。
 - 完全隐藏 DSH 左侧 sidebar。会话列表与新建、切换、继续、删除入口由主应用助手 header 管理，助手内容仅保留 **Chat / Trajectory**。
 - 隐藏 DSH 文件树、预览、浏览器和终端 UI；文件浏览由现有主 Project 文件区承接。
 - 主 Settings 导航新增 **DSH 设置**，提供“插件管理”和“运行设置”两个模式，优先复用官方 **PluginManager / Settings** 可独立表单，嵌入主 settings viewport；依赖完整外壳的部分由主应用表单调用对应服务，不使用独立 DSH sidebar。Models 继续由主应用统一 AI 设置管理，助手与插件配置默认共享，变更须影响实际运行时并明确生效时机。
@@ -25,16 +25,18 @@
 
 当前 Tauri 通信适配保留 HTTP RPC、WebSocket mux 的完整客户端协议与会话语义，不用较窄的 stdio SDK 替代客户端协议；前端不获取模型密钥。项目文件引用按真实文件路径接入，外部附件上传 / 读取保持各自语义。
 
-### Node configure 契约（#161）
+### Node configure 与 scope 登记契约（#161 / #250）
 
 嵌入模式第一行继续使用 `type: "configure"` 与现有 `provider` / `providers` 模型字段，并且必须且只能携带一个上下文：
 
 - Project 保留原帧：`project: { id: 正安全整数, name: 非空字符串, directory: 实际绝对路径 }`。
 - Workspace 使用 `workspace: { id: 稳定 Workspace UUID 字符串, name: 非空字符串, directory: 实际 Workspace 根目录绝对路径 }`，没有 `project` 字段。
 
-`readContext` 校验身份和实际目录，`bindContext` 将会话绑定到该目录，禁止在 DSH 内更换目录或管理 Workspace / Project。创建、流式发送、停止、历史恢复和归档复用相同上游 controller / registry。原生为两种范围指定不同的 `PROJECT_MIND_DSH_USER_DATA`（即 `DSH_HOME`）：`projects/<workspace-id>/workspace` 与原有 `projects/<workspace-id>/<project-id>`；Node 不重写路径、不迁移 Project 历史，profile 目录仍由原生共享。
+主应用使用 Workspace configure 帧启动后端，再通过私有 `mind/context` 注册 Project 及其 CLI 绑定事实；Project configure 帧保留兼容。`readContext` 校验身份和实际目录，`bindContext` 注册各 scope 的 DSH workspace；Session 按实际 cwd 解析归属，列表先按 scope 筛选再读取历史投影，创建和移除拒绝跨 scope 操作。禁止在 DSH 内更换目录或管理 Workspace / Project，发送、停止、历史恢复和归档复用相同上游 controller / registry。
 
-Workspace 模式沿用普通 Chat、附件、文件工具、权限与模型服务，不安装 Project 专属 source、source title 和 Office 服务。它不获得 Project File 的原生读写权限，也不接入记忆或额外业务工具。
+共享 Harness 安装一次 source、source title、Office 与选区服务，工具和原生桥按真实执行 Session 选择 scope；共享进程不扩大 File/Office 或 CLI 授权。普通 Chat、附件、文件工具、权限和模型服务保持原产品行为；记忆能力不在 #250 范围内。
+
+共享 `DSH_HOME` 为 `projects/<workspace-id>/shared-runtime`，profile 仍由原生共享。首次迁移从原 `projects/<workspace-id>/workspace` 与 `projects/<workspace-id>/<project-id>` 读取历史，保留来源，不改写 Session cwd 与归属；附件、会话关联和恢复证据须随历史一并保留。当前实施与验收边界见 [#250 交接](../../docs/requirements/dsh-shared-runtime-handover.md)，既有验证记录不等于本次重构已完成产品验收。
 
 ## 本地开发与发布资源
 
@@ -58,9 +60,9 @@ npm --prefix packages/dsh-assistant ci --no-audit --no-fund
 
 ### 原生 CLI 绑定 / #204
 
-内置会话由原生端在启动帧提供应用附带的 `mind` 路径、Workspace 根目录、当前 Project 或 Workspace 范围、独立桥接发现文件及连接 ID。模型可通过 `--help`、`capabilities` 和 `schema` 发现现有接口；Record/Todo/File 操作复用原生授权、编辑器协调、版本 CAS、幂等和 Operation Receipt。独立调试入口没有原生绑定时仍按原流程工作。
+内置会话由原生端在启动帧或 scope 注册时提供应用附带的 `mind` 路径、Workspace 根目录、所属 Project 或 Workspace 范围、独立桥接发现文件及连接 ID。模型可通过 `--help`、`capabilities` 和 `schema` 发现现有接口；Record/Todo/File 操作复用原生授权、编辑器协调、版本 CAS、幂等和 Operation Receipt。独立调试入口没有原生绑定时仍按原流程工作。
 
-每次真实工具 shell 执行根据 DSH 已解析的 sandbox policy，在父进程私有通道申请短期凭据；只读执行不能通过 CLI 写业务对象。凭据只放该子进程环境，执行及后台进程完全结束后失效；运行时停止、Workspace 锁定或切换后同时撤销。长期连接凭据保留在原生系统凭据存储，模型提示与配置帧不包含密钥。连接稳定归属当前作用域，收据身份跨运行时重启保留；显式禁用或撤销连接后不会自动重授。
+每次真实工具 shell 执行按实际 Session 解析 scope 和 DSH 已解析的 sandbox policy，在父进程私有通道申请该范围的短期凭据；只读执行不能通过 CLI 写业务对象。凭据只放该子进程环境，执行及后台进程完全结束后失效；运行时停止、Workspace 锁定或切换后同时撤销。长期连接凭据保留在原生系统凭据存储，模型提示与配置帧不包含密钥。连接稳定归属当前作用域，收据身份跨运行时重启保留；显式禁用或撤销连接后不会自动重授。
 
 独立桥接不更改用户外部连接开关，不安装系统 CLI 或修改用户 PATH。`npm run dev:tauri` 和 `npm run dev:tauri:manual` 会先编译 debug CLI；正式安装包使用已有 CLI sidecar。原生 CLI 仅在当前 shell 中获得 PATH 与短期桥接配置，其他 Project 和 Workspace 的授权仍独立检查。
 
@@ -90,7 +92,7 @@ DSH 历史当前仍单独存储，默认 `DSH_HOME` 如下，不读取默认 `~/
 | Windows | `%APPDATA%/project-mind-dsh`；APPDATA 未设置时使用 `~/AppData/Roaming/project-mind-dsh` |
 | Linux / 其他 | `$XDG_DATA_HOME/project-mind-dsh`；未设置时使用 `~/.local/share/project-mind-dsh` |
 
-`PROJECT_MIND_DSH_USER_DATA` 可覆盖数据根目录，必须为绝对路径。独立调试模式的 profile 位于 `profiles/assistant`，工作目录为 `<数据目录>/workspace`，也在此保存独立配置和凭据。主应用接入以 stable workspace ID / scope 划分历史子目录，工作目录使用原生提供的 Workspace 根目录或 `project.root_path`；模型配置仍来自主应用。
+`PROJECT_MIND_DSH_USER_DATA` 可覆盖数据根目录，必须为绝对路径。独立调试模式的 profile 位于 `profiles/assistant`，工作目录为 `<数据目录>/workspace`，也在此保存独立配置和凭据。主应用接入以 stable workspace ID 选择共享 Harness 数据目录，范围内用 DSH workspace / Session 区分历史和授权，工作目录使用原生提供的 Workspace 根目录或 `project.root_path`；模型配置仍来自主应用。
 
 单独保存历史是当前实现选择，用户没有要求永久隔离配置或数据；未来业务工具可以共享配置和数据。Project 映射读取原生 DB 的 Project 归属与实际根目录，但尚无业务数据库工具桥；不转换旧 Pi 历史，不删除旧会话数据。
 
@@ -137,7 +139,7 @@ Node 最终日志：`$TMPDIR/project-mind-dsh-runtime-final-all.log`、`$TMPDIR/
 
 ## Workspace Node 验证（#161，2026-10-15）
 
-在本包目录运行，基于当前 #161 Node 改动与固定 rc.2 依赖：
+以下保留 #161 当时按范围分进程的验证证据；#250 已替代其物理承载与存储方案，不能将该记录当作共享后端验收。在本包目录运行，基于当时 #161 Node 改动与固定 rc.2 依赖：
 
 - `npm run check`：通过。
 - `npm test`：38/38 通过。

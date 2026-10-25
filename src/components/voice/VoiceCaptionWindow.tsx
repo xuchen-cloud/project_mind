@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Pause, Play, Square, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Pause, Play, Square, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { VoiceSessionSnapshot, VoiceTranscriptSegment } from "../../lib/voice-types";
@@ -160,6 +160,7 @@ export function VoiceCaptionWindow() {
           {session ? <span className="voice-caption-clock" aria-label="录音时间">{duration(session.activeMs)}</span> : null}
         </div>
         <div className="voice-caption-header-actions">
+          {collapsed && session?.recognitionError ? <span role="img" aria-label="转写已中断，录音继续" title={`实时转写已中断，录音继续保存。${session.recognitionError}`} className="text-danger"><AlertTriangle size={14} aria-hidden="true" /></span> : null}
           {collapsed && session ? <>
             <IconButton size="sm" className="voice-caption-icon-button" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} title={paused ? "开始录音" : "暂停录音"} onClick={togglePause}>{paused ? <Play size={14} /> : <Pause size={14} />}</IconButton>
             <IconButton size="sm" variant="danger" className="voice-caption-icon-button" disabled={busy} aria-label="结束录音" title="结束录音" onClick={endSession}><Square size={13} /></IconButton>
@@ -180,6 +181,7 @@ export function VoiceCaptionWindow() {
               </ol>
             ) : <p className="voice-caption-empty">{session ? (recognitionEnabled ? "等待语音识别…" : "仅录音模式，不生成字幕和转写") : "当前没有录音"}</p>}
           </div>
+          {session?.recognitionError ? <p role="alert" className="voice-caption-error" title={session.recognitionError}>实时转写已中断，录音继续保存。{session.recognitionError}</p> : null}
           {error ? <p role="alert" className="voice-caption-error" title={error}>{error}</p> : null}
           {session ? <div className="voice-caption-controls">
             <Button size="sm" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} leadingIcon={paused ? <Play size={13} /> : <Pause size={13} />} onClick={togglePause}>{paused ? "开始" : "暂停"}</Button>

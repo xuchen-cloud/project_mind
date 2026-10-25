@@ -2,21 +2,25 @@
 
 日期：2026-10-15。关联 [#161](https://github.com/xuchen-cloud/project_mind/issues/161)，承接 #108/#121 中 Workspace 聊天入口差距；本包不关闭这两个更大范围的 Issue。
 
+2026-10-24 后续：[工作区会话与 Scheduled Task](workspace-scheduled-tasks.md)（#239）将 Workspace 会话加入左栏，并经内置 CLI 授予本工作区项目业务权限；原有直连桥不自动授予所有 Project 的 File/Office 权限，跨项目业务由已授权 CLI 执行。
+
+2026-10-25 架构更新：[#250](https://github.com/xuchen-cloud/project_mind/issues/250) 将原有 Workspace / Project 分进程和历史子目录方案替换为 Workspace 单个常驻 Harness，并保留 scope、Session、cwd 与原生权限隔离。下文验证记录是 #161 的历史证据，不代表 #250 已完成产品验收。
+
 ## 工作包
 
-- 依赖：现有 DSH Chat / Trajectory / composer、原生传输和模型配置、Workspace 身份与 generation、独立 Project 运行时。
-- 交付：已打开 Workspace 时可直接打开助手；Workspace 会话可创建、选择、发送、停止、移除并恢复历史。Workspace 与 Project 独立存储、独立执行，页面切换跟随当前范围且不停止后台任务。
+- 依赖：现有 DSH Chat / Trajectory / composer、原生传输和模型配置、Workspace 身份与 generation、Project Session 与权限隔离。
+- 交付：已打开 Workspace 时可直接打开助手；Workspace 会话可创建、选择、发送、停止、移除并恢复历史。Workspace 与 Project 由共享 Harness 承载，Session、工作目录与权限独立，页面切换跟随当前范围且不停止后台任务。
 - 非目标：用户明确暂缓记忆。本包不接记忆读写、Overview 自动维护、行为 Skill/Harness、额外原生业务工具或 CLI/MCP 扩展。
-- 验收：入口无 Project 前置；Workspace / Project 会话及运行隔离；Workspace 关闭、锁定、切换统一撤销运行时；旧 Project 历史不搬迁；沿用原生模型与设置、滚动边缘规范。
+- 验收：入口无 Project 前置；Workspace / Project 会话及运行隔离；Workspace 关闭、锁定、切换统一撤销运行时；旧 Project 历史按 #250 保留证据并迁入共享存储；沿用原生模型与设置、滚动边缘规范。
 - 验证：前端入口/面板/状态/API/transport 回归；Node 真实 Workspace 会话、发送停止、重启恢复及 Project 隔离；Rust 原生目录、运行时、窗口授权和既有 File/Office 回归；前端构建。逐步补失败行为用例，收口复用仍有效结果。Standards / Spec 由主 agent 自查，未获授权不启动 review agent。
 
 ## 接入契约
 
 原生命令、carrier 事件与前端适配器沿用 `projectId` 字段：正整数表示真实 Project，显式 `null` 表示 Workspace；不创建占位 Project，不使用 0 或负数模拟 Workspace。原生只允许主窗口操作 Workspace 助手，项目窗口仍限定到该项目。
 
-Node configure 保留现有 Project 帧；Workspace 帧携带 `workspace: { id, name, directory }`，由原生已打开 Workspace 的真实身份和目录解析。Workspace 历史放在助手数据根的 `projects/<workspace-id>/workspace`，Project 保留 `projects/<workspace-id>/<project-id>`；共享同 Workspace 的助手配置。
+Node configure 保留现有 Project 帧；Workspace 帧携带 `workspace: { id, name, directory }`，由原生已打开 Workspace 的真实身份和目录解析。当前主应用以 Workspace 帧启动共享 Harness，随后通过 `mind/context` 登记真实 Project 范围；旧 Project 启动帧保留兼容。数据根统一为 `projects/<workspace-id>/shared-runtime`，原 `projects/<workspace-id>/workspace` 与 `projects/<workspace-id>/<project-id>` 作为保留的历史迁移来源；共享同 Workspace 的助手配置，各 scope 会话归属保持独立。
 
-Workspace 会话在助手面板内显示原 Chat；项目会话沿用主内容 Tab。切换页面更新当前范围，关闭面板和离开页面不结束既有任务。已访问的 Workspace Chat 保留挂载，返回时保留选中的会话、草稿和阅读位置；切换 Workspace 后释放。Workspace 聊天不授予所有 Project 的原生 File/Office 权限；这些现有桥仅为实际 Project 安装，Workspace 的普通附件/文件工具沿 DSH 既有权限运行。
+Workspace 会话在助手面板内显示原 Chat；项目会话沿用主内容 Tab。切换页面更新当前范围，关闭面板和离开页面不结束既有任务。已访问的 Workspace Chat 保留挂载，返回时保留选中的会话、草稿和阅读位置；切换 Workspace 后释放。共享后端不扩大原生 File/Office 权限；source、Office 与 CLI 按实际执行 Session 解析 scope，再由原生权限校验。Workspace 的普通附件/文件工具沿 DSH 既有权限运行，既有跨项目 CLI 授权保持原范围。
 
 ## 验证与审查记录
 

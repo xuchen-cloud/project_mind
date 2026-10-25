@@ -46,6 +46,7 @@ export interface VoiceSessionSnapshot {
   activeMs: number;
   pauseReason: string | null;
   interimText: string | null;
+  recognitionError?: string | null;
   projectNoteId: number | null;
   workspaceNoteId: number | null;
 }
@@ -63,6 +64,7 @@ export interface VoicePlaybackSnapshot {
   sessionId: string;
   phase: string;
   chunks: VoicePlaybackChunk[];
+  recognitionError?: string | null;
 }
 export interface VoiceTranscriptSegment {
   id: string;

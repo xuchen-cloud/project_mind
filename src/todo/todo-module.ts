@@ -114,11 +114,14 @@ export function createTodoModule({
     // Native changes invalidate the source page and the derived view together.
     // Join its refetch before projecting collections; ensureQueryData would
     // immediately return the previous page even when it has been invalidated.
+    // Reuse resident source pages until native changes mark them invalid; a
+    // newly mounted derived rail must not impose its own default stale time.
     const readQuery = queryClient.fetchQuery.bind(queryClient);
     const projectsPromise = readQuery({
       queryKey: queryKeys.projects.all,
       queryFn: () => transport.projectsList({ includeArchived: true }),
-      ...(options.force ? { staleTime: 0, retry: false } : {}),
+      staleTime: options.force ? 0 : Infinity,
+      ...(options.force ? { retry: false } : {}),
     });
 
     if (scope.kind === "workspace") {
@@ -126,7 +129,8 @@ export function createTodoModule({
         readQuery({
           queryKey: queryKeys.workspacePage,
           queryFn: () => transport.workspacePageGet(),
-          ...(options.force ? { staleTime: 0, retry: false } : {}),
+          staleTime: options.force ? 0 : Infinity,
+          ...(options.force ? { retry: false } : {}),
         }),
         projectsPromise,
       ]);
@@ -136,7 +140,8 @@ export function createTodoModule({
         readQuery({
           queryKey: queryKeys.projectPage(scope.projectId),
           queryFn: () => transport.projectPageGet({ projectId: scope.projectId }),
-          ...(options.force ? { staleTime: 0, retry: false } : {}),
+          staleTime: options.force ? 0 : Infinity,
+          ...(options.force ? { retry: false } : {}),
         }),
         projectsPromise,
       ]);

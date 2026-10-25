@@ -512,7 +512,7 @@ pub(crate) fn validate_file_source_ref(value: &Value) -> AgentResult<crate::agen
     let source: SourceRef = serde_json::from_value(value.clone()).map_err(|_| invalid("Invalid fixed File SourceRef"))?;
     source.object.key().map_err(|_| invalid("Invalid fixed File identity"))?;
     let id = source.object.id.parse::<u64>().ok().filter(|id| *id > 0 && *id <= 9_007_199_254_740_991);
-    if source.object.kind != ObjectKind::File || !matches!(source.object.scope, Scope::Project { .. })
+    if source.object.kind != ObjectKind::File
         || id.is_none() || id.unwrap().to_string() != source.object.id
         || !crate::db::file_versions::valid_hash(&source.revision) || source.file_version.is_none_or(|version| version == 0)
         || source.record_version.is_some() || source.block_id.is_some()

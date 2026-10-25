@@ -7,6 +7,7 @@ pub(crate) mod embedded;
 mod object_reads;
 mod record_writes;
 mod file_writes;
+mod schedules;
 pub(crate) mod commands;
 pub mod credentials;
 pub mod mcp;

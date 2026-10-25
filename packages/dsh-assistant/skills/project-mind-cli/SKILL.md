@@ -1,6 +1,6 @@
 ---
 name: project-mind-cli
-description: List and read Project Mind context, chat Sessions and sources, manage native Todos, Records and Files, and verify saved operations through the bound mind CLI.
+description: List and read Project Mind context, chat Sessions and sources, manage Scheduled Tasks, native Todos, Records and Files, and verify saved operations through the bound mind CLI.
 ---
 
 # Project Mind CLI
@@ -42,13 +42,14 @@ Consult `doctor` when establishing the current task's connection/scope or diagno
 | Change / patch File | `file.update` |
 | Restore a historical File version | `file.restore` |
 
-Use the resolved scope: `{"kind":"workspace"}` or `{"kind":"project","projectId":ID}` in DTOs; `--workspace-scope` or `--project ID` in shorthand. DTO scope is inside its JSON: omit shorthand scope/query/budget flags. Workspace object scope does not include all Projects. IDs and object references come from the supplied binding context or authorized native reads, never guesses.
+Use the resolved scope: `{"kind":"workspace"}` or `{"kind":"project","projectId":ID}` in DTOs; `--workspace-scope` or `--project ID` in shorthand. DTO scope is inside its JSON: omit shorthand scope/query/budget flags. Workspace object scope does not include all Projects. The built-in Workspace conversation separately receives permission for its Projects, including newly created Projects; use live `connection status` and `project list` to resolve them. Archived source visibility continues to follow the application's existing rules. Project conversations retain their own Project permission. IDs and object references come from the supplied binding context or authorized native reads, never guesses.
 
 ## 2. Choose the object and task branch
 
 | User intent | Native object / next step |
 | --- | --- |
 | A definite action to track until complete | **Todo**; read [Todo guide](references/todo.md) for listing, creating, completing, scheduling or changing Subtasks. |
+| Automatically ask AI to perform work in this conversation at a time or on a repeating schedule | **Scheduled Task**; read [Scheduled Task guide](references/scheduled-tasks.md), use `mind schedule` and the actual `PROJECT_MIND_SESSION_ID`. A Todo due date does not trigger AI. |
 | Information worth retaining, finding and citing independently | **Record**; read [Record/File guide](references/record-file.md) when reading or writing one. |
 | Capture whose final form or destination is undecided | **QuickNote**, the single mutable buffer in its scope. There is no native CLI QuickNote write API. Offer draft text and report it as unsaved; use a Record or Todo only if the user's intent supports that choice. |
 | External material managed by a Project | **File**; read [Record/File guide](references/record-file.md) when reading or writing one. |

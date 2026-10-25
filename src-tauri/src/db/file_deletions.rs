@@ -10,7 +10,7 @@ use super::{
 use crate::{
     agent::{
         errors::{AgentError, ErrorCode},
-        models::{ObjectKind, ObjectRef, Scope},
+        models::{ObjectKind, ObjectRef},
     },
     models::{DocumentDeleteInput, DocumentRecord},
 };
@@ -28,7 +28,7 @@ const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct DeleteState {
-    project_id: i64,
+    project_id: Option<i64>,
     managed: String,
     history: String,
     name: String,
@@ -140,7 +140,7 @@ impl Database {
         if journal.schema_version != 1
             || journal.workspace_id != self.native_workspace_id
             || journal.document_id <= 0
-            || journal.old.project_id <= 0
+            || journal.old.project_id.is_some_and(|id| id <= 0)
             || !nonce(&journal.request_id)
             || journal.old.current_version <= 0
             || journal.old.version_count <= 0
@@ -316,7 +316,7 @@ impl Database {
             if document_id <= 0 || document_id.to_string() != id || !nonce(request_id) {
                 bail!("Invalid deletion journal identity");
             }
-            let project_id: Option<i64> = self
+            let project_id: Option<Option<i64>> = self
                 .conn
                 .query_row(
                     "SELECT project_id FROM documents WHERE id=?1",
@@ -351,7 +351,7 @@ impl Database {
     }
     pub(super) fn file_delete_require_unreferenced(&self, record: &DocumentRecord) -> Result<()> {
         if record.storage_mode == "managed_note_image" { return Ok(()); }
-        let suffix = format!("%/project:{}/file/{}", record.project_id, record.id);
+        let suffix = format!("%/{}/file/{}", super::file_scope::scope(record.project_id).key(), record.id);
         let current_reference: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM content_reference_edges WHERE target_object_key LIKE ?1 AND target_revision IS NOT NULL)",
             [suffix], |row| row.get(0))?;
@@ -363,8 +363,8 @@ impl Database {
             ) SELECT EXISTS(SELECT 1 FROM retained,json_tree(retained.json) AS node
                 WHERE node.type='object'
                 AND json_extract(node.value,'$.object.kind')='file'
-                AND json_extract(node.value,'$.object.scope.kind')='project'
-                AND json_extract(node.value,'$.object.scope.projectId')=?1
+                AND json_extract(node.value,'$.object.scope.kind')=CASE WHEN ?1 IS NULL THEN 'workspace' ELSE 'project' END
+                AND json_extract(node.value,'$.object.scope.projectId') IS ?1
                 AND json_extract(node.value,'$.object.id')=?2
                 AND (?3 IS NULL OR json_extract(node.value,'$.object.workspaceId')=?3)
                 AND json_type(node.value,'$.fileVersion')='integer'
@@ -386,7 +386,7 @@ impl Database {
         tx.execute("DELETE FROM documents WHERE id=?1", [current.id])?;
         tx.execute("UPDATE projects SET updated_at=?1 WHERE id=?2", params![super::now_iso(), current.project_id])?;
         if let Some(workspace_id) = &self.native_workspace_id {
-            let object = ObjectRef { workspace_id: workspace_id.clone(), scope: Scope::Project { project_id: current.project_id }, kind: ObjectKind::File, id: current.id.to_string() };
+            let object = ObjectRef { workspace_id: workspace_id.clone(), scope: super::file_scope::scope(current.project_id), kind: ObjectKind::File, id: current.id.to_string() };
             tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'file.directory.unmanage','deleted',?3)", params![object.key().map_err(|e|anyhow!(e.message))?,object.scope.key(),super::now_iso()])?;
         }
         tx.commit()?;
@@ -397,7 +397,7 @@ impl Database {
         let current = self.document_record(input.document_id)?;
         self.file_delete_require_unreferenced(&current)?;
         if current.storage_mode == "project_directory" {
-            let object = ObjectRef { workspace_id: self.native_workspace_id.clone().ok_or_else(||anyhow!("Workspace identity unavailable for directory File deletion"))?, scope: Scope::Project { project_id: current.project_id }, kind: ObjectKind::File, id: current.id.to_string() };
+            let object = ObjectRef { workspace_id: self.native_workspace_id.clone().ok_or_else(||anyhow!("Workspace identity unavailable for directory File deletion"))?, scope: super::file_scope::scope(current.project_id), kind: ObjectKind::File, id: current.id.to_string() };
             self.directory_restore_recover_locked(&object)?;
             self.file_delete_directory_registration(&current)?;
             return Ok(current);
@@ -541,9 +541,7 @@ impl Database {
                         if let Some(workspace_id) = &journal.workspace_id {
                             let object = ObjectRef {
                                 workspace_id: workspace_id.clone(),
-                                scope: Scope::Project {
-                                    project_id: current.project_id,
-                                },
+                                scope: super::file_scope::scope(current.project_id),
                                 kind: ObjectKind::File,
                                 id: current.id.to_string(),
                             };
@@ -612,7 +610,7 @@ mod tests {
         fs::write(&source, b"v1\r\n").unwrap();
         let file = db
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source.to_string_lossy().into(),
                 is_starred: false,
                 tag_ids: None,
@@ -713,7 +711,7 @@ mod tests {
                         .join("original.txt")
                         .exists());
                     let deleted:bool=db.conn.query_row("SELECT deleted_at IS NOT NULL FROM source_registry WHERE object_key=?1",
-                        [format!("{}/project:{}/file/{}",metadata.workspace_id,file.project_id,file.id)],|r|r.get(0)).unwrap();
+                        [format!("{}/project:{}/file/{}",metadata.workspace_id,file.project_id.unwrap(),file.id)],|r|r.get(0)).unwrap();
                     assert!(deleted);
                 }
                 let hashes: i64 = db
@@ -845,7 +843,7 @@ mod tests {
             generation: "current".into(),
         };
         let scope = Scope::Project {
-            project_id: file.project_id,
+            project_id: file.project_id.unwrap(),
         };
         let request = RequestContext {
             binding: binding.clone(),
@@ -855,7 +853,7 @@ mod tests {
                 object_keys: None,
                 workspace_id: metadata.workspace_id.clone(),
                 workspace_content: false,
-                project_ids: vec![file.project_id],
+                project_ids: vec![file.project_id.unwrap()],
                 operations: vec!["source.read".into()],
             },
         };
@@ -863,7 +861,7 @@ mod tests {
             .unwrap();
         let key = format!(
             "{}/project:{}/file/{}",
-            metadata.workspace_id, file.project_id, file.id
+            metadata.workspace_id, file.project_id.unwrap(), file.id
         );
         let dedupe = format!("source-index:{key}");
         let queued: String = db
@@ -950,7 +948,7 @@ mod tests {
                 .join(format!("{}-{}", file.id, "4".repeat(32)));
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("journal.tmp"), b"preparing").unwrap();
-        let project = db.file_project_lock(file.project_id, false).unwrap();
+        let project = db.file_project_lock(file.project_id.unwrap(), false).unwrap();
         let guard = db
             .file_storage_lock("file-version-locks", file.id, true)
             .unwrap();

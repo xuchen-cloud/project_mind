@@ -45,7 +45,7 @@ test('startup restores only unaccounted current-project sessions through the reg
 });
 
 test('startup reports registry attach failure rather than publishing fake membership', async t => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'mind-project-reconcile-error-'));
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-project-reconcile-error-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const ctx = {
     workspaceRegistry: { archivedSessionIds: [], get: () => ({ sessionIds: [], attachSession: async () => { throw new Error('stored cwd mismatch'); } }) },
@@ -62,6 +62,17 @@ test('native Workspace frame binds the real Workspace identity and directory', a
   t.after(() => rm(directory, { recursive: true, force: true }));
   assert.deepEqual(await readContext(JSON.stringify({ workspace: { id: workspaceId, name: ' Workspace ', directory } })),
     { kind: 'workspace', id: workspaceId, name: 'Workspace', directory: await realpath(directory) });
+});
+
+test('native Workspace frame accepts the persisted 32 hexadecimal identity', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'mind-native-workspace-frame-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const id = '0123456789abcdef0123456789abcdef';
+  assert.deepEqual(await readContext(JSON.stringify({ workspace: { id, name: ' Native Workspace ', directory } })),
+    { kind: 'workspace', id, name: 'Native Workspace', directory: await realpath(directory) });
+  for (const invalidId of ['a'.repeat(31), 'a'.repeat(33), 'g'.repeat(32), '../' + 'a'.repeat(32), '工作区'.repeat(11)]) {
+    await assert.rejects(readContext(JSON.stringify({ workspace: { id: invalidId, name: 'Native', directory } })), /Invalid main workspace configuration/);
+  }
 });
 
 test('configure rejects ambiguous scopes and malformed Workspace frames', async () => {

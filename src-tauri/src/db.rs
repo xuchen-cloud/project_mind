@@ -59,6 +59,7 @@ pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
 pub(crate) mod file_imports;
+pub(crate) mod file_scope;
 mod file_metadata;
 mod file_deletions;
 mod file_relocations;
@@ -76,7 +77,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::{Local, Utc};
+use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, MAIN_DB};
 use serde_json::{json, Value};
 
@@ -147,7 +148,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = agent_memory_schema::AGENT_MEMORY_SCHEMA_VERSION;
+const CURRENT_SCHEMA_VERSION: i64 = 38;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -394,7 +395,11 @@ impl Database {
         let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
             | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
             | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW;
-        let conn = Connection::open_with_flags(db_path, flags)?;
+        // Host aliases such as macOS /var are valid Workspace roots. The
+        // managed path above rejects symlinks below that root. Resolve only the
+        // root alias so SQLite NOFOLLOW still rejects replaced child symlinks.
+        let database_path = workspace_root.canonicalize()?.join(db_path.strip_prefix(workspace_root)?);
+        let conn = Connection::open_with_flags(database_path, flags)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         let db = Self {
             conn,
@@ -484,7 +489,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS documents (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
-              project_id INTEGER NOT NULL,
+              project_id INTEGER,
               name TEXT NOT NULL,
               base_name TEXT NOT NULL DEFAULT '',
               original_path TEXT NOT NULL,
@@ -867,6 +872,7 @@ impl Database {
         self.ensure_agent_run_provenance_schema()?;
         self.ensure_workspace_overview_schema()?;
         self.ensure_agent_memory_schema()?;
+        self.ensure_workspace_file_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -1215,6 +1221,7 @@ impl Database {
             )
             .collect::<Result<Vec<_>>>()?;
         Ok(Some(VoicePlaybackSnapshot {
+            recognition_error: self.voice_recognition_error(&session_id, None)?,
             session_id,
             phase,
             chunks,
@@ -2003,7 +2010,7 @@ impl Database {
             let source_path = source_root.join(file_name);
             fs::write(&source_path, format!("{record_title}\n\n{record_body}\n"))?;
             self.document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: index == 0,
                 tag_ids: None,
@@ -2295,6 +2302,7 @@ impl Database {
         let project_dir_name = project_directory_name(project_name)?;
 
         let project_dir = base.join(project_dir_name);
+        self.file_project_root_available(&project_dir)?;
         if project_dir.exists() {
             return Err(anyhow!(
                 "project folder already exists at {}",
@@ -2362,6 +2370,7 @@ impl Database {
             .partition(|todo| todo.status == "unfinished");
 
         Ok(WorkspacePageData {
+            workspace_documents: self.fetch_project_documents_for_project(None)?,
             quick_note,
             records,
             unfinished_todos,
@@ -2384,6 +2393,7 @@ impl Database {
         if current_dir == next_dir {
             return Ok(None);
         }
+        self.file_project_root_available(&next_dir)?;
 
         if next_dir.exists() {
             return Err(anyhow!("文件夹名称已被占用，项目名称未保存"));
@@ -5040,10 +5050,10 @@ impl Database {
                 INNER JOIN file_tag_options ft ON ft.id = dtl.tag_id
                 WHERE dtl.document_id = d.id
               ), '') AS tag_match_text,
-              p.name,
+              COALESCE(p.name, '工作区'),
               d.updated_at
             FROM agent_visible_files d
-            INNER JOIN projects p ON p.id = d.project_id
+            LEFT JOIN projects p ON p.id = d.project_id
             WHERE (
                 d.name LIKE ?1
                 OR d.base_name LIKE ?1
@@ -5061,7 +5071,7 @@ impl Database {
               )
               AND d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}' {}
             "#,
-            project_filter
+            if include_archived { "" } else { " AND (d.project_id IS NULL OR p.is_archived=0)" }
         );
         let mut stmt = self.conn.prepare(&document_sql)?;
         let rows = stmt.query_map([pattern.as_str()], |row| {
@@ -5074,8 +5084,8 @@ impl Database {
                 result: WorkspaceSearchResult {
                     kind: "document".to_string(),
                     id: row.get(0)?,
-                    scope: None,
-                    project_id: Some(row.get(1)?),
+                    scope: Some(if row.get::<_,Option<i64>>(1)?.is_none() { "workspace" } else { "project" }.into()),
+                    project_id: row.get(1)?,
                     source: None,
                     title: title.clone(),
                     subtitle: project_title,
@@ -5294,12 +5304,12 @@ impl Database {
               d.project_id,
               d.name AS label,
               d.name AS name_match_text,
-              p.name AS project_name,
+              COALESCE(p.name, '工作区') AS project_name,
               d.updated_at
             FROM agent_visible_files d
-            INNER JOIN projects p ON p.id = d.project_id
+            LEFT JOIN projects p ON p.id = d.project_id
             WHERE d.storage_mode != '{MANAGED_NOTE_IMAGE_STORAGE_MODE}'
-              AND p.is_archived = 0
+              AND (d.project_id IS NULL OR p.is_archived = 0)
               AND (?1 IS NULL OR d.project_id = ?1)
             ORDER BY d.updated_at DESC
             "#
@@ -5311,8 +5321,8 @@ impl Database {
                     result: InternalReferenceSearchResult {
                         kind: "document".to_string(),
                         id: row.get(0)?,
-                        scope: TodoScope::Project,
-                        project_id: Some(row.get(1)?),
+                        scope: if row.get::<_,Option<i64>>(1)?.is_none() { TodoScope::Workspace } else { TodoScope::Project },
+                        project_id: row.get(1)?,
                         label: truncate_text(
                             &normalize_internal_reference_label(
                                 "document",
@@ -5486,7 +5496,7 @@ impl Database {
                         params![input.id, MANAGED_NOTE_IMAGE_STORAGE_MODE],
                         |row| {
                             let id: i64 = row.get(0)?;
-                            let project_id: i64 = row.get(1)?;
+                            let project_id: Option<i64> = row.get(1)?;
                             let name: String = row.get(2)?;
                             let managed_path_ref: String = row.get(3)?;
                             Ok((id, project_id, name, managed_path_ref))
@@ -5506,12 +5516,9 @@ impl Database {
                             &normalize_internal_reference_label("document", &name),
                             72,
                         ),
-                        scope: TodoScope::Project,
-                        project_id: Some(project_id),
-                        route: build_internal_reference_route(
-                            project_id,
-                            &format!("document-{id}"),
-                        ),
+                        scope: if project_id.is_none() { TodoScope::Workspace } else { TodoScope::Project },
+                        project_id,
+                        route: project_id.map_or_else(|| format!("/?focus=document-{id}"), |project_id| build_internal_reference_route(project_id, &format!("document-{id}"))),
                         focus_id: Some(format!("document-{id}")),
                         managed_path: Some(self.decode_path_ref_to_string(&managed_path_ref)),
                     }
@@ -5717,7 +5724,7 @@ impl Database {
                 |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
+                        row.get::<_, Option<i64>>(1)?,
                         row.get::<_, String>(2)?,
                         row.get::<_, String>(3)?,
                         row.get::<_, String>(4)?,
@@ -5999,9 +6006,10 @@ impl Database {
         Ok(current_max + 1)
     }
 
-    fn fetch_all_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
+    fn fetch_all_documents_for_project(&self, project_id: impl Into<Option<i64>>) -> Result<Vec<DocumentRecord>> {
+        let project_id = project_id.into();
         let mut stmt = self.conn.prepare(
-            "SELECT id FROM documents WHERE project_id = ?1 ORDER BY created_at DESC, id DESC",
+            "SELECT id FROM documents WHERE project_id IS ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let ids = stmt
             .query_map([project_id], |row| row.get::<_, i64>(0))?
@@ -6093,12 +6101,13 @@ impl Database {
             .map_err(Into::into)
     }
 
-    fn fetch_project_documents_for_project(&self, project_id: i64) -> Result<Vec<DocumentRecord>> {
+    fn fetch_project_documents_for_project(&self, project_id: impl Into<Option<i64>>) -> Result<Vec<DocumentRecord>> {
+        let project_id = project_id.into();
         let mut stmt = self.conn.prepare(
             r#"
             SELECT id
             FROM agent_visible_files
-            WHERE project_id = ?1
+            WHERE project_id IS ?1
               AND storage_mode != ?2
             ORDER BY created_at DESC, id DESC
             "#,
@@ -6109,7 +6118,8 @@ impl Database {
                 |row| row.get::<_, i64>(0),
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let root = PathBuf::from(self.project_record(project_id)?.root_path);
+        if ids.is_empty() { return Ok(vec![]); }
+        let root = self.file_scope_root(project_id)?;
         let mut documents = Vec::new();
         for id in ids {
             let document = self.document_record(id)?;
@@ -6502,7 +6512,7 @@ impl Database {
         Ok(())
     }
 
-    fn ensure_project_file_layout(&mut self, _project_id: i64) -> Result<()> {
+    fn ensure_project_file_layout(&mut self, _project_id: impl Into<Option<i64>>) -> Result<()> {
         self.backfill_file_layout_metadata()
     }
 
@@ -6530,16 +6540,17 @@ impl Database {
 
     fn document_name_exists(
         &self,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         base_name: &str,
         exclude_document_id: Option<i64>,
     ) -> Result<bool> {
+        let project_id = project_id.into();
         self.conn
             .query_row(
                 r#"
                 SELECT id
                 FROM documents
-                WHERE project_id = ?1
+                WHERE project_id IS ?1
                   AND base_name = ?2
                   AND id != ?3
                 LIMIT 1
@@ -6554,7 +6565,7 @@ impl Database {
 
     fn ensure_document_name_available(
         &self,
-        project_id: i64,
+        project_id: impl Into<Option<i64>>,
         base_name: &str,
         exclude_document_id: Option<i64>,
     ) -> Result<()> {
@@ -11516,7 +11527,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_v1, b"version1").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: true,
                 tag_ids: None,
@@ -11561,7 +11572,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_v1, b"version1").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,
@@ -11606,7 +11617,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_v1, b"version1").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,
@@ -11665,7 +11676,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_v1, b"version1").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![tag.id]),
@@ -11726,7 +11737,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_v1, b"version1").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_v1.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,
@@ -11855,7 +11866,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_path, b"contract").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![legal_tag.id, urgent_tag.id, legal_tag.id]),
@@ -12037,7 +12048,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_path, b"brief").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![draft_tag.id, review_tag.id]),
@@ -12108,7 +12119,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_path, b"agreement").unwrap();
         let document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: Some(vec![tag.id]),
@@ -12594,7 +12605,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         fs::write(&source_path, b"legacy-document").unwrap();
         let linked_document = database
             .document_import(DocumentImportInput {
-                project_id: project.id,
+                project_id: Some(project.id),
                 source_path: source_path.to_string_lossy().to_string(),
                 is_starred: false,
                 tag_ids: None,

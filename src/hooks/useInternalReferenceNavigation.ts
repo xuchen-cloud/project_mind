@@ -7,7 +7,6 @@ import type { InternalReferenceTarget } from "../lib/internalReferences";
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import { withdrawnReference } from "../lib/withdrawn-reference";
 import { agentApi } from "../services/agentApi";
-import { desktopApi } from "../services/desktopApi";
 import { projectMindApi } from "../services/projectMindApi";
 import { useFeedbackStore } from "../state/feedback-store";
 import { openProjectContent } from "../services/projectContentApi";
@@ -30,7 +29,7 @@ export function useInternalReferenceNavigation() {
         if (reference.sourceRef) {
           const source = validateInternalReferenceSourceRef(reference.sourceRef);
           if (reference.refKind !== "document" || source.object.id !== String(reference.refId)
-            || source.object.workspaceId !== documentBinding!.workspaceId || source.object.scope.kind !== "project")
+            || source.object.workspaceId !== documentBinding!.workspaceId)
             throw new Error("引用不属于当前工作区或文件");
           // Verify exact retained bytes. Never resolve a live path or substitute
           // a newer version when historical evidence is unavailable.
@@ -38,7 +37,7 @@ export function useInternalReferenceNavigation() {
             versionNumber: source.fileVersion!, expectedContentHash: source.revision });
           const workspace = await projectMindApi.workspaceStatusGet();
           if (!workspace.currentWorkspace) throw new Error("请先打开工作区");
-          await openProjectContent({ workspaceRoot: workspace.currentWorkspace.rootPath, projectId: source.object.scope.projectId,
+          await openProjectContent({ workspaceRoot: workspace.currentWorkspace.rootPath, projectId: source.object.scope.kind === "project" ? source.object.scope.projectId : null,
             object: { kind: "file", id: reference.refId, title: reference.label },
             view: { versionNumber: source.fileVersion!, line: undefined, page: undefined, sourceLocator: undefined,
               ...resolveFixedFileLocator(source) }, expectedBinding: documentBinding! });
@@ -60,23 +59,13 @@ export function useInternalReferenceNavigation() {
         }
 
         if (resolved.kind === "document") {
-          if (resolved.projectId !== null) {
-            const workspace = await projectMindApi.workspaceStatusGet();
-            if (!workspace.currentWorkspace) throw new Error("请先打开工作区");
-            await openProjectContent({ workspaceRoot: workspace.currentWorkspace.rootPath, projectId: resolved.projectId,
-              object: { kind: "file", id: resolved.id, title: resolved.label }, expectedBinding: documentBinding! });
-            return true;
-          }
-          if (!resolved.managedPath) {
-            pushToast({
-              tone: "error",
-              title: "打开文件失败",
-              detail: "文件引用缺少可用路径。",
-            });
-            return false;
-          }
-
-          await desktopApi.openFile(resolved.managedPath);
+          if (resolved.id !== reference.refId || !(resolved.scope === "workspace" && resolved.projectId === null
+            || resolved.scope === "project" && Number.isSafeInteger(resolved.projectId) && resolved.projectId! > 0))
+            throw new Error("引用文件身份或归属不符");
+          const workspace = await projectMindApi.workspaceStatusGet();
+          if (!workspace.currentWorkspace) throw new Error("请先打开工作区");
+          await openProjectContent({ workspaceRoot: workspace.currentWorkspace.rootPath, projectId: resolved.projectId,
+            object: { kind: "file", id: resolved.id, title: resolved.label }, expectedBinding: documentBinding! });
           return true;
         }
 

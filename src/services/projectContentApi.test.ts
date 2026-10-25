@@ -58,6 +58,7 @@ describe("authoritative project content open", () => {
     const session = await openProjectContent({ ...input, object: { kind: "session", id: "session-a", title: "Session", isVoice: true } });
     expect(file.object).toEqual({ kind: "file", id: 31, title: "Actual file" });
     expect(session.object).toEqual({ kind: "session", id: "session-a", title: "Actual session" });
+    expect(mocks.start).not.toHaveBeenCalled();
   });
   it("rejects a late response from an older Workspace generation", async () => {
     mocks.binding.mockResolvedValueOnce(binding).mockResolvedValueOnce({ ...binding, generation: "two" });
@@ -116,4 +117,26 @@ it("does not mutate new-workspace tabs after a delayed session operation crosses
   mocks.binding.mockResolvedValueOnce(binding).mockResolvedValueOnce({ ...binding, generation: "new" });
   await expect(manageProjectSession({ workspaceRoot: "/workspace", projectId: 7, sessionId: "session-a", action: { kind: "archive" } })).rejects.toThrow("工作区已切换");
   expect(getContentLayout(useProjectContentStore.getState(), scope).tabs).toHaveLength(1);
+});
+
+it('opens Workspace Records in the same layout while rejecting a Project owner', async () => {
+  mocks.record.mockResolvedValue({ head: { target: { scope: { kind: 'workspace' }, recordId: 12 } }, record: { id: 12, title: 'Workspace record' } });
+  const result = await openProjectContent({ ...input, projectId: null });
+  expect(result.scope).toEqual({ workspaceId: binding.workspaceId, projectId: null });
+  expect(mocks.record).toHaveBeenCalledWith(binding, { scope: { kind: 'workspace' }, recordId: 12 });
+  mocks.record.mockResolvedValue({ head: { target: { scope: { kind: 'project', projectId: 7 }, recordId: 12 } }, record: { id: 12 } });
+  await expect(openProjectContent({ ...input, projectId: null })).rejects.toThrow('归属');
+});
+
+it('verifies Workspace Files and Sessions through their native scope', async () => {
+  mocks.file.mockResolvedValue({ object: { workspaceId: binding.workspaceId, scope: { kind: 'workspace' }, kind: 'file', id: '31' }, versions: [{ name: 'Workspace file' }] });
+  const file = await openProjectContent({ ...input, projectId: null, object: { kind: 'file', id: 31, title: 'File' } });
+  expect(file.object.title).toBe('Workspace file');
+  expect(mocks.file).toHaveBeenCalledWith(binding, { object: { workspaceId: binding.workspaceId, scope: { kind: 'workspace' }, kind: 'file', id: '31' }, limit: 1 });
+  const session = await openProjectContent({ ...input, projectId: null, object: { kind: 'session', id: 'session-a', title: 'Session' } });
+  expect(mocks.sessions).toHaveBeenCalledWith(null);
+  expect(getContentLayout(useProjectContentStore.getState(), session.scope).tabs).toHaveLength(2);
+  await manageProjectSession({ workspaceRoot: input.workspaceRoot, projectId: null, sessionId: 'session-a', action: { kind: 'delete' } });
+  expect(mocks.remove).toHaveBeenCalledWith('session-a', null);
+  expect(getContentLayout(useProjectContentStore.getState(), session.scope).tabs.map(tab => tab.object.kind)).toEqual(['file']);
 });

@@ -3,7 +3,7 @@ import { revealAgentObjectPage } from "../lib/agent-panel-navigation";
 
 export interface FilePreviewRequest {
   workspaceRoot: string;
-  projectId: number;
+  projectId: number | null;
   documentId: number;
   title: string;
   /** Omitted follows the latest committed version; supplied pins history. */

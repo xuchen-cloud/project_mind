@@ -97,7 +97,9 @@ export function WorkspaceTopBar({
   onSearchSelect,
   onDetachProject,
 }: WorkspaceTopBarProps) {
+  const workspaceSelected = showWorkspace && workspaceActive;
   const tabListRef = useRef<HTMLDivElement | null>(null);
+  const projectListRef = useRef<HTMLDivElement | null>(null);
   const tabViewportRef = useRef<HTMLDivElement | null>(null);
   const [tabEdges, setTabEdges] = useState({ left: 0, right: 0 });
   const projectKey = projects.map(project => `${project.id}:${project.name}`).join("|");
@@ -109,13 +111,13 @@ export function WorkspaceTopBar({
     const distance = Math.min(64, max / 2);
     const next = { left: distance ? Math.min(1, position / distance) : 0, right: distance ? Math.min(1, (max - position) / distance) : 0 };
     setTabEdges(previous => previous.left === next.left && previous.right === next.right ? previous : next);
-    if (labels) measureTabLabels(tabListRef.current);
+    if (labels) measureTabLabels(projectListRef.current);
   }
   useLayoutEffect(() => {
     const node = tabViewportRef.current;
     const reveal = () => {
       measureTabs(true);
-      const selected = tabListRef.current?.querySelector<HTMLElement>("[data-selected]");
+      const selected = node?.querySelector<HTMLElement>("[data-selected]");
       if (!node || !selected) return;
       const bounds = node.getBoundingClientRect(), tab = selected.getBoundingClientRect();
       const delta = tab.left < bounds.left + 4 ? tab.left - bounds.left - 4
@@ -144,7 +146,7 @@ export function WorkspaceTopBar({
     node.addEventListener("wheel", wheel, { passive: false });
     return () => node.removeEventListener("wheel", wheel);
   }, []);
-  const indicatorRef = useTabIndicator(tabListRef, `${workspaceActive}:${activeProjectId}:${projectKey}`);
+  const indicatorRef = useTabIndicator(tabListRef, `${showWorkspace}:${workspaceActive}:${activeProjectId}:${projectKey}`);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const compactSearchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dragStateRef = useRef<{
@@ -305,23 +307,14 @@ export function WorkspaceTopBar({
     <header data-tauri-drag-region style={homePanels?.leftOpen ? { "--home-navigation-width": `${homePanels.leftWidth}px` } as CSSProperties : undefined} data-home-left-open={homePanels?.leftOpen || undefined} data-home-right-open={homePanels?.rightOpen || undefined} className="workspace-topbar sticky top-0 z-20 flex h-10 items-center justify-between gap-4 border-b border-border bg-bg/95 px-3 backdrop-blur-sm">
       {homePanels ? <div data-tauri-drag-region className="workspace-topbar__navigation">
         <IconButton type="button" aria-label="切换左侧栏" aria-expanded={homePanels.leftOpen} onClick={homePanels.toggleLeft}><PanelLeft size={16} /></IconButton>
-        {showWorkspace ? <button type="button" className="workspace-topbar__workspace-home"
-          aria-label={`${homePanels.workspaceName} 工作区首页`} title={`${homePanels.workspaceName} · 工作区首页`}
-          aria-current={workspaceActive ? "page" : undefined} onClick={onOpenWorkspace}>
-          <FolderKanban size={14} aria-hidden="true" />{homePanels.leftOpen ? <span>{homePanels.workspaceName}</span> : null}
-        </button> : null}
       </div> : null}
-      <div data-tauri-drag-region className="workspace-topbar__tab-frame tab-strip-frame" style={{ "--tab-fade-left": tabEdges.left, "--tab-fade-right": tabEdges.right } as CSSProperties}>
-        <div ref={tabViewportRef} id="project-tabs-scroll" className="workspace-topbar__tab-scroll tab-strip-viewport" onScroll={() => measureTabs()}>
-        <div
-          data-tauri-drag-region
-          ref={tabListRef}
-          className="workspace-topbar__tablist"
-          role="tablist"
-          aria-label={homePanels ? "项目" : "Workspace 与项目"}
-        >
+      <div
+        data-tauri-drag-region ref={tabListRef}
+        className="workspace-topbar__tablist"
+        role="tablist" aria-label="Workspace 与项目"
+      >
           <span ref={indicatorRef} className="workspace-topbar__indicator" aria-hidden="true" />
-          {showWorkspace && !homePanels ? (
+          {showWorkspace ? (
             <button
               type="button"
               className={[
@@ -336,19 +329,22 @@ export function WorkspaceTopBar({
               aria-selected={workspaceActive}
               data-selected={workspaceActive || undefined}
               tabIndex={workspaceActive || activeProjectId === null ? 0 : -1}
-              aria-label="Workspace"
-              title="Workspace"
+              aria-label="我的工作区"
+              title="工作区"
             >
               <FolderKanban size={14} />
 
             </button>
           ) : null}
+        <div data-tauri-drag-region className="workspace-topbar__tab-frame tab-strip-frame" style={{ "--tab-fade-left": tabEdges.left, "--tab-fade-right": tabEdges.right } as CSSProperties}>
+        <div ref={tabViewportRef} id="project-tabs-scroll" className="workspace-topbar__tab-scroll tab-strip-viewport" onScroll={() => measureTabs()}>
+        <div ref={projectListRef} data-tauri-drag-region className="workspace-topbar__projects">
           {projects.map((project) => (
             <div
               key={project.id}
               className={[
                 "workspace-topbar__tab compact-tab",
-                project.id === activeProjectId ? "workspace-topbar__tab--active" : "",
+                (project.id === activeProjectId && !workspaceSelected) ? "workspace-topbar__tab--active" : "",
                 draggingProjectId === project.id ? "opacity-60" : "",
               ].join(" ")}
               onClick={() => onOpenProject(project.id)}
@@ -366,7 +362,7 @@ export function WorkspaceTopBar({
                   };
                 }}
               role="presentation"
-              data-selected={project.id === activeProjectId || undefined}
+              data-selected={(project.id === activeProjectId && !workspaceSelected) || undefined}
             >
               <div className="compact-tab__body">
               <button
@@ -376,10 +372,10 @@ export function WorkspaceTopBar({
                   handleTabKeyDown(event, (tab) => tab.click())
                 }
                 role="tab"
-                aria-selected={project.id === activeProjectId}
+                aria-selected={(project.id === activeProjectId && !workspaceSelected)}
                 tabIndex={
-                  project.id === activeProjectId ||
-                  ((!showWorkspace || homePanels !== undefined) && (workspaceActive || activeProjectId === null) && project === projects[0])
+                  (project.id === activeProjectId && !workspaceSelected) ||
+                  (!showWorkspace && (workspaceActive || activeProjectId === null) && project === projects[0])
                     ? 0
                     : -1
                 }
@@ -408,7 +404,7 @@ export function WorkspaceTopBar({
                   aria-label={`关闭 ${project.name}`}
                   className={[
                     "workspace-topbar__tab-close compact-tab__close",
-                    project.id === activeProjectId ? "workspace-topbar__tab-close--persistent" : "",
+                    (project.id === activeProjectId && !workspaceSelected) ? "workspace-topbar__tab-close--persistent" : "",
                   ].join(" ")}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -424,6 +420,7 @@ export function WorkspaceTopBar({
         </div>
         </div>
         <TabStripScroll viewportRef={tabViewportRef} contentKey={`${showWorkspace}:${projectKey}`} ariaLabel="项目标签滚动" viewportId="project-tabs-scroll" />
+        </div>
       </div>
 
       <div className="workspace-topbar__actions flex shrink-0 items-center gap-2">

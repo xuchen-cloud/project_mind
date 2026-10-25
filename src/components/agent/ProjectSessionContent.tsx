@@ -15,13 +15,13 @@ import './project-session-content.css';
 
 export interface ProjectSessionContentProps {
   workspaceRoot: string;
-  projectId: number;
+  projectId: number | null;
   sessionId: string;
   visible: boolean;
   focused: boolean;
 }
 
-/** The Project client retains the original Session store when this UI seat closes. */
+/** Visited Session seats retain composer and reading DOM until their owner changes or the Tab closes. */
 export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, visible, focused }: ProjectSessionContentProps) {
   const queryClient = useQueryClient();
   const subscribe = useCallback((notify: () => void) => queryClient.getQueryCache().subscribe(event => {
@@ -33,6 +33,8 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
       settings?.aiSecretsUnlocked, settings?.securityMode, settings?.network]);
   }, [queryClient]);
   const fingerprint = useSyncExternalStore(subscribe, snapshot);
+  const verifiedConfiguration = useRef<{ scope: string; fingerprint: string } | null>(null);
+  const scopeIdentity = JSON.stringify([workspaceRoot, projectId]);
   const [attempt, setAttempt] = useState(0);
   const key = JSON.stringify([workspaceRoot, projectId, sessionId, fingerprint, attempt]);
   const identity = JSON.stringify([workspaceRoot, projectId, sessionId]);
@@ -58,13 +60,23 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
     let cancelled = false;
     setHostReady(false); setError(null);
     void (async () => {
-      if (!busy) await dshAssistantApi.start(JSON.stringify([workspaceRoot, projectId, fingerprint]), projectId);
-      if (cancelled) return;
+      const previous = verifiedConfiguration.current;
+      const configurationChanged = previous?.scope === scopeIdentity && previous.fingerprint !== fingerprint;
+      // Native business APIs own initial readiness; this host only rechecks
+      // configuration changes after its first selection, once current work ends.
+      if (configurationChanged && !busy) {
+        await dshAssistantApi.start(JSON.stringify([workspaceRoot, projectId, fingerprint]), projectId);
+        if (cancelled) return;
+      }
       await dshAssistantApi.selectSession(sessionId, projectId);
-      if (!cancelled) { setReadyIdentity(identity); setReadyKey(key); }
-    })().catch(reason => { if (!cancelled) setError(getErrorMessage(reason, '读取项目会话失败')); });
+      if (!cancelled) {
+        const deferredReview = configurationChanged && busy;
+        if (!deferredReview) verifiedConfiguration.current = { scope: scopeIdentity, fingerprint };
+        setReadyIdentity(identity); setReadyKey(deferredReview ? null : key);
+      }
+    })().catch(reason => { if (!cancelled) setError(getErrorMessage(reason, '读取会话失败')); });
     return () => { cancelled = true; };
-  }, [visible, ready, busy, key, workspaceRoot, projectId, sessionId, fingerprint, identity]);
+  }, [visible, ready, busy, key, workspaceRoot, projectId, sessionId, fingerprint, identity, scopeIdentity]);
 
   const callbacks = useMemo(() => {
     const valid = () => alive.current && current.current === key;
@@ -73,14 +85,14 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
       onError: (message: string) => { if (valid()) setError(message); },
       onSettings: () => { if (valid()) openSettings('dsh-assistant'); },
       onModelSettings: () => { if (valid()) openSettings('ai-models'); },
-      onFileOpen: (path: string, line?: number, sourceRef?: AgentSourceRef) => { if (valid()) openProjectFilePreview(projectId, path, line, sessionId, sourceRef); },
+      onFileOpen: (path: string, line?: number, sourceRef?: AgentSourceRef) => { if (valid()) openProjectFilePreview(projectId, path, line, sessionId, sourceRef, workspaceRoot); },
       onFilesChanged: () => {
         if (!valid()) return;
-        notifyProjectFilesChanged(projectId);
-        void queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(projectId) });
+        notifyProjectFilesChanged(projectId, workspaceRoot);
+        void queryClient.invalidateQueries({ queryKey: projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId) });
       },
     };
-  }, [key, projectId, sessionId, openSettings, queryClient]);
+  }, [key, projectId, sessionId, workspaceRoot, openSettings, queryClient]);
 
   useEffect(() => {
     if (!visible || !ready || !hostReady || error || !pending || inserting.current || referenceError?.id === pending.id) return;
@@ -97,18 +109,19 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
     });
   }, [visible, ready, hostReady, error, pending, projectId, sessionId, key, referenceRevision, referenceError]);
 
-  if (!visible) return null;
-  return <section className="project-session-content" data-project-session={sessionId} data-focused={focused}>
+  const retainHost = readyIdentity === identity && (!visible || ready);
+  if (!visible && !retainHost) return null;
+  return <section className="project-session-content" hidden={!visible} inert={!visible} style={visible ? undefined : { display: "none" }} data-project-session={sessionId} data-focused={visible && focused}>
     {error ? <div role="alert">
       <p>{error}</p>
       <Button size="sm" variant="ghost" onClick={() => openSettings('ai-models')}>模型设置</Button>
       <Button size="sm" onClick={() => { setReadyKey(null); setAttempt(value => value + 1); }}>重试</Button>
     </div>
-      : !ready ? <p role="status">正在读取项目会话…</p> : null}
+      : !ready ? <p role="status">正在读取会话…</p> : null}
     {pending && referenceError?.id === pending.id ? <div role="alert">
       <p>引用 {pending.path} 失败：{referenceError.message}</p>
       <Button size="sm" onClick={() => setReferenceError(null)}>重试引用</Button>
     </div> : null}
-    {ready ? <DshConversationHost projectId={projectId} sessionId={sessionId} focused={focused} {...callbacks} /> : null}
+    {retainHost ? <DshConversationHost projectId={projectId} sessionId={sessionId} focused={visible && focused} {...callbacks} /> : null}
   </section>;
 }

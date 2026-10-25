@@ -21,6 +21,7 @@ function shellQuote(value: string, shell: ExternalConnectionsStatus["cliShell"])
 }
 
 const WRITE_PERMISSION_OPTIONS = [
+  { value: "schedule.manage", label: "管理定时任务（可让 AI 操作整个工作区）" },
   { value: "content.create", label: "创建 Record、待办和文件" },
   { value: "record.patch", label: "修改 Record 正文块" },
   { value: "record.restore", label: "恢复 Record 历史版本" },
@@ -57,6 +58,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
   const [clientLabel, setClientLabel] = useState("");
   const [projectId, setProjectId] = useState<number | null>(null);
   const [connectionScope, setConnectionScope] = useState<ConnectionScope>("workspace");
+  const [scheduleManagement, setScheduleManagement] = useState(false);
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>("collaborate");
   const epoch = useRef(0);
   const loadedWorkspace = useRef<string | null>(null);
@@ -89,6 +91,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
       if (changedWorkspace) {
         setConnectionScope("workspace");
         setConnectionMode("collaborate");
+        setScheduleManagement(false);
         setProjectId(nextProjects.find((project) => !project.isArchived)?.id ?? null);
         loadedWorkspace.current = nextWorkspace;
       }
@@ -133,7 +136,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
   const binding = status?.binding ?? null;
   const grants = status?.connections ?? [];
   const selectedProjectIds = connectionScope === "project" && projectId !== null ? [projectId] : [];
-  const selectedWriteOperations = connectionMode === "collaborate" ? COLLABORATE_OPERATIONS : [];
+  const selectedWriteOperations = [...(connectionMode === "collaborate" ? COLLABORATE_OPERATIONS : []), ...(connectionScope === "workspace" && connectionMode === "collaborate" && scheduleManagement ? ["schedule.manage"] : [])];
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5" data-testid="external-connections-panel">
@@ -172,6 +175,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
             <label className="flex items-center gap-2"><input type="radio" name="connection-mode" checked={connectionMode === "collaborate"} onChange={() => setConnectionMode("collaborate")} />协作（推荐）</label>
             <label className="flex items-center gap-2"><input type="radio" name="connection-mode" checked={connectionMode === "read_only"} onChange={() => setConnectionMode("read_only")} />只读</label>
           </fieldset>
+          <label className="flex items-center gap-2 text-ui text-text-secondary"><input type="checkbox" checked={connectionScope === "workspace" && connectionMode === "collaborate" && scheduleManagement} disabled={connectionScope !== "workspace" || connectionMode !== "collaborate"} onChange={event => setScheduleManagement(event.target.checked)} />管理定时任务（可让 AI 操作整个工作区）</label>
           <p className="text-ui text-text-secondary">
             {connectionScope === "workspace" ? "Workspace 直属内容和所有未归档 Project，新建 Project 自动纳入。" : "仅所选 Project 的内容。"}
             {connectionMode === "collaborate" ? "可读写范围内的记录、文件与待办，恢复记录和文件历史版本，并撤销此连接自己的更改。" : "可读取范围内的记录、文件与待办。"}

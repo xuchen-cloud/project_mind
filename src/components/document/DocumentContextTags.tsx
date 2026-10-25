@@ -3,7 +3,7 @@ import { EntityTagEditor } from "../tags/EntityTagEditor";
 
 /** The same compact chips and portaled recommendations used by records and todos. */
 export function DocumentContextTags({ projectId, availableTags, tags, loading, onChange }: {
-  projectId: number;
+  projectId: number | null;
   availableTags: ProjectTagRecord[];
   tags: DocumentTagRecord[];
   loading: boolean;

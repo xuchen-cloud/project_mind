@@ -34,6 +34,7 @@ const fixture = vi.hoisted(() => {
   emitEvent: undefined as ((frame: unknown) => void) | undefined,
   opens: [] as { endpoint: string; payload: unknown }[],
   releaseFollow: undefined as (() => void) | undefined,
+  workspaceOpen: undefined as ((signal: AbortSignal) => AsyncIterable<unknown> | Promise<AsyncIterable<unknown>>) | undefined,
 };
 });
 afterAll(() => {
@@ -97,6 +98,10 @@ vi.mock('./adapters/transport.mjs', async () => {
               if (!signal.aborted && frames.length > 0) yield frames.shift();
             }
           } finally { signal.removeEventListener('abort', abort); fixture.emitEvent = undefined; }
+          return;
+        }
+        if (endpoint === 'workspace/follow' && fixture.workspaceOpen) {
+          yield* await fixture.workspaceOpen(signal);
           return;
         }
         if (fixture.catalog && endpoint === 'session/control') yield { type: 'baseline', value: { projections: {} } };
@@ -413,7 +418,7 @@ it('keeps two original Session scopes independently rendered and explicitly rout
   }
 });
 
-it('two actual Hosts scope composer and stop controls, keep hidden runs subscribed and restore the original draft', async () => {
+it.each([7, null])('two actual Hosts scope composer and stop controls, keep hidden runs subscribed and restore the original draft for owner %s', async (projectId) => {
   // Earlier fixtures use the same synthetic IDs; isolate their persisted drafts.
   localStorage.removeItem('dsh.conversation.fixture-session');
   localStorage.removeItem('dsh.conversation.second-session');
@@ -424,8 +429,8 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
   window.addEventListener('mind:dsh-project-busy', busy);
   window.addEventListener('mind:dsh-session-runs', sessionRuns);
   const shell = (first = true) => <div>
-    {first ? <DshConversationHost projectId={7} sessionId="fixture-session" focused={false} onReady={readyA} onModelChange={modelA} /> : null}
-    <DshConversationHost projectId={7} sessionId="second-session" focused onReady={readyB} onModelChange={modelB} />
+    {first ? <DshConversationHost projectId={projectId} sessionId="fixture-session" focused={false} onReady={readyA} onModelChange={modelA} /> : null}
+    <DshConversationHost projectId={projectId} sessionId="second-session" focused onReady={readyB} onModelChange={modelB} />
   </div>;
   const view = render(shell());
   try {
@@ -434,7 +439,7 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
     await waitFor(() => { expect(readyA).toHaveBeenCalledOnce(); expect(readyB).toHaveBeenCalledOnce(); });
     expect(modelA).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'fixture-session', running: false }));
     expect(modelB).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'second-session', running: false }));
-    await act(async () => { await insertDshFileReference(7, 'fixture-session', 'first.md'); });
+    await act(async () => { await insertDshFileReference(projectId, 'fixture-session', 'first.md'); });
     const hosts = [...document.querySelectorAll('[data-dsh-component-host]')] as HTMLElement[];
     expect(within(hosts[0]).getByRole('textbox')).toHaveTextContent('first.md');
     expect(within(hosts[1]).getByRole('textbox')).not.toHaveTextContent('first.md');
@@ -460,9 +465,9 @@ it('two actual Hosts scope composer and stop controls, keep hidden runs subscrib
     fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['fixture-session', false] });
     fixture.emitEvent!({ type: 'emit', event: 'api-session/status', args: ['second-session', false] });
     await waitFor(() => expect(busy.mock.calls.some(([event]) => event.detail.busy === false)).toBe(true));
-    await waitFor(() => expect(sessionRuns).toHaveBeenCalledWith(expect.objectContaining({ detail: { projectId: 7, runningBySession: { 'fixture-session': false, 'second-session': false } } })));
+    await waitFor(() => expect(sessionRuns).toHaveBeenCalledWith(expect.objectContaining({ detail: { projectId, runningBySession: { 'fixture-session': false, 'second-session': false } } })));
     expect(modelA).not.toHaveBeenCalled(); expect(modelB).not.toHaveBeenCalled();
-    render(<DshConversationHost projectId={7} sessionId="fixture-session" />);
+    render(<DshConversationHost projectId={projectId} sessionId="fixture-session" />);
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveTextContent('first.md'));
   } finally {
     cleanup(); await disposeDshClients(); window.removeEventListener('mind:dsh-project-busy', busy); window.removeEventListener('mind:dsh-session-runs', sessionRuns);
@@ -684,5 +689,57 @@ it('bridges authoritative Session titles into the native cache across unmounted 
     cleanup(); await disposeDshClients(); setDshWorkspaceRoot(null);
     window.removeEventListener('mind:dsh-session-titles', events);
     fixture.catalog = false;
+  }
+});
+
+
+it('keeps a newly created blank Session composer interactive after the shared Workspace stream updates ownership', async () => {
+  const { installContextStreams } = await import('../dsh-assistant/scripts/context-streams.mjs');
+  fixture.catalog = true; fixture.blank = true; fixture.releaseFollow = undefined;
+  const fontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts');
+  Object.defineProperty(document, 'fonts', { configurable: true, value: Object.assign(new EventTarget(), { ready: Promise.resolve() }) });
+  const context = { kind: 'project', id: 7, name: 'Native Project', directory: '/fixture/project', workspaceId: 'native-project' };
+  const workspace = { workspaceId: 'native-project', title: 'Native Project', path: context.directory,
+    sessionIds: ['old-session'], createdAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:00Z' };
+  let baseline = { items: [workspace], pinnedSessionIds: [], archivedSessionIds: [] };
+  const frames: unknown[] = [{ type: 'baseline', value: baseline }];
+  let wake: (() => void) | undefined;
+  const gateway = { async *openWireStream(_endpoint: string, _payload: unknown, _uplink: unknown, _peer: unknown, signal: AbortSignal) {
+    const abort = () => wake?.(); signal.addEventListener('abort', abort);
+    try {
+      while (!signal.aborted) {
+        if (!frames.length) await new Promise<void>(resolve => { wake = resolve; if (signal.aborted) resolve(); });
+        wake = undefined;
+        if (!signal.aborted && frames.length) yield frames.shift();
+      }
+    } finally { signal.removeEventListener('abort', abort); }
+  }, dispatchRpc() {} };
+  installContextStreams({ typertGateway: gateway }, {
+    workspace: context, select: () => context, snapshot: async () => baseline,
+  });
+  fixture.workspaceOpen = signal => gateway.openWireStream('workspace/follow', { args: {}, mindContext: context }, undefined, undefined, signal);
+  const client = await createDshClient(7);
+  const portal = document.createElement('div'); portal.className = 'dsh-ui-host'; document.body.append(portal);
+  try {
+    await waitFor(() => expect(client.ctx.workspaces.list.getSnapshot().phase).toBe('ready'));
+    const selection = client.select('fixture-session');
+    await waitFor(() => expect(fixture.releaseFollow).toBeDefined());
+    fixture.releaseFollow!();
+    const reference = await selection;
+    render(<HostPortalProvider value={portal}><div className="dsh-ui-host">{client.ctx.slots.renderSlot('root', { mode: 'chat', reference })}</div></HostPortalProvider>);
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Choose workspace'));
+    await act(async () => {
+      baseline = { ...baseline, items: [{ ...workspace, sessionIds: ['old-session', 'fixture-session'], updatedAt: '2026-10-25T00:01:00Z' }] };
+      frames.push({ type: 'upsert', workspace: baseline.items[0] });
+      wake?.();
+    });
+    await waitFor(() => {
+      expect(client.ctx.workspaces.list.getSnapshot().items[0].sessionIds).toContain('fixture-session');
+      expect(screen.getByRole('textbox')).not.toHaveAttribute('aria-label', 'Choose workspace');
+      expect(screen.getByRole('textbox')).toHaveAttribute('contenteditable', 'true');
+    });
+  } finally {
+    cleanup(); await client.dispose(); portal.remove(); fixture.workspaceOpen = undefined; fixture.catalog = false; fixture.blank = false;
+    if (fontsDescriptor) Object.defineProperty(document, 'fonts', fontsDescriptor); else Reflect.deleteProperty(document, 'fonts');
   }
 });

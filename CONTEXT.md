@@ -121,8 +121,12 @@ _Avoid_：Todo Progress、进展、子项
 ### 材料
 
 **File**：
-归属于一个 Project、被该工作现场持续管理的外部材料，可以被查找、引用、标记并随内容变化保留版本。
+归属于 Workspace 或一个 Project、被所属工作现场持续管理的外部材料，可以被查找、引用、标记并随内容变化保留版本。Workspace 与 Project 共用文件身份、导入、编辑、版本和引用流程，归属相互隔离。
 _Avoid_：Document、附件记录
+
+**Workspace File**：
+直接归属于 Workspace、不依赖 Project 的 File。普通文件根为工作区的 `files/`，与内部元数据和项目目录隔离；它复用共享内容 Tab 与双栏，不汇总或复制 Project File。
+_Avoid_：占位 Project、项目文件汇总、内部数据文件
 
 **File Version**：
 同一个 File 在特定时点的内容版本，依附于该 File，不是新的独立 File。
@@ -157,6 +161,14 @@ _Avoid_：Assignee、任务分配、权限授予
 Voice Record 的说话人可关联 Contact；用户确认声音后，其声纹在本 Workspace 本地保存供后续录音匹配。自动匹配结果保留明确标记，未经确认的匹配不会更新联系人声纹。详细边界见[本地说话人区分](docs/requirements/voice-speaker-diarization.md)。
 
 ### Context 与 Agent
+
+**Workspace Session（工作区会话）**：
+归属于整个 Workspace 的助手会话，以工作区及其各 Project 的授权内容为工作范围，保留独立于 Project 会话的对话历史。
+_Avoid_：占位 Project、全局跨工作区会话
+
+**Scheduled Task（定时任务）**：
+绑定一个工作区会话的持续执行安排，在指定时间把任务内容发入原会话并交由助手执行；它与用于跟踪行动完成情况的 Todo 相互独立。
+_Avoid_：Todo 截止日期、提醒消息、独立会话
 
 **Context（工作上下文）**：
 由 File、Record、Todo、会话、知识、Overview 和记忆等组成的持续工作现场，既为 Agent 提供理解依据，也承接其工作成果，并通过页面供用户与 Agent 共同查看、编辑和维护。Context 中的内容保留各自的业务身份、归属和生命周期，单次模型输入仅选取其中与任务相关且已授权的部分。

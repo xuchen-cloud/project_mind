@@ -62,3 +62,10 @@ describe("search query keys", () => {
     );
   });
 });
+
+
+it("uses the existing Workspace tag cache for shared File imports and mutations", () => {
+  expect(queryKeys.projectTags.project(null)).toEqual(queryKeys.projectTags.workspace);
+  expect(queryKeys.projectTags.project(3)).toEqual(["project-tag-settings", 3]);
+  expect(queryKeys.projectTags.project(3)).not.toEqual(queryKeys.projectTags.workspace);
+});

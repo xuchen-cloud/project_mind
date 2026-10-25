@@ -36,7 +36,7 @@ it("loads real API sessions without selecting/creating, and filters titles local
   const view = render(component());
   expect(screen.getByRole("status")).toHaveAccessibleName("正在读取项目会话");
   await screen.findByRole("button", { name: "Alpha 方案" });
-  expect(api.start).toHaveBeenCalledWith(JSON.stringify(["/workspace", 7]), 7);
+  expect(api.start).not.toHaveBeenCalled();
   expect(api.sessions).toHaveBeenCalledWith(7);
   expect(api.selectSession).not.toHaveBeenCalled();
   const list = screen.getByRole("region", { name: "项目会话列表" });
@@ -48,7 +48,7 @@ it("loads real API sessions without selecting/creating, and filters titles local
   view.rerender(component({ query: "missing" }));
   expect(screen.getByText("没有匹配的会话")).toBeInTheDocument();
   expect(api.sessions).toHaveBeenCalledTimes(1);
-  expect(api.start).toHaveBeenCalledTimes(1);
+  expect(api.start).not.toHaveBeenCalled();
 });
 
 it("shows the loading spinner in the heading immediately before creation", async () => {
@@ -95,7 +95,7 @@ it("creates only on explicit click and refreshes the list after opening", async 
   expect(api.sessions).toHaveBeenCalledTimes(2);
 });
 
-it.each(["start", "sessions"] as const)("shows %s errors and retries only on request", async method => {
+it.each(["sessions"] as const)("shows %s errors and retries only on request", async method => {
   api[method].mockRejectedValueOnce(new Error("服务不可用"));
   render(component());
   expect(await screen.findByRole("alert")).toHaveTextContent("服务不可用");
@@ -129,17 +129,18 @@ it("shows selection errors and allows retry of the same session", async () => {
   expect(api.selectSession.mock.calls).toEqual([["alpha", 7], ["alpha", 7]]);
 });
 
-it("does no work while collapsed and stops the pending start before reading sessions", async () => {
-  const pending = deferred<void>();
-  api.start.mockReturnValueOnce(pending.promise);
+it("does no work while collapsed and discards a pending Session list after collapsing", async () => {
+  const pending = deferred<typeof saved>();
+  api.sessions.mockReturnValueOnce(pending.promise);
   const view = render(component({ enabled: false }));
   expect(api.start).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "新增会话" })).toBeDisabled();
   view.rerender(component());
-  expect(api.start).toHaveBeenCalledTimes(1);
+  expect(api.sessions).toHaveBeenCalledTimes(1);
   view.rerender(component({ enabled: false }));
-  await act(async () => pending.resolve());
-  expect(api.sessions).not.toHaveBeenCalled();
+  await act(async () => pending.resolve(saved));
+  expect(screen.queryByRole("button", { name: "Alpha 方案" })).toBeNull();
+  expect(api.start).not.toHaveBeenCalled();
   view.rerender(component());
   await screen.findByRole("button", { name: "Alpha 方案" });
   expect(api.selectSession).not.toHaveBeenCalled();
@@ -158,8 +159,8 @@ it.each([{ projectId: 8 }, { workspaceRoot: "/other" }])("isolates delayed list 
 });
 
 it("isolates stale failures even after returning to the same project", async () => {
-  const pending = deferred<void>();
-  api.start.mockReturnValueOnce(pending.promise);
+  const pending = deferred<typeof saved>();
+  api.sessions.mockReturnValueOnce(pending.promise);
   const view = render(component());
   view.rerender(component({ projectId: 8 }));
   await screen.findByRole("button", { name: "Alpha 方案" });
@@ -380,4 +381,12 @@ it("cancels inline rename with Escape without saving", async () => {
   fireEvent.keyDown(field, { key: "Escape" });
   expect(screen.queryByRole("textbox")).toBeNull();
   expect(api.manage).not.toHaveBeenCalled();
+});
+
+it("opens a real Workspace session through the same content Tabs as Project sessions", async () => {
+  render(component({ projectId: null }));
+  fireEvent.click(await screen.findByRole("button", { name: "Alpha 方案" }));
+  await waitFor(() => expect(api.open).toHaveBeenCalledWith(expect.objectContaining({ workspaceRoot: "/workspace", projectId: null, object: { kind: "session", id: "alpha", title: "Alpha 方案" } })));
+  expect(api.selectSession).toHaveBeenCalledWith("alpha", null);
+  expect(useAgentPanelStore.getState().open).toBe(false);
 });

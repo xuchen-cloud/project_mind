@@ -13,12 +13,12 @@ export type ProjectDirectoryPreview =
   | { kind: "open"; reason: "binary" | "tooLarge"; bytes: number };
 
 export const projectDirectoryApi = {
-  list: (projectId: number, relativePath = "") =>
+  list: (projectId: number | null, relativePath = "") =>
     desktopApi.command<ProjectDirectoryEntry[]>("project_directory_list", { projectId, relativePath }),
-  preview: (projectId: number, relativePath: string) =>
+  preview: (projectId: number | null, relativePath: string) =>
     desktopApi.command<ProjectDirectoryPreview>("project_directory_preview", { projectId, relativePath }),
-  resolveReference: (projectId: number, reference: string) =>
+  resolveReference: (projectId: number | null, reference: string) =>
     desktopApi.command<string>("project_directory_resolve_reference", { projectId, reference }),
-  open: (projectId: number, relativePath: string) =>
+  open: (projectId: number | null, relativePath: string) =>
     desktopApi.command<void>("project_directory_open", { projectId, relativePath }),
 };

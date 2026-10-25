@@ -30,6 +30,7 @@ use crate::{
 use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use super::schedules::{ScheduleListInput, ScheduleCreateInput, ScheduleUpdateInput, ScheduleDeleteInput, ScheduleRunInput};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -124,7 +125,7 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "file.list",
-            description: "List authorized native File metadata; detail mode returns verified extracted text with completeness/status. Filter by ids, titleQuery, contentQuery, tag and all tagIds before pagination. limit:0 counts only. totalCount counts known matches; countComplete=false and unreadableCount disclose incomplete content search. No file paths or binary bytes are returned. Workspace scope has no Files.",
+            description: "List authorized native File metadata; detail mode returns verified extracted text with completeness/status. Filter by ids, titleQuery, contentQuery, tag and all tagIds before pagination. limit:0 counts only. totalCount counts known matches; countComplete=false and unreadableCount disclose incomplete content search. No file paths or binary bytes are returned. Workspace and Project scopes each list their own Files.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(RecordListInput)).expect("static schema"),
         },
@@ -296,6 +297,36 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             read_only: true,
             parameters: serde_json::to_value(schema_for!(FileContentIdInput)).expect("static schema"),
         },
+        RegisteredMethod {
+            method: "schedule.list",
+            description: "List persistent Workspace Scheduled Tasks, including their bound Session, local time zone, next run and last error. Requires explicit schedule.read permission.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ScheduleListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "schedule.create",
+            description: "Create a Workspace Scheduled Task bound to an existing Workspace Session. Requires schedule.manage and a stable requestId. Use the actual current Session ID, not a Project Session. The system local time zone is supplied by the Host. Hours use fixed intervals; days/weeks/weekdays/monthly use local calendar time. Restore catches up only the latest missed occurrence.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ScheduleCreateInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "schedule.update",
+            description: "Edit, pause or resume a Workspace Scheduled Task by id, passing its complete task fields with the same sessionId. Requires schedule.manage and a stable requestId; read schedule.list first to preserve unrelated fields.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ScheduleUpdateInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "schedule.run",
+            description: "Run a Workspace Scheduled Task once in its original Session, including paused tasks, without changing its recurrence, enabled state or next run. Requires schedule.manage and a stable requestId. Success confirms the message was queued durably, not that AI finished the task. Replay the same requestId on uncertain outcomes.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ScheduleRunInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "schedule.delete",
+            description: "Delete a Workspace Scheduled Task by id and stop future triggers. Retains its existing conversation messages. Requires schedule.manage and a stable requestId.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ScheduleDeleteInput)).expect("static schema"),
+        },
     ]
 }
 
@@ -314,11 +345,12 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list" | "record.list" | "file.list" | "session.list"
         | "file.versions.list" | "file.versions.get" | "file.source.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
-        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" => Some(true),
+        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" | "schedule.list" => Some(true),
         "record.create" | "record.patch" | "record.restore" | "operation.undo"
         | "operation.restore_created" | "todo.create" | "todo.update"
         | "file.create" | "file.patch" | "file.version.restore" | "file.update"
-        | "file.content.begin" | "file.content.chunk" | "file.content.complete" => Some(false),
+        | "file.content.begin" | "file.content.chunk" | "file.content.complete"
+        | "schedule.create" | "schedule.update" | "schedule.delete" | "schedule.run" => Some(false),
         _ => None,
     }
 }
@@ -338,6 +370,11 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
     }
     let decoded = match method {
         "connection.status" => decode::<ConnectionStatusInput>(parameters),
+        "schedule.list" => decode::<ScheduleListInput>(parameters),
+        "schedule.create" => decode::<ScheduleCreateInput>(parameters),
+        "schedule.update" => decode::<ScheduleUpdateInput>(parameters),
+        "schedule.delete" => decode::<ScheduleDeleteInput>(parameters),
+        "schedule.run" => decode::<ScheduleRunInput>(parameters),
         "project.list" => decode::<ProjectListInput>(parameters),
         "context.get" => decode::<ContextGetInput>(parameters),
         "context.overview.get" => decode::<OverviewReadInput>(parameters),
@@ -423,7 +460,7 @@ mod tests {
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",
             "file.content.begin", "file.content.chunk", "file.content.complete",
-            "file.content.status",
+            "file.content.status", "schedule.list", "schedule.create", "schedule.update", "schedule.run", "schedule.delete",
         ]);
         assert!(registered_methods().iter().all(|entry| is_read_only(entry.method) == Some(entry.read_only)));
         for method in ["session.search", "session.messages.read", "session.read", "session.create", "run.start", "run.cancel"] {
