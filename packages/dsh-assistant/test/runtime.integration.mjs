@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
+import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference';
 import { startLocalProvider } from './fixtures/local-provider.mjs';
 
 // Run explicitly: node --test packages/dsh-assistant/test/runtime.integration.mjs
@@ -1084,13 +1085,25 @@ test('Workspace runtime: real chat, stop, restore and isolation from Project his
     await Promise.all([runtime?.stop(), projectRuntime?.stop()]);
     await provider.close(); await rm(temp, { recursive: true, force: true });
   });
-  const startWorkspace = () => launch(path.join(data, 'workspace'), undefined, shared, undefined, profile, undefined, workspace);
+  const sourceOperations = [];
+  const workspaceSource = async payload => {
+    sourceOperations.push(payload);
+    if (payload.operation === 'delivery') return null;
+    assert.equal(payload.operation, 'prepare');
+    assert.equal(payload.path, 'files/workspace-note.txt');
+    const text = await readFile(path.join(directory, payload.path), 'utf8');
+    const sourceRef = { object: { workspaceId: workspace.id, scope: { kind: 'workspace' }, kind: 'file', id: 'workspace-file' }, revision: 'sha256:' + createHash('sha256').update(text).digest('hex'), fileVersion: 1, recordVersion: null, blockId: null, locator: { kind: 'line', start: 1, end: 1 }, title: 'workspace-note.txt', excerpt: '' };
+    const metadata = { id: randomUUID(), sourceRef, offset: 1, limit: 1, requestedLimit: payload.limit, truncated: false, content: '1: ' + text };
+    const token = `mind-source/${Buffer.from(JSON.stringify(sourceRef)).toString('base64url')}/workspace-note.txt`;
+    return { sourceRef, projection: `@${token}\n<mind-file-source>${JSON.stringify(metadata)}</mind-file-source>`, readValue: { path: token, offset: 1, lines: [{ number: 1, text }], totalLines: 1, truncated: false } };
+  };
+  const startWorkspace = () => launch(path.join(data, 'workspace'), undefined, shared, undefined, profile, workspaceSource, workspace);
   runtime = await startWorkspace();
   const sourceResponse = await fetch(`${runtime.origin}/api/mind/source/resolve`, {
     method: 'POST', headers: { ...runtime.headers, 'content-type': 'application/json' }, body: '{}',
   });
-  assert.equal(sourceResponse.status, 404, 'Workspace never installs the Project source route');
-  await sourceResponse.arrayBuffer();
+  assert.equal(sourceResponse.status, 200, 'shared source route also serves authorized Workspace Sessions');
+  assert.equal((await sourceResponse.json()).result.ok, false, 'a source request without an actual Session is rejected');
   const mapped = (await runtime.rpc('workspace/initializeDefault')).workspace;
   assert.equal(mapped.path, directory);
   assert.equal(mapped.title, workspace.name);
@@ -1111,15 +1124,17 @@ test('Workspace runtime: real chat, stop, restore and isolation from Project his
   assert.deepEqual((await runtime.rpc('session/selectModel', { sessionId, provider: 'mind-main', model: shared.modelId })).selected, { provider: 'mind-main', model: shared.modelId });
   const toolNames = bodies[0].tools.map(tool => tool.function.name);
   assert.ok(toolNames.length > 0, 'ordinary DSH tools remain available');
-  assert.ok(!toolNames.some(name => name.startsWith('file_office_')), 'Workspace never installs Project Office tools');
-  await writeFile(path.join(directory, 'workspace-note.txt'), 'Workspace ordinary file bytes');
+  assert.ok(toolNames.includes('file_office_inspect'), 'Workspace Sessions retain the authorized native File tools');
+  await mkdir(path.join(directory, 'files'));
+  await writeFile(path.join(directory, 'files/workspace-note.txt'), 'Workspace ordinary file bytes');
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'workspace-read-call', type: 'function', function: {
-    name: 'read', arguments: JSON.stringify({ file_path: 'workspace-note.txt', offset: 1, limit: 1 }),
+    name: 'read', arguments: JSON.stringify({ file_path: 'files/workspace-note.txt', offset: 1, limit: 1 }),
   } }] });
   await prompt(runtime, stream, sessionId, 'Read the ordinary Workspace file');
   assert.match(providerToolReply(bodies, 'workspace-read-call'), /Workspace ordinary file bytes/);
   const readResult = events(stream).find(event => event.type === 'tool/result' && event.data.message.source.callId === 'workspace-read-call');
-  assert.equal(readResult?.data.message.isError, false, 'ordinary read executes without the Project source bridge');
+  assert.equal(readResult?.data.message.isError, false, 'Workspace read uses its authorized native source bridge');
+  assert.ok(sourceOperations.some(operation => operation.operation === 'prepare' && operation.sessionId === sessionId));
   const uploadResponse = await fetch(`${runtime.origin}/api/session/uploadFileBinary?sessionId=${encodeURIComponent(sessionId)}&name=workspace-attachment.txt`, {
     method: 'POST', headers: { ...runtime.headers, 'content-type': 'application/octet-stream' }, body: 'Workspace attachment bytes',
   });
@@ -1302,7 +1317,7 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
       assert.equal(payload.mode, 'read-only');
       const leaseId = `lease-${operations.length}`;
       leases.add(leaseId); await writeFile(marker, 'active');
-      return { leaseId, token };
+      return { leaseId, token, cli };
     }
     assert.equal(payload.operation, 'cliLeaseClose');
     assert.ok(leases.delete(payload.leaseId)); await rm(marker);
@@ -1493,7 +1508,7 @@ test('natural language creates a durable schedule through model bash and the rea
   const patch=path.join(temp,'write.patch.yml');await writeFile(patch,'- id: sandbox-policy\n  config:\n    mode: workspace-write\n');
   runtime=await launch(path.join(temp,'data'),patch,{name:'Local CLI model',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false},undefined,undefined,async payload=>{
     assert.equal(payload.sessionId,currentSession);
-    if(payload.operation==='cliLeaseOpen') {assert.equal(payload.mode,'workspace-write');leases.add('real-cli-lease');return {leaseId:'real-cli-lease',token};}
+    if(payload.operation==='cliLeaseOpen') {assert.equal(payload.mode,'workspace-write');leases.add('real-cli-lease');return {leaseId:'real-cli-lease',token,cli};}
     assert.equal(payload.operation,'cliLeaseClose');assert.ok(leases.delete(payload.leaseId));return null;
   },workspace,cli);
   ({sessionId:currentSession}=await runtime.rpc('session/create',{}));
@@ -1519,4 +1534,131 @@ test('natural language creates a durable schedule through model bash and the rea
   await stream.close();stream=undefined;await runtime.stop();
   runtime=await launch(path.join(temp,'data'),patch,{name:'Local CLI model',modelId:'local-test-model',baseUrl:provider.url,apiKey:'local-integration-key',supportsImage:false},undefined,undefined,undefined,workspace);
   assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),tasks,'task survives a real runtime restart');
+});
+
+test('one shared assistant process isolates workspace and two project Sessions across concurrency and restart', {timeout:90000},async t=>{
+ const scopedFeeds=[];
+ const temporary=await realpath(await mkdtemp(path.join(tmpdir(),'mind-runtime-shared-')));
+ const providerBodies=[];
+ const provider=await startLocalProvider({onSyntheticRequest:body=>providerBodies.push(body)});const streams=[];let runtime;
+ const searchQuery='shared-scope-query-'+randomUUID();
+ t.after(async()=>{try{for(const feed of scopedFeeds)await feed.close();for(const stream of streams)await stream.close();await runtime?.stop();}finally{await provider.close();await rm(temporary,{recursive:true,force:true});}});
+ const workspace={kind:'workspace',id:randomUUID(),name:'Shared workspace',directory:path.join(temporary,'workspace')};
+ const projects=[{kind:'project',id:251,name:'Shared project A',directory:path.join(workspace.directory,'a')},{kind:'project',id:252,name:'Shared project B',directory:path.join(workspace.directory,'b')}];
+ for(const context of [workspace,...projects])await mkdir(context.directory,{recursive:true});
+ const data=path.join(temporary,'shared-data');
+ const shared={name:'Shared model',baseUrl:provider.url,modelId:'local-test-model',apiKey:'local-integration-key',supportsImage:false};
+ const sourceRequests=[];
+ const sourceHandler=async payload=>{sourceRequests.push(payload);return {scopeSession:payload.sessionId};};
+ const start=()=>launch(data,undefined,shared,undefined,undefined,sourceHandler,workspace);
+ runtime=await start();const pid=runtime.child.pid;
+ const mapped=[];
+ for(const context of [workspace,...projects])mapped.push((await runtime.rpc('mind/context',{context})).workspaceId);
+ assert.equal(new Set(mapped).size,3);
+ const sessions=[];
+ for(const context of [workspace,...projects]){
+  const created=await runtime.rpc('mind/session/create',{context});sessions.push(created.sessionId);
+  await runtime.rpc('session/rename',{sessionId:created.sessionId,title:context.name+' history'});
+  const stream=await follow(runtime,created.sessionId);streams.push(stream);assert.equal(stream.snapshot.header.cwd,context.directory);
+  const source=await runtime.rpc('mind/source/resolve',{sessionId:created.sessionId,path:'files/scope.txt'});
+  assert.equal(source.scopeSession,created.sessionId);
+ }
+ assert.deepEqual(sourceRequests.map(value=>value.sessionId),sessions);
+ for(let i=0;i<sessions.length;i++){
+  const list=await runtime.rpc('mind/session/list',{context:[workspace,...projects][i]});
+  assert.deepEqual(list.items.map(row=>row.sessionId),[sessions[i]]);
+ }
+ const openScoped=async(endpoint,context)=>{
+  const socket=new WebSocket(`${runtime.origin.replace('http:','ws:')}/api/remote.mux`,{headers:runtime.headers});
+  const frames=[];let failure;
+  socket.on('error',error=>{failure=error;});
+  socket.on('message',data=>{const frame=JSON.parse(data.toString());if(frame.type==='error')failure=new Error(JSON.stringify(frame.error));else if(frame.type==='item')frames.push(frame.value);});
+  const read=(predicate,description)=>waitFor(()=>{if(failure)throw failure;return frames.find(predicate);},description);
+  const close=async()=>{if(socket.readyState===WebSocket.CLOSED)return;const ended=new Promise(resolve=>socket.once('close',resolve));socket.terminate();await ended;};
+  const feed={frames,read,close};scopedFeeds.push(feed);
+  await waitFor(()=>{if(failure)throw failure;return socket.readyState===WebSocket.OPEN;},'scoped mux opens');
+  socket.send(JSON.stringify({type:'open',streamId:'scoped-feed',endpoint,payload:{args:{},mindContext:context}}));
+  return feed;
+ };
+ const eventFeeds=[],workspaceFeeds=[];
+ for(let i=0;i<projects.length;i++){
+  const context=projects[i],mappedIndex=i+1;
+  const initialized=await runtime.rpc('mind/workspace/initializeDefault',{context});
+  assert.equal(initialized.workspace.workspaceId,mapped[mappedIndex]);
+  assert.deepEqual(initialized.workspace.sessionIds,[sessions[mappedIndex]]);
+  const workspaceFeed=await openScoped('workspace/follow',context);workspaceFeeds.push(workspaceFeed);
+  const baseline=(await workspaceFeed.read(frame=>frame.type==='baseline','scoped workspace baseline')).value;
+  assert.deepEqual(baseline.items.map(item=>item.workspaceId),[mapped[mappedIndex]]);
+  assert.deepEqual(baseline.items[0].sessionIds,[sessions[mappedIndex]]);
+  const eventFeed=await openScoped('$events',context);eventFeeds.push(eventFeed);
+  await eventFeed.read(frame=>frame.type==='ready','scoped events ready');
+ }
+ const probes=[];
+ for(let i=0;i<projects.length;i++){
+  const probe=await runtime.rpc('mind/session/create',{context:projects[i]});probes.push(probe.sessionId);
+  await eventFeeds[i].read(frame=>frame.event==='api-session/added'&&frame.args[0].sessionId===probe.sessionId,'own scoped Session added');
+  const update=await workspaceFeeds[i].read(frame=>frame!==workspaceFeeds[i].frames[0],'new blank Session Workspace attachment update');
+  assert.equal(update.type,'upsert','a connected Client Workspace stream requires deltas after its single opening baseline');
+  assert.equal(update.workspace.workspaceId,mapped[i+1]);
+  assert.ok(update.workspace.sessionIds.includes(probe.sessionId),'new blank Session must resolve its owning Workspace in the client catalog');
+  assert.equal(workspaceFeeds[i].frames.filter(frame=>frame.type==='baseline').length,1);
+ }
+ for(let i=0;i<probes.length;i++)await runtime.rpc('mind/session/delete',{context:projects[i],sessionId:probes[i]});
+ await assert.rejects(runtime.rpc('mind/session/create',{context:projects[0],sessionId:sessions[2]}),/another context/);
+ await assert.rejects(runtime.rpc('mind/session/create',{context:projects[0],cwd:projects[1].directory}),/another context/);
+ await assert.rejects(runtime.rpc('mind/session/delete',{context:projects[0],sessionId:sessions[2]}),/another context/);
+ const blocked=provider.enqueueResponse({manual:true,chunks:['A partial','A MUST NOT ARRIVE']});
+ const turnA=prompt(runtime,streams[1],sessions[1],`Shared A blocked ${searchQuery}`,'aborted');
+ await waitFor(()=>provider.requests.length===1,'project A provider admission');blocked.advance();
+ await streams[1].read(frame=>frame.type==='assistant-stream'&&frame.frame.type==='chunk'&&frame.frame.chunk.type==='text-delta'&&frame.frame.chunk.text==='A partial','project A partial');
+ const blockedB=provider.enqueueResponse({manual:true,chunks:['B continues','B completed']});
+ const turnB=prompt(runtime,streams[2],sessions[2],`Shared B concurrent ${searchQuery}`);
+ await waitFor(()=>provider.requests.length===2,'project B provider admission');blockedB.advance();
+ await streams[2].read(frame=>frame.type==='assistant-stream'&&frame.frame.type==='chunk'&&frame.frame.chunk.type==='text-delta'&&frame.frame.chunk.text==='B continues','project B partial');
+ assert.equal(runtime.child.pid,pid);
+ await runtime.rpc('session/cancel',{sessionId:sessions[1]});await turnA;
+ assert.equal(provider.requests[1].outcome,'streaming','stopping A must leave B running');
+ blockedB.advance();await turnB;
+ await prompt(runtime,streams[0],sessions[0],'Workspace independent turn');
+ assert.ok(!JSON.stringify(streams[2].frames).includes('A partial'));assert.ok(!JSON.stringify(streams[1].frames).includes('B completed'));
+ const attachmentBytes='Shared attachment belongs only to project A';
+ const upload=await fetch(`${runtime.origin}/api/session/uploadFileBinary?sessionId=${encodeURIComponent(sessions[1])}&name=shared-scope.txt`,{method:'POST',headers:{...runtime.headers,'content-type':'application/octet-stream'},body:attachmentBytes});
+ assert.equal(upload.status,200);const uploaded=await upload.json();assert.equal(uploaded.ok,true);
+ const attachmentFrom=streams[1].frames.length;
+ await runtime.rpc('session/prompt',{sessionId:sessions[1],requestId:randomUUID(),mode:'queue',content:[{type:'text',text:'Use this project A attachment'},{type:'file',receiptId:uploaded.value.receiptId}]});
+ await streams[1].read(frame=>streams[1].frames.indexOf(frame)>=attachmentFrom&&frame.type==='event'&&frame.event.type==='turn/end','shared attachment turn ends');
+ const attachmentHash=createHash('sha256').update(attachmentBytes).digest('hex');
+ const attachmentPath=path.join(data,'attachments/v1/files',attachmentHash.slice(0,2),attachmentHash,'shared-scope.txt');
+ assert.equal(await readFile(attachmentPath,'utf8'),attachmentBytes);
+ for(const context of [workspace,...projects])assert.equal((await runtime.rpc('mind/session/fileAccess',{context,path:attachmentPath})).allowed,context.id===projects[0].id);
+ const admittedBeforeReference=provider.requests.length;
+ const crossed=await prompt(runtime,streams[1],sessions[1],`Read the other project history @[other project](${encodeSessionReferenceUri(sessions[2])})`,'error');
+ assert.match(crossed.data.reason.error.message,/Referenced Session belongs to another context/);
+ assert.equal(provider.requests.length,admittedBeforeReference,'cross-scope canonical Session reference must fail before model admission');
+ assert.equal(providerBodies.length,admittedBeforeReference);
+ for(const body of [providerBodies[0],providerBodies[3]])assert.ok(!JSON.stringify(body).includes('Shared B concurrent'),'project B history must never reach a project A model request');
+ for(let i=0;i<projects.length;i++){
+  const result=await runtime.rpc('mind/session/search',{context:projects[i],query:searchQuery});
+  assert.deepEqual(result.items.map(item=>item.sessionId),[sessions[i+1]],'search must restrict identical query matches to its actual scope');
+  assert.equal(result.hasMore,false);
+ }
+ for(let i=0;i<eventFeeds.length;i++){
+  await eventFeeds[i].read(frame=>frame.event==='api-session/status'&&frame.args[0]===sessions[i+1],'own scoped Session status');
+  const own=new Set([sessions[i+1],probes[i]]);
+  const observed=eventFeeds[i].frames.filter(frame=>['api-session/added','api-session/status'].includes(frame.event));
+  assert.ok(observed.length>0);
+  for(const frame of observed){const id=frame.event==='api-session/added'?frame.args[0].sessionId:frame.args[0];assert.ok(own.has(id),`foreign Session leaked through ${frame.event}`);}
+ }
+ for(const feed of scopedFeeds)await feed.close();scopedFeeds.length=0;
+ const before=streams.map(events);
+ for(const stream of streams)await stream.close();streams.length=0;await runtime.stop();
+ runtime=await start();
+ for(let i=0;i<3;i++){
+  const context=[workspace,...projects][i];
+  const registered=await runtime.rpc('mind/context',{context});assert.equal(registered.workspaceId,mapped[i]);
+  const list=await runtime.rpc('mind/session/list',{context});assert.deepEqual(list.items.map(row=>row.sessionId),[sessions[i]]);
+  const stream=await follow(runtime,sessions[i]);streams.push(stream);assertRestoredHistory(stream,before[i]);
+ }
+ for(const context of [workspace,...projects])assert.equal((await runtime.rpc('mind/session/fileAccess',{context,path:attachmentPath})).allowed,context.id===projects[0].id);
+ assert.equal(provider.requests.length,4,'history restore must not send model requests');
 });

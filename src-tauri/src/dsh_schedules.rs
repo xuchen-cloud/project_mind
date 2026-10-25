@@ -46,11 +46,8 @@ pub(super) async fn request_with_admission(
         return Err("应用正在退出".into());
     }
     verify_binding(app, binding)?;
-    let pending = crate::lock_mutex(&state.requests)
-        .values()
-        .any(|request| request.project_id.is_none());
-    let inner = runtimes.scopes.entry(None).or_default();
-    inner.ensure_ready(app, None, pending).await?;
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let inner = runtimes.ensure_scope(app, None, pending).await?;
     verify_binding(app, binding)?;
     inner.check_ready(app)?;
     admit()?;
@@ -110,7 +107,14 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
     };
     let bytes = match tokio::fs::read(&file).await {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy = runtime_data_directory(&assistant_data_root()?, &binding.workspace_id, None)?.join("scheduled-tasks.json");
+            match tokio::fs::read(&legacy).await {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(format!("{}: {error}", legacy.display())),
+            }
+        },
         Err(error) => return Err(format!("{}: {error}", file.display())),
     };
     if !enabled_tasks(&bytes)? {
@@ -123,8 +127,7 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
     }
     verify_binding(app, &binding)?;
     // An existing runtime may be reused, but background recovery never replaces it.
-    let inner = runtimes.scopes.entry(None).or_default();
-    inner.ensure_ready(app, None, true).await?;
+    let inner = runtimes.ensure_scope(app, None, true).await?;
     verify_binding(app, &binding)?;
     inner.check_ready(app)
 }
@@ -185,9 +188,9 @@ mod tests {
         let workspace = "schedule-fixture-workspace";
         assert_eq!(
             workspace_runtime_home(workspace).unwrap(),
-            root.join("projects").join(workspace).join("workspace")
+            root.join("projects").join(workspace).join("shared-runtime")
         );
-        assert_eq!(
+        assert_ne!(
             workspace_runtime_home(workspace)
                 .unwrap()
                 .join("scheduled-tasks.json"),

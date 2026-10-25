@@ -8,6 +8,8 @@ import { requestDshFileReference, setDshWorkspaceRoot, useDshFileReferences } fr
 import type { AgentSourceRef } from '../../lib/agent-types';
 import { useProjectFileNavigation } from '../../lib/project-file-navigation';
 import { useUiStore } from '../../state/ui-store';
+import { queryKeys } from '../../lib/queryKeys';
+import { useAgentPanelStore } from '../../state/agent-panel-store';
 const fixture = vi.hoisted(() => ({ command: vi.fn(), insert: vi.fn(), hosts: [] as DshConversationHostProps[] }));
 vi.mock('../../services/desktopApi', () => ({ desktopApi: { command: fixture.command } }));
 vi.mock('@project-mind/dsh-ui/adapters', () => ({
@@ -19,6 +21,7 @@ vi.mock('@project-mind/dsh-ui/adapters', () => ({
   },
 }));
 beforeEach(() => {
+  useAgentPanelStore.getState().clearWorkspace();
   fixture.command.mockReset().mockImplementation(async (command, args) => command === 'dsh_assistant_select_session' ? args.sessionId : undefined);
   fixture.insert.mockReset().mockResolvedValue(undefined); fixture.hosts = [];
   setDshWorkspaceRoot(null); setDshWorkspaceRoot('/workspace');
@@ -31,6 +34,7 @@ it('opens two explicit Sessions, drains only addressed references, and retains h
   </QueryClientProvider>;
   const view = render(shell());
   await screen.findByTestId('a'); await screen.findByTestId('b');
+  expect(fixture.command.mock.calls.some(([name]) => name === 'dsh_assistant_start')).toBe(false);
   expect(screen.getByTestId('a')).toHaveAttribute('data-focused', 'false');
   act(() => requestDshFileReference(1, 'a.md', 'a'));
   await waitFor(() => expect(fixture.insert).toHaveBeenCalledWith(1, 'a', 'a.md', undefined));
@@ -142,4 +146,26 @@ it.each([null, 7])('retains visited Session draft and reading DOM for owner %s w
   expect(fixture.command.mock.calls).toHaveLength(calls);
   view.unmount();
   expect(fixture.command.mock.calls.some(([name]) => /stop|disconnect|delete/.test(name))).toBe(false);
+});
+
+
+it.each([false, true])('rechecks changed model configuration after initial selection, deferring while busy=%s', async initiallyBusy => {
+  const client = new QueryClient();
+  client.setQueryData(queryKeys.aiSettings, { network: { proxy: 'initial' } });
+  const shell = (projectId = 7) => <QueryClientProvider client={client}><ProjectSessionContent workspaceRoot="/workspace" projectId={projectId} sessionId="config-session" visible focused /></QueryClientProvider>;
+  const view = render(shell());
+  await screen.findByTestId('config-session');
+  const starts = () => fixture.command.mock.calls.filter(([name]) => name === 'dsh_assistant_start');
+  expect(starts()).toHaveLength(0);
+  if (initiallyBusy) act(() => useAgentPanelStore.getState().setRunBusy('/workspace', 7, true));
+  act(() => client.setQueryData(queryKeys.aiSettings, { network: { proxy: 'changed' } }));
+  if (initiallyBusy) {
+    expect(starts()).toHaveLength(0);
+    act(() => useAgentPanelStore.getState().setRunBusy('/workspace', 7, false));
+  }
+  await waitFor(() => expect(starts()).toHaveLength(1));
+  await waitFor(() => expect(fixture.command.mock.calls.filter(([name]) => name === 'dsh_assistant_select_session')).toHaveLength(2));
+  view.rerender(shell(8));
+  await waitFor(() => expect(fixture.command).toHaveBeenCalledWith('dsh_assistant_select_session', expect.objectContaining({projectId:8})));
+  expect(starts()).toHaveLength(1);
 });

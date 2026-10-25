@@ -77,3 +77,15 @@ test('Workspace Office tools accept both native File scopes while Project tools 
  await assert.rejects(p.tools.get('file_office_edit').execute({source_ref:sourceRef,edits:[]},exec),/source_ref/);
  assert.equal(p.requests.length,0);
 });
+
+test('shared Office tools dispatch both registered scopes and reject unknown Sessions',async()=>{
+ const h=harness();const checked=[];
+ const registry={async forSession(id,signal){signal.throwIfAborted();checked.push(id);if(!['workspace-session','project-session'].includes(id))throw new Error('Unknown Session');return {kind:id.startsWith('workspace')?'workspace':'project'};}};
+ await installOfficeService(h.ctx,registry,h.bridge);
+ for(const id of ['workspace-session','project-session'])await h.tools.get('file_office_inspect').execute({file_path:'work.docx'},{agent:{session:{id}},signal:new AbortController().signal});
+ const sourceRef=structuredClone(officeSourceRef);sourceRef.object.scope={kind:'workspace'};
+ await h.tools.get('file_office_edit').execute({source_ref:sourceRef,edits:[]},{agent:{session:{id:'workspace-session'}},callId:'workspace-edit',signal:new AbortController().signal});
+ await assert.rejects(h.tools.get('file_office_inspect').execute({file_path:'work.docx'},{agent:{session:{id:'foreign'}},signal:new AbortController().signal}),/Unknown Session/);
+ assert.deepEqual(h.requests.map(({payload})=>payload.sessionId),['workspace-session','project-session','workspace-session']);
+ assert.equal(checked.length,4);
+});

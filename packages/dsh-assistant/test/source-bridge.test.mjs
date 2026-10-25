@@ -139,3 +139,17 @@ test('title input preserves ordinary paths and malformed source literals without
   ];
   for (const literal of literals) assert.equal(sourceTitleText(`prompt${literal}`), `prompt${literal}`);
 });
+
+test('one shared source middleware resolves real Session ownership for every scope',async()=>{
+ const handlers=new Map(),routes=[],requests=[],checked=[];
+ const ctx={connection:{fetch:{register:value=>routes.push(value)}},agents:{list:()=>[]},on(name,handler){assert.equal(handlers.has(name),false);handlers.set(name,handler);},effect(){}};
+ const registry={async forSession(id){checked.push(id);if(!['workspace-session','project-session'].includes(id))throw new Error('Unknown Session');return {directory:'/scope/'+id};}};
+ await installSourceService(ctx,registry,{async request(value){requests.push(value);return {fixed:true};}});
+ for(const sessionId of ['workspace-session','project-session','foreign']){
+  const response=await routes.find(route=>route.path.endsWith('/resolve')).fetch(new Request('http://local/api/mind/source/resolve',{method:'POST',body:JSON.stringify({type:'client-request',method:'mind/source/resolve',rpcId:sessionId,payload:{args:{request:{sessionId,path:'files/fixed.txt'}}}})}));
+  assert.equal((await response.json()).result.ok,sessionId!=='foreign');
+ }
+ assert.deepEqual(requests.map(value=>value.sessionId),['workspace-session','project-session']);
+ assert.deepEqual(checked,['workspace-session','project-session','foreign']);
+ assert.equal(routes.length,2);assert.equal(handlers.size,4);
+});

@@ -63,9 +63,6 @@ function SessionReference({ workspaceRoot, projectId, fileId, versionNumber, sou
       signal.throwIfAborted();
       if (!sameObject(bytes.object, object) || bytes.versionNumber !== version || bytes.contentHash !== retained.contentHash) throw new Error("文件版本与引用目标不符。");
       await checkBinding(binding, signal);
-      await dshAssistantApi.start(`${binding.workspaceId}:${binding.generation}`, projectId);
-      signal.throwIfAborted();
-      await checkBinding(binding, signal);
       if (!created.current || created.current.generation !== binding.generation) {
         const id = await dshAssistantApi.selectSession(null, projectId);
         signal.throwIfAborted();

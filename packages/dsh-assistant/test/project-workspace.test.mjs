@@ -45,7 +45,7 @@ test('startup restores only unaccounted current-project sessions through the reg
 });
 
 test('startup reports registry attach failure rather than publishing fake membership', async t => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'mind-project-reconcile-error-'));
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-project-reconcile-error-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const ctx = {
     workspaceRegistry: { archivedSessionIds: [], get: () => ({ sessionIds: [], attachSession: async () => { throw new Error('stored cwd mismatch'); } }) },

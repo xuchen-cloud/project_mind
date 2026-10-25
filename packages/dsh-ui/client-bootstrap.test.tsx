@@ -34,6 +34,7 @@ const fixture = vi.hoisted(() => {
   emitEvent: undefined as ((frame: unknown) => void) | undefined,
   opens: [] as { endpoint: string; payload: unknown }[],
   releaseFollow: undefined as (() => void) | undefined,
+  workspaceOpen: undefined as ((signal: AbortSignal) => AsyncIterable<unknown> | Promise<AsyncIterable<unknown>>) | undefined,
 };
 });
 afterAll(() => {
@@ -97,6 +98,10 @@ vi.mock('./adapters/transport.mjs', async () => {
               if (!signal.aborted && frames.length > 0) yield frames.shift();
             }
           } finally { signal.removeEventListener('abort', abort); fixture.emitEvent = undefined; }
+          return;
+        }
+        if (endpoint === 'workspace/follow' && fixture.workspaceOpen) {
+          yield* await fixture.workspaceOpen(signal);
           return;
         }
         if (fixture.catalog && endpoint === 'session/control') yield { type: 'baseline', value: { projections: {} } };
@@ -684,5 +689,57 @@ it('bridges authoritative Session titles into the native cache across unmounted 
     cleanup(); await disposeDshClients(); setDshWorkspaceRoot(null);
     window.removeEventListener('mind:dsh-session-titles', events);
     fixture.catalog = false;
+  }
+});
+
+
+it('keeps a newly created blank Session composer interactive after the shared Workspace stream updates ownership', async () => {
+  const { installContextStreams } = await import('../dsh-assistant/scripts/context-streams.mjs');
+  fixture.catalog = true; fixture.blank = true; fixture.releaseFollow = undefined;
+  const fontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts');
+  Object.defineProperty(document, 'fonts', { configurable: true, value: Object.assign(new EventTarget(), { ready: Promise.resolve() }) });
+  const context = { kind: 'project', id: 7, name: 'Native Project', directory: '/fixture/project', workspaceId: 'native-project' };
+  const workspace = { workspaceId: 'native-project', title: 'Native Project', path: context.directory,
+    sessionIds: ['old-session'], createdAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:00Z' };
+  let baseline = { items: [workspace], pinnedSessionIds: [], archivedSessionIds: [] };
+  const frames: unknown[] = [{ type: 'baseline', value: baseline }];
+  let wake: (() => void) | undefined;
+  const gateway = { async *openWireStream(_endpoint: string, _payload: unknown, _uplink: unknown, _peer: unknown, signal: AbortSignal) {
+    const abort = () => wake?.(); signal.addEventListener('abort', abort);
+    try {
+      while (!signal.aborted) {
+        if (!frames.length) await new Promise<void>(resolve => { wake = resolve; if (signal.aborted) resolve(); });
+        wake = undefined;
+        if (!signal.aborted && frames.length) yield frames.shift();
+      }
+    } finally { signal.removeEventListener('abort', abort); }
+  }, dispatchRpc() {} };
+  installContextStreams({ typertGateway: gateway }, {
+    workspace: context, select: () => context, snapshot: async () => baseline,
+  });
+  fixture.workspaceOpen = signal => gateway.openWireStream('workspace/follow', { args: {}, mindContext: context }, undefined, undefined, signal);
+  const client = await createDshClient(7);
+  const portal = document.createElement('div'); portal.className = 'dsh-ui-host'; document.body.append(portal);
+  try {
+    await waitFor(() => expect(client.ctx.workspaces.list.getSnapshot().phase).toBe('ready'));
+    const selection = client.select('fixture-session');
+    await waitFor(() => expect(fixture.releaseFollow).toBeDefined());
+    fixture.releaseFollow!();
+    const reference = await selection;
+    render(<HostPortalProvider value={portal}><div className="dsh-ui-host">{client.ctx.slots.renderSlot('root', { mode: 'chat', reference })}</div></HostPortalProvider>);
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Choose workspace'));
+    await act(async () => {
+      baseline = { ...baseline, items: [{ ...workspace, sessionIds: ['old-session', 'fixture-session'], updatedAt: '2026-10-25T00:01:00Z' }] };
+      frames.push({ type: 'upsert', workspace: baseline.items[0] });
+      wake?.();
+    });
+    await waitFor(() => {
+      expect(client.ctx.workspaces.list.getSnapshot().items[0].sessionIds).toContain('fixture-session');
+      expect(screen.getByRole('textbox')).not.toHaveAttribute('aria-label', 'Choose workspace');
+      expect(screen.getByRole('textbox')).toHaveAttribute('contenteditable', 'true');
+    });
+  } finally {
+    cleanup(); await client.dispose(); portal.remove(); fixture.workspaceOpen = undefined; fixture.catalog = false; fixture.blank = false;
+    if (fontsDescriptor) Object.defineProperty(document, 'fonts', fontsDescriptor); else Reflect.deleteProperty(document, 'fonts');
   }
 });

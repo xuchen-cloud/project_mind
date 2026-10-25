@@ -537,7 +537,7 @@ export function WorkspaceRecordFocusPage({
 
   return (
     <div
-      className="home-page home-note-page page-cold-entry relative flex h-full min-h-0 overflow-hidden"
+      className="home-page home-note-page home-note-page--no-cover page-cold-entry relative flex h-full min-h-0 overflow-hidden"
       data-focus-page-key={`workspace:${recordId}`}
       data-cold-entry={wasWorkspacePageCachedAtMount.current ? undefined : "true"}
     >
@@ -549,7 +549,7 @@ export function WorkspaceRecordFocusPage({
           onCreateRecord={() => void createWorkspaceRecordInFocus()} />
       ) : null}
 
-      <div className="project-overview-focus flex-1">
+      <div className="project-overview-focus relative h-full min-h-0 min-w-0 flex-1">
 
 
         <div ref={scrollRef} className="project-overview-focus__scroll">
@@ -579,7 +579,7 @@ export function WorkspaceRecordFocusPage({
                 <p>这条记录暂时只能阅读：{canonical.error instanceof Error ? canonical.error.message : String(canonical.error)}</p>
                 <button type="button" onClick={canonical.retry}>重新加载编辑器</button>
               </div> : !editingReady ? <p role="status" className="text-sm text-text-soft">正在准备记录编辑器…</p> : null}
-              <HomeRecordHeader onOpenHome={handleBack} identityKey={`workspace:${currentWorkspace?.rootPath}`} scopeName={currentWorkspace?.displayName || "我的工作区"} title={title}>
+              <HomeRecordHeader showCover={false} onOpenHome={handleBack} identityKey={`workspace:${currentWorkspace?.rootPath}`} scopeName={currentWorkspace?.displayName || "我的工作区"} title={title}>
               <div className="flex min-w-0 items-center gap-2">
                 <TextField
                   value={title}

@@ -33,7 +33,10 @@ function controlled() {
 test('embedded runtime wires CLI configuration and binding before exposing ready', async () => {
   const runtime = await readFile(new URL('../scripts/runtime.mjs', import.meta.url), 'utf8');
   assert.match(runtime, /readMindCli\(frame, context\)/);
-  assert.match(runtime, /installMindCli\(host, context, cli, sourceBridge\)/);
+  assert.match(runtime, /installMindCli\(host, \{/);
+  assert.match(runtime, /forSession: \(\.\.\.args\) => ctx\.mindContexts\.forSession\(\.\.\.args\)/);
+  assert.match(runtime, /forAgent: agent => ctx\.mindContexts\.forAgent\(agent\)/);
+  assert.match(runtime, /bindContext\(ctx, context, \{ home, cli \}\)/);
   assert.doesNotMatch(runtime, /if \(context.kind === 'project'\) sourceBridge =/);
 });
 
@@ -200,4 +203,47 @@ test('malformed native lease fails closed and revokes a returned lease identity'
   await assert.rejects(f.shell.execute(spec()), /Invalid native Mind CLI lease/);
   assert.equal(f.executions.length, 0);
   assert.equal(f.calls.at(-1).operation, 'cliLeaseClose');
+});
+
+test('shared runtime resolves prompt and shell CLI facts independently for each Session', async t => {
+  const { installMindCli } = await binding();
+  const runs=[controlled(),controlled()];let index=0;
+  const f=fixture(t,()=>runs[index++].handle);
+  const second={kind:'workspace',id:'workspace-id',directory:'/other',cli:{...cli,executable:'/other/bin/mind',workspace:'/other',connection:'b'.repeat(32),discovery:'/other/bridge.json',projectId:null}};
+  const scopes={a:{...context,cli},b:second};
+  const registry={forAgent:agent=>scopes[agent.session.id],async forSession(id){if(!scopes[id])throw new Error('Unknown Session');return scopes[id];}};
+  f.bridge.request=async value=>{f.calls.push(value);if(value.operation==='cliLeaseOpen')return {leaseId:value.sessionId,token:'secret-'+value.sessionId,cli:scopes[value.sessionId].cli};};
+  await installMindCli(f.ctx,registry,undefined,f.bridge);
+  const prompt=f.prompts[0].text({agent:{session:{id:'b'}}});
+  assert.match(prompt,/--workspace-scope/);assert.ok(prompt.includes(second.cli.connection));assert.ok(!prompt.includes(cli.connection));
+  const a=await f.shell.execute(spec('a'));
+  const b=await f.shell.execute({...spec('b'),sandboxPolicy:{mode:'read-only',workspaceRoot:second.directory}});
+  assert.equal(f.executions[0].env.PROJECT_MIND_CLI_DISCOVERY,cli.discovery);
+  assert.equal(f.executions[1].env.PROJECT_MIND_CLI_DISCOVERY,second.cli.discovery);
+  assert.match(f.executions[1].env.PATH,/^\/other\/bin/);
+  await assert.rejects(f.shell.execute(spec('missing')),/Unknown Session/);
+  for(const run of runs)run.result.resolve({exitCode:0});await Promise.all([a.result(),b.result()]);
+  assert.equal(f.calls.filter(value=>value.operation==='cliLeaseClose').length,2);
+});
+
+test('cross-scope native CLI facts revoke the lease without passing credentials to shell',async t=>{
+ const {installMindCli}=await binding();
+ const f=fixture(t,()=>{throw new Error('must not spawn');});
+ const registry={forAgent:()=>({...context,cli}),async forSession(){return{...context,cli};}};
+ f.bridge.request=async value=>{f.calls.push(value);if(value.operation==='cliLeaseOpen')return{leaseId:'foreign-lease',token:'foreign-secret',cli:{...cli,projectId:8}};};
+ await installMindCli(f.ctx,registry,undefined,f.bridge);
+ await assert.rejects(f.shell.execute(spec()),/another context/);
+ assert.equal(f.executions.length,0);
+ assert.deepEqual(f.calls.at(-1),{operation:'cliLeaseClose',sessionId:'a',leaseId:'foreign-lease'});
+});
+
+test('shared context without native CLI retains ordinary shell execution',async t=>{
+ const {installMindCli}=await binding();const run=controlled();const f=fixture(t,()=>run.handle);
+ const registry={forAgent:()=>context,async forSession(){return context;}};
+ await installMindCli(f.ctx,registry,undefined,f.bridge);
+ assert.equal(f.prompts[0].text({agent:{session:{id:'a'}}}),'');
+ assert.equal(f.prompts[0].text({}),'');
+ const request=spec();const handle=await f.shell.execute(request);
+ assert.equal(f.executions[0],request);assert.equal(f.calls.length,0);
+ run.result.resolve({exitCode:0});await handle.result();
 });

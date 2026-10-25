@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, Plus } from "lucide-react";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
 import { dshScheduleApi, type DshScheduledTask, type DshScheduledTaskInput, type DshScheduleRule } from "../../services/dshScheduleApi";
 import { openProjectContent } from "../../services/projectContentApi";
-import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { getErrorMessage } from "../../lib/errors";
+import { queryKeys } from "../../lib/queryKeys";
 import { Button, Dialog, TextField } from "../../ui/components";
 import { useFocusedProjectContent } from "../home/useFocusedProjectContent";
 import { HomeSidebarList } from "../home/HomeSidebarList";
@@ -35,9 +37,20 @@ export function ScheduledTasksPanel({ open, onRunStarted }: { open: boolean; onR
 }
 
 function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { workspaceRoot: string; open: boolean; onRunStarted?: () => void }) {
-  const [tasks, setTasks] = useState<DshScheduledTask[]>([]);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const tasksKey = queryKeys.scheduledTasks(workspaceRoot);
+  const sessionsKey = queryKeys.scheduledTaskSessions(workspaceRoot);
+  // Native schedule reads ensure runtime readiness. Display the result before
+  // enumerating Sessions, which may load a much larger conversation catalog.
+  const tasksQuery = useQuery({ queryKey: tasksKey, queryFn: dshScheduleApi.list, enabled: open, retry: false, refetchOnWindowFocus: false });
+  const sessionsQuery = useQuery({ queryKey: sessionsKey, queryFn: () => dshAssistantApi.sessions(null), enabled: open && tasksQuery.isSuccess, retry: false, refetchOnWindowFocus: false });
+  const tasks = tasksQuery.data ?? [];
+  const sessions = sessionsQuery.data ?? [];
+  const loading = tasksQuery.isPending;
+  function setTasks(update: (values: DshScheduledTask[]) => DshScheduledTask[]) {
+    queryClient.setQueryData<DshScheduledTask[]>(tasksKey, values => update(values ?? []));
+  }
+  function setSessions(values: Session[]) { queryClient.setQueryData(sessionsKey, values); }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DshScheduledTaskInput | null>(null);
@@ -49,38 +62,27 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
   const alive = useRef(false);
   const mutation = useRef(false);
   const saveRequest = useRef<{ payload: string; id: string } | null>(null);
-  const loadVersion = useRef(0);
-  const scopeKey = dshProjectRunKey(workspaceRoot, null);
   const { activeSessionId } = useFocusedProjectContent(workspaceRoot, null);
   useLayoutEffect(() => { alive.current = open; return () => { alive.current = false; }; }, [open]);
-  async function start() { await dshAssistantApi.start(scopeKey, null); }
-  async function load() {
-    const version = ++loadVersion.current;
-    setLoading(true); setError(null);
-    try {
-      await start();
-      if (!alive.current) return;
-      const [saved, existing] = await Promise.all([dshScheduleApi.list(), dshAssistantApi.sessions(null)]);
-      if (alive.current && version === loadVersion.current) { setTasks(saved); setSessions(existing); }
-    } catch (reason) { if (alive.current && version === loadVersion.current) setError(getErrorMessage(reason, "读取定时任务失败")); }
-    finally { if (alive.current && version === loadVersion.current) setLoading(false); }
+  function load() {
+    setError(null);
+    void tasksQuery.refetch();
+    if (tasksQuery.isSuccess) void sessionsQuery.refetch();
   }
   useEffect(() => {
     if (!open) return;
-    void load();
     const refresh = () => { if (!mutation.current) void load(); };
     window.addEventListener("focus", refresh);
     window.addEventListener("mind:dsh-scheduled-tasks-changed", refresh);
     return () => { window.removeEventListener("focus", refresh); window.removeEventListener("mind:dsh-scheduled-tasks-changed", refresh); };
-  }, [open, workspaceRoot]);
+  }, [open, workspaceRoot, tasksQuery.isSuccess, tasksQuery.refetch, sessionsQuery.refetch]);
   async function mutate(action: () => Promise<void>) {
     if (mutation.current) return;
     mutation.current = true;
-    ++loadVersion.current;
     setBusy(true); setError(null);
-    try { await start(); if (alive.current) await action(); }
+    try { await queryClient.cancelQueries({ queryKey: tasksKey }); if (alive.current) await action(); }
     catch (reason) { if (alive.current) setError(getErrorMessage(reason, "定时任务操作失败")); }
-    finally { mutation.current = false; if (alive.current) { setBusy(false); setLoading(false); } }
+    finally { mutation.current = false; if (alive.current) setBusy(false); }
   }
   async function run(task: DshScheduledTask) {
     const requestId = runRequests.current.get(task.id) ?? crypto.randomUUID();
@@ -123,11 +125,14 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
   }
   return <section className="scheduled-tasks" aria-label="定时任务设置">
     <div className="scheduled-tasks__heading"><div><h2 className="text-title font-semibold text-text">定时任务</h2><p className="text-ui text-text-soft">在原工作区会话中持续执行，助手可查看整个工作区及所有项目。</p></div>
-      <div className="scheduled-tasks__actions"><Button size="sm" variant="ghost" disabled={loading || busy} onClick={() => void load()}>刷新</Button><Button size="sm" leadingIcon={<Plus size={14} />} disabled={loading || busy} onClick={() => begin()}>新建定时任务</Button></div></div>
+      <div className="scheduled-tasks__actions"><Button size="sm" variant="ghost" disabled={tasksQuery.isFetching || sessionsQuery.isFetching || busy} onClick={load}>刷新</Button><Button size="sm" leadingIcon={<Plus size={14} />} disabled={loading || sessionsQuery.isPending || busy} onClick={() => begin()}>新建定时任务</Button></div></div>
     <p className="text-ui text-text-soft">使用本机时区 {Intl.DateTimeFormat().resolvedOptions().timeZone}。应用运行且工作区已解锁时后台执行；恢复后补跑最近一次。</p>
     {error ? <div role="alert"><p>{error}</p><Button size="sm" disabled={busy} onClick={() => void load()}>重新读取</Button></div> : null}
+    {tasksQuery.error ? <div role="alert"><p>{getErrorMessage(tasksQuery.error, "读取定时任务失败")}</p><Button size="sm" disabled={tasksQuery.isFetching || busy} onClick={load}>重新读取任务</Button></div> : null}
+    {sessionsQuery.error ? <div role="alert"><p>{getErrorMessage(sessionsQuery.error, "读取工作区会话失败")}</p><Button size="sm" disabled={sessionsQuery.isFetching || busy} onClick={() => void sessionsQuery.refetch()}>重新读取会话</Button></div> : null}
     {notice ? <p role="status">{notice}</p> : null}
     {loading ? <p role="status">正在读取定时任务…</p> : null}
+    {tasksQuery.isSuccess && sessionsQuery.isPending ? <p role="status">正在读取工作区会话…</p> : null}
     <div className="scheduled-tasks__list"><HomeSidebarList label="定时任务列表">
       {!loading && !tasks.length ? <p className="home-side__empty">暂无定时任务</p> : null}
       {tasks.map(task => <article key={task.id} className="scheduled-tasks__item">
@@ -144,7 +149,7 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
       {draft ? <div className="scheduled-tasks__form">
         <label>任务名称<TextField aria-label="任务名称" value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
         <label>任务内容<textarea className="scheduled-tasks__textarea" aria-label="任务内容" rows={4} value={draft.prompt} onChange={event => setDraft({ ...draft, prompt: event.target.value })} /></label>
-        <label>绑定会话<select aria-label="绑定会话" disabled={!!editing || busy} value={draft.sessionId} onChange={event => setDraft({ ...draft, sessionId: event.target.value })}><option value="" disabled>选择工作区会话</option>{sessions.map(session => <option key={session.id} value={session.id}>{session.title || "新会话"}</option>)}</select></label>
+        <label>绑定会话<select aria-label="绑定会话" disabled={!!editing || busy} value={draft.sessionId} onChange={event => setDraft({ ...draft, sessionId: event.target.value })}><option value="" disabled>选择工作区会话</option>{editing && !sessions.some(session => session.id === editing.sessionId) ? <option value={editing.sessionId}>{editing.sessionId}</option> : null}{sessions.map(session => <option key={session.id} value={session.id}>{session.title || "新会话"}</option>)}</select></label>
         {editing ? <p className="text-ui text-text-soft">绑定会话在创建后保持不变。</p> : <Button size="sm" variant="ghost" disabled={busy} onClick={() => void mutate(async () => { const id = await dshAssistantApi.selectSession(null, null); const existing = await dshAssistantApi.sessions(null); if (alive.current) { setSessions(existing); setDraft(value => value ? { ...value, sessionId: id } : value); } })}>新建工作区会话</Button>}
         <div className="scheduled-tasks__columns"><label>首次日期<TextField type="date" aria-label="首次日期" value={draft.rule.startDate} onChange={event => setDraft({ ...draft, rule: { ...draft.rule, startDate: event.target.value } })} /></label><label>执行时间<TextField type="time" aria-label="执行时间" value={draft.rule.time} onChange={event => setDraft({ ...draft, rule: { ...draft.rule, time: event.target.value } })} /></label></div>
         <label>重复方式<select aria-label="重复方式" value={draft.rule.kind} onChange={event => ruleKind(event.target.value as DshScheduleRule["kind"])}><option value="hours">每 N 小时</option><option value="days">每 N 天</option><option value="weekdays">周一至周五</option><option value="weeks">每 N 周</option><option value="monthly">每月指定日期</option></select></label>

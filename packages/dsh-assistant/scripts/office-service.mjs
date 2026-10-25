@@ -32,13 +32,14 @@ export async function installOfficeService(ctx,project,bridge) {
   async function owner(exec) {
     const sessionId=exec.agent?.session.id;
     if (!sessionId) throw new Error('Office editing requires an actual Session');
-    const catalog=await ctx.sessionController.list({});
+    if(project.forSession){await project.forSession(sessionId,exec.signal);return sessionId;}
+    const catalog=await ctx.sessionController.list({cwd:project.directory});
     if (!catalog.items.some(item=>item.sessionId===sessionId&&item.cwd===project.directory)) throw new Error('Office Session belongs to another Project');
     exec.signal.throwIfAborted();
     return sessionId;
   }
   const sourceParameter=structuredClone(sourceRefParameter);
-  if(project.kind==='workspace') {
+  if(project.forSession||project.kind==='workspace') {
     const {required,...projectScope}=sourceParameter.properties.object.properties.scope;
     sourceParameter.properties.object.properties.scope={required,oneOf:[
       {type:'object',additionalProperties:false,properties:{kind:{type:'string',const:'workspace',required:true}}},

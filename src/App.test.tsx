@@ -343,12 +343,20 @@ describe("WorkspaceLayout", () => {
     onTestFinished(() => { start.mockRestore(); sessions.mockRestore(); });
     const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout cacheProjectOverviewPages />, children: [
       { path: "workspace", element: <p>legacy workspace</p> }, { path: "workspace/records/:noteId", element: <p>legacy workspace record</p> },
-    ] }], { initialEntries: ["/workspace/records/70"] });
+    ] }], { initialEntries: ["/workspace"] });
     render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("tab", { name: "记录", exact: true }));
+    fireEvent.click(within(screen.getByRole("region", { name: "工作区记录列表" })).getByRole("button", { name: "Workspace shared record" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace/records/70"));
     expect(await screen.findByRole("tab", { name: "Workspace shared record" })).toBeVisible();
     await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     await act(async () => { await openProjectContent({ workspaceRoot: "/tmp/workspace", projectId: null, object: { kind: "session", id: "workspace-session", title: "Workspace shared session" } }); });
     expect(await screen.findByRole("tab", { name: "Workspace shared session" })).toBeVisible();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/workspace"));
+    fireEvent.click(within(screen.getByRole("region", { name: "工作区记录列表" })).getByRole("button", { name: "Workspace shared record" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Workspace shared record" })).toHaveAttribute("aria-selected", "true"));
+    expect(router.state.location.pathname).toBe("/workspace/records/70");
+    fireEvent.click(screen.getByRole("tab", { name: "Workspace shared session" }));
     expect(screen.getAllByRole("button", { name: "工作区首页" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "分栏" }));
     expect(screen.getByRole("region", { name: "工作区内容" })).toHaveAttribute("data-split", "true");
@@ -731,7 +739,7 @@ describe("WorkspaceLayout", () => {
 
     expect(projectMindApi.workspaceClose).not.toHaveBeenCalled();
     expect(await screen.findByText("切换 Workspace 失败")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toBeInTheDocument();
   });
 
   it.each([["window", false], ["window", true], ["switch", false], ["switch", true]] as const)("handles deleted orphan Record drafts on %s with confirmation=%s", async (action, accepted) => {
@@ -1031,7 +1039,7 @@ describe("WorkspaceLayout", () => {
 
     await screen.findByText(/当前还没有项目。需要开始整理时再创建即可/i);
     expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "我的工作区" })).toBeInTheDocument();
   });
 
   it("uses /workspace as the canonical Workspace route", async () => {
@@ -2214,7 +2222,7 @@ describe("WorkspaceLayout", () => {
     render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
     await screen.findByText("记录未找到");
     fireEvent.click(destination === "/workspace"
-      ? screen.getByRole("button", { name: /工作区首页$/ })
+      ? screen.getByRole("tab", { name: "我的工作区" })
       : screen.getByRole("tab", { name: "Beta" }));
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
     expect(router.state.location.pathname).toBe(destination);

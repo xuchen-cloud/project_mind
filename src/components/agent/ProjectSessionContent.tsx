@@ -33,6 +33,8 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
       settings?.aiSecretsUnlocked, settings?.securityMode, settings?.network]);
   }, [queryClient]);
   const fingerprint = useSyncExternalStore(subscribe, snapshot);
+  const verifiedConfiguration = useRef<{ scope: string; fingerprint: string } | null>(null);
+  const scopeIdentity = JSON.stringify([workspaceRoot, projectId]);
   const [attempt, setAttempt] = useState(0);
   const key = JSON.stringify([workspaceRoot, projectId, sessionId, fingerprint, attempt]);
   const identity = JSON.stringify([workspaceRoot, projectId, sessionId]);
@@ -58,13 +60,23 @@ export function ProjectSessionContent({ workspaceRoot, projectId, sessionId, vis
     let cancelled = false;
     setHostReady(false); setError(null);
     void (async () => {
-      if (!busy) await dshAssistantApi.start(JSON.stringify([workspaceRoot, projectId, fingerprint]), projectId);
-      if (cancelled) return;
+      const previous = verifiedConfiguration.current;
+      const configurationChanged = previous?.scope === scopeIdentity && previous.fingerprint !== fingerprint;
+      // Native business APIs own initial readiness; this host only rechecks
+      // configuration changes after its first selection, once current work ends.
+      if (configurationChanged && !busy) {
+        await dshAssistantApi.start(JSON.stringify([workspaceRoot, projectId, fingerprint]), projectId);
+        if (cancelled) return;
+      }
       await dshAssistantApi.selectSession(sessionId, projectId);
-      if (!cancelled) { setReadyIdentity(identity); setReadyKey(key); }
+      if (!cancelled) {
+        const deferredReview = configurationChanged && busy;
+        if (!deferredReview) verifiedConfiguration.current = { scope: scopeIdentity, fingerprint };
+        setReadyIdentity(identity); setReadyKey(deferredReview ? null : key);
+      }
     })().catch(reason => { if (!cancelled) setError(getErrorMessage(reason, '读取会话失败')); });
     return () => { cancelled = true; };
-  }, [visible, ready, busy, key, workspaceRoot, projectId, sessionId, fingerprint, identity]);
+  }, [visible, ready, busy, key, workspaceRoot, projectId, sessionId, fingerprint, identity, scopeIdentity]);
 
   const callbacks = useMemo(() => {
     const valid = () => alive.current && current.current === key;

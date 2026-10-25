@@ -94,8 +94,9 @@ export function installSourceTitles(ctx) {
 }
 
 export async function installSourceService(ctx, project, bridge) {
-  const owned = async sessionId => {
-    const catalog = await ctx.sessionController.list({});
+  const owned = async (sessionId, signal) => {
+    if (project.forSession) return project.forSession(sessionId, signal);
+    const catalog = await ctx.sessionController.list({cwd:project.directory});
     if (!catalog.items.some(item => item.sessionId === sessionId && item.cwd === project.directory)) throw new Error('Source Session belongs to another Project');
   };
   for (const operation of ['resolve', 'prepare']) ctx.connection.fetch.register({
@@ -105,7 +106,7 @@ export async function installSourceService(ctx, project, bridge) {
         const envelope = await request.json();
         if (envelope.type !== 'client-request' || envelope.method !== `mind/source/${operation}`) throw new Error('Invalid source request');
         const body = envelope.payload?.args?.request;
-        await owned(body.sessionId);
+        await owned(body.sessionId, request.signal);
         const payload = operation === 'resolve' ? { operation, sessionId: body.sessionId, path: body.path }
           : { operation, sessionId: body.sessionId, path: body.path, sourceRef: body.sourceRef, offset: 1, limit: 2000 };
         const value = await bridge.request(payload, request.signal);
@@ -148,7 +149,7 @@ export async function installSourceService(ctx, project, bridge) {
     if (exec.name !== 'read') return next();
     const sessionId = exec.agent?.session.id;
     if (!sessionId) throw new Error('File read requires an actual Session');
-    await owned(sessionId);
+    await owned(sessionId, exec.signal);
     // Historical model tokens do not authorize edits to the current path.
     // For a live read, retain the existing filesystem CAS observation only
     // when the target stayed unchanged across the native snapshot read.
@@ -194,7 +195,7 @@ export async function installSourceService(ctx, project, bridge) {
         if (block.type !== 'text') continue;
         for (const { projection, metadata } of sourceProjections(block.text)) {
           if (!options.sessionId || !message.id) throw new Error('Source delivery requires actual Session and message identity');
-          await owned(options.sessionId);
+          await owned(options.sessionId, options.signal);
           const kind = message.role === 'tool' ? 'read' : 'composer';
           const deliveryId = `${kind}:${message.id}:${metadata.id}`;
           const key = JSON.stringify([options.sessionId, deliveryId]);
