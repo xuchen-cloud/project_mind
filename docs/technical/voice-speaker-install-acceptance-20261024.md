@@ -31,7 +31,7 @@
 
 这是本机已有资源的准备成功，不是完整联网安装成功。
 
-## 尚未通过的发布门槛
+## 2026-10-24 尚未通过的发布门槛（历史记录）
 
 真实官方外网完整下载没有通过。本次生产源码安装尝试取得首个文件部分内容后传输中断，正确进入 failed、清理暂存且没有激活半包。四文件元数据、两个许可的实际下载哈希、既有模型实物 SHA 均已核对一致。
 
@@ -52,3 +52,12 @@
 ModelScope 具体入口为 [作者 Studio](https://www.modelscope.cn/studios/csukuangfj/web-assembly-speaker-diarization-sherpa-onnx)，实际部署为 `https://csukuangfj-web-assembly-speaker-diarization-sherpa.ms.show`。部署的 `sherpa-onnx-wasm-main-speaker-diarization.data` 支持分割模型区间 `39594772-45587684`，实际 HTTP 206、Content-Range 与声明长度均正确，但响应体在约 278.7 秒结束，仅收到 3,411,356 B，未达到本次 600 秒总期限。没有保留底层传输错误文本，不进一步推断 socket、TLS 或站点原因。
 
 三个候选均未取得分割模型完整 SHA，因此没有继续约 40 MB 的模型下载，也未把任何候选接入自动切换。此项仍待取得可完整校验的源，再实现有界切换及回归；现有安装器和草稿发布门槛保持不变。原始证据保存在本机验证目录的 `mirror-evidence.json` 与 `modelscope-range-evidence.json`。
+
+## 2026-10-25 develop 整合
+
+- 关联 Issue #237、PR #238；整合基线为 `develop` 的 `7588e492`，包含 #253 的本地双路转写修复。
+- 用户在知悉 PR 仍为草稿、完整官方外网下载尚未通过后，明确要求“把它合入 develop”。本次按该指示合入现有一键准备及配置简化；上文保持草稿的决定作为历史记录保留，不再作为本次合入的阻塞。
+- 交付：单一“下载并启用”入口、真实安装进度与明确错误、高级离线导入、本地 ASR 管理折叠；保留最新 develop 的转写修复与识别错误提示。
+- 非目标：本次不新增国内源自动切换，不修改安装器、说话人推理、Transcript 或用户已有模型，不将已知未通过的外网下载标记为成功。
+- 验收与验证：无冲突整合，相关 Voice Rust / 前端回归、类型、前后端构建、UI 与 bundle 规范，以及主 agent Standards / Spec 自查。已有本地下载器和真实组件 fixture 证据按未变实现复用；仅整合验证需要重跑受影响范围。
+- #237 保持开放，继续跟踪完整官方外网下载及已记录的国内源验证缺口；PR 正文改为关联该 Issue，避免合并时误关未完成的验收。
