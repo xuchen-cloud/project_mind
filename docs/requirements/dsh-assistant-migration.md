@@ -1,6 +1,6 @@
 # DSH 助手迁移实施方案
 
-日期：2026-10-11。关联：AI 工作上下文统一规格 #121。本文反映用户最新要求；历史交接保留原始记录，不将历史 Pi 工单或独立调试阶段的完成等同于本次迁移交付。具体工作包与验证记录由主 agent 更新 [执行说明](dsh-assistant-execution.md)。
+日期：2026-10-11；架构更新：2026-10-25（#250）。关联：AI 工作上下文统一规格 #121。本文反映用户最新要求；历史交接保留原始记录，不将历史 Pi 工单或独立调试阶段的完成等同于本次迁移交付。具体工作包与验证记录由主 agent 更新 [执行说明](dsh-assistant-execution.md)。
 
 ## 当前架构：主页面原 React 组件
 
@@ -16,14 +16,14 @@
 
 - 现有“助手”入口在同窗口主页面直接渲染原 React 组件，不打开外部浏览器、不要求用户登录。
 - 旧 Pi 聊天面板、conversation hooks 与消息 UI 已删除；Overview 等后台 Pi 仍保留在本阶段，不宣称全部 Pi 已移除。
-- 原生端按需启动 Node Web runtime，使用 `--embedded --port 0 --no-open`；关闭助手面板或卸载组件保留会话历史，退出主应用自动关闭 Node。
+- 原生端按需启动当前 Workspace 唯一的常驻 Node Harness，使用 `--embedded --port 0 --no-open`；关闭助手面板或卸载组件保留会话历史，退出主应用自动关闭 Node。
 - 主应用统一 AI 设置是唯一配置权威。通过 `db.agent_resolve_profile(None)` 解析 MAIN Workspace 的 General AI 模型、密钥和代理配置，启动时经 stdin 注入 DSH。
 - 主应用密钥仅以运行时内存凭据引用使用，不持久化到 DSH credentials。嵌入模式禁用独立 Models UI，标题栏“模型设置”打开主应用 AI 设置。
 - 主应用模型配置变化后刷新模型运行时，包括密钥与代理变更；刷新保留 DSH 历史，不建立可与主设置分叉的持久模型配置。
 
 ### Project 与产品融合范围
 
-- DSH workspace 映射主应用当前 Project，目录必须取原生 DB 的实际 `project.root_path`。仅项目内提供助手会话；切换 Project 时切换运行时，按 stable workspace ID / project ID 使用独立历史子目录，切回项目恢复其历史。执行期间须提示停止任务后再切换，不静默终止；旧项目延迟响应不能写入新项目界面。
+- DSH workspace 分别映射主应用 Workspace 与各 Project，目录取实际 Workspace 根目录或原生 DB 的 `project.root_path`。当前 Workspace 共用一个常驻 Harness，切换 Project 不更换后端、不停止任务；各范围的 Session、cwd、原生权限、输入输出和停止目标仍独立，旧范围延迟响应不能写入新范围界面。该物理承载由 [#250](https://github.com/xuchen-cloud/project_mind/issues/250) 替代早期每项目进程方案，并保留 A27 并发停止隔离要求。
 - 完全隐藏 DSH 左侧 sidebar；会话列表与新建、切换、继续、删除入口由主助手 header 管理。助手内容仅保留 Chat / Trajectory。
 - 隐藏 DSH 文件树、预览、浏览器和终端 UI，文件浏览由现有主 Project 文件区承接。
 - 主 Settings 导航新增 DSH 设置，包含“插件管理”和“运行设置”两个模式，优先复用官方 PluginManager / Settings 可独立表单并嵌入主 settings viewport；依赖完整外壳的部分由主应用表单调用对应服务，不使用单独 DSH sidebar。
@@ -35,9 +35,9 @@ Chat 与 Trajectory 共用会话绑定和事件源；主应用保存项目 / 会
 
 ### 数据与非目标
 
-DSH 历史仍使用按平台确定的 `project-mind-dsh` 数据根目录，`PROJECT_MIND_DSH_USER_DATA` 可用绝对路径覆盖，不读取默认 `~/.dsh`。独立调试模式的 `DSH_HOME` 使用该目录，profile 为 `profiles/assistant`，工作目录为目录下的 `workspace`，保存独立配置与凭据。主应用接入按 stable workspace ID / project ID 划分历史子目录，运行工作目录取原生 DB 的 `project.root_path`，模型配置仍共享主应用设置。
+DSH 历史仍使用按平台确定的 `project-mind-dsh` 数据根目录，`PROJECT_MIND_DSH_USER_DATA` 可用绝对路径覆盖，不读取默认 `~/.dsh`。独立调试模式的 `DSH_HOME` 使用该目录，profile 为 `profiles/assistant`，工作目录为目录下的 `workspace`，保存独立配置与凭据。主应用接入使用 `projects/<workspace-id>/shared-runtime` 作为共享 Harness 数据目录，每个范围映射独立 DSH workspace 与 Session，执行目录取实际 Workspace 根目录或原生 DB 的 `project.root_path`。历史子目录 `projects/<workspace-id>/workspace` 与 `projects/<workspace-id>/<project-id>` 是 #250 的迁移来源；迁移须保留原始证据、会话归属及附件，不把物理目录合并当作授权合并。模型配置仍共享主应用设置。
 
-用户没有永久隔离配置或数据的要求；当前独立历史存储不构成未来业务工具共享配置和数据的禁区。未来共享方式随真实业务需求确定，主应用统一设置保持唯一权威。
+用户没有永久隔离配置或数据的要求；各范围历史与授权隔离不构成未来业务工具共享配置和数据的禁区。未来共享方式随真实业务需求确定，主应用统一设置保持唯一权威。
 
 Project 映射读取原生 DB 的 Project 归属和实际根目录；本阶段不接入业务数据库工具桥，不转换旧 Pi 历史，不迁移 Overview/Memory 后台运行，不删除旧会话文件或数据库。也不替换 Tauri 为 Electron，不重写 Record/Todo/File/Memory 服务，不执行 Office/PPT 引擎准备。已有原生授权、Scope Grant、CAS、操作回执、成果确认和撤销语义不因后续工具接入而放宽。
 

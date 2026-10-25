@@ -123,7 +123,7 @@ it("creates a scheduled prompt bound to an existing Workspace conversation with 
   fireEvent.change(screen.getByLabelText("重复方式"), { target: { value: "weekdays" } });
   fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
   await waitFor(() => expect(api.create).toHaveBeenCalledWith({ title: "晨间整理", prompt: "整理工作区所有项目的进展", sessionId: "real-session", enabled: true, rule: { kind: "weekdays", startDate: "2026-10-25", time: "09:00" } }, expect.any(String)));
-  expect(api.start).toHaveBeenCalledWith(JSON.stringify(["/workspace", null]), null);
+  expect(api.start).not.toHaveBeenCalled();
   expect(api.sessions).toHaveBeenCalledWith(null);
   expect(api.selectSession).not.toHaveBeenCalled();
   expect(await screen.findByText("晨间整理")).toBeInTheDocument();

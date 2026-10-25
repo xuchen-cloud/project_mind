@@ -42,7 +42,6 @@ export async function openProjectContent(input: ProjectContentOpenInput): Promis
   const object: ContentObject = { kind: input.object.kind, id: input.object.id, title: input.object.title };
   if (object.kind === "session") {
     if (typeof object.id !== "string" || !object.id) throw new Error("无效会话身份");
-    await dshAssistantApi.start(`${binding.workspaceId}:${binding.generation}`, input.projectId);
     const session = (await dshAssistantApi.sessions(input.projectId)).find(item => item.id === object.id);
     if (!session) throw new Error("会话不存在或不属于当前范围");
     object.title = session.title || "新会话";

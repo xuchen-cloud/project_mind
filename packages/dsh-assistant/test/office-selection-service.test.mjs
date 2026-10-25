@@ -25,3 +25,18 @@ test('read-only and foreign sessions cannot modify an editor',async()=>{
   await assert.rejects(h.tools.get('office_selection_read').execute({selection_id:'selection'},h.exec),/another Project/);
   assert.equal(h.requests.length,0);
 });
+
+test('shared runtime resolves each selection Session scope before policy checks',async()=>{
+  const h=harness();
+  const scopes={session:{directory:'/project'},second:{directory:'/other'}};
+  const registry={async forSession(id,signal){signal?.throwIfAborted();if(!scopes[id])throw new Error('Unknown Session');return scopes[id];}};
+  await installOfficeSelectionService(h.ctx,registry,h.bridge);
+  h.exec.agent.session.id='second';
+  await assert.rejects(h.tools.get('office_selection_edit').execute({selection_id:'selection',change:{text:'bad'}},h.exec),/policy/);
+  h.ctx.get=()=>({resolve:()=>({mode:'workspace-write',workspaceRoot:'/other'})});
+  await h.tools.get('office_selection_edit').execute({selection_id:'selection',change:{text:'ok'}},h.exec);
+  assert.equal(h.requests.at(-1).sessionId,'second');
+  h.exec.agent.session.id='unknown';
+  await assert.rejects(h.tools.get('office_selection_read').execute({selection_id:'selection'},h.exec),/Unknown Session/);
+  assert.equal(h.requests.length,1);
+});

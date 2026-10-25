@@ -1,5 +1,5 @@
 //! Real DSH Session adapter for the same Office/File save kernel.
-use super::{Identity, ProjectContext, SessionListValue, SessionRequest, SourceRequest};
+use super::{Identity, ProjectContext, SessionRequest, SourceRequest};
 use crate::{
     agent::{
         connections::ConnectionCreateInput,
@@ -155,18 +155,11 @@ impl Store<'_> {
             ));
         }
         let mut cookie = crate::lock_mutex(&self.cookie).clone();
-        let value =
-            super::session_request(self.url, &self.client, &mut cookie, SessionRequest::List)
-                .await
-                .map_err(|m| AgentError::new(ErrorCode::ScopeDenied, m))?;
+        let value = super::session_request(self.url, &self.client, &mut cookie,
+            SessionRequest::Private { method: "mind/session/context".into(), request: json!({"sessionId":self.session_id}) })
+            .await.map_err(|m|AgentError::new(ErrorCode::ScopeDenied,m))?;
         *crate::lock_mutex(&self.cookie) = cookie;
-        let list: SessionListValue = serde_json::from_value(value).map_err(|_| {
-            AgentError::new(
-                ErrorCode::RuntimeIncompatible,
-                "Invalid DSH Session catalog",
-            )
-        })?;
-        validate_session(&list, self.session_id, self.bridge.identity.directory())
+        validate_session_context(&value["context"], &self.bridge.identity)
     }
 }
 impl BoundSourceStore for Store<'_> {
@@ -543,21 +536,10 @@ impl SelectionCall {
     }
 }
 
-fn validate_session(
-    list: &SessionListValue,
-    session_id: &str,
-    directory: &std::path::Path,
-) -> AgentResult<()> {
-    if !list.items.iter().any(|session| {
-        session.id == session_id
-            && session.cwd.as_deref().is_some_and(|cwd| {
-                super::session_directory_matches(std::path::Path::new(cwd), directory)
-            })
-    }) {
-        return Err(AgentError::new(
-            ErrorCode::ScopeDenied,
-            "Office Session belongs to another Project",
-        ));
+fn validate_session_context(context: &Value, identity: &Identity) -> AgentResult<()> {
+    let expected = identity.context_message();
+    if context["kind"] != expected["kind"] || context["id"] != expected["id"] || !context["directory"].as_str().is_some_and(|cwd| super::session_directory_matches(std::path::Path::new(cwd), identity.directory())) {
+        return Err(AgentError::new(ErrorCode::ScopeDenied, "DSH Session scope changed"));
     }
     Ok(())
 }

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Project-scoped Node DSH runtime for the main app's embedded original chat components.",
+  "description": "Workspace-shared Node DSH Harness with scoped Sessions for the main app's embedded chat components.",
   "engines": {
     "node": ">=22.19.0"
   },

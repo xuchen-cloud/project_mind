@@ -35,3 +35,26 @@ test('schedule boundaries reject unknown rule and task fields and corrupt stored
  assert.equal(requestIdentity('req:2026-10-24'),true);
  assert.equal(requestIdentity('中'.repeat(43)),false);
 });
+
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { installScheduledTasks } from '../scripts/scheduled-tasks.mjs';
+test('shared schedules only bind workspace Sessions and do not enumerate project histories',async t=>{
+ const home=await mkdtemp(path.join(tmpdir(),'mind-schedule-shared-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const routes=[],cleanups=[],resolved=[];
+ const workspace={kind:'workspace',id:'ws',directory:'/workspace'};
+ const registry={workspace,async forSession(id){resolved.push(id);if(id==='workspace-session')return workspace;if(id==='project-session')return{kind:'project',id:7,directory:'/workspace/project'};throw new Error('Unknown Session');}};
+ const ctx={workspaceRegistry:{archivedSessionIds:[]},agents:{withoutInitiator:fn=>fn()},sessionController:{list(){throw new Error('Unscoped list would hydrate unrelated project histories');}},connection:{fetch:{register:route=>routes.push(route)}},effect:fn=>cleanups.push(fn())};
+ t.after(async()=>{for(const cleanup of cleanups)await cleanup();});
+ await installScheduledTasks(ctx,registry,home);
+ const call=async sessionId=>{
+  const request={operation:'create',task:{title:'Scheduled scope',prompt:'Do work',sessionId,enabled:false,rule:{kind:'days',interval:1,startDate:'2026-10-25',time:'09:00'}}};
+  const response=await routes[0].fetch(new Request('http://local/api/mind/schedules',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'test',method:'mind/schedules',payload:{args:{request}}})}));
+  return(await response.json()).result;
+ };
+ assert.equal((await call('workspace-session')).ok,true);
+ assert.equal((await call('project-session')).ok,false);
+ assert.equal((await call('missing-session')).ok,false);
+ assert.deepEqual(resolved,['workspace-session','project-session','missing-session']);
+});

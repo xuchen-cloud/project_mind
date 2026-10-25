@@ -7,6 +7,8 @@ import { exact, requestIdentity, validateTaskInput, validateStore } from './sche
 import { occurrences } from './scheduled-tasks-time.mjs';
 
 export async function installScheduledTasks(ctx, context, home) {
+ const registry=typeof context.forSession==='function'?context:undefined;
+ context=registry?registry.workspace:context;
  if(context.kind!=='workspace')return;
  const file=path.join(home,'scheduled-tasks.json');
  let tasks=[],requests={};
@@ -18,7 +20,11 @@ export async function installScheduledTasks(ctx, context, home) {
  const view=task=>{const {pending,...value}=task;return structuredClone(value);};
  const owner=async id=>{
   if(typeof id!=='string'||!id||id.length>128||!(/^[\w-]+$/.test(id)))throw new Error('Invalid scheduled Session');
-  if(ctx.workspaceRegistry.archivedSessionIds.includes(id)||!(await ctx.sessionController.list({})).items.some(row=>row.sessionId===id&&row.cwd===context.directory))throw new Error('Scheduled Session belongs to another context or was removed');
+  if(ctx.workspaceRegistry.archivedSessionIds.includes(id))throw new Error('Scheduled Session belongs to another context or was removed');
+  if(registry){
+   const owner=await registry.forSession(id);
+   if(owner.kind!=='workspace'||owner.id!==context.id)throw new Error('Scheduled Session belongs to another context or was removed');
+  }else if(!(await ctx.sessionController.list({cwd:context.directory})).items.some(row=>row.sessionId===id&&row.cwd===context.directory))throw new Error('Scheduled Session belongs to another context or was removed');
  };
  const input=async task=>{
   validateTaskInput(task);await owner(task.sessionId);

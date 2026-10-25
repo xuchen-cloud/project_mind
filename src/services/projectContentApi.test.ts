@@ -58,6 +58,7 @@ describe("authoritative project content open", () => {
     const session = await openProjectContent({ ...input, object: { kind: "session", id: "session-a", title: "Session", isVoice: true } });
     expect(file.object).toEqual({ kind: "file", id: 31, title: "Actual file" });
     expect(session.object).toEqual({ kind: "session", id: "session-a", title: "Actual session" });
+    expect(mocks.start).not.toHaveBeenCalled();
   });
   it("rejects a late response from an older Workspace generation", async () => {
     mocks.binding.mockResolvedValueOnce(binding).mockResolvedValueOnce({ ...binding, generation: "two" });

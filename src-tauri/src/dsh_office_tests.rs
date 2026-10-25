@@ -249,27 +249,20 @@ fn dsh_office_rejects_unbound_session_and_untrusted_authority_payload() {
     std::fs::create_dir(&project).unwrap();
     std::fs::create_dir(&other).unwrap();
     let directory = project.canonicalize().unwrap();
-    let list: SessionListValue =
-        serde_json::from_value(json!({"items":[{"sessionId":"real","cwd":project}]})).unwrap();
-    assert!(validate_session(&list, "real", &directory).is_ok());
-    for (session, cwd) in [
-        ("forged", directory.as_path()),
-        ("", directory.as_path()),
-        ("real", other.as_path()),
-        ("real", root.path()),
+    let identity = Identity { workspace_id: "workspace".into(), workspace_generation: "opening".into(), root: root.path().to_path_buf(), fingerprint: "profile".into(), context: AssistantContext::Project(ProjectContext { id: 7, name: "Project".into(), directory: directory.clone() }) };
+    let context = json!({"kind":"project","id":7,"directory":project});
+    assert!(validate_session_context(&context, &identity).is_ok());
+    for forged in [
+        json!({"kind":"project","id":8,"directory":project}),
+        json!({"kind":"workspace","id":"workspace","directory":project}),
+        json!({"kind":"project","id":7,"directory":other}),
+        json!({"kind":"project","id":7,"directory":root.path()}),
+        json!({}),
     ] {
-        assert_eq!(
-            validate_session(&list, session, cwd).unwrap_err().code,
-            ErrorCode::ScopeDenied
-        );
+        assert_eq!(validate_session_context(&forged, &identity).unwrap_err().code, ErrorCode::ScopeDenied);
     }
     std::fs::remove_dir(&project).unwrap();
-    assert_eq!(
-        validate_session(&list, "real", &directory)
-            .unwrap_err()
-            .code,
-        ErrorCode::ScopeDenied
-    );
+    assert_eq!(validate_session_context(&context, &identity).unwrap_err().code, ErrorCode::ScopeDenied);
     for value in [
         json!({"operation":"officeInspect","sessionId":"real","path":"original.docx","projectId":9999}),
         json!({"operation":"officeEdit","sessionId":"real","sourceRef":{},"edits":[]}),

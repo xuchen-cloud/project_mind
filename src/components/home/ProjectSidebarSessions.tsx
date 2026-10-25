@@ -50,13 +50,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     };
   }, [enabled]);
 
-  async function start() {
-    // The runtime catalog owns running state; a sidebar refresh must not restart a run.
-    if (!useAgentPanelStore.getState().runsByProject[scopeKey]) {
-      await dshAssistantApi.start(scopeKey, projectId);
-    }
-  }
-
   async function load() {
     if (!active.current) return;
     read.current?.abort();
@@ -65,8 +58,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setLoading(true);
     setError(null);
     try {
-      await start();
-      if (controller.signal.aborted) return;
       const saved = await dshAssistantApi.sessions(projectId);
       if (!controller.signal.aborted) setSessions(saved);
     } catch (reason) {
@@ -85,8 +76,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setError(null);
     let target = session;
     try {
-      await start();
-      if (controller.signal.aborted) return;
       const id = await dshAssistantApi.selectSession(session?.id ?? null, projectId);
       if (controller.signal.aborted) return;
       target = { id, title: session?.title || "新会话" };
@@ -115,8 +104,6 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setError(null);
     let forked: Pick<Session, "id" | "title"> | null = null;
     try {
-      await start();
-      if (controller.signal.aborted) return;
       const id = await manageProjectSession({ workspaceRoot, projectId, sessionId: session.id, action: change, signal: controller.signal });
       if (controller.signal.aborted) return;
       if (change.kind === "fork" && id) {

@@ -48,6 +48,7 @@ it("verifies displayed bytes before creating a new Session and queues the fixed 
     expect(screen.queryByRole("combobox", { name: "目标会话" })).toBeNull();
     expect(pending()[0]).toMatchObject({ workspaceRoot:props.workspaceRoot, projectId:7, sessionId:"session-new", path:"renamed/current.txt", sourceRef:source });
     expect(projectFileApi.readBytes).toHaveBeenCalledWith(binding, {object, versionNumber:2, expectedContentHash:bytes.contentHash});
+    expect(dshAssistantApi.start).not.toHaveBeenCalled();
     expect(fileDocumentApi.versionsList).toHaveBeenCalledWith(binding,{object,cursor:3,limit:1});
     expect(dshAssistantApi.selectSession).toHaveBeenCalledWith(null, 7);
     expect(vi.mocked(projectFileApi.readBytes).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(dshAssistantApi.selectSession).mock.invocationCallOrder[0]);

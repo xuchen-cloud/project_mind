@@ -10,6 +10,9 @@ import { installScheduledTasks } from './scheduled-tasks.mjs';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readContext, bindContext } from './project-workspace.mjs';
+import { installContextStreams } from './context-streams.mjs';
+import { installSessionReferenceScope } from './context-session-reads.mjs';
+import { migrateSharedRuntime, reconcileContextDirectories } from './shared-runtime-migration.mjs';
 import { installOfficeService } from './office-service.mjs';
 import { installOfficeSelectionService } from './office-selection-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
@@ -22,6 +25,7 @@ const args = process.argv.slice(2).filter(arg => arg !== '--embedded');
 let input;
 let sharedModel;
 let context;
+let configuration;
 let cli;
 let sourceBridge;
 let parentClosed = false;
@@ -32,6 +36,7 @@ if (embedded) {
     input.once('line', resolve);
     input.once('close', () => reject(new Error('Main application closed before AI configuration')));
   });
+  configuration = JSON.parse(frame);
   sharedModel = readSharedModel(frame);
   context = await readContext(frame);
   cli = await readMindCli(frame, context);
@@ -41,7 +46,11 @@ Object.assign(process.env, assistantEnvironment());
 await prepareBundledSkills();
 Object.assign(process.env, bundledSkillEnvironment());
 const home = process.env.DSH_HOME;
-const cwd = embedded ? context.directory : path.join(home, 'workspace');
+if (embedded && configuration.migration) {
+  await migrateSharedRuntime({ ...configuration.migration, home });
+  await reconcileContextDirectories({ home, contexts: configuration.contexts ?? [context] });
+}
+const cwd = embedded ? home : path.join(home, 'workspace');
 await mkdir(cwd, { recursive: true });
 process.chdir(cwd);
 const environment = loadLayeredEnv('mind-dsh', cwd);
@@ -86,7 +95,10 @@ try {
     await host.plugin(PluginPackages, { resolution });
     if (embedded) {
       installSharedCredential(host, sharedModel);
-      mindCli = installMindCli(host, context, cli, sourceBridge);
+      mindCli = installMindCli(host, {
+        forSession: (...args) => ctx.mindContexts.forSession(...args),
+        forAgent: agent => ctx.mindContexts.forAgent(agent),
+      }, undefined, sourceBridge);
       installSourceTitles(host);
     }
     provideCmdline(host, { args, exit: stop, ready: { onReady(listener) { readyListeners.push(listener); return () => { const index = readyListeners.indexOf(listener); if (index >= 0) readyListeners.splice(index, 1); }; } } });
@@ -96,13 +108,18 @@ try {
     if (!ctx.shell || !ctx.sessionController || !ctx.systemPrompt) throw new Error('Native Mind CLI binding requires shell, Session and system prompt services');
   }
   if (embedded) {
-    await bindContext(ctx, context);
-    await installScheduledTasks(ctx, context, home);
-    {
-      await installSourceService(ctx, context, sourceBridge);
-      await installOfficeService(ctx, context, sourceBridge);
-      await installOfficeSelectionService(ctx, context, sourceBridge);
+    const contexts = await bindContext(ctx, context, { home, cli });
+    for (const registered of configuration.contexts ?? []) {
+      if (registered.kind !== context.kind || registered.id !== context.id) await contexts.register(registered);
     }
+    installContextStreams(ctx, contexts);
+    installSessionReferenceScope(ctx, contexts);
+    {
+      await installSourceService(ctx, contexts, sourceBridge);
+      await installOfficeService(ctx, contexts, sourceBridge);
+      await installOfficeSelectionService(ctx, contexts, sourceBridge);
+    }
+    await installScheduledTasks(ctx, contexts, home);
   }
   for (const listener of readyListeners) listener();
   if (process.send) process.send({ type: 'ready', port: ctx.webServer.port });

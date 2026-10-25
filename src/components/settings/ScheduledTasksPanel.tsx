@@ -4,7 +4,7 @@ import { Clock, Plus } from "lucide-react";
 import { dshAssistantApi } from "../../services/dshAssistantApi";
 import { dshScheduleApi, type DshScheduledTask, type DshScheduledTaskInput, type DshScheduleRule } from "../../services/dshScheduleApi";
 import { openProjectContent } from "../../services/projectContentApi";
-import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
+import { useAgentPanelStore } from "../../state/agent-panel-store";
 import { getErrorMessage } from "../../lib/errors";
 import { queryKeys } from "../../lib/queryKeys";
 import { Button, Dialog, TextField } from "../../ui/components";
@@ -62,10 +62,8 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
   const alive = useRef(false);
   const mutation = useRef(false);
   const saveRequest = useRef<{ payload: string; id: string } | null>(null);
-  const scopeKey = dshProjectRunKey(workspaceRoot, null);
   const { activeSessionId } = useFocusedProjectContent(workspaceRoot, null);
   useLayoutEffect(() => { alive.current = open; return () => { alive.current = false; }; }, [open]);
-  async function start() { await dshAssistantApi.start(scopeKey, null); }
   function load() {
     setError(null);
     void tasksQuery.refetch();
@@ -82,7 +80,7 @@ function WorkspaceScheduledTasks({ workspaceRoot, open, onRunStarted }: { worksp
     if (mutation.current) return;
     mutation.current = true;
     setBusy(true); setError(null);
-    try { await queryClient.cancelQueries({ queryKey: tasksKey }); await start(); if (alive.current) await action(); }
+    try { await queryClient.cancelQueries({ queryKey: tasksKey }); if (alive.current) await action(); }
     catch (reason) { if (alive.current) setError(getErrorMessage(reason, "定时任务操作失败")); }
     finally { mutation.current = false; if (alive.current) setBusy(false); }
   }
