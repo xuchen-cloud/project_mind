@@ -74,7 +74,10 @@ impl LiveLocalHandle {
                     let mut pipeline =
                         Pipeline::new(worker, send.clone(), epoch_offset_ms, worker_preview)?;
                     let mut capture = CaptureReader::new(microphone, system);
-                    while let Some(frame) = capture.next(&pipeline.mixer).await {
+                    while let Some(frame) = capture
+                        .next([pipeline.mixer.microphone.end(), pipeline.mixer.system.end()])
+                        .await
+                    {
                         pipeline.feed(frame)?;
                     }
                     pipeline.finish()
@@ -109,7 +112,7 @@ impl LiveLocalHandle {
     }
 }
 
-struct CaptureReader {
+pub(crate) struct CaptureReader {
     microphone: AudioFrameStream,
     system: AudioFrameStream,
     microphone_open: bool,
@@ -117,7 +120,7 @@ struct CaptureReader {
 }
 
 impl CaptureReader {
-    fn new(microphone: AudioFrameStream, system: AudioFrameStream) -> Self {
+    pub(crate) fn new(microphone: AudioFrameStream, system: AudioFrameStream) -> Self {
         Self {
             microphone,
             system,
@@ -126,12 +129,12 @@ impl CaptureReader {
         }
     }
 
-    async fn next(&mut self, mixer: &Mixer) -> Option<AudioFrame> {
+    pub(crate) async fn next(&mut self, track_ends: [u64; 2]) -> Option<AudioFrame> {
         while self.microphone_open || self.system_open {
             // Native callback sizes differ between tracks. Equal-probability
             // consumption of ready queues can advance one track by seconds
             // while the other track's matching audio is already queued.
-            let microphone_first = mixer.microphone.end() <= mixer.system.end();
+            let microphone_first = track_ends[0] <= track_ends[1];
             let (source, frame) = if microphone_first {
                 tokio::select! {
                     biased;
@@ -169,7 +172,7 @@ impl Track {
             seen: false,
         }
     }
-    fn end(&self) -> u64 {
+    pub(crate) fn end(&self) -> u64 {
         self.base + self.samples.len() as u64
     }
 
@@ -514,13 +517,107 @@ mod tests {
             drop(sys_send);
             let mut mixer = Mixer::new();
             let mut capture = CaptureReader::new(mic, sys);
-            while let Some(frame) = capture.next(&mixer).await {
+            while let Some(frame) = capture
+                .next([mixer.microphone.end(), mixer.system.end()])
+                .await
+            {
                 let position = frame.media_position_ns() / 1_000_000;
                 let source = frame.source;
                 mixer.push(frame).unwrap_or_else(|error| {
                     panic!("backlogged {source:?} at {position} ms: {error}")
                 });
             }
+        });
+    }
+
+    #[test]
+    fn shared_capture_reader_balances_media_progress_after_each_activity_callback() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (mic_send, mic) = super::super::capture::bounded_audio_frames(1024).unwrap();
+            let (sys_send, sys) = super::super::capture::bounded_audio_frames(1024).unwrap();
+            for frame in callback_frames(
+                AudioSource::Microphone,
+                48_000,
+                1,
+                0,
+                &vec![0.0; 48_000 * 4],
+                1024,
+            ) {
+                mic_send.try_push(frame).unwrap();
+            }
+            for frame in callback_frames(
+                AudioSource::System,
+                48_000,
+                2,
+                0,
+                &vec![0.0; 48_000 * 4 * 2],
+                480,
+            ) {
+                sys_send.try_push(frame).unwrap();
+            }
+            drop((mic_send, sys_send));
+            let mut capture = CaptureReader::new(mic, sys);
+            let mut tracks = [Track::new(), Track::new()];
+            while let Some(frame) = capture.next([tracks[0].end(), tracks[1].end()]).await {
+                let track = usize::from(frame.source == AudioSource::System);
+                tracks[track].push(frame).unwrap();
+                // Activity drains its own VAD frames after each callback, so
+                // queue fairness must use total media progress, not buffer size.
+                while tracks[track].take_vad_frame().is_some() {}
+                assert!(
+                    tracks[0].end().abs_diff(tracks[1].end()) <= 342,
+                    "ready tracks drifted beyond one microphone callback: {:?}",
+                    [tracks[0].end(), tracks[1].end()]
+                );
+            }
+            assert!(tracks.iter().all(|track| track.end() >= 63_999));
+        });
+    }
+
+    #[test]
+    fn shared_capture_reader_drains_remaining_source_after_other_source_eof() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (mic_send, mic) = super::super::capture::bounded_audio_frames(256).unwrap();
+            let (sys_send, sys) = super::super::capture::bounded_audio_frames(256).unwrap();
+            for frame in callback_frames(
+                AudioSource::Microphone,
+                48_000,
+                1,
+                0,
+                &vec![0.0; 48_000],
+                1024,
+            ) {
+                mic_send.try_push(frame).unwrap();
+            }
+            for frame in callback_frames(
+                AudioSource::System,
+                48_000,
+                2,
+                0,
+                &vec![0.0; 48_000 * 2 * 2],
+                480,
+            ) {
+                sys_send.try_push(frame).unwrap();
+            }
+            drop((mic_send, sys_send));
+            let mut capture = CaptureReader::new(mic, sys);
+            let mut tracks = [Track::new(), Track::new()];
+            let mut callbacks = [0; 2];
+            while let Some(frame) = capture.next([tracks[0].end(), tracks[1].end()]).await {
+                let track = usize::from(frame.source == AudioSource::System);
+                callbacks[track] += 1;
+                tracks[track].push(frame).unwrap();
+                while tracks[track].take_vad_frame().is_some() {}
+            }
+            assert_eq!(callbacks, [47, 200]);
+            assert!(tracks[0].end() >= 15_999);
+            assert!(tracks[1].end() >= 31_999);
         });
     }
 
@@ -545,7 +642,10 @@ mod tests {
             drop(mic_send);
             let mut mixer = Mixer::new();
             let mut capture = CaptureReader::new(mic, sys);
-            while let Some(frame) = capture.next(&mixer).await {
+            while let Some(frame) = capture
+                .next([mixer.microphone.end(), mixer.system.end()])
+                .await
+            {
                 if let Err(error) = mixer.push(frame) {
                     assert_eq!(
                         error.to_string(),

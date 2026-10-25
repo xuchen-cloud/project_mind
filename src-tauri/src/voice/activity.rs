@@ -2,7 +2,7 @@
 use super::{
     capture::{AudioFrame, AudioFrameStream, AudioSource},
     fsmn::FsmnSpeechDetector,
-    live_local::Track,
+    live_local::{CaptureReader, Track},
 };
 use anyhow::{anyhow, Result};
 use std::{
@@ -20,34 +20,29 @@ pub struct ActivityHandle {
 }
 
 impl ActivityHandle {
-    pub fn spawn(mut microphone: AudioFrameStream, mut system: AudioFrameStream) -> Result<Self> {
+    pub fn spawn(microphone: AudioFrameStream, system: AudioFrameStream) -> Result<Self> {
         let mut detectors = [FsmnSpeechDetector::new()?, FsmnSpeechDetector::new()?];
         let silent = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
         let result_silent = silent.clone();
         let result_failed = failed.clone();
-        let join = thread::Builder::new().name("voice-activity".into()).spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread().build()?;
-            let result = runtime.block_on(async {
-                let mut tracks = [Track::new(), Track::new()];
-                let mut activity = SpeechActivity::default();
-                let mut mic_open = true;
-                let mut system_open = true;
-                while mic_open || system_open {
-                    let frame = tokio::select! {
-                        frame = microphone.next(), if mic_open => { if frame.is_none() { mic_open = false; } frame },
-                        frame = system.next(), if system_open => { if frame.is_none() { system_open = false; } frame },
-                    };
-                    if let Some(frame) = frame {
+        let join = thread::Builder::new()
+            .name("voice-activity".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+                let result = runtime.block_on(async {
+                    let mut tracks = [Track::new(), Track::new()];
+                    let mut activity = SpeechActivity::default();
+                    let mut capture = CaptureReader::new(microphone, system);
+                    while let Some(frame) = capture.next([tracks[0].end(), tracks[1].end()]).await {
                         observe_frame(&mut tracks, &mut detectors, &mut activity, frame)?;
                         result_silent.store(activity.should_pause(), Ordering::Relaxed);
                     }
-                }
-                Ok(())
-            });
-            result_failed.store(result.is_err(), Ordering::Relaxed);
-            result
-        })?;
+                    Ok(())
+                });
+                result_failed.store(result.is_err(), Ordering::Relaxed);
+                result
+            })?;
         Ok(Self {
             silent,
             failed,
@@ -112,6 +107,230 @@ impl SpeechActivity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ReplayTrack {
+        source: AudioSource,
+        rate: u32,
+        channels: u16,
+        start: u64,
+        samples: Vec<f32>,
+    }
+
+    fn read_replay_track(variable: &str, source: AudioSource) -> ReplayTrack {
+        let path = std::path::PathBuf::from(std::env::var(variable).expect(variable));
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[..4], b"RIFF");
+        assert_eq!(&bytes[8..16], b"WAVEfmt ");
+        assert_eq!(&bytes[20..22], &3_u16.to_le_bytes());
+        assert_eq!(&bytes[36..40], b"data");
+        ReplayTrack {
+            source,
+            rate: u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
+            channels: u16::from_le_bytes(bytes[22..24].try_into().unwrap()),
+            start: path
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .rsplit('-')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap(),
+            samples: bytes[44..]
+                .chunks_exact(4)
+                .map(|value| f32::from_le_bytes(value.try_into().unwrap()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    #[ignore = "read-only private WAV performance measurement; set PROJECT_MIND_TEST_MIC_WAV and PROJECT_MIND_TEST_SYSTEM_WAV"]
+    fn measures_saved_audio_fsmn_throughput() {
+        for track in [
+            read_replay_track("PROJECT_MIND_TEST_MIC_WAV", AudioSource::Microphone),
+            read_replay_track("PROJECT_MIND_TEST_SYSTEM_WAV", AudioSource::System),
+        ] {
+            assert_eq!(track.rate, 48_000);
+            let channels = usize::from(track.channels);
+            let mono: Vec<f32> = track
+                .samples
+                .chunks_exact(channels)
+                .take(15 * track.rate as usize)
+                .step_by(3)
+                .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+                .collect();
+            let mut detector = FsmnSpeechDetector::new().unwrap();
+            let mut timings = Vec::new();
+            let mut active = 0;
+            let mut supported = 0;
+            let started = std::time::Instant::now();
+            for frame in mono.chunks_exact(480) {
+                supported += usize::from(
+                    frame
+                        .chunks_exact(160)
+                        .filter(|chunk| {
+                            chunk.iter().map(|v| v * v).sum::<f32>() / 160.0 >= 0.0005_f32.powi(2)
+                        })
+                        .count()
+                        >= 2,
+                );
+                let before = std::time::Instant::now();
+                active += usize::from(detector.is_speech(frame).unwrap());
+                timings.push(before.elapsed().as_secs_f64() * 1000.0);
+            }
+            let elapsed = started.elapsed().as_secs_f64();
+            timings.sort_by(f64::total_cmp);
+            eprintln!("ACTIVITY_PERF source={:?} audio_s={:.3} frames={} supported={} active={} wall_s={elapsed:.3} rtf={:.3} frame_ms_min={:.3} p50={:.3} p95={:.3} max={:.3}", track.source, mono.len() as f64 / 16_000.0, timings.len(), supported, active, elapsed / (mono.len() as f64 / 16_000.0), timings[0], timings[timings.len()/2], timings[timings.len()*95/100], timings[timings.len()-1]);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "read-only private WAV real-time activity and ASR replay; set PROJECT_MIND_TEST_MIC_WAV, PROJECT_MIND_TEST_SYSTEM_WAV, PROJECT_MIND_TEST_MODEL_DIR"]
+    fn replays_saved_audio_activity_with_live_local_at_capture_rate() {
+        use crate::voice::{
+            capture::{bounded_audio_frames, SourceTimeline},
+            live_local::{LiveLocalHandle, RecognitionUpdate},
+            local_asr::LocalAsrWorker,
+        };
+        let mut frames = Vec::new();
+        for (track, callback) in [
+            (
+                read_replay_track("PROJECT_MIND_TEST_MIC_WAV", AudioSource::Microphone),
+                1024,
+            ),
+            (
+                read_replay_track("PROJECT_MIND_TEST_SYSTEM_WAV", AudioSource::System),
+                480,
+            ),
+        ] {
+            let mut timeline =
+                SourceTimeline::new(track.source, 1, 0, track.rate, track.channels).unwrap();
+            let mut consumed = 0;
+            for chunk in track.samples.chunks(callback * usize::from(track.channels)) {
+                let at = (track.start + consumed) * 1_000_000_000 / u64::from(track.rate);
+                let frame = timeline.stamp(at, chunk.to_vec()).unwrap();
+                consumed += (chunk.len() / usize::from(track.channels)) as u64;
+                let end = frame.media_position_ns()
+                    + chunk.len() as u64 / u64::from(track.channels) * 1_000_000_000
+                        / u64::from(track.rate);
+                frames.push((end, frame));
+            }
+        }
+        frames.sort_by_key(|(end, _)| *end);
+        let cache = tempfile::tempdir().unwrap();
+        let models = cache.path().join("voice-models");
+        std::fs::create_dir(&models).unwrap();
+        std::os::unix::fs::symlink(
+            std::env::var("PROJECT_MIND_TEST_MODEL_DIR").unwrap(),
+            models.join(crate::voice::model_package::PACKAGE_ID),
+        )
+        .unwrap();
+        let (activity_mic_send, activity_mic) = bounded_audio_frames(1024).unwrap();
+        let (activity_sys_send, activity_sys) = bounded_audio_frames(1024).unwrap();
+        let (live_mic_send, live_mic) = bounded_audio_frames(1024).unwrap();
+        let (live_sys_send, live_sys) = bounded_audio_frames(1024).unwrap();
+        let activity_only = std::env::var_os("PROJECT_MIND_TEST_ACTIVITY_ONLY").is_some();
+        let live = if activity_only {
+            None
+        } else {
+            Some(
+                LiveLocalHandle::spawn(
+                    LocalAsrWorker::start(cache.path()).unwrap(),
+                    live_mic,
+                    live_sys,
+                    0,
+                    true,
+                )
+                .unwrap(),
+            )
+        };
+        let activity = ActivityHandle::spawn(activity_mic, activity_sys).unwrap();
+        let started = std::time::Instant::now();
+        let mut submitted = 0;
+        let mut activity_ingress_error = None;
+        let mut live_ingress_error = None;
+        let mut failed_at = None;
+        for (end, frame) in frames {
+            let due = std::time::Duration::from_nanos(end);
+            if let Some(wait) = due.checked_sub(started.elapsed()) {
+                thread::sleep(wait);
+            }
+            let (activity_sink, live_sink) = if frame.source == AudioSource::Microphone {
+                (&activity_mic_send, &live_mic_send)
+            } else {
+                (&activity_sys_send, &live_sys_send)
+            };
+            if let Err(error) = activity_sink.try_push(frame.clone()) {
+                activity_ingress_error = Some((
+                    frame.source,
+                    end / 1_000_000,
+                    match error {
+                        crate::voice::capture::AudioIngressError::Backpressure(_) => "backpressure",
+                        crate::voice::capture::AudioIngressError::Closed(_) => "closed",
+                    },
+                ));
+                break;
+            }
+            if !activity_only {
+                if let Err(error) = live_sink.try_push(frame) {
+                    live_ingress_error = Some((
+                        end / 1_000_000,
+                        match error {
+                            crate::voice::capture::AudioIngressError::Backpressure(_) => {
+                                "backpressure"
+                            }
+                            crate::voice::capture::AudioIngressError::Closed(_) => "closed",
+                        },
+                    ));
+                    break;
+                }
+            }
+            submitted += 1;
+            if activity.failed() {
+                failed_at = Some(end / 1_000_000);
+                break;
+            }
+        }
+        drop((
+            activity_mic_send,
+            activity_sys_send,
+            live_mic_send,
+            live_sys_send,
+        ));
+        let feed_wall = started.elapsed();
+        let failed = activity.failed();
+        let activity_result = activity.finish();
+        let activity_wall = started.elapsed();
+        let mut final_count = 0;
+        let mut final_end = 0;
+        let mut live_errors = Vec::new();
+        for update in live.map(LiveLocalHandle::finish).unwrap_or_default() {
+            match update {
+                Ok(RecognitionUpdate::Final(value)) => {
+                    final_count += 1;
+                    final_end = final_end.max(value.end_ms);
+                }
+                Err(error) => live_errors.push(error.to_string()),
+                _ => (),
+            }
+        }
+        eprintln!("ACTIVITY_REPLAY activity_only={activity_only} submitted={submitted} feed_wall_s={:.3} activity_finish_wall_s={:.3} total_wall_s={:.3} failed={failed} failed_at_ms={failed_at:?} activity_ingress={activity_ingress_error:?} live_ingress={live_ingress_error:?} activity_result={activity_result:?} finals={final_count} final_end_ms={final_end} live_errors={live_errors:?}", feed_wall.as_secs_f64(), activity_wall.as_secs_f64(), started.elapsed().as_secs_f64());
+        assert!(
+            activity_result.is_ok(),
+            "activity replay failed: {activity_result:?}"
+        );
+        assert!(
+            activity_ingress_error.is_none() && live_ingress_error.is_none(),
+            "production queue rejected audio"
+        );
+        assert!(
+            live_errors.is_empty(),
+            "live replay failed: {live_errors:?}"
+        );
+    }
+
     #[test]
     fn both_tracks_need_five_minutes_of_observed_silence_and_speech_resets_the_clock() {
         let mut activity = SpeechActivity::default();

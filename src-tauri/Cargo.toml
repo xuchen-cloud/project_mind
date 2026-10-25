@@ -71,6 +71,8 @@ winreg = "0.55.0"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# FSMN-VAD uses f32 matrix operations; use the system BLAS implementation.
+candle-core = { version = "=0.11.0", features = ["accelerate"] }
 font-kit = "0.14.3"
 pathfinder_geometry = "0.5.1"
 screencapturekit = { version = "10.0.3", features = ["macos_15_0"] }
