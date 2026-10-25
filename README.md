@@ -39,7 +39,7 @@ npm install
 npm run dev:tauri
 ```
 
-开发时需要避免源码变化自动重开窗口，可使用 `npm run dev:tauri:manual`。两个开发入口均先静默编译内置 `mind`，使会话使用与源码一致的 CLI，无需安装到系统 PATH。Tauri 的 `beforeDevCommand` 统一先运行 `npm run prepare:dev-runtime`，成功后再启动 Vite；准备失败会阻止启动。debug 工作区可使用开发专用本地密钥缓存自动解锁；正式构建仍执行密码与凭据保护。
+开发时需要避免源码变化自动重开窗口，可使用 `npm run dev:tauri:manual`。两个开发入口均先静默编译内置 `mind`，使会话使用与源码一致的 CLI，无需安装到系统 PATH。Tauri 的 `beforeDevCommand` 统一先运行 `npm run prepare:dev-runtime`，成功后再启动 Vite；准备失败会阻止启动。所有构建的新建和打开工作区均无需密码；AI 凭据使用随工作区保存的本地密钥。旧工作区优先复用已有本地密钥，无法解密的旧 API Key 需重新填写，详见[免密码工作区决策](docs/adr/0011-open-workspaces-without-a-user-password.md)。
 
 `prepare:dev-runtime` 复用桌面资源准备脚本的 `--development` 模式，支持本机 macOS arm64/x64、Windows x64 和 Linux x64：校验并准备 manifest 固定的 Node（不使用系统 Node 替代），构建 Record / Source worker，生成 Source 所需的共享 Node 与资源收据，并沿用 `build:office` 生成 Office 开发资源。首次会下载固定 Node 归档并按各 Office 包 lock 安装依赖；可用 `PROJECT_MIND_NODE_ARCHIVE` 指定已有归档，仍须通过原 checksum 校验。开发准备不安装或 stage DSH production，也不 stage Office 发行副本。
 
@@ -109,13 +109,13 @@ cargo check --manifest-path src-tauri/Cargo.toml
 ## 生成演示 Workspace
 
 ```bash
-npm run seed:demo -- --password "demo-password"
+npm run seed:demo
 ```
 
 默认会在 `~/Documents/ProjectMind Demo Workspace` 下生成仅包含当前领域对象的演示数据，也可以指定路径：
 
 ```bash
-cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspace-root "/path/to/demo-workspace" --password "demo-password" --force
+cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspace-root "/path/to/demo-workspace" --force
 ```
 
 ## 目录结构

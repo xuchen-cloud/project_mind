@@ -289,7 +289,7 @@ impl Configuration {
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("请先打开工作区，再使用助手")?;
         if !runtime.ai_secrets_unlocked() {
-            return Err("请先解锁工作区，再使用助手".into());
+            return Err("工作区凭据不可用，请重新打开工作区".into());
         }
         let mut db = crate::lock_mutex(&runtime.db);
         let context = if let Some(id) = project_id {
@@ -305,7 +305,7 @@ impl Configuration {
             .agent_resolve_profile(None)
             .map_err(|error| match error.code {
                 crate::agent::errors::ErrorCode::SecretsLocked => {
-                    "无法解锁模型密钥，请解锁工作区或重新保存 AI 设置".to_string()
+                    "无法读取模型密钥，请在 AI 设置中重新填写 API Key".to_string()
                 }
                 _ => "请在 AI 设置中配置可用模型，并将其设为通用默认模型".to_string(),
             })?;
@@ -332,7 +332,7 @@ impl Configuration {
                 continue;
             }
             let resolved = db.agent_resolve_profile(Some(stored.id))
-                .map_err(|_| "无法读取或解锁助手模型配置，请检查工作区 AI 设置")?;
+                .map_err(|_| "无法读取助手模型配置，请检查工作区 AI 设置")?;
             profiles.push((stored.id, resolved.profile));
         }
         profiles.sort_by_key(|(id, _)| *id);
@@ -1405,7 +1405,7 @@ impl RuntimeState {
         let current = crate::lock_mutex(&state.current_workspace);
         let runtime = current.as_ref().ok_or("请先打开工作区，再使用助手")?;
         if !runtime.ai_secrets_unlocked() {
-            return Err("请先解锁工作区，再使用助手".into());
+            return Err("工作区凭据不可用，请重新打开工作区".into());
         }
         if !self.identity.as_ref().is_some_and(|identity| {
             identity.matches_workspace(&runtime.agent_binding, &runtime.paths.root_path)

@@ -290,7 +290,7 @@ describe("workspaceSearchResultRoute", () => {
 
 describe("WorkspaceLayout", () => {
   afterEach(() => { buildMode.debug = true; vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("creates Workspace with native-generated DEV credentials or required release password ($label)", async ({ debug: dev }) => {
+  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("creates Workspace without a password in every build ($label)", async ({ debug: dev }) => {
     buildMode.debug = dev;
     vi.mocked(projectMindApi.workspaceStatusGet).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" });
     vi.mocked(projectMindApi.workspaceCreate).mockResolvedValue({ currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: true, securityMode: "workspace_password_encrypted" });
@@ -299,13 +299,8 @@ describe("WorkspaceLayout", () => {
     fireEvent.click(await screen.findByRole("button", { name: "新建 Workspace" }));
     fireEvent.change(screen.getByPlaceholderText("例如：/Users/alex/workspaces/customer-success"), { target: { value: " /tmp/new-workspace " } });
     fireEvent.click(screen.getByRole("button", { name: "创建 Workspace" }));
-    if (!dev) {
-      expect(await screen.findByRole("alert")).toHaveTextContent("请输入 workspace 密码。");
-      expect(projectMindApi.workspaceCreate).not.toHaveBeenCalled();
-      fireEvent.change(screen.getByPlaceholderText("用于加密保存的 AI API Key"), { target: { value: "original-secret" } });
-      fireEvent.click(screen.getByRole("button", { name: "创建 Workspace" }));
-    }
-    await waitFor(() => expect(projectMindApi.workspaceCreate).toHaveBeenCalledWith({ rootPath: "/tmp/new-workspace", password: dev ? "" : "original-secret" }));
+    expect(screen.queryByPlaceholderText("用于加密保存的 AI API Key")).toBeNull();
+    await waitFor(() => expect(projectMindApi.workspaceCreate).toHaveBeenCalledWith({ rootPath: "/tmp/new-workspace" }));
   });
   beforeEach(() => {
     useFeedbackStore.setState({ toasts: [] });

@@ -110,7 +110,6 @@ use models::{
     WorkspaceOpenInput, WorkspacePageData, WorkspaceQuickNoteCommitInput, WorkspaceQuickNoteUpsertInput, WorkspaceRecord,
     WorkspaceRecordDeleteInput, WorkspaceRecordMetadataApplyInput, WorkspaceRecordUpsertInput,
     WorkspaceSearchInput, WorkspaceSearchResult, WorkspaceStatusSnapshot, WorkspaceSummary,
-    WorkspaceUnlockInput,
 };
 use record_export::{
     desktop_cancel_export_image, desktop_cancel_export_write, desktop_export_available_bytes,
@@ -120,8 +119,9 @@ use record_export::{
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
 use workspace::{
-    cleanup_legacy_app_data, create_workspace, load_local_session, load_metadata,
-    save_local_session, verify_workspace_password, workspace_summary, WorkspaceMetadata,
+    cleanup_legacy_app_data, create_passwordless_workspace, enable_passwordless_workspace,
+    generate_workspace_secret_key, load_local_session, load_metadata, save_local_session,
+    verify_workspace_password, workspace_summary, WorkspaceMetadata,
     WorkspacePaths, WORKSPACE_SECURITY_MODE,
 };
 
@@ -263,18 +263,7 @@ impl WorkspaceRuntime {
         );
     }
 
-    fn set_secret_password(&self, secret_password: Option<String>) -> Result<Option<agent::errors::AgentError>> {
-        let mut db_guard = lock_mutex(&self.db);
-        let opened = workspace_initialization::open_workspace_database(
-            &self.paths.db_path, &self.paths.root_path, secret_password.clone(), &self.agent_binding.workspace_id,
-        )?;
-        let mut next_db = opened.db;
-        let execution = next_db.ai_execution_settings_get()?;
-        *db_guard = next_db;
-        *lock_mutex(&self.secret_state) = secret_password;
-        self.ai_jobs.set_max_concurrency(execution.max_concurrency);
-        Ok(opened.checkpoint_error)
-    }
+
 }
 
 pub(crate) struct AppState {
@@ -354,25 +343,16 @@ impl AppState {
     fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
         self.seal_current_record_checkpoints()?;
-        let (metadata, paths) = load_metadata(root_path)?;
-        let runtime = Arc::new(WorkspaceRuntime::new(
-            &self.app_handle,
-            metadata,
-            paths,
-            None,
-        )?);
         #[cfg(debug_assertions)]
-        {
-            if let Some(password) = debug_workspace_password(
-                &runtime.metadata,
-                std::env::var("PROJECT_MIND_DEV_WORKSPACE_PASSWORD").ok().as_deref(),
-                debug_cached_workspace_password,
-            )? {
-                if let Some(error) = runtime.set_secret_password(Some(password))? {
-                    let _ = self.app_handle.emit("record:checkpoint-error", error);
-                }
-            }
-        }
+        let fixture_password = std::env::var("PROJECT_MIND_DEV_WORKSPACE_PASSWORD").ok();
+        #[cfg(not(debug_assertions))]
+        let fixture_password: Option<String> = None;
+        let (metadata, paths, key) = open_passwordless_workspace(
+            root_path, fixture_password.as_deref(), cached_workspace_password,
+        )?;
+        let runtime = Arc::new(WorkspaceRuntime::new(
+            &self.app_handle, metadata, paths, Some(key),
+        )?);
         self.set_current_workspace(Some(runtime));
 
         let mut session = load_local_session(&self.local_session_path)?;
@@ -382,17 +362,8 @@ impl AppState {
         self.status_snapshot()
     }
 
-    fn create_workspace_root(
-        &self,
-        root_path: &Path,
-        password: &str,
-    ) -> Result<WorkspaceStatusSnapshot> {
-        #[cfg(all(debug_assertions, not(feature = "office-performance")))]
-        debug_create_workspace(root_path, debug_cache_workspace_password)?;
-        #[cfg(any(not(debug_assertions), feature = "office-performance"))]
-        create_workspace(root_path, password)?;
-        #[cfg(all(debug_assertions, not(feature = "office-performance")))]
-        let _ = password;
+    fn create_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
+        create_passwordless_workspace(root_path)?;
         self.open_workspace_root(root_path)
     }
 
@@ -412,15 +383,6 @@ impl AppState {
         self.status_snapshot()
     }
 
-    fn unlock_current_workspace(&self, password: &str) -> Result<WorkspaceStatusSnapshot> {
-        let runtime = self.current_workspace()?;
-        verify_workspace_password(&runtime.metadata, password)?;
-        if let Some(error) = runtime.set_secret_password(Some(password.to_string()))? {
-            let _ = self.app_handle.emit("record:checkpoint-error", error);
-        }
-        self.status_snapshot()
-    }
-
     fn seal_current_record_checkpoints(&self) -> Result<()> {
         let current = lock_mutex(&self.current_workspace);
         if let Some(workspace) = current.as_ref() {
@@ -431,20 +393,11 @@ impl AppState {
         Ok(())
     }
 
-    fn lock_current_workspace_secrets(&self) -> Result<WorkspaceStatusSnapshot> {
-        let runtime = self.current_workspace()?;
-        runtime.cancel_agent_runs();
-        self.office_selections.clear();
-        if let Some(error) = runtime.set_secret_password(None)? {
-            let _ = self.app_handle.emit("record:checkpoint-error", error);
-        }
-        self.status_snapshot()
-    }
+
 }
 
 type CommandResult<T> = std::result::Result<T, String>;
 
-#[cfg(debug_assertions)]
 fn debug_workspace_key_path(app_data: &Path, workspace_id: &str) -> Result<PathBuf> {
     if workspace_id.len() != 32 || !workspace_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("invalid workspace identity for development cache");
@@ -452,7 +405,6 @@ fn debug_workspace_key_path(app_data: &Path, workspace_id: &str) -> Result<PathB
     Ok(app_data.join("debug-workspace-keys").join(workspace_id))
 }
 
-#[cfg(debug_assertions)]
 fn debug_read_workspace_key(app_data: &Path, workspace_id: &str) -> Result<Option<String>> {
     match fs::read_to_string(debug_workspace_key_path(app_data, workspace_id)?) {
         Ok(password) => Ok(Some(password)),
@@ -461,7 +413,7 @@ fn debug_read_workspace_key(app_data: &Path, workspace_id: &str) -> Result<Optio
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(test)]
 fn debug_write_workspace_key(app_data: &Path, workspace_id: &str, password: &str) -> Result<()> {
     use std::io::Write;
     let path = debug_workspace_key_path(app_data, workspace_id)?;
@@ -476,52 +428,45 @@ fn debug_write_workspace_key(app_data: &Path, workspace_id: &str, password: &str
     Ok(())
 }
 
-#[cfg(debug_assertions)]
-fn debug_cached_workspace_password(workspace_id: &str) -> Result<Option<String>> {
+fn cached_workspace_password(workspace_id: &str) -> Result<Option<String>> {
     debug_read_workspace_key(&default_app_data_dir()?, workspace_id)
 }
 
-#[cfg(debug_assertions)]
-fn debug_cache_workspace_password(workspace_id: &str, password: &str) -> Result<()> {
-    debug_write_workspace_key(&default_app_data_dir()?, workspace_id, password)
+fn open_passwordless_workspace(
+    root: &Path,
+    fixture_password: Option<&str>,
+    read: impl FnOnce(&str) -> Result<Option<String>>,
+) -> Result<(WorkspaceMetadata, WorkspacePaths, String)> {
+    let (metadata, paths) = load_metadata(root)?;
+    if metadata.security_mode == WORKSPACE_SECURITY_MODE {
+        // load_metadata already validated the local key and its verifier.
+        let key = metadata.local_secret_key.clone().expect("validated Workspace local key");
+        return Ok((metadata, paths, key));
+    }
+    let key = workspace_secret_key(&metadata, fixture_password, read)?;
+    let metadata = enable_passwordless_workspace(&paths.metadata_path, &metadata, &key)?;
+    Ok((metadata, paths, key))
 }
 
-#[cfg(debug_assertions)]
-fn debug_workspace_password(
+fn workspace_secret_key(
     metadata: &WorkspaceMetadata,
     fixture_password: Option<&str>,
     read: impl FnOnce(&str) -> Result<Option<String>>,
-) -> Result<Option<String>> {
+) -> Result<String> {
     if let Some(password) = fixture_password {
-        // Explicit acceptance configuration needs no cache access. It can
-        // unlock only the workspace whose verifier matches that password.
         match verify_workspace_password(metadata, password) {
-            Ok(()) => return Ok(Some(password.to_owned())),
+            Ok(()) => return Ok(password.to_owned()),
             Err(error) if error.to_string() == "workspace password is incorrect" => {},
             Err(error) => return Err(error),
         }
     }
     if let Some(password) = read(&metadata.workspace_id)? {
         verify_workspace_password(metadata, &password)?;
-        return Ok(Some(password));
+        return Ok(password);
     }
-    Ok(None)
-}
-
-#[cfg(debug_assertions)]
-fn debug_create_workspace(
-    root: &Path,
-    save: impl FnOnce(&str, &str) -> Result<()>,
-) -> Result<()> {
-    let password = format!("{:032x}{:032x}", rand::random::<u128>(), rand::random::<u128>());
-    let (metadata, paths) = create_workspace(root, &password)?;
-    if let Err(error) = save(&metadata.workspace_id, &password) {
-        // No database exists yet; allow creation to be retried without losing a generated key.
-        std::fs::remove_file(&paths.metadata_path)
-            .context("failed to roll back workspace metadata after development key cache failure")?;
-        return Err(error);
-    }
-    Ok(())
+    // Existing ciphertext is kept. Without its original key it stays unreadable
+    // until that profile's API key is entered again under this local key.
+    Ok(generate_workspace_secret_key())
 }
 
 fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -617,7 +562,6 @@ pub fn default_demo_workspace_root() -> Result<PathBuf> {
 
 pub fn seed_demo_workspace_at(
     workspace_root: &Path,
-    password: &str,
     force: bool,
 ) -> Result<SeedDemoWorkspaceResult> {
     if force && workspace_root.exists() {
@@ -629,8 +573,8 @@ pub fn seed_demo_workspace_at(
         })?;
     }
 
-    let (_, paths) = create_workspace(workspace_root, password)?;
-    let mut db = Database::open(&paths.db_path, workspace_root, Some(password.to_string()))?;
+    let (metadata, paths) = create_passwordless_workspace(workspace_root)?;
+    let mut db = Database::open(&paths.db_path, workspace_root, metadata.local_secret_key)?;
     let summary = db.seed_demo_data(workspace_root)?;
 
     Ok(SeedDemoWorkspaceResult {
@@ -908,7 +852,7 @@ async fn workspace_create(
 ) -> CommandResult<WorkspaceStatusSnapshot> {
     state.app_handle.state::<dsh_assistant::DshAssistantState>()
         .invalidate(&state.app_handle, || {
-            state.create_workspace_root(Path::new(input.root_path.trim()), &input.password).map_err(|error| error.to_string())
+            state.create_workspace_root(Path::new(input.root_path.trim())).map_err(|error| error.to_string())
         })
         .await
 }
@@ -930,25 +874,6 @@ async fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceS
     state.app_handle.state::<dsh_assistant::DshAssistantState>()
         .invalidate(&state.app_handle, || {
             state.close_current_workspace().map_err(|error| error.to_string())
-        })
-        .await
-}
-
-#[tauri::command]
-fn workspace_unlock(
-    state: State<'_, AppState>,
-    input: WorkspaceUnlockInput,
-) -> CommandResult<WorkspaceStatusSnapshot> {
-    state
-        .unlock_current_workspace(&input.password)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-async fn workspace_lock(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state.app_handle.state::<dsh_assistant::DshAssistantState>()
-        .invalidate(&state.app_handle, || {
-            state.lock_current_workspace_secrets().map_err(|error| error.to_string())
         })
         .await
 }
@@ -1772,8 +1697,6 @@ pub fn run() {
             workspace_create,
             workspace_open,
             workspace_close,
-            workspace_unlock,
-            workspace_lock,
             projects_list,
             project_create,
             project_page_get,
@@ -1990,70 +1913,93 @@ mod workspace_lifecycle_tests {
     }
 }
 
-#[cfg(all(test, debug_assertions))]
-mod debug_workspace_auto_unlock_tests {
-    use super::{debug_create_workspace, debug_workspace_password, debug_read_workspace_key, debug_write_workspace_key, debug_workspace_key_path};
-    use crate::workspace::{create_workspace, load_metadata, verify_workspace_password};
+#[cfg(test)]
+mod passwordless_workspace_tests {
+    use super::*;
+    use crate::workspace::create_workspace;
 
-    #[test]
-    fn new_workspace_uses_local_generated_key_and_reopens_without_keychain() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("workspace");
-        let app_data = temp.path().join("app-data");
-        debug_create_workspace(&root, |id, password| debug_write_workspace_key(&app_data, id, password)).unwrap();
-        let (metadata, _) = load_metadata(&root).unwrap();
-        let password = debug_workspace_password(&metadata, None,
-            |id| debug_read_workspace_key(&app_data, id),
-        ).unwrap().unwrap();
-        verify_workspace_password(&metadata, &password).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let key = debug_workspace_key_path(&app_data, &metadata.workspace_id).unwrap();
-            assert_eq!(std::fs::metadata(key).unwrap().permissions().mode() & 0o777, 0o600);
-        }
+    fn save_profile(db: &mut Database, id: Option<i64>, key: &str) -> i64 {
+        db.ai_profile_upsert(AiProviderProfileUpsertInput {
+            id, name: "Local model".into(), provider_family: "openai_compatible".into(),
+            base_url: "http://localhost:12345/v1".into(), api_key: Some(key.into()),
+            default_model: "local-model".into(), supports_text: true,
+            supports_image: false, supports_file: false, enabled: true,
+        }).unwrap().id
     }
 
     #[test]
-    fn explicit_fixture_configuration_unlocks_without_any_cache_access() {
-        let temp = tempfile::tempdir().unwrap();
-        let (metadata, _) = create_workspace(temp.path(), "fixture-password").unwrap();
-        let password = debug_workspace_password(&metadata, Some("fixture-password"),
-            |_| panic!("explicit fixture must not access a password cache"),
-        ).unwrap();
-        assert_eq!(password.as_deref(), Some("fixture-password"));
+    fn created_workspace_reopens_and_resolves_saved_profile_without_password_or_cache() {
+        let root = tempfile::tempdir().unwrap();
+        create_passwordless_workspace(root.path()).unwrap();
+        let (_, paths, key) = open_passwordless_workspace(root.path(), None, |_| panic!("new Workspace needs no cache")).unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), Some(key)).unwrap();
+        let id = save_profile(&mut db, None, "saved-api-key");
+        assert!(db.ai_settings_get().unwrap().ai_secrets_unlocked);
+        drop(db);
+        let (_, paths, reopened_key) = open_passwordless_workspace(root.path(), None, |_| panic!("reopen needs no cache")).unwrap();
+        let db = Database::open(&paths.db_path, root.path(), Some(reopened_key)).unwrap();
+        assert_eq!(db.agent_resolve_profile(Some(id)).unwrap().profile.api_key, "saved-api-key");
     }
 
     #[test]
-    fn uncached_workspace_stays_locked_and_wrong_fixture_cannot_unlock_it() {
-        let temp = tempfile::tempdir().unwrap();
-        let (metadata, _) = create_workspace(temp.path(), "existing-password").unwrap();
-        for fixture in [None, Some("other-fixture-password")] {
-            assert!(debug_workspace_password(&metadata, fixture, |_| Ok(None)).unwrap().is_none());
-        }
-        assert!(debug_workspace_password(&metadata, None, |_| Ok(Some("wrong".into()))).is_err());
+    fn legacy_cached_key_migrates_and_keeps_existing_api_key_readable_after_reopen() {
+        let root = tempfile::tempdir().unwrap();
+        let app_data = tempfile::tempdir().unwrap();
+        let (legacy, paths) = create_workspace(root.path(), "original-password").unwrap();
+        debug_write_workspace_key(app_data.path(), &legacy.workspace_id, "original-password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), Some("original-password".into())).unwrap();
+        let id = save_profile(&mut db, None, "legacy-api-key");
+        drop(db);
+        let (metadata, _, key) = open_passwordless_workspace(root.path(), None, |id| debug_read_workspace_key(app_data.path(), id)).unwrap();
+        assert_eq!(metadata.workspace_id, legacy.workspace_id);
+        assert_eq!(key, "original-password");
+        let (_, _, key) = open_passwordless_workspace(root.path(), None, |_| panic!("migrated Workspace must not need cache")).unwrap();
+        let db = Database::open(&paths.db_path, root.path(), Some(key)).unwrap();
+        assert_eq!(db.agent_resolve_profile(Some(id)).unwrap().profile.api_key, "legacy-api-key");
     }
 
     #[test]
-    fn development_key_cache_is_workspace_scoped_and_rejects_path_escape() {
+    fn uncached_workspace_gets_generated_key_without_password_and_keeps_old_ciphertext() {
+        let root = tempfile::tempdir().unwrap();
+        let (_, paths) = create_workspace(root.path(), "original-password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), Some("original-password".into())).unwrap();
+        let id = save_profile(&mut db, None, "legacy-api-key");
+        drop(db);
+        let database_before = fs::read(&paths.db_path).unwrap();
+        let (_, _, key) = open_passwordless_workspace(root.path(), None, |_| Ok(None)).unwrap();
+        assert_eq!(fs::read(&paths.db_path).unwrap(), database_before);
+        let mut db = Database::open(&paths.db_path, root.path(), Some(key)).unwrap();
+        assert!(db.ai_settings_get().unwrap().ai_secrets_unlocked);
+        assert!(db.agent_resolve_profile(Some(id)).is_err());
+        save_profile(&mut db, Some(id), "replacement-api-key");
+        assert_eq!(db.agent_resolve_profile(Some(id)).unwrap().profile.api_key, "replacement-api-key");
+    }
+
+    #[test]
+    fn explicit_legacy_fixture_key_skips_cache_and_wrong_cached_key_never_replaces_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let (_, paths) = create_workspace(root.path(), "fixture-password").unwrap();
+        let before = fs::read(&paths.metadata_path).unwrap();
+        assert!(open_passwordless_workspace(root.path(), None, |_| Ok(Some("wrong".into()))).is_err());
+        assert_eq!(fs::read(&paths.metadata_path).unwrap(), before);
+        assert!(open_passwordless_workspace(root.path(), None, |_| Err(anyhow!("cache read failed"))).is_err());
+        assert_eq!(fs::read(&paths.metadata_path).unwrap(), before);
+        let (_, _, key) = open_passwordless_workspace(root.path(), Some("fixture-password"), |_| panic!("fixture needs no cache")).unwrap();
+        assert_eq!(key, "fixture-password");
+    }
+
+    #[test]
+    fn legacy_key_cache_is_workspace_scoped_and_rejects_path_escape() {
         let temp = tempfile::tempdir().unwrap();
         let first = "00000000000000000000000000000001";
         let second = "00000000000000000000000000000002";
-        debug_write_workspace_key(temp.path(), first, "first generated key").unwrap();
-        debug_write_workspace_key(temp.path(), second, "second generated key").unwrap();
-        assert_eq!(debug_read_workspace_key(temp.path(), first).unwrap().as_deref(), Some("first generated key"));
-        assert_eq!(debug_read_workspace_key(temp.path(), second).unwrap().as_deref(), Some("second generated key"));
+        debug_write_workspace_key(temp.path(), first, "first key").unwrap();
+        debug_write_workspace_key(temp.path(), second, "second key").unwrap();
+        assert_eq!(debug_read_workspace_key(temp.path(), first).unwrap().as_deref(), Some("first key"));
+        assert_eq!(debug_read_workspace_key(temp.path(), second).unwrap().as_deref(), Some("second key"));
         for id in ["../outside", "/absolute", "", "0000000000000000000000000000000g"] {
             assert!(debug_write_workspace_key(temp.path(), id, "key").is_err());
             assert!(debug_read_workspace_key(temp.path(), id).is_err());
         }
-    }
-
-    #[test]
-    fn local_cache_failure_does_not_leave_an_unrecoverable_generated_workspace() {
-        let temp = tempfile::tempdir().unwrap();
-        assert!(debug_create_workspace(temp.path(), |_, _| Err(anyhow::anyhow!("store unavailable"))).is_err());
-        assert!(load_metadata(temp.path()).is_err());
-        debug_create_workspace(temp.path(), |_, _| Ok(())).unwrap();
     }
 }

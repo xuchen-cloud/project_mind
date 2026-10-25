@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -8,13 +9,15 @@ use argon2::Argon2;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::models::WorkspaceSummary;
 
 pub const WORKSPACE_HIDDEN_DIR_NAME: &str = ".project-mind";
 pub const WORKSPACE_DB_FILE_NAME: &str = "workspace.sqlite3";
 pub const WORKSPACE_METADATA_FILE_NAME: &str = "workspace.json";
-pub const WORKSPACE_SECURITY_MODE: &str = "workspace_password_encrypted";
+pub const WORKSPACE_SECURITY_MODE: &str = "workspace_local_key_encrypted";
+pub const LEGACY_WORKSPACE_SECURITY_MODE: &str = "workspace_password_encrypted";
 
 const WORKSPACE_SCHEMA_VERSION: i64 = 1;
 const PASSWORD_SALT_BYTES: usize = 16;
@@ -72,6 +75,8 @@ pub struct WorkspaceMetadata {
     pub created_at: String,
     pub security_mode: String,
     pub password_verifier: PasswordVerifier,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_secret_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,11 +124,73 @@ pub fn create_workspace(
         workspace_id: random_hex(16),
         workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
         created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        security_mode: WORKSPACE_SECURITY_MODE.to_string(),
+        security_mode: LEGACY_WORKSPACE_SECURITY_MODE.to_string(),
         password_verifier: create_password_verifier(password)?,
+        local_secret_key: None,
     };
     save_metadata(&paths.metadata_path, &metadata)?;
     Ok((metadata, paths))
+}
+
+pub fn generate_workspace_secret_key() -> String {
+    random_hex(32)
+}
+
+pub fn create_passwordless_workspace(
+    root_path: &Path,
+) -> Result<(WorkspaceMetadata, WorkspacePaths)> {
+    let paths = workspace_paths(root_path);
+    if paths.metadata_path.exists() {
+        return Err(anyhow!(
+            "workspace already exists at {}",
+            root_path.display()
+        ));
+    }
+    fs::create_dir_all(&paths.cache_dir)?;
+    fs::create_dir_all(&paths.log_dir)?;
+    fs::create_dir_all(&paths.temp_dir)?;
+    #[cfg(target_os = "windows")]
+    set_hidden_attribute(&paths.hidden_dir)?;
+
+    let key = generate_workspace_secret_key();
+    let metadata = WorkspaceMetadata {
+        workspace_id: random_hex(16),
+        workspace_schema_version: WORKSPACE_SCHEMA_VERSION,
+        created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        security_mode: WORKSPACE_SECURITY_MODE.to_string(),
+        password_verifier: local_key_verifier(&key),
+        local_secret_key: Some(key),
+    };
+    save_metadata(&paths.metadata_path, &metadata)?;
+    Ok((metadata, paths))
+}
+
+pub fn enable_passwordless_workspace(
+    metadata_path: &Path,
+    metadata: &WorkspaceMetadata,
+    key: &str,
+) -> Result<WorkspaceMetadata> {
+    validate_local_secret_key(Some(key))?;
+    let mut updated = metadata.clone();
+    updated.security_mode = WORKSPACE_SECURITY_MODE.to_string();
+    updated.local_secret_key = Some(key.to_owned());
+    updated.password_verifier = local_key_verifier(key);
+    save_metadata(metadata_path, &updated)?;
+    Ok(updated)
+}
+
+fn local_key_verifier(key: &str) -> PasswordVerifier {
+    PasswordVerifier {
+        salt_b64: String::new(),
+        hash_b64: STANDARD.encode(Sha256::digest(key.as_bytes())),
+    }
+}
+
+fn validate_local_secret_key(key: Option<&str>) -> Result<()> {
+    if key.is_none_or(|key| key.trim().is_empty()) {
+        return Err(anyhow!("workspace local secret key is missing or invalid"));
+    }
+    Ok(())
 }
 
 pub fn load_metadata(root_path: &Path) -> Result<(WorkspaceMetadata, WorkspacePaths)> {
@@ -136,8 +203,19 @@ pub fn load_metadata(root_path: &Path) -> Result<(WorkspaceMetadata, WorkspacePa
     })?;
     let metadata: WorkspaceMetadata =
         serde_json::from_str(&raw).context("failed to parse workspace metadata")?;
-    if metadata.security_mode != WORKSPACE_SECURITY_MODE {
-        return Err(anyhow!("workspace security mode is not supported"));
+    match metadata.security_mode.as_str() {
+        WORKSPACE_SECURITY_MODE => {
+            validate_local_secret_key(metadata.local_secret_key.as_deref())?;
+            // This detects damaged metadata; the key is already stored beside
+            // its checksum, so password stretching adds no protection here.
+            if metadata.password_verifier.hash_b64
+                != local_key_verifier(metadata.local_secret_key.as_deref().unwrap()).hash_b64
+            {
+                return Err(anyhow!("workspace local secret key is invalid"));
+            }
+        }
+        LEGACY_WORKSPACE_SECURITY_MODE => {}
+        _ => return Err(anyhow!("workspace security mode is not supported")),
     }
     Ok((metadata, paths))
 }
@@ -209,9 +287,7 @@ pub fn cleanup_legacy_app_data(app_data_dir: &Path, session_path: &Path) -> Resu
         // Imported voice models belong to the current app and must survive restarts.
         if path == session_path
             || (path == app_data_dir.join("voice-models") && entry.file_type()?.is_dir())
-            || (cfg!(debug_assertions)
-                && path == app_data_dir.join("debug-workspace-keys")
-                && entry.file_type()?.is_dir())
+            || (path == app_data_dir.join("debug-workspace-keys") && entry.file_type()?.is_dir())
         {
             continue;
         }
@@ -237,8 +313,23 @@ fn save_metadata(path: &Path, metadata: &WorkspaceMetadata) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     let raw = serde_json::to_string_pretty(metadata)?;
-    fs::write(path, raw)
-        .with_context(|| format!("failed to write workspace metadata at {}", path.display()))
+    let parent = path
+        .parent()
+        .context("workspace metadata path has no parent")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    temporary.write_all(raw.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(path)
+        .with_context(|| format!("failed to write workspace metadata at {}", path.display()))?;
+    Ok(())
 }
 
 fn create_password_verifier(password: &str) -> Result<PasswordVerifier> {
@@ -324,7 +415,6 @@ mod legacy_app_data_tests {
     use std::fs;
 
     #[test]
-    #[cfg(debug_assertions)]
     fn cleanup_preserves_debug_workspace_keys_across_restarts() {
         let app_data = tempfile::tempdir().unwrap();
         let session = app_data.path().join("session.json");
@@ -359,17 +449,85 @@ mod legacy_app_data_tests {
 
         assert!(!keys.exists());
     }
+}
+
+#[cfg(test)]
+mod passwordless_tests {
+    use super::*;
 
     #[test]
-    #[cfg(not(debug_assertions))]
-    fn release_cleanup_removes_debug_workspace_keys() {
-        let app_data = tempfile::tempdir().unwrap();
-        let keys = app_data.path().join("debug-workspace-keys");
-        fs::create_dir(&keys).unwrap();
-        fs::write(keys.join("workspace-id"), "workspace-key").unwrap();
+    fn legacy_workspace_conversion_preserves_identity_and_the_supplied_key() {
+        let root = tempfile::tempdir().unwrap();
+        let (legacy, paths) = create_workspace(root.path(), "old password").unwrap();
+        let (loaded, _) = load_metadata(root.path()).unwrap();
+        assert_eq!(loaded.security_mode, "workspace_password_encrypted");
+        assert!(loaded.local_secret_key.is_none());
+        verify_workspace_password(&loaded, "old password").unwrap();
+        let converted =
+            enable_passwordless_workspace(&paths.metadata_path, &legacy, "old password").unwrap();
+        let (reopened, _) = load_metadata(root.path()).unwrap();
+        assert_eq!(converted.workspace_id, legacy.workspace_id);
+        assert_eq!(converted.created_at, legacy.created_at);
+        assert_eq!(
+            converted.workspace_schema_version,
+            legacy.workspace_schema_version
+        );
+        assert_eq!(reopened.local_secret_key.as_deref(), Some("old password"));
+        assert!(legacy.local_secret_key.is_none());
+    }
 
-        cleanup_legacy_app_data(app_data.path(), &app_data.path().join("session.json")).unwrap();
+    #[test]
+    fn invalid_local_key_fails_without_regenerating_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let (metadata, paths) = create_passwordless_workspace(root.path()).unwrap();
+        for key in [None, Some(""), Some("wrong key")] {
+            let mut corrupt = serde_json::to_value(&metadata).unwrap();
+            corrupt["localSecretKey"] = serde_json::json!(key);
+            let raw = serde_json::to_string(&corrupt).unwrap();
+            fs::write(&paths.metadata_path, &raw).unwrap();
+            assert!(load_metadata(root.path()).is_err());
+            assert_eq!(fs::read_to_string(&paths.metadata_path).unwrap(), raw);
+        }
+    }
 
-        assert!(!keys.exists());
+    #[test]
+    fn failed_conversion_keeps_original_metadata_and_key() {
+        let root = tempfile::tempdir().unwrap();
+        let (legacy, paths) = create_workspace(root.path(), "old password").unwrap();
+        let raw = fs::read_to_string(&paths.metadata_path).unwrap();
+        let blocked = root.path().join("blocked");
+        fs::write(&blocked, "file blocks parent directory").unwrap();
+        assert!(
+            enable_passwordless_workspace(&blocked.join("workspace.json"), &legacy, "new key")
+                .is_err()
+        );
+        assert_eq!(fs::read_to_string(&paths.metadata_path).unwrap(), raw);
+        assert!(legacy.local_secret_key.is_none());
+        assert_eq!(legacy.security_mode, "workspace_password_encrypted");
+    }
+
+    #[test]
+    fn passwordless_creation_reopens_with_the_same_isolated_key() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let (created, paths) = create_passwordless_workspace(first.path()).unwrap();
+        let (reopened, _) = load_metadata(first.path()).unwrap();
+        let (other, _) = create_passwordless_workspace(second.path()).unwrap();
+        assert_eq!(created.security_mode, "workspace_local_key_encrypted");
+        assert_eq!(created.local_secret_key, reopened.local_secret_key);
+        assert_ne!(created.local_secret_key, other.local_secret_key);
+        assert!(!created.local_secret_key.as_ref().unwrap().is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(paths.metadata_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
     }
 }
