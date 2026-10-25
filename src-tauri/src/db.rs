@@ -1221,6 +1221,7 @@ impl Database {
             )
             .collect::<Result<Vec<_>>>()?;
         Ok(Some(VoicePlaybackSnapshot {
+            recognition_error: self.voice_recognition_error(&session_id, None)?,
             session_id,
             phase,
             chunks,

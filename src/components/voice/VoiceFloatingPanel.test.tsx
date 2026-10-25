@@ -73,3 +73,12 @@ it('does not request captions in audio-only mode', async () => {
   expect(mocks.transcriptTail).not.toHaveBeenCalled();
   view.unmount();
 });
+
+it('shows local recognition failure while audio recording continues', async () => {
+  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 2000, recognitionError: 'local inference failed' });
+  mocks.transcriptTail.mockReset().mockResolvedValue([]);
+  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('实时转写已中断，录音继续保存。local inference failed');
+  expect(screen.getByText('录音中')).toBeInTheDocument();
+  view.unmount();
+});

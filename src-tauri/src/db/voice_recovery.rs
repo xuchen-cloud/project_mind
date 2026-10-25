@@ -60,6 +60,43 @@ impl Database {
         Ok(())
     }
 
+    pub(crate) fn voice_recognition_failed(
+        &self,
+        session: &str,
+        epoch: u64,
+        error: &str,
+    ) -> Result<()> {
+        let cloud: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM voice_cloud_epochs WHERE session_id=?1 AND epoch=?2)",
+            params![session, i64::try_from(epoch)?],
+            |row| row.get(0),
+        )?;
+        if cloud {
+            return self.voice_cloud_open_gap(session, epoch, error);
+        }
+        // Local recognition has no cloud recovery epoch. Preserve its failure separately
+        // from capture/storage faults, including after the recording has ended.
+        self.conn.execute(
+            "INSERT INTO voice_timeline_events(session_id, epoch, kind, media_position_ms, reason, created_at)
+             SELECT id, ?2, 'recognition_error', active_ms, ?3, ?4 FROM recording_sessions
+             WHERE id=?1 AND NOT EXISTS (SELECT 1 FROM voice_timeline_events WHERE session_id=?1 AND epoch=?2 AND kind='recognition_error')",
+            params![session, i64::try_from(epoch)?, error, now_iso()],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn voice_recognition_error(
+        &self,
+        session: &str,
+        epoch: Option<u64>,
+    ) -> Result<Option<String>> {
+        self.conn.query_row(
+            "SELECT reason FROM voice_timeline_events WHERE session_id=?1 AND kind='recognition_error' AND (?2 IS NULL OR epoch=?2) ORDER BY id DESC LIMIT 1",
+            params![session, epoch.map(i64::try_from).transpose()?],
+            |row| row.get(0),
+        ).optional().map_err(Into::into)
+    }
+
     pub fn voice_cloud_open_gap(&self, session: &str, epoch: u64, error: &str) -> Result<()> {
         // A single open interval extends until new live audio is accepted.
         self.conn.execute(r#"INSERT INTO voice_cloud_gaps(session_id, epoch, start_ms, cursor_ms, error)
@@ -270,6 +307,51 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recognition_failures_keep_local_history_and_cloud_recovery_separate() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("db.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        db.voice_session_create(&RecordTarget::Workspace, "local", "local", "Voice")
+            .unwrap();
+        db.voice_recognition_failed("local", 1, "local inference failed")
+            .unwrap();
+        db.voice_recognition_failed("local", 1, "local inference failed")
+            .unwrap();
+        assert!(db.voice_cloud_gaps("local").unwrap().is_empty());
+        drop(db);
+        let db = Database::open(&path, root.path(), None).unwrap();
+        assert_eq!(
+            db.voice_recognition_error("local", Some(1))
+                .unwrap()
+                .as_deref(),
+            Some("local inference failed")
+        );
+        assert!(db
+            .voice_recognition_error("local", Some(2))
+            .unwrap()
+            .is_none());
+        let count: i64 = db.conn.query_row("SELECT COUNT(*) FROM voice_timeline_events WHERE session_id='local' AND kind='recognition_error'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        // A repeated cloud failure must remain a cloud gap even when a gap is already open.
+        db.voice_cloud_epoch("local", 2, 1000, "wss://example.invalid/", 1)
+            .unwrap();
+        db.voice_recognition_failed("local", 2, "offline").unwrap();
+        db.voice_recognition_failed("local", 2, "still offline")
+            .unwrap();
+        assert_eq!(db.voice_cloud_gaps("local").unwrap().len(), 1);
+        assert!(db
+            .voice_recognition_error("local", Some(2))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            db.voice_recognition_error("local", None)
+                .unwrap()
+                .as_deref(),
+            Some("local inference failed")
+        );
+    }
+
     #[test]
     fn failed_recovery_has_bounded_retries_and_can_be_retried_manually() {
         let root = tempfile::tempdir().unwrap();

@@ -161,6 +161,7 @@ export function VoiceFloatingPanel({ onChanged }: VoiceFloatingPanelProps) {
           {interim ? <li className="text-text-muted" aria-label="临时字幕">{interim}</li> : null}
         </ol>
       ) : null}
+      {session.recognitionError ? <p role="alert" className="text-caption text-danger">实时转写已中断，录音继续保存。{session.recognitionError}</p> : null}
       {paused && session.pauseReason && session.pauseReason !== "user" ? <p role="status" className="text-caption text-text-muted">暂停原因：{session.pauseReason}</p> : null}
       <div className="flex w-full items-center justify-center gap-2">
       <Button size="sm" variant="secondary" aria-label={recognitionEnabled ? "打开字幕浮窗" : "打开录音浮窗"} leadingIcon={<ExternalLink size={13} />}
