@@ -115,6 +115,7 @@ pub(crate) struct RecalcCell {
 #[derive(Clone, Copy)]
 pub(crate) enum OfficePayload<'a> {
     Inspect,
+    Create(&'a str),
     Edit(&'a [Value]),
     Recalculate(&'a OfficeRecalculation),
 }
@@ -268,16 +269,26 @@ impl OfficeUtility for OfficeWorker {
             || !matches!(
                 (method, payload),
                 ("office.inspect", OfficePayload::Inspect)
+                    | ("office.create", OfficePayload::Create(_))
                     | ("office.edit", OfficePayload::Edit(_))
                     | ("office.recalculate", OfficePayload::Recalculate(_))
             )
             || !matches!(format, "docx" | "xlsx" | "pptx")
             || (method == "office.recalculate" && format != "xlsx")
+            || (method == "office.create" && format != "docx")
         {
             return Err(failure(
                 ErrorCode::InvalidArgument,
                 "Invalid Office utility request",
             ));
+        }
+        if let OfficePayload::Create(content) = payload {
+            if !base64.is_empty() || content.trim().is_empty() {
+                return Err(failure(ErrorCode::InvalidArgument, "Creation requires content and no source bytes"));
+            }
+            if content.len() > 2 * 1024 * 1024 {
+                return Err(failure(ErrorCode::BudgetExceeded, "Office creation content exceeds 2 MiB"));
+            }
         }
         // The byte budget is independent of the larger base64/JSON frame budget.
         let max_encoded = (crate::file_content::MAX_CONTENT as usize).div_ceil(3) * 4;
@@ -296,16 +307,17 @@ impl OfficeUtility for OfficeWorker {
                 "Office bytes exceed 100 MiB",
             ));
         }
-        if bytes.is_empty() || STANDARD.encode(&bytes) != base64 {
+        if method != "office.create" && (bytes.is_empty() || STANDARD.encode(&bytes) != base64) {
             return Err(failure(
                 ErrorCode::InvalidArgument,
                 "Office source must be nonempty canonical base64",
             ));
         }
         drop(bytes);
-        let mut data = json!({"format":format,"base64":base64});
+        let mut data = if method == "office.create" { json!({"format":format}) } else { json!({"format":format,"base64":base64}) };
         match payload {
             OfficePayload::Inspect => {}
+            OfficePayload::Create(content) => { data["content"] = json!(content); }
             OfficePayload::Edit(edits) => {
                 data["edits"] = json!(edits);
             }

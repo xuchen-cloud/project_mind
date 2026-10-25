@@ -680,6 +680,7 @@ enum SourceRequest {
     Resolve { #[serde(rename="sessionId")] session_id: String, path: String },
     Prepare { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize },
     OfficeInspect { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef> },
+    OfficeCreate { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, mode: String, #[serde(rename="projectId")] project_id: Option<i64>, name: String, content: String },
     OfficeEdit { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, #[serde(rename="sourceRef")] source_ref: crate::agent::models::SourceRef, edits: Vec<serde_json::Value> },
     OfficeSelectionRead { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String },
     OfficeSelectionApply { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String, #[serde(rename="requestId")] request_id: String, mode: String, change: serde_json::Value },
@@ -830,7 +831,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let session_id = payload["sessionId"].as_str().ok_or("Invalid native source Session")?;
         let identity = session_identity(&app, &identity, url, session_id)?;
         let operation: SourceRequest = serde_json::from_value(payload).map_err(|_| "Invalid native source request")?;
-        if matches!(&operation, SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) {
+        if matches!(&operation, SourceRequest::OfficeCreate { .. } | SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. }) {
             let office = {
                 let mut offices = crate::lock_mutex(&offices);
                 let entry = offices.entry(identity.project_id()).or_insert_with(|| (identity.clone(), Arc::new(office::OfficeBridge::new(app.clone(), identity.clone()))));
@@ -846,7 +847,7 @@ fn source_handler(app: tauri::AppHandle, identity: Identity, runtime_generation:
         let mut db = crate::lock_mutex(&runtime.db);
         identity.validate_context(&mut db, &runtime.paths.root_path)?;
         let result = match operation {
-            SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => unreachable!("Office is dispatched outside storage locks"),
+            SourceRequest::OfficeCreate { .. } | SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => unreachable!("Office is dispatched outside storage locks"),
             SourceRequest::Resolve { session_id, path } => source_resolve(&db, &identity, &runtime.agent_binding, &session_id, &path),
             SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &identity, &runtime.agent_binding, &session_id, &format!("{runtime_generation}:{}", session_rpc_id()), path.as_deref(), source_ref, offset, limit),
             SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {
@@ -2816,7 +2817,7 @@ mod tests {
         let handler: SourceHandler = Arc::new(move |payload, revoked, _, _, _| {
             let db = crate::lock_mutex(&shared);
             match serde_json::from_value::<SourceRequest>(payload).map_err(|_| "Invalid source operation")? {
-                SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => Err("Office not used by this text fixture".into()),
+                SourceRequest::OfficeCreate { .. } | SourceRequest::OfficeInspect { .. } | SourceRequest::OfficeEdit { .. } | SourceRequest::OfficeSelectionRead { .. } | SourceRequest::OfficeSelectionApply { .. } => Err("Office not used by this text fixture".into()),
                 SourceRequest::Resolve { session_id, path } => source_resolve(&db, &source_identity, &source_binding, &session_id, &path),
                 SourceRequest::Prepare { session_id, path, source_ref, offset, limit } => source_prepare(&db, &source_identity, &source_binding, &session_id, &session_rpc_id(), path.as_deref(), source_ref, offset, limit),
                 SourceRequest::Delivery { session_id, delivery_id, projection, projection_hash } => {

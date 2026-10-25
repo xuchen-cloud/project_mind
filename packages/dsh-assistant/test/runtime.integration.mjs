@@ -216,10 +216,15 @@ for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office 
   assert.equal(stream.snapshot.header.cwd, directory);
   await prompt(runtime, stream, sessionId, 'Discover the available Office tools');
   const discovered = bodies[0].tools.filter(tool => tool.function.name.startsWith('file_office_'));
-  assert.deepEqual(discovered.map(tool => tool.function.name).sort(), ['file_office_edit', 'file_office_inspect']);
+  assert.deepEqual(discovered.map(tool => tool.function.name).sort(), ['file_office_create', 'file_office_edit', 'file_office_inspect']);
   const inspectSchema = discovered.find(tool => tool.function.name === 'file_office_inspect').function.parameters;
   assert.equal(inspectSchema.properties.file_path.type, 'string');
-  assert.deepEqual(inspectSchema.required, ['file_path']);
+  assert.equal(inspectSchema.required, undefined, 'inspect allows path or fixed SourceRef; execution enforces exactly one');
+  assert.equal(inspectSchema.properties.source_ref.type, 'object');
+  const createSchema = discovered.find(tool => tool.function.name === 'file_office_create').function.parameters;
+  assert.deepEqual([...createSchema.required].sort(), ['content', 'name', 'request_id']);
+  assert.equal(createSchema.properties.content.type, 'string');
+  assert.equal(createSchema.properties.project_id.type, 'integer');
   const editSchema = discovered.find(tool => tool.function.name === 'file_office_edit').function.parameters;
   assert.deepEqual([...editSchema.required].sort(), ['edits', 'source_ref']);
   assert.equal(editSchema.properties.edits.type, 'array');
@@ -273,6 +278,85 @@ for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office 
   await prompt(runtime, stream, sessionId, 'Continue after restart without another edit');
   assert.equal(operations.length, 6, 'history replay must not repeat native saves');
   for (const format of ['docx', 'xlsx', 'pptx']) assert.ok(bodies.at(-1).messages.some(message => message.role === 'tool' && message.tool_call_id === `office-edit-${format}`));
+});
+
+// Real provider/registry/Session and sandbox policy; native persistence and
+// GenOffice bytes are mocked here and covered by the Rust service tests.
+for (const owner of ['project', 'workspace', 'workspace-project', 'readonly']) test(`Office create transport: real Session policy and stable native request (${owner})`, { timeout: 60000 }, async t => {
+  const temp = await mkdtemp(path.join(tmpdir(), 'mind-office-create-'));
+  const directory = await realpath(temp);
+  const bodies = [], operations = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => {
+    try { await stream?.close(); } finally {
+      try { await runtime?.stop(); } finally { await provider.close(); await rm(temp, { recursive: true, force: true }); }
+    }
+  });
+  const project = { id: 118, name: 'Office create transport', directory };
+  const workspace = owner !== 'project' ? { id: randomBytes(16).toString('hex'), name: 'Office create Workspace', directory } : undefined;
+  const mode = owner === 'readonly' ? 'read-only' : 'workspace-write';
+  const patch = path.join(temp, 'sandbox.patch.yml');
+  await writeFile(patch, `- id: sandbox-policy\n  config:\n    mode: ${mode}\n`);
+  const fixture = officeFixture('docx');
+  const requestId = 'stable-docx-create-request';
+  fixture.saved.sourceRef.fileVersion = 1;
+  fixture.saved.sourceRef.title = 'Created.docx';
+  fixture.saved.sourceRef.object.scope = owner === 'workspace' || owner === 'readonly' ? { kind: 'workspace' } : { kind: 'project', projectId: 118 };
+  fixture.saved.commit = { requestId, versionNumber: 1, operationId: 'native-create-receipt' };
+  const handleSource = payload => {
+    operations.push(payload);
+    if (payload.operation === 'officeInspect') return { sourceRef: fixture.saved.sourceRef, model: fixture.inspected.model };
+    if (payload.operation === 'officeCreate') return fixture.saved;
+    throw new Error(`Unexpected native create fixture operation: ${payload.operation}`);
+  };
+  const shared = { name: 'Office create fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  runtime = await launch(path.join(temp, 'data'), patch, shared, workspace ? undefined : project, undefined, handleSource, workspace);
+  const { sessionId } = await runtime.rpc('session/create', {});
+  await runtime.rpc('session/rename', { sessionId, title: 'Office create transport fixture' });
+  stream = await follow(runtime, sessionId);
+  assert.equal(stream.snapshot.header.cwd, directory, 'real Session cwd establishes the sandbox workspaceRoot checked by the tool');
+  const args = { name: 'Created.docx', content: '<h1>Created</h1><p>Verified</p>', request_id: requestId,
+    ...(owner === 'workspace-project' ? { project_id: 118 } : {}) };
+  const callId = 'provider-create-call-id';
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: callId, type: 'function', function: {
+    name: 'file_office_create', arguments: JSON.stringify(args),
+  } }] });
+  await prompt(runtime, stream, sessionId, 'Create the requested Word deliverable');
+  const result = events(stream).find(event => event.type === 'tool/result' && event.data.message.source.callId === callId);
+  assert.ok(result, 'actual Agent must deliver the registered create tool result');
+  const reply = providerToolReply(bodies, callId);
+  if (owner === 'readonly') {
+    assert.equal(result.data.message.isError, true);
+    assert.match(reply, /只读/);
+    assert.deepEqual(operations, [], 'read-only sandbox rejects before any native create request');
+    return;
+  }
+  assert.equal(result.data.message.isError, false);
+  assert.deepEqual(operations, [{ operation: 'officeCreate', sessionId, requestId, mode: 'workspace-write',
+    projectId: owner === 'workspace-project' ? 118 : null, name: args.name, content: args.content }]);
+  assert.notEqual(operations[0].requestId, callId, 'stable mutation identity comes from request_id, not transient provider call ID');
+  const expected = { sourceRef: fixture.saved.sourceRef, model: fixture.view, commit: fixture.saved.commit };
+  assert.deepEqual(JSON.parse(reply), expected);
+  assert.doesNotMatch(reply, /PRIVATE_OFFICE_/);
+  const replayId = 'provider-create-retry-call-id';
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: replayId, type: 'function', function: {
+    name: 'file_office_create', arguments: JSON.stringify(args),
+  } }] });
+  await prompt(runtime, stream, sessionId, 'Recover the same create request with its unchanged stable identity');
+  assert.equal(operations.length, 2);
+  assert.deepEqual(operations[1], operations[0], 'retry preserves native mutation identity and complete payload across new provider call IDs');
+  assert.deepEqual(JSON.parse(providerToolReply(bodies, replayId)), expected);
+  assert.doesNotMatch(providerToolReply(bodies, replayId), /PRIVATE_OFFICE_/);
+  // Reuse the complete SourceRef through the actual provider and registry.
+  const inspectId = 'inspect-created-source-ref';
+  provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: inspectId, type: 'function', function: {
+    name: 'file_office_inspect', arguments: JSON.stringify({ source_ref: JSON.parse(reply).sourceRef }),
+  } }] });
+  await prompt(runtime, stream, sessionId, 'Inspect the exact saved native File version');
+  assert.deepEqual(operations.at(-1), { operation: 'officeInspect', sessionId, sourceRef: fixture.saved.sourceRef });
+  assert.deepEqual(JSON.parse(providerToolReply(bodies, inspectId)), { sourceRef: fixture.saved.sourceRef, model: fixture.view });
+  assert.doesNotMatch(providerToolReply(bodies, inspectId), /PRIVATE_OFFICE_/);
 });
 
 test('Office rc.2 transport: registered pre/post tool policies still deny, replace and block', { timeout: 60000 }, async t => {

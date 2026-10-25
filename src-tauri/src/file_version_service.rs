@@ -2092,6 +2092,66 @@ mod tests {
         }
     }
     #[test]
+    fn file_create_upload_has_no_placeholder_and_replays_after_stage_expiry() {
+        use crate::file_content::{FileContentBeginInput, FileContentCreateBegin, FileCreateTarget, FileContentCreate};
+        use sha2::{Digest, Sha256};
+        let bytes = b"PK\x03\x04new office\x00\xff";
+        let (root, store, binding, original) = fixture_bytes("baseline.docx", b"old");
+        let (mut request, _) = upload_input(&binding, &original, bytes);
+        request.scope_grant.operations.push("content.create".into());
+        request.scope_grant.workspace_content = true;
+        // Creation publishes an import, which has no preexisting File version
+        // lease. Keep the stricter Store publisher for replacement tests.
+        struct CreateStore<'a>(&'a Store);
+        impl CommittedChangePublisher for CreateStore<'_> {
+            fn publish_committed(&self, changes: crate::committed_changes::CommittedChanges) {
+                let _state = self.0.0.try_lock().expect("publish after releasing storage");
+                assert_eq!(changes.changed_refs.len(), 1);
+                assert_eq!(changes.changed_refs[0].kind, crate::agent::models::ObjectKind::File);
+                self.0.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        impl BoundFileCommitStore for CreateStore<'_> {
+            fn gui_commit_host(&self, binding: &WorkspaceBinding) -> AgentResult<FileCommitHost> {
+                self.0.gui_commit_host(binding)
+            }
+        }
+        let create_store = CreateStore(store.as_ref());
+        let clock = UploadClock(std::sync::atomic::AtomicI64::new(1000));
+        let service = crate::file_content::FileContentService::new(&create_store, &clock);
+        for (index, project_id) in [original.project_id, None].into_iter().enumerate() {
+            let name = format!("created-{index}.docx");
+            let begin = FileContentBeginInput::Create(FileContentCreateBegin {
+                create_target: FileCreateTarget { workspace_id: binding.workspace_id.clone(), project_id, safe_name: name.clone() },
+                length: bytes.len() as u64, content_hash: format!("sha256:{:x}", Sha256::digest(bytes)),
+            });
+            request.request_id = format!("create-begin-{index}");
+            let before = store.0.lock().unwrap().db.committed_change_watermark().unwrap();
+            let ticket = service.begin_input(&request, &begin).unwrap();
+            assert_eq!(store.0.lock().unwrap().db.committed_change_watermark().unwrap(), before);
+            request.request_id = format!("create-chunk-{index}");
+            service.append(&request, &ticket.staged_content_id, 0, bytes).unwrap();
+            request.request_id = format!("create-seal-{index}");
+            service.finish(&request, &ticket.staged_content_id).unwrap();
+            let input = FileContentCreate { project_id, safe_name: name.clone(), staged_content_id: ticket.staged_content_id.clone() };
+            request.request_id = format!("create-commit-{index}");
+            let result = service.create(&request, &input).unwrap();
+            assert_ne!(result.object.id, original.document_id.to_string());
+            assert_eq!(result.version_number, 1);
+            assert_eq!(result.object.scope, crate::db::file_scope::scope(project_id));
+            let managed = if project_id.is_none() { root.path().join("files").join(&name) } else { Path::new(&original.managed_path).parent().unwrap().join(&name) };
+            assert_eq!(fs::read(managed).unwrap(), bytes);
+            assert_eq!(service.create(&request, &input).unwrap().operation_id, result.operation_id);
+            let mut changed = input.clone(); changed.safe_name = "different.docx".into();
+            assert_eq!(service.create(&request, &changed).unwrap_err().code, ErrorCode::IdempotencyConflict);
+            let mut denied = request.clone(); denied.scope_grant.operations.retain(|operation| operation != "content.create");
+            assert!(service.create(&denied, &input).is_err());
+            fs::remove_dir_all(root.path().join(".project-mind/file-content-stage").join(&ticket.staged_content_id)).unwrap();
+            assert_eq!(service.create(&request, &input).unwrap().operation_id, result.operation_id);
+        }
+        assert_eq!(store.1.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+    #[test]
     fn file_upload_binary_chunks_seal_commit_same_file_and_replay_after_expiry() {
         let old = b"PK\x03\x04original docx bytes\x00\xff";
         let new = b"PK\x03\x04new docx bytes\x00\xfe";

@@ -1,6 +1,15 @@
 # List, count and batch-read native objects
 
-Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. All four commands accept one JSON input with the same common fields:
+Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. All four commands accept one JSON input with the same common fields. `record`, `todo` and `file` lists also support common metadata shorthand:
+
+```sh
+mind file list --project "$PROJECT_ID" --limit 20 --query 'Report' --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind record list --workspace-scope --limit 0 --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+```
+
+Use `--cursor "$NEXT_CURSOR"` with unchanged scope/query to continue. `--query` maps to `titleQuery`, and `--budget-chars` sets the response budget. Use JSON for detail, content queries, tags and other filters; do not combine `--input-file` with shorthand scope/query/limit/cursor/budget options. Session lists continue to use JSON.
+
+Common JSON fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -21,7 +30,7 @@ Record inventories sort by `updatedAt` descending, with ID descending as a stabl
 
 For a count, **one call with `limit:0` is enough**; do not enumerate pages or read bodies. Todo counts are action counts when `includeChildren:true` (the compatibility default); use `includeChildren:false` when the user means parent Todos only.
 
-In metadata mode, Record/File/Session bodies are absent. Todo retains its existing bounded display `content` (240 characters), `contentTruncated` and optional parent display text. Detail mode returns complete Record Markdown, Todo action text, extracted File text, or DSH human conversation text. Session text includes user/assistant/tool messages, excluding system/developer prompts, replacement-only model history and non-text attachments. File extraction reports `contentComplete`, `contentState` and `contentReason`; an unsupported binary is not an empty document. A detail item that cannot fit fails explicitly with `BUDGET_EXCEEDED`; use metadata mode, or paginated `record.get`/`source.read` for large Record/File bodies instead of interpreting an excerpt as the full document. Chat detail currently requires the whole selected conversation text to fit in 12000 characters including metadata; oversized chats return an explicit budget error, and their metadata remains available.
+In metadata mode, Record/File/Session bodies are absent. Todo retains its existing bounded display `content` (240 characters), `contentTruncated` and optional parent display text. Detail mode returns complete Record Markdown, Todo action text, extracted File text, or DSH human conversation text. Session text includes user/assistant/tool messages, excluding system/developer prompts, replacement-only model history and non-text attachments. File extraction reports `contentComplete`, `contentState` and `contentReason`; unavailable reads also preserve the full `contentError` (code, message, retryable and details). Office `contentError.details.reason:"unsupported_format"` is non-retryable text extraction and carries an Office inspect hint. Other `SOURCE_NOT_READY` reasons keep their actual recovery meaning; an unsupported binary is not an empty document. A detail item that cannot fit fails explicitly with `BUDGET_EXCEEDED`; use metadata mode, or paginated `record.get`/`source.read` for large Record/File bodies instead of interpreting an excerpt as the full document. Chat detail currently requires the whole selected conversation text to fit in 12000 characters including metadata; oversized chats return an explicit budget error, and their metadata remains available.
 
 Voice Records are Records: `record.list` includes both `recordType:"text"` and `recordType:"voice"` once each. Record detail is the committed Record body; its Transcript is a separate source of that same Voice Record. `session.list` means real DSH **chat** sessions, not recording sessions or the retired Pi metadata table.
 

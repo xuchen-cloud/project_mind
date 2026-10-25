@@ -16,6 +16,7 @@
     "css.escape": "1.5.1",
     "fast-xml-parser": "5.3.4",
     "jszip": "3.10.1",
+    "linkedom": "0.18.12",
     "marked": "17.0.6",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.2.108",

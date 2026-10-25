@@ -97,8 +97,8 @@ pub(crate) async fn dispatch_output<S: BoundRecordStore + BoundFileCommitStore, 
     }
     match method {
         "file.content.begin" => {
-            let input: crate::file_content::FileContentBegin = decode(arguments)?;
-            encode(crate::file_content::FileContentService::new(store, &crate::file_content::SystemFileContentClock).begin(request, &input)?)
+            let input: crate::file_content::FileContentBeginInput = decode(arguments)?;
+            encode(crate::file_content::FileContentService::new(store, &crate::file_content::SystemFileContentClock).begin_input(request, &input)?)
         }
         "file.content.chunk" => {
             let input: super::file_tools::FileContentChunkInput = decode(arguments)?;

@@ -217,7 +217,13 @@ impl Database {
                 return Err(AgentError::new(
                     ErrorCode::SourceNotReady,
                     "File format is not supported for text extraction",
-                ))
+                ).with_details(serde_json::json!({
+                    "reason": "unsupported_format",
+                    "format": extension,
+                    "recovery": if matches!(extension.as_str(), "docx" | "xlsx" | "pptx") {
+                        serde_json::json!({"action":"office_inspect", "message":"Use Office inspect to read this fixed File Version; text extraction is unavailable."})
+                    } else { serde_json::Value::Null }
+                })))
             }
         };
         Ok(FileReadPlan {
@@ -331,6 +337,38 @@ mod tests {
             source,
             file,
         )
+    }
+    #[tokio::test]
+    async fn office_text_unavailability_preserves_actionable_errors_and_incomplete_counts() {
+        use crate::agent::{file_list, record_list::RecordListInput};
+        for extension in ["docx", "xlsx", "pptx"] {
+            let (_root, store, request, source, _) = registered_fixture(b"office bytes", extension);
+            let query: RecordListInput = serde_json::from_value(serde_json::json!({
+                "scope":source.object.scope,"mode":"detail","budgetChars":12000
+            })).unwrap();
+            let worker = crate::source_extraction_worker::SourceExtractionWorker::bundled(
+                &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources"),
+            ).unwrap();
+            let page = file_list::list(&store, &request, &query, &worker).await.unwrap();
+            let item = &page["items"][0];
+            assert_eq!(item["contentError"]["details"]["reason"], "unsupported_format");
+            assert_eq!(item["contentError"]["retryable"], false);
+            assert_eq!(item["contentError"]["details"]["recovery"]["action"], "office_inspect");
+            assert_eq!(item["contentReason"], "SOURCE_NOT_READY");
+            assert_eq!(page["unreadableCount"], 1);
+            assert_eq!(page["countComplete"], true);
+            let mut search = query.clone();
+            search.content_query = Some("office".into());
+            let page = file_list::list(&store, &request, &search, &worker).await.unwrap();
+            assert_eq!(page["totalCount"], 0);
+            assert_eq!(page["unreadableCount"], 1);
+            assert_eq!(page["countComplete"], false);
+
+            store.db.lock().unwrap().conn.execute("DELETE FROM source_file_version_hashes", []).unwrap();
+            let page = file_list::list(&store, &request, &query, &worker).await.unwrap();
+            assert_eq!(page["items"][0]["contentError"]["details"]["reason"], "unregistered_file_version");
+            assert_eq!(page["items"][0]["contentError"]["message"], "File Version hash is not registered");
+        }
     }
     #[tokio::test]
     async fn source_file_search_rechecks_authority_and_bytes_after_async_capture() {

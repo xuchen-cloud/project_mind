@@ -12,6 +12,9 @@ import {rendererAdapter} from './renderer-build.mjs';
 const root = import.meta.dirname;
 const names = ['docx-engine', 'pptx-engine', 'pptx-render', 'zip-gate', 'ui', 'i18n', 'font-metrics', 'agent-core', 'ai-provider'];
 const alias = Object.fromEntries(names.map(name => [`@genoffice/${name}`, resolve(root, `upstream/packages/${name}/src/index.ts`)]));
+// Creation accepts no canvas/image elements. Keep linkedom's own inert shim
+// bundled rather than probing an optional native canvas dependency at runtime.
+alias.canvas = resolve(root, 'node_modules/linkedom/commonjs/canvas-shim.cjs');
 for (const [name, path] of Object.entries({
   '@genoffice/pptx-engine/custgeom': 'pptx-engine/src/custgeom.ts',
   '@genoffice/pptx-render/preset-geometry': 'pptx-render/src/preset-geometry.ts',
@@ -28,6 +31,12 @@ for (const [entry, platform] of [['engine', 'node']]) {
   const result = await build({ absWorkingDir: root, entryPoints: [`${entry}.ts`], outfile: `dist/${entry}.mjs`, platform,
     bundle: true, format: 'esm', target: 'es2022', alias, treeShaking: true, metafile: true,
     jsx: 'automatic', logLevel: 'warning', legalComments: 'eof', loader: { '.css': 'empty' }, inject: ['css-escape.ts'],
+    plugins: [{ name: 'create-html-dom', setup(build) {
+      build.onLoad({ filter: /[\\/]renderer[\\/]ai[\\/]protocol\.ts$/ }, async args => ({
+        contents: `import { DOMParser, Node } from ${JSON.stringify(resolve(root, 'create-dom.ts'))};\n` + await readFile(args.path, 'utf8'),
+        loader: 'ts',
+      }));
+    } }],
     define: { 'process.env.NODE_ENV': '"production"', 'CSS.escape': 'cssEscape' },
     banner: platform === 'node' ? { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' } : undefined });
   await writeFile(resolve(root, `dist/${entry}.meta.json`), JSON.stringify(result.metafile, null, 2));
@@ -85,7 +94,7 @@ if (diagnostics.length) throw Error(ts.formatDiagnosticsWithColorAndContext(diag
 program.emit();
 await writeFile(resolve(root, 'dist/editor.d.mts'), 'export { mountEditor, mountFullEditor } from "./editor-types";\n');
 await writeFile(resolve(root, 'dist/full-editor.d.mts'), 'export { mountFullEditor } from "./editor-types";\n');
-await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, edit, DocxError } from "./types";\n');
+await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, edit, create, DocxError } from "./types";\n');
 await writeFile(resolve(root, 'dist/editor-shell.css'), await readFile(resolve(root, 'editor-shell.css')));
 // Keep original SDK document rules and discard its unrelated app/ribbon chrome.
 const sdkCssPath = 'apps/docs/src/renderer/styles.css';
@@ -104,6 +113,6 @@ const lockedPaths = new Set(sourceLock.files.map(row => `upstream/${row.path}`))
 for (const input of inputs) if (input.startsWith('upstream/') && !lockedPaths.has(input)) throw Error(`Unpinned source input: ${input}`);
 await writeNotices(root, inputs, sourceLock);
 await writeFile(resolve(root, 'dist/runtime-manifest.json'), JSON.stringify({
-  engine: 'engine.mjs', editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
+  engine: 'engine.mjs', operations: ['inspect', 'edit', 'create'], createContent: { format: 'restricted-html', maxBytes: 2097152 }, editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
   notices: 'THIRD-PARTY-NOTICES.txt', sourceCommit: sourceLock.commit,
 }, null, 2) + '\n');

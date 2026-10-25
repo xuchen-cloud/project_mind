@@ -13,6 +13,40 @@ import { checkDisabledRoot, mutateSkillEntry, optionalLstat, validEntryName, wit
 
 export { bundledSkillEnvironment, prepareBundledSkills };
 
+function within(root, target) {
+  const relative = path.relative(root, target);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    && !relative.split(path.sep).includes('.disabled');
+}
+
+// Use the executing agent's registry view, including provider precedence and
+// scope. get() reloads the original locator even when discovery was cached,
+// so removing or parking a managed builtin link revokes its resources too.
+export async function isSkillResourceRead(registry, filePath, options) {
+  if (!registry) return false;
+  const requested = path.resolve(options.cwd, filePath);
+  const snapshot = await registry.snapshot(options);
+  if (!snapshot.complete) return false;
+  for (const summary of snapshot.skills) {
+    if (summary.provider !== 'filesystem' || summary.resourceBase?.kind !== 'directory') continue;
+    const base = summary.resourceBase.path;
+    let canonicalBase, canonicalTarget;
+    try {
+      canonicalBase = await realpath(base);
+      canonicalTarget = await realpath(requested);
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes(error.code)) continue;
+      throw error;
+    }
+    if ((!within(base, requested) && !within(canonicalBase, requested)) || !within(canonicalBase, canonicalTarget)) continue;
+    const skill = await registry.get(summary.name, options);
+    if (skill?.provider === summary.provider && skill.resourceBase?.kind === 'directory'
+      && skill.resourceBase.path === base && await realpath(base) === canonicalBase
+      && await realpath(requested) === canonicalTarget) return true;
+  }
+  return false;
+}
+
 // Match the installed filesystem provider's roots/findProjectRoot rules. Keep
 // scan paths lexical: winners use realpath and omit empty or shadowed roots.
 async function scanRoots(cwd, config) {

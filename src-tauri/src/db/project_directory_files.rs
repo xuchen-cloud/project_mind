@@ -92,7 +92,7 @@ pub(crate) struct DirectoryScan {
     pub complete: bool,
     pub cancelled: bool,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileBytesInput {
     pub object: ObjectRef,
@@ -628,7 +628,7 @@ impl Database {
         }
         if let Some((_, input))=receipt {
             if let Some(staged)=input.staged() {
-                crate::db::file_content::check_transaction(&tx,&crate::file_content::FileContentBegin {object:staged.object.clone(),expected_version_number:staged.expected_version_number,expected_content_hash:staged.expected_content_hash.clone(),length:0,content_hash:hash.clone()}).map_err(|e|anyhow!(e.message))?;
+                crate::db::file_content::check_transaction(&tx,&crate::file_content::FileContentBeginInput::Existing(crate::file_content::FileContentBegin {object:staged.object.clone(),expected_version_number:staged.expected_version_number,expected_content_hash:staged.expected_content_hash.clone(),length:0,content_hash:hash.clone()})).map_err(|e|anyhow!(e.message))?;
             }
         }
         let changed = tx.execute("UPDATE documents SET name=?1,base_name=?1,managed_path=?2,storage_mode='project_directory',current_version_number=?3,version_count=version_count+?4,health='normal',updated_at=?5 WHERE id=?6 AND current_version_number=?7",params![name,encoded_path,new_version, i64::from(new_version!=document.current_version_number),timestamp,document.id,document.current_version_number])?;

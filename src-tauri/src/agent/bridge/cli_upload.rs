@@ -88,16 +88,31 @@ fn update(target: &FileUploadTargetInput, stage: &str, request_id: &str) -> Valu
 }
 
 pub(super) fn upload<T: UploadTransport>(transport: &T, target: FileUploadTargetInput, bytes: &[u8], request_id: &str) -> AgentResult<Value> {
+    upload_target(transport, serde_json::to_value(target).expect("target"), bytes, request_id)
+}
+pub(super) fn upload_create<T: UploadTransport>(transport: &T, target: Value, bytes: &[u8], request_id: &str) -> AgentResult<Value> {
+    upload_target(transport, json!({"createTarget":target}), bytes, request_id)
+}
+fn upload_target<T: UploadTransport>(transport: &T, target: Value, bytes: &[u8], request_id: &str) -> AgentResult<Value> {
+    let create = target.get("createTarget");
+    let final_method = if create.is_some() { "file.create" } else { "file.update" };
+    let final_params = |stage: &str| if let Some(create) = create {
+        mutation(request_id, json!({"projectId":create["projectId"],"safeName":create["safeName"],"stagedContentId":stage}))
+    } else {
+        let target: FileUploadTargetInput = serde_json::from_value(target.clone()).expect("validated target");
+        update(&target, stage, request_id)
+    };
     if request_id.is_empty() || request_id.len() > 128 || bytes.len() as u64 > MAX_BODY {
         return Err(invalid("Invalid File upload request ID or length"));
     }
-    crate::agent::bridge::registry::validate("file.update", &update(&target, &"0".repeat(32), request_id))?;
+    crate::agent::bridge::registry::validate(final_method, &final_params(&"0".repeat(32)))?;
     let content_hash = format!("sha256:{:x}", Sha256::digest(bytes));
     let begin_id = phase_id(request_id, "begin");
-    let ticket = transport.call("file.content.begin", mutation(&begin_id, json!({
-        "object":target.object.clone(),"expectedVersionNumber":target.expected_version_number,
-        "expectedContentHash":target.expected_content_hash.clone(),"length":bytes.len(),"contentHash":content_hash,
-    })), &begin_id)?;
+    let mut begin = target.clone();
+    begin["length"] = json!(bytes.len());
+    begin["contentHash"] = json!(content_hash);
+    crate::agent::bridge::registry::validate("file.content.begin", &mutation(&begin_id, begin.clone()))?;
+    let ticket = transport.call("file.content.begin", mutation(&begin_id, begin), &begin_id)?;
     let stage = ticket.get("stagedContentId").and_then(Value::as_str).ok_or_else(incompatible)?.to_owned();
     if ticket.get("length").and_then(Value::as_u64) != Some(bytes.len() as u64)
         || ticket.get("contentHash").and_then(Value::as_str) != Some(content_hash.as_str()) {
@@ -108,7 +123,7 @@ pub(super) fn upload<T: UploadTransport>(transport: &T, target: FileUploadTarget
         Err(error) if error.code == ErrorCode::StagedContentExpired => {
             // The native receipt may outlive an expired stage. The same final
             // identity recovers a committed result, or reports the real expiry.
-            return transport.call("file.update", update(&target, &stage, request_id), request_id);
+            return transport.call(final_method, final_params(&stage), request_id);
         }
         Err(error) => return Err(error),
     };
@@ -133,13 +148,61 @@ pub(super) fn upload<T: UploadTransport>(transport: &T, target: FileUploadTarget
         let finish_id = phase_id(request_id, "complete");
         transport.call("file.content.complete", mutation(&finish_id, json!({"stagedContentId":stage})), &finish_id)?;
     }
-    transport.call("file.update", update(&target, &stage, request_id), request_id)
+    transport.call(final_method, final_params(&stage), request_id)
+}
+
+pub(super) fn save_download(mut data: Value, path: &str) -> AgentResult<Value> {
+    let encoded = data.get("base64").and_then(Value::as_str).ok_or_else(incompatible)?;
+    if encoded.len() as u64 > (MAX_BODY + 2) / 3 * 4 { return Err(incompatible()); }
+    let bytes = STANDARD.decode(encoded).map_err(|_| incompatible())?;
+    if bytes.len() as u64 > MAX_BODY || data["byteLength"].as_u64() != Some(bytes.len() as u64)
+        || data["contentHash"].as_str() != Some(format!("sha256:{:x}", Sha256::digest(&bytes)).as_str()) {
+        return Err(incompatible());
+    }
+    // Publish complete, durable bytes in one same-directory operation. The
+    // temporary file removes itself on write, sync or no-clobber failure.
+    let target = std::path::Path::new(path);
+    let directory = target.parent().filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let mut output = tempfile::NamedTempFile::new_in(directory)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot prepare download output"))?;
+    std::io::Write::write_all(&mut output, &bytes)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot write download output"))?;
+    output.as_file().sync_all()
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot sync download output"))?;
+    output.persist_noclobber(target)
+        .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot create download output; path must be new"))?;
+    data.as_object_mut().ok_or_else(incompatible)?.remove("base64");
+    Ok(data)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    #[test]
+    fn download_validates_before_publishing_and_never_overwrites_existing_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("download.docx");
+        let response = json!({"base64":"YWJj","byteLength":3,
+            "contentHash":"sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "versionNumber":1});
+        let mut corrupted = response.clone();
+        corrupted["contentHash"] = json!(format!("sha256:{}", "0".repeat(64)));
+        assert!(save_download(corrupted, output.to_str().unwrap()).is_err());
+        assert!(!output.exists());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        std::fs::write(&output, b"existing bytes").unwrap();
+        assert!(save_download(response.clone(), output.to_str().unwrap()).is_err());
+        assert_eq!(std::fs::read(&output).unwrap(), b"existing bytes");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        let fresh = directory.path().join("new.docx");
+        let receipt = save_download(response, fresh.to_str().unwrap()).unwrap();
+        assert_eq!(std::fs::read(fresh).unwrap(), b"abc");
+        assert!(receipt.get("base64").is_none());
+        assert_eq!(receipt["versionNumber"], 1);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
     struct Mock { calls: Mutex<Vec<(String, Value, String)>>, expired: bool, received: u64 }
     impl UploadTransport for Mock {
         fn call(&self, method: &str, params: Value, request_id: &str) -> AgentResult<Value> {
@@ -149,13 +212,25 @@ mod tests {
                 "file.content.status" if self.expired => Err(AgentError::new(ErrorCode::StagedContentExpired, "expired")),
                 "file.content.status" => Ok(json!({"ticket":{"stagedContentId":"a".repeat(32)},"receivedLength":self.received,"ready":false,"consumed":false})),
                 "file.content.chunk" | "file.content.complete" => Ok(json!({})),
-                "file.update" => Ok(json!({"result":{"versionNumber":2}})),
+                "file.update" | "file.create" => Ok(json!({"result":{"versionNumber":2}})),
                 _ => panic!("unexpected method"),
             }
         }
     }
     fn target() -> FileUploadTargetInput {
         decode_target(json!({"object":{"workspaceId":"workspace","scope":{"kind":"project","projectId":1},"kind":"file","id":"1"},"expectedVersionNumber":1,"expectedContentHash":format!("sha256:{}", "0".repeat(64))})).unwrap()
+    }
+    #[test]
+    fn binary_create_uses_explicit_target_and_staged_create_contract() {
+        let mock = Mock { calls: Mutex::new(vec![]), expired: false, received: 0 };
+        upload_create(&mock, json!({"workspaceId":"workspace","projectId":1,"safeName":"report.docx"}),
+            &vec![0;CHUNK+3], "create-stable").unwrap();
+        let calls = mock.calls.lock().unwrap();
+        assert_eq!(calls[0].1["input"]["createTarget"]["safeName"],"report.docx");
+        assert!(calls[0].1["input"].get("object").is_none());
+        assert_eq!(calls.last().unwrap().0,"file.create");
+        assert_eq!(calls.last().unwrap().1["input"]["safeName"],"report.docx");
+        assert_eq!(calls.last().unwrap().1["input"]["stagedContentId"],"a".repeat(32));
     }
     #[test]
     fn upload_sends_bytes_and_stable_phase_ids_without_local_paths() {

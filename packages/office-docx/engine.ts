@@ -8,6 +8,7 @@ import { docStyleCss } from './upstream/apps/docs/src/renderer/doc-style-css';
 import { applyEdits, assertContentEdit, assertJson, assets, textNodes } from './model';
 import { DocxError, type Context, type DocxModel, type Edit, type PmJSON } from './types';
 export { DocxError } from './types';
+export { create } from './create';
 
 async function open(bytes: Uint8Array) {
   if (!(bytes instanceof Uint8Array)) throw new DocxError('INVALID_EDIT', 'DOCX must be Uint8Array');

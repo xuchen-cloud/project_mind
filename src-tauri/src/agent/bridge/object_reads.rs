@@ -110,6 +110,10 @@ pub(crate) async fn execute<S: BoundSourceStore, W: DocumentUtility, F: crate::s
                 encode(db.file_read_version_get(request, binding, &input)?)
             })
         }
+        "file.bytes.read" => {
+            let input: crate::db::project_directory_files::FileBytesInput = decode(arguments)?;
+            store.with_current(|binding, db| encode(db.project_file_read_office_source(request, binding, &input)?.0))
+        }
         "file.source.read" => {
             let input: FileSourceReadInput = decode(arguments)?;
             encode(

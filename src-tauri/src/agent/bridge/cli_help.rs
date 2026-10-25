@@ -21,6 +21,9 @@ Usage:
   mind reference list --input-file PATH|- --workspace PATH --connection ID --json
   mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json
   mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json
+  mind file|record|todo list (--project ID | --workspace-scope) [--limit N] [--cursor TOKEN] [--query TITLE] [--budget-chars N] --workspace PATH --connection ID --json
+  mind file download --input-file READ.json --out NEW_PATH --workspace PATH --connection ID --json
+  mind file create --name NAME --source-file PATH (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json
   mind file list --input-file PATH|- --workspace PATH --connection ID --json
   mind session list --input-file PATH|- --workspace PATH --connection ID --json
   mind record list --input-file PATH|- --workspace PATH --connection ID --json
@@ -50,11 +53,12 @@ Usage:
   mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json
   mind mcp serve --workspace PATH --connection ID
 
-Use `mind COMMAND --help` for focused offline help. Use `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. record get reads one bounded body page; pass its nextCursor with --cursor to continue. reference list returns one page (default 20 items, 4000 characters); pass nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json
+The --connection ID is issued by the open application for an authorized Workspace; --workspace must point to that same Workspace. Discovery commands work offline without either binding option. file download requires a new local output path and returns metadata without base64. Use `mind COMMAND --help` for focused offline help. Use `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. record get reads one bounded body page; pass its nextCursor with --cursor to continue. reference list returns one page (default 20 items, 4000 characters); pass nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.create or file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json
 "#;
 
 fn cli_path(command: &str) -> String {
     match command {
+        "file.bytes.read" => "file download".into(),
         "file.version.restore" => "file restore".into(),
         "operation.restore_created" => "operation restore-created".into(),
         _ => command.replace('.', " "),

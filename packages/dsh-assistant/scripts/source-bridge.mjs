@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { isSkillResourceRead } from './skills.mjs';
 
 export const SOURCE_PREFIX = 'MIND_DSH_SOURCE ';
 export function createSourceBridge(input, write) {
@@ -150,6 +151,9 @@ export async function installSourceService(ctx, project, bridge) {
     const sessionId = exec.agent?.session.id;
     if (!sessionId) throw new Error('File read requires an actual Session');
     await owned(sessionId, exec.signal);
+    if (await isSkillResourceRead(exec.agent.ctx.get('skills'), exec.arguments.file_path, {
+      cwd: exec.agent.session.header.cwd, scope: exec.agent, signal: exec.signal,
+    })) return next();
     // Historical model tokens do not authorize edits to the current path.
     // For a live read, retain the existing filesystem CAS observation only
     // when the target stayed unchanged across the native snapshot read.

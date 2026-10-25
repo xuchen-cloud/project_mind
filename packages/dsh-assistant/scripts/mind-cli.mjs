@@ -27,8 +27,9 @@ export async function readMindCli(line, context) {
 }
 
 function bindingPrompt(cli) {
-  const flags = `--workspace ${JSON.stringify(cli.workspace)} --connection ${cli.connection} ${cli.projectId === null ? '--workspace-scope' : `--project ${cli.projectId}`}`;
-  return `Project Mind has a built-in native CLI binding. Use the project-mind-cli Skill and existing mind commands (--help, capabilities, schema) for native operations.\nBundled executable: ${JSON.stringify(cli.executable)} (also available as mind on the tool shell PATH). Binding flags: ${flags}.\nUse the CLI for native Record/Todo reads and mutations, and report saved results using the native operation receipt. Directory files are not Records or Todos. Use the supplied binding; do not search for credentials or access databases as a substitute. Permissions and the current execution mode constrain every operation.`;
+  const flags = `--workspace ${JSON.stringify(cli.workspace)} --connection ${cli.connection}`;
+  const scopeFlags = cli.projectId === null ? '--workspace-scope' : `--project ${cli.projectId}`;
+  return `Project Mind has a built-in native CLI binding. Use the project-mind-cli Skill and existing mind commands (--help, capabilities, schema) for native operations.\nBundled executable: ${JSON.stringify(cli.executable)} (also available as mind on the tool shell PATH). Binding flags: ${flags}. Operation scope (only for commands accepting scope): ${scopeFlags}. Offline --help/capabilities/schema take no binding or scope flags; doctor uses binding flags without Project/Workspace scope. JSON input carries its own scope; do not append shorthand scope flags.\nFor a new DOCX deliverable use file_office_create with restricted HTML and a stable request_id; verify its native receipt and exact version/hash plus file_office_inspect semantic readback. Directory discovery does not establish a CLI creation receipt.\nUse the CLI for native Record/Todo reads and mutations, and report saved results using the native operation receipt. Directory files are not Records or Todos. Use the supplied binding; do not search for credentials or access databases as a substitute. Permissions and the current execution mode constrain every operation.`;
 }
 
 export function installMindCli(ctx, context, cli, bridge) {

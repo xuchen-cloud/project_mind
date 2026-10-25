@@ -48,7 +48,8 @@ impl OfficeBridge {
         alive: Arc<AtomicBool>,
     ) -> Result<Value, String> {
         let session_id = match &operation {
-            SourceRequest::OfficeInspect { session_id, .. }
+            SourceRequest::OfficeCreate { session_id, .. }
+            | SourceRequest::OfficeInspect { session_id, .. }
             | SourceRequest::OfficeEdit { session_id, .. }
             | SourceRequest::OfficeSelectionRead { session_id, .. }
             | SourceRequest::OfficeSelectionApply { session_id, .. } => session_id.clone(),
@@ -91,6 +92,16 @@ impl OfficeBridge {
                         },
                     )
                     .await
+                } else if matches!(&operation, SourceRequest::OfficeCreate { .. }) {
+                    let call = OfficeCreateCall::parse(operation)?;
+                    let native_request = Some(store.with_current(|binding, db| {
+                        match self.identity.project_id() {
+                            Some(project_id) => crate::agent::bridge::embedded::native_project_request(db, binding, project_id, &call.id),
+                            None => crate::agent::bridge::embedded::native_workspace_request(db, binding, &call.id),
+                        }
+                    })?);
+                    call.execute(&store, &SessionUtility { store: &store, worker: AppOfficeUtility(self.app.clone()) },
+                        &self.identity, &self.grants, native_request).await
                 } else {
                     let call = OfficeCall::parse(operation, frame_id)?;
                     let native_request = if self.identity.project_id().is_none() {
@@ -228,6 +239,76 @@ impl BoundFileCommitStore for Store<'_> {
     }
 }
 
+fn office_request<S: BoundSourceStore>(
+    store: &S, identity: &Identity, grants: &Mutex<HashMap<String, (String, String)>>,
+    session_id: &str, id: &str, native_request: Option<crate::agent::access::RequestContext>,
+) -> AgentResult<crate::agent::access::RequestContext> {
+    let owner = identity.project_id();
+    Ok(match native_request {
+            Some(request) => request,
+            None => store.with_current(|binding, db| {
+                let mut grants = crate::lock_mutex(grants);
+                let (grant, token) = if let Some(grant) = grants.get(session_id) {
+                    grant.clone()
+                } else {
+                    let grant = format!("{:032x}", rand::random::<u128>());
+                    let token = format!(
+                        "{:032x}{:032x}",
+                        rand::random::<u128>(),
+                        rand::random::<u128>()
+                    );
+                    db.agent_connection_create(
+                        binding,
+                        &ConnectionCreateInput {
+                            client_label: "DSH Office Session".into(),
+                            workspace_content: owner.is_none(),
+                            project_ids: owner.into_iter().collect(),
+                            all_projects: owner.is_none(),
+                            write_operations: vec!["file.update".into(), "content.create".into()],
+                        },
+                        &grant,
+                        &token,
+                    )?;
+                    grants.insert(session_id.to_owned(), (grant.clone(), token.clone()));
+                    (grant, token)
+                };
+                db.agent_connection_authenticate(binding, &grant, &token, id)
+            })?,
+        })
+}
+
+struct OfficeCreateCall {
+    session_id: String, id: String, project_id: Option<i64>, name: String, content: String,
+}
+impl OfficeCreateCall {
+    fn parse(operation: SourceRequest) -> AgentResult<Self> {
+        let SourceRequest::OfficeCreate { session_id, request_id, mode, project_id, name, content } = operation else {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid Office create operation"));
+        };
+        if !matches!(mode.as_str(), "workspace-write" | "danger-full-access") {
+            return Err(AgentError::new(ErrorCode::ScopeDenied, "Office creation requires a writable Session"));
+        }
+        if session_id.is_empty() || session_id.len() > 512 || session_id.chars().any(char::is_control)
+            || request_id.is_empty() || request_id.len() > 128 || request_id.chars().any(char::is_control) {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid Office creation identity"));
+        }
+        Ok(Self { session_id, id: request_id, project_id, name, content })
+    }
+    async fn execute<S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility>(
+        self, store: &S, worker: &W, identity: &Identity,
+        grants: &Mutex<HashMap<String, (String, String)>>,
+        native_request: Option<crate::agent::access::RequestContext>,
+    ) -> AgentResult<Value> {
+        let project_id = match (identity.project_id(), self.project_id) {
+            (Some(owner), Some(target)) if owner != target => return Err(AgentError::new(ErrorCode::ScopeDenied, "Office creation belongs to another Project")),
+            (Some(owner), _) => Some(owner),
+            (None, target) => target,
+        };
+        let request = office_request(store, identity, grants, &self.session_id, &self.id, native_request)?;
+        crate::file_office_create::create(store, worker, &request, project_id, &self.name, &self.content).await
+    }
+}
+
 /// The native source operation and its fixed File input are shared by the
 /// production stdio handler and tests against real Connection grants/storage.
 struct OfficeCall {
@@ -297,38 +378,7 @@ impl OfficeCall {
         grants: &Mutex<HashMap<String, (String, String)>>,
         native_request: Option<crate::agent::access::RequestContext>,
     ) -> AgentResult<Value> {
-        let owner = identity.project_id();
-        let request = match native_request {
-            Some(request) => request,
-            None => store.with_current(|binding, db| {
-                let mut grants = crate::lock_mutex(grants);
-                let (grant, token) = if let Some(grant) = grants.get(&self.session_id) {
-                    grant.clone()
-                } else {
-                    let grant = format!("{:032x}", rand::random::<u128>());
-                    let token = format!(
-                        "{:032x}{:032x}",
-                        rand::random::<u128>(),
-                        rand::random::<u128>()
-                    );
-                    db.agent_connection_create(
-                        binding,
-                        &ConnectionCreateInput {
-                            client_label: "DSH Office Session".into(),
-                            workspace_content: owner.is_none(),
-                            project_ids: owner.into_iter().collect(),
-                            all_projects: owner.is_none(),
-                            write_operations: vec!["file.update".into()],
-                        },
-                        &grant,
-                        &token,
-                    )?;
-                    grants.insert(self.session_id.clone(), (grant.clone(), token.clone()));
-                    (grant, token)
-                };
-                db.agent_connection_authenticate(binding, &grant, &token, &self.id)
-            })?,
-        };
+        let request = office_request(store, identity, grants, &self.session_id, &self.id, native_request)?;
         let input = store.with_current(|binding, db| {
             super::source_file_input(db, identity, binding, self.path.as_deref(), self.fixed)
                 .map(|input| FileOfficeInput {

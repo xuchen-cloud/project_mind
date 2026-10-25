@@ -57,10 +57,12 @@ fn crash_point(phase: RestorePhase) {
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
         }
-        unsafe {
-            kill(std::process::id() as i32, 9);
-        }
+        let result = unsafe { kill(std::process::id() as i32, 9) };
+        assert_eq!(result, 0, "Cannot kill crash fixture");
+        // SIGKILL may be delivered on another thread; exit() must not win.
+        loop { std::thread::park(); }
     }
+    #[cfg(not(unix))]
     std::process::exit(91);
 }
 

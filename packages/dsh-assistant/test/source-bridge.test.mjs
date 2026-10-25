@@ -153,3 +153,46 @@ test('one shared source middleware resolves real Session ownership for every sco
  assert.deepEqual(checked,['workspace-session','project-session','foreign']);
  assert.equal(routes.length,2);assert.equal(handlers.size,4);
 });
+
+test('Skill reference reads use the ordinary read while business files retain native preparation', async t => {
+  const { mkdtemp, mkdir, writeFile, rm, realpath, symlink, rename } = await import('node:fs/promises');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const { Context } = await import('@deepseek-ai/cordis');
+  const { default: SkillRegistry } = await import('@deepseek-ai/dsh-skill');
+  const filesystem = await import('@deepseek-ai/dsh-skill-filesystem');
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'mind-resource-read-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const resources = path.join(root, 'packaged', 'reader');
+  const bundled = path.join(root, 'managed');
+  await mkdir(resources, { recursive: true });
+  await mkdir(bundled);
+  await writeFile(path.join(resources, 'SKILL.md'), '---\nname: reader\ndescription: Read references\n---\nRead guide.md');
+  await writeFile(path.join(resources, 'guide.md'), 'reference');
+  await symlink(resources, path.join(bundled, 'reader'), 'dir');
+  const registry = new Context();
+  await registry.plugin(SkillRegistry);
+  await registry.plugin(filesystem, { includeDefaultRoots: false, bundledSkillDir: bundled, watch: false });
+  t.after(() => registry.fiber.dispose());
+  const handlers = new Map(), requests = [];
+  await installSourceService({
+    connection: { fetch: { register() {} } }, agents: { list: () => [] },
+    on(name, handler) { handlers.set(name, handler); }, effect() {},
+  }, { async forSession() {} }, { async request(payload) { requests.push(payload); return { readValue: { native: true }, projection: 'fixed' }; } });
+  const agent = { session: { id: 'session', header: { cwd: root } }, ctx: { get(name) {
+    if (name === 'skills') return registry.skills;
+    return { async resolve() { return {}; }, async stat() { return undefined; } };
+  } } };
+  let ordinary = 0;
+  const execute = file_path => handlers.get('tools/execute')({ name: 'read', token: Symbol(), arguments: { file_path }, agent }, async () => { ordinary++; return 'ordinary'; });
+  assert.equal(await execute(path.join(resources, 'guide.md')), 'ordinary', 'canonical bundled paths are resources');
+  assert.equal(await execute(path.join(bundled, 'reader', 'guide.md')), 'ordinary');
+  assert.deepEqual(requests, [], 'resource reads create neither native preparation nor source evidence');
+  await execute(path.join(root, 'business.md'));
+  assert.equal(requests[0].operation, 'prepare');
+  await mkdir(path.join(bundled, '.disabled'));
+  await rename(path.join(bundled, 'reader'), path.join(bundled, '.disabled', 'reader'));
+  await execute(path.join(resources, 'guide.md'));
+  assert.equal(ordinary, 2, 'cached canonical resources lose authorization when disabled');
+  assert.equal(requests.length, 2);
+});

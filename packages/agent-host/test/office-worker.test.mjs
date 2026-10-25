@@ -104,3 +104,35 @@ test('Office recalculation preserves engine schema and runtime failures', async 
     assert.equal(response.error.code,'RUNTIME_UNAVAILABLE');
   });
 });
+
+test('Office create only accepts bounded DOCX content without source bytes or edits', async () => {
+  const data = { format:'docx', content:'<p>中文</p>' };
+  for (const invalid of [ {...data,format:'xlsx'}, {...data,format:'pptx'}, {...data,base64:'YWJj'}, {...data,edits:[]}, {...data,path:'/tmp/new.docx'}, {format:'docx'}, {...data,content:''} ]) {
+    const result = await handleOfficeRequest({requestId:'create-boundary',method:'office.create',data:invalid});
+    assert.equal(result.ok,false);
+    assert.equal(result.error.code,'INVALID_ARGUMENT');
+  }
+  const result = await handleOfficeRequest({requestId:'create-budget',method:'office.create',data:{...data,content:'中'.repeat(700000)}});
+  assert.equal(result.error.code,'BUDGET_EXCEEDED');
+});
+
+test('Office create returns real DOCX bytes and its model through the relocated worker, then supports edit', async () => {
+  const { copyFile } = await import('node:fs/promises');
+  const dir = await mkdtemp(join(tmpdir(), 'mind-office-create-'));
+  try {
+    await copyFile(new URL('../../office-runtime/worker.mjs', import.meta.url), join(dir, 'worker.mjs'));
+    await copyFile(new URL('../../office-docx/dist/engine.mjs', import.meta.url), join(dir, 'docx-engine.mjs'));
+    const { handleOfficeRequest: handle } = await import(pathToFileURL(join(dir, 'worker.mjs')).href);
+    const created = await handle({requestId:'create-docx',method:'office.create',data:{format:'docx',content:'<h1>中文标题</h1><p>初始内容</p>'}});
+    assert.equal(created.ok, true, JSON.stringify(created.error));
+    assert.equal(created.data.model.format, 'docx');
+    assert.equal(Buffer.from(created.data.base64,'base64').subarray(0,2).toString(), 'PK');
+    const node = created.data.model.nodes.find(n => n.text === '初始内容');
+    assert.ok(node);
+    const edited = await handle({requestId:'edit-created',method:'office.edit',data:{format:'docx',base64:created.data.base64,edits:[{type:'text',nodeId:node.id,text:'修改内容'}]}});
+    assert.equal(edited.ok,true,JSON.stringify(edited.error));
+    assert.ok(edited.data.model.nodes.some(n => n.text === '修改内容'));
+    const invalid = await handle({requestId:'create-image',method:'office.create',data:{format:'docx',content:'<img src="https://example.com/image.png">'}});
+    assert.equal(invalid.error.code,'INVALID_ARGUMENT');
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
