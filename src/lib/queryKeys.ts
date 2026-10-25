@@ -16,6 +16,8 @@ export const queryKeys = {
     ["project-directory"],
   ] as const,
   workspaceStatus: ["workspace-status"] as const,
+  scheduledTasks: (workspaceRoot: string) => ["agent", "scheduled-tasks", workspaceRoot] as const,
+  scheduledTaskSessions: (workspaceRoot: string) => ["agent", "scheduled-task-sessions", workspaceRoot] as const,
   searchAll: ["search"] as const,
   projects: {
     all: ["projects", "all"] as const,
