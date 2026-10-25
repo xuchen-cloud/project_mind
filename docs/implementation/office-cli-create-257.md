@@ -1,6 +1,6 @@
 # GenOffice Word 创建与 CLI File 契约
 
-Issue：[#257](https://github.com/xuchen-cloud/project_mind/issues/257)。实现基线：develop `3b1c19ed1ecb6e49d481f7050235f419f56d7c53`。
+Issue：[#257](https://github.com/xuchen-cloud/project_mind/issues/257)。实现基线：develop `3b1c19ed1ecb6e49d481f7050235f419f56d7c53`；收口已整合 develop `79e75189f2fc2faeb06be9ad56f261eec55375d8`（Workspace 免密码打开）。
 
 ## 交付与边界
 
@@ -54,3 +54,27 @@ Issue：[#257](https://github.com/xuchen-cloud/project_mind/issues/257)。实现
 - Spec：逐项对照 #257 的二进制创建、GenOffice Word 生成、同 File 续改、只读/跨 Project 拒绝、失败无半成品、重试幂等、references、list 简写、二进制读回、抽取状态与 Skill 契约；真实格式、原生存储和 DSH 工具分层验证。边界仍为基本 DOCX 生成，复杂媒体、XLSX/PPTX 生成编排和全文索引不在本包。无剩余发现。
 - 未启动 review 子 agent；由主 agent 自行检查。
 
+
+## 验证复现与基线整合
+
+主要命令（在完整固定依赖及应用资源准备后执行）：
+
+```sh
+node --test packages/office-docx/test/*.test.mjs
+node --test packages/agent-host/test/office-worker.test.mjs
+node --test packages/dsh-assistant/test/*.test.mjs
+node --test packages/dsh-assistant/test/*.integration.mjs
+node --test scripts/stage-dsh-runtime.test.mjs scripts/office-distribution.test.mjs
+node packages/dsh-assistant/scripts/desktop.mjs check
+cargo test --manifest-path src-tauri/Cargo.toml --lib agent::bridge::
+cargo test --manifest-path src-tauri/Cargo.toml --lib file_version_service::
+cargo test --manifest-path src-tauri/Cargo.toml --lib db::file_imports::
+cargo test --manifest-path src-tauri/Cargo.toml --lib dsh_assistant::office::tests::
+cargo test --manifest-path src-tauri/Cargo.toml --lib office_creation_real_genoffice_saves_reads_and_edits_same_native_file -- --ignored
+cargo test --manifest-path src-tauri/Cargo.toml --lib actual_cli_creates_chinese_binary_replays_identity_and_downloads_exact_bytes -- --ignored
+cargo build --manifest-path src-tauri/Cargo.toml --bin mind --bin project_mind_alpha --quiet
+```
+
+Node 使用 agent-host 固定运行时；真实 CLI 用例要求先构建 `mind`，若使用外部 Cargo 缓存目录则通过 `PROJECT_MIND_TEST_CLI` 指定实际可执行文件，DSH 现有集成测试还要求默认 `target/debug/mind` 路径可用。
+
+整合 `79e75189` 时仅 `dsh_assistant.rs` 和 `lib.rs` 与本包有文件交集，自动合并后逐段核查，保留 Workspace 新语义。整合后重新构建两个原生二进制，并补跑 DSH Office 10 项、GenOffice 原生端到端 1 项、importer 17 项、bridge 129 项和 Workspace 无密码 5 项，全部通过；未变动的格式、DSH 和打包验证复用既有结果。
