@@ -115,7 +115,7 @@ pub(crate) struct RecalcCell {
 #[derive(Clone, Copy)]
 pub(crate) enum OfficePayload<'a> {
     Inspect,
-    Create(&'a str),
+    Create(&'a Value),
     Edit(&'a [Value]),
     Recalculate(&'a OfficeRecalculation),
 }
@@ -275,7 +275,6 @@ impl OfficeUtility for OfficeWorker {
             )
             || !matches!(format, "docx" | "xlsx" | "pptx")
             || (method == "office.recalculate" && format != "xlsx")
-            || (method == "office.create" && format != "docx")
         {
             return Err(failure(
                 ErrorCode::InvalidArgument,
@@ -283,10 +282,10 @@ impl OfficeUtility for OfficeWorker {
             ));
         }
         if let OfficePayload::Create(content) = payload {
-            if !base64.is_empty() || content.trim().is_empty() {
+            if !base64.is_empty() || !(content.is_object() || format == "docx" && content.as_str().is_some_and(|value| !value.trim().is_empty())) {
                 return Err(failure(ErrorCode::InvalidArgument, "Creation requires content and no source bytes"));
             }
-            if content.len() > 2 * 1024 * 1024 {
+            if serde_json::to_vec(content).map_err(|_| failure(ErrorCode::InvalidArgument, "Invalid Office content"))?.len() > 2 * 1024 * 1024 {
                 return Err(failure(ErrorCode::BudgetExceeded, "Office creation content exceeds 2 MiB"));
             }
         }

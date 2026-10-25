@@ -40,6 +40,7 @@ export interface PptxCommand { kind: 'command'; name: string; args: PptxJson[] }
 export interface PptxCandidateEdit {kind:'candidate';sourceHash:string;base64:string;changedParts:string[]}
 export type PptxEdit =
   | PptxCandidateEdit
+  | {kind:'operations';operations:PptxCreationOperation[]}
   | PptxCommand
   | (PptxTarget & { kind: 'text'; paragraphIndex: number; runIndex: number; text: string })
   | (PptxTarget & { kind: 'move-image'; x: number; y: number });
@@ -69,6 +70,23 @@ export interface PptxModel {
   textElements: PptxTextElement[];
   pictureElements: PptxPictureElement[];
   limitations: string[];
+  /** Pinned upstream geometry audit. Heuristic font measurements are advisory. */
+  layoutAudit?: {slide:number;id:string;issues:string[];findings:unknown[]}[];
+  /** Data-op targets and semantic document content, with archive/renderer/media payloads stripped. */
+  authoring?: {size:{cx:number;cy:number;unit:'emu'};slides:{slideIndex:number;slideId:string;target:{slide:number};notes:string;transition:unknown;elements:Record<string,unknown>[]}[]};
 }
+
+/** Native GenOffice generation schema; pages are 1280 × 720 logical pixels. */
+export interface PptxCreationRun {text:string;sizePt?:number;bold?:boolean;italic?:boolean;color?:string;font?:string}
+export interface PptxCreationParagraph {runs:PptxCreationRun[];align?:'left'|'center'|'right'|'justify';lineSpacingPct?:number;spaceBeforePt?:number;spaceAfterPt?:number;bullet?:boolean}
+export interface PptxCreationFrame {x:number;y:number;w:number;h:number}
+export type PptxCreationElement = PptxCreationFrame & (
+  | {type:'text';paragraphs:PptxCreationParagraph[];valign?:'top'|'middle'|'bottom'}
+  | {type:'shape';shape:string;fill?:string;stroke?:{color:string;widthPt:number};paragraphs?:PptxCreationParagraph[];valign?:'top'|'middle'|'bottom';flipH?:boolean;flipV?:boolean}
+  | {type:'image';url:string}
+);
+/** The op is the pinned upstream data vocabulary, never JavaScript. Geometry is EMU. */
+export interface PptxCreationOperation {op:{op:string;[key:string]:PptxJson};as?:string}
+export interface PptxCreationContent {pages:{background?:string;elements:PptxCreationElement[]}[];operations?:PptxCreationOperation[]}
 export type Model = PptxModel;
 export type Edit = PptxEdit;

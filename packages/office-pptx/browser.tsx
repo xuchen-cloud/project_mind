@@ -7,7 +7,7 @@ import type { PptxModel, PptxEdit, PptxRenderSlide, PptxTextElement } from './ty
 /** Rebuild real GenOffice layout for pending edits; never mutates the baseline. */
 export function previewSlides(model: PptxModel, edits: PptxEdit[]): PptxRenderSlide[] {
   if (!edits.length) return model.renderSlides;
-  const legacy = edits.filter(e => e.kind !== 'command'&&e.kind!=='candidate');
+  const legacy = edits.filter(e => e.kind !== 'command'&&e.kind!=='candidate'&&e.kind!=='operations');
   const editedSlides = new Set(legacy.map(e => e.slideIndex));
   const slides = model.slides.map((slide, i) => editedSlides.has(i) ? structuredClone(slide) : slide) as Slide[];
   for (const e of legacy) {

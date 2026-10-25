@@ -1,0 +1,20 @@
+{
+  "html": "<h1>中文报告</h1><p>复杂排版正文</p><table><tr><td>项目</td><td>结果</td></tr></table>",
+  "ops": [
+    {
+      "op": "set_page_setup",
+      "orientation": "landscape",
+      "margins": {
+        "top": "2cm",
+        "bottom": "2cm",
+        "left": "2cm",
+        "right": "2cm"
+      }
+    },
+    {
+      "op": "set_header_footer",
+      "kind": "header",
+      "text": "原生 File 验收"
+    }
+  ]
+}

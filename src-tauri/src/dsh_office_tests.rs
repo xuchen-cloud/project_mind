@@ -76,7 +76,7 @@ struct CreationEngine { count: std::sync::atomic::AtomicUsize, fail: bool }
 impl OfficeUtility for CreationEngine {
     async fn request(&self, _: &str, method: &str, _: &str, source: &str, payload: OfficePayload<'_>) -> AgentResult<Value> {
         if let OfficePayload::Create(content) = payload {
-            assert_eq!(method,"office.create"); assert!(source.is_empty()); assert!(content.contains("报告"));
+            assert_eq!(method,"office.create"); assert!(source.is_empty()); assert!(content.to_string().contains("报告"));
             let count = self.count.fetch_add(1, Ordering::SeqCst);
             if self.fail { return Err(AgentError::new(ErrorCode::InvalidArgument,"generation failed")); }
             return Ok(json!({"base64":STANDARD.encode(format!("candidate-{count}"))}));
@@ -128,7 +128,7 @@ async fn office_creation_real_genoffice_saves_reads_and_edits_same_native_file()
     let nodes=first["model"]["nodes"].as_array().unwrap();
     for text in ["中文报告","原始正文","第一步","第二步","项目","结果","检查","通过"] { assert!(nodes.iter().any(|node|node["text"]==text),"{text}"); }
     let node=nodes.iter().find(|node|node["text"]=="原始正文").unwrap();
-    let edit=json!({"operation":"officeEdit","sessionId":"create-session","requestId":"real-v2","sourceRef":first["sourceRef"],"edits":[{"type":"text","nodeId":node["id"],"expectedText":"原始正文","text":"编辑后的正文"}]});
+    let edit=json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"create-session","requestId":"real-v2","sourceRef":first["sourceRef"],"edits":[{"type":"text","nodeId":node["id"],"expectedText":"原始正文","text":"编辑后的正文"}]});
     let second=call(edit.clone()).execute(&store,&worker,&identity,&grants).await.unwrap();
     assert_eq!(second["sourceRef"]["object"],first["sourceRef"]["object"]);assert_eq!(second["sourceRef"]["fileVersion"],2);
     assert!(second["model"]["nodes"].as_array().unwrap().iter().any(|node|node["text"]=="编辑后的正文"));
@@ -167,7 +167,7 @@ fn dsh_office_tool_source_ref_contract_reaches_native_without_coercion() {
         "../../packages/dsh-assistant/test/fixtures/office-source-ref.json"
     ))
     .unwrap();
-    let request = json!({"operation":"officeEdit","sessionId":"real-session",
+    let request = json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"real-session",
         "requestId":"tool-call","sourceRef":source,"edits":[]});
     let parsed = call(request.clone());
     assert_eq!(serde_json::to_value(parsed.fixed.unwrap()).unwrap(), source);
@@ -225,7 +225,7 @@ async fn dsh_office_operations_save_through_real_grant_replay_and_retain_history
         .unwrap();
     assert_eq!(old["sourceRef"]["fileVersion"], 1);
     assert_eq!(old["model"]["text"], "old office");
-    let edit = json!({"operation":"officeEdit","sessionId":"session-a","requestId":"session-a:stable-call","sourceRef":old["sourceRef"],"edits":[{"text":"saved office"}]});
+    let edit = json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"session-a","requestId":"session-a:stable-call","sourceRef":old["sourceRef"],"edits":[{"text":"saved office"}]});
     let saved = call(edit.clone())
         .execute(&store, &TestEngine, &identity, &grants)
         .await
@@ -349,7 +349,7 @@ fn dsh_office_rejects_unbound_session_and_untrusted_authority_payload() {
     assert_eq!(validate_session_context(&context, &identity).unwrap_err().code, ErrorCode::ScopeDenied);
     for value in [
         json!({"operation":"officeInspect","sessionId":"real","path":"original.docx","projectId":9999}),
-        json!({"operation":"officeEdit","sessionId":"real","sourceRef":{},"edits":[]}),
+        json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"real","sourceRef":{},"edits":[]}),
     ] {
         assert!(serde_json::from_value::<SourceRequest>(value).is_err());
     }
@@ -713,7 +713,7 @@ async fn workspace_dsh_office_commits_real_versions_and_scopes_live_selection() 
         old["sourceRef"]["object"]["scope"],
         json!({"kind":"workspace"})
     );
-    let edit = json!({"operation":"officeEdit","sessionId":"session-a","requestId":"session-a:stable-call","sourceRef":old["sourceRef"],"edits":[{"text":"saved office"}]});
+    let edit = json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"session-a","requestId":"session-a:stable-call","sourceRef":old["sourceRef"],"edits":[{"text":"saved office"}]});
     let saved = call(edit.clone())
         .execute(&store, &TestEngine, &identity, &grants)
         .await
@@ -748,7 +748,7 @@ async fn workspace_dsh_office_commits_real_versions_and_scopes_live_selection() 
         project_source["sourceRef"]["object"]["scope"],
         json!({"kind":"project","projectId":project.id})
     );
-    let project_saved = call(json!({"operation":"officeEdit","sessionId":"session-a","requestId":"session-a:project-call","sourceRef":project_source["sourceRef"],"edits":[{"text":"saved office"}]}))
+    let project_saved = call(json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"session-a","requestId":"session-a:project-call","sourceRef":project_source["sourceRef"],"edits":[{"text":"saved office"}]}))
         .execute(&store, &TestEngine, &identity, &grants).await.unwrap();
     assert_eq!(project_saved["sourceRef"]["fileVersion"], 2);
     assert_eq!(std::fs::read(&project_path).unwrap(), b"saved office");
@@ -764,7 +764,7 @@ async fn workspace_dsh_office_commits_real_versions_and_scopes_live_selection() 
         .execute(&store, &TestEngine, &restricted, &Mutex::new(HashMap::new())).await.is_err());
     let mut forged = old["sourceRef"].clone();
     forged["object"]["scope"] = json!({"kind":"project","projectId":project.id + 100});
-    assert!(call(json!({"operation":"officeEdit","sessionId":"session-a","requestId":"forged-edit","sourceRef":forged,"edits":[]}))
+    assert!(call(json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"session-a","requestId":"forged-edit","sourceRef":forged,"edits":[]}))
         .execute(&store, &TestEngine, &identity, &grants).await.is_err());
     let selections = Selections::default();
     let object = serde_json::from_value(saved["sourceRef"]["object"].clone()).unwrap();
@@ -807,4 +807,57 @@ async fn workspace_dsh_office_commits_real_versions_and_scopes_live_selection() 
         std::fs::read(file_root.join("original.docx")).unwrap(),
         b"saved office"
     );
+}
+
+#[test]
+fn office_edit_native_rejects_readonly_mode() {
+    let source:Value=serde_json::from_str(include_str!("../../packages/dsh-assistant/test/fixtures/office-source-ref.json")).unwrap();
+    let operation=serde_json::from_value(json!({"operation":"officeEdit","mode":"read-only","sessionId":"s","requestId":"r","sourceRef":source,"edits":[]})).unwrap();
+    assert_eq!(OfficeCall::parse(operation,"frame").err().unwrap().code,ErrorCode::ScopeDenied);
+}
+
+#[tokio::test]
+#[ignore = "requires prepared complete GenOffice runtime"]
+async fn full_office_creation_real_engines_keep_identity_and_versions_for_project_and_workspace() {
+    for workspace in [false,true] {
+        for (format,content) in [
+            ("docx",include_str!("../../packages/dsh-assistant/test/fixtures/office-authoring/word.json")),
+            ("xlsx",include_str!("../../packages/dsh-assistant/test/fixtures/office-authoring/excel.json")),
+            ("pptx",include_str!("../../packages/dsh-assistant/test/fixtures/office-authoring/powerpoint.json")),
+        ] {
+            let (_temp,store,mut identity)=create_fixture();
+            if workspace {
+                crate::lock_mutex(&store.db).ensure_file_scope_root(None).unwrap();
+                identity.context=AssistantContext::Workspace{directory:identity.root.clone()};
+            }
+            let grants=Mutex::new(HashMap::new());
+            let worker=crate::office_worker::OfficeWorker::development().unwrap();
+            let create=json!({"operation":"officeCreate","sessionId":"full-office","requestId":"full-create","mode":"workspace-write",
+                "name":format!("完整中文.{format}"),"content":serde_json::from_str::<Value>(content).unwrap()});
+            let first=OfficeCreateCall::parse(serde_json::from_value(create.clone()).unwrap()).unwrap()
+                .execute(&store,&worker,&identity,&grants,None).await.unwrap();
+            assert_eq!(first["model"]["format"],format);
+            assert_eq!(first["sourceRef"]["fileVersion"],1);
+            assert_eq!(first["sourceRef"]["object"]["scope"]["kind"],if workspace {"workspace"}else{"project"});
+            let edits=match format {
+                "docx"=>json!([{"type":"operations","ops":[{"op":"findReplace","find":"复杂排版正文","replace":"原生第二版"}]}]),
+                "xlsx"=>json!([{"sheetId":first["model"]["sheets"][0]["id"],"row":4,"column":0,"kind":"string","value":"原生第二版"}]),
+                _=>{
+                    let element=first["model"]["textElements"].as_array().unwrap().iter().find(|e|e["editable"]==true).unwrap();
+                    json!([{"kind":"text","slideIndex":element["slideIndex"],"cNvPrId":element["cNvPrId"],"paragraphIndex":0,"runIndex":0,"text":"原生第二版"}])
+                }
+            };
+            let edit=json!({"operation":"officeEdit","mode":"workspace-write","sessionId":"full-office","requestId":"full-v2","sourceRef":first["sourceRef"],"edits":edits});
+            let second=call(edit.clone()).execute(&store,&worker,&identity,&grants).await.unwrap();
+            assert_eq!(second["sourceRef"]["object"],first["sourceRef"]["object"]);
+            assert_eq!(second["sourceRef"]["fileVersion"],2);
+            assert!(second["model"].to_string().contains("原生第二版"));
+            let mut stale=edit;stale["requestId"]=json!("full-stale");
+            assert_eq!(call(stale).execute(&store,&worker,&identity,&grants).await.unwrap_err().code,ErrorCode::RevisionConflict);
+            let replay=OfficeCreateCall::parse(serde_json::from_value(create).unwrap()).unwrap()
+                .execute(&store,&worker,&identity,&grants,None).await.unwrap();
+            assert_eq!(replay["sourceRef"],first["sourceRef"]);
+            assert_eq!(replay["commit"],first["commit"]);
+        }
+    }
 }

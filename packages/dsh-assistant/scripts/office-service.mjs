@@ -19,12 +19,18 @@ const sourceRefParameter={type:'object',required:true,additionalProperties:false
 
 // Keep binary assets and renderer trees out of the model-facing projection.
 // These views issue the same semantic targets that the shared format SDK edits.
+function checkPayloadBudget(value){if(Buffer.byteLength(JSON.stringify(value),'utf8')>2*1024*1024)throw new Error('Office 内容超过 2 MiB 限制');}
+const pick=(value,keys)=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,value[key]]));
 function modelView(model) {
   switch (model.format) {
-    case 'docx': return {format:model.format,nodes:model.nodes,readOnly:model.readOnly};
-    case 'xlsx': return {format:model.format,sheets:model.sheets.map(({id,name,hidden,veryHidden,rowCount,columnCount})=>({id,name,hidden,...(veryHidden!==undefined?{veryHidden}:{}),rowCount,columnCount})),
-      ranges:Object.fromEntries(Object.entries(model.ranges).map(([id,range])=>[id,{area:range.area,cells:range.cells.map(({row,column,value,formula})=>({row,column,value,...(formula!==undefined?{formula}:{})}))}])),definedNames:model.definedNames};
-    case 'pptx': return {format:model.format,size:model.size,textElements:model.textElements,pictureElements:model.pictureElements,limitations:model.limitations};
+    case 'docx': return {format:model.format,nodes:model.nodes,readOnly:model.readOnly,...pick(model,['authoring','page'])};
+    case 'xlsx': return {format:model.format,
+      sheets:model.sheets.map(sheet=>pick(sheet,['id','name','hidden','veryHidden','rowCount','columnCount','columnWidths','defaultRowHeight','defaultColumnWidth','freeze','showGridLines','tabColor','tables','pivotTables'])),
+      ranges:Object.fromEntries(Object.entries(model.ranges).map(([id,range])=>[id,{
+        ...pick(range,['area','rows','merges','indexingComplete','conditionalRules','dataValidations','sheetProtection']),
+        cells:range.cells.map(cell=>pick(cell,['row','column','value','formula','styleIndex','arrayRef','rich'])),
+      }])),definedNames:model.definedNames,...pick(model,['styles','dxfStyles','visuals','warnings'])};
+    case 'pptx': return {format:model.format,size:model.size,textElements:model.textElements,pictureElements:model.pictureElements,limitations:model.limitations,...pick(model,['layoutAudit','authoring'])};
     default: throw new Error('Unsupported native Office model');
   }
 }
@@ -37,6 +43,12 @@ export async function installOfficeService(ctx,project,bridge) {
     if (!catalog.items.some(item=>item.sessionId===sessionId&&item.cwd===project.directory)) throw new Error('Office Session belongs to another Project');
     exec.signal.throwIfAborted();
     return {sessionId,context:project};
+  }
+  function writable(exec,context) {
+    const policy=ctx.get('sandboxPolicy')?.resolve({session:exec.agent.session});
+    if(!policy||!['workspace-write','danger-full-access'].includes(policy.mode))throw new Error('当前会话为只读，不能修改 Office 文件');
+    if(policy.workspaceRoot!==context.directory)throw new Error('Office policy belongs to another context');
+    return policy.mode;
   }
   const sourceParameter=structuredClone(sourceRefParameter);
   if(project.forSession||project.kind==='workspace') {
@@ -64,30 +76,31 @@ export async function installOfficeService(ctx,project,bridge) {
   })));
   disposers.push(ctx.tools.register(defineTool({
     name:'file_office_edit',
-    description:'编辑并保存同一个 Office File，返回真实新版本与保存回执。source_ref 必须使用 file_office_inspect 返回的完整 sourceRef，旧版本/文件变化会拒绝覆盖。DOCX edits: {type:"text",nodeId,text,expectedText?}；XLSX: {sheetId,row,column,kind:"string"|"number"|"formula"|"blank",value?/formula?}，行列零基；PPTX: {kind:"text",slideIndex,cNvPrId,paragraphIndex,runIndex,text} 或 {kind:"move-image",slideIndex,cNvPrId,x,y}。仅简单内容修改，不能改字体、样式、页面结构。',
+    description:'编辑并保存同一个 Office File，返回真实新版本与保存回执。source_ref 必须使用 file_office_inspect 返回的完整 sourceRef，旧版本/文件变化会拒绝覆盖。DOCX edits 支持完整上游 {type:"operations",ops:[...]}（单独提交；字段见 Office Skill），或简单 {type:"text",nodeId,text,expectedText?}；XLSX: {sheetId,row,column,kind:"string"|"number"|"formula"|"blank",value?/formula?}，行列零基；PPTX: {kind:"text",slideIndex,cNvPrId,paragraphIndex,runIndex,text} 或 {kind:"move-image",slideIndex,cNvPrId,x,y}。DOCX operations、XLSX {kind:"gateway",changes}、PPTX {kind:"operations",operations} 或 {kind:"command",name,args} 支持完整本地格式编辑；按 Office Skill 的格式合同构造并保留当前基线。',
     parameters:{source_ref:sourceParameter,edits:{type:'array',required:true,items:{type:'json'},description:'格式模块支持的编辑操作，最多 256 项。'}},
     output,
     async execute(args,exec) {
-      const {sessionId}=await owner(exec);
-      const value=await bridge.request({operation:'officeEdit',sessionId,requestId:String(exec.callId),sourceRef:args.source_ref,edits:args.edits},exec.signal);
+      const {sessionId,context}=await owner(exec);
+      const mode=writable(exec,context);
+      checkPayloadBudget(args.edits);
+      const value=await bridge.request({operation:'officeEdit',sessionId,mode,requestId:String(exec.callId),sourceRef:args.source_ref,edits:args.edits},exec.signal);
       return {...value,...(value.model?{model:modelView(value.model)}:{})};
     },
     presentCall:()=>({card:'generic',kind:'write',title:'保存 Office 文件'}),
   })));
   disposers.push(ctx.tools.register(defineTool({
     name:'file_office_create',
-    description:'使用 GenOffice 创建新的 Word DOCX 并保存为原生 File，返回创建回执和固定版本。content 是受限 HTML：h1-h6、p、strong/em/u/s、ul/ol/li、简单 table/tr/th/td、pre、blockquote；不支持图片、CSS、脚本或外部资源。最多 2 MiB。name 是安全的单个 .docx 文件名。已有材料使用 file_office_edit。保持 request_id 和原始参数不变可安全重试。Project 会话默认当前项目；Workspace 会话省略 project_id 创建 Workspace File，或用已查询的实际 Project ID。',
-    parameters:{name:{type:'string',required:true},content:{type:'string',required:true},request_id:{type:'string',required:true},project_id:{type:'integer'}},output,
+    description:'使用 GenOffice 创建 Word DOCX、Excel XLSX 或 PowerPoint PPTX 并保存为原生 File，返回创建回执和固定版本。name 扩展名确定格式。先读取 Office Skill 的对应格式协议：DOCX content 为受限 HTML 字符串或 {html,ops}；XLSX 为 {sheets,changes}；PPTX 为 {pages,operations}。支持完整本地结构/样式/媒体操作，不执行脚本或访问外部路径/URL。content JSON 最多2 MiB，图片使用内嵌数据。已有材料使用 file_office_edit。保持 request_id 和原始参数不变可安全重试。Project 会话默认当前项目；Workspace 会话省略 project_id 创建 Workspace File，或用已查询的实际 Project ID。',
+    parameters:{name:{type:'string',required:true},content:{type:'json',required:true,description:'格式内容；按 Office Skill 对应文档构造完整 JSON，DOCX 兼容 HTML 字符串。'},request_id:{type:'string',required:true},project_id:{type:'integer'}},output,
     async execute(args,exec){
       const {sessionId,context}=await owner(exec);
-      const policy=ctx.get('sandboxPolicy')?.resolve({session:exec.agent.session});
-      if(!policy||!['workspace-write','danger-full-access'].includes(policy.mode))throw new Error('当前会话为只读，不能创建 Office 文件');
-      if(policy.workspaceRoot!==context.directory)throw new Error('Office creation policy belongs to another context');
+      const mode=writable(exec,context);
+      checkPayloadBudget(args.content);
       // Observe the committed result even when Stop races the native commit.
-      const value=await bridge.request({operation:'officeCreate',sessionId,requestId:args.request_id,mode:policy.mode,projectId:args.project_id??null,name:args.name,content:args.content});
+      const value=await bridge.request({operation:'officeCreate',sessionId,requestId:args.request_id,mode,projectId:args.project_id??null,name:args.name,content:args.content});
       return {...value,...(value.model?{model:modelView(value.model)}:{})};
     },
-    presentCall:()=>({card:'generic',kind:'write',title:'创建 Word 文件'}),
+    presentCall:()=>({card:'generic',kind:'write',title:'创建 Office 文件'}),
   })));
   ctx.effect(()=>()=>disposers.forEach(dispose=>dispose()));
 }

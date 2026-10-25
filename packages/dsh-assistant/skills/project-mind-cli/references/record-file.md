@@ -65,17 +65,11 @@ If `file.patch` rejects a directory File with “Directory File updates must use
 Finish with the [receipt and readback criteria](../SKILL.md#5-verify-and-report). Use the shared [recovery process](../SKILL.md#recover-from-the-actual-outcome) for conflicts, uncertain outcomes and requested undo/restoration.
 
 
-## Office DOCX create and inspect
+## Office create and inspect
 
-For a new Word document, call the native tool with a stable mutation ID:
+For Word, Excel or PowerPoint generation and full format editing, load the bundled [GenOffice authoring Skill](../../genoffice-authoring/SKILL.md), then its relevant format reference. `file_office_create` creates the actual `.docx`/`.xlsx`/`.pptx` and commits through the same native File pipeline. Word accepts the existing restricted HTML string or upstream HTML+ops; Excel uses the full workbook gateway; PPT uses native page specs and operations. The bundled engines require no standalone GenOffice app or separate model/account configuration.
 
-```json
-{"name":"Report.docx","content":"<h1>Report</h1><p>Verified findings.</p>","request_id":"stable-docx-create"}
-```
-
-This is the `file_office_create` tool input, not a CLI JSON DTO. The tool uses the bundled GenOffice worker to generate DOCX and native create to save it, returning the File identity/version/hash and receipt. In a Project conversation, omitted `project_id` means the current Project. In a Workspace conversation, omitted `project_id` creates a Workspace File; specify an actually authorized Project ID only when the deliverable belongs there.
-
-`content` is restricted HTML up to 2 MiB. Supported elements are h1–h6, p, strong, em, u, s, ul, ol, li, simple table/tr/th/td, pre and blockquote. Images, charts, CSS styling and scripts are unsupported. Prepare content within that contract. There is no corresponding new XLSX/PPTX generation command in this workflow.
+A stable `request_id` identifies the original complete create payload. In a Project Session the default is the actual Project; a Workspace Session defaults to Workspace ownership, or accepts an explicitly authorized `project_id`. Keep the same File and current SourceRef when continuing edits. Full format operations retain native authorization, version CAS and read-only restrictions.
 
 `file_office_inspect` accepts exactly one of `file_path` or `source_ref`. For a native saved File, pass its complete returned SourceRef directly as `source_ref`, retaining its actual object, revision and File version. Do not reconstruct a local path or reduce the SourceRef to an ID. Inspection checks the document's semantic content; inspect headings, paragraphs and table values that establish the requested deliverable.
 

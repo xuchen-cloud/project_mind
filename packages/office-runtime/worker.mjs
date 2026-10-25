@@ -19,11 +19,11 @@ export async function handleOfficeRequest(request) {
   if (!['office.inspect', 'office.edit', 'office.recalculate', 'office.create'].includes(method) || !data || typeof data !== 'object' || Array.isArray(data)
       || Object.keys(data).some(key => !allowed.includes(key)) || !formats.has(data.format)
       || (recalculate && data.format !== 'xlsx')
-      || (creating ? data.format !== 'docx' || typeof data.content !== 'string' || !data.content.trim() : typeof data.base64 !== 'string')) {
+      || (creating ? !(typeof data.content === 'string' && data.format === 'docx' && data.content.trim() || data.content && typeof data.content === 'object' && !Array.isArray(data.content)) : typeof data.base64 !== 'string')) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Expected a supported Office format and fixed source bytes');
   }
-  if (creating && Buffer.byteLength(data.content, 'utf8') > 2 * 1024 * 1024) {
-    return failure(requestId, 'BUDGET_EXCEEDED', 'DOCX creation content exceeds 2 MiB');
+  if (creating && Buffer.byteLength(JSON.stringify(data.content), 'utf8') > 2 * 1024 * 1024) {
+    return failure(requestId, 'BUDGET_EXCEEDED', 'Office creation content exceeds 2 MiB');
   }
   if (!creating && data.base64.length > Math.ceil(MAX_BYTES / 3) * 4) {
     return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
@@ -67,7 +67,7 @@ export async function handleOfficeRequest(request) {
     // engine.recalculate reuses workbookRecalcRequestSchema for strict nested
     // fields, coordinates and input lengths before opening the source bytes.
     if (recalculate) return { requestId, ok: true, data: await engine.recalculate(bytes, data.recalculation, context) };
-    const candidate = creating ? await engine.create(data.content) : await engine.edit(bytes, data.edits, context);
+    const candidate = creating ? await engine.create(data.content, context) : await engine.edit(bytes, data.edits, context);
     if (!(candidate instanceof Uint8Array) || candidate.byteLength > MAX_BYTES) {
       return failure(requestId, 'BUDGET_EXCEEDED', 'Office candidate exceeds 100 MiB');
     }

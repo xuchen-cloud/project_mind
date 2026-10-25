@@ -66,6 +66,9 @@ pub struct RecalcCell {
     /// Raw numeric value when the cell evaluates to a number.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number: Option<f64>,
+    /// Exact evaluated scalar; display formatting cannot distinguish text
+    /// "TRUE" from boolean true or a text result from a numeric format.
+    pub value: serde_json::Value,
     /// The engine typed the result as an error (`#DIV/0!`), as opposed to a
     /// formula whose text result merely spells one (`="#N/A"`).
     pub is_error: bool,
@@ -325,6 +328,7 @@ fn run(
                     column: column as u32,
                     formatted,
                     number,
+                    value: raw_value(&entry.model, sheet, row_1, column_1),
                     is_error,
                     is_formula,
                 });
@@ -580,6 +584,16 @@ fn raw_number(model: &Model, sheet: u32, row: i32, column: i32) -> Option<f64> {
     match model.get_cell_value_by_index(sheet, row, column) {
         Ok(CellValue::Number(value)) => Some(value),
         _ => None,
+    }
+}
+
+fn raw_value(model: &Model, sheet: u32, row: i32, column: i32) -> serde_json::Value {
+    use ironcalc::base::cell::CellValue;
+    match model.get_cell_value_by_index(sheet, row, column) {
+        Ok(CellValue::Number(value)) => serde_json::json!(value),
+        Ok(CellValue::String(value)) => serde_json::Value::String(value),
+        Ok(CellValue::Boolean(value)) => serde_json::Value::Bool(value),
+        _ => serde_json::Value::Null,
     }
 }
 

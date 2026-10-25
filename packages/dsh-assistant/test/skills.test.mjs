@@ -162,6 +162,10 @@ test('the same bundled skill configuration is loadable by the real DSH registry 
     const skill = await ctx.skills.get('project-mind-cli', { cwd: f.cwd });
     assert.ok(skill, 'built-in CLI skill must be visible and loadable by an Agent');
     assert.match(skill.content, /mind capabilities --json/);
+    const office=await ctx.skills.get('genoffice-authoring',{cwd:f.cwd});
+    assert.ok(office,'the adapted authoring skill must be available through the real registry');
+    const {isSkillResourceRead}=await import('../scripts/skills.mjs');
+    assert.equal(await isSkillResourceRead(ctx.skills,path.join(path.dirname(office.path),'references/upstream-skill.md'),{cwd:f.cwd}),true);
     assert.match(skill.path, /skills[/\\]project-mind-cli[/\\]SKILL\.md$/);
   } finally { await ctx.fiber.dispose(); }
 });

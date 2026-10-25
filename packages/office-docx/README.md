@@ -10,7 +10,7 @@ npm --prefix packages/office-docx run build
 npm --prefix packages/office-docx test
 ```
 
-`build` 自动准备并逐个校验 `source-lock.json` 中505个原始文件的Git blob SHA1/字节长度，固定 `genspark-ai/genoffice@d32d1711f1bf985430757b8c6b3fbddd3831d946`。默认首次从固定GitHub raw下载；缓存存在时只校验。离线提供同一commit源码：
+`build` 自动准备并逐个校验 `source-lock.json` 中519个原始文件的Git blob SHA1/字节长度，固定 `genspark-ai/genoffice@d32d1711f1bf985430757b8c6b3fbddd3831d946`。默认首次从固定GitHub raw下载；缓存存在时只校验。离线提供同一commit源码：
 
 ```sh
 node packages/office-docx/prepare-source.mjs --source /path/to/fixed-genoffice-checkout
@@ -170,3 +170,7 @@ node packages/office-docx/test/browser-parity.mjs
 完整编辑器控制器提供 `captureSelection(): Promise<{selectionId,text}>` 和 `replaceSelection({selectionId,text}): Promise<{text}>`。选区只支持正文单一段落或标题的纯文字范围，冻结当前文档及范围；光标移动不会重定向，文档变化、只读切换、外部替换或关闭后失效。含表格、保护节点或已有插入/删除修订的选区拒绝操作。替换继承选区起始文字格式，以 `Project Mind AI` 创建真实删除及插入修订；保存继续使用既有 `beforeSave` / File 回执。
 
 React `DocxEditor.registerSelection` 注册相同控制器，并提供统一的 `applySelection({selectionId,change:{text}})` 入口；注销后的旧回调拒绝调用。显式 headless 验证使用普通 `test/browser-server.mjs` 宿主及 `test/browser-selection.mjs`，覆盖真实 DOCX 修订和组件生命周期。
+
+## Structured Word authoring
+
+`engine.create({html, ops})` and sole `{type:"operations",ops}` edits reuse the fixed upstream headless Word executor, including typography, native tables, pictures/charts, page setup, sections, headers/footers, styles and notes. See [authoring.md](authoring.md) for the exact input, media boundary, examples and verification. `engine.catalog()` / `dist/authoring-catalog.json` expose upstream definitions; `inspect().authoring` supplies current semantic targets.

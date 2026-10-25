@@ -566,15 +566,15 @@ impl AssistantProcess {
             if let (Some(handler), Some(writer)) = (source, writer) {
                 loop {
                     let mut line = Vec::new();
-                    let read = (&mut reader).take(256 * 1024 + 1).read_until(b'\n', &mut line).await;
-                    match read { Ok(0) | Err(_) => break, Ok(size) if size > 256 * 1024 => break, _ => () }
+                    let read = (&mut reader).take(OFFICE_SOURCE_FRAME_LIMIT as u64 + 1).read_until(b'\n', &mut line).await;
+                    match read { Ok(0) | Err(_) => break, Ok(size) if size > OFFICE_SOURCE_FRAME_LIMIT => break, _ => () }
                     let Some(payload) = line.strip_prefix(b"MIND_DSH_SOURCE ") else { continue; };
                     let Ok(frame) = serde_json::from_slice::<SourceFrame>(payload) else { break; };
                     if revoked.load(Ordering::SeqCst) { break; }
                     let task_handler = handler.clone();
                     let task_revoked = revoked.clone();
                     let task_alive = alive.clone();
-                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeInspect"|"officeEdit"|"officeSelectionRead"|"officeSelectionApply"));
+                    let office_request = matches!(frame.payload["operation"].as_str(),Some("officeCreate"|"officeInspect"|"officeEdit"|"officeSelectionRead"|"officeSelectionApply"));
                     let task_gate = gate.clone();
                     let task_url = source_url.clone();
                     let source_id = frame.id.clone();
@@ -670,6 +670,8 @@ impl AssistantProcess {
 }
 
 type SourceHandler = Arc<dyn Fn(serde_json::Value, &AtomicBool, &Url, &str, &Arc<AtomicBool>) -> Result<serde_json::Value, String> + Send + Sync>;
+// Includes bounded authoring JSON plus native identity and RPC framing.
+const OFFICE_SOURCE_FRAME_LIMIT: usize = 4 * 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceFrame { id: String, payload: serde_json::Value }
@@ -680,8 +682,8 @@ enum SourceRequest {
     Resolve { #[serde(rename="sessionId")] session_id: String, path: String },
     Prepare { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef>, offset: usize, limit: usize },
     OfficeInspect { #[serde(rename="sessionId")] session_id: String, path: Option<String>, #[serde(rename="sourceRef")] source_ref: Option<crate::agent::models::SourceRef> },
-    OfficeCreate { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, mode: String, #[serde(rename="projectId")] project_id: Option<i64>, name: String, content: String },
-    OfficeEdit { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, #[serde(rename="sourceRef")] source_ref: crate::agent::models::SourceRef, edits: Vec<serde_json::Value> },
+    OfficeCreate { #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, mode: String, #[serde(rename="projectId")] project_id: Option<i64>, name: String, content: serde_json::Value },
+    OfficeEdit { mode: String, #[serde(rename="sessionId")] session_id: String, #[serde(rename="requestId")] request_id: String, #[serde(rename="sourceRef")] source_ref: crate::agent::models::SourceRef, edits: Vec<serde_json::Value> },
     OfficeSelectionRead { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String },
     OfficeSelectionApply { #[serde(rename="sessionId")] session_id: String, #[serde(rename="selectionId")] selection_id: String, #[serde(rename="requestId")] request_id: String, mode: String, change: serde_json::Value },
     Delivery { #[serde(rename="sessionId")] session_id: String, #[serde(rename="deliveryId")] delivery_id: String, projection: String, #[serde(rename="projectionHash")] projection_hash: String },
@@ -2787,6 +2789,20 @@ mod tests {
         assert!(!process.office_alive.load(Ordering::SeqCst));
         assert!(process.source_stdin.as_ref().unwrap().lock().await.is_none());
         assert!(serde_json::from_value::<SourceRequest>(serde_json::json!({"operation":"prepare","workspaceId":"forged","sessionId":"a","path":"fixed.txt","offset":1,"limit":1})).is_err());
+    }
+
+    #[tokio::test]
+    async fn source_bridge_stdio_accepts_bounded_office_media_content() {
+        let root = tempfile::tempdir().unwrap();
+        let script = root.path().join("office-create-runtime.mjs");
+        let completed = root.path().join("completed");
+        std::fs::write(&script, r#"import {createInterface} from 'node:readline';import {writeFileSync} from 'node:fs';let configured=false;const input=createInterface({input:process.stdin});input.on('line',line=>{if(line==='shutdown')process.exit(0);if(!configured){configured=true;console.log('MIND_DSH_READY '+JSON.stringify({url:'http://127.0.0.1:23456/?token=fixture-token'}));console.log('MIND_DSH_SOURCE '+JSON.stringify({id:'office-large',payload:{operation:'officeCreate',sessionId:'actual',content:{media:'A'.repeat(400000)}}}));}else{const frame=JSON.parse(line);if(frame.id!=='office-large'||frame.result.value.accepted!==400000)process.exit(2);writeFileSync(process.argv[2],'done')}});input.on('close',()=>process.exit(0));"#).unwrap();
+        let node=development_node(if cfg!(windows){"node.exe"}else{"node"}).unwrap();
+        let mut command=Command::new(node);command.arg(script).arg(&completed);
+        let handler:SourceHandler=Arc::new(|payload,_,_,_,_|Ok(serde_json::json!({"accepted":payload["content"]["media"].as_str().unwrap().len()})));
+        let mut process=AssistantProcess::launch_with_source(command,&serde_json::json!({"type":"configure"}),Some(handler)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5),async{while !completed.exists(){tokio::time::sleep(Duration::from_millis(10)).await;}}).await.unwrap();
+        process.stop().await.unwrap();
     }
 
     #[tokio::test]

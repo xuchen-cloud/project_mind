@@ -9,6 +9,8 @@ import { applyEdits, assertContentEdit, assertJson, assets, textNodes } from './
 import { DocxError, type Context, type DocxModel, type Edit, type PmJSON } from './types';
 export { DocxError } from './types';
 export { create } from './create';
+export { catalog } from './authoring';
+import { editOperations, summary } from './authoring';
 
 async function open(bytes: Uint8Array) {
   if (!(bytes instanceof Uint8Array)) throw new DocxError('INVALID_EDIT', 'DOCX must be Uint8Array');
@@ -30,7 +32,7 @@ export async function inspect(bytes: Uint8Array, _context?: Context): Promise<Do
   const { parsed, document } = await open(bytes);
   const section = readSections(parsed)[0]?.settings ?? DEFAULT_SECTION;
   const px = (twips: number) => twips / 15;
-  return { format: 'docx', sourceBase64: Buffer.from(bytes).toString('base64'), baselineHash: createHash('sha256').update(bytes).digest('hex'), document,
+  return { format: 'docx', authoring:await summary(bytes), sourceBase64: Buffer.from(bytes).toString('base64'), baselineHash: createHash('sha256').update(bytes).digest('hex'), document,
     documentCss: docStyleCss(parsed),
     nodes: textNodes(document), assets: assets(document), readOnly: !!parsed.protection?.enforced || !!parsed.writeProtection?.hash,
     page: { width: px(section.pageWidth), height: px(section.pageHeight),
@@ -40,6 +42,10 @@ export async function inspect(bytes: Uint8Array, _context?: Context): Promise<Do
 }
 export async function edit(bytes: Uint8Array, edits: Edit[], _context?: Context): Promise<Uint8Array> {
   assertJson(edits);
+  if (Array.isArray(edits) && edits.some(edit=>edit?.type==='operations')) {
+    if(edits.length!==1||edits[0].type!=='operations'||Object.keys(edits[0]).some(k=>!['type','ops'].includes(k)))throw new DocxError('INVALID_EDIT','Operations must be the sole Word edit');
+    await open(bytes);return editOperations(bytes,edits[0].ops);
+  }
   const { parsed, document: baseline } = await open(bytes);
   if (Array.isArray(edits) && edits.some(edit => edit?.type === 'snapshot')) {
     if (edits.length !== 1 || edits[0].type !== 'snapshot' || typeof edits[0].base64 !== 'string' ||

@@ -18,9 +18,19 @@
       "bytes": 2489
     },
     {
+      "path": "apps/docs/src/renderer/fonts/Caladea-Regular.ttf",
+      "bytes": 58964,
+      "git_blob_sha1": "a0802530dec744381aebbf5512d40d291282b97c"
+    },
+    {
       "path": "apps/docs/src/renderer/fonts/LICENSE-OFL.txt",
       "bytes": 5154,
       "git_blob_sha1": "0700f5a8343170acbdc1d8e0f5dacf12d918c40d"
+    },
+    {
+      "path": "apps/docs/src/renderer/fonts/README.md",
+      "bytes": 13915,
+      "git_blob_sha1": "831175da67080bdbb48c67d2c9e6d36ffde6f9b2"
     },
     {
       "path": "apps/slides/src/main/ai-ipc.ts",
@@ -1698,6 +1708,76 @@
       "git_blob_sha1": "cacf047acfde9f76a3d430c171c2d71c02d87c17"
     },
     {
+      "path": "packages/pipelines/package.json",
+      "bytes": 748,
+      "git_blob_sha1": "2c68e719e505d96e939cd290fc76494d4ecb3ec5"
+    },
+    {
+      "path": "packages/pipelines/src/index.ts",
+      "bytes": 41,
+      "git_blob_sha1": "7c505cebc4acdcfb7249059e13e927adc5905a10"
+    },
+    {
+      "path": "packages/pipelines/src/raw.d.ts",
+      "bytes": 186,
+      "git_blob_sha1": "fbd76dd996ad5c4230b6f4104564c1b6348f5e95"
+    },
+    {
+      "path": "packages/pipelines/src/slides/audit-deck.ts",
+      "bytes": 2508,
+      "git_blob_sha1": "86f9d8425ef6d3bfff777495cb5b7de7620272ba"
+    },
+    {
+      "path": "packages/pipelines/src/slides/cover-crop.ts",
+      "bytes": 989,
+      "git_blob_sha1": "6ceffa48c10a267290dc3738946e95db5c2a2506"
+    },
+    {
+      "path": "packages/pipelines/src/slides/deck-spec.ts",
+      "bytes": 4137,
+      "git_blob_sha1": "d28a45b705ced206c042711ac21e503adc54a78f"
+    },
+    {
+      "path": "packages/pipelines/src/slides/guides.ts",
+      "bytes": 696,
+      "git_blob_sha1": "9eaae24b32bf5a7bb8a79277e0d5a7ca88c7b258"
+    },
+    {
+      "path": "packages/pipelines/src/slides/guides/design.md",
+      "bytes": 12248,
+      "git_blob_sha1": "85fc95273ceaba9fcdf62091fff76072666e86a8"
+    },
+    {
+      "path": "packages/pipelines/src/slides/guides/spec.md",
+      "bytes": 7087,
+      "git_blob_sha1": "3dd41fdf1e8f7748a778898563a1d25f9a95781d"
+    },
+    {
+      "path": "packages/pipelines/src/slides/index.ts",
+      "bytes": 370,
+      "git_blob_sha1": "75076ea15678db3e87ea3d9265de5f27ecfe0a56"
+    },
+    {
+      "path": "packages/pipelines/src/slides/layout-audit.ts",
+      "bytes": 17694,
+      "git_blob_sha1": "8caec655d581196bda31bb0ff4081d24199b3b5a"
+    },
+    {
+      "path": "packages/pipelines/src/slides/outline.ts",
+      "bytes": 7175,
+      "git_blob_sha1": "5e86d6cc72870655800871ed01502557132bb942"
+    },
+    {
+      "path": "packages/pipelines/src/slides/page-spec.ts",
+      "bytes": 23156,
+      "git_blob_sha1": "8cc7a1af436cfcd7fd63cf6b39d46b121f4d91f8"
+    },
+    {
+      "path": "packages/pipelines/src/slides/stage-check.ts",
+      "bytes": 3605,
+      "git_blob_sha1": "afb4186205f18c5feb8e135315d7249111d30ee3"
+    },
+    {
       "path": "packages/pptx-engine/package.json",
       "git_blob_sha1": "609158edb91f5143c3e5c2635f4e99d2ece96e8e",
       "bytes": 935
@@ -2496,16 +2576,6 @@
       "path": "packages/zip-gate/src/index.ts",
       "git_blob_sha1": "857e68cb3ce0e07d27a059fc00971292b12e0f77",
       "bytes": 10391
-    },
-    {
-      "path": "apps/docs/src/renderer/fonts/Caladea-Regular.ttf",
-      "bytes": 58964,
-      "git_blob_sha1": "a0802530dec744381aebbf5512d40d291282b97c"
-    },
-    {
-      "path": "apps/docs/src/renderer/fonts/README.md",
-      "bytes": 13915,
-      "git_blob_sha1": "831175da67080bdbb48c67d2c9e6d36ffde6f9b2"
     }
   ]
 }

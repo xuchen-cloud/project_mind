@@ -223,7 +223,7 @@ for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office 
   assert.equal(inspectSchema.properties.source_ref.type, 'object');
   const createSchema = discovered.find(tool => tool.function.name === 'file_office_create').function.parameters;
   assert.deepEqual([...createSchema.required].sort(), ['content', 'name', 'request_id']);
-  assert.equal(createSchema.properties.content.type, 'string');
+  assert.equal(createSchema.properties.content.type, undefined, 'JSON authoring content supports format objects and legacy DOCX strings');
   assert.equal(createSchema.properties.project_id.type, 'integer');
   const editSchema = discovered.find(tool => tool.function.name === 'file_office_edit').function.parameters;
   assert.deepEqual([...editSchema.required].sort(), ['edits', 'source_ref']);
@@ -256,7 +256,7 @@ for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office 
       name: 'file_office_edit', arguments: JSON.stringify(args),
     } }] });
     await prompt(runtime, stream, sessionId, `Save the ${format} edit`);
-    assert.deepEqual(operations.at(-1), { operation: 'officeEdit', sessionId, requestId: editId, sourceRef: inspected.sourceRef, edits: fixture.edits });
+    assert.deepEqual(operations.at(-1), { operation: 'officeEdit', sessionId, mode:'workspace-write', requestId: editId, sourceRef: inspected.sourceRef, edits: fixture.edits });
     const call = events(stream).find(event => event.type === 'tool/call' && event.data.callId === editId);
     assert.equal(call?.data.name, 'file_office_edit');
     assert.deepEqual(JSON.parse(call.data.arguments), args);
@@ -282,7 +282,7 @@ for (const owner of ['project', 'workspace', 'workspace-project']) test(`Office 
 
 // Real provider/registry/Session and sandbox policy; native persistence and
 // GenOffice bytes are mocked here and covered by the Rust service tests.
-for (const owner of ['project', 'workspace', 'workspace-project', 'readonly']) test(`Office create transport: real Session policy and stable native request (${owner})`, { timeout: 60000 }, async t => {
+for (const format of ['docx','xlsx','pptx']) for (const owner of ['project', 'workspace', 'workspace-project', 'readonly']) test(`Office create transport: real Session policy and stable native request (${format}/${owner})`, { timeout: 60000 }, async t => {
   const temp = await mkdtemp(path.join(tmpdir(), 'mind-office-create-'));
   const directory = await realpath(temp);
   const bodies = [], operations = [];
@@ -298,10 +298,10 @@ for (const owner of ['project', 'workspace', 'workspace-project', 'readonly']) t
   const mode = owner === 'readonly' ? 'read-only' : 'workspace-write';
   const patch = path.join(temp, 'sandbox.patch.yml');
   await writeFile(patch, `- id: sandbox-policy\n  config:\n    mode: ${mode}\n`);
-  const fixture = officeFixture('docx');
+  const fixture = officeFixture(format);
   const requestId = 'stable-docx-create-request';
   fixture.saved.sourceRef.fileVersion = 1;
-  fixture.saved.sourceRef.title = 'Created.docx';
+  fixture.saved.sourceRef.title = `Created.${format}`;
   fixture.saved.sourceRef.object.scope = owner === 'workspace' || owner === 'readonly' ? { kind: 'workspace' } : { kind: 'project', projectId: 118 };
   fixture.saved.commit = { requestId, versionNumber: 1, operationId: 'native-create-receipt' };
   const handleSource = payload => {
@@ -316,7 +316,8 @@ for (const owner of ['project', 'workspace', 'workspace-project', 'readonly']) t
   await runtime.rpc('session/rename', { sessionId, title: 'Office create transport fixture' });
   stream = await follow(runtime, sessionId);
   assert.equal(stream.snapshot.header.cwd, directory, 'real Session cwd establishes the sandbox workspaceRoot checked by the tool');
-  const args = { name: 'Created.docx', content: '<h1>Created</h1><p>Verified</p>', request_id: requestId,
+  const content=format==='docx'?{html:'<h1>Created</h1><p>Verified</p>',ops:[]}:format==='xlsx'?{sheets:[{id:'summary',name:'汇总'}],changes:{}}:{pages:[{title:'Created',elements:[]}]};
+  const args = { name: `Created.${format}`, content, request_id: requestId,
     ...(owner === 'workspace-project' ? { project_id: 118 } : {}) };
   const callId = 'provider-create-call-id';
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: callId, type: 'function', function: {
@@ -419,7 +420,7 @@ export function apply(ctx) {
       assert.equal(operations.length - before, mode === 'pre-deny' ? 0 : 1, 'pre denial must prevent native dispatch; post policy runs after dispatch');
       if (mode !== 'pre-deny') assert.deepEqual(operations.at(-1), name === 'file_office_inspect'
         ? { operation: 'officeInspect', sessionId, path: fixture.sourceRef.title }
-        : { operation: 'officeEdit', sessionId, requestId: callId, sourceRef: fixture.sourceRef, edits: fixture.edits });
+        : { operation: 'officeEdit', sessionId, mode:'workspace-write', requestId: callId, sourceRef: fixture.sourceRef, edits: fixture.edits });
       const entries = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(entry => entry.callId === callId);
       assert.deepEqual(entries.map(entry => entry.stage), ['pre', 'post']);
       for (const entry of entries) { assert.equal(entry.name, name); assert.equal(entry.sessionId, sessionId); }
@@ -808,6 +809,10 @@ test('embedded assistant advertises, disables and re-enables the bundled CLI Ski
   assert.ok(cli, 'the actual assistant Session must discover its bundled CLI Skill');
   assert.equal(cli.modelInvocable, true);
   assert.equal(cli.path, path.join(root, 'skills/project-mind-cli/SKILL.md'));
+  const office=catalog.skills.find(skill=>skill.name==='genoffice-authoring');
+  assert.ok(office,'actual Sessions discover the adapted GenOffice authoring Skill');
+  assert.equal(office.modelInvocable,true);
+  assert.equal(office.path,path.join(root,'skills/genoffice-authoring/SKILL.md'));
   const workspace = { id: randomUUID(), name: 'Skills workspace', directory: path.join(temporary, 'workspace') };
   await mkdir(workspace.directory);
   workspaceRuntime = await launch(path.join(temporary, 'workspace-data'), undefined, shared, undefined, undefined, undefined, workspace);

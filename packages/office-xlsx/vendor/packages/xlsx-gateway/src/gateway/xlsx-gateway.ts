@@ -2277,7 +2277,7 @@ function patchFormulaCachedValue(
   } else if (typeof value === 'object' && value !== null) {
     typeAttr = ' t="e"'
     valueXml = `<v>${escapeCellText(value.error)}</v>`
-  } else if (value !== null && value !== undefined && value !== '') {
+  } else if (typeof value === 'string') {
     typeAttr = ' t="str"'
     valueXml = `<v>${escapeCellText(String(value))}</v>`
   }

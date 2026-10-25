@@ -278,7 +278,7 @@ fn office_request<S: BoundSourceStore>(
 }
 
 struct OfficeCreateCall {
-    session_id: String, id: String, project_id: Option<i64>, name: String, content: String,
+    session_id: String, id: String, project_id: Option<i64>, name: String, content: Value,
 }
 impl OfficeCreateCall {
     fn parse(operation: SourceRequest) -> AgentResult<Self> {
@@ -327,11 +327,17 @@ impl OfficeCall {
                 source_ref,
             } => (session_id, frame_id.to_owned(), path, source_ref, None),
             SourceRequest::OfficeEdit {
+                mode,
                 session_id,
                 request_id,
                 source_ref,
                 edits,
-            } => (session_id, request_id, None, Some(source_ref), Some(edits)),
+            } => {
+                if !matches!(mode.as_str(), "workspace-write" | "danger-full-access") {
+                    return Err(AgentError::new(ErrorCode::ScopeDenied, "Office editing requires a writable Session"));
+                }
+                (session_id, request_id, None, Some(source_ref), Some(edits))
+            },
             _ => {
                 return Err(AgentError::new(
                     ErrorCode::InvalidArgument,
