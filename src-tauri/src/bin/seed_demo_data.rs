@@ -22,7 +22,6 @@ fn main() {
 fn run() -> anyhow::Result<()> {
     let mut args = env::args().skip(1);
     let mut workspace_root: Option<PathBuf> = None;
-    let mut password: Option<String> = None;
     let mut force = false;
 
     while let Some(arg) = args.next() {
@@ -32,12 +31,6 @@ fn run() -> anyhow::Result<()> {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--workspace-root requires a value"))?;
                 workspace_root = Some(PathBuf::from(value));
-            }
-            "--password" => {
-                password = Some(
-                    args.next()
-                        .ok_or_else(|| anyhow::anyhow!("--password requires a value"))?,
-                );
             }
             "--force" => force = true,
             "--help" | "-h" => {
@@ -53,9 +46,7 @@ fn run() -> anyhow::Result<()> {
     }
 
     let workspace_root = workspace_root.unwrap_or(default_demo_workspace_root()?);
-    let password = password
-        .ok_or_else(|| anyhow::anyhow!("--password is required for demo workspace seed"))?;
-    let seeded = seed_demo_workspace_at(&workspace_root, &password, force)?;
+    let seeded = seed_demo_workspace_at(&workspace_root, force)?;
 
     println!(
         "{}",
@@ -70,6 +61,6 @@ fn run() -> anyhow::Result<()> {
 
 fn print_usage() {
     println!(
-        "Usage: cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data [--workspace-root <path>] --password <value> [--force]"
+        "Usage: cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data [--workspace-root <path>] [--force]"
     );
 }

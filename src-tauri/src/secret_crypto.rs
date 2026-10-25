@@ -84,7 +84,7 @@ pub fn decrypt_secret(
     let plaintext = cipher
         .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
         .map_err(|_| {
-            anyhow!("stored API key could not be decrypted with this workspace password")
+            anyhow!("已保存的 API Key 无法读取，请在模型设置中重新填写 API Key")
         })?;
 
     String::from_utf8(plaintext).context("decrypted API key was not valid UTF-8")

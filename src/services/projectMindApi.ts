@@ -88,7 +88,6 @@ import type {
   WorkspaceSearchInput,
   WorkspaceSearchResult,
   WorkspaceStatusSnapshot,
-  WorkspaceUnlockInput,
 } from "../lib/types";
 
 export const projectMindApi = {
@@ -100,10 +99,6 @@ export const projectMindApi = {
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_open", { input }),
   workspaceClose: () =>
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_close"),
-  workspaceUnlock: (input: WorkspaceUnlockInput) =>
-    desktopApi.command<WorkspaceStatusSnapshot>("workspace_unlock", { input }),
-  workspaceLock: () =>
-    desktopApi.command<WorkspaceStatusSnapshot>("workspace_lock"),
   projectsList: (input: ProjectsListInput = {}) =>
     desktopApi.command<ProjectListItem[]>("projects_list", { input }),
   projectCreate: (input: ProjectCreateInput) =>

@@ -773,15 +773,10 @@ export interface WorkspaceStatusSnapshot {
 
 export interface WorkspaceCreateInput {
   rootPath: string;
-  password: string;
 }
 
 export interface WorkspaceOpenInput {
   rootPath: string;
-}
-
-export interface WorkspaceUnlockInput {
-  password: string;
 }
 
 export type RichTextFontPreset =

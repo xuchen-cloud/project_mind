@@ -1,4 +1,3 @@
-import { isDebugBuild } from "./lib/build-mode";
 import { ProjectContentWorkspace, contentTabRoute } from "./components/project/ProjectContentWorkspace";
 import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
 import { prepareProjectContentClose, prepareWorkspaceContentClose } from "./lib/project-content-lifecycle";
@@ -89,10 +88,7 @@ import { rememberProjectRecord } from "./components/home/project-record-history"
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
 import { clearAllTodoComposerDrafts } from "./components/todo/todo-draft-storage";
-import {
-  CreateWorkspaceDialog,
-  UnlockWorkspaceSecretsDialog,
-} from "./components/workspace/WorkspaceDialogs";
+import { CreateWorkspaceDialog } from "./components/workspace/WorkspaceDialogs";
 import { Button, Dialog, EmptyState } from "./ui/components";
 import {
   RecordFocusResidencyProvider,
@@ -505,16 +501,10 @@ export function WorkspaceLayout({
 
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createWorkspaceRoot, setCreateWorkspaceRoot] = useState("");
-  const [createWorkspacePassword, setCreateWorkspacePassword] = useState("");
   const [createWorkspacePending, setCreateWorkspacePending] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<
     string | null
   >(null);
-  const [unlockOpen, setUnlockOpen] = useState(false);
-  const [unlockPassword, setUnlockPassword] = useState("");
-  const [unlockPending, setUnlockPending] = useState(false);
-  const [unlockError, setUnlockError] = useState<string | null>(null);
-  const unlockResolverRef = useRef<((value: boolean) => void) | null>(null);
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
   const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
@@ -572,62 +562,6 @@ export function WorkspaceLayout({
     },
     [clearWorkspaceScopedUiState, queryClient],
   );
-
-  const closeUnlockDialog = useCallback((unlocked: boolean) => {
-    unlockResolverRef.current?.(unlocked);
-    unlockResolverRef.current = null;
-    setUnlockOpen(false);
-    setUnlockPassword("");
-    setUnlockError(null);
-    setUnlockPending(false);
-  }, []);
-
-  const requestUnlockAiSecrets = useCallback(async () => {
-    if (!currentWorkspace) {
-      return false;
-    }
-    if (workspaceStatusQuery.data?.aiSecretsUnlocked) {
-      return true;
-    }
-
-    setUnlockPassword("");
-    setUnlockError(null);
-    setUnlockOpen(true);
-
-    return new Promise<boolean>((resolve) => {
-      unlockResolverRef.current = resolve;
-    });
-  }, [currentWorkspace, workspaceStatusQuery.data?.aiSecretsUnlocked]);
-
-  const handleUnlockSubmit = useCallback(async () => {
-    if (!unlockPassword.trim()) {
-      setUnlockError("请输入 workspace 密码。");
-      return;
-    }
-
-    try {
-      setUnlockPending(true);
-      const snapshot = await projectMindApi.workspaceUnlock({
-        password: unlockPassword,
-      });
-      await applyWorkspaceStatus(snapshot, false);
-      closeUnlockDialog(true);
-      setStatus({
-        tone: "success",
-        label: "Unlocked",
-        message: "AI secrets 已解锁",
-      });
-    } catch (error) {
-      setUnlockError(String(error));
-      setStatus({
-        tone: "error",
-        label: "Error",
-        message: "解锁 workspace secrets 失败",
-      });
-    } finally {
-      setUnlockPending(false);
-    }
-  }, [applyWorkspaceStatus, closeUnlockDialog, setStatus, unlockPassword]);
 
   const openWorkspaceByRoot = useCallback(
     async (rootPath: string) => {
@@ -711,7 +645,6 @@ export function WorkspaceLayout({
       await desktopApi.destroyOtherWorkspaceWindows();
       const snapshot = await projectMindApi.workspaceClose();
       await applyWorkspaceStatus(snapshot, true);
-      closeUnlockDialog(false);
       setCreateWorkspaceOpen(false);
       skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
@@ -730,7 +663,6 @@ export function WorkspaceLayout({
     }
   }, [
     applyWorkspaceStatus,
-    closeUnlockDialog,
     flushRecordSaves,
     location.pathname,
     location.search,
@@ -744,10 +676,6 @@ export function WorkspaceLayout({
       setCreateWorkspaceError("请选择 workspace 根目录。");
       return;
     }
-    if (!isDebugBuild && !createWorkspacePassword.trim()) {
-      setCreateWorkspaceError("请输入 workspace 密码。");
-      return;
-    }
 
     try {
       setCreateWorkspacePending(true);
@@ -759,12 +687,10 @@ export function WorkspaceLayout({
       }
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
-        password: isDebugBuild ? "" : createWorkspacePassword,
       });
       await applyWorkspaceStatus(snapshot, true);
       setCreateWorkspaceOpen(false);
       setCreateWorkspaceRoot("");
-      setCreateWorkspacePassword("");
       skipFocusSaveRouteRef.current = `${location.pathname}${location.search}`;
       navigate(workspacePath(), { replace: true });
       setStatus({
@@ -786,7 +712,6 @@ export function WorkspaceLayout({
     }
   }, [
     applyWorkspaceStatus,
-    createWorkspacePassword,
     createWorkspaceRoot,
     navigate,
     location.pathname,
@@ -1374,13 +1299,6 @@ export function WorkspaceLayout({
     setStatus,
   ]);
 
-  useEffect(() => {
-    return () => {
-      unlockResolverRef.current?.(false);
-      unlockResolverRef.current = null;
-    };
-  }, []);
-
   if (!currentWorkspace) {
     return (
       <>
@@ -1400,24 +1318,12 @@ export function WorkspaceLayout({
         <CreateWorkspaceDialog
           open={createWorkspaceOpen}
           rootPath={createWorkspaceRoot}
-          password={createWorkspacePassword}
           pending={createWorkspacePending}
           error={createWorkspaceError}
           onRootPathChange={setCreateWorkspaceRoot}
-          onPasswordChange={setCreateWorkspacePassword}
           onPickRoot={() => void handlePickCreateWorkspaceRoot()}
           onClose={() => setCreateWorkspaceOpen(false)}
           onSubmit={() => void handleCreateWorkspace()}
-        />
-
-        <UnlockWorkspaceSecretsDialog
-          open={unlockOpen}
-          pending={unlockPending}
-          error={unlockError}
-          password={unlockPassword}
-          onPasswordChange={setUnlockPassword}
-          onClose={() => closeUnlockDialog(false)}
-          onSubmit={() => void handleUnlockSubmit()}
         />
       </>
     );
@@ -1688,24 +1594,12 @@ export function WorkspaceLayout({
       <CreateWorkspaceDialog
         open={createWorkspaceOpen}
         rootPath={createWorkspaceRoot}
-        password={createWorkspacePassword}
         pending={createWorkspacePending}
         error={createWorkspaceError}
         onRootPathChange={setCreateWorkspaceRoot}
-        onPasswordChange={setCreateWorkspacePassword}
         onPickRoot={() => void handlePickCreateWorkspaceRoot()}
         onClose={() => setCreateWorkspaceOpen(false)}
         onSubmit={() => void handleCreateWorkspace()}
-      />
-
-      <UnlockWorkspaceSecretsDialog
-        open={unlockOpen}
-        pending={unlockPending}
-        error={unlockError}
-        password={unlockPassword}
-        onPasswordChange={setUnlockPassword}
-        onClose={() => closeUnlockDialog(false)}
-        onSubmit={() => void handleUnlockSubmit()}
       />
 
       <ArchivedProjectsDialog
@@ -1727,7 +1621,6 @@ export function WorkspaceLayout({
             open={settingsOpen}
             activeSection={settingsSection}
             onSectionChange={setSettingsSection}
-            onUnlockAiSecrets={requestUnlockAiSecrets}
             onClose={closeSettings}
           />
         </Suspense>

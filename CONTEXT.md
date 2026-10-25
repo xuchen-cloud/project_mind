@@ -162,6 +162,8 @@ Voice Record 的说话人可关联 Contact；用户确认声音后，其声纹�
 
 ### Context 与 Agent
 
+Workspace 在 debug/release 中统一免密码打开；本地密钥随工作区元数据保存，不再提供密码锁定/解锁。旧凭据迁移和目录访问边界见 [ADR-0011](docs/adr/0011-open-workspaces-without-a-user-password.md)。
+
 **Workspace Session（工作区会话）**：
 归属于整个 Workspace 的助手会话，以工作区及其各 Project 的授权内容为工作范围，保留独立于 Project 会话的对话历史。
 _Avoid_：占位 Project、全局跨工作区会话

@@ -533,19 +533,12 @@ pub struct ProjectCreateInput {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceCreateInput {
     pub root_path: String,
-    pub password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceOpenInput {
     pub root_path: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceUnlockInput {
-    pub password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

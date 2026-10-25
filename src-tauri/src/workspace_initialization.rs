@@ -1,4 +1,4 @@
-//! Common database startup for desktop opens, password reopens and future
+//! Common database startup for desktop opens, recovery and future
 //! headless hosts. Opening SQLite alone is not a complete Workspace startup.
 use crate::{agent::errors::AgentError, db::Database};
 use anyhow::{anyhow, Result};

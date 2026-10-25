@@ -1339,15 +1339,14 @@ async function run() {
   (document.getElementById('native-width') as HTMLSelectElement).value = String(config.width ?? 980);
   rootElement.style.cssText = `width:${config.width ?? 980}px;max-width:100vw;height:${showControls ? 'calc(100vh - 34px)' : '100vh'};display:flex;min-height:0;flex-direction:column`;
   if (config.setup) {
-    await deadline(projectMindApi.workspaceCreate({ rootPath: config.workspaceRoot, password: 'performance-fixture-only' }), 45000, 'workspace create');
+    await deadline(projectMindApi.workspaceCreate({ rootPath: config.workspaceRoot }), 45000, 'workspace create');
     const project = await deadline(projectMindApi.projectCreate({ name: 'Performance' }), 15000, 'project create');
     await send({ ...reportBase(), status: 'setup', projectRoot: project.rootPath, workspaceRoot: config.workspaceRoot, projectId: project.id });
     return;
   }
   if (!['docx', 'pptx', 'xlsx', 'md'].includes(config.format) || !['simple', 'complex', 'large'].includes(config.sample)) throw Error('Unsupported format/sample');
   await deadline(projectMindApi.workspaceOpen({ rootPath: config.workspaceRoot }), 15000, 'workspace open');
-  // File database access is independent of AI-secret unlock state. The native
-  // projects_list path accesses the open DB directly; propagate its real errors.
+  // The native projects_list path accesses the open DB directly; propagate its real errors.
   const project = (await deadline(projectMindApi.projectsList(), 15000, 'projects list')).find(item => item.name === 'Performance');
   if (!project) throw Error('Performance project not found');
   const binding = await deadline(recordDocumentApi.bindingGet(config.workspaceRoot), 15000, 'workspace binding');
