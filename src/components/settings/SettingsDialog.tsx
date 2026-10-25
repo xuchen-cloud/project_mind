@@ -55,7 +55,6 @@ interface SettingsDialogProps {
   open: boolean;
   activeSection: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
-  onUnlockAiSecrets: () => Promise<boolean>;
   onClose: () => void;
 }
 
@@ -114,7 +113,6 @@ export function SettingsDialog({
   open,
   activeSection,
   onSectionChange,
-  onUnlockAiSecrets,
   onClose,
 }: SettingsDialogProps) {
   const availableSections = SETTINGS_SECTIONS;
@@ -155,7 +153,6 @@ export function SettingsDialog({
             <AiSettingsPanel
               open={open}
               section="models"
-              onUnlockAiSecrets={onUnlockAiSecrets}
             />
           </Suspense>
         );
@@ -165,7 +162,6 @@ export function SettingsDialog({
             <AiSettingsPanel
               open={open}
               section="rewrite"
-              onUnlockAiSecrets={onUnlockAiSecrets}
             />
           </Suspense>
         );

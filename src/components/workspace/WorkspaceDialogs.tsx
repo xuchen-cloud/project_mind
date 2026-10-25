@@ -1,4 +1,3 @@
-import { isDebugBuild } from "../../lib/build-mode";
 import { useRef } from "react";
 
 import { Button, Dialog, TextField } from "../../ui/components";
@@ -6,11 +5,9 @@ import { Button, Dialog, TextField } from "../../ui/components";
 interface CreateWorkspaceDialogProps {
   open: boolean;
   rootPath: string;
-  password: string;
   pending: boolean;
   error: string | null;
   onRootPathChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
   onPickRoot: () => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -19,11 +16,9 @@ interface CreateWorkspaceDialogProps {
 export function CreateWorkspaceDialog({
   open,
   rootPath,
-  password,
   pending,
   error,
   onRootPathChange,
-  onPasswordChange,
   onPickRoot,
   onClose,
   onSubmit,
@@ -71,94 +66,6 @@ export function CreateWorkspaceDialog({
               选择
             </Button>
           </div>
-        </label>
-
-        {isDebugBuild ? (
-          <p className="text-ui text-text-muted">开发模式下无需设置 Workspace 密码。</p>
-        ) : (
-          <label className="grid gap-1.5">
-            <span className="text-ui font-medium text-text-muted">
-              Workspace 密码
-            </span>
-            <TextField
-              type="password"
-              value={password}
-              onChange={(event) => onPasswordChange(event.target.value)}
-              placeholder="用于加密保存的 AI API Key"
-            />
-          </label>
-        )}
-
-        {error ? (
-          <div role="alert" className="rounded-[var(--radius-8)] border border-danger/30 bg-danger/8 px-3 py-2 text-ui text-danger">
-            {error}
-          </div>
-        ) : null}
-      </div>
-    </Dialog>
-  );
-}
-
-interface UnlockWorkspaceSecretsDialogProps {
-  open: boolean;
-  pending: boolean;
-  error: string | null;
-  password: string;
-  onPasswordChange: (value: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-}
-
-export function UnlockWorkspaceSecretsDialog({
-  open,
-  pending,
-  error,
-  password,
-  onPasswordChange,
-  onClose,
-  onSubmit,
-}: UnlockWorkspaceSecretsDialogProps) {
-  const passwordRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={isDebugBuild ? "初始化 Workspace Secrets" : "解锁 Workspace Secrets"}
-      description={isDebugBuild
-        ? "旧加密工作区尚未初始化自动解锁。请首次输入原密码；验证成功后，开发模式会自动解锁。"
-        : "输入当前 workspace 密码后，可以继续使用已保存的 AI API Key。"}
-      widthClassName="max-w-lg"
-      layerClassName="z-[60]"
-      initialFocusRef={passwordRef}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={pending}
-            onClick={onSubmit}
-          >
-            {pending ? (isDebugBuild ? "初始化中..." : "解锁中...") : (isDebugBuild ? "初始化并解锁" : "解锁")}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-3">
-        <label className="grid gap-1.5">
-          <span className="text-ui font-medium text-text-muted">
-            {isDebugBuild ? "原 Workspace 密码（仅首次）" : "Workspace 密码"}
-          </span>
-          <TextField
-            ref={passwordRef}
-            type="password"
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            placeholder="输入密码后继续"
-          />
         </label>
 
         {error ? (

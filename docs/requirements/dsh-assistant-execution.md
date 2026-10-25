@@ -4,6 +4,8 @@
 
 2026-10-25 架构更新：[#250](https://github.com/xuchen-cloud/project_mind/issues/250) 将物理承载统一为当前 Workspace 的单个常驻 Harness，Workspace / Project 保留各自 Session、cwd 与原生权限。早期“运行中拦截项目切换”已被 A27 的后台并发、定向停止要求取代。下文验证表保留 2026-10-11 当时证据，不作为 #250 的验收结论；重构范围见 [共享后端交接](dsh-shared-runtime-handover.md)。
 
+2026-10-25 凭据更新：[#256](https://github.com/xuchen-cloud/project_mind/issues/256) 按用户要求统一取消整个工作区的密码。下文 debug 自动解锁与 release 密码要求为历史证据，当前行为以 [ADR-0011](../adr/0011-open-workspaces-without-a-user-password.md) 为准。
+
 ## 依赖与交付行为
 
 - 复用 DSH 0.2.0-rc.2 的原 Chat、Trajectory、composer、工具结果、权限与 Plugin 组件。前端源码固定于 `639ed015397290b3745d163aafe02ffee4aa3f84`，闭包、许可与必要改造见 [组件 README](../../packages/dsh-ui/README.md)。同一个 React 19 根树加载这些组件。

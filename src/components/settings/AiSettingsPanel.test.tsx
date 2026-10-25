@@ -289,14 +289,16 @@ describe("AiSettingsPanel", () => {
     await waitFor(() => expect(screen.getAllByText("New Profile").length).toBeGreaterThan(0));
   });
 
-  it.each([{ label: "Vite dev", debug: true }, { label: "native debug / production frontend", debug: true }, { label: "release", debug: false }])("explains one-time DEV initialization or release unlock for old encrypted credentials ($label)", async ({ debug: dev }) => {
-    buildMode.debug = dev; aiSettingsSnapshot.aiSecretsUnlocked = false;
-    const unlock = vi.fn(async () => true);
-    render(<QueryClientProvider client={new QueryClient()}><AiSettingsPanel open section="models" onUnlockAiSecrets={unlock} /></QueryClientProvider>);
-    const button = await screen.findByRole("button", { name: dev ? "初始化自动解锁" : "解锁 Secrets" });
-    if (dev) expect(screen.getByText(/首次使用旧加密工作区需要输入原密码/u)).toBeVisible();
-    else expect(screen.getByText(/需要先输入当前 workspace 密码/u)).toBeVisible();
-    fireEvent.click(button); expect(unlock).toHaveBeenCalledOnce(); expect(mockAiProfileUpsert).not.toHaveBeenCalled();
+  it("allows configuring AI without a workspace unlock gate", async () => {
+    aiSettingsSnapshot.aiSecretsUnlocked = false;
+    renderPanel();
+    const create = await screen.findByRole("button", { name: "新建" });
+    expect(create).toBeEnabled();
+    expect(screen.queryByText(/解锁|密码/u)).toBeNull();
+    fireEvent.click(create);
+    expect(screen.getByLabelText("API Key")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "测试", exact: true })).toBeEnabled();
   });
 
   it("expands an existing profile inline within the same panel", async () => {

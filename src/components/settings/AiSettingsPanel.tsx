@@ -1,4 +1,3 @@
-import { isDebugBuild } from "../../lib/build-mode";
 import {
   useCallback,
   useEffect,
@@ -121,13 +120,11 @@ interface LegacyEditorRewriteAction {
 interface AiSettingsPanelProps {
   open: boolean;
   section: "models" | "rewrite";
-  onUnlockAiSecrets?: () => Promise<boolean>;
 }
 
 export function AiSettingsPanel({
   open,
   section,
-  onUnlockAiSecrets = async () => false,
 }: AiSettingsPanelProps) {
   const queryClient = useQueryClient();
   const { pushToast, setStatus } = useFeedbackStore();
@@ -143,7 +140,6 @@ export function AiSettingsPanel({
     snapshot?.editorSkills ??
     ((snapshot as unknown as { editorRewriteActions?: LegacyEditorRewriteAction[] } | undefined)
       ?.editorRewriteActions ?? []).map(legacyRewriteActionToSkill);
-  const aiSecretsUnlocked = snapshot?.aiSecretsUnlocked ?? true;
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [profileDraft, setProfileDraft] = useState<AiProviderProfileUpsertInput>(
@@ -577,7 +573,6 @@ export function AiSettingsPanel({
               size="sm"
               variant="secondary"
               leadingIcon={<Plus size={14} />}
-              disabled={!aiSecretsUnlocked}
               onClick={() => {
                 if (isCreatingProfile) {
                   closeCreateProfile();
@@ -590,24 +585,6 @@ export function AiSettingsPanel({
             </Button>
           }
         />
-
-        {!aiSecretsUnlocked ? (
-          <SurfaceCard subtle className="rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle p-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-body font-medium text-text">{isDebugBuild ? "旧工作区凭据尚未初始化自动解锁" : "Workspace secrets 已锁定"}</p>
-                <p className="mt-1 text-ui text-text-soft">
-                  {isDebugBuild
-                    ? "首次使用旧加密工作区需要输入原密码。验证成功后，开发模式会自动解锁。"
-                    : "保存 API Key、测试连接和执行 AI 改写前，需要先输入当前 workspace 密码。"}
-                </p>
-              </div>
-              <Button type="button" size="sm" variant="primary" onClick={() => void onUnlockAiSecrets()}>
-                {isDebugBuild ? "初始化自动解锁" : "解锁 Secrets"}
-              </Button>
-            </div>
-          </SurfaceCard>
-        ) : null}
 
         {isCreatingProfile ? (
           <div className="rounded-[var(--radius-8)] border border-dashed border-border bg-bg-subtle p-3">
@@ -628,7 +605,6 @@ export function AiSettingsPanel({
                 setDraft={setProfileDraft}
                 savePending={saveProfileMutation.isPending}
                 deletePending={deleteProfileMutation.isPending}
-                actionsDisabled={!aiSecretsUnlocked}
                 profileTestJob={profileTestJob}
                 profileTestJobActive={profileTestJobActive}
                 testResult={testResult}
@@ -668,7 +644,6 @@ export function AiSettingsPanel({
                 setDraft={setProfileDraft}
                 savePending={saveProfileMutation.isPending}
                 deletePending={deleteProfileMutation.isPending}
-                actionsDisabled={!aiSecretsUnlocked}
                 profileTestJob={profileTestJob}
                 profileTestJobActive={profileTestJobActive}
                 testResult={selectedProfileId === profile.id ? testResult : null}
@@ -754,7 +729,7 @@ export function AiSettingsPanel({
           </SurfaceCard>
 
           <SurfaceCard subtle className="flex flex-wrap items-center gap-2 px-3.5 py-3">
-            <StatusBadge tone="neutral">Workspace 密码加密</StatusBadge>
+            <StatusBadge tone="neutral">Workspace 凭据</StatusBadge>
             <p className="text-body text-text-muted">
               AI 密钥跟随当前 workspace 一起保存，切换或复制 workspace 后可继续使用同一套配置。
             </p>
@@ -772,7 +747,6 @@ function AiProfileRow({
   setDraft,
   savePending,
   deletePending,
-  actionsDisabled,
   profileTestJob,
   profileTestJobActive,
   testResult,
@@ -789,7 +763,6 @@ function AiProfileRow({
   setDraft: Dispatch<SetStateAction<AiProviderProfileUpsertInput>>;
   savePending: boolean;
   deletePending: boolean;
-  actionsDisabled: boolean;
   profileTestJob: ReturnType<typeof useAiJobTarget>;
   profileTestJobActive: boolean;
   testResult: AiProfileTestResult | null;
@@ -851,7 +824,6 @@ function AiProfileRow({
             setDraft={setDraft}
             savePending={savePending}
             deletePending={deletePending}
-            actionsDisabled={actionsDisabled}
             profileTestJob={profileTestJob}
             profileTestJobActive={profileTestJobActive}
             testResult={testResult}
@@ -871,7 +843,6 @@ function AiProfileEditorFields({
   setDraft,
   savePending,
   deletePending,
-  actionsDisabled,
   profileTestJob,
   profileTestJobActive,
   testResult,
@@ -886,7 +857,6 @@ function AiProfileEditorFields({
   setDraft: Dispatch<SetStateAction<AiProviderProfileUpsertInput>>;
   savePending: boolean;
   deletePending: boolean;
-  actionsDisabled: boolean;
   profileTestJob: ReturnType<typeof useAiJobTarget>;
   profileTestJobActive: boolean;
   testResult: AiProfileTestResult | null;
@@ -1038,7 +1008,7 @@ function AiProfileEditorFields({
           type="button"
           variant="primary"
           size="sm"
-          disabled={savePending || actionsDisabled}
+          disabled={savePending}
           onClick={onSave}
         >
           {savePending ? "保存中..." : "保存"}
@@ -1047,7 +1017,7 @@ function AiProfileEditorFields({
           type="button"
           variant="secondary"
           size="sm"
-          disabled={profileTestJobActive || actionsDisabled || !draft.supportsImage || !draft.supportsText}
+          disabled={profileTestJobActive || !draft.supportsImage || !draft.supportsText}
           onClick={onTestImage}
         >
           测试图片能力（会产生调用）
@@ -1056,7 +1026,7 @@ function AiProfileEditorFields({
           type="button"
           variant="secondary"
           size="sm"
-          disabled={profileTestJobActive || actionsDisabled}
+          disabled={profileTestJobActive}
           onClick={onTest}
         >
           {profileTestJob?.status === "queued"

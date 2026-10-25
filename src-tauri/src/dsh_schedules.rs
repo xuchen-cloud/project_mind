@@ -29,7 +29,7 @@ fn verify_binding(
         return Err("工作区已变化".into());
     }
     if !runtime.ai_secrets_unlocked() {
-        return Err("请先解锁工作区，再使用定时任务".into());
+        return Err("工作区凭据不可用，请重新打开工作区".into());
     }
     Ok(())
 }

@@ -26,16 +26,14 @@ vi.mock("./SkillsPanel", () => ({ SkillsPanel: () => <p data-testid="skills-pane
 
 describe("SettingsDialog", () => {
   it("opens the independent Skills section without unlocking AI secrets", async () => {
-    const unlock = vi.fn(async () => true);
     function Harness() {
       const [section, setSection] = useState<SettingsSection>("page-width");
-      return <SettingsDialog open activeSection={section} onSectionChange={setSection} onUnlockAiSecrets={unlock} onClose={() => {}} />;
+      return <SettingsDialog open activeSection={section} onSectionChange={setSection} onClose={() => {}} />;
     }
     render(<Harness />);
     expect(screen.queryByTestId("skills-panel")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Skills", exact: true }));
     expect(await screen.findByTestId("skills-panel")).toBeInTheDocument();
-    expect(unlock).not.toHaveBeenCalled();
   });
   it("routes /settings/skills to the Skills settings section", async () => {
     useUiStore.setState({ settingsOpen: false, settingsSection: "page-width" });
@@ -49,7 +47,7 @@ describe("SettingsDialog", () => {
   it("offers a separate DSH settings section", async () => {
     function Harness() {
       const [section, setSection] = useState<SettingsSection>("page-width");
-      return <SettingsDialog open activeSection={section} onSectionChange={setSection} onUnlockAiSecrets={async () => true} onClose={() => {}} />;
+      return <SettingsDialog open activeSection={section} onSectionChange={setSection} onClose={() => {}} />;
     }
     render(<Harness />);
     await userEvent.click(screen.getByRole("button", { name: "DSH 助手", exact: true }));
@@ -65,7 +63,7 @@ describe("SettingsDialog", () => {
           open
           activeSection={section}
           onSectionChange={setSection}
-          onUnlockAiSecrets={async () => true}
+
           onClose={() => undefined}
         />
       );

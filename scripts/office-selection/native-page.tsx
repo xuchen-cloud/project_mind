@@ -36,7 +36,6 @@ async function run(){
  document.getElementById('native-controls')?.remove();
  const element=document.getElementById('root')!;element.style.cssText='height:100vh;display:flex;flex-direction:column';
  await projectMindApi.workspaceOpen({rootPath:config.workspaceRoot});
- await projectMindApi.workspaceUnlock({password:'performance-fixture-only'});
  const project=(await projectMindApi.projectsList()).find(p=>p.name==='Performance');if(!project)throw Error('Isolated Performance project missing');
  const binding=await recordDocumentApi.bindingGet(config.workspaceRoot);
  const profile=await projectMindApi.aiProfileUpsert({name:'Office selection deterministic fixture',providerFamily:'openai_compatible',baseUrl:config.providerUrl,apiKey:'local-integration-key',defaultModel:'local-test-model',supportsText:true,supportsImage:false,supportsFile:false,enabled:true});
