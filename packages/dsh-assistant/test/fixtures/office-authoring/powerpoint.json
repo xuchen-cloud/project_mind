@@ -1,0 +1,89 @@
+{
+  "pages": [
+    {
+      "background": "#F4F7FB",
+      "elements": [
+        {
+          "type": "text",
+          "x": 60,
+          "y": 40,
+          "w": 1160,
+          "h": 90,
+          "paragraphs": [
+            {
+              "runs": [
+                {
+                  "text": "中文演示",
+                  "sizePt": 36,
+                  "bold": true,
+                  "color": "#17365D"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "image",
+          "x": 60,
+          "y": 180,
+          "w": 240,
+          "h": 240,
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAC0CAIAAABqhmJGAAAD40lEQVR4nO3czW1TQRSA0YCogS3bVwKtsKQECqAERAksaYUSsqUTFpb4iwm2E/vNN3POOiFvrubTfYksXrz++OkOaHq59wMAlxMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMJePeWbv7/9+nxPwmPefHtnQDxkA0OYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMCw6v+JBbd0/+H96V+8ff5ytwABM0Oup3z7lEkLmHmiPf0fnyZmATN5t4//xHrJAmatdI8+QDdjAbNit9MsZAGzdLr1hSxgbmTwdKMZ+yAHtxCqt/XMNjDXlcigu4ptYK4oXW/iFDYwy136mVaxDczzm6zekc8lYOa/5ROfzis0017uFV6nbWCexyL1jnZeATPPbV7w1AJmhnu87NkFTPsGLz4BAXM59e4+BwFzIfWOMA0Bcwn1DjITAUOYgDmb9TvOZATMedQ71HwEzBnUO9qUBAxhAuZU1u+AsxIwJ1HvmBMTMIQJmP+zfoedm4DZ/xZO7P7K0xMwhAmYx1i/g89QwBAmYP7J+h1/kgKGMAFDmIA5zvtzYp4ChjABc4T1W5mqgCFMwBAmYP7m/Tk0WwFDmIAhTMAQJmD+4Bfg1oQFDGEChjABQ5iAIUzAECZgfvEn6NycBQxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwv2yfvxhHa84ChjABQ5iAIUzAECZgCBMwf/CH6NaEBQxhAoYwAUOYgPmbX4NDsxUwhAkYwgTMEd6iK1MVMIQJmOMs4cQ8BQxhAoYwAfNP3qLHn6SAIUzAPMYSHnyGAoYwAfMflvDI0xMw+9/CWW3Xn5uAIUzAnMQSHnNiAuZUGh5wVgKGMAFzBkt4tCkJmPNoeKj5CJizaXicyQgYwgTMJSzhQWYiYC6k4RGmIWAup+Hd5yBgnkTD264fFBcwT7Vyw9veZxcwM9zjZU8tYOa5zQue99XeD8Bsd/r+w/u7qW1jpHtgAzPz/Z7+dAJm/ls+8bm8QnMVk71Ob+Ole2ADs+K9n+YUNjDXlV7F28DpHtjA3ML4JUSf2QbmRkKreCukeyBgbmrwjLdOugcCZs9OBil5q3X7k4BZeiFv2XQPBMyKC3mLd/uTgBnI7109e8zbLNH+TsAM6mFvZyW9zZjrQy9ef/y09zMAF/JBDggTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzDcdf0AGkT500GC+8EAAAAASUVORK5CYII="
+        }
+      ]
+    },
+    {
+      "elements": [
+        {
+          "type": "text",
+          "x": 60,
+          "y": 40,
+          "w": 1160,
+          "h": 90,
+          "paragraphs": [
+            {
+              "runs": [
+                {
+                  "text": "原生图表",
+                  "sizePt": 32
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "op": {
+        "op": "addChart",
+        "target": {
+          "slide": 1
+        },
+        "kind": "bar",
+        "title": "季度营收",
+        "categories": [
+          "Q1",
+          "Q2"
+        ],
+        "series": [
+          {
+            "name": "营收",
+            "values": [
+              120,
+              180
+            ]
+          }
+        ],
+        "offset": {
+          "x": 571500,
+          "y": 1428750,
+          "cx": 9000000,
+          "cy": 4000000
+        }
+      },
+      "as": "revenue"
+    }
+  ]
+}

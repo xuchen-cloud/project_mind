@@ -1,0 +1,1506 @@
+{
+  "catalog": {
+    "domain": "docs",
+    "fingerprint": "3c2da5fd8fd5",
+    "groups": [
+      {
+        "name": "block",
+        "summary": "edits of existing blocks, addressed by target",
+        "ops": [
+          "setFont",
+          "setMatchedFont",
+          "setParagraphFormat",
+          "setHeadingLevel",
+          "findReplace",
+          "deleteBlocks",
+          "moveBlocks",
+          "setList",
+          "clearList",
+          "setImageProperties",
+          "insertToc",
+          "insertField",
+          "insertBookmark",
+          "updateFields",
+          "insertTableRow",
+          "deleteTableRow",
+          "insertTableColumn",
+          "deleteTableColumn",
+          "mergeTableCells",
+          "splitTableCell",
+          "setTableCellFormat",
+          "setTableStyle",
+          "applyStyle"
+        ]
+      },
+      {
+        "name": "content",
+        "summary": "new content, pictures, text boxes, charts, header/footer, page setup, watermark, styles, comments, tracked changes, footnotes",
+        "ops": [
+          "insert_content",
+          "replace_blocks",
+          "insert_image",
+          "insert_picture",
+          "insert_text_box",
+          "insert_chart",
+          "edit_chart",
+          "set_header_footer",
+          "set_page_setup",
+          "insert_section_break",
+          "set_watermark",
+          "define_style",
+          "add_comment",
+          "reply_comment",
+          "resolve_comment",
+          "accept_changes",
+          "reject_changes",
+          "insert_footnote",
+          "insert_endnote",
+          "edit_note",
+          "delete_note",
+          "delete_comment"
+        ]
+      }
+    ],
+    "ops": [
+      {
+        "op": "setFont",
+        "group": "block",
+        "signature": "{ target, bold?, italic?, underline?, strike?, color?: \"#RRGGBB\"|null, highlight?, fontSize?: pt|null, fontFamily?: string|null, baseline?: \"superscript\"|\"subscript\"|\"none\"|null, link?: {url}|null }",
+        "note": "run-level style of the targeted blocks (only the selected characters when the target is a partial selection); a present field is set, null clears it, absent fields stay; fontFamily applies to its own script slot (an East Asian font keeps the run's Latin font and vice versa)",
+        "target": "required",
+        "keys": [
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "color",
+          "highlight",
+          "fontSize",
+          "fontFamily",
+          "baseline",
+          "link"
+        ]
+      },
+      {
+        "op": "setMatchedFont",
+        "group": "block",
+        "signature": "{ text, matchCase?, target?, bold?, italic?, underline?, strike?, color?: \"#RRGGBB\"|null, highlight?, fontSize?: pt|null, fontFamily?: string|null, baseline?: \"superscript\"|\"subscript\"|\"none\"|null, link?: {url}|null }",
+        "note": "character-level: styles only the occurrences of text (not the whole block); target narrows the scanned blocks, omitted = whole document",
+        "target": "optional",
+        "keys": [
+          "text",
+          "matchCase",
+          "bold",
+          "italic",
+          "underline",
+          "strike",
+          "color",
+          "highlight",
+          "fontSize",
+          "fontFamily",
+          "baseline",
+          "link"
+        ]
+      },
+      {
+        "op": "setParagraphFormat",
+        "group": "block",
+        "signature": "{ target, align?: \"left\"|\"center\"|\"right\"|\"justify\"|null, lineSpacing?, indentLeft?, indentRight?, indentFirstLine?, spaceBefore?, spaceAfter?, pageBreakBefore?: boolean, shadingFill?: \"#RRGGBB\"|null, borders?: subset of \"tblr\"|null }",
+        "note": "paragraph format of the targeted blocks (whole blocks, even for a partial selection); lengths in twips, lineSpacing as a multiple; indentFirstLine positive = first-line indent, negative = hanging; a two-character CJK indent ≈ font size in pt × 40 twips",
+        "target": "required",
+        "keys": [
+          "align",
+          "lineSpacing",
+          "indentLeft",
+          "indentRight",
+          "indentFirstLine",
+          "spaceBefore",
+          "spaceAfter",
+          "pageBreakBefore",
+          "shadingFill",
+          "borders"
+        ]
+      },
+      {
+        "op": "setHeadingLevel",
+        "group": "block",
+        "signature": "{ target, level: 0-6 }",
+        "note": "0 = demote to body paragraph",
+        "target": "required",
+        "keys": [
+          "level"
+        ]
+      },
+      {
+        "op": "findReplace",
+        "group": "block",
+        "signature": "{ find, replace, matchCase?, target? }",
+        "note": "plain-text find & replace inside runs (no cross-block matching); the replacement keeps the matched text's formatting — the right op for small in-place fixes; target narrows the scanned blocks (blockIndexes / scope:\"selection\" / nodeType), omitted = whole document",
+        "target": "optional",
+        "keys": [
+          "find",
+          "replace",
+          "matchCase"
+        ]
+      },
+      {
+        "op": "deleteBlocks",
+        "group": "block",
+        "signature": "{ target }",
+        "target": "required",
+        "keys": []
+      },
+      {
+        "op": "moveBlocks",
+        "group": "block",
+        "signature": "{ blockIndexes: number[], afterBlockIndex }",
+        "note": "move the blocks (relative order kept) after afterBlockIndex; -1 = start of document",
+        "target": "none",
+        "keys": [
+          "blockIndexes",
+          "afterBlockIndex"
+        ]
+      },
+      {
+        "op": "setList",
+        "group": "block",
+        "signature": "{ target, kind?: \"bullet\"|\"number\" }",
+        "note": "paragraphs to list items (default bullet); heading blocks are not converted",
+        "target": "required",
+        "keys": [
+          "kind"
+        ]
+      },
+      {
+        "op": "clearList",
+        "group": "block",
+        "signature": "{ target }",
+        "note": "list items back to body paragraphs",
+        "target": "required",
+        "keys": []
+      },
+      {
+        "op": "setImageProperties",
+        "group": "block",
+        "signature": "{ target, widthPx?, heightPx?, align?: \"left\"|\"center\"|\"right\"|null }",
+        "note": "image blocks only (target nodeType \"image\"); giving one dimension scales the other proportionally",
+        "target": "required",
+        "keys": [
+          "widthPx",
+          "heightPx",
+          "align"
+        ]
+      },
+      {
+        "op": "insertToc",
+        "group": "block",
+        "signature": "{ afterBlockIndex }",
+        "note": "insert a TOC field after that block (-1 = start of document); entries come from the current headings, Word computes page numbers on open; fails if the document has no headings",
+        "target": "none",
+        "keys": [
+          "afterBlockIndex"
+        ]
+      },
+      {
+        "op": "insertField",
+        "group": "block",
+        "signature": "{ target, type: \"SEQ\"|\"REF\"|\"PAGEREF\"|\"DATE\"|\"TIME\"|\"MERGEFIELD\"|\"IF\"|\"PAGE\"|\"NUMPAGES\"|\"AUTHOR\"|..., args?: string, result?: string, position?: \"start\"|\"end\", afterText?: string }",
+        "note": "insert a Word field into exactly one paragraph, at its end unless position or afterText says otherwise; args is the instruction after the keyword ({ SEQ Figure \\* ARABIC } = type \"SEQ\", args \"Figure \\* ARABIC\"). Computed here: SEQ (visible fields with that identifier so far + 1), REF/PAGEREF (the bookmarked paragraph; insertBookmark creates one), DATE/TIME (now, \\@ picture), MERGEFIELD («Name»), IF with literal operands; PAGE/NUMPAGES show \"1\"; anything else needs result, the text shown until Word updates it. Fields only Word can compute are marked dirty and refresh when the file opens in Word",
+        "target": "required",
+        "keys": [
+          "type",
+          "args",
+          "result",
+          "position",
+          "afterText"
+        ]
+      },
+      {
+        "op": "insertBookmark",
+        "group": "block",
+        "signature": "{ target, name }",
+        "note": "bookmark exactly one paragraph (name: letters, digits, underscore, up to 40 characters, unique) so REF / PAGEREF fields can point at it",
+        "target": "required",
+        "keys": [
+          "name"
+        ]
+      },
+      {
+        "op": "updateFields",
+        "group": "block",
+        "signature": "{ scope?: \"all\"|\"SEQ\"|\"REF\"|\"DATE\" }",
+        "note": "recompute the inline fields the editor can: SEQ numbering in document order, REF results from their bookmarks, DATE/TIME to now; with scope \"all\" every other field (PAGE, NUMPAGES, AUTHOR...) is marked dirty so Word recomputes it on open. Table-of-contents blocks are untouched (insertToc rebuilds one)",
+        "target": "none",
+        "keys": [
+          "scope"
+        ]
+      },
+      {
+        "op": "insertTableRow",
+        "group": "block",
+        "signature": "{ target, row, position?: \"before\"|\"after\", count? }",
+        "note": "target must match one native table (nodeType \"table\" and/or blockIndexes); row is 0-based; new rows copy the neighbouring row's cell shading/borders (default: after)",
+        "target": "required",
+        "keys": [
+          "row",
+          "position",
+          "count"
+        ]
+      },
+      {
+        "op": "deleteTableRow",
+        "group": "block",
+        "signature": "{ target, row, count? }",
+        "note": "target must match one native table (nodeType \"table\" and/or blockIndexes); row is 0-based; cells merged across the row shrink",
+        "target": "required",
+        "keys": [
+          "row",
+          "count"
+        ]
+      },
+      {
+        "op": "insertTableColumn",
+        "group": "block",
+        "signature": "{ target, col, position?: \"before\"|\"after\", count? }",
+        "note": "target must match one native table; col is a 0-based grid column; the new column takes the neighbouring column's width and cell formatting (default: after)",
+        "target": "required",
+        "keys": [
+          "col",
+          "position",
+          "count"
+        ]
+      },
+      {
+        "op": "deleteTableColumn",
+        "group": "block",
+        "signature": "{ target, col, count? }",
+        "note": "target must match one native table; col is a 0-based grid column; cells merged across the column shrink",
+        "target": "required",
+        "keys": [
+          "col",
+          "count"
+        ]
+      },
+      {
+        "op": "mergeTableCells",
+        "group": "block",
+        "signature": "{ target, range: { row, col, rowEnd?, colEnd? } }",
+        "note": "merge the rectangle (0-based grid coordinates, ends inclusive) into one cell; refused when an existing merged cell crosses the rectangle edge; the texts are kept as separate paragraphs",
+        "target": "required",
+        "keys": [
+          "range"
+        ]
+      },
+      {
+        "op": "splitTableCell",
+        "group": "block",
+        "signature": "{ target, cell: { row, col } }",
+        "note": "undo a merge: the cell becomes one cell per grid slot it covered; the text stays in the top-left one",
+        "target": "required",
+        "keys": [
+          "cell"
+        ]
+      },
+      {
+        "op": "setTableCellFormat",
+        "group": "block",
+        "signature": "{ target, range?: { row, col, rowEnd?, colEnd? }, fill?: \"#RRGGBB\"|null, vAlign?: \"top\"|\"center\"|\"bottom\"|null, width?: twips|\"2.5cm\"|\"1in\"|\"72pt\"|\"96px\", borders?: { all?, top?, left?, bottom?, right?: { style?: \"single\"|\"dashed\"|\"double\"|\"none\", width?: pt, color?: \"#RRGGBB\" }|null }|null }",
+        "note": "cells in the range (omitted = whole table); width sets the grid columns the range covers; borders: null = no borders on the cell, a side null = that side off",
+        "target": "required",
+        "keys": [
+          "range",
+          "fill",
+          "vAlign",
+          "width",
+          "borders"
+        ]
+      },
+      {
+        "op": "setTableStyle",
+        "group": "block",
+        "signature": "{ target, styleId?: string|null, look?: { firstRow?, lastRow?, firstColumn?, lastColumn?, bandedRows?, bandedColumns?: boolean } }",
+        "note": "styleId must be a table style defined in this document (docs read lists them as tableStyles); null removes the style; look toggles Word's Table Style Options",
+        "target": "required",
+        "keys": [
+          "styleId",
+          "look"
+        ]
+      },
+      {
+        "op": "applyStyle",
+        "group": "block",
+        "signature": "{ target, styleId }",
+        "note": "paragraph style by id (or name) from styles.xml / define_style; a heading style turns the block into a heading of its level, another paragraph style turns a heading back into a paragraph; list items keep their numbering",
+        "target": "required",
+        "keys": [
+          "styleId"
+        ]
+      },
+      {
+        "op": "insert_content",
+        "group": "content",
+        "signature": "{html, afterBlockIndex?: n}",
+        "note": "new blocks after an index (-1 = start of document; omitted = end of document)",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "html": {
+              "type": "string",
+              "description": "restricted HTML fragment to insert"
+            },
+            "afterBlockIndex": {
+              "type": "integer",
+              "description": "insert after this block index; -1 = start of document; omitted = end of document"
+            }
+          },
+          "required": [
+            "html"
+          ]
+        }
+      },
+      {
+        "op": "replace_blocks",
+        "group": "content",
+        "signature": "{startBlockIndex: n, endBlockIndex: n, html}",
+        "note": "rewrite a block range; the new blocks inherit the replaced blocks' paragraph and text formatting",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "startBlockIndex": {
+              "type": "integer",
+              "description": "start block index (0-based, inclusive)"
+            },
+            "endBlockIndex": {
+              "type": "integer",
+              "description": "end block index (inclusive)"
+            },
+            "html": {
+              "type": "string",
+              "description": "replacement restricted HTML fragment"
+            }
+          },
+          "required": [
+            "startBlockIndex",
+            "endBlockIndex",
+            "html"
+          ]
+        }
+      },
+      {
+        "op": "insert_image",
+        "group": "content",
+        "signature": "{url, maxWidthPx?: n, afterBlockIndex?: n}",
+        "note": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected. url is a local path (absolute, or relative to the current directory then to the ops file), a data: URL or an http(s) URL; png/jpg/gif; scaled down to maxWidthPx; appended when afterBlockIndex is omitted",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected."
+            },
+            "maxWidthPx": {
+              "type": "integer",
+              "description": "maximum width in px, default 480"
+            },
+            "afterBlockIndex": {
+              "type": "integer",
+              "description": "insert after this block index; -1 = start of document; omitted = end of document"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      },
+      {
+        "op": "insert_picture",
+        "group": "content",
+        "signature": "{\n    url,\n    afterBlockIndex?: n,\n    width?: n|string,\n    height?: n|string,\n    float?: {anchor?: paragraph|page|margin, x: n|string, y: n|string, wrap?: square|tight|topAndBottom|behind|inFront},\n    altText?\n  }",
+        "note": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected. sized / floating variant of insert_image (same url forms); width/height/float offsets take \"2.54cm\", \"1in\", \"72pt\", \"96px\" or points; float.anchor paragraph|page|margin, float.wrap square|tight|topAndBottom|behind|inFront",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected."
+            },
+            "afterBlockIndex": {
+              "type": "integer",
+              "description": "insert after this block index; -1 = start of document; omitted = end of document"
+            },
+            "width": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "display width, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points; default natural size capped at 480px"
+            },
+            "height": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "display height; omit to keep the aspect ratio"
+            },
+            "float": {
+              "type": "object",
+              "description": "omit for an inline picture in its own paragraph; give it to float the picture at a position",
+              "properties": {
+                "anchor": {
+                  "type": "string",
+                  "enum": [
+                    "paragraph",
+                    "page",
+                    "margin"
+                  ],
+                  "description": "what x/y measure from: the anchor paragraph (x from the text column, y from the paragraph top), the page corner, or the margin box corner"
+                },
+                "x": {
+                  "type": [
+                    "number",
+                    "string"
+                  ],
+                  "description": "horizontal offset, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points"
+                },
+                "y": {
+                  "type": [
+                    "number",
+                    "string"
+                  ],
+                  "description": "vertical offset, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points"
+                },
+                "wrap": {
+                  "type": "string",
+                  "enum": [
+                    "square",
+                    "tight",
+                    "topAndBottom",
+                    "behind",
+                    "inFront"
+                  ],
+                  "description": "how body text flows around it (default square)"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "altText": {
+              "type": "string",
+              "description": "alternative text (accessibility)"
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      },
+      {
+        "op": "insert_text_box",
+        "group": "content",
+        "signature": "{\n    afterBlockIndex?: n,\n    text,\n    width: n|string,\n    height: n|string,\n    x: n|string,\n    y: n|string,\n    anchor?: paragraph|page,\n    wrap?: topAndBottom|none,\n    fill?: string|null,\n    borderColor?: string|null,\n    fontSize?: n|string,\n    align?: left|center|right|justify,\n    bold?: bool,\n    color?\n  }",
+        "note": "floating text box anchored after a block; x/y/width/height in cm/in/pt/px; anchor paragraph (default) or page; wrap topAndBottom (text resumes below) or none",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "afterBlockIndex": {
+              "type": "integer",
+              "description": "insert after this block index; -1 = start of document; omitted = end of document"
+            },
+            "text": {
+              "type": "string",
+              "description": "box text; \\n separates paragraphs"
+            },
+            "width": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "box width, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points"
+            },
+            "height": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "box height, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points"
+            },
+            "x": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "horizontal offset, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points"
+            },
+            "y": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "vertical offset, \"2.54cm\", \"1in\", \"72pt\", \"96px\" or a bare number of points"
+            },
+            "anchor": {
+              "type": "string",
+              "enum": [
+                "paragraph",
+                "page"
+              ],
+              "description": "offsets measure from the anchor paragraph (default) or the page corner"
+            },
+            "wrap": {
+              "type": "string",
+              "enum": [
+                "topAndBottom",
+                "none"
+              ],
+              "description": "body text resumes below the box (default for paragraph anchors) or ignores it (default for page anchors)"
+            },
+            "fill": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "\"#RRGGBB\" background (default white); null = transparent"
+            },
+            "borderColor": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "\"#RRGGBB\" outline (default black); null = no outline"
+            },
+            "fontSize": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "description": "text size in points (a bare number, or a length like \"12pt\")"
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "left",
+                "center",
+                "right",
+                "justify"
+              ]
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "color": {
+              "type": "string",
+              "description": "\"#RRGGBB\" text color"
+            }
+          },
+          "required": [
+            "text",
+            "width",
+            "height",
+            "x",
+            "y"
+          ]
+        }
+      },
+      {
+        "op": "insert_chart",
+        "group": "content",
+        "signature": "{kind: bar|line|pie, title?, categories: [string], series: [{name?, values: [n|null]}], afterBlockIndex?: n}",
+        "note": "native Word chart; values per series match the categories; appended when afterBlockIndex is omitted",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "bar",
+                "line",
+                "pie"
+              ],
+              "description": "chart type"
+            },
+            "title": {
+              "type": "string",
+              "description": "chart title"
+            },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "category (x axis / sector) labels"
+            },
+            "series": {
+              "type": "array",
+              "description": "data series; values has the same length as categories, use null for missing data. Pie charts use only the first series",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "values"
+                ]
+              }
+            },
+            "afterBlockIndex": {
+              "type": "integer",
+              "description": "insert after this block index; -1 = start of document; omitted = end of document"
+            }
+          },
+          "required": [
+            "kind",
+            "categories",
+            "series"
+          ]
+        }
+      },
+      {
+        "op": "edit_chart",
+        "group": "content",
+        "signature": "{blockIndex: n, title?, categories?: [string|null], series?: [{index: n, name?, values?: [n|null]}]}",
+        "note": "change the data of a chart block (`genoffice docs read` lists blocks with kind \"chart\"); counts must match the original, null keeps a position",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "blockIndex": {
+              "type": "integer",
+              "description": "block index of the chart"
+            },
+            "title": {
+              "type": "string",
+              "description": "new title (omit to keep)"
+            },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": "new category labels, same length as the original; pass null for positions to keep"
+            },
+            "series": {
+              "type": "array",
+              "description": "series to change",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "description": "series index (0-based)"
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "new series name (omit to keep)"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "description": "new values, same length as the original series; pass null for positions to keep"
+                  }
+                },
+                "required": [
+                  "index"
+                ]
+              }
+            }
+          },
+          "required": [
+            "blockIndex"
+          ]
+        }
+      },
+      {
+        "op": "set_header_footer",
+        "group": "content",
+        "signature": "{kind: header|footer, text, view?: default|first|even}",
+        "note": "plain text, \\n between lines, {PAGE} / {NUMPAGES} become page-number fields, \"\" clears; view first/even switches the different-first-page / odd-even setting on; `genoffice docs read --header-footer` shows the current text",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "header",
+                "footer"
+              ]
+            },
+            "text": {
+              "type": "string",
+              "description": "new text; \\n between lines; may contain {PAGE} / {NUMPAGES}; \"\" clears"
+            },
+            "view": {
+              "type": "string",
+              "enum": [
+                "default",
+                "first",
+                "even"
+              ],
+              "description": "which variant to write (default when omitted)"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ]
+        }
+      },
+      {
+        "op": "set_page_setup",
+        "group": "content",
+        "signature": "{\n    section?: n,\n    blockIndex?: n,\n    paper?,\n    width?: string|n,\n    height?: string|n,\n    orientation?: portrait|landscape,\n    margins?: {top?: string|n, right?: string|n, bottom?: string|n, left?: string|n, header?: string|n, footer?: string|n, gutter?: string|n},\n    columns?: {count: n, spacing?: string|n},\n    titlePg?: bool,\n    pageNumberStart?: n|null,\n    pageNumberFormat?\n  }",
+        "note": "paper (A3/A4/A5/B5/Letter/Legal/Tabloid) or width/height, orientation, margins {top,right,bottom,left,header,footer,gutter}, columns {count,spacing}, titlePg, pageNumberStart/pageNumberFormat; lengths as \"2.54cm\" / \"1in\" / \"72pt\" or twips; section or blockIndex picks one section, neither = all; `genoffice docs read --sections` lists them",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "section": {
+              "type": "integer",
+              "description": "section index (0-based) to change; omit with blockIndex omitted = every section"
+            },
+            "blockIndex": {
+              "type": "integer",
+              "description": "change the section that contains this block index"
+            },
+            "paper": {
+              "type": "string",
+              "description": "named size: A3, A4, A5, B5, Letter, Legal, Tabloid"
+            },
+            "width": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "custom page width, a number of twips or a string with a unit: \"2.54cm\", \"1in\", \"72pt\", \"10mm\""
+            },
+            "height": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "custom page height, a number of twips or a string with a unit: \"2.54cm\", \"1in\", \"72pt\", \"10mm\""
+            },
+            "orientation": {
+              "type": "string",
+              "enum": [
+                "portrait",
+                "landscape"
+              ]
+            },
+            "margins": {
+              "type": "object",
+              "description": "any of top, right, bottom, left, header, footer, gutter; each a number of twips or a string with a unit: \"2.54cm\", \"1in\", \"72pt\", \"10mm\"",
+              "properties": {
+                "top": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "right": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "bottom": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "left": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "header": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "description": "header distance from the page top"
+                },
+                "footer": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "description": "footer distance from the page bottom"
+                },
+                "gutter": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "description": "extra binding margin"
+                }
+              }
+            },
+            "columns": {
+              "type": "object",
+              "description": "text columns of the section",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "1-12"
+                },
+                "spacing": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "description": "gap between columns, a number of twips or a string with a unit: \"2.54cm\", \"1in\", \"72pt\", \"10mm\""
+                }
+              },
+              "required": [
+                "count"
+              ]
+            },
+            "titlePg": {
+              "type": "boolean",
+              "description": "different first page (own header/footer on the first page of the section)"
+            },
+            "pageNumberStart": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "restart page numbering at this value; null = continue from the previous section"
+            },
+            "pageNumberFormat": {
+              "type": "string",
+              "description": "decimal, lowerRoman, upperRoman, lowerLetter, upperLetter, ..."
+            }
+          }
+        }
+      },
+      {
+        "op": "insert_section_break",
+        "group": "content",
+        "signature": "{afterBlockIndex: n, type?: nextPage|continuous|evenPage|oddPage}",
+        "note": "the blocks after afterBlockIndex become a new section (a copy of the current setup, then change it with set_page_setup section: N); type nextPage (default) / continuous / evenPage / oddPage",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "afterBlockIndex": {
+              "type": "integer",
+              "description": "insert after this block index; -1 = start of document; omitted = end of document"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "nextPage",
+                "continuous",
+                "evenPage",
+                "oddPage"
+              ],
+              "description": "default nextPage"
+            }
+          },
+          "required": [
+            "afterBlockIndex"
+          ]
+        }
+      },
+      {
+        "op": "set_watermark",
+        "group": "content",
+        "signature": "{\n    text?: string|null,\n    fontFamily?,\n    color?,\n    opacity?: n,\n    diagonal?: bool,\n    bold?: bool,\n    italic?: bool,\n    image?: string|null,\n    scale?: n,\n    washout?: bool\n  }",
+        "note": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected. watermark behind every page, written into the page header (Word Design > Watermark): gray text (color \"#RRGGBB\", opacity 0-1, diagonal true/false) or a picture (image = local path / data: / http(s) URL; scale percent, default fits the margins; washout true/false); text null or image null removes it",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "watermark text; null removes the watermark"
+            },
+            "fontFamily": {
+              "type": "string",
+              "description": "font face (default the document theme face)"
+            },
+            "color": {
+              "type": "string",
+              "description": "\"#RRGGBB\" (default silver)"
+            },
+            "opacity": {
+              "type": "number",
+              "description": "0-1 (default 0.5)"
+            },
+            "diagonal": {
+              "type": "boolean",
+              "description": "diagonal (default) or horizontal layout"
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "image": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected."
+            },
+            "scale": {
+              "type": "number",
+              "description": "picture size as a percent of its natural size (default: fit the page inside the margins)"
+            },
+            "washout": {
+              "type": "boolean",
+              "description": "fade the picture like Word's washout (default true)"
+            }
+          }
+        }
+      },
+      {
+        "op": "define_style",
+        "group": "content",
+        "signature": "{\n    styleId,\n    name?,\n    type?: paragraph|character|table,\n    basedOn?: string|null,\n    next?: string|null,\n    quickFormat?: bool,\n    paragraph?: {align?: left|center|right|justify|null, spaceBefore?: n|string|null, spaceAfter?: n|string|null, lineSpacing?: n|null, indentLeft?: n|string|null, indentRight?: n|string|null, firstLineIndent?: n|string|null, keepNext?: bool, keepLines?: bool, pageBreakBefore?: bool, outlineLevel?: n|null},\n    run?: {bold?: bool, italic?: bool, underline?: bool, strike?: bool, caps?: bool, smallCaps?: bool, color?: string|null, highlight?: string|null, fontSize?: n|null, fontFamily?: string|null, eastAsiaFontFamily?: string|null}\n  }",
+        "note": "create or patch a style in styles.xml; only the given fields change; put it on paragraphs with the block op { op: \"applyStyle\", target, styleId }; `genoffice docs read --styles` lists ids",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "styleId": {
+              "type": "string",
+              "description": "style id (letters, digits, - and _; e.g. \"Heading1\", \"Quote\", \"MyCallout\")"
+            },
+            "name": {
+              "type": "string",
+              "description": "display name (defaults to the id when creating)"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "paragraph",
+                "character",
+                "table"
+              ],
+              "description": "when creating (default paragraph); an existing style keeps its type"
+            },
+            "basedOn": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "parent style id to inherit from; null removes the inheritance"
+            },
+            "next": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "style of the paragraph created by Enter at the end of a paragraph in this style"
+            },
+            "quickFormat": {
+              "type": "boolean",
+              "description": "show in the quick style gallery"
+            },
+            "paragraph": {
+              "type": "object",
+              "description": "paragraph formatting (paragraph and table styles)",
+              "properties": {
+                "align": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "left",
+                    "center",
+                    "right",
+                    "justify",
+                    null
+                  ]
+                },
+                "spaceBefore": {
+                  "type": [
+                    "number",
+                    "string",
+                    "null"
+                  ],
+                  "description": "space before, a length like \"0.5in\", \"1.27cm\", \"12pt\" (bare numbers are points), or null to clear"
+                },
+                "spaceAfter": {
+                  "type": [
+                    "number",
+                    "string",
+                    "null"
+                  ],
+                  "description": "space after, a length like \"0.5in\", \"1.27cm\", \"12pt\" (bare numbers are points), or null to clear"
+                },
+                "lineSpacing": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "line spacing as a multiple of single (1, 1.15, 1.5, 2)"
+                },
+                "indentLeft": {
+                  "type": [
+                    "number",
+                    "string",
+                    "null"
+                  ],
+                  "description": "a length like \"0.5in\", \"1.27cm\", \"12pt\" (bare numbers are points), or null to clear"
+                },
+                "indentRight": {
+                  "type": [
+                    "number",
+                    "string",
+                    "null"
+                  ],
+                  "description": "a length like \"0.5in\", \"1.27cm\", \"12pt\" (bare numbers are points), or null to clear"
+                },
+                "firstLineIndent": {
+                  "type": [
+                    "number",
+                    "string",
+                    "null"
+                  ],
+                  "description": "first-line indent, negative = hanging indent, a length like \"0.5in\", \"1.27cm\", \"12pt\" (bare numbers are points), or null to clear"
+                },
+                "keepNext": {
+                  "type": "boolean",
+                  "description": "keep with next paragraph"
+                },
+                "keepLines": {
+                  "type": "boolean",
+                  "description": "keep lines together"
+                },
+                "pageBreakBefore": {
+                  "type": "boolean"
+                },
+                "outlineLevel": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "1-9: the style becomes a heading of that level in the navigation pane / TOC"
+                }
+              }
+            },
+            "run": {
+              "type": "object",
+              "description": "text formatting (all style types)",
+              "properties": {
+                "bold": {
+                  "type": "boolean"
+                },
+                "italic": {
+                  "type": "boolean"
+                },
+                "underline": {
+                  "type": "boolean"
+                },
+                "strike": {
+                  "type": "boolean"
+                },
+                "caps": {
+                  "type": "boolean"
+                },
+                "smallCaps": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "\"#RRGGBB\" or null to clear"
+                },
+                "highlight": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "highlight color name (yellow, green, cyan, magenta, blue, red, ...) or null"
+                },
+                "fontSize": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "points"
+                },
+                "fontFamily": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Latin font face"
+                },
+                "eastAsiaFontFamily": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "CJK font face"
+                }
+              }
+            }
+          },
+          "required": [
+            "styleId"
+          ]
+        }
+      },
+      {
+        "op": "add_comment",
+        "group": "content",
+        "signature": "{blockIndex: n, text?, occurrence?: n, comment, author?, initials?}",
+        "note": "new thread on a block, or on an exact text span inside it (occurrence picks one of several matches); the document text is untouched; author defaults to \"AI Assistant\"",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "blockIndex": {
+              "type": "integer",
+              "description": "block to annotate"
+            },
+            "text": {
+              "type": "string",
+              "description": "exact text inside the block to anchor the comment to; omitted = the whole block"
+            },
+            "occurrence": {
+              "type": "integer",
+              "description": "which match to anchor when text occurs more than once (1 = first)"
+            },
+            "comment": {
+              "type": "string",
+              "description": "comment body; \\n starts a new paragraph"
+            },
+            "author": {
+              "type": "string",
+              "description": "author name; default: the AI author"
+            },
+            "initials": {
+              "type": "string",
+              "description": "author initials shown in the margin"
+            }
+          },
+          "required": [
+            "blockIndex",
+            "comment"
+          ]
+        }
+      },
+      {
+        "op": "reply_comment",
+        "group": "content",
+        "signature": "{parentId, text}",
+        "note": "ids from `genoffice docs read --comments`; replies attach to the thread root",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "parentId": {
+              "type": "string",
+              "description": "id of the comment thread to reply to"
+            },
+            "text": {
+              "type": "string",
+              "description": "reply text"
+            }
+          },
+          "required": [
+            "parentId",
+            "text"
+          ]
+        }
+      },
+      {
+        "op": "resolve_comment",
+        "group": "content",
+        "signature": "{id}",
+        "note": "ids from `genoffice docs read --comments`",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "id of the comment thread to resolve"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      {
+        "op": "accept_changes",
+        "group": "content",
+        "signature": "{\n    all?: bool,\n    ids?: [string],\n    author?,\n    type?: insertion|deletion|formatting|move,\n    blockIndex?: n,\n    blockRange?: [n],\n    before?\n  }",
+        "note": "selector: all: true, ids from `genoffice docs read --revisions` (positional, re-read after every edit), or author / type / blockIndex / blockRange / before; insertions become plain text, deleted text goes",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "boolean",
+              "description": "true = every pending change"
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "revision ids from read_revisions (r1, r2, …); positional, so re-read after any edit"
+            },
+            "author": {
+              "type": "string",
+              "description": "only changes by this author (case-insensitive)"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "insertion",
+                "deletion",
+                "formatting",
+                "move"
+              ],
+              "description": "only changes of this type"
+            },
+            "blockIndex": {
+              "type": "integer",
+              "description": "only changes inside this block"
+            },
+            "blockRange": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[from, to] block indexes, inclusive"
+            },
+            "before": {
+              "type": "string",
+              "description": "ISO date; only changes recorded before it"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "op": "reject_changes",
+        "group": "content",
+        "signature": "{\n    all?: bool,\n    ids?: [string],\n    author?,\n    type?: insertion|deletion|formatting|move,\n    blockIndex?: n,\n    blockRange?: [n],\n    before?\n  }",
+        "note": "same selector as accept_changes; inserted text goes, deleted text comes back, formatting reverts",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "boolean",
+              "description": "true = every pending change"
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "revision ids from read_revisions (r1, r2, …); positional, so re-read after any edit"
+            },
+            "author": {
+              "type": "string",
+              "description": "only changes by this author (case-insensitive)"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "insertion",
+                "deletion",
+                "formatting",
+                "move"
+              ],
+              "description": "only changes of this type"
+            },
+            "blockIndex": {
+              "type": "integer",
+              "description": "only changes inside this block"
+            },
+            "blockRange": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "[from, to] block indexes, inclusive"
+            },
+            "before": {
+              "type": "string",
+              "description": "ISO date; only changes recorded before it"
+            }
+          },
+          "required": []
+        }
+      },
+      {
+        "op": "insert_footnote",
+        "group": "content",
+        "signature": "{blockIndex: n, afterText?, text}",
+        "note": "a superscript reference mark goes into blockIndex (right after afterText, else at the block end) and the note text prints at the page bottom; `genoffice docs read --notes` lists notes",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "blockIndex": {
+              "type": "integer",
+              "description": "block that gets the reference mark"
+            },
+            "afterText": {
+              "type": "string",
+              "description": "exact text in that block the mark follows; omitted = end of the block"
+            },
+            "text": {
+              "type": "string",
+              "description": "the note text (\\n separates paragraphs)"
+            }
+          },
+          "required": [
+            "blockIndex",
+            "text"
+          ]
+        }
+      },
+      {
+        "op": "insert_endnote",
+        "group": "content",
+        "signature": "{blockIndex: n, afterText?, text}",
+        "note": "like insert_footnote, but the note text collects at the end of the document",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "blockIndex": {
+              "type": "integer",
+              "description": "block that gets the reference mark"
+            },
+            "afterText": {
+              "type": "string",
+              "description": "exact text in that block the mark follows; omitted = end of the block"
+            },
+            "text": {
+              "type": "string",
+              "description": "the note text (\\n separates paragraphs)"
+            }
+          },
+          "required": [
+            "blockIndex",
+            "text"
+          ]
+        }
+      },
+      {
+        "op": "edit_note",
+        "group": "content",
+        "signature": "{kind?: footnote|endnote, id, find, replace, matchCase?: bool}",
+        "note": "findReplace inside one footnote or endnote (id from `genoffice docs read --notes`; kind only when a footnote and an endnote share the id): every occurrence of find becomes replace, the note keeps its id, reference mark and formatting; matchCase defaults to true",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "footnote",
+                "endnote"
+              ],
+              "description": "omit when the id is unambiguous across footnotes and endnotes"
+            },
+            "id": {
+              "type": "string",
+              "description": "note id from read_notes"
+            },
+            "find": {
+              "type": "string",
+              "description": "exact text inside the note to replace"
+            },
+            "replace": {
+              "type": "string",
+              "description": "replacement text (\"\" deletes the match)"
+            },
+            "matchCase": {
+              "type": "boolean",
+              "description": "defaults to true"
+            }
+          },
+          "required": [
+            "id",
+            "find",
+            "replace"
+          ]
+        }
+      },
+      {
+        "op": "delete_note",
+        "group": "content",
+        "signature": "{kind: footnote|endnote, id}",
+        "note": "kind footnote|endnote and an id from `genoffice docs read --notes`; removes the reference mark too",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "footnote",
+                "endnote"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "description": "note id from read_notes"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        }
+      },
+      {
+        "op": "delete_comment",
+        "group": "content",
+        "signature": "{id, withReplies?: bool}",
+        "note": "removes the comment and its anchor; a thread root with replies needs withReplies: true, a reply id removes just that reply",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "id of the comment to delete"
+            },
+            "withReplies": {
+              "type": "boolean",
+              "description": "also delete the replies of a thread root (default false)"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      }
+    ]
+  },
+  "htmlRules": "The html tool input is a restricted HTML fragment. Rules:\n- Only these tags are allowed: h1 h2 h3 h4 h5 h6 p ul ol li strong em u s a br table thead tbody tr th td pre code blockquote\n- Tables: use <th> for the first (header) row; cells contain plain text only (<br> may split lines); nested tables / merged cells are not supported; once inserted the table is protected as a whole, only cell text remains editable\n- Use <pre> for code samples (monospace font + shading, line breaks preserved); use <blockquote> for quotations (indent + left bar)\n- Use <formula>LaTeX</formula> for math (produces native Word equations): as a top-level block it becomes its own centered paragraph; placed inside <p>/<li>/<h*> text it is an inline formula flowing with the text, e.g. <p>From <formula>E = mc^2</formula> we know…</p>; supports the common subset of \\frac \\sqrt super/subscripts \\sum \\int \\lim matrix environments Greek letters etc., the align environment is not supported; invalid LaTeX fails the whole call — fix and retry\n- Do not include <html>/<body>, markdown code fences, or explanatory text\n- <sel>…</sel> appears only in the context to mark the user's selection; it is not a tag you may write\n- Organize long content into sections with h2/h3 (unless the user only wants a single paragraph)\n- Keep the same language as the original document / user instruction, unless translation is requested",
+  "mediaPolicy": "Canonical inline PNG/JPEG/GIF data URLs only; file paths and HTTP(S) URLs are rejected."
+}

@@ -30,6 +30,12 @@ export async function writeNotices(root, inputs, lock) {
       pieces.push(`--- ${source} ---\n${license}`);
       continue;
     }
+    if (!files.length && name === 'saxes' && pkg.version === '6.0.0') {
+      const license=await readFile(resolve(root,'licenses/saxes-6.0.0-LICENSE'),'utf8');
+      if(createHash('sha256').update(license).digest('hex')!=='0fac2374380621b22e6b50451057721a9c52935b02d16d106a9f04897f061d0e')throw Error('saxes license provenance mismatch');
+      pieces.push('--- https://github.com/lddubeau/saxes/blob/211fa0ebec9b628affc09219199639887174bfc3/LICENSE ---\n'+license);
+      continue;
+    }
     // isarray@1.0.0 publishes its complete MIT text inside README.md.
     if (!files.length && name === 'isarray') {
       const readme = await readFile(resolve(dir, 'README.md'), 'utf8');

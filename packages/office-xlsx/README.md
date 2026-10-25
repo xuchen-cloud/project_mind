@@ -29,11 +29,14 @@ node packages/office-xlsx/scripts/build.mjs --skip-native
 ## 字节接口
 
 ```ts
+create(content: CreateContent, context?: Context): Promise<Uint8Array>
 inspect(bytes: Uint8Array, context?: Context): Promise<Model>
 edit(bytes: Uint8Array, edits: Edit[], context?: Context): Promise<Uint8Array>
 recalculate(bytes: Uint8Array, request: RecalculateRequest, context?: Context): Promise<RecalculateResult>
 loadRange(bytes: Uint8Array, sheetId: string, area: Area, context?: Context): Promise<Range>
 ```
+
+原生创建与完整 gateway 编辑见 [创建协议及可运行示例](authoring.md)；公开 `createJsonSchema` / `gatewayChangesJsonSchema` 可供工具按需提供完整字段。创建后使用 inspect 返回的原生 sheet ID 继续编辑。
 
 坐标从 0 开始。保留 `blank/string/number/formula` 标量 edits，同时支持 `{kind:'gateway',changes,snapshot?}` 完整 typed editing journal。snapshot 用于显示/草稿恢复，保存权威为 schema 验证后的 changes。按原 ZIP 修改；未触及的对象、关系、媒体和扩展 parts 保留。结构与新增表格/透视等需要多阶段时先处理私有 candidate，只向宿主返回最终字节；业务 CAS 由原 File 宿主执行。
 

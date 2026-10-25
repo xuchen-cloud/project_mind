@@ -8,6 +8,19 @@ import JSZip from 'jszip';
 import { XMLValidator } from 'fast-xml-parser';
 import type { PptxModel, PptxEdit } from './types';
 import { validateEdits, validateXmlCharacters } from './validate';
+import {auditDeck} from './vendor/packages/pipelines/src/slides/audit-deck';
+import {create as createDeck,applyCreationOperations} from './create';
+import {synchronizeGeneratedChartWorkbooks} from './chart-workbook';
+import {authoringSummary} from './authoring';
+export {creationSchema,creationOperationFields,applyCreationOperations} from './create';
+
+export async function create(content:unknown,context?:unknown):Promise<Uint8Array>{
+  const bytes=await synchronizeGeneratedChartWorkbooks(await createDeck(content,context));
+  if(bytes.length>CANDIDATE_MAX_BYTES)throw new Error('PPTX creation candidate exceeds 100 MiB');
+  await assertZipInflatesWithinLimits(bytes,CANDIDATE_ZIP_LIMITS);
+  await openValidated(bytes);
+  return bytes;
+}
 
 const mime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp', emf: 'image/x-emf', wmf: 'image/x-wmf' };
 const targetId = (slideIndex: number, cNvPrId: string) => `slide-${slideIndex}:shape-${cNvPrId}`;
@@ -17,7 +30,8 @@ function nonVisualId(el: SlideElement): string | null {
 }
 
 export async function inspect(bytes: Uint8Array): Promise<PptxModel> {
-  return { ...modelOf(await openValidated(bytes)), sourceBase64: Buffer.from(bytes).toString('base64') };
+  const opened=await openValidated(bytes);
+  return { ...modelOf(opened), sourceBase64: Buffer.from(bytes).toString('base64'), layoutAudit: await auditDeck(bytes),authoring:authoringSummary(opened) };
 }
 
 async function openValidated(bytes: Uint8Array): Promise<OpenedPptx> {
@@ -93,6 +107,15 @@ export async function edit(bytes: Uint8Array, edits: PptxEdit[]): Promise<Uint8A
     // Every omitted part was compared byte-for-byte above. Native CAS still owns the final write.
     return result;
   }
+  if(candidate?.kind==='operations'){
+    const session=createParitySession(opened,{confirmChart:async()=>true});
+    applyCreationOperations(session.state.opened,candidate.operations);
+    const result=await session.save();
+    if(result.length>CANDIDATE_MAX_BYTES)throw new Error('PPTX operations candidate exceeds 100 MiB');
+    await assertZipInflatesWithinLimits(result,CANDIDATE_ZIP_LIMITS);
+    await openValidated(result);
+    return result;
+  }
   if (edits.some(e => e.kind === 'command')) {
     if (edits.some(e => e.kind !== 'command')) throw new Error('Cannot mix legacy and command edit sessions');
     // Browser has already confirmed imported-chart template replacement before journaling.
@@ -113,7 +136,7 @@ export async function edit(bytes: Uint8Array, edits: PptxEdit[]): Promise<Uint8A
   }
   const pending = new Map<SlideElement, string>();
   for (const e of edits) {
-    if (e.kind === 'command'||e.kind==='candidate') continue;
+    if (e.kind === 'command'||e.kind==='candidate'||e.kind==='operations') continue;
     const slide = opened.deck.slides[e.slideIndex];
     if (!slide) throw new Error('Slide not found');
     const el = slide.elements.find(el => nonVisualId(el) === e.cNvPrId);

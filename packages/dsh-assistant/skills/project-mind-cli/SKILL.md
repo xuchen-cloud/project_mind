@@ -109,3 +109,5 @@ A write is complete when the native success result and **Operation Receipt** ide
 For binary Files, verify both the exact bytes (fixed version/hash/length) and the requested document meaning through Office inspect. A matching hash alone does not prove the requested content. A subsequent v2 edit must use the newly returned version/hash as its baseline; do not carry forward v1 CAS values.
 
 Frontend automatic refresh is a separate product acceptance check. If UI acceptance is requested, verify that the already-open view updates without manual refresh. Receipt plus readback proves persistence; claim automatic refresh only when observed. Report any unverified UI behavior separately from the saved result.
+
+For Word/Excel/PowerPoint generation or layout/structure editing, use the bundled [GenOffice authoring Skill](../genoffice-authoring/SKILL.md) and the actual native Office tools.

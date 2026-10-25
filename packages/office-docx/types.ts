@@ -19,6 +19,7 @@ export interface TextNode {
 }
 export interface DocxModel {
   format: 'docx';
+  authoring?: AuthoringSummary;
   baselineHash: string;
   /** Original DOCX bytes for the complete browser renderer. */
   sourceBase64?: string;
@@ -37,6 +38,7 @@ export interface DocxModel {
 }
 export type Model = DocxModel;
 export type Edit =
+  | { type: 'operations'; ops: Record<string, unknown>[] }
   | { type: 'snapshot'; baselineHash: string; base64: string }
   | { type: 'document'; document: PmJSON }
   | { type: 'text'; nodeId: string; text: string; expectedText?: string };
@@ -51,4 +53,8 @@ export declare function inspect(bytes: Uint8Array, context?: Context): Promise<D
 export declare function edit(bytes: Uint8Array, edits: Edit[], context?: Context): Promise<Uint8Array>;
 
 /** Create from restricted HTML, at most 2 MiB UTF-8; unsupported markup is rejected. */
-export declare function create(content: string): Promise<Uint8Array>;
+export declare function create(content: CreateContent): Promise<Uint8Array>;
+
+export interface AuthoringSummary { blocks: Record<string, unknown>[]; styles: Record<string, unknown>[]; tableStyles: {id:string;name:string}[]; sections: Record<string,unknown>[]; headersFooters: Record<string,unknown>; notes: Record<string,unknown>[] }
+export type CreateContent = string | { html?: string; ops?: Record<string, unknown>[] };
+export declare function catalog(): Promise<unknown>;

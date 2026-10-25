@@ -1,6 +1,7 @@
 import type { GatewayChanges } from './gateway-contract'
 import type { ScreenSourcesResult, ScreenCaptureRequest, ScreenCaptureResult } from './generated/desktop-api'
 export type { GatewayChanges } from './gateway-contract'
+export type { CreateContent } from './authoring'
 export type { ScreenSourcesResult, ScreenCaptureRequest, ScreenCaptureResult } from './generated/desktop-api'
 /** Public JSON contract. Coordinates are zero based. */
 export type ContentEdit = { sheetId: string; row: number; column: number } & (
@@ -48,8 +49,17 @@ export interface Model {
   styles: Style[]; dxfStyles?: Style[]; sheets: Sheet[]; ranges: Record<string, Range>
   visuals: unknown[]; definedNames: { name: string; formula: string; sheetIndex?: number }[]
   date1904: boolean
+  /** Formula data retained in the workbook but requiring user attention. */
+  warnings?: FormulaWarning[]
   /** Validated source data for the complete upstream renderer; contains no file capabilities. */
   rendererData?: { file: Record<string, unknown>; formulas: Record<string, unknown>; outlines: Record<string, unknown>; media: Record<string, unknown>; pivots: Record<string, unknown> }
+}
+export interface FormulaWarning {
+  code: 'FORMULA_UNCACHED' | 'FORMULA_ERROR'
+  message: string
+  sheetId?: string
+  row?: number
+  column?: number
 }
 export interface RecalculateRequest {
   edits: {sheetId: string; row: number; column: number; input: string}[]

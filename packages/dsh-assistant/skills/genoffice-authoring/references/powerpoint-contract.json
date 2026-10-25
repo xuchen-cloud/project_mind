@@ -1,0 +1,3261 @@
+{
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "pages"
+    ],
+    "properties": {
+      "pages": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 60,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "elements"
+          ],
+          "properties": {
+            "background": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+            },
+            "elements": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 48,
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "x",
+                      "y",
+                      "w",
+                      "h",
+                      "paragraphs"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "text"
+                      },
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1279
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 719
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 1280
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 720
+                      },
+                      "paragraphs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 256,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "runs"
+                          ],
+                          "properties": {
+                            "runs": {
+                              "type": "array",
+                              "minItems": 1,
+                              "maxItems": 256,
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "text"
+                                ],
+                                "properties": {
+                                  "text": {
+                                    "type": "string",
+                                    "maxLength": 4000
+                                  },
+                                  "sizePt": {
+                                    "type": "number",
+                                    "minimum": 6,
+                                    "maximum": 160
+                                  },
+                                  "bold": {
+                                    "type": "boolean"
+                                  },
+                                  "italic": {
+                                    "type": "boolean"
+                                  },
+                                  "color": {
+                                    "type": "string",
+                                    "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+                                  },
+                                  "font": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  }
+                                }
+                              }
+                            },
+                            "align": {
+                              "enum": [
+                                "left",
+                                "center",
+                                "right",
+                                "justify"
+                              ]
+                            },
+                            "lineSpacingPct": {
+                              "type": "number",
+                              "minimum": 60,
+                              "maximum": 300
+                            },
+                            "spaceBeforePt": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 96
+                            },
+                            "spaceAfterPt": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 96
+                            },
+                            "bullet": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      },
+                      "valign": {
+                        "enum": [
+                          "top",
+                          "middle",
+                          "bottom"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "shape",
+                      "x",
+                      "y",
+                      "w",
+                      "h"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "shape"
+                      },
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1279
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 719
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 1280
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 720
+                      },
+                      "shape": {
+                        "enum": [
+                          "rect",
+                          "roundRect",
+                          "ellipse",
+                          "triangle",
+                          "rightArrow",
+                          "leftArrow",
+                          "upArrow",
+                          "downArrow",
+                          "chevron",
+                          "diamond",
+                          "parallelogram",
+                          "trapezoid",
+                          "hexagon",
+                          "pentagon",
+                          "pie",
+                          "donut",
+                          "star5",
+                          "heart",
+                          "cloud",
+                          "line",
+                          "lineArrow"
+                        ]
+                      },
+                      "fill": {
+                        "type": "string"
+                      },
+                      "stroke": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "color",
+                          "widthPt"
+                        ],
+                        "properties": {
+                          "color": {
+                            "type": "string"
+                          },
+                          "widthPt": {
+                            "type": "number",
+                            "minimum": 0.25,
+                            "maximum": 24
+                          }
+                        }
+                      },
+                      "paragraphs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 256,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "runs"
+                          ],
+                          "properties": {
+                            "runs": {
+                              "type": "array",
+                              "minItems": 1,
+                              "maxItems": 256,
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "text"
+                                ],
+                                "properties": {
+                                  "text": {
+                                    "type": "string",
+                                    "maxLength": 4000
+                                  },
+                                  "sizePt": {
+                                    "type": "number",
+                                    "minimum": 6,
+                                    "maximum": 160
+                                  },
+                                  "bold": {
+                                    "type": "boolean"
+                                  },
+                                  "italic": {
+                                    "type": "boolean"
+                                  },
+                                  "color": {
+                                    "type": "string",
+                                    "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+                                  },
+                                  "font": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 80
+                                  }
+                                }
+                              }
+                            },
+                            "align": {
+                              "enum": [
+                                "left",
+                                "center",
+                                "right",
+                                "justify"
+                              ]
+                            },
+                            "lineSpacingPct": {
+                              "type": "number",
+                              "minimum": 60,
+                              "maximum": 300
+                            },
+                            "spaceBeforePt": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 96
+                            },
+                            "spaceAfterPt": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 96
+                            },
+                            "bullet": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      },
+                      "valign": {
+                        "enum": [
+                          "top",
+                          "middle",
+                          "bottom"
+                        ]
+                      },
+                      "flipH": {
+                        "type": "boolean"
+                      },
+                      "flipV": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "x",
+                      "y",
+                      "w",
+                      "h",
+                      "url"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "image"
+                      },
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1279
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 719
+                      },
+                      "w": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 1280
+                      },
+                      "h": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 720
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "Inline data:image/png;base64,... or data:image/jpeg;base64,...; paths and remote URLs are refused."
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "operations": {
+        "type": "array",
+        "maxItems": 1024,
+        "description": "Native GenOffice ops run sequentially. All op geometry is document-space EMU, not spec pixels. Each as alias names the one newly created element; {$ref:\"alias\"} in later ops resolves to its stable ID.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "as": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+            },
+            "op": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addElement"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice addElement.kind; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addElement.offset; see the upstream op guide."
+                    },
+                    "paragraphs": {
+                      "description": "Pinned GenOffice addElement.paragraphs; see the upstream op guide."
+                    },
+                    "fill": {
+                      "description": "Pinned GenOffice addElement.fill; see the upstream op guide."
+                    },
+                    "stroke": {
+                      "description": "Pinned GenOffice addElement.stroke; see the upstream op guide."
+                    },
+                    "adjustments": {
+                      "description": "Pinned GenOffice addElement.adjustments; see the upstream op guide."
+                    },
+                    "bodyPr": {
+                      "description": "Pinned GenOffice addElement.bodyPr; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addConnector"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "from": {
+                      "description": "Pinned GenOffice addConnector.from; see the upstream op guide."
+                    },
+                    "to": {
+                      "description": "Pinned GenOffice addConnector.to; see the upstream op guide."
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice addConnector.kind; see the upstream op guide."
+                    },
+                    "fromSide": {
+                      "description": "Pinned GenOffice addConnector.fromSide; see the upstream op guide."
+                    },
+                    "toSide": {
+                      "description": "Pinned GenOffice addConnector.toSide; see the upstream op guide."
+                    },
+                    "arrow": {
+                      "description": "Pinned GenOffice addConnector.arrow; see the upstream op guide."
+                    },
+                    "line": {
+                      "description": "Pinned GenOffice addConnector.line; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addPicture"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "bytes": {
+                      "description": "Pinned GenOffice addPicture.bytes; see the upstream op guide."
+                    },
+                    "ext": {
+                      "description": "Pinned GenOffice addPicture.ext; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addPicture.offset; see the upstream op guide."
+                    },
+                    "name": {
+                      "description": "Pinned GenOffice addPicture.name; see the upstream op guide."
+                    },
+                    "descr": {
+                      "description": "Pinned GenOffice addPicture.descr; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "replacePicture"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "bytes": {
+                      "description": "Pinned GenOffice replacePicture.bytes; see the upstream op guide."
+                    },
+                    "ext": {
+                      "description": "Pinned GenOffice replacePicture.ext; see the upstream op guide."
+                    },
+                    "keepSrcRect": {
+                      "description": "Pinned GenOffice replacePicture.keepSrcRect; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addTable"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "rows": {
+                      "description": "Pinned GenOffice addTable.rows; see the upstream op guide."
+                    },
+                    "cols": {
+                      "description": "Pinned GenOffice addTable.cols; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addTable.offset; see the upstream op guide."
+                    },
+                    "colWidthsEmu": {
+                      "description": "Pinned GenOffice addTable.colWidthsEmu; see the upstream op guide."
+                    },
+                    "rowHeightsEmu": {
+                      "description": "Pinned GenOffice addTable.rowHeightsEmu; see the upstream op guide."
+                    },
+                    "cellProps": {
+                      "description": "Pinned GenOffice addTable.cellProps; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addChart"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice addChart.kind; see the upstream op guide."
+                    },
+                    "categories": {
+                      "description": "Pinned GenOffice addChart.categories; see the upstream op guide."
+                    },
+                    "series": {
+                      "description": "Pinned GenOffice addChart.series; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addChart.offset; see the upstream op guide."
+                    },
+                    "title": {
+                      "description": "Pinned GenOffice addChart.title; see the upstream op guide."
+                    },
+                    "colorScheme": {
+                      "description": "Pinned GenOffice addChart.colorScheme; see the upstream op guide."
+                    },
+                    "holeSizePct": {
+                      "description": "Pinned GenOffice addChart.holeSizePct; see the upstream op guide."
+                    },
+                    "barDir": {
+                      "description": "Pinned GenOffice addChart.barDir; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addSmartArt"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "layout": {
+                      "description": "Pinned GenOffice addSmartArt.layout; see the upstream op guide."
+                    },
+                    "items": {
+                      "description": "Pinned GenOffice addSmartArt.items; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addSmartArt.offset; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addMedia"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice addMedia.kind; see the upstream op guide."
+                    },
+                    "bytes": {
+                      "description": "Pinned GenOffice addMedia.bytes; see the upstream op guide."
+                    },
+                    "ext": {
+                      "description": "Pinned GenOffice addMedia.ext; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addMedia.offset; see the upstream op guide."
+                    },
+                    "name": {
+                      "description": "Pinned GenOffice addMedia.name; see the upstream op guide."
+                    },
+                    "poster": {
+                      "description": "Pinned GenOffice addMedia.poster; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addModel3d"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "bytes": {
+                      "description": "Pinned GenOffice addModel3d.bytes; see the upstream op guide."
+                    },
+                    "ext": {
+                      "description": "Pinned GenOffice addModel3d.ext; see the upstream op guide."
+                    },
+                    "offset": {
+                      "description": "Pinned GenOffice addModel3d.offset; see the upstream op guide."
+                    },
+                    "name": {
+                      "description": "Pinned GenOffice addModel3d.name; see the upstream op guide."
+                    },
+                    "poster": {
+                      "description": "Pinned GenOffice addModel3d.poster; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "pasteElements"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "items": {
+                      "description": "Pinned GenOffice pasteElements.items; see the upstream op guide."
+                    },
+                    "dx": {
+                      "description": "Pinned GenOffice pasteElements.dx; see the upstream op guide."
+                    },
+                    "dy": {
+                      "description": "Pinned GenOffice pasteElements.dy; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setText"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "paragraphs": {
+                      "description": "Pinned GenOffice setText.paragraphs; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setFont"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "font": {
+                      "description": "Pinned GenOffice setFont.font; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setParagraphFormat"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "format": {
+                      "description": "Pinned GenOffice setParagraphFormat.format; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "insertEquation"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "latex": {
+                      "description": "Pinned GenOffice insertEquation.latex; see the upstream op guide."
+                    },
+                    "position": {
+                      "description": "Pinned GenOffice insertEquation.position; see the upstream op guide."
+                    },
+                    "box": {
+                      "description": "Pinned GenOffice insertEquation.box; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTableCell"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "row": {
+                      "description": "Pinned GenOffice setTableCell.row; see the upstream op guide."
+                    },
+                    "col": {
+                      "description": "Pinned GenOffice setTableCell.col; see the upstream op guide."
+                    },
+                    "paragraphs": {
+                      "description": "Pinned GenOffice setTableCell.paragraphs; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "tableMerge"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice tableMerge.kind; see the upstream op guide."
+                    },
+                    "row": {
+                      "description": "Pinned GenOffice tableMerge.row; see the upstream op guide."
+                    },
+                    "col": {
+                      "description": "Pinned GenOffice tableMerge.col; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "tableStructure"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice tableStructure.kind; see the upstream op guide."
+                    },
+                    "index": {
+                      "description": "Pinned GenOffice tableStructure.index; see the upstream op guide."
+                    },
+                    "before": {
+                      "description": "Pinned GenOffice tableStructure.before; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTableRowHeight"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "row": {
+                      "description": "Pinned GenOffice setTableRowHeight.row; see the upstream op guide."
+                    },
+                    "hEmu": {
+                      "description": "Pinned GenOffice setTableRowHeight.hEmu; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTableCellAnchor"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "row": {
+                      "description": "Pinned GenOffice setTableCellAnchor.row; see the upstream op guide."
+                    },
+                    "col": {
+                      "description": "Pinned GenOffice setTableCellAnchor.col; see the upstream op guide."
+                    },
+                    "anchor": {
+                      "description": "Pinned GenOffice setTableCellAnchor.anchor; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTableColWidth"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "col": {
+                      "description": "Pinned GenOffice setTableColWidth.col; see the upstream op guide."
+                    },
+                    "wEmu": {
+                      "description": "Pinned GenOffice setTableColWidth.wEmu; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTableStyle"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "styleName": {
+                      "description": "Pinned GenOffice setTableStyle.styleName; see the upstream op guide."
+                    },
+                    "styleId": {
+                      "description": "Pinned GenOffice setTableStyle.styleId; see the upstream op guide."
+                    },
+                    "firstRow": {
+                      "description": "Pinned GenOffice setTableStyle.firstRow; see the upstream op guide."
+                    },
+                    "lastRow": {
+                      "description": "Pinned GenOffice setTableStyle.lastRow; see the upstream op guide."
+                    },
+                    "firstCol": {
+                      "description": "Pinned GenOffice setTableStyle.firstCol; see the upstream op guide."
+                    },
+                    "lastCol": {
+                      "description": "Pinned GenOffice setTableStyle.lastCol; see the upstream op guide."
+                    },
+                    "bandRow": {
+                      "description": "Pinned GenOffice setTableStyle.bandRow; see the upstream op guide."
+                    },
+                    "bandCol": {
+                      "description": "Pinned GenOffice setTableStyle.bandCol; see the upstream op guide."
+                    },
+                    "keepFormatting": {
+                      "description": "Pinned GenOffice setTableStyle.keepFormatting; see the upstream op guide."
+                    },
+                    "shadingColor": {
+                      "description": "Pinned GenOffice setTableStyle.shadingColor; see the upstream op guide."
+                    },
+                    "borderColor": {
+                      "description": "Pinned GenOffice setTableStyle.borderColor; see the upstream op guide."
+                    },
+                    "borderWidthPt": {
+                      "description": "Pinned GenOffice setTableStyle.borderWidthPt; see the upstream op guide."
+                    },
+                    "borderPreset": {
+                      "description": "Pinned GenOffice setTableStyle.borderPreset; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setChart"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "patch": {
+                      "description": "Pinned GenOffice setChart.patch; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setSlideSize"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "cx": {
+                      "description": "Pinned GenOffice setSlideSize.cx; see the upstream op guide."
+                    },
+                    "cy": {
+                      "description": "Pinned GenOffice setSlideSize.cy; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "findReplace"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "find": {
+                      "description": "Pinned GenOffice findReplace.find; see the upstream op guide."
+                    },
+                    "replace": {
+                      "description": "Pinned GenOffice findReplace.replace; see the upstream op guide."
+                    },
+                    "matchCase": {
+                      "description": "Pinned GenOffice findReplace.matchCase; see the upstream op guide."
+                    },
+                    "firstOnly": {
+                      "description": "Pinned GenOffice findReplace.firstOnly; see the upstream op guide."
+                    },
+                    "slideIndex": {
+                      "description": "Pinned GenOffice findReplace.slideIndex; see the upstream op guide."
+                    },
+                    "elementId": {
+                      "description": "Pinned GenOffice findReplace.elementId; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "applyHeaderFooter"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "settings": {
+                      "description": "Pinned GenOffice applyHeaderFooter.settings; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setSections"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "sections": {
+                      "description": "Pinned GenOffice setSections.sections; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "applyTheme"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "name": {
+                      "description": "Pinned GenOffice applyTheme.name; see the upstream op guide."
+                    },
+                    "colors": {
+                      "description": "Pinned GenOffice applyTheme.colors; see the upstream op guide."
+                    },
+                    "majorFont": {
+                      "description": "Pinned GenOffice applyTheme.majorFont; see the upstream op guide."
+                    },
+                    "minorFont": {
+                      "description": "Pinned GenOffice applyTheme.minorFont; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addSection"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "atSlideIndex": {
+                      "description": "Pinned GenOffice addSection.atSlideIndex; see the upstream op guide."
+                    },
+                    "name": {
+                      "description": "Pinned GenOffice addSection.name; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "renameSection"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "id": {
+                      "description": "Pinned GenOffice renameSection.id; see the upstream op guide."
+                    },
+                    "name": {
+                      "description": "Pinned GenOffice renameSection.name; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "removeSection"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "id": {
+                      "description": "Pinned GenOffice removeSection.id; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "moveSection"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "id": {
+                      "description": "Pinned GenOffice moveSection.id; see the upstream op guide."
+                    },
+                    "dir": {
+                      "description": "Pinned GenOffice moveSection.dir; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "deleteSlide"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "duplicateSlide"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "clearText": {
+                      "description": "Pinned GenOffice duplicateSlide.clearText; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addBlankSlide"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addSlideWithLayout"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "layout": {
+                      "description": "Pinned GenOffice addSlideWithLayout.layout; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "pasteSlide"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "afterIndex": {
+                      "description": "Pinned GenOffice pasteSlide.afterIndex; see the upstream op guide."
+                    },
+                    "bundle": {
+                      "description": "Pinned GenOffice pasteSlide.bundle; see the upstream op guide."
+                    },
+                    "png": {
+                      "description": "Pinned GenOffice pasteSlide.png; see the upstream op guide."
+                    },
+                    "mode": {
+                      "description": "Pinned GenOffice pasteSlide.mode; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "insertSlidePptx"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "source": {
+                      "description": "Pinned GenOffice insertSlidePptx.source; see the upstream op guide."
+                    },
+                    "at": {
+                      "description": "Pinned GenOffice insertSlidePptx.at; see the upstream op guide."
+                    },
+                    "replace": {
+                      "description": "Pinned GenOffice insertSlidePptx.replace; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "moveSlide"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "to": {
+                      "description": "Pinned GenOffice moveSlide.to; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setSlideLayout"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "layout": {
+                      "description": "Pinned GenOffice setSlideLayout.layout; see the upstream op guide."
+                    },
+                    "layoutPath": {
+                      "description": "Pinned GenOffice setSlideLayout.layoutPath; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setBackground"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice setBackground.kind; see the upstream op guide."
+                    },
+                    "color": {
+                      "description": "Pinned GenOffice setBackground.color; see the upstream op guide."
+                    },
+                    "from": {
+                      "description": "Pinned GenOffice setBackground.from; see the upstream op guide."
+                    },
+                    "to": {
+                      "description": "Pinned GenOffice setBackground.to; see the upstream op guide."
+                    },
+                    "angleDeg": {
+                      "description": "Pinned GenOffice setBackground.angleDeg; see the upstream op guide."
+                    },
+                    "radial": {
+                      "description": "Pinned GenOffice setBackground.radial; see the upstream op guide."
+                    },
+                    "hidden": {
+                      "description": "Pinned GenOffice setBackground.hidden; see the upstream op guide."
+                    },
+                    "source": {
+                      "description": "Pinned GenOffice setBackground.source; see the upstream op guide."
+                    },
+                    "tile": {
+                      "description": "Pinned GenOffice setBackground.tile; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setHidden"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "hidden": {
+                      "description": "Pinned GenOffice setHidden.hidden; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTransition"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice setTransition.kind; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setAdvanceTime"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "ms": {
+                      "description": "Pinned GenOffice setAdvanceTime.ms; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setAnimations"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "items": {
+                      "description": "Pinned GenOffice setAnimations.items; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addAnimation"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "effect": {
+                      "description": "Pinned GenOffice addAnimation.effect; see the upstream op guide."
+                    },
+                    "kind": {
+                      "description": "Pinned GenOffice addAnimation.kind; see the upstream op guide."
+                    },
+                    "trigger": {
+                      "description": "Pinned GenOffice addAnimation.trigger; see the upstream op guide."
+                    },
+                    "duration": {
+                      "description": "Pinned GenOffice addAnimation.duration; see the upstream op guide."
+                    },
+                    "delay": {
+                      "description": "Pinned GenOffice addAnimation.delay; see the upstream op guide."
+                    },
+                    "direction": {
+                      "description": "Pinned GenOffice addAnimation.direction; see the upstream op guide."
+                    },
+                    "paragraph": {
+                      "description": "Pinned GenOffice addAnimation.paragraph; see the upstream op guide."
+                    },
+                    "motionPath": {
+                      "description": "Pinned GenOffice addAnimation.motionPath; see the upstream op guide."
+                    },
+                    "presetXml": {
+                      "description": "Pinned GenOffice addAnimation.presetXml; see the upstream op guide."
+                    },
+                    "after": {
+                      "description": "Pinned GenOffice addAnimation.after; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "removeAnimation"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "seq": {
+                      "description": "Pinned GenOffice removeAnimation.seq; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "reorderAnimation"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "seq": {
+                      "description": "Pinned GenOffice reorderAnimation.seq; see the upstream op guide."
+                    },
+                    "to": {
+                      "description": "Pinned GenOffice reorderAnimation.to; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setNotes"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "text": {
+                      "description": "Pinned GenOffice setNotes.text; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "addComment"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "text": {
+                      "description": "Pinned GenOffice addComment.text; see the upstream op guide."
+                    },
+                    "author": {
+                      "description": "Pinned GenOffice addComment.author; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "deleteComment"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "authorId": {
+                      "description": "Pinned GenOffice deleteComment.authorId; see the upstream op guide."
+                    },
+                    "idx": {
+                      "description": "Pinned GenOffice deleteComment.idx; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "deleteElement"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setFill"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "fill": {
+                      "description": "Pinned GenOffice setFill.fill; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setStroke"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "stroke": {
+                      "description": "Pinned GenOffice setStroke.stroke; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTransform"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "box": {
+                      "description": "Pinned GenOffice setTransform.box; see the upstream op guide."
+                    },
+                    "absBox": {
+                      "description": "Pinned GenOffice setTransform.absBox; see the upstream op guide."
+                    },
+                    "rotDeg": {
+                      "description": "Pinned GenOffice setTransform.rotDeg; see the upstream op guide."
+                    },
+                    "resizeTableGrid": {
+                      "description": "Pinned GenOffice setTransform.resizeTableGrid; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setConnectorEndpoints"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "p1": {
+                      "description": "Pinned GenOffice setConnectorEndpoints.p1; see the upstream op guide."
+                    },
+                    "p2": {
+                      "description": "Pinned GenOffice setConnectorEndpoints.p2; see the upstream op guide."
+                    },
+                    "start": {
+                      "description": "Pinned GenOffice setConnectorEndpoints.start; see the upstream op guide."
+                    },
+                    "end": {
+                      "description": "Pinned GenOffice setConnectorEndpoints.end; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "flipElements"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "els": {
+                      "description": "Pinned GenOffice flipElements.els; see the upstream op guide."
+                    },
+                    "axis": {
+                      "description": "Pinned GenOffice flipElements.axis; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setPictureSrcRect"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "srcRect": {
+                      "description": "Pinned GenOffice setPictureSrcRect.srcRect; see the upstream op guide."
+                    },
+                    "box": {
+                      "description": "Pinned GenOffice setPictureSrcRect.box; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setRedaction"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "label": {
+                      "description": "Pinned GenOffice setRedaction.label; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setPictureOpacity"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "opacity": {
+                      "description": "Pinned GenOffice setPictureOpacity.opacity; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "reorderElement"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "dir": {
+                      "description": "Pinned GenOffice reorderElement.dir; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "groupElements"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "els": {
+                      "description": "Pinned GenOffice groupElements.els; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "ungroupElement"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setShapeGeometry"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "prst": {
+                      "description": "Pinned GenOffice setShapeGeometry.prst; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setShapeAdjust"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "adjust": {
+                      "description": "Pinned GenOffice setShapeAdjust.adjust; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setShapeCustomGeometry"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "path": {
+                      "description": "Pinned GenOffice setShapeCustomGeometry.path; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTextAnchor"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "anchor": {
+                      "description": "Pinned GenOffice setTextAnchor.anchor; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setTextBodyProps"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "props": {
+                      "description": "Pinned GenOffice setTextBodyProps.props; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setEffects"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "effects": {
+                      "description": "Pinned GenOffice setEffects.effects; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setLink"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "link": {
+                      "description": "Pinned GenOffice setLink.link; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "alignElements"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "els": {
+                      "description": "Pinned GenOffice alignElements.els; see the upstream op guide."
+                    },
+                    "mode": {
+                      "description": "Pinned GenOffice alignElements.mode; see the upstream op guide."
+                    },
+                    "to": {
+                      "description": "Pinned GenOffice alignElements.to; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "distributeElements"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "els": {
+                      "description": "Pinned GenOffice distributeElements.els; see the upstream op guide."
+                    },
+                    "axis": {
+                      "description": "Pinned GenOffice distributeElements.axis; see the upstream op guide."
+                    },
+                    "to": {
+                      "description": "Pinned GenOffice distributeElements.to; see the upstream op guide."
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "op"
+                  ],
+                  "properties": {
+                    "op": {
+                      "const": "setImageFill"
+                    },
+                    "target": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "slide": {
+                          "description": "Zero-based slide index or stable slide ID"
+                        },
+                        "el": {
+                          "description": "Stable element ID or {$ref:\"alias\"}"
+                        },
+                        "part": {
+                          "type": "string",
+                          "description": "Existing master/layout part inside this package; never a file-system path"
+                        }
+                      }
+                    },
+                    "group": {
+                      "description": "Group ID or {$ref:\"alias\"}"
+                    },
+                    "source": {
+                      "description": "Pinned GenOffice setImageFill.source; see the upstream op guide."
+                    },
+                    "tile": {
+                      "description": "Pinned GenOffice setImageFill.tile; see the upstream op guide."
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "operationFields": {
+    "addElement": "kind offset paragraphs fill stroke adjustments bodyPr",
+    "addConnector": "from to kind fromSide toSide arrow line",
+    "addPicture": "bytes ext offset name descr",
+    "replacePicture": "bytes ext keepSrcRect",
+    "addTable": "rows cols offset colWidthsEmu rowHeightsEmu cellProps",
+    "addChart": "kind categories series offset title colorScheme holeSizePct barDir",
+    "addSmartArt": "layout items offset",
+    "addMedia": "kind bytes ext offset name poster",
+    "addModel3d": "bytes ext offset name poster",
+    "pasteElements": "items dx dy",
+    "setText": "paragraphs",
+    "setFont": "font",
+    "setParagraphFormat": "format",
+    "insertEquation": "latex position box",
+    "setTableCell": "row col paragraphs",
+    "tableMerge": "kind row col",
+    "tableStructure": "kind index before",
+    "setTableRowHeight": "row hEmu",
+    "setTableCellAnchor": "row col anchor",
+    "setTableColWidth": "col wEmu",
+    "setTableStyle": "styleName styleId firstRow lastRow firstCol lastCol bandRow bandCol keepFormatting shadingColor borderColor borderWidthPt borderPreset",
+    "setChart": "patch",
+    "setSlideSize": "cx cy",
+    "findReplace": "find replace matchCase firstOnly slideIndex elementId",
+    "applyHeaderFooter": "settings",
+    "setSections": "sections",
+    "applyTheme": "name colors majorFont minorFont",
+    "addSection": "atSlideIndex name",
+    "renameSection": "id name",
+    "removeSection": "id",
+    "moveSection": "id dir",
+    "deleteSlide": "",
+    "duplicateSlide": "clearText",
+    "addBlankSlide": "",
+    "addSlideWithLayout": "layout",
+    "pasteSlide": "afterIndex bundle png mode",
+    "insertSlidePptx": "source at replace",
+    "moveSlide": "to",
+    "setSlideLayout": "layout layoutPath",
+    "setBackground": "kind color from to angleDeg radial hidden source tile",
+    "setHidden": "hidden",
+    "setTransition": "kind",
+    "setAdvanceTime": "ms",
+    "setAnimations": "items",
+    "addAnimation": "effect kind trigger duration delay direction paragraph motionPath presetXml after",
+    "removeAnimation": "seq",
+    "reorderAnimation": "seq to",
+    "setNotes": "text",
+    "addComment": "text author",
+    "deleteComment": "authorId idx",
+    "deleteElement": "",
+    "setFill": "fill",
+    "setStroke": "stroke",
+    "setTransform": "box absBox rotDeg resizeTableGrid",
+    "setConnectorEndpoints": "p1 p2 start end",
+    "flipElements": "els axis",
+    "setPictureSrcRect": "srcRect box",
+    "setRedaction": "label",
+    "setPictureOpacity": "opacity",
+    "reorderElement": "dir",
+    "groupElements": "els",
+    "ungroupElement": "",
+    "setShapeGeometry": "prst",
+    "setShapeAdjust": "adjust",
+    "setShapeCustomGeometry": "path",
+    "setTextAnchor": "anchor",
+    "setTextBodyProps": "props",
+    "setEffects": "effects",
+    "setLink": "link",
+    "alignElements": "els mode to",
+    "distributeElements": "els axis to",
+    "setImageFill": "source tile"
+  }
+}

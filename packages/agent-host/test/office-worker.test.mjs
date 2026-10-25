@@ -136,3 +136,47 @@ test('Office create returns real DOCX bytes and its model through the relocated 
     assert.equal(invalid.error.code,'INVALID_ARGUMENT');
   } finally { await rm(dir,{recursive:true,force:true}); }
 });
+
+test('Office creation forwards structured content for all formats without caller source capabilities', async () => {
+  const dir=await mkdtemp(join(tmpdir(),'mind-office-create-json-'));
+  try {
+    await writeFile(join(dir,'worker.mjs'),await readFile(new URL('../../office-runtime/worker.mjs',import.meta.url)));
+    for(const format of ['docx','xlsx','pptx']) await writeFile(join(dir,`${format}-engine.mjs`),`
+      export function create(content,context){
+        if(content.label!=='完整中文'||!context.tempRoot)throw Error('Lost structured authoring request');
+        return new Uint8Array([80,75,3,4]);
+      }
+      export function inspect(){return {format:${JSON.stringify(format)},verified:true}}
+    `);
+    const {handleOfficeRequest:handle}=await import(pathToFileURL(join(dir,'worker.mjs')).href);
+    for(const format of ['docx','xlsx','pptx']) {
+      const result=await handle({requestId:`create-${format}`,method:'office.create',data:{format,content:{label:'完整中文'}}});
+      assert.equal(result.ok,true,JSON.stringify(result.error));
+      assert.equal(result.data.model.format,format);
+      assert.equal(result.data.base64,'UEsDBA==');
+    }
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('all structured authoring formats run from an isolated relocated worker without source packages',async()=>{
+ const {copyFile,chmod}=await import('node:fs/promises');
+ const dir=await mkdtemp(join(tmpdir(),'mind-office-authoring-relocated-'));
+ try{
+  await copyFile(new URL('../../office-runtime/worker.mjs',import.meta.url),join(dir,'worker.mjs'));
+  for(const format of ['docx','xlsx','pptx'])await copyFile(new URL(`../../office-${format}/dist/engine.mjs`,import.meta.url),join(dir,`${format}-engine.mjs`));
+  const sidecar=process.platform==='win32'?'xlsx-sidecar.exe':'xlsx-sidecar';
+  await copyFile(new URL(`../../office-xlsx/dist/${sidecar}`,import.meta.url),join(dir,sidecar));
+  if(process.platform!=='win32')await chmod(join(dir,sidecar),0o755);
+  const {handleOfficeRequest:handle}=await import(pathToFileURL(join(dir,'worker.mjs')).href);
+  for(const [format,file] of [['docx','word'],['xlsx','excel'],['pptx','powerpoint']]){
+   const content=JSON.parse(await readFile(new URL(`../../dsh-assistant/test/fixtures/office-authoring/${file}.json`,import.meta.url),'utf8'));
+   const result=await handle({requestId:`full-create-${format}`,method:'office.create',data:{format,content}});
+   assert.equal(result.ok,true,JSON.stringify(result.error));
+   assert.equal(result.data.model.format,format);
+   assert.equal(Buffer.from(result.data.base64,'base64').subarray(0,2).toString(),'PK');
+   const read=await handle({requestId:`full-read-${format}`,method:'office.inspect',data:{format,base64:result.data.base64}});
+   assert.equal(read.ok,true,JSON.stringify(read.error));
+   assert.equal(read.data.model.format,format);
+  }
+ }finally{await rm(dir,{recursive:true,force:true});}
+});

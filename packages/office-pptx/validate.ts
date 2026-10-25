@@ -5,6 +5,10 @@ export function validateEdits(value: unknown): asserts value is PptxEdit[] {
   if(value.length>256)throw new Error('Expected at most 256 PPTX edits');
   for (const e of value) {
     if (!e || Object.getPrototypeOf(e) !== Object.prototype) throw new Error('Invalid JSON edit object');
+    if(e.kind==='operations'){
+      if(value.length!==1||Object.keys(e).sort().join(',')!=='kind,operations'||!Array.isArray(e.operations)||!e.operations.length||e.operations.length>1024)throw new Error('PPTX operations must be the sole edit with 1..1024 data operations');
+      continue;
+    }
     if(e.kind==='candidate'){
       if(Object.keys(e).sort().join(',')!=='base64,changedParts,kind,sourceHash'||typeof e.sourceHash!=='string'||!/^[a-f0-9]{64}$/.test(e.sourceHash)||typeof e.base64!=='string'||e.base64.length>Math.ceil(100*1024*1024/3)*4||!Array.isArray(e.changedParts)||e.changedParts.length>10000||new Set(e.changedParts).size!==e.changedParts.length||e.changedParts.some((p:unknown)=>typeof p!=='string'||!p||p.startsWith('/')||p.includes('\\')||p.split('/').includes('..')))throw new Error('Invalid or over-budget PPTX candidate');
       if(value.length!==1)throw new Error('PPTX candidate cannot mix with commands');

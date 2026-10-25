@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 const officeSourceRef=JSON.parse(readFileSync(new URL('./fixtures/office-source-ref.json',import.meta.url),'utf8'));
 function harness() {
   const tools = new Map(); const requests=[];
-  const ctx={sessionController:{list:async()=>({items:[{sessionId:'actual',cwd:'/project'}]})},tools:{register(tool){tools.set(tool.name,tool);return()=>{};}},effect(){}};
+  const ctx={get:()=>({resolve:()=>({mode:'workspace-write',workspaceRoot:'/project'})}),sessionController:{list:async()=>({items:[{sessionId:'actual',cwd:'/project'}]})},tools:{register(tool){tools.set(tool.name,tool);return()=>{};}},effect(){}};
   const bridge={request:async(payload,signal)=>{requests.push({payload,signal});return{sourceRef:structuredClone(officeSourceRef),model:{format:'docx',nodes:[{id:'p0',text:'原文'}],assets:[{dataUrl:'large image'}],document:{content:[]}}};}};
   return{ctx,tools,requests,bridge};
 }
@@ -22,7 +22,7 @@ test('DSH Office edits carry the exact source version and deterministic executio
   const sourceRef=structuredClone(officeSourceRef);const edits=[{type:'text',nodeId:'p0',text:'修改'}];
   const signal=new AbortController().signal;
   await h.tools.get('file_office_edit').execute({source_ref:sourceRef,edits},{agent:{session:{id:'actual'}},callId:'write-1',signal});
-  assert.deepEqual(h.requests[0].payload,{operation:'officeEdit',sessionId:'actual',requestId:'write-1',sourceRef,edits});
+  assert.deepEqual(h.requests[0].payload,{operation:'officeEdit',sessionId:'actual',mode:'workspace-write',requestId:'write-1',sourceRef,edits});
 });
 test('Office edit schema requires the inspect SourceRef object and rejects observed string encodings before native I/O',async()=>{
   const h=harness();await installOfficeService(h.ctx,{directory:'/project'},h.bridge);
@@ -80,7 +80,7 @@ test('Workspace Office tools accept both native File scopes while Project tools 
 
 test('shared Office tools dispatch both registered scopes and reject unknown Sessions',async()=>{
  const h=harness();const checked=[];
- const registry={async forSession(id,signal){signal.throwIfAborted();checked.push(id);if(!['workspace-session','project-session'].includes(id))throw new Error('Unknown Session');return {kind:id.startsWith('workspace')?'workspace':'project'};}};
+ const registry={async forSession(id,signal){signal.throwIfAborted();checked.push(id);if(!['workspace-session','project-session'].includes(id))throw new Error('Unknown Session');return {kind:id.startsWith('workspace')?'workspace':'project',directory:'/project'};}};
  await installOfficeService(h.ctx,registry,h.bridge);
  for(const id of ['workspace-session','project-session'])await h.tools.get('file_office_inspect').execute({file_path:'work.docx'},{agent:{session:{id}},signal:new AbortController().signal});
  const sourceRef=structuredClone(officeSourceRef);sourceRef.object.scope={kind:'workspace'};
@@ -111,4 +111,32 @@ test('Office inspection accepts an exact native source reference and rejects amb
  assert.deepEqual(h.requests[0].payload,{operation:'officeInspect',sessionId:'actual',sourceRef:officeSourceRef});
  for(const args of [{},{file_path:'work.docx',source_ref:officeSourceRef}])await assert.rejects(tool.execute(args,exec),/exactly one/);
  assert.equal(h.requests.length,1);
+});
+
+test('structured Office edits reject a read-only Session before native IO',async()=>{
+ const h=harness();h.ctx.get=()=>({resolve:()=>({mode:'read-only',workspaceRoot:'/project'})});
+ await installOfficeService(h.ctx,{directory:'/project'},h.bridge);
+ await assert.rejects(h.tools.get('file_office_edit').execute({source_ref:officeSourceRef,edits:[{type:'operations',ops:[{op:'set_page_setup',orientation:'landscape'}]}]},
+  {agent:{session:{id:'actual'}},callId:'readonly-complex',signal:new AbortController().signal}),/只读/);
+ assert.equal(h.requests.length,0);
+});
+
+test('Office inspection retains exact semantic table, chart and style targets for complete editing',async()=>{
+ const h=harness();
+ const model={format:'xlsx',sheets:[{id:'sheet1',name:'销售',hidden:false,rowCount:2,columnCount:2,freeze:{frozenRows:1,frozenColumns:0},tables:[{name:'Sales',range:'A1:B2'}]}],
+  styles:[{bold:true}],visuals:[{id:'chart-1',sheetId:'sheet1',kind:'chart',drawingPath:'xl/drawings/drawing1.xml',drawingIndex:0,chartPath:'xl/charts/chart1.xml'}],
+  ranges:{sheet1:{area:'A1:B2',cells:[{row:0,column:0,value:'项目',styleIndex:0}],merges:[]}},definedNames:[],warnings:[{code:'FORMULA_UNCACHED',sheetId:'sheet1',row:1,column:1}],rendererData:{media:'PRIVATE_MEDIA'}};
+ h.bridge.request=async()=>({model});await installOfficeService(h.ctx,{directory:'/project'},h.bridge);
+ const result=await h.tools.get('file_office_inspect').execute({file_path:'Sales.xlsx'},{agent:{session:{id:'actual'}},signal:new AbortController().signal});
+ assert.deepEqual(result.model.visuals,model.visuals);assert.deepEqual(result.model.styles,model.styles);
+ assert.deepEqual(result.model.sheets[0].tables,model.sheets[0].tables);assert.deepEqual(result.model.sheets[0].freeze,model.sheets[0].freeze);
+ assert.equal(result.model.ranges.sheet1.cells[0].styleIndex,0);assert.deepEqual(result.model.warnings,model.warnings);
+ assert.ok(!JSON.stringify(result).includes('PRIVATE_MEDIA'));
+});
+
+test('oversized Office creation is rejected before the bounded native source transport',async()=>{
+ const h=harness();await installOfficeService(h.ctx,{directory:'/project'},h.bridge);
+ const exec={agent:{session:{id:'actual'}},signal:new AbortController().signal};
+ await assert.rejects(h.tools.get('file_office_create').execute({name:'large.docx',request_id:'large',content:{html:'中'.repeat(700000)}},exec),/2 MiB/);
+ assert.equal(h.requests.length,0);
 });

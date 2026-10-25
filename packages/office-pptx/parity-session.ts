@@ -8,6 +8,7 @@ import { createHandlers } from './parity-handlers.mjs';
 import { safeExternalUrl } from './vendor/packages/electron-utils/src/safe-external-url';
 import type { PptxCommand } from './types';
 import {suppressFilledSlidePrompts} from './placeholder-prompts';
+import {synchronizeGeneratedChartWorkbooks} from './chart-workbook';
 
 type State = {
   opened: engine.OpenedPptx; path: string; fitWidthPx: number;
@@ -48,6 +49,7 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
   normalize();
   let readOnly=false,commandCount=0;
   const baseSeed=opened.deck.originalHash;
+  const chartBaseline=new Map([...opened.archive.entries].filter(([path])=>/^ppt\/charts\/chart\d+\.xml$/.test(path)));
   const snap=(): Snapshot=>({slides:structuredClone(state.opened.deck.slides),entries:new Map(state.opened.archive.entries),size:{...state.opened.deck.size},metaDirty:state.metaDirty});
   const restore=(_s:State,s:Snapshot)=>{opened=state.opened;opened.deck.slides=structuredClone(s.slides);opened.deck.size={...s.size};opened.archive.entries.clear();s.entries.forEach((v,k)=>opened.archive.entries.set(k,v));state.metaDirty=s.metaDirty;normalize()};
   const media=(o:engine.OpenedPptx)=>(part:string)=>{const bytes=o.archive.entries.get(part);if(!bytes)return undefined;const ext=part.split('.').pop();const mime=({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',svg:'image/svg+xml',webp:'image/webp'} as Record<string,string>)[ext??'']??'application/octet-stream';return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`};
@@ -110,6 +112,6 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
       if((!isQuery||/^slides:master-(enter|open|close)$/.test(name))&&result!==null){commandCount++;options.onCommand?.({kind:'command',name,args:JSON.parse(JSON.stringify([...args,{__projectMindReplayAt:at}]))})}
       return remap(result,aliases);
     },
-    save:()=>withReplayContext({seed:`${baseSeed}:save:${commandCount}`,at:0,ordinal:0},()=>engine.savePptx(state.opened)),
+    save:()=>withReplayContext({seed:`${baseSeed}:save:${commandCount}`,at:0,ordinal:0},async()=>synchronizeGeneratedChartWorkbooks(await engine.savePptx(state.opened),chartBaseline)),
   };
 }

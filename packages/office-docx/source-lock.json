@@ -1933,6 +1933,76 @@
       "git_blob_sha1": "a3876b75c193b8d03de694b210140ae742f6f2a8"
     },
     {
+      "path": "packages/cli/src/args.ts",
+      "bytes": 1869,
+      "git_blob_sha1": "eb571a1ce5990f750ec8664f640e746f010be0c9"
+    },
+    {
+      "path": "packages/cli/src/batch.ts",
+      "bytes": 3333,
+      "git_blob_sha1": "ca12540dfa98a437504a36d62c401bdad3f0d88a"
+    },
+    {
+      "path": "packages/cli/src/dom.ts",
+      "bytes": 2892,
+      "git_blob_sha1": "c995dc6c384cd2785a70ef13dd33998e3d61de9b"
+    },
+    {
+      "path": "packages/cli/src/formats/docx-check.ts",
+      "bytes": 12209,
+      "git_blob_sha1": "9b51b0c428f1f1185453ec14bbe7aced67d19a93"
+    },
+    {
+      "path": "packages/cli/src/formats/docx-sections.ts",
+      "bytes": 7327,
+      "git_blob_sha1": "fc89ca62e5dc7901308719b6a858dd04e1ed2f88"
+    },
+    {
+      "path": "packages/cli/src/formats/docx.ts",
+      "bytes": 48234,
+      "git_blob_sha1": "907f5ef691cdccca81420cb274bac46a9b0d57b6"
+    },
+    {
+      "path": "packages/cli/src/formats/image-size.ts",
+      "bytes": 2173,
+      "git_blob_sha1": "751ac3f84e324d02bf3466be4bea6ef4e28510aa"
+    },
+    {
+      "path": "packages/cli/src/formats/image-source.ts",
+      "bytes": 2904,
+      "git_blob_sha1": "6ce4f92eb9a376c2bdc0a862da841689426dc613"
+    },
+    {
+      "path": "packages/cli/src/length-units.ts",
+      "bytes": 666,
+      "git_blob_sha1": "35ca24803a900a148a22c6c3309f26a695c81959"
+    },
+    {
+      "path": "packages/cli/src/op-catalog.ts",
+      "bytes": 5059,
+      "git_blob_sha1": "0fafb14e29ffa24bd34982218218e8acbc5fc187"
+    },
+    {
+      "path": "packages/cli/src/op-errors.ts",
+      "bytes": 3575,
+      "git_blob_sha1": "0c07940f102e62ce6e0211d33c9aecc820f8a177"
+    },
+    {
+      "path": "packages/cli/src/preview.ts",
+      "bytes": 1344,
+      "git_blob_sha1": "42e21f6ac3b2f76d3d7be4cf04e8cbcab3a794cc"
+    },
+    {
+      "path": "packages/cli/src/result.ts",
+      "bytes": 4420,
+      "git_blob_sha1": "cb63302b8d3d366a5ec78836c46920d8b2f36269"
+    },
+    {
+      "path": "packages/cli/src/suggest.ts",
+      "bytes": 2170,
+      "git_blob_sha1": "a99ec9d7861365e7804c721883b2811d03616fe4"
+    },
+    {
       "path": "packages/docx-engine/src/alt-chunk.ts",
       "bytes": 10893,
       "git_blob_sha1": "b810480e6c6b841705d2371936263c987a68ffb9"

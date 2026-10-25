@@ -25,20 +25,29 @@ pub(crate) async fn create<S: BoundSourceStore + BoundFileCommitStore, W: Office
     request: &RequestContext,
     project_id: Option<i64>,
     name: &str,
-    content: &str,
+    content: &Value,
 ) -> AgentResult<Value> {
     validate_agent_file_binary_name(project_id, name)?;
-    if !std::path::Path::new(name)
+    let format = std::path::Path::new(name)
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("docx"))
-        || content.trim().is_empty()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(format.as_str(), "docx" | "xlsx" | "pptx")
+        || !(content.is_object()
+            || format == "docx"
+                && content
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()))
     {
-        return Err(AgentError::new(
-            ErrorCode::InvalidArgument,
-            "Office creation requires a DOCX name and restricted HTML content",
-        ));
+        return Err(AgentError::new(ErrorCode::InvalidArgument,
+            "Office creation requires a supported Office name and structured content (DOCX also accepts HTML)"));
     }
-    if content.len() > 2 * 1024 * 1024 {
+    if serde_json::to_vec(content)
+        .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid Office content"))?
+        .len()
+        > 2 * 1024 * 1024
+    {
         return Err(AgentError::new(
             ErrorCode::BudgetExceeded,
             "Office creation content exceeds 2 MiB",
@@ -66,7 +75,7 @@ pub(crate) async fn create<S: BoundSourceStore + BoundFileCommitStore, W: Office
             .request(
                 &request.request_id,
                 "office.create",
-                "docx",
+                &format,
                 "",
                 OfficePayload::Create(content),
             )

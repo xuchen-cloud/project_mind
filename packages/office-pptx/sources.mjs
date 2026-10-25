@@ -7,7 +7,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const lock = JSON.parse(await readFile(`${root}/source-lock.json`, 'utf8'));
 if (lock.commit !== 'd32d1711f1bf985430757b8c6b3fbddd3831d946') throw new Error('Unexpected GenOffice revision');
 for (const entry of lock.files) {
-  if (!/^(?:packages\/(?:pptx-engine|pptx-render|pptx-ops|docx-engine|electron-utils|ui|i18n|ai-provider|zip-gate|agent-core)\/|apps\/(?:slides)\/|apps\/docs\/src\/renderer\/fonts\/|LICENSE(?:-UNICODE.txt)?$|NOTICE$)/.test(entry.path) || entry.path.includes('..')) throw new Error('Invalid source path');
+  if (!/^(?:packages\/(?:pptx-engine|pptx-render|pptx-ops|pipelines|docx-engine|electron-utils|ui|i18n|ai-provider|zip-gate|agent-core)\/|apps\/(?:slides)\/|apps\/docs\/src\/renderer\/fonts\/|LICENSE(?:-UNICODE.txt)?$|NOTICE$)/.test(entry.path) || entry.path.includes('..')) throw new Error('Invalid source path');
   const destination = `${root}/vendor/${entry.path}`;
   if (process.argv.includes('--fetch')) {
     const response = await fetch(`https://raw.githubusercontent.com/genspark-ai/genoffice/${lock.commit}/${entry.path}`);

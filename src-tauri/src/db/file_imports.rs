@@ -154,8 +154,9 @@ fn import_payload_hash(input: &serde_json::Value) -> AgentResult<String> {
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
-pub(crate) fn agent_file_generated_payload(project_id: Option<i64>, safe_name: &str, content: &str) -> serde_json::Value {
-    serde_json::json!({"projectId":project_id,"safeName":safe_name,"format":"docx","content":content})
+pub(crate) fn agent_file_generated_payload(project_id: Option<i64>, safe_name: &str, content: &(impl serde::Serialize + ?Sized)) -> serde_json::Value {
+    let format = Path::new(safe_name).extension().and_then(|ext| ext.to_str()).unwrap_or("").to_ascii_lowercase();
+    serde_json::json!({"projectId":project_id,"safeName":safe_name,"format":format,"content":content})
 }
 
 const IMPORT_JOURNALS: &str = ".project-mind/file-import-journal";
@@ -340,7 +341,7 @@ impl Database {
     }
     pub(crate) fn agent_file_create_generated_bound(
         &mut self, request: &RequestContext, binding: &WorkspaceBinding,
-        project_id: Option<i64>, safe_name: &str, content: &str, bytes: &[u8],
+        project_id: Option<i64>, safe_name: &str, content: &(impl serde::Serialize + ?Sized), bytes: &[u8],
         fence: &WorkspaceCommitFence,
     ) -> AgentResult<AgentFileCreateResult> {
         let input = AgentFileCreateInput { project_id, safe_name: safe_name.into(), utf8_content: String::new() };

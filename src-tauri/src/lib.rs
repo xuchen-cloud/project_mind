@@ -57,6 +57,8 @@ mod file_source_read;
 mod file_read_commands;
 mod file_office;
 mod file_office_create;
+#[cfg(test)]
+mod office_acceptance_fixture;
 mod office_selection;
 mod office_worker;
 mod office_process;

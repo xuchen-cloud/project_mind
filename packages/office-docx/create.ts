@@ -3,7 +3,8 @@ import { parseHtmlFragment } from './upstream/apps/docs/src/renderer/ai/protocol
 import { pmDocToSavePlan } from './upstream/apps/docs/src/renderer/editor/convert';
 import { DOMParser } from './create-dom';
 import { normalizeDocument } from './schema';
-import { DocxError, type PmJSON } from './types';
+import { createStructured } from './authoring';
+import { DocxError, type CreateContent, type PmJSON } from './types';
 
 export const MAX_CREATE_BYTES = 2 * 1024 * 1024;
 const inline = new Set(['strong', 'b', 'em', 'i', 'u', 's', 'del', 'strike', 'span', 'br']);
@@ -12,8 +13,8 @@ const allowed = new Set([...inline, ...blocks, 'li', 'thead', 'tbody', 'tfoot', 
 const invalid = (message: string): never => { throw new DocxError('INVALID_ARGUMENT', message); };
 
 /** Restricted GenOffice AI HTML; attributes, images, links and active content are refused. */
-export async function create(content: string): Promise<Uint8Array> {
-  if (typeof content !== 'string') invalid('DOCX creation expects restricted HTML text');
+export async function create(content: CreateContent): Promise<Uint8Array> {
+  if (typeof content !== 'string') return createStructured(content);
   if (Buffer.byteLength(content, 'utf8') > MAX_CREATE_BYTES) throw new DocxError('BUDGET_EXCEEDED', 'DOCX creation content exceeds 2 MiB');
   let html = content.trim();
   const fence = /^```(?:html)?\s*([\s\S]*?)```$/.exec(html);

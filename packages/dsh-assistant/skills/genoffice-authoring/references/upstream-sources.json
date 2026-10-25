@@ -1,0 +1,58 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "d32d1711f1bf985430757b8c6b3fbddd3831d946",
+  "license": "Apache-2.0",
+  "adaptedGuides": [
+    "packages/pipelines/src/slides/guides/design.md",
+    "packages/pipelines/src/slides/guides/spec.md"
+  ],
+  "files": [
+    {
+      "path": "skills/genoffice/SKILL.md",
+      "file": "upstream-skill.md",
+      "sha256": "142b821fa570450bea03c3cf504323dfea71cf2c977df2795e13d6e22c0f3e5d",
+      "sourceSha256": "fb61206b7b60fa901f0cdfb9286d066b0a77bab927b3ac4686598f17ee864e55",
+      "adaptation": "Marked reference-only; replaced installation-specific absolute launcher paths with GENOFFICE_INSTALL_ROOT."
+    },
+    {
+      "path": "LICENSE",
+      "file": "LICENSE.genoffice",
+      "sha256": "68e32334df324ef4fc79fad3a26487e5abac36055a484bb6c8d7ecf9d8350885"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/_format.md",
+      "file": "powerpoint-ops-format.md",
+      "sha256": "c357e2dcfe0410e3517b6043b99bb09d1410d9fea5a86ea46af3b890bfb1dd2c"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/deck.md",
+      "file": "powerpoint-ops-deck.md",
+      "sha256": "8bab6db3a000a6dbcd476c973d4dd8c9788a3ff00f54c57df84af044f494b559"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/element.md",
+      "file": "powerpoint-ops-element.md",
+      "sha256": "dcabc13e046512458b4357d9204973743f46585e752617f7514eabe37d03699c"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/insert.md",
+      "file": "powerpoint-ops-insert.md",
+      "sha256": "54e7f9e32e6555ee3d718c2c5eda14dae9a181e9ebfa6a3a9b971941299c3a63"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/slide.md",
+      "file": "powerpoint-ops-slide.md",
+      "sha256": "022df20a67941067a6b80efd199e9dcee6140f967a24eb66b5c4561ca0611129"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/table.md",
+      "file": "powerpoint-ops-table.md",
+      "sha256": "3c3c24c07423b11e3ce4e8aaf771f80ecb21183ec06595acc6f7be108d761d28"
+    },
+    {
+      "path": "packages/pptx-ops/src/prompts/ops/text.md",
+      "file": "powerpoint-ops-text.md",
+      "sha256": "6181e8db98d96c7b2b56920f95593ee305c5f31753d197ac02fd863e854c8234"
+    }
+  ]
+}

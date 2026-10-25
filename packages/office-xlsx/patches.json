@@ -1,8 +1,8 @@
 [
   {
     "destination": "native/engine/src/recalc.rs",
-    "reason": "Typed native recalculation without user-input coercion; legacy input preserved for upstream tests",
-    "sha256": "96d8fa8c26db45df6df47914739c4c6a62e8e7c4a651e425cabc465624945e10",
+    "reason": "Typed native recalculation input and exact evaluated scalar caches; preserve upstream legacy input and display DTOs",
+    "sha256": "eb875d7bd6579a85fb481ec60fbbf1a5b5f5aaf836a395850a8c4ebdbb007411",
     "changes": [
       {
         "at": 1536,
@@ -13,6 +13,11 @@
         "at": 1572,
         "remove": "",
         "insert": "\n    #[serde(default)]\n    pub kind: Option<RecalcKind>,"
+      },
+      {
+        "at": 2321,
+        "remove": "",
+        "insert": ",\n    /// Exact evaluated scalar; display formatting cannot distinguish text\n    /// \"TRUE\" from boolean true or a text result from a numeric format.\n    pub value: serde_json::Value"
       },
       {
         "at": 8524,
@@ -130,6 +135,16 @@
         "insert": ""
       },
       {
+        "at": 11248,
+        "remove": "",
+        "insert": ",\n                    value: raw_value(&entry.model, sheet, row_1, column_1)"
+      },
+      {
+        "at": 21174,
+        "remove": "",
+        "insert": "fn raw_value(model: &Model, sheet: u32, row: i32, column: i32) -> serde_json::Value {\n    use ironcalc::base::cell::CellValue;\n    match model.get_cell_value_by_index(sheet, row, column) {\n        Ok(CellValue::Number(value)) => serde_json::json!(value),\n        Ok(CellValue::String(value)) => serde_json::Value::String(value),\n        Ok(CellValue::Boolean(value)) => serde_json::Value::Bool(value),\n        _ => serde_json::Value::Null,\n    }\n}\n\n"
+      },
+      {
         "at": 22068,
         "remove": "",
         "insert": "\n                kind: None,"
@@ -138,13 +153,18 @@
   },
   {
     "destination": "vendor/packages/xlsx-gateway/src/gateway/xlsx-gateway.ts",
-    "reason": "Include cache-only sheets in the mutation planner; no synthetic cell edit",
-    "sha256": "b4a990d1be2f94d664b9f9ffe7eedc99c1e7455b6562d429ed8a115ddd7e4ae6",
+    "reason": "Include cache-only sheets in the mutation planner and preserve evaluated empty-text caches; no synthetic cell edit",
+    "sha256": "b4042c90f64c181456daea4a43ffa9fc9bd4879ac7387a1b47cffc5460cc700c",
     "changes": [
       {
         "at": 33201,
         "remove": "",
         "insert": "t.sheetName),\n    ...formulaValues.map((sheet) => shee"
+      },
+      {
+        "at": 92976,
+        "remove": "value !== null && value !== undefined && value !== ''",
+        "insert": "typeof value === 'string'"
       }
     ]
   },

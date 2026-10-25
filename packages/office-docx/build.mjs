@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises';
 import { resolve, basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {createHash} from 'node:crypto';
 import './prepare-source.mjs';
 import './extract-web-helpers.mjs';
@@ -32,6 +33,16 @@ for (const [entry, platform] of [['engine', 'node']]) {
     bundle: true, format: 'esm', target: 'es2022', alias, treeShaking: true, metafile: true,
     jsx: 'automatic', logLevel: 'warning', legalComments: 'eof', loader: { '.css': 'empty' }, inject: ['css-escape.ts'],
     plugins: [{ name: 'create-html-dom', setup(build) {
+      build.onResolve({filter:/^(supports-color|bufferutil|utf-8-validate)$/},args=>({path:args.path,namespace:'unavailable-optional'}));
+      build.onLoad({filter:/.*/,namespace:'unavailable-optional'},args=>({contents:`throw new Error(${JSON.stringify('Optional module disabled in the Office worker')});`,loader:'js'}));
+      build.onResolve({filter:/^\.\.?\/dom$/,namespace:'file'}, args=>/[\\/]upstream[\\/]packages[\\/]cli[\\/]src[\\/]/.test(args.importer)?{path:resolve(root,'authoring-dom.ts')}:undefined);
+      build.onResolve({filter:/^\.\/image-source$/,namespace:'file'}, args=>/[\\/]upstream[\\/]packages[\\/]cli[\\/]src[\\/]formats[\\/]/.test(args.importer)?{path:resolve(root,'authoring-image.ts')}:undefined);
+      build.onLoad({filter:/jsdom[\\/]lib[\\/]jsdom[\\/]utils\.js$/},async args=>({contents:(await readFile(args.path,'utf8')).replace('exports.Canvas = require("canvas");','exports.Canvas = null;'),loader:'js'}));
+      // CSSOM's optional cssstyle upgrade relies on sloppy-mode assignment to a
+      // getter-only parentRule. Use its own declared implementation in ESM.
+      build.onLoad({filter:/@acemir[\\/]cssom[\\/]lib[\\/].*\.js$/},async args=>({contents:(await readFile(args.path,'utf8')).replace(/try \{\s*CSSOM\.CSSStyleDeclaration = require\("cssstyle"\)\.CSSStyleDeclaration;\s*\} catch \(e\) \{[\s\S]*?\}/g,'').replace('eval(errorType)', '(errorType === "TypeError" ? TypeError : errorType === "DOMException" ? DOMException : (() => { throw new TypeError("Unsupported CSSOM error constructor"); })())'),loader:'js'}));
+      build.onLoad({filter:/jsdom[\\/]lib[\\/]jsdom[\\/]living[\\/]helpers[\\/]style-rules\.js$/},async args=>({contents:(await readFile(args.path,'utf8')).replace(/fs\.readFileSync\([\s\S]*?\);/,JSON.stringify(await readFile(resolve(root,'node_modules/jsdom/lib/jsdom/browser/default-stylesheet.css'),'utf8'))+';'),loader:'js'}));
+      build.onLoad({filter:/jsdom[\\/]lib[\\/]jsdom[\\/]living[\\/]xhr[\\/]XMLHttpRequest-impl\.js$/},async args=>({contents:(await readFile(args.path,'utf8')).replace(/require\.resolve\("\.\/xhr-sync-worker\.js"\)/g,'"disabled-sync-xhr"'),loader:'js'}));
       build.onLoad({ filter: /[\\/]renderer[\\/]ai[\\/]protocol\.ts$/ }, async args => ({
         contents: `import { DOMParser, Node } from ${JSON.stringify(resolve(root, 'create-dom.ts'))};\n` + await readFile(args.path, 'utf8'),
         loader: 'ts',
@@ -94,7 +105,7 @@ if (diagnostics.length) throw Error(ts.formatDiagnosticsWithColorAndContext(diag
 program.emit();
 await writeFile(resolve(root, 'dist/editor.d.mts'), 'export { mountEditor, mountFullEditor } from "./editor-types";\n');
 await writeFile(resolve(root, 'dist/full-editor.d.mts'), 'export { mountFullEditor } from "./editor-types";\n');
-await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, edit, create, DocxError } from "./types";\n');
+await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, edit, create, catalog, DocxError } from "./types";\n');
 await writeFile(resolve(root, 'dist/editor-shell.css'), await readFile(resolve(root, 'editor-shell.css')));
 // Keep original SDK document rules and discard its unrelated app/ribbon chrome.
 const sdkCssPath = 'apps/docs/src/renderer/styles.css';
@@ -113,6 +124,9 @@ const lockedPaths = new Set(sourceLock.files.map(row => `upstream/${row.path}`))
 for (const input of inputs) if (input.startsWith('upstream/') && !lockedPaths.has(input)) throw Error(`Unpinned source input: ${input}`);
 await writeNotices(root, inputs, sourceLock);
 await writeFile(resolve(root, 'dist/runtime-manifest.json'), JSON.stringify({
-  engine: 'engine.mjs', operations: ['inspect', 'edit', 'create'], createContent: { format: 'restricted-html', maxBytes: 2097152 }, editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
+  engine: 'engine.mjs', operations: ['inspect', 'edit', 'create'], createContent: { format: 'genoffice-html-and-operations', maxBytes: 2097152 }, editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
   notices: 'THIRD-PARTY-NOTICES.txt', sourceCommit: sourceLock.commit,
 }, null, 2) + '\n');
+
+const authoringCatalog=await(await import(pathToFileURL(resolve(root,'dist/engine.mjs')).href)).catalog();
+await writeFile(resolve(root,'dist/authoring-catalog.json'),JSON.stringify(authoringCatalog,null,2)+'\n');
