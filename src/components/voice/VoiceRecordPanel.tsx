@@ -413,7 +413,7 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
         </div> : null}
         {!diarizationQuery.isPending && (!diarizationQuery.data || ["not_started", "failed"].includes(diarizationQuery.data.status)) ? (
           speakerModelQuery.data?.ready ? <Button size="sm" variant="secondary" className="mt-2" disabled={speakerBusy} onClick={() => void startDiarization()}>{speakerBusy ? "提交中…" : diarizationQuery.data?.status === "failed" ? "重试说话人区分" : "开始区分说话人"}</Button>
-            : <p className="mt-2 text-caption text-text-muted">请前往设置 → 语音记录，导入本地说话人模型后开始区分。</p>
+            : <p className="mt-2 text-caption text-text-muted">请前往设置 → 语音记录，下载并启用说话人区分。</p>
         ) : null}
         {speakerError || diarizationQuery.data?.error || diarizationQuery.error || speakerModelQuery.error ? <p role="alert" className="mt-2 text-caption text-danger">{speakerError || diarizationQuery.data?.error || String(diarizationQuery.error ?? speakerModelQuery.error)}</p> : null}
         {diarizationQuery.isError ? <Button size="sm" variant="secondary" onClick={() => void diarizationQuery.refetch()}>重新读取说话人状态</Button> : null}

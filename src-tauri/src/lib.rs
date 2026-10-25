@@ -1731,6 +1731,8 @@ pub fn run() {
             voice::commands::voice_model_status_get,
             voice::commands::voice_diarization_model_status_get,
             voice::commands::voice_diarization_model_import,
+            voice::commands::voice_diarization_model_install,
+            voice::commands::voice_diarization_model_install_status_get,
             voice::commands::voice_diarization_get,
             voice::commands::voice_diarization_start,
             voice::commands::voice_speaker_rename,
