@@ -9,7 +9,7 @@
 | 历史迁移 | 固定版 DSH 存储格式 | 合并旧范围历史与 registry，保留 Session / workspace 身份、归档置顶、任务与回执；原数据保留；中断恢复及冲突拒绝 | 迁移单元测试与真实 DSH 存储恢复；目录移动保留身份 |
 | 原生宿主 | 多范围请求契约、迁移 | 当前解锁 Workspace 唯一常驻 Harness；各范围保留独立 identity / carrier；原生统一启动和回收 | Rust DSH / CLI / Office / schedule 定向验证；真实进程数量与生命周期 |
 | 会话和工具路由 | 原生注册 context、共享 registry | 按真实 Session 归属分配 workspace、CLI lease、Source / Office 权限；列表先过滤后读取冷标题 | 两范围真实 Node 会话与并发；越界、旧请求、凭据与取消隔离 |
-| 产品与规格收口 | 前三包 | 保留 #248 导航、#249 任务加载；更新物理进程描述 | 前端类型、助手 API / 面板 / 任务回归；Standards / Spec 主 agent 自查；集中重启后用户人工界面验收 |
+| 产品与规格收口 | 前三包 | 保留 #248 导航、#249 任务加载；更新物理进程描述 | 前端类型、助手 API / 面板 / 任务回归；Standards / Spec 主 agent 自查；用户授权的集中实机验收 |
 
 非目标：多个主应用 Workspace 同时解锁、替换 DSH Harness、升级依赖、重设计聊天界面、扩大 Project 授权、关闭尚未验收的 #248 / #249。
 
@@ -24,7 +24,7 @@
 
 ## 验证记录
 
-主体实现与自动化验证已完成，正在按用户授权执行实机产品验收；验收发现的问题在本包补测修复，#250 不提前关闭，#248 / #249 仍保留各自验收状态。
+主体实现、自动化验证与下列核心实机场景已完成；实机发现的新建会话问题已在本包补测修复。未执行的实机场景单独注明，#248 / #249 仍保留各自验收状态，#250 的发布按下述边界处理。
 
 | 范围 | 命令与结果 | 证据日志（本机临时日志文件名） |
 | --- | --- | --- |
@@ -37,6 +37,7 @@
 | 迁移与目录变更 | `shared-runtime-migration.test.mjs` 与真实固定版本存储 integration，8 项通过；保留 Session / workspace ID、模型事件、归档置顶、任务 pending / receipts、旧副本与中断恢复 | `mind-migration-complete.log` |
 | 前端 | 10 个相关文件、159 项通过，含原 UI 宿主、生命周期、业务 API、缓存、引用与查询键 | `mind-shared-front-complete.log` |
 | 类型与构建 | `npx tsc --noEmit`、`npx vite build`、UI standards、bundle boundaries 通过；主脚本 225 KiB / 250 KiB；`cargo build --manifest-path src-tauri/Cargo.toml --bin project_mind_alpha --bin mind --quiet` 成功 | `mind-shared-tsc.log`、`mind-shared-vite-build.log`、`mind-shared-ui-standards.log`、`mind-shared-bundle-check.log`、`mind-shared-desktop-build.log` |
+| 最终 UI 回归类型检查 | 新增真实客户端/UI 回归后 `npx tsc --noEmit` 通过；产品源码仅 Node 协议修复，其余有效构建与测试复用 | `mind-shared-final-ui-tsc.log` |
 | 文档与 diff | `git diff --check`、本地链接检查通过。全仓 portable-paths 检查仍被既有文档中的机器路径阻止；与 `c31f0647` 比较，本次修改未新增该类问题 | `mind-shared-portable.log` |
 
 Standards / Spec 两轴均由主 agent 自查，没有启动 review 子 agent。Spec 检查发现的全局事件、共享附件、搜索及会话引用隔离缺口已在本包修复并补测。没有以单范围 mock 替代共享进程测试，也没有重跑仍有效的全量验证。
@@ -51,7 +52,7 @@ Standards / Spec 两轴均由主 agent 自查，没有启动 review 子 agent。
 
 旧的两个 Harness 进程已随旧应用退出回收。生产历史迁移由原生启动流程执行，不在外部脚本中并行修改用户数据；旧范围目录持续保留。
 
-用户可集中验收：打开工作区及两个项目会话、同时发送后只停止其中一个、切换 Tab / 分栏 / 设置后返回、检查既有历史及置顶归档、查看并执行原定时任务。此人工产品验收尚未完成。
+用户已授权主 agent 执行集中实机验收，结果见下节。没有执行任何验收之外的原定时任务，验收模型消息与测试任务均使用无业务数据的固定文本。
 
 ## 实机验收进度
 
@@ -66,7 +67,10 @@ Standards / Spec 两轴均由主 agent 自查，没有启动 review 子 agent。
 - 两项目真实并行执行：项目 A 的 `sleep 120` 与项目 B 的 `sleep 45` 同时归属于同一 Harness PID `6529`；界面只停止 A 后，A 显示 Stopped，A 的命令退出，B 的命令继续，最终显示 Completed 与“验收 B 独立完成”。切换项目、分栏、打开设置没有重启后端。
 - 专用任务在 20:42 自动触发，任务面板回读 lastRunAt 为 20:42、nextRunAt 为次日 20:42；绑定工作区会话中恰有 20:32 手动、20:42 自动两次成功回执。验收后已暂停该测试任务，原 3 个任务保持原状态。
 - 集中退出后应用与 Harness 均回收为 0；重新打开后恢复原 Session ID、模型结果、任务回执、会话置顶及内容 Tab。工作区解锁后仅启动一个新 Harness，迁移没有重复导入。
-- 最后整理验收会话名称时 macOS 锁屏，界面操作工具要求用户手动解锁。核心场景已验证；剩余界面恢复检查与工作区切换/锁定的实机场景尚未完成，不把原生自动化测试记为这些实机结果。
+- macOS 曾锁屏，用户亲自解锁后继续完成恢复检查。“切换 Workspace”入口关闭当前工作区后，旧 Harness `6529` 回收为 0；从最近使用重新打开同一工作区并正常解锁后，仅启动新 Harness `6983`。原会话、两次任务回执恢复，新发送消息返回“#250 恢复验收成功”，没有复用失效的旧绑定。
+- 当前产品界面没有单独的 Workspace Secrets 锁定入口，也没有切换到第二个真实工作区；这两项凭据/generation 边界由原生生命周期测试覆盖，不记作实机点击通过。未通过界面删除或归档用户会话。
+
+实现提交为 `c0c624f`；后续仅补充本节实机验收记录。当前应用保留已解锁的原工作区与一个共享后端，测试定时任务已暂停，没有未完成的验收命令。
 
 ### 后续工作包（不扩张 #250）
 
