@@ -43,9 +43,12 @@ export type Edit =
 export type DocxEdit = Edit;
 /** Reserved host context; this in-memory engine does not read caller file paths. */
 export interface Context { binaryPath?: string; tempRoot?: string }
-export type ErrorCode = 'INVALID_UTF' | 'INVALID_JSON' | 'INVALID_EDIT' | 'UNSUPPORTED_EDIT' | 'READ_ONLY';
+export type ErrorCode = 'INVALID_UTF' | 'INVALID_JSON' | 'INVALID_EDIT' | 'UNSUPPORTED_EDIT' | 'READ_ONLY' | 'INVALID_ARGUMENT' | 'BUDGET_EXCEEDED';
 export class DocxError extends Error {
   constructor(public readonly code: ErrorCode, message: string) { super(message); this.name = 'DocxError'; }
 }
 export declare function inspect(bytes: Uint8Array, context?: Context): Promise<DocxModel>;
 export declare function edit(bytes: Uint8Array, edits: Edit[], context?: Context): Promise<Uint8Array>;
+
+/** Create from restricted HTML, at most 2 MiB UTF-8; unsupported markup is rejected. */
+export declare function create(content: string): Promise<Uint8Array>;

@@ -150,6 +150,7 @@ pub(crate) async fn list<S: BoundSourceStore, W: SourceUtility>(
                         item["contentComplete"] = json!(false);
                         item["contentState"] = json!("unavailable");
                         item["contentReason"] = json!(e.code);
+                        item["contentError"] = json!(e);
                     }
                 }
                 Err(e) => return Err(e),

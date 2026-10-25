@@ -39,6 +39,123 @@ pub(crate) struct FileContentBegin {
     pub length: u64,
     pub content_hash: String,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FileCreateTarget {
+    pub workspace_id: String,
+    pub project_id: Option<i64>,
+    pub safe_name: String,
+}
+impl FileCreateTarget {
+    pub(crate) fn input(&self) -> crate::db::file_imports::AgentFileCreateInput {
+        crate::db::file_imports::AgentFileCreateInput {
+            project_id: self.project_id,
+            safe_name: self.safe_name.clone(),
+            utf8_content: String::new(),
+        }
+    }
+    fn validate(&self) -> AgentResult<()> {
+        crate::db::file_imports::validate_agent_file_binary_name(self.project_id, &self.safe_name)
+    }
+    pub(crate) fn authorize(
+        &self,
+        db: &Database,
+        request: &RequestContext,
+        binding: &crate::agent::models::WorkspaceBinding,
+    ) -> AgentResult<()> {
+        if self.workspace_id != binding.workspace_id {
+            return Err(error(
+                ErrorCode::WorkspaceChanged,
+                "File create Workspace changed",
+            ));
+        }
+        self.validate()?;
+        db.agent_file_create_authorize(request, binding, &self.input())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FileContentCreateBegin {
+    pub create_target: FileCreateTarget,
+    pub length: u64,
+    pub content_hash: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub(crate) enum FileContentBeginInput {
+    Existing(FileContentBegin),
+    Create(FileContentCreateBegin),
+}
+impl FileContentBeginInput {
+    fn validate(&self) -> AgentResult<()> {
+        match self {
+            Self::Existing(input) => input.validate(),
+            Self::Create(input) => {
+                input.create_target.validate()?;
+                if input.length > MAX_CONTENT {
+                    return Err(error(
+                        ErrorCode::BudgetExceeded,
+                        "File upload exceeds 100 MiB",
+                    ));
+                }
+                if !files::valid_hash(&input.content_hash) {
+                    return Err(error(
+                        ErrorCode::InvalidArgument,
+                        "Invalid candidate File hash",
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+    pub(crate) fn authorize(
+        &self,
+        db: &Database,
+        request: &RequestContext,
+        binding: &crate::agent::models::WorkspaceBinding,
+    ) -> AgentResult<()> {
+        match self {
+            Self::Existing(input) => db
+                .file_version_registered_target(request, binding, &input.object)
+                .map(|_| ()),
+            Self::Create(input) => input.create_target.authorize(db, request, binding),
+        }
+    }
+    fn workspace_id(&self) -> &str {
+        match self {
+            Self::Existing(i) => &i.object.workspace_id,
+            Self::Create(i) => &i.create_target.workspace_id,
+        }
+    }
+    fn length(&self) -> u64 {
+        match self {
+            Self::Existing(i) => i.length,
+            Self::Create(i) => i.length,
+        }
+    }
+    fn content_hash(&self) -> &str {
+        match self {
+            Self::Existing(i) => &i.content_hash,
+            Self::Create(i) => &i.content_hash,
+        }
+    }
+    fn matches_update(&self, input: &FileContentUpdate) -> bool {
+        matches!(self, Self::Existing(begin) if input.object == begin.object && input.expected_version_number == begin.expected_version_number && input.expected_content_hash == begin.expected_content_hash)
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FileContentCreate {
+    pub project_id: Option<i64>,
+    pub safe_name: String,
+    pub staged_content_id: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub(crate) enum AgentFileCreateRequest {
+    Text(crate::db::file_imports::AgentFileCreateInput),
+    Staged(FileContentCreate),
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileContentTicket {
@@ -182,7 +299,7 @@ enum Pending {
 struct Manifest {
     schema: u8,
     ticket: FileContentTicket,
-    begin: FileContentBegin,
+    begin: FileContentBeginInput,
     begin_request_id: String,
     caller: String,
     grant_hash: String,
@@ -211,7 +328,7 @@ impl Manifest {
     fn owner(&self, request: &RequestContext) -> AgentResult<()> {
         if self.caller != request.caller.key()
             || self.grant_hash != scope_hash(request)?
-            || self.begin.object.workspace_id != request.binding.workspace_id
+            || self.begin.workspace_id() != request.binding.workspace_id
         {
             return Err(error(
                 ErrorCode::ScopeDenied,
@@ -224,8 +341,8 @@ impl Manifest {
         self.begin.validate().map_err(|_| io("invalid manifest"))?;
         if self.schema != 1
             || self.ticket.staged_content_id != id
-            || self.ticket.length != self.begin.length
-            || self.ticket.content_hash != self.begin.content_hash
+            || self.ticket.length != self.begin.length()
+            || self.ticket.content_hash != self.begin.content_hash()
             || self.created_ms < 0
             || self.created_ms.checked_add(TTL_MS) != Some(self.ticket.expires_at_ms)
             || self.ticket.expires_at_ms > 9_007_199_254_740_991
@@ -518,7 +635,7 @@ impl Stage {
     ) -> AgentResult<()> {
         self.manifest.owner(owner)?;
         self.manifest.alive(now)?;
-        db.file_version_registered_target(request, binding, &self.manifest.begin.object)?;
+        self.manifest.begin.authorize(db, request, binding)?;
         let mut begin_request = owner.clone();
         begin_request.request_id = self.manifest.begin_request_id.clone();
         if db
@@ -697,6 +814,13 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
         request: &RequestContext,
         input: &FileContentBegin,
     ) -> AgentResult<FileContentTicket> {
+        self.begin_input(request, &FileContentBeginInput::Existing(input.clone()))
+    }
+    pub(crate) fn begin_input(
+        &self,
+        request: &RequestContext,
+        input: &FileContentBeginInput,
+    ) -> AgentResult<FileContentTicket> {
         input.validate()?;
         let host = self.store.gui_commit_host(&request.binding)?;
         let db = host.database()?;
@@ -704,34 +828,38 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
             let _permit = host.fence().enter()?;
             return Ok(ticket);
         }
-        let target = db.file_version_registered_target(request, host.binding(), &input.object)?;
-        let metadata = db.file_version_gui_metadata(&GuiFileVersionPrepare {
-            document_id: target.id,
-            project_id: target.project_id,
-            managed_path: target.managed_path.clone(),
-            expected_version_number: input.expected_version_number,
-            source_path: None,
-        })?;
-        let registered = metadata.registered_content_hash.ok_or_else(|| {
-            error(
-                ErrorCode::FileChangedUnregistered,
-                "Register current File bytes before uploading",
-            )
-        })?;
-        if registered != input.expected_content_hash {
-            return Err(error(
-                ErrorCode::RevisionConflict,
-                "File baseline hash changed",
-            ));
-        }
-        files::relative(host.root(), Path::new(&target.managed_path)).map_err(io)?;
-        if files::checksum(Path::new(&target.managed_path)).map_err(io)?
-            != input.expected_content_hash
-        {
-            return Err(error(
-                ErrorCode::FileChangedUnregistered,
-                "File bytes differ from the registered baseline",
-            ));
+        input.authorize(&db, request, host.binding())?;
+        if let FileContentBeginInput::Existing(input) = input {
+            let target =
+                db.file_version_registered_target(request, host.binding(), &input.object)?;
+            let metadata = db.file_version_gui_metadata(&GuiFileVersionPrepare {
+                document_id: target.id,
+                project_id: target.project_id,
+                managed_path: target.managed_path.clone(),
+                expected_version_number: input.expected_version_number,
+                source_path: None,
+            })?;
+            let registered = metadata.registered_content_hash.ok_or_else(|| {
+                error(
+                    ErrorCode::FileChangedUnregistered,
+                    "Register current File bytes before uploading",
+                )
+            })?;
+            if registered != input.expected_content_hash {
+                return Err(error(
+                    ErrorCode::RevisionConflict,
+                    "File baseline hash changed",
+                ));
+            }
+            files::relative(host.root(), Path::new(&target.managed_path)).map_err(io)?;
+            if files::checksum(Path::new(&target.managed_path)).map_err(io)?
+                != input.expected_content_hash
+            {
+                return Err(error(
+                    ErrorCode::FileChangedUnregistered,
+                    "File bytes differ from the registered baseline",
+                ));
+            }
         }
         let now = self.now()?;
         let _permit = host.fence().enter()?;
@@ -805,8 +933,8 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
         let lock = readonly_lock(&directory.join("stage.lock"))?;
         let ticket = FileContentTicket {
             staged_content_id: id,
-            length: input.length,
-            content_hash: input.content_hash.clone(),
+            length: input.length(),
+            content_hash: input.content_hash().to_owned(),
             expires_at_ms: now + TTL_MS,
         };
         let mut stage = Stage {
@@ -1149,6 +1277,138 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
     ) -> AgentResult<FileVersionCommitResult> {
         self.update_owned(request, input, true)
     }
+    /// Consume a create-target ticket through the native importer. A receipt
+    /// is checked before opening the temporary stage so replay survives expiry.
+    pub(crate) fn create(
+        &self,
+        request: &RequestContext,
+        input: &FileContentCreate,
+    ) -> AgentResult<crate::db::file_imports::AgentFileCreateResult> {
+        if !valid_stage_id(&input.staged_content_id) {
+            return Err(error(
+                ErrorCode::InvalidArgument,
+                "Invalid File create stage",
+            ));
+        }
+        let host = self.store.gui_commit_host(&request.binding)?;
+        let mut db = host.database()?;
+        let target = FileCreateTarget {
+            workspace_id: request.binding.workspace_id.clone(),
+            project_id: input.project_id,
+            safe_name: input.safe_name.clone(),
+        };
+        target.authorize(&db, request, host.binding())?;
+        let payload = serde_json::to_value(input).map_err(io)?;
+        if let Some(previous) = db.agent_operation_replay(
+            &request.caller.key(),
+            &request.request_id,
+            "file.create",
+            &payload,
+        )? {
+            let _permit = host.fence().enter()?;
+            return Ok(previous);
+        }
+        let opened = Stage::open(host.root(), &input.staged_content_id);
+        // Another commit may finish while this caller waits for the stage lock.
+        if let Some(previous) = db.agent_operation_replay(
+            &request.caller.key(),
+            &request.request_id,
+            "file.create",
+            &payload,
+        )? {
+            let _permit = host.fence().enter()?;
+            return Ok(previous);
+        }
+        let mut stage = opened?;
+        stage.check(&db, request, host.binding(), self.now()?)?;
+        let FileContentBeginInput::Create(begin) = &stage.manifest.begin else {
+            return Err(error(
+                ErrorCode::InvalidArgument,
+                "File create requires a create-target stage",
+            ));
+        };
+        if begin.create_target.project_id != input.project_id
+            || begin.create_target.safe_name != input.safe_name
+        {
+            return Err(error(
+                ErrorCode::ScopeDenied,
+                "File create target differs from upload target",
+            ));
+        }
+        if stage.manifest.retired
+            || stage
+                .manifest
+                .commit_request_id
+                .as_ref()
+                .is_some_and(|id| id != &request.request_id)
+        {
+            return Err(error(
+                ErrorCode::IdempotencyConflict,
+                "File create stage was consumed by another request",
+            ));
+        }
+        let blob = stage
+            .manifest
+            .assembled
+            .as_ref()
+            .ok_or_else(|| {
+                error(
+                    ErrorCode::SourceNotReady,
+                    "Complete the File upload before creating",
+                )
+            })?
+            .clone();
+        verify_blob(&stage.directory, &blob)?;
+        let candidate =
+            crate::source_file_snapshot::open_regular(&stage.directory.join(&blob.name))?;
+        if files::identity(&candidate).map_err(io)? != blob.identity {
+            return Err(io("candidate ownership changed"));
+        }
+        let mut bytes = Vec::new();
+        candidate
+            .take(MAX_CONTENT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(io)?;
+        if bytes.len() as u64 != blob.len || hash(&bytes) != blob.hash {
+            return Err(io("candidate changed"));
+        }
+        {
+            let _permit = host.fence().enter()?;
+            stage.manifest.alive(self.now()?)?;
+            stage.manifest.commit_request_id = Some(request.request_id.clone());
+            stage.publish()?;
+        }
+        let before = db.committed_change_watermark()?;
+        let result = db.agent_file_create_candidate_bound(
+            request,
+            host.binding(),
+            &target.input(),
+            &bytes,
+            &payload,
+            host.fence(),
+        );
+        if result.is_ok() {
+            stage.manifest.retired = true;
+            if let Err(error) = stage.publish().and_then(|_| cleanup_blobs(&stage)) {
+                eprintln!("Created File upload cleanup pending: {}", error.message);
+            }
+        }
+        let changes = db
+            .committed_changes_since(host.binding(), &request.request_id, before)
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "File create notification capture pending: {}",
+                    error.message
+                );
+                None
+            });
+        drop(stage);
+        drop(db);
+        if let Some(changes) = changes {
+            self.store.publish_committed(changes);
+        }
+        result
+    }
     pub(crate) fn validate_output_stage(
         &self,
         request: &RequestContext,
@@ -1160,10 +1420,7 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
         let db = host.database()?;
         let stage = Stage::open(host.root(), &input.staged_content_id)?;
         stage.check_owned(&db, request, host.binding(), self.now()?, owner)?;
-        if input.object != stage.manifest.begin.object
-            || input.expected_version_number != stage.manifest.begin.expected_version_number
-            || input.expected_content_hash != stage.manifest.begin.expected_content_hash
-        {
+        if !stage.manifest.begin.matches_update(input) {
             return Err(error(
                 ErrorCode::ScopeDenied,
                 "Upload belongs to a different File baseline",
@@ -1229,10 +1486,7 @@ impl<'a, S: BoundFileCommitStore, C: FileContentClock> FileContentService<'a, S,
             let _permit = host.fence().enter()?;
             stage.recover_receipted(&db)?;
         }
-        if input.object != stage.manifest.begin.object
-            || input.expected_version_number != stage.manifest.begin.expected_version_number
-            || input.expected_content_hash != stage.manifest.begin.expected_content_hash
-        {
+        if !stage.manifest.begin.matches_update(input) {
             return Err(error(
                 ErrorCode::ScopeDenied,
                 "Upload belongs to a different File baseline",
@@ -1388,7 +1642,7 @@ fn sweep_locked(root: &Path, workspace_id: &str, now: i64) -> AgentResult<()> {
                 Err(e) if e.code == ErrorCode::StagedContentExpired => return Ok(()),
                 Err(_) => return Ok(()),
             };
-            if stage.manifest.begin.object.workspace_id != workspace_id {
+            if stage.manifest.begin.workspace_id() != workspace_id {
                 return Ok(());
             }
             if stage.manifest.retired || stage.manifest.alive(now).is_err() {

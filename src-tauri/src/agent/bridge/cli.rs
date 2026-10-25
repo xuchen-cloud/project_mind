@@ -36,6 +36,7 @@ struct Options {
     budget_chars: Option<usize>,
     request_id: Option<String>,
     input_file: Option<String>,
+    out: Option<String>,
     patch_file: Option<String>,
     body_file: Option<String>,
     name: Option<String>,
@@ -98,7 +99,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             | "--body-file" | "--name" | "--title" | "--priority" | "--due-date"
             | "--id" | "--version" | "--base-revision" | "--source-file"
             | "--expected-version" | "--expected-hash" | "--revision" | "--cursor"
-            | "--kind" | "--direction" | "--limit") {
+            | "--kind" | "--direction" | "--limit" | "--out") {
             return Err(AgentError::new(ErrorCode::InvalidArgument, format!("Unknown option: {flag}")));
         }
         let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing option value"))?;
@@ -118,6 +119,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
                 options.budget_chars = Some(budget);
             }
             "--request-id" if options.request_id.is_none() && !value.is_empty() => options.request_id = Some(value.clone()),
+            "--out" if options.out.is_none() => options.out = Some(value.clone()),
             "--input-file" if options.input_file.is_none() => options.input_file = Some(value.clone()),
             "--patch-file" if options.patch_file.is_none() => options.patch_file = Some(value.clone()),
             "--body-file" if options.body_file.is_none() => options.body_file = Some(value.clone()),
@@ -145,7 +147,7 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             "--direction" if options.direction.is_none() => options.direction = Some(value.clone()),
             "--limit" if options.limit.is_none() => {
                 let limit = value.parse::<usize>().map_err(|_| invalid("Invalid reference limit"))?;
-                if !(1..=50).contains(&limit) { return Err(invalid("Invalid reference limit")); }
+                if limit > 50 { return Err(invalid("Invalid reference limit")); }
                 options.limit = Some(limit);
             }
             _ => return Err(invalid("Unknown or duplicate option")),
@@ -374,6 +376,7 @@ fn record_get_params(options: &Options, record_id: i64, scope: Scope, binding: &
 }
 
 fn reference_list_identity(options: &Options) -> AgentResult<(i64, Scope, &str, &str)> {
+    if options.limit == Some(0) { return Err(invalid("Invalid reference limit")); }
     if options.query.is_some() { return Err(invalid("reference list does not accept --query")); }
     if options.cursor.as_deref().is_some_and(|value| value.is_empty() || value.len() > 2048) {
         return Err(invalid("Invalid reference cursor"));
@@ -558,6 +561,8 @@ fn run_with_bridge_call(
         ["record", "versions", "get", ..] => ("record.versions.get", &args[3..], None),
         ["record", "versions", "compare", ..] => ("record.versions.compare", &args[3..], None),
         ["todo", "get", ..] => ("todo.get", &args[2..], None),
+        ["file", "bytes", "read", ..] => ("file.bytes.read", &args[3..], None),
+        ["file", "download", ..] => ("file.bytes.read", &args[2..], None),
         ["file", "list", ..] => ("file.list", &args[2..], None),
         ["session", "list", ..] => ("session.list", &args[2..], None),
         ["schedule", "list", ..] => ("schedule.list", &args[2..], None),
@@ -626,10 +631,13 @@ fn run_with_bridge_call(
     let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
+        let inventory = matches!(command, "file.list" | "record.list" | "todo.list");
+        if options.out.is_some() && command != "file.bytes.read" { return Err(invalid("--out is only supported by file download")); }
+        if command == "file.bytes.read" && options.out.is_none() { return Err(invalid("--out is required for file download")); }
         if restore_flags && command != "record.restore" {
             return Err(invalid("--version and --base-revision are only supported by record restore"));
         }
-        if file_update_flags && command != "file.update" {
+        if file_update_flags && command != "file.update" && !(command == "file.create" && options.source_file.is_some() && options.expected_hash.is_none() && options.expected_version.is_none()) {
             return Err(invalid("--source-file and expected baseline options are only supported by file update"));
         }
         if options.object_id.is_some() && !matches!(command, "record.restore" | "file.update" | "reference.list") {
@@ -638,10 +646,10 @@ fn run_with_bridge_call(
         if options.revision.is_some() && command != "record.get" {
             return Err(invalid("--revision is only supported by record get"));
         }
-        if options.cursor.is_some() && !matches!(command, "record.get" | "reference.list") {
+        if options.cursor.is_some() && !matches!(command, "record.get" | "reference.list") && !inventory {
             return Err(invalid("--cursor is only supported by record get and reference list"));
         }
-        if (options.kind.is_some() || options.direction.is_some() || options.limit.is_some()) && command != "reference.list" {
+        if (options.kind.is_some() || options.direction.is_some() || (options.limit.is_some() && !inventory)) && command != "reference.list" {
             return Err(invalid("--kind, --direction and --limit are only supported by reference list"));
         }
         if options.input_file.is_some() && (restore_flags || file_update_flags || options.object_id.is_some()) {
@@ -664,9 +672,24 @@ fn run_with_bridge_call(
             && (options.name.is_some() || options.title.is_some() || options.priority.is_some() || options.due_date.is_some()) {
             return Err(invalid("Creation options cannot accompany --input-file"));
         }
-        if matches!(command, "file.create" | "todo.create" | "record.create") && options.body_file.is_none()
+        if matches!(command, "file.create" | "todo.create" | "record.create") && options.body_file.is_none() && options.source_file.is_none()
             && (options.name.is_some() || options.title.is_some() || options.priority.is_some() || options.due_date.is_some()) {
             return Err(invalid("--body-file is required with creation options"));
+        }
+        if command == "file.create" && options.source_file.is_some() {
+            if options.input_file.is_some() || options.body_file.is_some() || options.patch_file.is_some() {
+                return Err(invalid("--source-file cannot be combined with other input files"));
+            }
+            let scope = scoped(&options)?;
+            let project = match scope { Scope::Project { project_id } => Some(project_id), Scope::Workspace => None };
+            let name = options.name.as_deref().ok_or_else(|| invalid("--name is required for binary file create"))?;
+            if options.query.is_some() || options.budget_chars.is_some() { return Err(invalid("Binary file create does not accept query or budget")); }
+            request_id = stable_request_id(&options)?.to_owned();
+            let bytes = cli_upload::read_file(options.source_file.as_deref().expect("source"))?;
+            let client = BridgeClient::discover(connection)?;
+            let binding = client.connect(connection, workspace, &request_id)?;
+            let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
+            return cli_upload::upload_create(&transport, json!({"workspaceId":binding.workspace_id,"projectId":project,"safeName":name}), &bytes, &request_id);
         }
         if command == "file.upload" {
             reject_scope_options(&options)?;
@@ -675,12 +698,19 @@ fn run_with_bridge_call(
             if target_path == "-" && body_path == "-" { return Err(invalid("Target JSON and body cannot both use stdin")); }
             request_id = options.request_id.clone().ok_or_else(|| invalid("--request-id is required for file upload"))?;
             if request_id.is_empty() || request_id.len() > 128 { return Err(invalid("Invalid File upload request ID")); }
-            let target = cli_upload::decode_target(read_input(target_path)?)?;
+            let target_json = read_input(target_path)?;
+            let create_target = target_json.get("createTarget").cloned();
+            if create_target.is_some() && target_json.as_object().is_none_or(|v| v.len() != 1) {
+                return Err(invalid("Create upload target accepts only createTarget"));
+            }
+            let target = if create_target.is_none() { Some(cli_upload::decode_target(target_json)?) } else { None };
             let bytes = cli_upload::read_file(body_path)?;
             let client = BridgeClient::discover(connection)?;
             let binding = client.connect(connection, workspace, &request_id)?;
             let transport = cli_upload::LiveTransport { client: &client, grant_id: connection, binding: &binding };
-            return cli_upload::upload(&transport, target, &bytes, &request_id);
+            return if let Some(create_target) = create_target {
+                cli_upload::upload_create(&transport, create_target, &bytes, &request_id)
+            } else { cli_upload::upload(&transport, target.expect("existing target"), &bytes, &request_id) };
         }
         if command == "file.update" && (options.object_id.is_some() || file_update_flags) {
             if options.body_file.is_some() || options.patch_file.is_some() {
@@ -753,6 +783,24 @@ fn run_with_bridge_call(
                 }
                 read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
             }
+            "file.list" | "record.list" | "todo.list" => {
+                if options.input_file.is_none() && options.project.is_none() && !options.workspace_scope {
+                    return Err(invalid("--input-file is required unless list shorthand supplies --project or --workspace-scope"));
+                }
+                if let Some(path) = options.input_file.as_deref() {
+                    if options.project.is_some() || options.workspace_scope || options.query.is_some()
+                        || options.limit.is_some() || options.cursor.is_some() || options.budget_chars.is_some() {
+                        return Err(invalid("Shorthand scope, query, cursor and limit options cannot accompany --input-file"));
+                    }
+                    read_input(path)?
+                } else {
+                    if options.cursor.as_ref().is_some_and(|v| v.len() > 2048) { return Err(invalid("Invalid list cursor")); }
+                    let mut params = json!({"scope":scoped(&options)?,"limit":options.limit.unwrap_or(20),
+                        "cursor":options.cursor,"budgetChars":options.budget_chars.unwrap_or(4000)});
+                    if let Some(query) = &options.query { params["titleQuery"] = json!(query); }
+                    params
+                }
+            }
             "file.create" if options.body_file.is_some() => file_create_params(&options)?,
             "todo.create" if options.body_file.is_some() => todo_create_params(&options)?,
             "record.create" if options.body_file.is_some() => record_create_params(&options)?,
@@ -780,9 +828,11 @@ fn run_with_bridge_call(
                     let params = read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?;
                     if options.dry_run { preview_create_params(params, options.budget_chars)? } else { params }
                 } else {
+                    let source = options.patch_file.as_deref().or(options.input_file.as_deref())
+                        .ok_or_else(|| AgentError::new(ErrorCode::InvalidArgument,
+                            format!("--input-file is required for {command}; use mind {} --help for its JSON input contract", command.replace('.', " "))))?;
                     reject_scope_options(&options)?;
-                    read_input(options.patch_file.as_deref().or(options.input_file.as_deref())
-                        .ok_or_else(|| invalid("--input-file is required"))?)?
+                    read_input(source)?
                 }
             }
         };
@@ -804,6 +854,9 @@ fn run_with_bridge_call(
         if command == "doctor" {
             return Ok(doctor_data(workspace, data, options.verbose));
         }
+        if command == "file.bytes.read" {
+            return cli_upload::save_download(data, options.out.as_deref().expect("output path"));
+        }
         Ok(data)
     })();
     response(request_id, result)
@@ -813,6 +866,36 @@ fn run_with_bridge_call(
 mod tests {
     use super::*;
     fn invoke(args: &[&str]) -> CliOutput { run(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>()) }
+    #[test]
+    fn inventory_shorthand_and_json_use_identical_registered_contracts() {
+        for entity in ["file", "record", "todo"] {
+            let args = [entity,"list","--workspace-scope","--limit","7","--cursor","next",
+                "--workspace","/tmp","--connection","0123456789abcdef0123456789abcdef","--json"]
+                .map(str::to_owned);
+            let out = run_with_bridge_call(&args, |_,_,method,params,_| {
+                assert_eq!(method, format!("{entity}.list"));
+                assert_eq!(params["scope"], json!({"kind":"workspace"}));
+                assert_eq!(params["limit"], 7);
+                assert_eq!(params["cursor"], "next");
+                Ok(json!({}))
+            });
+            assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        }
+    }
+    #[test]
+    fn download_writes_verified_bytes_and_omits_base64() {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("result.docx");
+        let bytes = b"fixed binary bytes";
+        let data = json!({"base64":base64::engine::general_purpose::STANDARD.encode(bytes),
+            "byteLength":bytes.len(),"contentHash":format!("sha256:{:x}",Sha256::digest(bytes)),"mime":"application/octet-stream"});
+        let saved = cli_upload::save_download(data.clone(), path.to_str().unwrap()).unwrap();
+        assert!(saved.get("base64").is_none());
+        assert_eq!(std::fs::read(&path).unwrap(),bytes);
+        assert_eq!(cli_upload::save_download(data,path.to_str().unwrap()).unwrap_err().code,ErrorCode::IoFailed);
+    }
     #[test]
     fn schedule_commands_publish_help_and_exact_schema_without_connecting() {
         for verb in ["list", "create", "update", "delete", "run"] {

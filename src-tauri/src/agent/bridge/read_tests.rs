@@ -28,6 +28,22 @@ const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
 const GRANT: &str = "0123456789abcdef0123456789abcdef";
 const EVIDENCE: &str = "Bridge File evidence";
 
+#[tokio::test]
+async fn binary_file_read_pins_hash_and_rejects_foreign_ownership() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let f = Fixture::new();
+    let versions = f.read("bytes-head", "file.versions.list", json!({"object":f.file}), &TextUtility::immediate()).await.unwrap();
+    let input = json!({"object":f.file,"versionNumber":1,"expectedContentHash":versions["currentContentHash"]});
+    let bytes = f.read("bytes", "file.bytes.read", input.clone(), &TextUtility::immediate()).await.unwrap();
+    assert_eq!(STANDARD.decode(bytes["base64"].as_str().unwrap()).unwrap(), EVIDENCE.as_bytes());
+    assert_eq!(bytes["byteLength"], EVIDENCE.len());
+    assert_eq!(bytes["contentHash"], versions["currentContentHash"]);
+    let mut wrong = input.clone(); wrong["expectedContentHash"] = json!(format!("sha256:{}", "0".repeat(64)));
+    assert_eq!(f.read("wrong-bytes", "file.bytes.read", wrong, &TextUtility::immediate()).await.unwrap_err().code, ErrorCode::SourceChanged);
+    let mut foreign = input; foreign["object"]["scope"] = json!({"kind":"project","projectId":f.other_project_id});
+    assert_eq!(f.read("foreign-bytes", "file.bytes.read", foreign, &TextUtility::immediate()).await.unwrap_err().code, ErrorCode::ScopeDenied);
+}
+
 struct Store {
     binding: Mutex<WorkspaceBinding>,
     db: Mutex<Database>,

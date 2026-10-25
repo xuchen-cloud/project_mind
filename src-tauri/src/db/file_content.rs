@@ -6,7 +6,7 @@ use crate::{
         errors::{AgentError, AgentResult, ErrorCode},
         models::WorkspaceBinding,
     },
-    file_content::{FileContentBegin, FileContentTicket},
+    file_content::{FileContentBeginInput, FileContentTicket},
 };
 use rusqlite::{params, OptionalExtension};
 impl Database {
@@ -14,9 +14,9 @@ impl Database {
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
-        input: &FileContentBegin,
+        input: &FileContentBeginInput,
     ) -> AgentResult<Option<FileContentTicket>> {
-        self.file_version_registered_target(request, binding, &input.object)?;
+        input.authorize(self, request, binding)?;
         self.agent_operation_replay(
             &request.caller.key(),
             &request.request_id,
@@ -28,10 +28,10 @@ impl Database {
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
-        input: &FileContentBegin,
+        input: &FileContentBeginInput,
         ticket: &FileContentTicket,
     ) -> AgentResult<FileContentTicket> {
-        self.file_version_registered_target(request, binding, &input.object)?;
+        input.authorize(self, request, binding)?;
         self.agent_atomic_operation(
             &request.caller.key(),
             &request.request_id,
@@ -47,8 +47,29 @@ impl Database {
 
 pub(crate) fn check_transaction(
     tx: &rusqlite::Transaction<'_>,
-    input: &FileContentBegin,
+    input: &FileContentBeginInput,
 ) -> AgentResult<()> {
+    let input = match input {
+        FileContentBeginInput::Existing(input) => input,
+        FileContentBeginInput::Create(input) => {
+            if let Some(project_id) = input.create_target.project_id {
+                let live: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND is_archived=0)",
+                        [project_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(io_error)?;
+                if !live {
+                    return Err(AgentError::new(
+                        ErrorCode::ScopeDenied,
+                        "File create Project is unavailable",
+                    ));
+                }
+            }
+            return Ok(());
+        }
+    };
     let project = super::file_scope::owner(&input.object.scope);
     let id: i64 = input
         .object

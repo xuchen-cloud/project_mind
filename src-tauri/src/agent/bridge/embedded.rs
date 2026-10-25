@@ -228,6 +228,15 @@ pub(crate) fn native_workspace_request(
     workspace_request_with_credentials(db, binding, request_id, &NativeCredentials)
 }
 
+/// Office creation uses the same persistent caller as this Project's supplied
+/// CLI binding, so its creation receipt can be recovered after a runtime restart.
+pub(crate) fn native_project_request(
+    db: &Database, binding: &WorkspaceBinding, project_id: i64, request_id: &str,
+) -> AgentResult<crate::agent::access::RequestContext> {
+    let (id, token) = ensure_grant(db, binding, Some(project_id), &NativeCredentials)?;
+    db.agent_connection_authenticate(binding, &id, &token, request_id)
+}
+
 fn workspace_request_with_credentials(
     db: &Database,
     binding: &WorkspaceBinding,

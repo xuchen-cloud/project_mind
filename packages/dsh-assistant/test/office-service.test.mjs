@@ -89,3 +89,26 @@ test('shared Office tools dispatch both registered scopes and reject unknown Ses
  assert.deepEqual(h.requests.map(({payload})=>payload.sessionId),['workspace-session','project-session','workspace-session']);
  assert.equal(checked.length,4);
 });
+
+test('Office creation uses the real writable Session, stable request and native creation result',async()=>{
+ const h=harness();
+ h.ctx.get=()=>({resolve:()=>({mode:'workspace-write',workspaceRoot:'/project'})});
+ await installOfficeService(h.ctx,{kind:'project',directory:'/project'},h.bridge);
+ const exec={agent:{session:{id:'actual'}},callId:'different-execution-id',signal:new AbortController().signal};
+ const result=await h.tools.get('file_office_create').execute({name:'中文报告.docx',content:'<h1>报告</h1><p>正文</p>',request_id:'stable-create'},exec);
+ assert.deepEqual(h.requests[0].payload,{operation:'officeCreate',sessionId:'actual',requestId:'stable-create',mode:'workspace-write',projectId:null,name:'中文报告.docx',content:'<h1>报告</h1><p>正文</p>'});
+ assert.equal(result.model.assets,undefined);
+ assert.deepEqual(result.model.nodes,[{id:'p0',text:'原文'}]);
+ h.ctx.get=()=>({resolve:()=>({mode:'read-only',workspaceRoot:'/project'})});
+ await assert.rejects(h.tools.get('file_office_create').execute({name:'x.docx',content:'<p>x</p>',request_id:'read-only'},exec),/只读/);
+ assert.equal(h.requests.length,1);
+});
+
+test('Office inspection accepts an exact native source reference and rejects ambiguous input',async()=>{
+ const h=harness();await installOfficeService(h.ctx,{directory:'/project'},h.bridge);
+ const tool=h.tools.get('file_office_inspect'),exec={agent:{session:{id:'actual'}},callId:'fixed-read',signal:new AbortController().signal};
+ await tool.execute({source_ref:officeSourceRef},exec);
+ assert.deepEqual(h.requests[0].payload,{operation:'officeInspect',sessionId:'actual',sourceRef:officeSourceRef});
+ for(const args of [{},{file_path:'work.docx',source_ref:officeSourceRef}])await assert.rejects(tool.execute(args,exec),/exactly one/);
+ assert.equal(h.requests.length,1);
+});

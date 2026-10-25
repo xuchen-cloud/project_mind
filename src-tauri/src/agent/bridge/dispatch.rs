@@ -124,7 +124,7 @@ where
         | "todo.list"
         | "file.versions.list"
         | "file.versions.get"
-        | "file.source.read" => {
+        | "file.source.read" | "file.bytes.read" => {
             return super::object_reads::execute(
                 &connection,
                 &request,
@@ -228,7 +228,7 @@ impl BridgeHandler for AppBridge {
             let label = match input.method.as_str() {
                 "context.get" => Some("context.get"),
                 "source.search" => Some("source.search"),
-                "source.read" | "file.source.read" => Some("source.read"),
+                "source.read" | "file.source.read" | "file.bytes.read" => Some("source.read"),
                 "file.create" | "file.patch" | "file.update" | "file.version.restore" |
                 "record.create" | "record.patch" | "record.restore" | "todo.create" | "todo.update" => Some("output.commit"),
                 _ => None,

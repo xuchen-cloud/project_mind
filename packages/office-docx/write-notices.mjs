@@ -1,5 +1,6 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 export async function writeNotices(root, inputs, lock) {
   const pieces = [`Project Mind Office DOCX\nGenOffice ${lock.repository}@${lock.commit}\nUnmodified upstream public sources; Project Mind adapters are separate.\n`];
@@ -20,6 +21,15 @@ export async function writeNotices(root, inputs, lock) {
     const name=pkg.name;
     pieces.push(`=== ${name}@${pkg.version} (${pkg.license ?? 'see license text'}) ===`);
     const files = (await readdir(dir)).filter(name => /^(licen[sc]e|notice|copying)([.-]|$)/i.test(name)).sort();
+    // boolbase's 1.0.0 tarball declares ISC but omits its license file.
+    // Preserve the upstream text from this immutable repository revision.
+    if (!files.length && name === 'boolbase' && pkg.version === '1.0.0') {
+      const source = 'https://github.com/fb55/boolbase/blob/54811f01c797a6bb1c263183ae90b7dd627e0638/LICENSE';
+      const license = await readFile(resolve(root, 'licenses/boolbase-1.0.0-LICENSE'), 'utf8');
+      if (createHash('sha256').update(license).digest('hex') !== 'cdf4d87ae0a6c160227263bf4e39a0a10e30e89ae7256e0f7ac7bde0836552c6') throw Error('boolbase license provenance mismatch');
+      pieces.push(`--- ${source} ---\n${license}`);
+      continue;
+    }
     // isarray@1.0.0 publishes its complete MIT text inside README.md.
     if (!files.length && name === 'isarray') {
       const readme = await readFile(resolve(dir, 'README.md'), 'utf8');

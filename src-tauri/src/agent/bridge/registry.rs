@@ -17,8 +17,7 @@ use crate::{
     },
     agent::bridge::record_writes::{ConnectionRecordCreate, MutationInput, RecordCreatePreviewInput},
     db::agent_record_withdrawals::RecordRestoreInput as CreatedRecordRestoreInput,
-    db::file_imports::AgentFileCreateInput,
-    file_content::{FileContentBegin, FileContentUpdate},
+    file_content::{FileContentBeginInput, FileContentUpdate, AgentFileCreateRequest},
     file_text_patch::FileTextPatch,
     file_version_restore::FileVersionRestore,
     knowledge_service::{KnowledgeGetInput, KnowledgeSearchInput},
@@ -160,6 +159,12 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             parameters: serde_json::to_value(schema_for!(FileVersionsGetInput)).expect("static schema"),
         },
         RegisteredMethod {
+            method: "file.bytes.read",
+            description: "Download exact binary bytes of an authorized retained File version (up to 100 MiB). Requires source.read and explicit versionNumber/expectedContentHash. Use mind file download --out for local byte verification without putting base64 in model context.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(crate::db::project_directory_files::FileBytesInput)).expect("static schema"),
+        },
+        RegisteredMethod {
             method: "file.source.read",
             description: "Read original UTF-8 bytes of an explicit registered File version with source.read. Version number and optional hash bind the read; cursor and budgetChars page the exact content.",
             read_only: true,
@@ -251,9 +256,9 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "file.create",
-            description: "Create one UTF-8 File in an authorized Project with content.create. Supply safeName, source text and a stable requestId; the native File importer owns paths and versions.",
+            description: "Create a text or fully staged binary File in an authorized Project or Workspace with content.create. Supply safeName, source text or stagedContentId, and a stable requestId; the native File importer owns paths and versions.",
             read_only: false,
-            parameters: serde_json::to_value(schema_for!(MutationInput<AgentFileCreateInput>)).expect("static schema"),
+            parameters: serde_json::to_value(schema_for!(MutationInput<AgentFileCreateRequest>)).expect("static schema"),
         },
         RegisteredMethod {
             method: "file.patch",
@@ -275,9 +280,9 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "file.content.begin",
-            description: "Begin server-owned staging of bounded replacement File bytes. Supply expected version and hashes, exact byte length and stable requestId; this does not commit a File version.",
+            description: "Begin server-owned staging of File bytes up to 100 MiB. Supply an existing File baseline or explicit createTarget (content.create for new Files, file.update for existing Files), exact byte length, hash and stable requestId; this does not commit a File version.",
             read_only: false,
-            parameters: serde_json::to_value(schema_for!(MutationInput<FileContentBegin>)).expect("static schema"),
+            parameters: serde_json::to_value(schema_for!(MutationInput<FileContentBeginInput>)).expect("static schema"),
         },
         RegisteredMethod {
             method: "file.content.chunk",
@@ -287,7 +292,7 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "file.content.complete",
-            description: "Verify the staged File length and hash, making the ticket ready for file.update. This does not commit a version; supply stable requestId.",
+            description: "Verify the staged File length and hash, making the ticket ready for file.create or file.update. This does not commit a version; supply stable requestId.",
             read_only: false,
             parameters: serde_json::to_value(schema_for!(MutationInput<FileContentIdInput>)).expect("static schema"),
         },
@@ -343,7 +348,7 @@ pub fn is_read_only(method: &str) -> Option<bool> {
         "connection.status" | "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
         | "knowledge.get" | "source.search" | "source.read"
         | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list" | "record.list" | "file.list" | "session.list"
-        | "file.versions.list" | "file.versions.get" | "file.source.read"
+        | "file.versions.list" | "file.versions.get" | "file.source.read" | "file.bytes.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
         | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" | "schedule.list" => Some(true),
         "record.create" | "record.patch" | "record.restore" | "operation.undo"
@@ -390,6 +395,7 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "todo.list" => decode::<TodoListInput>(parameters),
         "file.versions.list" => decode::<FileVersionsListInput>(parameters),
         "file.versions.get" => decode::<FileVersionsGetInput>(parameters),
+        "file.bytes.read" => decode::<crate::db::project_directory_files::FileBytesInput>(parameters),
         "file.source.read" => decode::<FileSourceReadInput>(parameters),
         "record.versions.list" => decode::<RecordVersionsListInput>(parameters),
         "record.versions.get" => decode::<RecordVersionsGetInput>(parameters),
@@ -405,11 +411,11 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "operation.restore_created" => decode::<MutationInput<CreatedRecordRestoreInput>>(parameters),
         "todo.create" => decode::<MutationInput<ConnectionTodoCreateInput>>(parameters),
         "todo.update" => decode::<MutationInput<ConnectionTodoUpdateInput>>(parameters),
-        "file.create" => decode::<MutationInput<AgentFileCreateInput>>(parameters),
+        "file.create" => decode::<MutationInput<AgentFileCreateRequest>>(parameters),
         "file.patch" => decode::<MutationInput<FileTextPatch>>(parameters),
         "file.version.restore" => decode::<MutationInput<FileVersionRestore>>(parameters),
         "file.update" => decode::<MutationInput<FileContentUpdate>>(parameters),
-        "file.content.begin" => decode::<MutationInput<FileContentBegin>>(parameters),
+        "file.content.begin" => decode::<MutationInput<FileContentBeginInput>>(parameters),
         "file.content.chunk" => decode::<MutationInput<FileContentChunkInput>>(parameters),
         "file.content.complete" => decode::<MutationInput<FileContentIdInput>>(parameters),
         "file.content.status" => decode::<FileContentIdInput>(parameters),
@@ -453,7 +459,7 @@ mod tests {
             "connection.status", "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read",
             "reference.list", "record.get", "record.blocks.get", "todo.get", "file.list", "session.list", "record.list", "todo.list",
-            "file.versions.list", "file.versions.get", "file.source.read",
+            "file.versions.list", "file.versions.get", "file.bytes.read", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
             "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",

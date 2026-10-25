@@ -44,7 +44,22 @@ pub(crate) struct AgentFileCreateResult {
 }
 /// Pure candidate validation is shared by staging and the native commit entry.
 pub(crate) fn validate_agent_file_create(input: &AgentFileCreateInput) -> AgentResult<()> {
-    let name = &input.safe_name;
+    validate_agent_file_name(input.project_id, &input.safe_name, false)?;
+    if input.utf8_content.len() > 2 * 1024 * 1024 {
+        return Err(AgentError::new(
+            ErrorCode::BudgetExceeded,
+            "UTF-8 File creation exceeds 2 MiB",
+        ));
+    }
+    Ok(())
+}
+pub(crate) fn validate_agent_file_binary_name(
+    project_id: Option<i64>,
+    name: &str,
+) -> AgentResult<()> {
+    validate_agent_file_name(project_id, name, true)
+}
+fn validate_agent_file_name(project_id: Option<i64>, name: &str, binary: bool) -> AgentResult<()> {
     let base = name.split('.').next().unwrap_or("").to_ascii_uppercase();
     let reserved = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         || ["COM", "LPT"].iter().any(|prefix| {
@@ -56,7 +71,7 @@ pub(crate) fn validate_agent_file_create(input: &AgentFileCreateInput) -> AgentR
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if input.project_id.is_some_and(|id| id <= 0)
+    if project_id.is_some_and(|id| id <= 0)
         || name.is_empty()
         || super::project_directory_files::excluded_component(name)
         || crate::project_file_exclusions::is_temporary_file_name(name)
@@ -68,17 +83,30 @@ pub(crate) fn validate_agent_file_create(input: &AgentFileCreateInput) -> AgentR
             c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
         })
         || Path::new(name).components().count() != 1
-        || !matches!(extension.as_str(), "md" | "txt" | "html" | "htm")
+        || !(matches!(extension.as_str(), "md" | "txt" | "html" | "htm")
+            || binary
+                && matches!(
+                    extension.as_str(),
+                    "docx"
+                        | "xlsx"
+                        | "pptx"
+                        | "pdf"
+                        | "png"
+                        | "jpg"
+                        | "jpeg"
+                        | "gif"
+                        | "webp"
+                        | "bmp"
+                        | "tif"
+                        | "tiff"
+                        | "svg"
+                        | "heic"
+                        | "avif"
+                ))
     {
         return Err(AgentError::new(
             ErrorCode::InvalidArgument,
-            "Expected one safe .md/.txt/.html/.htm filename in an actual Project",
-        ));
-    }
-    if input.utf8_content.len() > 2 * 1024 * 1024 {
-        return Err(AgentError::new(
-            ErrorCode::BudgetExceeded,
-            "UTF-8 File creation exceeds 2 MiB",
+            "Expected one safe supported File name in the target scope",
         ));
     }
     Ok(())
@@ -96,6 +124,7 @@ struct AgentImport<'a> {
     binding: &'a WorkspaceBinding,
     input: &'a AgentFileCreateInput,
     fence: &'a WorkspaceCommitFence,
+    payload: serde_json::Value,
 }
 enum ImportOutcome {
     Gui(DocumentRecord),
@@ -114,15 +143,19 @@ fn agent_import_error(error: anyhow::Error) -> AgentError {
         .downcast_ref::<AgentImportFailure>()
         .map(|error| error.0.clone())
         .unwrap_or_else(|| {
-            AgentError::new(ErrorCode::IoFailed, "Cannot create the managed UTF-8 File")
+            AgentError::new(ErrorCode::IoFailed, "Cannot create the managed File")
         })
 }
-fn import_payload_hash(input: &AgentFileCreateInput) -> AgentResult<String> {
+fn import_payload_hash(input: &serde_json::Value) -> AgentResult<String> {
     let value = serde_json::to_value(input)
         .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File intent"))?;
     let bytes = serde_json::to_vec(&value)
         .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File intent"))?;
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+}
+
+pub(crate) fn agent_file_generated_payload(project_id: Option<i64>, safe_name: &str, content: &str) -> serde_json::Value {
+    serde_json::json!({"projectId":project_id,"safeName":safe_name,"format":"docx","content":content})
 }
 
 const IMPORT_JOURNALS: &str = ".project-mind/file-import-journal";
@@ -177,17 +210,18 @@ fn import_crash_point(phase: ImportPhase) {
             unsafe extern "C" {
                 fn kill(pid: i32, signal: i32) -> i32;
             }
-            unsafe {
-                kill(std::process::id() as i32, 9);
-            }
+            let result = unsafe { kill(std::process::id() as i32, 9) };
+            assert_eq!(result, 0, "Cannot kill crash fixture");
+            loop { std::thread::park(); }
         }
+        #[cfg(not(unix))]
         std::process::exit(91);
     }
     #[cfg(not(test))]
     let _ = phase;
 }
 impl Database {
-    pub(super) fn agent_file_create_authorize(
+    pub(crate) fn agent_file_create_authorize(
         &self,
         request: &RequestContext,
         binding: &WorkspaceBinding,
@@ -204,7 +238,12 @@ impl Database {
         self.agent_connection_require_live(request, binding, &scope, "content.create")?;
         if input.project_id.is_none() {
             request.require_scope_context()?;
-            self.file_scope_root(None).map_err(|_| AgentError::new(ErrorCode::ScopeDenied, "Workspace File directory is unavailable"))?;
+            self.file_scope_root(None).map_err(|_| {
+                AgentError::new(
+                    ErrorCode::ScopeDenied,
+                    "Workspace File directory is unavailable",
+                )
+            })?;
             return Ok(());
         }
         let object = ObjectRef {
@@ -226,7 +265,10 @@ impl Database {
             [actual.key()?], |row| row.get(0),
         ).map_err(|_| AgentError::new(ErrorCode::IoFailed, "Cannot read Project source policy"))?;
         if excluded {
-            return Err(AgentError::new(ErrorCode::ScopeDenied, "Project is excluded from AI access"));
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Project is excluded from AI access",
+            ));
         }
         Ok(())
     }
@@ -253,6 +295,7 @@ impl Database {
             binding,
             input,
             fence,
+            payload: serde_json::to_value(input).map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File intent"))?,
         };
         let source = ImportSource::Utf8 {
             bytes: input.utf8_content.as_bytes().to_vec(),
@@ -265,6 +308,86 @@ impl Database {
             .file_import_commit_inner(
                 input.project_id,
                 input.safe_name.clone(),
+                false,
+                &[],
+                source,
+                Some(&agent),
+            )
+            .map_err(agent_import_error)?
+        {
+            ImportOutcome::Agent(result) => Ok(result),
+            ImportOutcome::Gui(_) => unreachable!("Agent creation carries an intent"),
+        }
+    }
+    /// Trusted candidate bytes enter the same native import journal and atomic
+    /// receipt as text creation. No caller path is accepted by this boundary.
+    pub(crate) fn agent_file_create_bytes_bound(
+        &mut self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        project_id: Option<i64>,
+        safe_name: &str,
+        bytes: &[u8],
+        fence: &WorkspaceCommitFence,
+    ) -> AgentResult<AgentFileCreateResult> {
+        if bytes.len() as u64 > crate::file_content::MAX_CONTENT {
+            return Err(AgentError::new(ErrorCode::BudgetExceeded, "File creation exceeds 100 MiB"));
+        }
+        let input = AgentFileCreateInput { project_id, safe_name: safe_name.into(), utf8_content: String::new() };
+        let payload = serde_json::json!({"projectId":project_id,"safeName":safe_name,
+            "length":bytes.len(),"contentHash":format!("sha256:{:x}",Sha256::digest(bytes))});
+        self.agent_file_create_candidate_bound(request, binding, &input, bytes, &payload, fence)
+    }
+    pub(crate) fn agent_file_create_generated_bound(
+        &mut self, request: &RequestContext, binding: &WorkspaceBinding,
+        project_id: Option<i64>, safe_name: &str, content: &str, bytes: &[u8],
+        fence: &WorkspaceCommitFence,
+    ) -> AgentResult<AgentFileCreateResult> {
+        let input = AgentFileCreateInput { project_id, safe_name: safe_name.into(), utf8_content: String::new() };
+        let payload = agent_file_generated_payload(project_id, safe_name, content);
+        self.agent_file_create_candidate_bound(request, binding, &input, bytes, &payload, fence)
+    }
+    pub(crate) fn agent_file_create_candidate_bound(
+        &mut self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &AgentFileCreateInput,
+        bytes: &[u8],
+        payload: &serde_json::Value,
+        fence: &WorkspaceCommitFence,
+    ) -> AgentResult<AgentFileCreateResult> {
+        validate_agent_file_binary_name(input.project_id, &input.safe_name)?;
+        if bytes.len() as u64 > crate::file_content::MAX_CONTENT {
+            return Err(AgentError::new(
+                ErrorCode::BudgetExceeded,
+                "File creation exceeds 100 MiB",
+            ));
+        }
+        self.agent_file_create_authorize(request, binding, input)?;
+        if let Some(previous) = self.agent_operation_replay(&request.caller.key(), &request.request_id, "file.create", payload)? {
+            let _commit = fence.enter()?;
+            return Ok(previous);
+        }
+        let project_id = input.project_id;
+        let safe_name = input.safe_name.as_str();
+        let agent = AgentImport {
+            request,
+            binding,
+            input,
+            fence,
+            payload: payload.clone(),
+        };
+        let source = ImportSource::Utf8 {
+            bytes: bytes.to_vec(),
+            mime_type: mime_guess::from_path(safe_name)
+                .first_or_octet_stream()
+                .essence_str()
+                .to_owned(),
+        };
+        match self
+            .file_import_commit_inner(
+                project_id,
+                safe_name.into(),
                 false,
                 &[],
                 source,
@@ -425,7 +548,11 @@ impl Database {
             let (id, nonce) = name
                 .split_once('-')
                 .ok_or_else(|| anyhow!("Invalid import directory"))?;
-            let project_id = if id == "workspace" { None } else { Some(id.parse::<i64>()?) };
+            let project_id = if id == "workspace" {
+                None
+            } else {
+                Some(id.parse::<i64>()?)
+            };
             if project_id.is_some_and(|id| id <= 0)
                 || super::file_scope::owner_key(project_id) != id
                 || nonce.len() != 32
@@ -437,7 +564,8 @@ impl Database {
             }
             // Same lock order as import, including descriptor-less live staging.
             let _project_lock = self.file_project_lock(project_id, false)?;
-            let _import_lock = self.file_scope_storage_lock("file-import-locks", project_id, true)?;
+            let _import_lock =
+                self.file_scope_storage_lock("file-import-locks", project_id, true)?;
             if !directory.exists() {
                 continue;
             }
@@ -630,7 +758,7 @@ impl Database {
                     &agent.request.caller.key(),
                     &agent.request.request_id,
                     "file.create",
-                    agent.input,
+                    &agent.payload,
                 )
                 .map_err(AgentImportFailure)?
             {
@@ -687,7 +815,10 @@ impl Database {
         let base = self.workspace_root.join(IMPORT_JOURNALS);
         create_owned_directories(&self.workspace_root, &base)?;
         let request_id = token();
-        let directory = base.join(format!("{}-{request_id}", super::file_scope::owner_key(project_id)));
+        let directory = base.join(format!(
+            "{}-{request_id}",
+            super::file_scope::owner_key(project_id)
+        ));
         fs::create_dir(&directory)?;
         sync_directory(&base)?;
         let prepared = (|| -> Result<ImportJournal> {
@@ -763,7 +894,7 @@ impl Database {
                         Ok::<_, AgentError>(AgentImportIntent {
                             caller_id: agent.request.caller.key(),
                             request_id: agent.request.request_id.clone(),
-                            payload_hash: import_payload_hash(agent.input)?,
+                            payload_hash: import_payload_hash(&agent.payload)?,
                             operation_id: token(),
                         })
                     })
@@ -833,7 +964,7 @@ impl Database {
                         &intent.caller_id,
                         &intent.request_id,
                         "file.create",
-                        agent.input,
+                        &agent.payload,
                         |tx| {
                             self.agent_file_create_authorize(
                                 agent.request,
@@ -924,6 +1055,117 @@ mod tests {
             safe_name: "source.html".into(),
             utf8_content: String::from_utf8(BYTES.to_vec()).unwrap(),
         }
+    }
+    #[test]
+    fn binary_file_create_preserves_bytes_replays_and_cleans_failed_import() {
+        let root = tempfile::tempdir().unwrap();
+        let (metadata, paths) =
+            crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        db.bind_native_workspace(&metadata.workspace_id).unwrap();
+        let project = db
+            .project_create(ProjectCreateInput {
+                name: "Binary".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        let request = agent_request(&metadata.workspace_id, project.id);
+        let fence = super::WorkspaceCommitFence::new();
+        let bytes = b"PK\x03\x04\x00\xffoffice";
+        let result = db
+            .agent_file_create_bytes_bound(
+                &request,
+                &request.binding,
+                Some(project.id),
+                "result.docx",
+                bytes,
+                &fence,
+            )
+            .unwrap();
+        assert_eq!(result.version_number, 1);
+        assert_eq!(
+            fs::read(std::path::Path::new(&project.root_path).join("result.docx")).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            result.content_hash,
+            "sha256:01153fb1ed5e20b8cf3356a1b229fbce5f4f1d2d794749b78c172a23e0d47a70"
+        );
+        let replay = db
+            .agent_file_create_bytes_bound(
+                &request,
+                &request.binding,
+                Some(project.id),
+                "result.docx",
+                bytes,
+                &fence,
+            )
+            .unwrap();
+        assert_eq!(replay.operation_id, result.operation_id);
+        assert_eq!(
+            db.agent_file_create_bytes_bound(
+                &request,
+                &request.binding,
+                Some(project.id),
+                "result.docx",
+                b"changed",
+                &fence
+            )
+            .unwrap_err()
+            .code,
+            super::ErrorCode::IdempotencyConflict
+        );
+        let mut denied = request.clone();
+        denied.scope_grant.project_ids.clear();
+        assert!(db
+            .agent_file_create_bytes_bound(
+                &denied,
+                &request.binding,
+                Some(project.id),
+                "result.docx",
+                bytes,
+                &fence
+            )
+            .is_err());
+        let mut failed = request.clone();
+        failed.request_id = "failed-binary".into();
+        db.conn.execute_batch("CREATE TRIGGER fail_binary_import BEFORE INSERT ON document_versions BEGIN SELECT RAISE(ABORT,'disk full'); END;").unwrap();
+        assert!(db
+            .agent_file_create_bytes_bound(
+                &failed,
+                &request.binding,
+                Some(project.id),
+                "failed.pdf",
+                bytes,
+                &fence
+            )
+            .is_err());
+        assert!(!std::path::Path::new(&project.root_path)
+            .join("failed.pdf")
+            .exists());
+        assert_eq!(
+            db.conn
+                .query_row("SELECT count(*) FROM documents", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+    #[test]
+    fn generated_file_create_replays_source_request_despite_changed_generator_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let (metadata, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        db.bind_native_workspace(&metadata.workspace_id).unwrap();
+        let project = db.project_create(ProjectCreateInput { name: "Generated".into(), summary: None, status: None }).unwrap();
+        let request = agent_request(&metadata.workspace_id, project.id);
+        let fence = super::WorkspaceCommitFence::new();
+        let result = db.agent_file_create_generated_bound(&request, &request.binding, Some(project.id), "result.docx", "# Source", b"first zip bytes", &fence).unwrap();
+        let replay = db.agent_file_create_generated_bound(&request, &request.binding, Some(project.id), "result.docx", "# Source", b"timestamp changed", &fence).unwrap();
+        assert_eq!(replay.operation_id, result.operation_id);
+        assert_eq!(fs::read(std::path::Path::new(&project.root_path).join("result.docx")).unwrap(), b"first zip bytes");
+        assert_eq!(db.agent_file_create_generated_bound(&request, &request.binding, Some(project.id), "result.docx", "# Changed source", b"timestamp changed", &fence).unwrap_err().code, super::ErrorCode::IdempotencyConflict);
     }
     #[test]
     fn agent_file_create_replays_original_request_after_reopen_and_reauthorizes() {
@@ -1245,6 +1487,86 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn binary_file_create_process_crashes_recover_original_request_without_duplicates() {
+        for stage in 0..=4 {
+            let root = tempfile::tempdir().unwrap();
+            let (metadata, paths) =
+                crate::workspace::create_workspace(root.path(), "password").unwrap();
+            let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+            db.bind_native_workspace(&metadata.workspace_id).unwrap();
+            let project = db
+                .project_create(ProjectCreateInput {
+                    name: "Agent crash".into(),
+                    summary: None,
+                    status: None,
+                })
+                .unwrap();
+            let before = db.committed_change_watermark().unwrap();
+            drop(db);
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "db::file_imports::tests::file_import_crash_process_fixture",
+                    "--ignored",
+                ])
+                .env("MIND_FILE_IMPORT_CRASH_FIXTURE", root.path())
+                .env("MIND_FILE_IMPORT_SOURCE_KIND", "agent_binary")
+                .env("MIND_FILE_IMPORT_CRASH_STAGE", stage.to_string())
+                .output()
+                .unwrap();
+            assert_crashed(output.status);
+            let mut db = crate::workspace_initialization::open_workspace_database(
+                &paths.db_path,
+                root.path(),
+                None,
+                &metadata.workspace_id,
+            )
+            .unwrap()
+            .db;
+            let committed = i64::from(stage == 4);
+            assert_eq!(
+                db.conn
+                    .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                committed,
+                "stage {stage}"
+            );
+            assert_eq!(db.conn.query_row("SELECT COUNT(*) FROM agent_operation_receipts WHERE operation='file.create'",[],|r|r.get::<_,i64>(0)).unwrap(),committed);
+            assert_eq!(db.committed_change_watermark().unwrap(), before + committed);
+            assert_eq!(
+                fs::read_dir(root.path().join(super::IMPORT_JOURNALS))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            let request = agent_request(&metadata.workspace_id, project.id);
+            let bytes = b"PK\x03\x04\xffbinary\x00";
+            let fence = super::WorkspaceCommitFence::new();
+            let result = db
+                .agent_file_create_bytes_bound(&request, &request.binding, Some(project.id), "binary.docx", bytes, &fence)
+                .unwrap();
+            assert_eq!(
+                db.agent_file_create_bytes_bound(&request, &request.binding, Some(project.id), "binary.docx", bytes, &fence)
+                    .unwrap()
+                    .operation_id,
+                result.operation_id
+            );
+            assert_eq!(
+                db.conn
+                    .query_row("SELECT COUNT(*) FROM document_versions", [], |r| r
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            assert_eq!(db.conn.query_row("SELECT COUNT(*) FROM agent_operation_receipts WHERE operation='file.create'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+            assert_eq!(db.committed_change_watermark().unwrap(), before + 1);
+            assert_eq!(
+                fs::read(std::path::Path::new(&project.root_path).join("binary.docx")).unwrap(),
+                bytes
+            );
+        }
+    }
     fn assert_crashed(status: std::process::ExitStatus) {
         #[cfg(unix)]
         {
@@ -1279,6 +1601,11 @@ mod tests {
                 &super::WorkspaceCommitFence::new(),
             )
             .unwrap();
+        } else if kind == "agent_binary" {
+            let (metadata, _) = crate::workspace::load_metadata(root).unwrap();
+            db.bind_native_workspace(&metadata.workspace_id).unwrap();
+            let request = agent_request(&metadata.workspace_id, project_id);
+            db.agent_file_create_bytes_bound(&request, &request.binding, Some(project_id), "binary.docx", b"PK\x03\x04\xffbinary\x00", &super::WorkspaceCommitFence::new()).unwrap();
         } else if kind == "clipboard" {
             use base64::Engine;
             db.document_import_clipboard_image(crate::models::DocumentImportClipboardImageInput {
@@ -1343,7 +1670,10 @@ mod tests {
                         "--ignored",
                     ])
                     .env("MIND_FILE_IMPORT_CRASH_FIXTURE", root.path())
-                    .env("MIND_FILE_IMPORT_SOURCE_KIND", if kind == "legacy" { "copy" } else { kind })
+                    .env(
+                        "MIND_FILE_IMPORT_SOURCE_KIND",
+                        if kind == "legacy" { "copy" } else { kind },
+                    )
                     .env("MIND_FILE_IMPORT_CRASH_STAGE", stage.to_string())
                     .output()
                     .unwrap();
@@ -1352,7 +1682,9 @@ mod tests {
                     // Reproduce a committed pre-identity import whose journal
                     // cleanup was interrupted. Recovery must not invent trust.
                     let old = Database::open(&paths.db_path, root.path(), None).unwrap();
-                    old.conn.execute_batch("DROP TABLE project_directory_files").unwrap();
+                    old.conn
+                        .execute_batch("DROP TABLE project_directory_files")
+                        .unwrap();
                 }
                 let db = crate::workspace_initialization::open_workspace_database(
                     &paths.db_path,
@@ -1375,10 +1707,16 @@ mod tests {
                 assert_eq!(count, i64::from(stage == 4), "{kind} stage {stage}");
                 assert_eq!(versions, count);
                 if kind != "legacy" {
-                    let identities: i64 = db.conn.query_row(
-                        "SELECT count(*) FROM project_directory_files", [], |row| row.get(0),
-                    ).unwrap();
-                    assert_eq!(identities, count, "identity and File commit together: {kind} stage {stage}");
+                    let identities: i64 = db
+                        .conn
+                        .query_row("SELECT count(*) FROM project_directory_files", [], |row| {
+                            row.get(0)
+                        })
+                        .unwrap();
+                    assert_eq!(
+                        identities, count,
+                        "identity and File commit together: {kind} stage {stage}"
+                    );
                 }
                 assert_eq!(db.committed_change_watermark().unwrap(), before + count);
                 let target =
@@ -1429,22 +1767,40 @@ mod tests {
                 db.file_version_recover_pending().unwrap();
                 assert_eq!(db.committed_change_watermark().unwrap(), before + count);
                 if stage == 4 {
-                    let document_id: i64 = db.conn.query_row("SELECT id FROM documents", [], |row| row.get(0)).unwrap();
+                    let document_id: i64 = db
+                        .conn
+                        .query_row("SELECT id FROM documents", [], |row| row.get(0))
+                        .unwrap();
                     if kind != "legacy" {
                         let known: String = db.conn.query_row("SELECT physical_identity FROM project_directory_files WHERE document_id=?1", [document_id], |row| row.get(0)).unwrap();
-                        assert_eq!(known, serde_json::to_string(&super::path_identity(&target).unwrap()).unwrap());
+                        assert_eq!(
+                            known,
+                            serde_json::to_string(&super::path_identity(&target).unwrap()).unwrap()
+                        );
                     }
                     let object = crate::agent::models::ObjectRef {
                         workspace_id: metadata.workspace_id.clone(),
-                        scope: crate::agent::models::Scope::Project { project_id: project.id },
+                        scope: crate::agent::models::Scope::Project {
+                            project_id: project.id,
+                        },
                         kind: crate::agent::models::ObjectKind::File,
                         id: document_id.to_string(),
                     };
                     let located = db.project_file_resolve(&object).unwrap();
-                    assert_eq!(located.state, if kind == "legacy" { "ambiguous" } else { "ready" });
+                    assert_eq!(
+                        located.state,
+                        if kind == "legacy" {
+                            "ambiguous"
+                        } else {
+                            "ready"
+                        }
+                    );
                     assert_eq!(located.version_number, 1);
                     assert_eq!(located.object, object);
-                    assert_ne!(located.reason.as_deref(), Some("File location has not been checked"));
+                    assert_ne!(
+                        located.reason.as_deref(),
+                        Some("File location has not been checked")
+                    );
                 }
             }
         }

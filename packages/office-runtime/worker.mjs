@@ -13,23 +13,27 @@ export async function handleOfficeRequest(request) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Invalid Office request identity');
   }
   const { method, data } = request;
+  const creating = method === 'office.create';
   const recalculate = method === 'office.recalculate';
-  const allowed = recalculate ? ['format', 'base64', 'recalculation'] : ['format', 'base64', 'edits'];
-  if (!['office.inspect', 'office.edit', 'office.recalculate'].includes(method) || !data || typeof data !== 'object' || Array.isArray(data)
+  const allowed = creating ? ['format', 'content'] : recalculate ? ['format', 'base64', 'recalculation'] : ['format', 'base64', 'edits'];
+  if (!['office.inspect', 'office.edit', 'office.recalculate', 'office.create'].includes(method) || !data || typeof data !== 'object' || Array.isArray(data)
       || Object.keys(data).some(key => !allowed.includes(key)) || !formats.has(data.format)
       || (recalculate && data.format !== 'xlsx')
-      || typeof data.base64 !== 'string') {
+      || (creating ? data.format !== 'docx' || typeof data.content !== 'string' || !data.content.trim() : typeof data.base64 !== 'string')) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Expected a supported Office format and fixed source bytes');
   }
-  if (data.base64.length > Math.ceil(MAX_BYTES / 3) * 4) {
+  if (creating && Buffer.byteLength(data.content, 'utf8') > 2 * 1024 * 1024) {
+    return failure(requestId, 'BUDGET_EXCEEDED', 'DOCX creation content exceeds 2 MiB');
+  }
+  if (!creating && data.base64.length > Math.ceil(MAX_BYTES / 3) * 4) {
     return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
   }
   // Buffer decoding is permissive; require canonical base64 at the IPC boundary.
-  const bytes = Buffer.from(data.base64, 'base64');
-  if (bytes.toString('base64') !== data.base64 || !bytes.length) {
+  const bytes = creating ? undefined : Buffer.from(data.base64, 'base64');
+  if (!creating && (bytes.toString('base64') !== data.base64 || !bytes.length)) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Office source bytes are incomplete');
   }
-  if (bytes.length > MAX_BYTES) return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
+  if (!creating && bytes.length > MAX_BYTES) return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
   if (method === 'office.edit' && (!Array.isArray(data.edits) || data.edits.length > MAX_EDITS)) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Expected at most 256 Office edits');
   }
@@ -63,7 +67,7 @@ export async function handleOfficeRequest(request) {
     // engine.recalculate reuses workbookRecalcRequestSchema for strict nested
     // fields, coordinates and input lengths before opening the source bytes.
     if (recalculate) return { requestId, ok: true, data: await engine.recalculate(bytes, data.recalculation, context) };
-    const candidate = await engine.edit(bytes, data.edits, context);
+    const candidate = creating ? await engine.create(data.content) : await engine.edit(bytes, data.edits, context);
     if (!(candidate instanceof Uint8Array) || candidate.byteLength > MAX_BYTES) {
       return failure(requestId, 'BUDGET_EXCEEDED', 'Office candidate exceeds 100 MiB');
     }

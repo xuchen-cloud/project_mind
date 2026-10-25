@@ -11,11 +11,14 @@ test('the worker engine relocates with no workspace imports or runtime sidecar a
   const meta = JSON.parse(await readFile(new URL('../dist/engine.meta.json', import.meta.url)));
   const imports = meta.outputs['dist/engine.mjs'].imports;
   assert.ok(imports.every(i => builtinModules.includes(i.path.replace(/^node:/, ''))), JSON.stringify(imports));
+  assert.ok(!Object.keys(meta.inputs).some(file => /node_modules\/jsdom\//.test(file)), 'Creation must not bundle the dev-only browser test DOM');
   const code = await readFile(new URL('../dist/engine.mjs', import.meta.url), 'utf8');
   assert.ok(!code.includes('/Users/xuchen/'));
   assert.ok(!code.includes('genoffice-docx-validation'));
   const manifest = JSON.parse(await readFile(new URL('../dist/runtime-manifest.json', import.meta.url)));
   assert.deepEqual(manifest.engineAssets, []);
+  assert.ok(manifest.operations.includes('create'));
+  assert.deepEqual(manifest.createContent, { format:'restricted-html', maxBytes:2097152 });
   const notices = await readFile(new URL('../dist/THIRD-PARTY-NOTICES.txt', import.meta.url), 'utf8');
   assert.ok(notices.includes('Apache License'));
   assert.ok(notices.includes('@tiptap/core@3.31.0'));

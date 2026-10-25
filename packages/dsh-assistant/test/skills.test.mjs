@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, rename } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -164,4 +164,33 @@ test('the same bundled skill configuration is loadable by the real DSH registry 
     assert.match(skill.content, /mind capabilities --json/);
     assert.match(skill.path, /skills[/\\]project-mind-cli[/\\]SKILL\.md$/);
   } finally { await ctx.fiber.dispose(); }
+});
+
+test('resource reads require a current registry skill and stay within its canonical bundle', async t => {
+  const { isSkillResourceRead } = await import('../scripts/skills.mjs');
+  const f = await fixture(t);
+  const skillFile = await f.put(f.bundledSkillDir, 'reader', 'Read resources');
+  const base = path.dirname(skillFile);
+  const reference = path.join(base, 'references', 'guide.md');
+  await mkdir(path.dirname(reference));
+  await writeFile(reference, 'resource');
+  const outside = path.join(f.cwd, 'secret.md');
+  await writeFile(outside, 'business');
+  await symlink(outside, path.join(base, 'escape.md'));
+  const ctx = new Context();
+  await ctx.plugin(SkillRegistry);
+  await ctx.plugin(filesystem, { includeDefaultRoots: false, bundledSkillDir: f.bundledSkillDir, watch: false });
+  t.after(() => ctx.fiber.dispose());
+  const options = { cwd: f.cwd };
+  assert.equal(await isSkillResourceRead(ctx.skills, reference, options), true);
+  assert.equal(await isSkillResourceRead(ctx.skills, outside, options), false);
+  assert.equal(await isSkillResourceRead(ctx.skills, path.join(base, 'escape.md'), options), false);
+  assert.equal(await isSkillResourceRead(ctx.skills, path.join(base, '..', 'secret.md'), options), false);
+  await mkdir(path.join(f.bundledSkillDir, '.disabled'));
+  await rename(base, path.join(f.bundledSkillDir, '.disabled', 'reader'));
+  assert.equal(await isSkillResourceRead(ctx.skills, path.join(f.bundledSkillDir, '.disabled', 'reader', 'references', 'guide.md'), options), false);
+  assert.equal(await isSkillResourceRead(ctx.skills, reference, options), false, 'parking a skill revokes its resources');
+  await rename(path.join(f.bundledSkillDir, '.disabled', 'reader'), base);
+  await rm(skillFile);
+  assert.equal(await isSkillResourceRead(ctx.skills, reference, options), false, 'cached discovery cannot authorize a removed skill');
 });

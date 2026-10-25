@@ -52,6 +52,90 @@ impl BoundFileCommitStore for TestStore {
     }
 }
 struct TestEngine;
+
+fn create_fixture() -> (tempfile::TempDir, TestStore, Identity) {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let (metadata, paths) = create_workspace(&root, "password").unwrap();
+    let mut db = Database::open(&paths.db_path, &root, None).unwrap();
+    db.bind_native_workspace(&metadata.workspace_id).unwrap();
+    let project = db.project_create(crate::models::ProjectCreateInput { name:"创建测试".into(), summary:None, status:None }).unwrap();
+    let binding = WorkspaceBinding { workspace_id:metadata.workspace_id, generation:"create-runtime".into() };
+    let identity = Identity { workspace_id:binding.workspace_id.clone(), workspace_generation:binding.generation.clone(), root,
+        fingerprint:"create-fixture".into(), context:AssistantContext::Project(ProjectContext {
+            id:project.id, name:project.name, directory:std::path::PathBuf::from(project.root_path),
+        }) };
+    let store = TestStore { db:Mutex::new(db), binding, paths, fence:Arc::new(WorkspaceCommitFence::new()), alive:Arc::new(AtomicBool::new(true)) };
+    (temp, store, identity)
+}
+fn creation(request_id: &str, content: &str) -> OfficeCreateCall {
+    OfficeCreateCall::parse(serde_json::from_value(json!({"operation":"officeCreate","sessionId":"create-session",
+        "requestId":request_id,"mode":"workspace-write","projectId":null,"name":"中文报告.docx","content":content})).unwrap()).unwrap()
+}
+struct CreationEngine { count: std::sync::atomic::AtomicUsize, fail: bool }
+impl OfficeUtility for CreationEngine {
+    async fn request(&self, _: &str, method: &str, _: &str, source: &str, payload: OfficePayload<'_>) -> AgentResult<Value> {
+        if let OfficePayload::Create(content) = payload {
+            assert_eq!(method,"office.create"); assert!(source.is_empty()); assert!(content.contains("报告"));
+            let count = self.count.fetch_add(1, Ordering::SeqCst);
+            if self.fail { return Err(AgentError::new(ErrorCode::InvalidArgument,"generation failed")); }
+            return Ok(json!({"base64":STANDARD.encode(format!("candidate-{count}"))}));
+        }
+        assert_eq!(method,"office.inspect");
+        Ok(json!({"model":{"format":"docx","nodes":[{"id":"p0","text":String::from_utf8(STANDARD.decode(source).unwrap()).unwrap()}]}}))
+    }
+}
+
+#[tokio::test]
+async fn office_creation_replays_original_request_and_rejects_readonly_or_foreign_targets() {
+    let (_temp,store,identity)=create_fixture(); let grants=Mutex::new(HashMap::new());
+    let engine=CreationEngine{count:std::sync::atomic::AtomicUsize::new(0),fail:false};
+    let first=creation("stable-create","<h1>报告</h1>").execute(&store,&engine,&identity,&grants,None).await.unwrap();
+    assert_eq!(first["saved"],true);assert_eq!(first["sourceRef"]["fileVersion"],1);
+    assert_eq!(first["commit"]["contentHash"],first["sourceRef"]["revision"]);
+    assert_eq!(first["commit"]["object"],first["sourceRef"]["object"]);
+    assert_eq!(creation("stable-create","<h1>报告</h1>").execute(&store,&engine,&identity,&grants,None).await.unwrap(),first);
+    assert_eq!(engine.count.load(Ordering::SeqCst),1);
+    assert_eq!(creation("stable-create","<h1>报告改变</h1>").execute(&store,&engine,&identity,&grants,None).await.unwrap_err().code,ErrorCode::IdempotencyConflict);
+    let mut foreign=creation("foreign","<h1>报告</h1>");foreign.project_id=Some(9999);
+    assert_eq!(foreign.execute(&store,&engine,&identity,&grants,None).await.unwrap_err().code,ErrorCode::ScopeDenied);
+    let readonly=serde_json::from_value(json!({"operation":"officeCreate","sessionId":"create-session","requestId":"readonly","mode":"read-only","name":"x.docx","content":"<p>报告</p>"})).unwrap();
+    assert_eq!(OfficeCreateCall::parse(readonly).err().unwrap().code,ErrorCode::ScopeDenied);
+    assert_eq!(engine.count.load(Ordering::SeqCst),1);
+}
+
+#[tokio::test]
+async fn office_creation_failure_leaves_no_file_or_creation_receipt() {
+    let (_temp,store,identity)=create_fixture();let grants=Mutex::new(HashMap::new());
+    let engine=CreationEngine{count:std::sync::atomic::AtomicUsize::new(0),fail:true};
+    assert_eq!(creation("failed-create","<p>报告</p>").execute(&store,&engine,&identity,&grants,None).await.unwrap_err().code,ErrorCode::InvalidArgument);
+    assert!(!identity.directory().join("中文报告.docx").exists());
+    let (grant,token)=crate::lock_mutex(&grants).get("create-session").unwrap().clone();
+    store.with_current(|binding,db| {
+        let request=db.agent_connection_authenticate(binding,&grant,&token,"failed-create")?;
+        let receipt:Option<crate::db::file_imports::AgentFileCreateResult>=db.agent_operation_replay(&request.caller.key(),"failed-create","file.create",&crate::db::file_imports::agent_file_generated_payload(identity.project_id(),"中文报告.docx","<p>报告</p>"))?;
+        assert!(receipt.is_none());Ok(())
+    }).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires prepared GenOffice runtime"]
+async fn office_creation_real_genoffice_saves_reads_and_edits_same_native_file() {
+    let (_temp,store,identity)=create_fixture();let grants=Mutex::new(HashMap::new());
+    let worker=crate::office_worker::OfficeWorker::development().unwrap();
+    let content="<h1>中文报告</h1><p>原始正文</p><ol><li>第一步</li><li>第二步</li></ol><table><tr><th>项目</th><th>结果</th></tr><tr><td>检查</td><td>通过</td></tr></table>";
+    let first=creation("real-create",content).execute(&store,&worker,&identity,&grants,None).await.unwrap();
+    let nodes=first["model"]["nodes"].as_array().unwrap();
+    for text in ["中文报告","原始正文","第一步","第二步","项目","结果","检查","通过"] { assert!(nodes.iter().any(|node|node["text"]==text),"{text}"); }
+    let node=nodes.iter().find(|node|node["text"]=="原始正文").unwrap();
+    let edit=json!({"operation":"officeEdit","sessionId":"create-session","requestId":"real-v2","sourceRef":first["sourceRef"],"edits":[{"type":"text","nodeId":node["id"],"expectedText":"原始正文","text":"编辑后的正文"}]});
+    let second=call(edit.clone()).execute(&store,&worker,&identity,&grants).await.unwrap();
+    assert_eq!(second["sourceRef"]["object"],first["sourceRef"]["object"]);assert_eq!(second["sourceRef"]["fileVersion"],2);
+    assert!(second["model"]["nodes"].as_array().unwrap().iter().any(|node|node["text"]=="编辑后的正文"));
+    let mut stale=edit;stale["requestId"]=json!("stale-create-edit");
+    assert_eq!(call(stale).execute(&store,&worker,&identity,&grants).await.unwrap_err().code,ErrorCode::RevisionConflict);
+    assert_eq!(creation("real-create",content).execute(&store,&worker,&identity,&grants,None).await.unwrap()["sourceRef"],first["sourceRef"]);
+}
 impl OfficeUtility for TestEngine {
     async fn request(
         &self,

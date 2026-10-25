@@ -405,3 +405,66 @@ async fn workspace_cli_creates_lists_replaces_versions_and_references_real_nativ
     let denied = run(vec!["file".into(),"list".into(),"--input-file".into(),list_input.to_string_lossy().into()], GRANT).await;
     assert_ne!(denied["code"], 0, "Project grant cannot read Workspace Files");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires PROJECT_MIND_TEST_CLI pointing to the freshly built mind executable; uses only isolated fixture credentials"]
+async fn actual_cli_creates_chinese_binary_replays_identity_and_downloads_exact_bytes() {
+    use super::transport::{BridgeCallFuture, BridgeHandler};
+    struct Handler(Arc<Fixture>);
+    impl BridgeHandler for Handler {
+        fn connect(&self, token: &str, input: super::protocol::ConnectInput) -> AgentResult<WorkspaceBinding> {
+            self.0.store.db.lock().unwrap().agent_connection_authenticate(&self.0.binding, &input.grant_id, token, &input.request_id)?;
+            Ok(self.0.binding.clone())
+        }
+        fn call<'a>(&'a self, token: &'a str, input: CallInput) -> BridgeCallFuture<'a> {
+            Box::pin(async move { dispatch::execute(&self.0.store, &self.0.enabled, token, input, &Unused, &Unused).await })
+        }
+    }
+    let binary = std::path::PathBuf::from(std::env::var_os("PROJECT_MIND_TEST_CLI")
+        .expect("PROJECT_MIND_TEST_CLI must point to the built mind executable"));
+    assert!(binary.is_absolute() && binary.is_file());
+    let f = Arc::new(Fixture::new());
+    let discovery = f._root.path().join("actual-cli-discovery.json");
+    let _running = super::transport::start(Arc::new(Handler(f.clone())), discovery.clone()).await.unwrap();
+    let workspace = f._root.path().canonicalize().unwrap();
+    let run = |mut args: Vec<String>| {
+        args.extend(["--workspace".into(), workspace.to_string_lossy().into(), "--connection".into(), GRANT.into(), "--json".into()]);
+        let binary = binary.clone();
+        let discovery = discovery.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let output = std::process::Command::new(binary).args(args)
+                    .env("PROJECT_MIND_CLI_DISCOVERY", discovery).env("PROJECT_MIND_CLI_TOKEN", TOKEN)
+                    .output().unwrap();
+                assert!(output.status.success(), "CLI failed: {} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+                serde_json::from_slice::<Value>(&output.stdout).unwrap()
+            }).await.unwrap()
+        }
+    };
+    let external = tempfile::tempdir().unwrap();
+    let source = external.path().join("候选源文件.docx");
+    let bytes = b"PK\x03\x04\x00\xffbinary\n\x80";
+    fs::write(&source, bytes).unwrap();
+    let create = vec!["file".into(), "create".into(), "--project".into(), f.project_id.to_string(),
+        "--name".into(), "交付文档.docx".into(), "--source-file".into(), source.to_string_lossy().into(),
+        "--request-id".into(), "actual-cli-create".into()];
+    let created = run(create.clone()).await;
+    let replay = run(create).await;
+    assert_eq!(created["data"]["result"]["object"], replay["data"]["result"]["object"]);
+    assert_eq!(created["data"]["result"]["operationId"], replay["data"]["result"]["operationId"]);
+    assert!(created["data"]["result"]["object"]["id"].is_string());
+    let hash = format!("sha256:{:x}", Sha256::digest(bytes));
+    assert_eq!(created["data"]["result"]["contentHash"], hash);
+    let target = external.path().join("download-target.json");
+    fs::write(&target, serde_json::to_vec(&json!({"object":created["data"]["result"]["object"],
+        "versionNumber":1,"expectedContentHash":hash})).unwrap()).unwrap();
+    let downloaded = external.path().join("下载文档.docx");
+    let result = run(vec!["file".into(), "download".into(), "--input-file".into(), target.to_string_lossy().into(),
+        "--out".into(), downloaded.to_string_lossy().into()]).await;
+    assert_eq!(fs::read(downloaded).unwrap(), bytes);
+    assert_eq!(result["data"]["contentHash"], hash);
+    assert_eq!(result["data"]["byteLength"], bytes.len());
+    assert!(result["data"].get("base64").is_none());
+    let object = serde_json::from_value(created["data"]["result"]["object"].clone()).unwrap();
+    assert_eq!(f.versions(&object).await["versions"].as_array().unwrap().len(), 1);
+}

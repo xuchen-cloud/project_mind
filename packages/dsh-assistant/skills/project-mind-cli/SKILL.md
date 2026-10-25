@@ -19,6 +19,8 @@ mind capabilities --json
 mind doctor --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
+Offline `--help`, `capabilities` and `schema` take no Workspace, connection or Project scope flags. `doctor` takes only `--workspace` and `--connection` (plus `--json`/optional `--verbose`); do not append `--project` or `--workspace-scope`. Binding flags and operation scope are separate.
+
 Subcommand `--help` is normal discovery. `capabilities --json` lists compact callable methods; add `--verbose` for full details only when needed. `mind schema METHOD --json` is the authority for an exact input DTO. Internal/planned capabilities in verbose output do not establish CLI support.
 
 ### Check binding and authorization
@@ -52,7 +54,7 @@ Use the resolved scope: `{"kind":"workspace"}` or `{"kind":"project","projectId"
 | Automatically ask AI to perform work in this conversation at a time or on a repeating schedule | **Scheduled Task**; read [Scheduled Task guide](references/scheduled-tasks.md), use `mind schedule` and the actual `PROJECT_MIND_SESSION_ID`. A Todo due date does not trigger AI. |
 | Information worth retaining, finding and citing independently | **Record**; read [Record/File guide](references/record-file.md) when reading or writing one. |
 | Capture whose final form or destination is undecided | **QuickNote**, the single mutable buffer in its scope. There is no native CLI QuickNote write API. Offer draft text and report it as unsaved; use a Record or Todo only if the user's intent supports that choice. |
-| External material managed by a Project | **File**; read [Record/File guide](references/record-file.md) when reading or writing one. |
+| External material managed by a Workspace or Project | **File**; read [Record/File guide](references/record-file.md) when reading or writing one. |
 
 Project objects belong to one finite, outcome-oriented Project; Workspace objects are independent of a Project. A **Subtask** is a smaller action with its own status, deadline and order, not a progress log. Workspace View is a UI collection of Workspace Todos plus Todos from active Projects; it does not change ownership or grant access to that collection.
 
@@ -60,7 +62,7 @@ Project objects belong to one finite, outcome-oriented Project; Workspace object
 
 For context questions, start with bounded `context get`, then follow relevant source/object references using the exact `source.search` / `source.read` schemas. Use returned revisions, selectors and cursors. `--input-file -` reads JSON from stdin (up to 2 MiB), avoiding transient input files in managed Project directories. Cite actual object/version references.
 
-For inventories, counts, ID batches or title/content matching, use the unified `record.list`, `todo.list`, `file.list` and real-chat `session.list` commands in the [List guide with examples](references/lists.md). Default to metadata; request detail only when needed. `limit:0` and `totalCount` answer a count in one call; check File `countComplete` for content searches. Voice Records stay in `record.list`.
+For a new DOCX deliverable, use the native `file_office_create` tool described in the [Record/File guide](references/record-file.md#office-docx-create-and-inspect), rather than placing a generated file in a watched directory. For inventories, counts, ID batches or title/content matching, use the unified `record.list`, `todo.list`, `file.list` and real-chat `session.list` commands in the [List guide with examples](references/lists.md). Default to metadata; request detail only when needed. `limit:0` and `totalCount` answer a count in one call; check File `countComplete` for content searches. Voice Records stay in `record.list`.
 
 For today, tomorrow, undated tasks or status/deadline inventories, use `todo.list` in the [Todo guide](references/todo.md). Follow every page needed for the requested coverage. Use returned parent references and child IDs to select a target, then `todo.get` for its current full state.
 
@@ -103,5 +105,7 @@ JSON
 ## 5. Verify and report
 
 A write is complete when the native success result and **Operation Receipt** identify the actual object/version, and a fresh authorized read confirms the requested fields or content. For several requested writes, use the current per-object methods with a request ID, exact payload, receipt/replay and readback for each mutation. Report saved objects/versions and any failed, uncertain or unattempted items separately; partial success is not an atomic batch. Retain operation IDs and before/after revisions. A preview, upload stage, local file or model statement is not persistence evidence.
+
+For binary Files, verify both the exact bytes (fixed version/hash/length) and the requested document meaning through Office inspect. A matching hash alone does not prove the requested content. A subsequent v2 edit must use the newly returned version/hash as its baseline; do not carry forward v1 CAS values.
 
 Frontend automatic refresh is a separate product acceptance check. If UI acceptance is requested, verify that the already-open view updates without manual refresh. Receipt plus readback proves persistence; claim automatic refresh only when observed. Report any unverified UI behavior separately from the saved result.
