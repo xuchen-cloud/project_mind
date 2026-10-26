@@ -96,6 +96,40 @@ it("location reconciliation passes the existing hash and reports a mismatch with
   expect(projectFileApi.reconcile).toHaveBeenCalledWith(binding, object, "资料/new.txt", 3, "hash3", "location");
   expect(screen.getByLabelText("同项目目标相对路径")).toHaveValue("资料/new.txt");
 });
+it("prefills the recorded location for a legacy identity confirmation", async () => {
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ ...file, state: "ambiguous", reason: "旧版导入文件尚未记录文件身份，请确认当前位置后打开。" });
+  view(); await open();
+  expect(screen.getByLabelText("同项目目标相对路径")).toHaveValue("old.txt");
+  fireEvent.click(screen.getByRole("button", { name: "确认同一文件的新位置" }));
+  await waitFor(() => expect(projectFileApi.reconcile).toHaveBeenCalledWith(binding, object, "old.txt", 3, "hash3", "location"));
+});
+it("registers unverified legacy bytes only after explicit confirmation and reports recovery", async () => {
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ ...file, contentHash: null, state: "ambiguous", reason: "旧版导入文件尚未记录文件身份，请确认当前位置后打开。" });
+  vi.mocked(projectFileApi.reconcile).mockResolvedValue({ ...file, versionNumber: 4, contentHash: "hash4" });
+  const recovered = vi.fn();
+  render(<QueryClientProvider client={new QueryClient()}><ProjectFileIdentityActions {...props} initialOpen onRecovered={recovered} /></QueryClientProvider>);
+  const submit = await screen.findByRole("button", { name: "确认并登记当前文件" });
+  expect(submit).toBeDisabled();
+  expect(projectFileApi.reconcile).not.toHaveBeenCalled();
+  expect(recovered).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "确认同一文件的新位置" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: /旧版本仍保留为未经核验/ }));
+  fireEvent.click(submit);
+  await waitFor(() => expect(projectFileApi.reconcile).toHaveBeenCalledWith(binding, object, "old.txt", 3, null, "registration"));
+  await waitFor(() => expect(recovered).toHaveBeenCalledOnce());
+  expect(screen.getByText("v4")).toBeInTheDocument();
+});
+it("keeps a failed legacy registration actionable without claiming recovery", async () => {
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ ...file, contentHash: null, state: "ambiguous", reason: "旧记录待核对" });
+  vi.mocked(projectFileApi.reconcile).mockRejectedValue({ code: "revision_conflict", message: "版本已变化，请刷新核对" });
+  const recovered = vi.fn();
+  render(<QueryClientProvider client={new QueryClient()}><ProjectFileIdentityActions {...props} initialOpen onRecovered={recovered} /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /旧版本仍保留为未经核验/ }));
+  fireEvent.click(screen.getByRole("button", { name: "确认并登记当前文件" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("版本已变化");
+  expect(recovered).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "确认并登记当前文件" })).toBeEnabled();
+});
 it("preserves input on CAS rejection without notifications or silent retries", async () => {
   const rendered = view(); await open(); target();
   rendered.onChanged.mockClear(); rendered.invalidate.mockClear(); vi.mocked(notifyProjectFilesChanged).mockClear();

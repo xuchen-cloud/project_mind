@@ -7,6 +7,12 @@ const binding = { workspaceId: "workspace", generation: "current" };
 const object = { workspaceId: "workspace", scope: { kind: "project" as const, projectId: 2 }, kind: "file" as const, id: "17" };
 describe("fixed File version bytes", () => {
   beforeEach(() => { vi.mocked(desktopApi.fileCommand).mockReset(); });
+  it("sends a null baseline only with the explicit legacy registration action", async () => {
+    await projectFileApi.reconcile(binding, object, "资料/旧文件.txt", 1, null, "registration");
+    expect(desktopApi.fileCommand).toHaveBeenCalledWith("project_file_reconcile", {
+      binding, object, relativePath: "资料/旧文件.txt", expectedVersionNumber: 1, expectedContentHash: null, confirmation: "registration",
+    });
+  });
   it("sends the workspace generation and exact registered version and decodes binary without UTF-8 loss", async () => {
     const result: FileBytesResult = { object, versionNumber: 3, contentHash: "sha256:known", name: "binary.dat", mime: "application/octet-stream", byteLength: 4, base64: "AP+AKg==" };
     vi.mocked(desktopApi.fileCommand).mockResolvedValue(result);

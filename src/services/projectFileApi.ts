@@ -34,7 +34,7 @@ export const projectFileApi = {
     command<ProjectDirectoryFile>("project_file_move", { binding, object, relativePath, expectedVersionNumber, expectedContentHash }),
   rename: (binding: AgentWorkspaceBinding, object: AgentObjectRef, name: string, expectedVersionNumber: number, expectedContentHash: string) =>
     command<ProjectDirectoryFile>("project_file_rename", { binding, object, name, expectedVersionNumber, expectedContentHash }),
-  reconcile: (binding: AgentWorkspaceBinding, object: AgentObjectRef, relativePath: string, expectedVersionNumber: number, expectedContentHash: string, confirmation: "location" | "replacement") =>
+  reconcile: (binding: AgentWorkspaceBinding, object: AgentObjectRef, relativePath: string, expectedVersionNumber: number, expectedContentHash: string | null, confirmation: "location" | "replacement" | "registration") =>
     command<ProjectDirectoryFile>("project_file_reconcile", { binding, object, relativePath, expectedVersionNumber, expectedContentHash, confirmation }),
   // A bounded scan page is committed independently. Stop requesting pages to
   // cancel; cancelled=true acknowledges cancellation without losing prior work.

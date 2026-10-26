@@ -30,7 +30,7 @@ export interface ProjectFileContentProps {
   initialSourceMode?: boolean;
   sourceLocator?: NonNullable<AgentSourceRef["locator"]>;
   toolbarActions?: ReactNode;
-  identityRecovery?: ReactNode;
+  identityRecovery?: (onRecovered: () => void) => ReactNode;
   registerCloseGuard?: (guard: () => Promise<void>) => () => void;
   onSourceReady?: (source: AgentSourceRef | null) => void;
   visible: boolean; focused: boolean; onViewChange?: (partialView: ProjectFileView) => void;
@@ -352,7 +352,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
         title={selection !== undefined ? "在外部应用打开当前原件（不随固定版本切换）" : undefined} />
       {toolbarActions}
     </header>
-    {needsRecovery ? identityRecovery : null}
+    {needsRecovery ? identityRecovery?.(() => setReload(value => value + 1)) : null}
     {error ? <p role="alert">{error}</p> : null}
     {reading && visible && valid ? <p role="status">正在读取固定版本…</p> : null}
     {valid?.kind === "html" && !source ? <p className="project-file-content__notice">网页可交互与联网；隐藏保留状态，刷新或切换源码/版本会重新加载。</p> : null}

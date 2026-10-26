@@ -53,7 +53,7 @@ function Page({ tab, visible, focused, registerCloseGuard, workspaceRoot, projec
         initialSourceMode={tab.view.sourceMode} registerCloseGuard={registerCloseGuard}
         initialView={fileSource?.fileVersion ? tab.view.fileViews?.[fileSource.fileVersion]
           ?? (tab.view.versionNumber === fileSource.fileVersion ? { scrollTop: tab.view.scrollTop, zoom: tab.view.zoom } : undefined) : undefined}
-        identityRecovery={<FileIdentityActions workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} visible={visible} />}
+        identityRecovery={onRecovered => <FileIdentityActions workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} visible={visible} initialOpen onRecovered={onRecovered} />}
         toolbarActions={<FileSessionReference workspaceRoot={workspaceRoot} projectId={projectId} fileId={Number(tab.object.id)} versionNumber={tab.view.versionNumber} sourceRef={fileSource} visible={visible} />}
         onSourceReady={setFileSource}
         onViewChange={view => {
