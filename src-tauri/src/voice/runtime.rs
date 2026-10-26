@@ -392,27 +392,23 @@ impl VoiceRuntime {
                 });
             }
         }
-        let capture_faulted = self
+        let capture_fault = self
             .active
             .as_mut()
             .and_then(|active| active.run.as_mut())
-            .is_some_and(capture_run_faulted);
+            .and_then(capture_run_fault);
         let silent = self
             .active
             .as_ref()
             .and_then(|active| active.run.as_ref())
             .is_some_and(|run| run.activity.should_pause());
-        if capture_faulted || storage_fault.is_some() || silent {
+        let pause_reason = storage_fault
+            .as_deref()
+            .or(capture_fault.as_deref())
+            .or(silent.then_some("silence"));
+        if let Some(reason) = pause_reason {
             let active = self.active.as_mut().expect("checked active session");
-            stop_for_save(
-                active,
-                "paused",
-                storage_fault.as_deref().unwrap_or(if silent {
-                    "silence"
-                } else {
-                    "capture_fault"
-                }),
-            )?;
+            stop_for_save(active, "paused", reason)?;
             if let Err(error) = save_stopped_session(db, active) {
                 active.persisted.pause_reason = Some(format!("保存待重试：{error}"));
             }
@@ -876,8 +872,13 @@ fn stop_capture_run(run: Option<CaptureRun>) -> Result<StoppedRun> {
         }
         drop(capture);
     }
+    // Joining capture also joins its final fault report. On Windows, run() can
+    // close the audio queues just before the owner thread sends that report.
+    if let Some(fault) = take_native_capture_fault(&mut run) {
+        storage_error.get_or_insert(fault);
+    }
     if let Err(error) = run.activity.finish() {
-        storage_error = Some(format!("activity_fault: {error}"));
+        storage_error.get_or_insert_with(|| format!("activity_fault: {error}"));
     }
     let microphone = run.microphone_writer.finish();
     let system = run.system_writer.finish();
@@ -909,22 +910,266 @@ fn stop_capture_run(run: Option<CaptureRun>) -> Result<StoppedRun> {
     })
 }
 
+fn capture_run_fault(run: &mut CaptureRun) -> Option<String> {
+    // A native fault and worker shutdown can be observed in the same check.
+    // Prefer the reported cause to the resulting change in worker liveness.
+    if let Some(fault) = take_native_capture_fault(run) {
+        return Some(fault);
+    }
+    if run.activity.failed() {
+        return Some("activity_fault: voice activity worker failed".into());
+    }
+    if run.microphone_writer.has_stopped() {
+        return Some("capture_fault: microphone writer stopped".into());
+    }
+    if run.system_writer.has_stopped() {
+        return Some("capture_fault: system writer stopped".into());
+    }
+    None
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn capture_run_faulted(run: &mut CaptureRun) -> bool {
-    run.activity.failed()
-        || run.microphone_writer.has_stopped()
-        || run.system_writer.has_stopped()
-        || run.faults.try_recv().is_ok()
+fn take_native_capture_fault(run: &mut CaptureRun) -> Option<String> {
+    let fault = run.faults.try_recv().ok()?;
+    #[cfg(target_os = "macos")]
+    let detail = format!("{fault:?}");
+    #[cfg(target_os = "windows")]
+    let detail = fault;
+    Some(format!("capture_fault: {detail}"))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn capture_run_faulted(run: &mut CaptureRun) -> bool {
-    run.activity.failed() || run.microphone_writer.has_stopped() || run.system_writer.has_stopped()
+fn take_native_capture_fault(_run: &mut CaptureRun) -> Option<String> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn stopped_capture_runtime(
+        db: &mut Database,
+        root: &Path,
+        invalid_microphone: bool,
+        silence_ms: usize,
+    ) -> (VoiceRuntime, tokio::sync::mpsc::Sender<NativeCaptureFault>) {
+        use crate::voice::capture::{bounded_audio_frames, SourceTimeline};
+
+        let session = db
+            .voice_session_create(&RecordTarget::Workspace, "fault", "fault", "Voice")
+            .unwrap();
+        let persisted = db
+            .voice_session_transition(
+                &session.session_id,
+                session.revision,
+                "recording",
+                None,
+                0,
+                session.capture_epoch,
+            )
+            .unwrap();
+        let (mic_send, microphone) = bounded_audio_frames(1).unwrap();
+        let (sys_send, system) = bounded_audio_frames(1).unwrap();
+        let activity_frames = silence_ms / 30;
+        let (activity_mic_send, activity_microphone) =
+            bounded_audio_frames(activity_frames.max(1)).unwrap();
+        let (activity_sys_send, activity_system) =
+            bounded_audio_frames(activity_frames.max(1)).unwrap();
+        let activity =
+            super::super::activity::ActivityHandle::spawn(activity_microphone, activity_system)
+                .unwrap();
+        for (source, sink) in [
+            (AudioSource::Microphone, mic_send),
+            (AudioSource::System, sys_send),
+        ] {
+            let mut timeline =
+                SourceTimeline::new(source, persisted.capture_epoch, 0, 16_000, 1).unwrap();
+            let mut frame = timeline.stamp(0, vec![0.0; 480]).unwrap();
+            if invalid_microphone && source == AudioSource::Microphone {
+                frame.sample_rate = 0;
+            }
+            sink.try_push(frame).unwrap();
+            // Closing raw senders reproduces the native thread exiting after a fault.
+        }
+        for (source, sink) in [
+            (AudioSource::Microphone, activity_mic_send),
+            (AudioSource::System, activity_sys_send),
+        ] {
+            let mut timeline =
+                SourceTimeline::new(source, persisted.capture_epoch, 0, 16_000, 1).unwrap();
+            for index in 0..activity_frames {
+                sink.try_push(
+                    timeline
+                        .stamp(index as u64 * 30_000_000, vec![0.0; 480])
+                        .unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        let (fault_send, faults) = tokio::sync::mpsc::channel(1);
+        let run = CaptureRun {
+            activity,
+            workspace_root: root.to_path_buf(),
+            session_id: persisted.session_id.clone(),
+            capture: None,
+            microphone_writer: WriterHandle::spawn(
+                root.into(),
+                persisted.session_id.clone(),
+                AudioSource::Microphone,
+                persisted.capture_epoch,
+                microphone,
+            ),
+            system_writer: WriterHandle::spawn(
+                root.into(),
+                persisted.session_id.clone(),
+                AudioSource::System,
+                persisted.capture_epoch,
+                system,
+            ),
+            recognition: None,
+            faults,
+        };
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while !run.microphone_writer.has_stopped()
+            || !run.system_writer.has_stopped()
+            || (silence_ms >= 300_000 && !run.activity.should_pause())
+        {
+            assert!(Instant::now() < deadline, "capture workers did not settle");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        (
+            VoiceRuntime {
+                active: Some(ActiveSession {
+                    persisted,
+                    recording_since: None,
+                    run: Some(run),
+                    interim_text: None,
+                    pending_save: None,
+                    pending_updates: Vec::new(),
+                }),
+            },
+            fault_send,
+        )
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn native_test_fault() -> (NativeCaptureFault, &'static str) {
+        #[cfg(target_os = "macos")]
+        return (
+            NativeCaptureFault::StreamStopped("native diagnostic detail".into()),
+            "capture_fault: StreamStopped(\"native diagnostic detail\")",
+        );
+        #[cfg(target_os = "windows")]
+        return (
+            "native diagnostic detail".into(),
+            "capture_fault: native diagnostic detail",
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn snapshot_preserves_native_fault_after_raw_writers_stop() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        // Both tracks have reached the automatic-silence threshold as well.
+        let (mut runtime, faults) = stopped_capture_runtime(&mut db, root.path(), false, 300_000);
+        assert!(runtime
+            .active
+            .as_ref()
+            .unwrap()
+            .run
+            .as_ref()
+            .unwrap()
+            .activity
+            .should_pause());
+        let (fault, expected) = native_test_fault();
+        faults.try_send(fault).unwrap();
+
+        let paused = runtime.snapshot(&mut db, root.path()).unwrap().unwrap();
+        assert_eq!(paused.phase, "paused");
+        assert_eq!(paused.pause_reason.as_deref(), Some(expected));
+        let persisted = db.voice_session_get("fault").unwrap().unwrap();
+        assert_eq!(persisted.lifecycle, "paused");
+        assert_eq!(persisted.pause_reason.as_deref(), Some(expected));
+        assert_eq!(db.voice_saved_duration_ms("fault").unwrap(), 30);
+        assert!(runtime.active.as_ref().unwrap().run.is_none());
+        assert!(runtime.active.as_ref().unwrap().pending_save.is_none());
+        let tracks = recover_partial_tracks(root.path(), "fault").unwrap();
+        assert_eq!(
+            tracks.iter().map(|chunk| chunk.source).collect::<Vec<_>>(),
+            ["microphone", "system"]
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn snapshot_reports_stopped_writer_without_inventing_an_io_error() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let (mut runtime, _faults) = stopped_capture_runtime(&mut db, root.path(), false, 0);
+
+        let paused = runtime.snapshot(&mut db, root.path()).unwrap().unwrap();
+        assert_eq!(paused.phase, "paused");
+        assert_eq!(
+            paused.pause_reason.as_deref(),
+            Some("capture_fault: microphone writer stopped")
+        );
+        assert_eq!(
+            db.voice_session_get("fault").unwrap().unwrap().pause_reason,
+            paused.pause_reason
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn stopping_rechecks_native_fault_after_observing_worker_shutdown() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let (mut runtime, faults) = stopped_capture_runtime(&mut db, root.path(), false, 0);
+        let active = runtime.active.as_mut().unwrap();
+        let observed = capture_run_fault(active.run.as_mut().unwrap()).unwrap();
+        assert_eq!(observed, "capture_fault: microphone writer stopped");
+        // The Windows owner reports its error after run() drops the track senders.
+        // It may become available between the health check and joining capture.
+        let (fault, expected) = native_test_fault();
+        faults.try_send(fault).unwrap();
+        stop_for_save(active, "paused", &observed).unwrap();
+        save_stopped_session(&db, active).unwrap();
+
+        assert_eq!(active.persisted.pause_reason.as_deref(), Some(expected));
+        assert_eq!(
+            db.voice_session_get("fault")
+                .unwrap()
+                .unwrap()
+                .pause_reason
+                .as_deref(),
+            Some(expected)
+        );
+        assert_eq!(db.voice_saved_duration_ms("fault").unwrap(), 30);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn snapshot_keeps_storage_failure_ahead_of_native_capture_fault() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let (mut runtime, faults) = stopped_capture_runtime(&mut db, root.path(), true, 0);
+        faults.try_send(native_test_fault().0).unwrap();
+
+        let paused = runtime.snapshot(&mut db, root.path()).unwrap().unwrap();
+        assert_eq!(paused.phase, "paused");
+        assert_eq!(
+            paused.pause_reason.as_deref(),
+            Some("storage_fault: invalid audio frame")
+        );
+        assert_eq!(
+            db.voice_session_get("fault").unwrap().unwrap().pause_reason,
+            paused.pause_reason
+        );
+        // The healthy peer is saved even when the microphone writer fails.
+        assert_eq!(db.voice_saved_duration_ms("fault").unwrap(), 30);
+    }
 
     #[test]
     fn failed_database_save_keeps_a_stopped_session_and_retries_without_recapturing() {

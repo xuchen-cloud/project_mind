@@ -1,7 +1,7 @@
 //! WASAPI shared capture. COM objects stay on one owner thread; raw tracks have
 //! independent bounded queues. Real Windows device/installer acceptance is pending.
 use super::{bounded_audio_frames, AudioFrame, AudioFrameSink, AudioFrameStream, AudioSource};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -86,7 +86,7 @@ impl WindowsCaptureSession {
                     &ready_send,
                 );
                 if let Err(error) = result {
-                    let detail = error.to_string();
+                    let detail = format!("{error:#}");
                     let _ = ready_send.try_send(Err(detail.clone()));
                     let _ = faults_send.try_send(detail);
                 }
@@ -174,15 +174,19 @@ fn device_id(device: &IMMDevice) -> Result<String> {
 impl Track {
     fn new(devices: &IMMDeviceEnumerator, source: AudioSource, sinks: Sinks) -> Result<Self> {
         unsafe {
-            let device = devices.GetDefaultAudioEndpoint(
-                if source == AudioSource::Microphone {
-                    eCapture
-                } else {
-                    eRender
-                },
-                eConsole,
-            )?;
-            let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+            let device = devices
+                .GetDefaultAudioEndpoint(
+                    if source == AudioSource::Microphone {
+                        eCapture
+                    } else {
+                        eRender
+                    },
+                    eConsole,
+                )
+                .with_context(|| format!("WASAPI {source:?} GetDefaultAudioEndpoint"))?;
+            let client: IAudioClient = device
+                .Activate(CLSCTX_ALL, None)
+                .with_context(|| format!("WASAPI {source:?} Activate"))?;
             let format = WAVEFORMATEX {
                 wFormatTag: 3,
                 nChannels: CHANNELS,
@@ -199,8 +203,12 @@ impl Track {
                 } else {
                     0
                 };
-            client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 1_000_000, 0, &format, None)?;
-            let capture = client.GetService::<IAudioCaptureClient>()?;
+            client
+                .Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 1_000_000, 0, &format, None)
+                .with_context(|| format!("WASAPI {source:?} Initialize shared 48000 Hz stereo"))?;
+            let capture = client
+                .GetService::<IAudioCaptureClient>()
+                .with_context(|| format!("WASAPI {source:?} GetService"))?;
             Ok(Self {
                 client,
                 capture,
@@ -255,34 +263,58 @@ impl Track {
     }
     fn drain(&mut self, epoch: u64, started: u64) -> Result<()> {
         unsafe {
-            while self.capture.GetNextPacketSize()? > 0 {
+            while self
+                .capture
+                .GetNextPacketSize()
+                .with_context(|| format!("WASAPI {:?} GetNextPacketSize", self.source))?
+                > 0
+            {
                 let (mut data, mut frames, mut flags, mut timestamp) =
                     (std::ptr::null_mut(), 0, 0, 0);
-                self.capture.GetBuffer(
-                    &mut data,
-                    &mut frames,
-                    &mut flags,
-                    None,
-                    Some(&mut timestamp),
-                )?;
+                self.capture
+                    .GetBuffer(
+                        &mut data,
+                        &mut frames,
+                        &mut flags,
+                        None,
+                        Some(&mut timestamp),
+                    )
+                    .with_context(|| format!("WASAPI {:?} GetBuffer", self.source))?;
                 // Silent WASAPI packets can have a null data pointer. Never dereference it.
                 let samples = if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
                     vec![0.0; frames as usize * 2]
                 } else if data.is_null() {
-                    self.capture.ReleaseBuffer(frames)?;
-                    return Err(anyhow!("WASAPI returned a null audio buffer"));
+                    self.capture
+                        .ReleaseBuffer(frames)
+                        .with_context(|| format!("WASAPI {:?} ReleaseBuffer", self.source))?;
+                    return Err(anyhow!(
+                        "WASAPI {:?} returned a null audio buffer (frames={frames}, flags={flags:#x})",
+                        self.source
+                    ));
                 } else {
                     std::slice::from_raw_parts(data.cast::<f32>(), frames as usize * 2).to_vec()
                 };
-                self.capture.ReleaseBuffer(frames)?;
+                self.capture
+                    .ReleaseBuffer(frames)
+                    .with_context(|| format!("WASAPI {:?} ReleaseBuffer", self.source))?;
                 if flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 != 0
                     || (self.seen && flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0)
                 {
-                    return Err(anyhow!("{:?} audio timeline interrupted", self.source));
+                    return Err(anyhow!(
+                        "{:?} audio timeline interrupted (flags={flags:#x}, frames={frames}, sequence={}, qpc_100ns={timestamp}, start_qpc_100ns={started}, next_sample={})",
+                        self.source,
+                        self.sequence,
+                        self.next_sample
+                    ));
                 }
                 let position = timestamp.saturating_sub(started) * RATE / 10_000_000;
                 if position + 96 < self.next_sample {
-                    return Err(anyhow!("{:?} late audio packet", self.source));
+                    return Err(anyhow!(
+                        "{:?} late audio packet (position={position}, next_sample={}, frames={frames}, flags={flags:#x}, sequence={}, qpc_100ns={timestamp}, start_qpc_100ns={started})",
+                        self.source,
+                        self.next_sample,
+                        self.sequence
+                    ));
                 }
                 if position > self.next_sample + 96 {
                     self.silence_to(epoch, position)?;
@@ -321,8 +353,8 @@ fn run(
     }
     let started = qpc(frequency)?;
     unsafe {
-        mic.client.Start()?;
-        sys.client.Start()?;
+        mic.client.Start().context("WASAPI Microphone Start")?;
+        sys.client.Start().context("WASAPI System Start")?;
     }
     ready
         .send(Ok(()))
@@ -347,20 +379,27 @@ fn run(
         if last_check.elapsed() > Duration::from_secs(1) {
             for track in [&mic, &sys] {
                 let device = unsafe {
-                    devices.GetDefaultAudioEndpoint(
-                        if track.source == AudioSource::Microphone {
-                            eCapture
-                        } else {
-                            eRender
-                        },
-                        eConsole,
-                    )?
+                    devices
+                        .GetDefaultAudioEndpoint(
+                            if track.source == AudioSource::Microphone {
+                                eCapture
+                            } else {
+                                eRender
+                            },
+                            eConsole,
+                        )
+                        .with_context(|| {
+                            format!("WASAPI {:?} check GetDefaultAudioEndpoint", track.source)
+                        })?
                 };
                 if device_id(&device)? != track.device_id
-                    || unsafe { device.GetState()? } != DEVICE_STATE_ACTIVE
+                    || unsafe { device.GetState() }
+                        .with_context(|| format!("WASAPI {:?} GetState", track.source))?
+                        != DEVICE_STATE_ACTIVE
                 {
                     return Err(anyhow!(
-                        "Windows default audio device changed or disconnected"
+                        "Windows {:?} default audio device changed or disconnected",
+                        track.source
                     ));
                 }
             }
