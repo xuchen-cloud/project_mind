@@ -110,21 +110,26 @@ impl Database {
                 "Workspace AI secrets are locked",
             ));
         }
-        // Reuse the application's binding/model/key resolution. An explicit
-        // override is never retried against the General default on failure.
-        let profile = match profile_override_id {
-            Some(id) => self.resolve_profile_by_id(id),
-            None => self.resolve_default_role(AiDefaultRole::General),
-        }
+        // Only key decryption failures are SecretsLocked. Storage/network
+        // failures must remain errors when the assistant filters locked models.
+        let api_key = crate::secret_crypto::decrypt_secret(
+            &stored.api_key_ciphertext,
+            &stored.api_key_nonce,
+            &stored.api_key_salt,
+            self.secret_password
+                .as_deref()
+                .expect("validated secret password"),
+        )
         .map_err(|_| {
             AgentError::new(
                 ErrorCode::SecretsLocked,
                 "Cannot unlock the selected profile's API key",
             )
         })?;
-        if profile.api_key.trim().is_empty() {
+        if api_key.trim().is_empty() {
             return Err(unavailable());
         }
+        let network = self.resolve_ai_network().map_err(storage_error)?;
         // Length-delimited JSON avoids ambiguous concatenations; ciphertext,
         // salt and nonce invalidate receipts on key replacement without storing
         // a plaintext key or its hash in verification storage.
@@ -134,13 +139,23 @@ impl Database {
             &stored.provider_family,
             &stored.base_url,
             &stored.default_model,
-            &profile.model,
+            model,
             &stored.api_key_ciphertext,
             &stored.api_key_nonce,
             &stored.api_key_salt,
         ))
         .map_err(storage_error)?;
         let fingerprint = format!("sha256:{:x}", Sha256::digest(identity));
+        let profile = ResolvedAiProfile {
+            profile_name: stored.name,
+            provider_family: stored.provider_family,
+            base_url: stored.base_url,
+            model: model.to_string(),
+            api_key,
+            supports_text: stored.supports_text,
+            supports_image: stored.supports_image,
+            network,
+        };
         Ok(ResolvedAgentProfile {
             profile,
             fingerprint,
@@ -363,5 +378,13 @@ mod tests {
     fn agent_profiles_missing_default_is_unavailable() {
         let db = database();
         assert_eq!(error_code(&db, None), ErrorCode::ProfileUnavailable);
+    }
+
+    #[test]
+    fn agent_profiles_network_storage_failure_is_not_a_locked_key() {
+        let db = database();
+        let id = profile(&db, "storage-error");
+        db.conn.execute("DROP TABLE app_settings", []).unwrap();
+        assert_eq!(error_code(&db, Some(id)), ErrorCode::IoFailed);
     }
 }

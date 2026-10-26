@@ -1,6 +1,190 @@
 use super::*;
 
 #[test]
+fn uncached_passwordless_migration_reopens_with_repaired_default_and_skips_locked_candidate() {
+    use crate::agent::errors::ErrorCode;
+    use crate::models::{
+        AiCapabilityBindingUpsertInput, AiNetworkSettingsUpsertInput, AiProfileTestInput,
+        AiProviderProfileUpsertInput, AiProxyMode,
+    };
+    use std::io::{BufRead, BufReader, Read, Write};
+
+    let root = tempfile::tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let (legacy, paths) =
+        crate::workspace::create_workspace(root.path(), "legacy-password").unwrap();
+    let mut db =
+        crate::db::Database::open(&paths.db_path, root.path(), Some("legacy-password".into()))
+            .unwrap();
+    db.ai_network_settings_upsert(AiNetworkSettingsUpsertInput {
+        mode: AiProxyMode::Direct,
+        proxy_url: None,
+        username: None,
+        password: None,
+    })
+    .unwrap();
+    let mut default_input = AiProviderProfileUpsertInput {
+        id: None,
+        name: "Default".into(),
+        provider_family: "openai_compatible".into(),
+        base_url,
+        api_key: Some("legacy-default-key".into()),
+        default_model: "fixture-model".into(),
+        supports_text: true,
+        supports_image: false,
+        supports_file: false,
+        enabled: true,
+    };
+    let default_id = db.ai_profile_upsert(default_input.clone()).unwrap().id;
+    default_input.id = Some(default_id);
+    let mut candidate_input = AiProviderProfileUpsertInput {
+        id: None,
+        name: "Candidate".into(),
+        api_key: Some("legacy-candidate-key".into()),
+        ..default_input.clone()
+    };
+    let candidate = db.ai_profile_upsert(candidate_input.clone()).unwrap();
+    candidate_input.id = Some(candidate.id);
+    db.ai_binding_upsert(AiCapabilityBindingUpsertInput {
+        capability: "default".into(),
+        use_default: false,
+        profile_id: Some(default_id),
+        model: None,
+    })
+    .unwrap();
+    assert_eq!(
+        db.agent_resolve_profile(None).unwrap().profile.api_key,
+        "legacy-default-key"
+    );
+    drop(db);
+
+    // Windows can reach migration without the old password in its local cache.
+    let (migrated, paths, key) =
+        crate::open_passwordless_workspace(root.path(), None, |_| Ok(None)).unwrap();
+    assert_eq!(migrated.workspace_id, legacy.workspace_id);
+    assert_ne!(key, "legacy-password");
+    let mut db = crate::db::Database::open(&paths.db_path, root.path(), Some(key.clone())).unwrap();
+    assert_eq!(
+        db.agent_resolve_profile(None).err().unwrap().code,
+        ErrorCode::SecretsLocked,
+        "an unreadable selected default must still fail"
+    );
+    default_input.api_key = Some("repaired-default-key".into());
+    db.ai_profile_upsert(default_input.clone()).unwrap();
+    drop(db);
+
+    let (_, paths, reopened_key) =
+        crate::open_passwordless_workspace(root.path(), None, |_| Ok(None)).unwrap();
+    assert_eq!(reopened_key, key);
+    let mut db =
+        crate::db::Database::open(&paths.db_path, root.path(), Some(reopened_key)).unwrap();
+    assert_eq!(
+        db.agent_resolve_profile(None).unwrap().profile.api_key,
+        "repaired-default-key"
+    );
+
+    // Exercise the settings probe with the saved default key, not a draft key.
+    let server = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = BufReader::new(socket.try_clone().unwrap());
+        let mut request_line = String::new();
+        reader.read_line(&mut request_line).unwrap();
+        assert!(request_line.starts_with("POST /v1/chat/completions "));
+        let mut length = 0;
+        let mut authenticated = false;
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+            if line == "\r\n" {
+                break;
+            }
+            let header = line.to_ascii_lowercase();
+            if let Some(value) = header.strip_prefix("content-length:") {
+                length = value.trim().parse::<usize>().unwrap();
+            }
+            if let Some(value) = header.strip_prefix("authorization:") {
+                authenticated = value.trim() == "bearer repaired-default-key";
+            }
+        }
+        assert!(authenticated);
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).unwrap();
+        let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(request["model"], "fixture-model");
+        let response = r#"{"model":"fixture-model","choices":[{"message":{"role":"assistant","content":"OK"}}]}"#;
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+            response.len()
+        )
+        .unwrap();
+    });
+    let tested = db
+        .ai_profile_test(AiProfileTestInput {
+            id: Some(default_id),
+            name: default_input.name,
+            provider_family: default_input.provider_family,
+            base_url: default_input.base_url,
+            api_key: None,
+            default_model: default_input.default_model,
+            supports_text: true,
+            supports_image: false,
+            supports_file: false,
+            enabled: true,
+            test_image: false,
+        })
+        .unwrap();
+    server.join().unwrap();
+    assert!(tested.success);
+    assert_eq!(tested.resolved_model.as_deref(), Some("fixture-model"));
+    assert_eq!(
+        db.agent_resolve_profile(Some(candidate.id))
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::SecretsLocked,
+        "a successful default probe does not repair another profile's ciphertext"
+    );
+
+    let configured = Configuration::configured_profiles(&mut db).unwrap();
+    assert_eq!(configured.len(), 1);
+    assert_eq!(configured[0].0, default_id);
+    assert_eq!(configured[0].1.api_key, "repaired-default-key");
+    let settings = db.ai_settings_get().unwrap();
+    assert_eq!(settings.profiles.len(), 2);
+    let retained = settings
+        .profiles
+        .iter()
+        .find(|p| p.id == candidate.id)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(retained).unwrap(),
+        serde_json::to_value(&candidate).unwrap(),
+        "catalog filtering must preserve the old configuration"
+    );
+
+    candidate_input.api_key = Some("repaired-candidate-key".into());
+    db.ai_profile_upsert(candidate_input).unwrap();
+    let restored = Configuration::configured_profiles(&mut db).unwrap();
+    assert_eq!(
+        restored.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        vec![default_id, candidate.id]
+    );
+    assert_eq!(restored[1].1.api_key, "repaired-candidate-key");
+    assert_eq!(
+        db.agent_resolve_profile(None).unwrap().profile.api_key,
+        "repaired-default-key"
+    );
+}
+
+#[test]
 fn workspace_chat_is_owned_by_main_window_and_distinct_from_projects() {
     assert!(authorize_scope_label("main", None).is_ok());
     assert!(authorize_scope_label("main", Some(7)).is_ok());

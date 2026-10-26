@@ -331,8 +331,13 @@ impl Configuration {
                 || !stored.has_stored_key || stored.default_model.trim().is_empty() {
                 continue;
             }
-            let resolved = db.agent_resolve_profile(Some(stored.id))
-                .map_err(|_| "无法读取助手模型配置，请检查工作区 AI 设置")?;
+            let resolved = match db.agent_resolve_profile(Some(stored.id)) {
+                Ok(resolved) => resolved,
+                // Passwordless migration retains old ciphertext. A locked,
+                // unselected model must not block the resolved General default.
+                Err(error) if error.code == crate::agent::errors::ErrorCode::SecretsLocked => continue,
+                Err(_) => return Err("无法读取助手模型配置，请检查工作区 AI 设置".into()),
+            };
             profiles.push((stored.id, resolved.profile));
         }
         profiles.sort_by_key(|(id, _)| *id);
