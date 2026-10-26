@@ -37,6 +37,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      # candle-onnx generates Rust bindings from ONNX protobuf schemas.
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: "29.3"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify protoc is available to Rust builds
+        run: protoc --version
       - name: Install frontend and build dependencies
         run: npm ci
       - name: Validate Windows patch version

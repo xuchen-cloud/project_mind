@@ -35,7 +35,7 @@ describe("Beta release configuration", () => {
     const main = await readFile("src-tauri/src/main.rs", "utf8");
 
     expect(main).toContain(
-      '#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]',
+      '#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]',
     );
   });
 
@@ -97,6 +97,20 @@ describe("Beta release configuration", () => {
     expect(workflow).not.toContain("macos-latest");
     expect(workflow).not.toContain("beta/latest.json");
     expect(workflow).not.toContain("publish-channel");
+  });
+
+  it("provides protoc before building Windows CLI and desktop resources", async () => {
+    const workflow = await readFile(
+      ".github/workflows/publish-windows-patch.yml",
+      "utf8",
+    );
+    const setup = workflow.indexOf("uses: arduino/setup-protoc@");
+    const preflight = workflow.indexOf("run: protoc --version");
+    const build = workflow.indexOf("uses: tauri-apps/tauri-action@");
+
+    expect(setup).toBeGreaterThan(-1);
+    expect(preflight).toBeGreaterThan(setup);
+    expect(build).toBeGreaterThan(preflight);
   });
 
   it("requires Windows patch tags to match the application version", async () => {
