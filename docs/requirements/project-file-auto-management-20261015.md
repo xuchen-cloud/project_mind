@@ -4,6 +4,8 @@
 
 后续规则修正：[#159](https://github.com/xuchen-cloud/project_mind/issues/159) 将排除范围扩展为所有隐藏文件与隐藏目录，包括点号条目、macOS/Windows 隐藏属性和隐藏目录后代；详见[隐藏文件规则](project-file-system-metadata-20261015.md)。下文保留 #142 当时的交付与验证记录。
 
+后续发现策略修正：[#271](project-file-discovery-events-20261026.md) 改为首次扫描与原生目录变更唤醒，静止目录不再按固定周期重新枚举。
+
 ## 范围
 
 - 依赖现有 Project File 登记、分页目录扫描、文件身份与版本服务、工作区 business change 同步。

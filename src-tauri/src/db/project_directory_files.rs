@@ -239,6 +239,35 @@ impl Database {
         }
         Ok(root)
     }
+    pub(crate) fn project_file_discovery_root(
+        &self,
+        workspace: &str,
+        project: Option<i64>,
+    ) -> Result<PathBuf> {
+        self.directory_owner(workspace, project)
+    }
+    /// The idle catalogue reads SQLite only. Filesystem ownership validation is
+    /// deferred to a new/changed subscription and each actual scan page.
+    pub(crate) fn project_file_discovery_catalogue(
+        &self,
+        workspace: &str,
+    ) -> Result<Vec<(Option<i64>, PathBuf)>> {
+        if self.native_workspace_id.as_deref() != Some(workspace) {
+            return Err(failure("ownership_mismatch", "Workspace is no longer current"));
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT id,root_path FROM projects WHERE is_archived=0 ORDER BY id",
+        )?;
+        let mut roots = statement
+            .query_map([], |row| Ok((Some(row.get::<_, i64>(0)?), row.get::<_, String>(1)?)))?
+            .map(|row| {
+                row.map(|(project, path)| (project, self.decode_path_ref(&path)))
+                    .map_err(Into::into)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        roots.push((None, self.workspace_root.join("files")));
+        Ok(roots)
+    }
     pub(crate) fn project_file_is_directory(&self, object: &ObjectRef) -> Result<bool> {
         Ok(self.directory_target(object)?.0.storage_mode == "project_directory")
     }
@@ -329,7 +358,7 @@ impl Database {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             // Legacy imports have no recorded physical identity. An empty
-            // identity remains untrusted until explicit reconciliation.
+            // identity remains untrusted until successful registration.
             "INSERT INTO project_directory_files(document_id,physical_identity,state,reason) VALUES (?3,'',?1,?2) ON CONFLICT(document_id) DO UPDATE SET state=excluded.state,reason=excluded.reason",
             params![state, reason, id],
         )?;
@@ -573,11 +602,14 @@ impl Database {
                     |r| r.get(0),
                 )
                 .optional()?;
-            // Only directory Files have an immutable head already. Imported
-            // heads still reference live bytes until their first freeze.
-            if known.as_deref().is_none_or(str::is_empty)
+            let captured_identity = serde_json::to_string(&physical)?;
+            // Legacy imports may bootstrap a missing identity only after the
+            // captured bytes matched their registered hash above.
+            if (document.storage_mode == "project_directory"
+                && known.as_deref().is_none_or(str::is_empty))
                 || (document.storage_mode != "project_directory"
-                    && known.as_deref() != Some(&serde_json::to_string(&physical)?))
+                    && known.as_deref().filter(|value| !value.is_empty())
+                        .is_some_and(|value| value != captured_identity))
             {
                 return self.directory_state(
                     existing,
@@ -736,7 +768,8 @@ impl Database {
                 no_change: file.version_number == intent.expected_version_number } })
     }
     fn directory_refresh(&self, object: &ObjectRef) -> Result<DirectoryFile> {
-        let (_, id) = file_id(object)?;
+        let (project, id) = file_id(object)?;
+        let _project_lock = self.file_project_lock(project, false)?;
         let _file_lock = self.file_version_lock(id)?;
         let (document, root) = self.directory_target(object)?;
         let path = PathBuf::from(&document.managed_path);
@@ -768,24 +801,40 @@ impl Database {
                 |r| r.get(0),
             )
             .optional()?;
-        if known.as_deref().is_none_or(str::is_empty)
-            || (document.storage_mode != "project_directory" && known.as_deref() != Some(&identity))
-        {
-            return self.directory_state(
-                object,
-                "ambiguous",
-                if known.as_deref().is_none_or(str::is_empty) {
-                    "旧版导入文件尚未记录文件身份，请确认当前位置后打开"
-                } else {
-                    "Physical identity changed; confirm replacement or relocation"
-                },
-            );
-        }
         if fs::metadata(&path)?.len() > crate::file_text_patch::MAX_FILE_BYTES as u64 {
             return self.directory_state(
                 object,
                 "unavailable",
                 "File exceeds the existing 100 MiB snapshot budget; version is not registered",
+            );
+        }
+        if document.storage_mode != "project_directory"
+            && known.as_deref().is_none_or(str::is_empty)
+        {
+            let pending: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM project_directory_moves WHERE document_id=?1 UNION ALL SELECT 1 FROM project_directory_metadata_intents WHERE document_id=?1)",
+                [id], |row| row.get(0),
+            )?;
+            if pending {
+                return self.directory_state(
+                    object, "ambiguous",
+                    "Pending File move must be resolved before initial registration",
+                );
+            }
+            let previous_hash = self.directory_hash(id, document.current_version_number)?;
+            // Bootstrap only the existing legacy path. A known hash retains its
+            // version; unknown historical bytes stay unknown and get a new head.
+            return self.directory_publish_locked(
+                &object.workspace_id, project, &path, object, previous_hash.is_none(),
+                Some((document.current_version_number.try_into()?, previous_hash.as_deref().unwrap_or(""))),
+                None, None,
+            );
+        }
+        if known.as_deref().is_none_or(str::is_empty)
+            || (document.storage_mode != "project_directory" && known.as_deref() != Some(&identity))
+        {
+            return self.directory_state(
+                object, "ambiguous", "Physical identity changed; confirm replacement or relocation",
             );
         }
         let hash = file_versions::checksum(&path)?;
@@ -1399,17 +1448,6 @@ impl Database {
             tx.commit()?;
         }
         self.document_record(document.id)
-    }
-    /// Keyset selection keeps discovery independent of UI/AI scope selection.
-    pub(crate) fn project_file_scan_next_project(&self, after: i64) -> Result<Option<i64>> {
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT id FROM projects WHERE is_archived=0 AND id>?1 ORDER BY id LIMIT 1",
-                [after],
-                |r| r.get(0),
-            )
-            .optional()?)
     }
     /// Discovery only: already registered paths retain their identity and head.
     /// Explicit reads/resolves remain responsible for external content changes.

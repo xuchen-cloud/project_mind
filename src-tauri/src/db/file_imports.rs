@@ -1681,7 +1681,8 @@ mod tests {
                 assert_crashed(output.status);
                 if kind == "legacy" {
                     // Reproduce a committed pre-identity import whose journal
-                    // cleanup was interrupted. Recovery must not invent trust.
+                    // cleanup was interrupted. Recovery alone does not register
+                    // identity; resolving the unchanged legacy path bootstraps it.
                     let old = Database::open(&paths.db_path, root.path(), None).unwrap();
                     old.conn
                         .execute_batch("DROP TABLE project_directory_files")
@@ -1788,16 +1789,14 @@ mod tests {
                         id: document_id.to_string(),
                     };
                     let located = db.project_file_resolve(&object).unwrap();
-                    assert_eq!(
-                        located.state,
-                        if kind == "legacy" {
-                            "ambiguous"
-                        } else {
-                            "ready"
-                        }
-                    );
+                    assert_eq!(located.state, "ready");
                     assert_eq!(located.version_number, 1);
                     assert_eq!(located.object, object);
+                    assert_eq!(
+                        db.document_record(document_id).unwrap().version_count,
+                        1,
+                        "automatic legacy registration must retain the imported version"
+                    );
                     assert_ne!(
                         located.reason.as_deref(),
                         Some("File location has not been checked")

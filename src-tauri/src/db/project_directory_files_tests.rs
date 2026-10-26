@@ -239,7 +239,8 @@ fn legacy_unregistered_fixture() -> (tempfile::TempDir, Database, i64, PathBuf, 
         kind: ObjectKind::File,
         id: imported.id.to_string(),
     };
-    let unresolved = db.project_file_resolve(&object).unwrap();
+    // Preserve the previously persisted state for explicit reconciliation tests.
+    let unresolved = db.directory_state(&object, "ambiguous", "旧版导入文件尚未记录文件身份，请确认当前位置后打开").unwrap();
     assert_eq!(unresolved.state, "ambiguous");
     assert_eq!(unresolved.content_hash, None);
     assert_eq!(
@@ -247,6 +248,256 @@ fn legacy_unregistered_fixture() -> (tempfile::TempDir, Database, i64, PathBuf, 
         Some("旧版导入文件尚未记录文件身份，请确认当前位置后打开")
     );
     (root, db, project, path, object)
+}
+
+#[test]
+fn legacy_auto_registration_resolves_current_path_and_preserves_history() {
+    for registered_hash in [false, true] {
+        for empty_identity in [false, true] {
+            let (root, mut db, project, path) = fixture();
+            let source = path.join("legacy.txt");
+            fs::write(&source, b"legacy bytes").unwrap();
+            let imported = db
+                .document_import(crate::models::DocumentImportInput {
+                    project_id: Some(project),
+                    source_path: source.to_string_lossy().into_owned(),
+                    is_starred: true,
+                    tag_ids: None,
+                })
+                .unwrap();
+            db.directory_schema().unwrap();
+            db.conn
+                .execute(
+                    "DELETE FROM project_directory_files WHERE document_id=?1",
+                    [imported.id],
+                )
+                .unwrap();
+            if !registered_hash {
+                db.conn.execute("DELETE FROM source_file_version_hashes WHERE document_version_id IN (SELECT id FROM document_versions WHERE document_id=?1)", [imported.id]).unwrap();
+            }
+            let object = ObjectRef {
+                workspace_id: "wp1-workspace".into(),
+                scope: Scope::Project {
+                    project_id: project,
+                },
+                kind: ObjectKind::File,
+                id: imported.id.to_string(),
+            };
+            if empty_identity {
+                db.directory_state(
+                    &object,
+                    "ambiguous",
+                    "旧版导入文件尚未记录文件身份，请确认当前位置后打开",
+                )
+                .unwrap();
+            }
+            let old = db
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: imported.id,
+                })
+                .unwrap();
+            let current = db.project_file_resolve(&object).unwrap();
+            assert_eq!(
+                current.state, "ready",
+                "hash={registered_hash} empty={empty_identity}: {:?}",
+                current.reason
+            );
+            assert_eq!(current.object, object);
+            assert_eq!(current.version_number, if registered_hash { 1 } else { 2 });
+            assert_eq!(bytes(&db, &current), b"legacy bytes");
+            assert_eq!(fs::read(&source).unwrap(), b"legacy bytes");
+            let after = db.document_record(imported.id).unwrap();
+            assert_eq!(after.managed_path, imported.managed_path);
+            assert!(after.is_starred);
+            assert_eq!(after.created_at, imported.created_at);
+            if !registered_hash {
+                assert_eq!(db.directory_hash(imported.id, 1).unwrap(), None);
+                let versions = db
+                    .document_list_versions(crate::models::DocumentListVersionsInput {
+                        document_id: imported.id,
+                    })
+                    .unwrap();
+                assert_eq!(
+                    serde_json::to_value(versions.iter().find(|v| v.id == old[0].id).unwrap())
+                        .unwrap(),
+                    serde_json::to_value(&old[0]).unwrap()
+                );
+            }
+            let observer = rusqlite::Connection::open(root.path().join("test.sqlite")).unwrap();
+            let before: i64 = observer
+                .query_row("PRAGMA data_version", [], |r| r.get(0))
+                .unwrap();
+            let again = db.project_file_resolve(&object).unwrap();
+            assert_eq!(again.version_number, current.version_number);
+            assert_eq!(
+                observer
+                    .query_row("PRAGMA data_version", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                before
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_auto_registration_discovery_migrates_multiple_pages_once() {
+    let (_root, mut db, project, path) = fixture();
+    let mut ids = vec![];
+    for i in 0..31 {
+        let source = path.join(format!("legacy-{i:02}.txt"));
+        fs::write(&source, b"legacy bytes").unwrap();
+        let imported = db
+            .document_import_legacy_fixture(crate::models::DocumentImportInput {
+                project_id: Some(project),
+                source_path: source.to_string_lossy().into_owned(),
+                is_starred: false,
+                tag_ids: None,
+            })
+            .unwrap();
+        ids.push(imported.id);
+    }
+    db.directory_schema().unwrap();
+    db.conn
+        .execute("DELETE FROM project_directory_files", [])
+        .unwrap();
+    let mut cursor = None;
+    let mut migrated = 0;
+    loop {
+        let scan = db
+            .project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 5)
+            .unwrap();
+        assert!(scan.failures.is_empty());
+        for file in scan.files {
+            assert_eq!(file.state, "ready", "{:?}", file.reason);
+            assert_eq!(file.version_number, 2);
+            migrated += 1;
+        }
+        cursor = scan.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(migrated, 31);
+    let watermark = db.committed_change_watermark().unwrap();
+    let scan = db
+        .project_file_scan_new("wp1-workspace", project, None, 5)
+        .unwrap();
+    assert!(scan.files.is_empty());
+    assert_eq!(db.committed_change_watermark().unwrap(), watermark);
+    for id in ids {
+        assert_eq!(db.directory_hash(id, 1).unwrap(), None);
+    }
+}
+
+#[test]
+fn legacy_auto_registration_keeps_content_conflicts_and_foreign_ownership_blocked() {
+    let (_root, mut db, project, path) = fixture();
+    let source = path.join("known.txt");
+    fs::write(&source, b"registered original").unwrap();
+    let object = import_for_location(&mut db, project, &source);
+    db.directory_schema().unwrap();
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [&object.id],
+        )
+        .unwrap();
+    fs::write(&source, b"changed before migration").unwrap();
+    let current = db.project_file_resolve(&object).unwrap();
+    assert_eq!(current.state, "ambiguous");
+    assert_eq!(current.version_number, 1);
+    assert_eq!(
+        db.document_record(object.id.parse().unwrap())
+            .unwrap()
+            .storage_mode,
+        "managed_existing"
+    );
+    assert_eq!(fs::read(&source).unwrap(), b"changed before migration");
+
+    let legacy = path.join("unknown.txt");
+    fs::write(&legacy, b"legacy live bytes").unwrap();
+    let imported = db
+        .document_import_legacy_fixture(crate::models::DocumentImportInput {
+            project_id: Some(project),
+            source_path: legacy.to_string_lossy().into_owned(),
+            is_starred: false,
+            tag_ids: None,
+        })
+        .unwrap();
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [imported.id],
+        )
+        .unwrap();
+    let other = path.join("owned.txt");
+    fs::write(&other, b"owned bytes").unwrap();
+    db.project_file_register("wp1-workspace", project, "owned.txt")
+        .unwrap();
+    fs::remove_file(&legacy).unwrap();
+    fs::hard_link(&other, &legacy).unwrap();
+    let unknown = ObjectRef {
+        workspace_id: "wp1-workspace".into(),
+        scope: Scope::Project {
+            project_id: project,
+        },
+        kind: ObjectKind::File,
+        id: imported.id.to_string(),
+    };
+    assert_eq!(
+        FileServiceError::from_error(db.project_file_resolve(&unknown).unwrap_err()).code,
+        "ownership_mismatch"
+    );
+    assert_eq!(db.directory_hash(imported.id, 1).unwrap(), None);
+    assert_eq!(
+        db.document_record(imported.id)
+            .unwrap()
+            .current_version_number,
+        1
+    );
+}
+
+#[test]
+fn legacy_auto_registration_supports_workspace_files_and_missing_paths() {
+    let (root, mut db, _project, _path) = fixture();
+    let source = root.path().join("source.txt");
+    fs::write(&source, b"workspace legacy").unwrap();
+    let imported = db
+        .document_import_legacy_fixture(crate::models::DocumentImportInput {
+            project_id: None,
+            source_path: source.to_string_lossy().into_owned(),
+            is_starred: false,
+            tag_ids: None,
+        })
+        .unwrap();
+    db.directory_schema().unwrap();
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [imported.id],
+        )
+        .unwrap();
+    let live = PathBuf::from(&imported.managed_path);
+    fs::remove_file(&live).unwrap();
+    let object = ObjectRef {
+        workspace_id: "wp1-workspace".into(),
+        scope: Scope::Workspace,
+        kind: ObjectKind::File,
+        id: imported.id.to_string(),
+    };
+    assert_eq!(db.project_file_resolve(&object).unwrap().state, "missing");
+    assert_eq!(
+        db.document_record(imported.id)
+            .unwrap()
+            .current_version_number,
+        1
+    );
+    fs::write(&live, b"workspace legacy").unwrap();
+    let ready = db.project_file_resolve(&object).unwrap();
+    assert_eq!(ready.state, "ready");
+    assert_eq!(ready.version_number, 2);
+    assert_eq!(bytes(&db, &ready), b"workspace legacy");
+    assert_eq!(db.directory_hash(imported.id, 1).unwrap(), None);
 }
 
 #[test]
@@ -428,7 +679,7 @@ fn imported_file_legacy_registration_rejects_known_identity_or_registered_histor
         )
         .unwrap();
     let pending = db.project_file_resolve(&known).unwrap();
-    assert_eq!(pending.state, "ambiguous");
+    assert_eq!(pending.state, "ready");
     assert!(pending.content_hash.is_some());
     assert_eq!(
         FileServiceError::from_error(
@@ -700,7 +951,7 @@ fn imported_file_location_first_resolve_freezes_managed_copy_and_adopted_head() 
 }
 
 #[test]
-fn imported_file_location_legacy_identity_requires_explicit_confirmation() {
+fn imported_file_location_legacy_identity_is_registered_automatically() {
     let (root, mut db, project, path) = fixture();
     let source = root.path().join("Presentation12.pptx");
     fs::write(&source, b"original bytes").unwrap();
@@ -713,32 +964,18 @@ fn imported_file_location_legacy_identity_requires_explicit_confirmation() {
         )
         .unwrap();
     let first = db.project_file_resolve(&object).unwrap();
-    assert_eq!(first.state, "ambiguous");
-    assert_eq!(first.reason.as_deref(), Some("旧版导入文件尚未记录文件身份，请确认当前位置后打开"));
-    assert_ne!(
-        first.reason.as_deref(),
-        Some("File location has not been checked")
-    );
+    assert_eq!(first.state, "ready");
+    assert_eq!(first.reason, None);
     assert_eq!(
         db.project_file_register("wp1-workspace", project, "Presentation12.pptx")
             .unwrap()
             .state,
-        "ambiguous"
+        "ready"
     );
-    let confirmed = db
-        .project_file_reconcile(
-            &object,
-            "Presentation12.pptx",
-            1,
-            first.content_hash.as_deref(),
-            "location",
-        )
-        .unwrap();
-    assert_eq!(confirmed.state, "ready");
-    assert_eq!(confirmed.version_number, 1);
+    assert_eq!(first.version_number, 1);
     fs::write(path.join("Presentation12.pptx"), b"updated").unwrap();
     assert_eq!(db.project_file_resolve(&object).unwrap().version_number, 2);
-    assert_eq!(bytes(&db, &confirmed), b"original bytes");
+    assert_eq!(bytes(&db, &first), b"original bytes");
 }
 
 #[test]
