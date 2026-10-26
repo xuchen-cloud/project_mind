@@ -104,11 +104,50 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     document.addEventListener("visibilitychange", visibility);
     return () => {observer.disconnect();document.removeEventListener("visibilitychange", visibility);};
   }, [rootPath,projectId]);
-  const invalidate = (paths: Set<string> | null) => queryClient.invalidateQueries({
-    queryKey: ["project-directory", rootPath, projectId],
-    predicate: query => paths === null || paths.has(String(query.queryKey[3])),
-    refetchType: isVisible() ? "active" : "none",
-  }, { cancelRefetch: false });
+  const [menuError, setMenuError] = useState("");
+  const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
+  const refreshDirectories = useRef<(paths: string[] | null | undefined) => void>(() => {});
+  // All directory change sources share one queue for this mounted scope.
+  // Layout cleanup retires it before a new scope can use the same element.
+  useLayoutEffect(() => {
+    let disposed = false;
+    const invalidate = (paths: Set<string> | null) => queryClient.invalidateQueries({
+      queryKey: ["project-directory", rootPath, projectId],
+      predicate: query => paths === null || paths.has(String(query.queryKey[3])),
+      refetchType: isVisible() ? "active" : "none",
+    }, { cancelRefetch: false });
+    let dirty: Set<string> | null | undefined;
+    let flight: Promise<void> | undefined;
+    const refresh = (paths: string[] | null | undefined) => {
+      if (disposed) return;
+      if (paths?.length === 0) return;
+      if (paths == null) dirty = null;
+      else if (dirty !== null) {dirty = new Set([...(dirty ?? []),...paths]);if (dirty.size > 256) dirty = null;}
+      if (flight) return;
+      flight = Promise.resolve().then(async () => {
+        while (dirty !== undefined && !disposed) {
+          const paths = dirty;
+          // Invalidation would reuse an older read (including an initial read
+          // with no data), whose result can then clear isInvalidated. Let that
+          // native I/O settle before consuming this dirty generation.
+          const pending = queryClient.getQueryCache().findAll({
+            queryKey: ["project-directory", rootPath, projectId],
+            predicate: query => paths === null || paths.has(String(query.queryKey[3])),
+          }).filter(query => query.state.fetchStatus !== "idle").map(query => query.promise);
+          await Promise.allSettled(pending);
+          if (disposed) break;
+          // Hints arriving during the wait stay merged; include their paths in
+          // the wait before issuing one refresh for the accumulated generation.
+          if (paths !== dirty) continue;
+          dirty = undefined;
+          await invalidate(paths);
+        }
+      }).finally(() => { flight = undefined; });
+      void flight.catch(reason => { if (!disposed) setMenuError(getErrorMessage(reason, "无法刷新目录")); });
+    };
+    refreshDirectories.current = refresh;
+    return () => { disposed = true; };
+  }, [queryClient, activeWorkspaceRoot, rootPath, projectId]);
   // Page invalidation also follows ordinary saves/Todo changes. Only committed
   // path membership changes alter directory entries; do not fan these out.
   const previousPaths = useRef<{rootPath:string;projectId:number|null;paths:Map<number,string>} | undefined>(undefined);
@@ -127,38 +166,22 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     };
     for (const [id,path] of previous.paths) if (paths.get(id) !== path) addParents(path);
     for (const [id,path] of paths) if (previous.paths.get(id) !== path) addParents(path);
-    if (changed.size) void invalidate(changed);
+    if (changed.size) refreshDirectories.current([...changed]);
   }, [queryClient,rootPath,projectId,documents]);
   useEffect(() => {
     // Focus is an unknown-path reconciliation; watcher/commits use exact paths.
-    const focus = () => { if (document.visibilityState !== "hidden") void invalidate(null); };
+    const focus = () => { if (document.visibilityState !== "hidden") refreshDirectories.current(null); };
     window.addEventListener("focus", focus);
     return () => window.removeEventListener("focus", focus);
   }, [queryClient, rootPath, projectId]);
   const request = useRef(0);
-  const [menuError, setMenuError] = useState("");
-  const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
   useEffect(() => {
     if (!activeWorkspaceRoot || !("__TAURI_INTERNALS__" in window)) return;
     let disposed = false;
+    const refresh = refreshDirectories.current;
     let binding: AgentWorkspaceBinding | undefined;
     const earlyHints: DirectoryDirtyHint[] = [];
     let unlisten: (() => void) | undefined;
-    let dirty: Set<string> | null | undefined;
-    let flight: Promise<void> | undefined;
-    const refresh = (paths: string[] | null | undefined) => {
-      if (paths?.length === 0) return;
-      if (paths == null) dirty = null;
-      else if (dirty !== null) {dirty = new Set([...(dirty ?? []),...paths]);if (dirty.size > 256) dirty = null;}
-      if (flight) return;
-      flight = Promise.resolve().then(async () => {
-        while (dirty !== undefined && !disposed) {
-          const paths = dirty; dirty = undefined;
-          await invalidate(paths);
-        }
-      }).finally(() => { flight = undefined; });
-      void flight.catch(reason => { if (!disposed) setMenuError(getErrorMessage(reason, "无法刷新目录")); });
-    };
     const changed = (hint: DirectoryDirtyHint) => {
       if (disposed || hint.projectId !== projectId) return;
       if (!binding) { earlyHints.push(hint); return; }

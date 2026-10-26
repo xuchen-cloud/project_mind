@@ -25,6 +25,165 @@ function panel(filter = { query: "", tagId: null as number | null }) {
 function tree() { fireEvent.click(screen.getByRole("button", { name: "文件树展示" })); }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 
+function watchedDirectory() {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  const binding = { workspaceId: "w", generation: "g" };
+  native.binding.mockResolvedValue(binding);
+  const listeners: ((hint: { binding: typeof binding; projectId: number; relativePaths: string[] }) => void)[] = [];
+  native.listen.mockImplementation(async (_name, callback) => { listeners.push(callback); return vi.fn(); });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrap = (id = 7, hidden = false, documents: import("../layout/ProjectSidebar").ProjectSidebarDocumentItem[] = []) => <div hidden={hidden}><QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={id} workspaceRoot="/workspace" rootPath={`/project-${id}`} documents={documents} /></QueryClientProvider></div>;
+  const view = render(wrap());
+  return { ...view, wrap, listeners, dirty: () => listeners[0]({ binding, projectId: 7, relativePaths: [""] }) };
+}
+
+function directoryWithDocuments() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrap = (documents: import("../layout/ProjectSidebar").ProjectSidebarDocumentItem[] = [], hidden = false, id = 7) =>
+    <div hidden={hidden}><QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={id} rootPath="/project" documents={documents} /></QueryClientProvider></div>;
+  const view = render(wrap());
+  const imported = { id: 1, managedPath: "/project/imported.txt" } as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem;
+  return { ...view, client, wrap, imported };
+}
+
+it("merges native, documents and focus changes into one fresh read while an older read is pending", async () => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = watchedDirectory();
+  await waitFor(() => expect(view.listeners).toHaveLength(1));
+  await act(async () => { view.dirty(); });
+  const imported = { id: 1, managedPath: "/project-7/imported.txt" } as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem;
+  view.rerender(view.wrap(7, false, [imported]));
+  await act(async () => { window.dispatchEvent(new Event("focus")); view.dirty(); });
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([{ ...file, name: "merged.txt", relativePath: "merged.txt" }]);
+  await act(async () => { old.resolve([folder]); });
+  expect(await screen.findByRole("button", { name: "merged.txt" })).toBeVisible();
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+});
+
+it.each(["initial", "existing"])("reconciles a focus event overlapping an %s read", async mode => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  if (mode === "initial") vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = directoryWithDocuments();
+  if (mode === "existing") {
+    await screen.findByRole("button", { name: "generated" });
+    vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+    act(() => { void view.client.refetchQueries({ queryKey: ["project-directory"] }); });
+  }
+  const before = mode === "initial" ? 1 : 2;
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before));
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([{ ...folder, name: "after-focus", relativePath: "after-focus" }]);
+  await act(async () => { window.dispatchEvent(new Event("focus")); });
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before);
+  await act(async () => { old.resolve([folder]); });
+  expect(await screen.findByRole("button", { name: "after-focus" })).toBeVisible();
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before + 1);
+});
+
+it.each([false, true])("reconciles documents membership during an old read (hidden=%s)", async hidden => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = directoryWithDocuments();
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1));
+  view.rerender(view.wrap([view.imported], hidden));
+  await act(async () => {});
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([{ ...file, name: "imported.txt", relativePath: "imported.txt" }]);
+  await act(async () => { old.resolve([folder]); });
+  if (hidden) {
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
+    view.rerender(view.wrap([view.imported]));
+  }
+  expect(await screen.findByRole("button", { name: "imported.txt" })).toBeVisible();
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+});
+
+it.each(["focus", "documents"].flatMap(source => ["unmount", "scope"].map(change => ({ source, change }))))("disposes $source refresh coordination on $change", async ({ source, change }) => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = directoryWithDocuments();
+  const invalidation = vi.spyOn(view.client, "invalidateQueries");
+  await act(async () => {
+    if (source === "focus") window.dispatchEvent(new Event("focus"));
+    else view.rerender(view.wrap([view.imported]));
+  });
+  if (change === "unmount") view.unmount();
+  else {
+    vi.mocked(projectDirectoryApi.list).mockResolvedValue([folder]);
+    view.rerender(view.wrap([], false, 8));
+    await screen.findByRole("button", { name: "generated" });
+  }
+  await act(async () => { old.resolve([folder]); });
+  expect(invalidation).not.toHaveBeenCalled();
+  expect(projectDirectoryApi.list.mock.calls).toEqual(change === "unmount" ? [[7, ""]] : [[7, ""], [8, ""]]);
+});
+
+it.each(["initial", "focus"].flatMap(mode => [false, true].map(burst => ({ mode, burst }))))("keeps dirty during $mode read (burst=$burst) until a fresh snapshot is read", async ({ mode, burst }) => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  const fresh = { ...folder, name: "fresh", relativePath: "fresh" };
+  if (mode === "initial") vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = watchedDirectory();
+  await waitFor(() => expect(view.listeners).toHaveLength(1));
+  if (mode === "focus") {
+    await screen.findByRole("button", { name: "generated" });
+    vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+    act(() => window.dispatchEvent(new Event("focus")));
+  }
+  const before = mode === "initial" ? 1 : 2;
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before));
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([fresh]);
+  await act(async () => { view.dirty(); });
+  // A later burst while the old native I/O is still pending belongs to the same refresh.
+  if (burst) await act(async () => { view.dirty(); view.dirty(); });
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before);
+  await act(async () => { old.resolve([folder]); });
+  expect(await screen.findByRole("button", { name: "fresh" })).toBeVisible();
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before + 1);
+});
+
+it.each(["initial", "focus"])("defers dirty received during %s I/O when hidden before it settles", async mode => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  if (mode === "initial") vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = watchedDirectory();
+  await waitFor(() => expect(view.listeners).toHaveLength(1));
+  if (mode === "focus") {
+    await screen.findByRole("button", { name: "generated" });
+    vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+    act(() => window.dispatchEvent(new Event("focus")));
+  }
+  const before = mode === "initial" ? 1 : 2;
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before));
+  await act(async () => { view.dirty(); });
+  view.rerender(view.wrap(7, true));
+  await act(async () => {});
+  const fresh = { ...folder, name: "after-show", relativePath: "after-show" };
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([fresh]);
+  await act(async () => { old.resolve([folder]); });
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before);
+  view.rerender(view.wrap());
+  expect(await screen.findByRole("button", { name: "after-show" })).toBeVisible();
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(before + 1);
+});
+
+it.each(["unmount", "scope switch"])("disposes a dirty wait on %s without refreshing its old or new scope", async change => {
+  const old = deferred<ProjectDirectoryEntry[]>();
+  vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(old.promise);
+  const view = watchedDirectory();
+  await waitFor(() => expect(view.listeners).toHaveLength(1));
+  await act(async () => { view.dirty(); });
+  const fresh = { ...folder, name: "new-scope", relativePath: "new-scope" };
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([fresh]);
+  if (change === "unmount") view.unmount();
+  else {
+    view.rerender(view.wrap(8));
+    await screen.findByRole("button", { name: "new-scope" });
+  }
+  await act(async () => { old.resolve([folder]); view.dirty(); });
+  expect(projectDirectoryApi.list.mock.calls).toEqual(change === "unmount" ? [[7, ""]] : [[7, ""], [8, ""]]);
+  expect(screen.queryByRole("button", { name: "generated" })).toBeNull();
+  if (change !== "unmount") expect(screen.getByRole("button", { name: "new-scope" })).toBeVisible();
+});
+
 beforeEach(() => {
   vi.resetAllMocks();
   useProjectFileNavigation.setState({ request: null, revisions: {} });

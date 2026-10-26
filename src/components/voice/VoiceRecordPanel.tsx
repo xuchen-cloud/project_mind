@@ -81,17 +81,78 @@ function SpeakerContactSelector({ speaker, busy, onLink }: { speaker: VoiceSpeak
   </div>;
 }
 
-export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceNavigationKey, onMinutesCommitted, onCopyMinutes }: VoiceRecordPanelProps) {
+export function VoiceRecordPanel({ target: requestedTarget, visible = true, sourceTimeMs, sourceNavigationKey, onMinutesCommitted, onCopyMinutes }: VoiceRecordPanelProps) {
   const queryClient = useQueryClient();
+  const targetKey = JSON.stringify(requestedTarget);
+  // Keep observation lifetimes stable when parents recreate the same lookup.
+  const target = useMemo(() => requestedTarget, [targetKey]);
+  const voiceReads = useMemo(() => ({
+    active: false,
+    visible: false,
+    generation: 0,
+    dirty: new Set<string>(),
+    draining: new Map<string, Promise<void>>(),
+    recoveryProgress: undefined as string | undefined,
+    endedSession: null as string | null,
+  }), [target]);
+  const drainVoiceReads = useCallback(() => {
+    if (!voiceReads.active || !voiceReads.visible) return;
+    const generation = voiceReads.generation;
+    const isCurrent = () => voiceReads.active && voiceReads.generation === generation;
+    for (const key of voiceReads.dirty) {
+      if (voiceReads.draining.has(key)) continue;
+      const filter = { queryKey: [key, target], exact: true };
+      const job = (async () => {
+        while (isCurrent() && voiceReads.visible && voiceReads.dirty.has(key)) {
+          const query = queryClient.getQueryCache().find(filter);
+          if (query?.state.fetchStatus === "fetching") {
+            // Wait for the actual IPC read even while its observers are disabled.
+            // Its failure remains visible in Query state; the dirty read is still due.
+            await query.promise?.catch(() => undefined);
+          }
+          if (!isCurrent() || !voiceReads.visible) return;
+          voiceReads.dirty.delete(key);
+          await queryClient.invalidateQueries(filter, { cancelRefetch: false });
+        }
+      })().finally(() => {
+        if (isCurrent()) voiceReads.draining.delete(key);
+      });
+      voiceReads.draining.set(key, job);
+    }
+  }, [queryClient, target, voiceReads]);
+  const refreshAfterVoiceRead = useCallback((key: string) => {
+    if (!voiceReads.active) return Promise.resolve();
+    voiceReads.dirty.add(key);
+    drainVoiceReads();
+    return voiceReads.draining.get(key) ?? Promise.resolve();
+  }, [drainVoiceReads, voiceReads]);
+  useEffect(() => {
+    voiceReads.active = true;
+    return () => {
+      voiceReads.active = false;
+      voiceReads.generation++;
+      voiceReads.dirty.clear();
+      voiceReads.draining.clear();
+      voiceReads.recoveryProgress = undefined;
+      voiceReads.endedSession = null;
+    };
+  }, [voiceReads]);
+  useEffect(() => {
+    voiceReads.visible = visible;
+    if (visible) drainVoiceReads();
+    return () => { voiceReads.visible = false; };
+  }, [drainVoiceReads, visible, voiceReads]);
   const playbackQuery = useQuery({
     queryKey: ["voice-playback", target],
     queryFn: () => voiceApi.playbackGet(target),
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled: visible,
     refetchInterval: (query) => visible && ["recording", "paused"].includes(query.state.data?.phase ?? "") ? 1_000 : false,
     retry: false,
   });
-  const previousPlayback = useRef(playbackQuery.data);
   const ended = playbackQuery.data?.phase === "ended";
+  const recording = ["recording", "paused"].includes(playbackQuery.data?.phase ?? "");
   const diarizationKey = ["voice-diarization", target];
   const diarizationQuery = useQuery({
     queryKey: diarizationKey,
@@ -152,14 +213,16 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
     } finally { setSpeakerBusy(false); }
   }
   useEffect(() => {
-    const previous = previousPlayback.current;
     const current = playbackQuery.data;
-    previousPlayback.current = current;
-    if (current?.phase === "ended" && previous?.sessionId === current.sessionId
-      && ["recording", "paused"].includes(previous.phase)) {
-      void queryClient.invalidateQueries({ queryKey: ["voice-transcript", target] });
+    if (current?.phase === "ended" && voiceReads.endedSession !== current.sessionId) {
+      voiceReads.endedSession = current.sessionId;
+      // The first ended observation can follow a minutes read from before
+      // voice_end enqueued final minutes, just like a recording -> ended change.
+      for (const key of ["voice-transcript", "voice-minutes", "voice-recovery"]) {
+        void refreshAfterVoiceRead(key);
+      }
     }
-  }, [playbackQuery.data, queryClient, target]);
+  }, [playbackQuery.data?.phase, playbackQuery.data?.sessionId, refreshAfterVoiceRead, voiceReads]);
   const [totalMs, setTotalMs] = useState(0);
   const [ready, setReady] = useState(false);
   const playbackRef = useRef<VoicePlaybackHandle | null>(null);
@@ -171,13 +234,16 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
   const [minutesError, setMinutesError] = useState<string | null>(null);
   const [generatingMinutes, setGeneratingMinutes] = useState(false);
   const [copyingMinutes, setCopyingMinutes] = useState(false);
+  useEffect(() => { setGeneratingMinutes(false); }, [voiceReads]);
   const lastMinutesVersion = useRef<number | null>(null);
   const lastCommittedMinutes = useRef<{ sessionId: string; version: number } | null>(null);
   const minutesQuery = useQuery({
     queryKey: ["voice-minutes", target],
     queryFn: () => voiceApi.minutesGet(target),
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled: visible,
-    refetchInterval: (query) => !visible ? false : ["pending", "running"].includes(query.state.data?.status ?? "") ? 500 : 5_000,
+    refetchInterval: (query) => !visible ? false : ["pending", "running"].includes(query.state.data?.status ?? "") ? 500 : recording ? 5_000 : false,
     retry: false,
   });
   const minutesBusy = generatingMinutes || ["pending", "running"].includes(minutesQuery.data?.status ?? "");
@@ -202,14 +268,26 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
   const recoveryQuery = useQuery({
     queryKey: ["voice-recovery", target],
     queryFn: () => voiceApi.recoveryGet(target),
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled: visible && !!playbackQuery.data,
-    refetchInterval: visible ? 5_000 : false,
+    refetchInterval: (query) => visible && (recording || query.state.data?.some(gap => ["waiting", "pending", "running"].includes(gap.status))) ? 5_000 : false,
     retry: false,
   });
-  const recoveryProgress = recoveryQuery.data?.map(gap => `${gap.id}:${gap.cursorMs}`).join(",");
+  const recoveryProgress = recoveryQuery.data?.map(gap => `${gap.id}:${gap.cursorMs}:${gap.status === "ready"}`).join(",");
+  const hasRecoveredTranscript = recoveryQuery.data?.some(gap => gap.status === "ready" || gap.cursorMs > gap.startMs) ?? false;
   useEffect(() => {
-    if (recoveryProgress) void queryClient.invalidateQueries({ queryKey: ["voice-transcript", target] });
-  }, [recoveryProgress, queryClient, target]);
+    if (recoveryProgress === undefined) return;
+    const previous = voiceReads.recoveryProgress;
+    voiceReads.recoveryProgress = recoveryProgress;
+    if (previous === recoveryProgress) return;
+    if (recoveryProgress) void refreshAfterVoiceRead("voice-transcript");
+    // Every committed recovery batch can enqueue minutes, including a first
+    // snapshot that already completed before this panel observed the task.
+    if (previous !== undefined || hasRecoveredTranscript) {
+      void refreshAfterVoiceRead("voice-minutes");
+    }
+  }, [recoveryProgress, hasRecoveredTranscript, refreshAfterVoiceRead, voiceReads]);
   const transcriptQuery = useInfiniteQuery({
     queryKey: ["voice-transcript", target],
     initialPageParam: null as VoiceTranscriptCursor | null,
@@ -245,15 +323,26 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
   const seek = (next: number) => playbackRef.current?.seek(next);
 
   const generateMinutes = async () => {
+    const observation = voiceReads;
     setGeneratingMinutes(true);
     setMinutesError(null);
     try {
       await voiceApi.minutesGenerate({ target, requestId: crypto.randomUUID() });
-      await minutesQuery.refetch();
+      await refreshAfterVoiceRead("voice-minutes");
     } catch (error) {
-      setMinutesError(error instanceof Error ? error.message : String(error));
+      if (observation.active) setMinutesError(error instanceof Error ? error.message : String(error));
     } finally {
-      setGeneratingMinutes(false);
+      if (observation.active) setGeneratingMinutes(false);
+    }
+  };
+
+  const retryRecovery = async () => {
+    const observation = voiceReads;
+    try {
+      await voiceApi.recoveryRetry(target);
+      await refreshAfterVoiceRead("voice-recovery");
+    } catch (error) {
+      if (observation.active) setMinutesError(String(error));
     }
   };
 
@@ -293,7 +382,7 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
             </p>
           ))}
           {recoveryQuery.data.some(gap => gap.status === "failed") ? (
-            <Button variant="ghost" onClick={() => void voiceApi.recoveryRetry(target).then(() => recoveryQuery.refetch()).catch(error => setMinutesError(String(error)))}>重试补转写</Button>
+            <Button variant="ghost" onClick={() => void retryRecovery()}>重试补转写</Button>
           ) : null}
         </div>
       ) : null}
