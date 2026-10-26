@@ -1,9 +1,10 @@
 import { AlertTriangle, ChevronDown, ChevronUp, Pause, Play, Square, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { VoiceSessionSnapshot, VoiceTranscriptSegment } from "../../lib/voice-types";
 import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
+import { createVoiceLivePoll } from "./voice-live-poll";
 import { Button, IconButton } from "../../ui/components";
 
 function duration(milliseconds: number) {
@@ -23,47 +24,19 @@ export function VoiceCaptionWindow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overflowing, setOverflowing] = useState(false);
-  const sequence = useRef(0);
+  const pollRef = useRef<ReturnType<typeof createVoiceLivePoll> | null>(null);
+  const captionConfig = useRef({ captionLines, collapsed, recognitionEnabled });
+  captionConfig.current = { captionLines, collapsed, recognitionEnabled };
   const allowClose = useRef(false);
+  const closing = useRef<Promise<void> | null>(null);
+  const closeWindow = () => {
+    allowClose.current = true;
+    pollRef.current?.stop();
+    return closing.current ??= desktopApi.captionWindowClose();
+  };
   const hasSeenSession = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const latestCaptionId = captions[captions.length - 1]?.id;
-
-  const refresh = useCallback(async () => {
-    const current = ++sequence.current;
-    try {
-      const next = await voiceApi.snapshotGet();
-      if (current !== sequence.current) return;
-      if (!next || next.phase === "ended") {
-        allowClose.current = true;
-        await desktopApi.captionWindowClose();
-        return;
-      }
-      hasSeenSession.current = true;
-      setSession(next);
-      setError(null);
-      if (collapsed || !recognitionEnabled) {
-        setCaptions([]);
-        setInterim(null);
-        return;
-      }
-      const partial = next.interimText?.trim() || null;
-      setInterim(partial);
-      const tail = await voiceApi.transcriptTail({
-        sessionId: next.sessionId,
-        limit: Math.min(8, Math.max(2, captionLines)),
-      });
-      if (current === sequence.current) setCaptions(tail);
-    } catch (cause) {
-      if (current !== sequence.current) return;
-      if (!hasSeenSession.current) {
-        allowClose.current = true;
-        await desktopApi.captionWindowClose().catch(() => undefined);
-      } else {
-        setError(String(cause));
-      }
-    }
-  }, [captionLines, collapsed, recognitionEnabled]);
 
   useEffect(() => {
     let disposed = false;
@@ -87,10 +60,38 @@ export function VoiceCaptionWindow() {
     }).catch((cause) => setError(String(cause)));
   }, []);
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 1_000);
-    return () => { window.clearInterval(timer); sequence.current += 1; };
-  }, [refresh]);
+    const poll = createVoiceLivePoll({
+      role: "caption",
+      captions: () => !!captionConfig.current.recognitionEnabled && !captionConfig.current.collapsed,
+      onPacket({ session: next, captions: tail, error }) {
+        if (!next || next.phase === "ended") {
+          void closeWindow().catch(cause => setError(String(cause)));
+          return;
+        }
+        hasSeenSession.current = true;
+        setSession(next);
+        setError(error ?? null);
+        if (captionConfig.current.collapsed || !captionConfig.current.recognitionEnabled || document.visibilityState === "hidden") {
+          setCaptions([]); setInterim(null);
+        } else {
+          setInterim(next.interimText?.trim() || null);
+          if (tail) setCaptions(tail.slice(-Math.min(8, Math.max(2, captionConfig.current.captionLines))));
+        }
+      },
+      onError(cause) {
+        if (!hasSeenSession.current) {
+          setError(String(cause));
+          void closeWindow().catch(closeError => setError(String(closeError)));
+        } else setError(String(cause));
+      },
+    });
+    pollRef.current = poll;
+    return () => { poll.stop(); pollRef.current = null; };
+  }, []);
+  useEffect(() => {
+    if (collapsed || !recognitionEnabled) { setCaptions([]); setInterim(null); }
+    pollRef.current?.configure();
+  }, [captionLines, collapsed, recognitionEnabled]);
 
   useLayoutEffect(() => {
     if (!collapsed && scrollRef.current) {
@@ -114,14 +115,13 @@ export function VoiceCaptionWindow() {
     setBusy(true);
     try {
       const next = await operation();
+      pollRef.current?.changed(next);
       setSession(next.phase === "ended" ? null : next);
       setError(null);
       if (next.phase === "ended") {
-        allowClose.current = true;
-        await desktopApi.captionWindowClose();
+        await closeWindow();
         return;
       }
-      await refresh();
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -160,6 +160,7 @@ export function VoiceCaptionWindow() {
           {session ? <span className="voice-caption-clock" aria-label="录音时间">{duration(session.activeMs)}</span> : null}
         </div>
         <div className="voice-caption-header-actions">
+          {collapsed && error ? <span role="img" aria-label="语音状态更新失败" title={error} className="text-danger"><AlertTriangle size={14} aria-hidden="true" /></span> : null}
           {collapsed && session?.recognitionError ? <span role="img" aria-label="转写已中断，录音继续" title={`实时转写已中断，录音继续保存。${session.recognitionError}`} className="text-danger"><AlertTriangle size={14} aria-hidden="true" /></span> : null}
           {collapsed && session ? <>
             <IconButton size="sm" className="voice-caption-icon-button" disabled={busy} aria-label={paused ? "开始录音" : "暂停录音"} title={paused ? "开始录音" : "暂停录音"} onClick={togglePause}>{paused ? <Play size={14} /> : <Pause size={14} />}</IconButton>

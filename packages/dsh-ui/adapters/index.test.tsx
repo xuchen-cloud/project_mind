@@ -110,3 +110,59 @@ it('bridges catalog invalidation with scope only across UI closure and rejects s
     reopened.unmount();
   } finally { window.removeEventListener('mind:dsh-sessions-changed', changed); }
 });
+
+it('evicts the least recently used idle clients beyond three and reconnects them on re-entry', async () => {
+  const disposed: number[] = [];
+  fixture.create.mockImplementation(async (projectId: number) => ({
+    ctx: { slots: { renderSlot: () => <div>Scope {projectId}</div> } },
+    subscribe: () => () => {}, isIdle: () => true,
+    dispose: async () => { disposed.push(projectId); },
+  }));
+  const visit = async (projectId: number) => {
+    const view = render(<DshSettingsHost projectId={projectId} mode="settings" />);
+    await screen.findByText(`Scope ${projectId}`);
+    view.unmount();
+  };
+  for (let id = 1; id <= 6; id++) await visit(id);
+  await waitFor(() => expect(disposed).toEqual([1, 2, 3]));
+  await visit(4); // touching a cached client makes it most recent
+  await visit(7);
+  await waitFor(() => expect(disposed).toEqual([1, 2, 3, 5]));
+  await visit(1);
+  expect(fixture.create.mock.calls.filter(([id]) => id === 1)).toHaveLength(2);
+});
+
+it('keeps busy and mounted clients while trimming idle clients, then expires safe clients after five minutes', async () => {
+  const disposed: number[] = [];
+  const listeners = new Map<number, Set<(type: string) => void>>();
+  const busy = new Set([1]);
+  fixture.create.mockImplementation(async (projectId: number) => ({
+    ctx: { slots: { renderSlot: () => <div>Protected scope {projectId}</div> } },
+    subscribe(listener: (type: string) => void) {
+      const group = listeners.get(projectId) ?? new Set(); listeners.set(projectId, group);
+      group.add(listener); return () => group.delete(listener);
+    },
+    isIdle: () => !busy.has(projectId),
+    dispose: async () => { disposed.push(projectId); },
+  }));
+  const mounted = render(<DshSettingsHost projectId={10} mode="settings" />);
+  await screen.findByText('Protected scope 10');
+  for (let id = 1; id <= 5; id++) {
+    const view = render(<DshSettingsHost projectId={id} mode="settings" />);
+    await screen.findByText(`Protected scope ${id}`);
+    view.unmount();
+  }
+  await waitFor(() => expect(disposed).toEqual([2]));
+  expect(disposed).not.toContain(1);
+  expect(disposed).not.toContain(10);
+  busy.delete(1);
+  act(() => listeners.get(1)!.forEach(listener => listener('residency')));
+  await waitFor(() => expect(disposed).toEqual([2, 1]));
+  const now = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 300_001);
+  try {
+    act(() => listeners.get(3)!.forEach(listener => listener('residency')));
+    await waitFor(() => expect(disposed).toEqual([2, 1, 3, 4, 5]));
+    expect(disposed).not.toContain(10);
+  } finally { clock.mockRestore(); mounted.unmount(); }
+});

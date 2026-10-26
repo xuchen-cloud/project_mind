@@ -166,3 +166,18 @@ it('edits a Workspace Markdown File and commits a new version through the shared
     expect(fileTextApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({ object, versionNumber: 2, expectedContentHash: 'hash2', text: '保留草稿' }), expect.any(String));
     expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('v3');
 });
+
+it('keeps a failed Markdown version switch open with its original draft and baseline', async () => {
+    vi.mocked(fileDocumentApi.versionsList).mockImplementation(async () => ({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[2,1].map(n=>({id:String(n),versionNumber:n,name:'sample.md',createdAt:'2026-10-13',contentHash:`hash${n}`,isCurrent:n===2})),nextCursor:null}));
+    const view = await mount();
+    await screen.findByText('原文');
+    fireEvent.click(screen.getByRole('button', {name:'编辑文档'}));
+    vi.mocked(fileTextApi.save).mockRejectedValue(new Error('Markdown 保存冲突'));
+    fireEvent.click(screen.getByRole('button', {name:'文件查看版本'}));
+    fireEvent.click(await screen.findByRole('menuitemradio', {name:'v1',exact:true}));
+    await waitFor(() => expect(screen.getByRole('menu', {name:'文件查看版本列表'})).toHaveTextContent('Markdown 保存冲突'));
+    expect(screen.getByText('保留草稿')).toBeVisible();
+    expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v2');
+    expect(fileTextApi.save).toHaveBeenCalledWith(binding,expect.objectContaining({object,versionNumber:2,expectedContentHash:'hash2',text:'保留草稿'}),expect.any(String));
+    view.unmount();
+});

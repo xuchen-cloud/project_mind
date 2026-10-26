@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ProjectFileMenuControls } from "../layout/ProjectSidebar";
 import type { ReactNode } from "react";
@@ -8,6 +8,10 @@ import { ProjectDirectoryBrowser } from "./ProjectDirectoryBrowser";
 import { HomeProjectFiles } from "./HomeProjectFiles";
 import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 
+const native = vi.hoisted(() => ({binding:vi.fn(),listen:vi.fn()}));
+vi.mock("../../services/recordDocumentApi", () => ({recordDocumentApi:{bindingGet:native.binding}}));
+vi.mock("../../services/desktopApi", () => ({desktopApi:{listenEvent:native.listen}}));
+afterEach(() => { Reflect.deleteProperty(window,"__TAURI_INTERNALS__"); });
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { list: vi.fn() } }));
 vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: ({ fileHeaderActions, fileContent, fileFilter }: { fileHeaderActions?: ReactNode; fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode); fileFilter?: { query: string; tagId: number | null } }) => <div><div>{fileHeaderActions}</div>{(typeof fileContent === "function" ? fileContent({ openContextMenu: vi.fn(), renderRenameInput: () => null }) : fileContent) ?? <div>平铺文件：{fileFilter?.query}:{fileFilter?.tagId}</div>}</div> }));
 const folder: ProjectDirectoryEntry = { name: "generated", relativePath: "generated", kind: "directory", bytes: 0 };
@@ -129,4 +133,131 @@ it("expands only ancestors of the focused path and follows focus without optimis
   expect(other).toHaveClass("is-active");
   view.rerender(component(null));
   expect(other).not.toHaveClass("is-active");
+});
+
+it("does not poll expanded directories while idle", async () => {
+  vi.useFakeTimers();
+  try {
+    panel(); tree();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    fireEvent.click(screen.getByRole("button", {name:"generated"}));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+  } finally { vi.useRealTimers(); }
+});
+
+it("does not expand ordinary owner-page invalidation or navigation revisions into tree reads", async () => {
+  const view = panel(); tree();
+  fireEvent.click(await screen.findByRole("button", {name:"generated"}));
+  await screen.findByRole("button", {name:"result.txt"});
+  view.client.setQueryData(["project-page", 7], {});
+  await act(async () => { await view.client.invalidateQueries({queryKey:["project-page",7]}); });
+  act(() => useProjectFileNavigation.getState().refresh(7));
+  await act(async () => {});
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+});
+
+it("refreshes only dirty branches among fifty expanded siblings, with precise hidden deferral", async () => {
+  Object.defineProperty(window,"__TAURI_INTERNALS__",{value:{},configurable:true});
+  const binding={workspaceId:"w",generation:"g"};native.binding.mockResolvedValue(binding);
+  let dirty!: (hint:{binding:typeof binding;projectId:number|null;relativePaths?:string[]})=>void;
+  native.listen.mockImplementation(async (_name,callback)=>{dirty=callback;return vi.fn();});
+  const folders=Array.from({length:50},(_,i)=>({...folder,name:`branch-${i}`,relativePath:`branch-${i}`}));
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id,path)=>path===""?folders:[]);
+  const visibility=vi.spyOn(document,"visibilityState","get").mockReturnValue("visible");
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const view=render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} workspaceRoot="/workspace" rootPath="/project"/></QueryClientProvider>);
+  try {
+    await screen.findByRole("button",{name:"branch-49"});
+    for(const entry of folders)fireEvent.click(screen.getByRole("button",{name:entry.name}));
+    await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(51));
+    await act(async()=>{});vi.mocked(projectDirectoryApi.list).mockClear();
+    await act(async()=>{dirty({binding,projectId:7,relativePaths:["branch-3"]});dirty({binding,projectId:7,relativePaths:["branch-3"]});});
+    expect(projectDirectoryApi.list).toHaveBeenCalledExactlyOnceWith(7,"branch-3");
+    visibility.mockReturnValue("hidden");act(()=>document.dispatchEvent(new Event("visibilitychange")));
+    await act(async()=>{dirty({binding,projectId:7,relativePaths:["branch-5"]});});
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
+    visibility.mockReturnValue("visible");act(()=>document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2));
+    expect(projectDirectoryApi.list).toHaveBeenLastCalledWith(7,"branch-5");
+    await act(async()=>{dirty({binding,projectId:7,relativePaths:[]});});
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+  } finally {view.unmount();visibility.mockRestore();}
+});
+
+it("derives import, move and rename directory changes from committed File paths without save fanout", async () => {
+  const folders=["a","b","other"].map(name=>({...folder,name,relativePath:name}));
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id,path)=>path===""?folders:[]);
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const item={id:1,managedPath:"/project/a/old.txt"} as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem;
+  const wrap=(documents:typeof item[]) => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project" documents={documents}/></QueryClientProvider>;
+  const view=render(wrap([item]));await screen.findByRole("button",{name:"other"});
+  for(const entry of folders)fireEvent.click(screen.getByRole("button",{name:entry.name}));
+  await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(4));
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  view.rerender(wrap([{...item,title:"saved"}]));await act(async()=>{});
+  expect(projectDirectoryApi.list).not.toHaveBeenCalled();
+  const moved={...item,managedPath:"/project/b/new.txt"};view.rerender(wrap([moved]));
+  await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(3));
+  expect(projectDirectoryApi.list.mock.calls.map(call=>call[1]).sort()).toEqual(["","a","b"]);
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  view.rerender(wrap([moved,{...item,id:2,managedPath:"/project/b/imported.txt"}]));
+  await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2));
+  expect(projectDirectoryApi.list.mock.calls.map(call=>call[1]).sort()).toEqual(["","b"]);
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  view.rerender(wrap([{...moved,managedPath:"/project/b/renamed.txt"}]));
+  await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2));
+  expect(projectDirectoryApi.list.mock.calls.map(call=>call[1]).sort()).toEqual(["","b"]);
+});
+
+it("reconciles directory-only changes on focus without a timer", async () => {
+  panel(); tree();
+  await screen.findByRole("button", {name:"generated"});
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([folder,{...folder,name:"empty",relativePath:"empty"}]);
+  act(() => window.dispatchEvent(new Event("focus")));
+  await screen.findByRole("button", {name:"empty"});
+  expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+});
+
+it("coalesces native directory dirty hints, isolates binding/scope and defers reads while hidden", async () => {
+  Object.defineProperty(window,"__TAURI_INTERNALS__",{value:{},configurable:true});
+  const binding={workspaceId:"w",generation:"g"};
+  native.binding.mockResolvedValue(binding);
+  let dirty!: (hint:{binding:typeof binding;projectId:number|null})=>void;
+  const unlisten=vi.fn();
+  native.listen.mockImplementation(async (_name,callback)=>{dirty=callback;return unlisten;});
+  const visibility=vi.spyOn(document,"visibilityState","get").mockReturnValue("visible");
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const view=render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} workspaceRoot="/workspace" rootPath="/project"/></QueryClientProvider>);
+  try {
+    await screen.findByRole("button",{name:"generated"});
+    await waitFor(()=>expect(native.listen).toHaveBeenCalledWith("mind:project-directory-dirty",expect.any(Function)));
+    await act(async()=>{});
+    act(()=>{dirty({binding,projectId:8});dirty({binding:{...binding,generation:"old"},projectId:7});dirty({binding:{...binding,workspaceId:"other"},projectId:7});});
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
+    vi.mocked(projectDirectoryApi.list).mockResolvedValue([folder,{...folder,name:"empty",relativePath:"empty"}]);
+    await act(async()=>{dirty({binding,projectId:7});dirty({binding,projectId:7});});
+    await screen.findByRole("button",{name:"empty"});
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+    visibility.mockReturnValue("hidden");act(()=>document.dispatchEvent(new Event("visibilitychange")));
+    await act(async()=>{dirty({binding,projectId:7});dirty({binding,projectId:7});});
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2);
+    vi.mocked(projectDirectoryApi.list).mockResolvedValue([folder]);
+    visibility.mockReturnValue("visible");act(()=>document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(()=>expect(screen.queryByRole("button",{name:"empty"})).toBeNull());
+    expect(projectDirectoryApi.list).toHaveBeenCalledTimes(3);
+  } finally { view.unmount();visibility.mockRestore(); }
+  expect(unlisten).toHaveBeenCalledOnce();
+});
+
+it('does not read a retained hidden navigation panel, and reconciles only when shown',async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const wrap=(hidden:boolean)=><div hidden={hidden}><QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project"/></QueryClientProvider></div>;
+ const view=render(wrap(true));await act(async()=>{});expect(projectDirectoryApi.list).not.toHaveBeenCalled();
+ view.rerender(wrap(false));await screen.findByRole('button',{name:'generated'});expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
+ view.rerender(wrap(true));await act(async()=>{});
+ await act(async()=>{await client.invalidateQueries({queryKey:['project-directory','/project',7]});});expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
+ view.rerender(wrap(false));await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2));
 });

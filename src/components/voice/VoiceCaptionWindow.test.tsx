@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   snapshotGet: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock("../../services/voiceApi", () => ({ voiceApi: {
   resume: mocks.resume,
   end: mocks.end,
 } }));
-vi.mock("../../services/desktopApi", () => ({ desktopApi: {
+vi.mock("../../services/desktopApi", () => ({ desktopApi: { listenEvent: vi.fn(async () => () => {}), emitEvent: vi.fn(async () => {}),
   captionWindowTrackPosition: vi.fn(async () => () => undefined),
   captionWindowSetSize: mocks.setSize,
   captionWindowClose: mocks.close,
@@ -30,6 +30,7 @@ vi.mock("../../services/desktopApi", () => ({ desktopApi: {
 import { VoiceCaptionWindow } from "./VoiceCaptionWindow";
 
 beforeEach(() => {
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
   mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: "s1", revision: 3, phase: "recording", activeMs: 1234, interimText: "讨论中" });
   mocks.transcriptTail.mockReset().mockResolvedValue([{ id: "one", text: "已确认。", startMs: 0, endMs: 500 }]);
   mocks.settingsGet.mockReset().mockResolvedValue({ captionLines: 4, speechProfile: { kind: "paraformer" } });
@@ -201,7 +202,7 @@ it("requests a supported caption count while showing the latest lines", async ()
     return [];
   });
   const view = render(<VoiceCaptionWindow />);
-  await waitFor(() => expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: "s1", limit: 4 }));
+  await waitFor(() => expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: "s1", limit: 8 }));
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   view.unmount();
 });
@@ -213,5 +214,37 @@ it("keeps a local recognition error visible in expanded and compact recording co
   fireEvent.click(screen.getByRole("button", { name: "折叠字幕" }));
   expect(await screen.findByRole("img", { name: "转写已中断，录音继续" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "结束录音" })).toBeInTheDocument();
+  view.unmount();
+});
+
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+it("never overlaps snapshot or tail calls when a caption refresh is slow", async () => {
+  vi.useFakeTimers();
+  let finish!: (value: unknown) => void;
+  mocks.transcriptTail.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const view = render(<VoiceCaptionWindow />);
+  await act(() => vi.advanceTimersByTimeAsync(10));
+  const initialSnapshots = mocks.snapshotGet.mock.calls.length;
+  expect(initialSnapshots).toBeLessThanOrEqual(2);
+  await act(() => vi.advanceTimersByTimeAsync(4000));
+  expect(mocks.snapshotGet).toHaveBeenCalledTimes(initialSnapshots);
+  expect(mocks.transcriptTail).toHaveBeenCalledOnce();
+  await act(async () => { finish([]); });
+  view.unmount();
+});
+
+it("exposes polling failures in compact controls while keeping recording controls usable", async () => {
+  vi.useFakeTimers();
+  const view = render(<VoiceCaptionWindow />);
+  await act(() => vi.advanceTimersByTimeAsync(10));
+  fireEvent.click(screen.getByRole("button", { name: "折叠字幕" }));
+  await act(() => vi.advanceTimersByTimeAsync(10));
+  mocks.snapshotGet.mockRejectedValue(new Error("snapshot offline"));
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(screen.getByRole("img", { name: "语音状态更新失败" })).toHaveAttribute("title", "Error: snapshot offline");
+  expect(screen.getByRole("button", { name: "暂停录音" })).toBeEnabled();
+  expect(mocks.close).not.toHaveBeenCalled();
   view.unmount();
 });

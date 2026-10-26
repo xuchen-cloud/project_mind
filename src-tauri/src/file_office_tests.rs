@@ -60,10 +60,10 @@ impl OfficeUtility for Engine {
     ) -> AgentResult<Value> {
         assert_eq!(format, "docx");
         let original = STANDARD.decode(base64).unwrap();
-        assert_eq!(original, b"first document");
         if method == "office.inspect" {
-            return Ok(json!({"model":{"text":"first document"}}));
+            return Ok(json!({"model":{"text":std::str::from_utf8(&original).unwrap()}}));
         }
+        assert_eq!(original, b"first document");
         let OfficePayload::Edit(edits) = payload else {
             panic!("expected edit payload")
         };
@@ -436,12 +436,36 @@ async fn office_gui_save_commits_real_file_version_and_history_keeps_old_bytes()
 }
 
 #[tokio::test]
+async fn compact_office_receipt_rehydrates_its_committed_version_after_head_advances() {
+    let f = fixture();
+    let service = FileOfficeService::new(&f.store, &Engine);
+    let saved = service.save(&f.request, &f.input).await.unwrap();
+    std::fs::write(&f.path, b"third document").unwrap();
+    let Scope::Project { project_id } = f.input.object.scope else { panic!("project fixture") };
+    let registered = f.store.db.lock().unwrap().project_file_register(
+        &f.store.binding.workspace_id, project_id, "document.docx",
+    ).unwrap();
+    assert_eq!(registered.version_number, 3);
+    let replay = service.save(&f.request, &f.input).await.unwrap();
+    assert_eq!(replay.commit.receipt, saved.commit.receipt);
+    assert_eq!(replay.model, saved.model);
+    assert_eq!(std::fs::read(&f.path).unwrap(), b"third document");
+}
+
+#[tokio::test]
 async fn office_save_replays_same_receipt_and_rejects_reusing_id_for_different_edits() {
     let f = fixture();
     let service = FileOfficeService::new(&f.store, &Engine);
     let saved = service.save(&f.request, &f.input).await.unwrap();
+    let stored: String = rusqlite::Connection::open(&f.store.paths.db_path).unwrap().query_row(
+        "SELECT result_json FROM agent_operation_receipts WHERE operation='file.office.candidate'",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert!(serde_json::from_str::<Value>(&stored).unwrap().get("model").is_none(),
+        "candidate receipts must retain identities, not another complete Office model");
     let replay = service.save(&f.request, &f.input).await.unwrap();
     assert_eq!(replay.commit.receipt, saved.commit.receipt);
+    assert_eq!(replay.model, saved.model);
     let mut changed = f.input.clone();
     changed.edits = vec![json!({"text":"different"})];
     assert_eq!(
@@ -450,6 +474,31 @@ async fn office_save_replays_same_receipt_and_rejects_reusing_id_for_different_e
     );
     assert_eq!(std::fs::read(&f.path).unwrap(), b"second document");
 }
+#[tokio::test]
+async fn office_inspection_burst_bounds_loaded_baselines_and_releases_database() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct CountingEngine<'a> { store: &'a Store, active: AtomicUsize, peak: AtomicUsize }
+    impl OfficeUtility for CountingEngine<'_> {
+        async fn request(&self, id: &str, method: &str, format: &str, bytes: &str, payload: OfficePayload<'_>) -> AgentResult<Value> {
+            assert!(self.store.db.try_lock().is_ok(), "Office computation must not retain the shared database lock");
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let result = Engine.request(id, method, format, bytes, payload).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            result
+        }
+    }
+    let f = fixture();
+    let worker = CountingEngine { store: &f.store, active: AtomicUsize::new(0), peak: AtomicUsize::new(0) };
+    let service = FileOfficeService::new(&f.store, &worker);
+    let input = f.input.baseline();
+    let results = futures_util::future::join_all((0..20).map(|_| service.inspect(&f.request, &input))).await;
+    assert!(results.iter().all(Result::is_ok));
+    assert!((1..=2).contains(&worker.peak.load(Ordering::SeqCst)));
+    assert_eq!(worker.active.load(Ordering::SeqCst), 0);
+}
+
 struct ChangedDisk(PathBuf);
 impl OfficeUtility for ChangedDisk {
     async fn request(

@@ -803,3 +803,19 @@ it("opens a Workspace-owned file through the shared version and byte pipeline wi
   await waitFor(() => expect(projectFileApi.readBytes).toHaveBeenCalledWith(binding, { object: workspaceFile, versionNumber: 2, expectedContentHash: "hash2" }));
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+it('keeps the failed Office version selection open and preserves its draft and CAS baseline for retry', async () => {
+  vi.mocked(officeFileApi.save).mockRejectedValue(new Error('保存冲突'));
+  const rendered = await editedOffice();
+  await chooseVersion(1);
+  await waitFor(() => expect(screen.getByRole('menu', {name:'文件查看版本列表'})).toHaveTextContent('保存冲突'));
+  expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v2');
+  expect(rendered.editor).toHaveValue('未保存草稿');
+  expect(officeFileApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({versionNumber:2,expectedContentHash:'hash2'}), expect.any(String));
+  const inspected = await vi.mocked(officeFileApi.inspect).mock.results[0].value;
+  vi.mocked(officeFileApi.save).mockResolvedValue({model:inspected.model,commit:{receipt:{documentId:7,versionNumber:3,contentHash:'hash3',noChange:false},versionPath:null}});
+  fireEvent.click(screen.getByRole('menuitemradio', {name:'v1',exact:true}));
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+  expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v1');
+  rendered.unmount();
+});

@@ -221,6 +221,17 @@ fn import_crash_point(phase: ImportPhase) {
     #[cfg(not(test))]
     let _ = phase;
 }
+/// All business File imports must remain visible to the shared File catalogue.
+/// Managed note images use a separate service and do not pass this boundary.
+fn validate_import_business_name(name: &str) -> Result<()> {
+    if super::project_directory_files::excluded_component(name)
+        || crate::project_file_exclusions::is_temporary_file_name(name)
+    {
+        bail!("Hidden and temporary entries cannot be imported as project Files");
+    }
+    Ok(())
+}
+
 impl Database {
     pub(crate) fn agent_file_create_authorize(
         &self,
@@ -748,6 +759,7 @@ impl Database {
         source: ImportSource,
         agent: Option<&AgentImport<'_>>,
     ) -> Result<ImportOutcome> {
+        validate_import_business_name(&name)?;
         self.file_version_recover_pending()?;
         let _project_lock = self.file_project_lock(project_id, false)?;
         let _import_lock = self.file_scope_storage_lock("file-import-locks", project_id, true)?;
@@ -1859,6 +1871,39 @@ mod tests {
             .query_row("SELECT count(*) FROM documents", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn file_import_clipboard_rejects_excluded_names_without_residue() {
+        use base64::Engine;
+        let root = tempfile::tempdir().unwrap();
+        let (_, paths) = crate::workspace::create_workspace(root.path(), "password").unwrap();
+        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        let project = db.project_create(ProjectCreateInput {
+            name: "Clipboard names".into(), summary: None, status: None,
+        }).unwrap();
+        db.directory_schema().unwrap();
+        for name in ["capture.tmp", "~$capture.png", "Desktop.ini", ".capture.png"] {
+            let input = crate::models::DocumentImportClipboardImageInput {
+                project_id: Some(project.id), file_name: name.into(), mime_type: "image/png".into(),
+                data_base64: base64::engine::general_purpose::STANDARD.encode(BYTES),
+                is_starred: false, tag_ids: None,
+            };
+            let before = db.committed_change_watermark().unwrap();
+            assert!(db.document_import_clipboard_image(input).is_err(), "must reject {name}");
+            assert!(!std::path::Path::new(&project.root_path).join(name).exists());
+            for table in ["documents", "document_versions", "project_directory_files"] {
+                let count: i64 = db.conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap();
+                assert_eq!(count, 0, "{name}: {table}");
+            }
+            assert_eq!(db.committed_change_watermark().unwrap(), before);
+        }
+        let file = db.document_import_clipboard_image(crate::models::DocumentImportClipboardImageInput {
+            project_id: Some(project.id), file_name: "capture.png".into(), mime_type: "image/png".into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(BYTES),
+            is_starred: false, tag_ids: None,
+        }).unwrap();
+        assert_eq!(fs::read(file.managed_path).unwrap(), BYTES);
     }
 
     #[test]

@@ -1,9 +1,11 @@
 import path from 'node:path';
-import { sessionInventory } from './session-inventory.mjs';
+import { watch } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { sessionInventory, createSessionReadCache } from './session-inventory.mjs';
 import { searchContextSessions } from './context-session-reads.mjs';
 import { syncDirectory } from './fs-durability.mjs';
 import { realpath, stat, readFile, open, rename, mkdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import { isAppendSurfaceEvent, deriveEventMessage } from '@deepseek-ai/dsh-session/surface';
 
@@ -42,8 +44,115 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     sessionList: sessions.list, sessionFollow: sessions.follow,
   };
   const contexts = new Map();
+  const directories = new Map();
+  const revokedWorkspaces = new Set();
+  const workspacePaths = new Map();
+  const sessionVersions = new Map();
+  let committedArchived;
+  let catalogGeneration = 0, contentRevision = 0;
+  let catalog, catalogPending;
+  let readSerial = 0, minimumSerial = 0, checkedAt = 0, persistedRevision;
+  let persistenceWatcher, watcherFailed = false, watchGeneration = 0;
+  const liveArtifacts = new Map();
+  const rememberLiveArtifact = session => {
+    const located = ctx.sessionPersistence?.locate?.(session.header);
+    if (home && located?.path) liveArtifacts.set(path.relative(home, located.path), session.id);
+  };
+  for (const session of ctx.sessions?.list?.() ?? []) rememberLiveArtifact(session);
+  // The pinned controller calls query.listSessions -> persistence.list. Retain
+  // that exact snapshot inside this catalogue request, including its revisions,
+  // rather than traversing the same JSONL corpus a second time.
+  const catalogRead = new AsyncLocalStorage();
+  const persistence = ctx.sessionPersistence;
+  const originalPersistenceList = persistence?.list;
+  if (persistence) persistence.list = function (...args) {
+    const read = catalogRead.getStore();
+    if (!read) return originalPersistenceList.apply(this, args);
+    return read.persisted ??= originalPersistenceList.apply(this, args);
+  };
+  const RECONCILE_MS = 5000;
+  const titles = createSessionReadCache({ maxBytes: 2 * 1024 * 1024, maxEntries: 1024 });
+  const inventoryCache = { cache: createSessionReadCache() };
+  const attachments = createSessionReadCache({ maxBytes: 4 * 1024 * 1024, maxEntries: 128 });
+  const invalidate = () => {
+    catalogGeneration++; contentRevision++; catalog = undefined;
+    titles.clear(); attachments.clear(); inventoryCache.cache.clear(); sessionVersions.clear();
+  };
+  // The JSONL lifecycle emits creation/disposal; cwd is immutable on a Session
+  // generation. Workspace domain deltas also cover archive/unarchive and scope
+  // changes, and arrive before the registry entity has finished updating.
+  ctx.on?.('session/created', session => { rememberLiveArtifact(session); invalidate(); });
+  ctx.on?.('session/disposed', session => {
+    for (const [artifact, id] of liveArtifacts) if (id === session.id) liveArtifacts.delete(artifact);
+    invalidate();
+  });
+  ctx.on?.('session/event', session => {
+    contentRevision++; inventoryCache.cache.clear();
+    sessionVersions.set(session.id, (sessionVersions.get(session.id) ?? 0) + 1);
+    titles.delete(session.id); attachments.delete(session.id);
+  });
+  ctx.on?.('domain/changed', change => {
+    if (change.domain !== 'workspace') return;
+    if (change.table === '' && change.operation === 'put') committedArchived = new Set(change.value.archivedSessionIds);
+    if (change.table === 'workspaces') {
+      if (change.operation === 'deleted') revokedWorkspaces.add(change.key);
+      else { revokedWorkspaces.delete(change.key); workspacePaths.set(change.key, change.value.path); }
+    }
+    invalidate();
+  });
+  const readCatalog = async (signal, refresh = false) => {
+    signal?.throwIfAborted();
+    // Native DSH events do not observe writes by another process. A recursive
+    // home watcher supplies that generation; a bounded persistence revision
+    // reconciliation also catches missed/coalesced platform notifications.
+    if (refresh || watcherFailed || performance.now() - checkedAt >= RECONCILE_MS) {
+      minimumSerial = Math.max(minimumSerial, readSerial + 1);
+      catalog = undefined;
+    }
+    while (!catalog || catalog.serial < minimumSerial || catalog.watchGeneration !== watchGeneration) {
+      if (!catalogPending) {
+        const generation = catalogGeneration;
+        const observedWatch = watchGeneration;
+        const serial = ++readSerial;
+        // Sharing the I/O does not transfer one caller's cancellation to others.
+        const pending = (async () => {
+          const read = {};
+          const value = await catalogRead.run(read, () => original.sessionList.call(sessions, {}));
+          const persisted = ctx.sessionPersistence ? await (read.persisted ?? ctx.sessionPersistence.list()) : undefined;
+          const revision = persisted && createHash('sha256').update(JSON.stringify(persisted.map(item => {
+            const live = ctx.sessions?.get(item.header.id);
+            // Live append revisions already have session/event invalidation.
+            // Physical 200ms drains must not invalidate unrelated cold caches.
+            return [live?.header ?? item.header, live ? 'live' : item.revision];
+          })
+            .sort((a, b) => a[0].id.localeCompare(b[0].id)))).digest('hex');
+          if (generation === catalogGeneration && serial >= minimumSerial && observedWatch === watchGeneration) {
+            if (persistedRevision !== undefined && revision !== persistedRevision) invalidate();
+            persistedRevision = revision;
+            checkedAt = performance.now();
+            catalog = { generation: catalogGeneration, watchGeneration, serial, value, byId: new Map(value.items.map(row => [row.sessionId, row])) };
+            for (const id of sessionVersions.keys()) if (!catalog.byId.has(id)) sessionVersions.delete(id);
+          }
+        })().finally(() => { if (catalogPending === pending) catalogPending = undefined; });
+        catalogPending = pending;
+      }
+      if (!signal) await catalogPending;
+      else {
+        let abort;
+        const cancelled = new Promise((_, reject) => {
+          abort = () => reject(signal.reason);
+          signal.addEventListener('abort', abort, { once: true });
+          if (signal.aborted) abort();
+        });
+        try { await Promise.race([catalogPending, cancelled]); }
+        finally { signal.removeEventListener('abort', abort); }
+      }
+      signal?.throwIfAborted();
+    }
+    return catalog;
+  };
   const key = value => `${value.kind ?? 'project'}:${value.id}`;
-  const isRemoved = id => ctx.workspaceRegistry.archivedSessionIds.includes(id);
+  const isRemoved = id => committedArchived ? committedArchived.has(id) : ctx.workspaceRegistry.archivedSessionIds.includes(id);
   const file = home && path.join(home, 'mind-contexts.json');
   let mappings = { version: 1, contexts: [] };
   if (file) {
@@ -95,41 +204,72 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       }
       const value = { ...context, workspaceId, ...(binding ? { cli: binding } : existing?.cli ? { cli: existing.cli } : {}) };
       contexts.set(key(context), value);
+      directories.set(value.directory, value);
+      invalidate();
       return value;
     });
     chain = next.catch(() => {});
     return next;
   };
   const bootstrap = await register(initial, cli);
+  if (home) {
+    try {
+      persistenceWatcher = watch(home, { recursive: true }, (_event, filename) => {
+        if (filename == null) { watchGeneration++; return; }
+        const relative = String(filename);
+        if (relative.split(path.sep)[0] !== 'sessions') return;
+        const liveId = liveArtifacts.get(relative);
+        // macOS recursive fs.watch reports append+fsync as "rename" too. The
+        // public Session/query lifecycle gives attached Sessions live precedence;
+        // their immutable header and session/event already govern authority and
+        // content. Never infer a logical Session deletion from this event kind.
+        // Cold files and directory/unknown paths still invalidate immediately;
+        // the 5s reconciliation checks physical state even for attached files.
+        if (liveId && ctx.sessions.get(liveId)) return;
+        watchGeneration++;
+      });
+      persistenceWatcher.unref();
+      persistenceWatcher.on('error', () => { watcherFailed = true; invalidate(); });
+    } catch { watcherFailed = true; }
+  }
+  const available = context => context && !revokedWorkspaces.has(context.workspaceId)
+    && (!workspacePaths.has(context.workspaceId) || workspacePaths.get(context.workspaceId) === context.directory);
   const select = selector => {
     const value = contexts.get(key(selector ?? bootstrap));
-    if (!value || selector?.directory !== undefined && selector.directory !== value.directory) throw Object.assign(new Error('Native context is not registered'), { code: 'SCOPE_DENIED' });
+    if (!available(value) || selector?.directory !== undefined && selector.directory !== value.directory) throw Object.assign(new Error('Native context is not registered'), { code: 'SCOPE_DENIED' });
     return value;
   };
   const scopeForSession = async (sessionId, signal) => {
-    const catalog = await original.sessionList.call(sessions, {}, signal);
+    let state = await readCatalog(signal);
+    while (state.generation !== catalogGeneration || state.watchGeneration !== watchGeneration) state = await readCatalog(signal);
     signal?.throwIfAborted();
-    const row = catalog.items.find(item => item.sessionId === sessionId);
-    return row && [...contexts.values()].find(item => item.directory === row.cwd);
+    const row = state.byId.get(sessionId);
+    const context = row && directories.get(row.cwd);
+    return available(context) ? context : undefined;
   };
   const forSession = async (sessionId, signal) => {
     if (typeof sessionId !== 'string' || !sessionId || isRemoved(sessionId)) throw new Error('Session was removed or is unavailable');
-    const context = await scopeForSession(sessionId, signal);
-    if (!context || isRemoved(sessionId)) throw new Error('Session belongs to another context');
-    return context;
+    while (true) {
+      const generation = catalogGeneration;
+      const context = await scopeForSession(sessionId, signal);
+      if (generation !== catalogGeneration) continue;
+      if (!available(context) || isRemoved(sessionId)) throw new Error('Session belongs to another context');
+      return context;
+    }
   };
   const registry = {
     workspace: bootstrap, register, forSession, scopeForSession, select,
+    revision: () => `${contentRevision}:${watchGeneration}`,
     async snapshot(context, signal) {
       const value = current(context).workspace;
-      const rows = await original.sessionList.call(sessions, {}, signal);
+      const { value: rows } = await readCatalog(signal);
       const own = new Set(rows.items.filter(item => item.cwd === context.directory).map(item => item.sessionId));
-      return { items: [value], archivedSessionIds: ctx.workspaceRegistry.archivedSessionIds.filter(id => own.has(id)),
+      return { items: [value], archivedSessionIds: [...(committedArchived ?? ctx.workspaceRegistry.archivedSessionIds)].filter(id => own.has(id)),
         pinnedSessionIds: (ctx.workspaceRegistry.pinnedSessionIds ?? []).filter(id => own.has(id)) };
     },
     forAgent(agent) {
-      const context = [...contexts.values()].find(item => item.directory === agent?.session?.header?.cwd);
-      if (!context || isRemoved(agent.session.id)) throw new Error('Agent belongs to another context');
+      const context = directories.get(agent?.session?.header?.cwd);
+      if (!available(context) || isRemoved(agent.session.id)) throw new Error('Agent belongs to another context');
       return context;
     },
   };
@@ -143,17 +283,38 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
   };
   workspaces.rename = workspaces.delete = async () => { throw new Error('Manage workspaces and projects in the main application'); };
   sessions.list = async (request = {}, signal) => {
-    const value = await original.sessionList.call(sessions, {}, signal);
+    let state = await readCatalog(signal, true);
+    while (state.generation !== catalogGeneration || state.watchGeneration !== watchGeneration || state.serial < minimumSerial) state = await readCatalog(signal);
+    const { value, generation } = state;
     const directory = request.cwd ?? bootstrap.directory;
     const candidates = value.items.filter(item => !isRemoved(item.sessionId) && (request.cwd === undefined || item.cwd === directory));
+    const versions = new Map(candidates.filter(item => item.cwd === directory && item.agentAvailable === false)
+      .map(item => [item.sessionId, sessionVersions.get(item.sessionId) ?? 0]));
     const hydrated = [];
     for (const item of candidates) {
       if (item.cwd === directory && item.agentAvailable === false) {
-        const projections = await sessions.projections({ sessionId: item.sessionId }, signal);
-        if (projections === null) throw new Error('Session disappeared while loading its title');
-        hydrated.push({ ...item, projections: { kind: 'sequenced', ...projections } });
+        // Cached list hints may be predecessors. Validate once through the
+        // projection controller, then retain only the small title projection.
+        const fingerprint = JSON.stringify([item.cwd, item.updatedAt, item.title, item.projections?.kind,
+          item.projections?.asOfSeq, item.projections?.values?.title]);
+        const cached = titles.get(item.sessionId);
+        let projection = cached && (cached.fingerprint === fingerprint || cached.updatedAt === item.updatedAt && cached.cwd === item.cwd
+          && item.projections?.values?.title === cached.projection.values.title) ? cached.projection : undefined;
+        if (!projection) {
+          const version = sessionVersions.get(item.sessionId) ?? 0;
+          const block = await sessions.projections({ sessionId: item.sessionId }, signal);
+          signal?.throwIfAborted();
+          if (block === null) throw new Error('Session disappeared while loading its title');
+          if (generation !== catalogGeneration || version !== (sessionVersions.get(item.sessionId) ?? 0)) throw new Error('Session changed while loading its title');
+          projection = { kind: 'sequenced', asOfSeq: block.asOfSeq, values: { title: block.values.title } };
+          titles.set(item.sessionId, { fingerprint, updatedAt: item.updatedAt, cwd: item.cwd, projection });
+        }
+        hydrated.push({ ...item, projections: { ...item.projections, ...projection, values: { ...item.projections?.values, ...projection.values } } });
       } else hydrated.push(item);
     }
+    let finalState = await readCatalog(signal);
+    while (finalState.watchGeneration !== watchGeneration) finalState = await readCatalog(signal);
+    if (generation !== catalogGeneration || [...versions].some(([id, version]) => version !== (sessionVersions.get(id) ?? 0))) throw new Error('Session list changed while reading');
     const pins = new Map((ctx.workspaceRegistry.pinnedSessionIds ?? []).map((id, index) => [id, index]));
     const items = hydrated.filter(item => !isRemoved(item.sessionId)).map(item => ({ ...item, pinned: pins.has(item.sessionId) }));
     items.sort((a, b) => (pins.get(a.sessionId) ?? pins.size) - (pins.get(b.sessionId) ?? pins.size));
@@ -174,7 +335,7 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     if (request.workspaceId !== undefined && request.workspaceId !== context.workspaceId
       || request.cwd !== undefined && await realpath(request.cwd) !== context.directory) throw new Error('Session belongs to another context');
     const { cwd, context: ignored, ...rest } = request;
-    return original.sessionCreate.call(sessions, { ...rest, workspaceId: context.workspaceId });
+    try { return await original.sessionCreate.call(sessions, { ...rest, workspaceId: context.workspaceId }); } finally { invalidate(); }
   };
   sessions.create = request => create(request, bootstrap);
   function route(method, dispatch) {
@@ -204,19 +365,31 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     const context = select(request.context);
     if (typeof request.path !== 'string' || !path.isAbsolute(request.path)) throw new Error('Attachment path must be absolute');
     const requested = await realpath(request.path);
-    const rows = (await original.sessionList.call(sessions, {}, signal)).items.filter(row => row.cwd === context.directory && !isRemoved(row.sessionId));
+    const rows = (await readCatalog(signal)).value.items.filter(row => row.cwd === context.directory && !isRemoved(row.sessionId));
+    const revision = contentRevision;
     for (const row of rows) {
-      const inspection = await sessions.inspect(row.sessionId, signal);
-      for (const event of inspection.events) {
-        if (!isAppendSurfaceEvent(event)) continue;
-        for (const block of deriveEventMessage(event)?.content ?? []) {
-          if (!block.attachment || !['image', 'file'].includes(block.type)) continue;
-          const located = block.type === 'image' ? ctx.attachments.imageHostPath(block.attachment) : ctx.attachments.fileHostPath(block.attachment);
-          if (located && await realpath(located) === requested) {
-            if (key(await forSession(row.sessionId, signal)) !== key(context)) throw new Error('Attachment Session scope changed');
-            return { allowed: true };
+      let locatedPaths = attachments.get(row.sessionId);
+      if (!locatedPaths) {
+        const inspection = await sessions.inspect(row.sessionId, signal);
+        if (revision !== contentRevision) throw new Error('Attachment Session changed while reading');
+        locatedPaths = [];
+        for (const event of inspection.events) {
+          if (!isAppendSurfaceEvent(event)) continue;
+          for (const block of deriveEventMessage(event)?.content ?? []) {
+            if (!block.attachment || !['image', 'file'].includes(block.type)) continue;
+            const located = block.type === 'image' ? ctx.attachments.imageHostPath(block.attachment) : ctx.attachments.fileHostPath(block.attachment);
+            if (located) locatedPaths.push(located);
           }
         }
+        attachments.set(row.sessionId, [...new Set(locatedPaths)]);
+      }
+      // Resolve paths at the I/O boundary each time: symlink targets are mutable.
+      for (const located of locatedPaths) {
+        if (await realpath(located) !== requested) continue;
+        const owner = await forSession(row.sessionId, signal);
+        signal?.throwIfAborted();
+        if (revision !== contentRevision || key(owner) !== key(context)) throw new Error('Attachment Session scope changed');
+        return { allowed: true };
       }
     }
     return { allowed: false };
@@ -225,19 +398,32 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     const context = select(request.context);
     if (key(await forSession(request.sessionId, signal)) !== key(context)) throw new Error('Session belongs to another context');
     await ctx.workspaceRegistry.archiveSession(request.sessionId);
+    invalidate();
     ctx.emit('api-session/removed', request.sessionId);
     return null;
   });
+  // Stable per-scope facades own bounded, grant-sensitive projected reads.
+  const inventoryControllers = new Map();
   route('mind/session/inventory', async (request, signal) => {
     try {
       const { input, authorization } = request;
       const context = select(request.context ?? (input.scope?.kind === 'project' ? { kind: 'project', id: input.scope.projectId } : bootstrap));
       if (typeof authorization !== 'string' || !authorization || input.scope?.kind !== context.kind
         || context.kind === 'project' && input.scope.projectId !== context.id) throw Object.assign(new Error('Session scope mismatch'), { code: 'SCOPE_DENIED' });
-      return { page: await sessionInventory({ list: (_request, signal) => sessions.list({ cwd: context.directory }, signal), inspect: sessions.inspect?.bind(sessions) }, context, input, authorization, signal) };
+      let controller = inventoryControllers.get(key(context));
+      if (!controller) {
+        controller = { list: (_request, signal) => sessions.list({ cwd: context.directory }, signal),
+          inspect: (id, signal) => sessions.inspect(id, signal), revision: () => contentRevision, readCacheState: inventoryCache };
+        inventoryControllers.set(key(context), controller);
+      }
+      return { page: await sessionInventory(controller, context, input, authorization, signal) };
     } catch (error) { return { error: { code: error.code ?? 'RUNTIME_UNAVAILABLE', message: String(error.message ?? error), retryable: false, ...(error.details ? { details: error.details } : {}) } }; }
   });
   ctx.effect(() => () => {
+    persistenceWatcher?.close();
+    if (persistence) persistence.list = originalPersistenceList;
+    liveArtifacts.clear();
+    invalidate(); directories.clear(); contexts.clear(); workspacePaths.clear(); inventoryControllers.clear();
     workspaces.create = original.create; workspaces.initializeDefault = original.initializeDefault;
     workspaces.rename = original.rename; workspaces.delete = original.delete;
     sessions.create = original.sessionCreate; sessions.list = original.sessionList; sessions.follow = original.sessionFollow;

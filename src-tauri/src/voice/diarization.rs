@@ -15,19 +15,19 @@ use std::{
 pub const MAX_DURATION_MS: u64 = 2 * 60 * 60 * 1000;
 pub(crate) const CONTACT_MATCH_THRESHOLD: f32 = 0.65;
 const RATE: u64 = 16_000;
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SpeakerTurn {
     pub start_ms: u64,
     pub end_ms: u64,
     pub speaker_id: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpeakerEmbedding {
     pub speaker_id: u32,
     pub embedding: Vec<f32>,
 }
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct DiarizationAnalysis {
     pub turns: Vec<SpeakerTurn>,
     pub embeddings: Vec<SpeakerEmbedding>,
@@ -209,7 +209,9 @@ pub fn analyze_with_embeddings(
     let result = engine
         .process(&samples)
         .ok_or_else(|| anyhow!("本地说话人分离失败"))?;
-    check_cancel(cancel)?; // Native inference itself does not expose cancellation.
+    // sherpa 1.13.8 progress callbacks ignore their return value; they cannot
+    // interrupt process(). Keep the entire waveform in one clustering run.
+    check_cancel(cancel)?;
     let mut ids = BTreeMap::new();
     let mut turns = Vec::new();
     let duration_ms = samples.len() as u64 * 1000 / RATE;

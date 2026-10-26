@@ -1,0 +1,22 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+import ts from 'typescript';
+test('preview eviction restores exact sheet, zoom and frozen/RTL viewport offsets through Univer',async()=>{
+ const source=readFileSync(new URL('../preview-view.ts',import.meta.url),'utf8');
+ const ast=ts.createSourceFile('preview-view.ts',source,ts.ScriptTarget.Latest,true);
+ const code=ts.transpileModule(ast.statements.filter(node=>!ts.isImportDeclaration(node)).map(node=>node.getFullText(ast)).join('\n'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+ const exports={},window={},calls=[];
+ const scroll={sheetViewStartRow:450,sheetViewStartColumn:21,offsetX:13,offsetY:9};
+ const sheet={getSheetId:()=> 'sheet-rtl',getZoom:()=>1.65,getScrollState:()=>scroll,zoom:value=>calls.push(['zoom',value])};
+ const workbook={getId:()=> 'book',getActiveSheet:()=>sheet,getSheetBySheetId:id=>id==='sheet-rtl'?sheet:undefined,setActiveSheet:value=>calls.push(['sheet',value.getSheetId()])};
+ const runtime={univerAPI:{getActiveWorkbook:()=>workbook,executeCommand:(id,args)=>calls.push([id,args])}};
+ runInNewContext(code,{exports,window,SetScrollOperation:{id:'actual-scroll-operation'},nextPreviewFrame:async()=>{calls.push(['frame']);}});
+ exports.installXlsxPreviewView(()=>runtime);
+ const view=window.__projectMindOfficePreview.capture();assert.equal(view.sheetId,'sheet-rtl');assert.equal(view.zoom,1.65);assert.deepEqual(JSON.parse(JSON.stringify(view.sheetScroll)),scroll);
+ await window.__projectMindOfficePreview.restore(view);
+ assert.deepEqual(JSON.parse(JSON.stringify(calls)),[['sheet','sheet-rtl'],['zoom',1.65],['frame'],['actual-scroll-operation',{unitId:'book',sheetId:'sheet-rtl',...scroll}]]);
+ await assert.rejects(window.__projectMindOfficePreview.restore({...view,sheetId:'removed'}),/已不存在/);
+ runtime.univerAPI.executeCommand=async()=>{throw Error('scroll failed');};await assert.rejects(window.__projectMindOfficePreview.restore(view),/scroll failed/);
+});

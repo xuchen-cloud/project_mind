@@ -471,6 +471,7 @@ fn parse_ready(line: &str) -> Result<Option<Url>, String> {
 }
 
 struct AssistantProcess {
+    lifetime: crate::dsh_process::Lifetime,
     child: Child,
     url: Url,
     drain: JoinHandle<()>,
@@ -505,6 +506,7 @@ impl AssistantProcess {
 
     async fn launch_with_registry(mut command: Command, config: &serde_json::Value, source: Option<SourceHandler>, registry: Option<Arc<cli::Registry>>) -> Result<Self, String> {
         let session_http = session_http_client()?;
+        let mut lifetime = crate::dsh_process::Lifetime::prepare(&mut command).await?;
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -513,6 +515,7 @@ impl AssistantProcess {
         let mut child = command
             .spawn()
             .map_err(|_| "无法启动助手，请检查 Node 和助手资源")?;
+        if let Err(error) = lifetime.attach(&child) { let _ = child.kill().await; return Err(error); }
         let stdout = child.stdout.take().ok_or("无法读取助手启动状态")?;
         let mut reader = BufReader::new(stdout);
         let ready = tokio::time::timeout(READY_TIMEOUT, async {
@@ -551,6 +554,7 @@ impl AssistantProcess {
             failure => {
                 // EOF requests disposal even if boot failed or timed out.
                 let _ = stop_child(&mut child).await;
+                lifetime.finish().await?;
                 return Err(match failure {
                     Ok(Err(error)) => error,
                     Err(_) => "助手启动超时，请重试".into(),
@@ -638,6 +642,7 @@ impl AssistantProcess {
             }
         }
         Ok(Self {
+            lifetime,
             closed,
             sensitive: Arc::new(sensitive),
             child,
@@ -663,7 +668,9 @@ impl AssistantProcess {
         if let Some(writer) = &self.source_stdin {
             if let Some(mut stdin) = writer.lock().await.take() { let _ = stdin.write_all(b"shutdown\n").await; }
         }
-        stop_child(&mut self.child).await
+        let stopped = stop_child(&mut self.child).await;
+        let cleaned = self.lifetime.finish().await;
+        stopped.and(cleaned)
     }
 
     fn revoke_sources(&self) {
@@ -958,7 +965,7 @@ pub(crate) enum SessionAction {
     Rename { title: String },
     Pin,
     Unpin,
-    Fork,
+    Fork { #[serde(rename = "childSessionId")] child_session_id: String },
     Archive,
 }
 
@@ -981,6 +988,12 @@ fn session_action_request(
     sessions: &[AssistantSession],
 ) -> Result<SessionRequest, String> {
     validate_session_selection(&session_id, sessions)?;
+    if let SessionAction::Fork { child_session_id } = &action {
+        let valid = child_session_id.strip_prefix("session-").map(|id| id.len() == 36 && id.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) { byte == b'-' } else { byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) }
+        })).unwrap_or(false);
+        if !valid || child_session_id == &session_id { return Err("Invalid fork child identity".into()); }
+    }
     Ok(SessionRequest::Manage { session_id, action })
 }
 
@@ -988,11 +1001,11 @@ fn session_action_result(
     action: &SessionAction,
     value: serde_json::Value,
 ) -> Result<Option<String>, String> {
-    if matches!(action, SessionAction::Fork) {
+    if let SessionAction::Fork { child_session_id } = action {
         let id = value
             .get("sessionId")
             .and_then(serde_json::Value::as_str)
-            .filter(|id| !id.is_empty())
+            .filter(|id| *id == child_session_id.as_str())
             .ok_or(SESSION_ERROR)?;
         Ok(Some(id.to_string()))
     } else {
@@ -1062,7 +1075,7 @@ async fn session_request(
             let (method, request) = match action {
                 SessionAction::Rename { title } => ("session/rename", serde_json::json!({"sessionId":session_id,"title":title})),
                 // Omitting atSeq asks DSH for the latest completed-turn prefix.
-                SessionAction::Fork => ("session/fork", serde_json::json!({"sessionId":session_id})),
+                SessionAction::Fork { child_session_id } => ("mind/session/fork", serde_json::json!({"sessionId":session_id,"childSessionId":child_session_id})),
                 SessionAction::Pin => ("workspace/pinSession", serde_json::json!({"sessionId":session_id})),
                 SessionAction::Unpin => ("workspace/unpinSession", serde_json::json!({"sessionId":session_id})),
                 // DSH's registry owns activity admission; never request stopActivity.
@@ -1105,6 +1118,7 @@ async fn scope_session_request(url: &Url, client: &reqwest::Client, cookie: &mut
         SessionRequest::List => SessionRequest::Private { method: "mind/session/list".into(), request: serde_json::json!({"context":identity.context_message()}) },
         SessionRequest::Create => SessionRequest::Private { method: "mind/session/create".into(), request: serde_json::json!({"context":identity.context_message()}) },
         SessionRequest::Delete(id) => SessionRequest::Private { method: "mind/session/delete".into(), request: serde_json::json!({"context":identity.context_message(),"sessionId":id}) },
+        SessionRequest::Manage { session_id, action: SessionAction::Fork { child_session_id } } => SessionRequest::Private { method: "mind/session/fork".into(), request: serde_json::json!({"context":identity.context_message(),"sessionId":session_id,"childSessionId":child_session_id}) },
         request => request,
     };
     session_request(url, client, cookie, request).await
@@ -1272,6 +1286,8 @@ pub(crate) fn assistant_script_command(
 
 fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Command, String> {
     let mut command = assistant_script_command(app, "runtime.mjs")?;
+    #[cfg(unix)]
+    command.env("PROJECT_MIND_DSH_PROCESS_HELPER", std::env::current_exe().map_err(|_| "无法定位助手进程保护程序")?);
     command.args([
         "--embedded",
         "--host",
@@ -1469,6 +1485,19 @@ impl RuntimeState {
 
 }
 
+pub(crate) struct ShutdownLease<'a> {
+    stopping: &'a AtomicBool,
+    committed: bool,
+}
+impl ShutdownLease<'_> {
+    pub(crate) fn commit(mut self) { self.committed = true; }
+}
+impl Drop for ShutdownLease<'_> {
+    fn drop(&mut self) {
+        if !self.committed { self.stopping.store(false, Ordering::SeqCst); }
+    }
+}
+
 impl DshAssistantState {
     // Keep the mutation lock through the native workspace transition, so a
     // concurrent start cannot reuse old credentials between stop and lock/switch.
@@ -1486,9 +1515,12 @@ impl DshAssistantState {
         change()
     }
 
-    pub(crate) async fn shutdown(&self) -> Result<(), String> {
-        self.stopping.store(true, Ordering::SeqCst);
-        self.inner.lock().await.stop().await
+    pub(crate) async fn shutdown(&self) -> Result<ShutdownLease<'_>, String> {
+        self.stopping.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| "应用正在退出")?;
+        let lease = ShutdownLease { stopping: &self.stopping, committed: false };
+        self.inner.lock().await.stop().await?;
+        Ok(lease)
     }
 
     pub(crate) fn detach_parent(app: tauri::AppHandle, owner: String) {
@@ -2557,10 +2589,11 @@ pub(crate) async fn dsh_assistant_manage_session(
     inner.ensure_current_scope(&caller).await?;
     let request = session_action_request(session_id, action.clone(), &sessions?)?;
     let process = inner.process.as_mut().expect("ready process");
-    let result = session_request(
+    let result = scope_session_request(
         &process.url,
         &process.session_http,
         &mut process.session_cookie,
+        inner.identity.as_ref().ok_or(TRANSPORT_ERROR)?,
         request,
     )
     .await;
@@ -2627,6 +2660,108 @@ pub(crate) async fn dsh_assistant_delete_session(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    fn dsh_process_guardian_fixture() -> &'static Path {
+        static FIXTURE: std::sync::OnceLock<(tempfile::TempDir, PathBuf)> = std::sync::OnceLock::new();
+        &FIXTURE.get_or_init(|| {
+            let directory = tempfile::tempdir().unwrap();
+            let executable = directory.path().join("process-guardian");
+            let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/dsh-assistant/test/fixtures/process-guardian.rs");
+            let output = std::process::Command::new("rustc").args(["--edition=2021"]).arg(source).arg("-o").arg(&executable).output().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            (directory, executable)
+        }).1
+    }
+
+    #[cfg(unix)]
+    async fn dsh_process_fixture(mode: &str) -> (AssistantProcess, tempfile::TempDir, Vec<i32>) {
+        let directory = tempfile::tempdir().unwrap();
+        let pids = directory.path().join("pids.json");
+        let node = development_node("node").unwrap();
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/dsh-assistant/test/fixtures/process-native-host.mjs");
+        let mut command = Command::new(node);
+        command.arg(script).arg(&pids).arg(mode);
+        // A caller's old process_group(0) must not make setsid fail: the
+        // guardian rebuilds the launch and establishes its own private SID.
+        command.process_group(0);
+        command.env("PROJECT_MIND_DSH_PROCESS_HELPER", dsh_process_guardian_fixture());
+        let process = AssistantProcess::launch(command, &serde_json::json!({"type":"configure"})).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&std::fs::read(pids).unwrap()).unwrap();
+        let owned = vec![value["host"].as_i64().unwrap() as i32, value["tool"].as_i64().unwrap() as i32];
+        (process, directory, owned)
+    }
+
+    #[cfg(unix)]
+    async fn dsh_process_assert_gone(owned: &[i32]) {
+        unsafe extern "C" { fn kill(pid: i32, signal: i32) -> i32; }
+        for _ in 0..250 {
+            if owned.iter().all(|pid| unsafe { kill(*pid, 0) } != 0) { return; }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let alive: Vec<_> = owned.iter().filter(|pid| unsafe { kill(**pid, 0) } == 0).collect();
+        assert!(alive.is_empty(), "owned processes survived: {alive:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dsh_process_normal_shutdown_cleans_actual_provider_detached_child() {
+        let (mut process, _directory, owned) = dsh_process_fixture("normal").await;
+        process.stop().await.unwrap();
+        dsh_process_assert_gone(&owned).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dsh_process_eight_second_timeout_cleans_actual_provider_detached_child() {
+        let (mut process, _directory, owned) = dsh_process_fixture("unresponsive").await;
+        let start = std::time::Instant::now();
+        process.stop().await.unwrap();
+        assert!(start.elapsed() >= STOP_TIMEOUT, "fixture must exercise actual hard timeout");
+        assert!(start.elapsed() < STOP_TIMEOUT + Duration::from_secs(6), "cleanup must be bounded");
+        dsh_process_assert_gone(&owned).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dsh_process_drop_cleans_actual_provider_detached_child() {
+        let (process, _directory, owned) = dsh_process_fixture("unresponsive").await;
+        drop(process);
+        dsh_process_assert_gone(&owned).await;
+    }
+
+    #[tokio::test]
+    async fn dsh_process_failed_shutdown_restores_admission_and_success_keeps_it_closed() {
+        let state = DshAssistantState::default();
+        let (writes, _) = mpsc::channel(1);
+        let (close, _) = watch::channel(false);
+        let task = tokio::spawn(std::future::pending());
+        task.abort();
+        let connection = NativeConnection { owner:"fixture".into(), project_id:None, writes, close, task };
+        let mut runtime = RuntimeState::default();
+        runtime.connections.insert("fixture".into(), connection);
+        state.inner.lock().await.scopes.insert(None, runtime);
+        assert!(state.shutdown().await.is_err());
+        assert!(!state.stopping.load(Ordering::SeqCst), "failed exit must admit subsequent requests");
+        let closing = state.shutdown().await.unwrap();
+        assert!(state.stopping.load(Ordering::SeqCst));
+        drop(closing); // A later exit stage/authorize failure rolls this back.
+        assert!(!state.stopping.load(Ordering::SeqCst));
+        state.shutdown().await.unwrap().commit();
+        assert!(state.stopping.load(Ordering::SeqCst), "committed exit must block new requests");
+    }
+
+    #[tokio::test]
+    async fn dsh_process_cancelled_shutdown_restores_admission() {
+        let state = Arc::new(DshAssistantState::default());
+        let inner = state.inner.lock().await;
+        let closing = state.clone();
+        let task = tokio::spawn(async move { closing.shutdown().await.unwrap().commit(); });
+        while !state.stopping.load(Ordering::SeqCst) { tokio::task::yield_now().await; }
+        task.abort(); assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!state.stopping.load(Ordering::SeqCst));
+        drop(inner);
+    }
+
     #[test]
     fn session_directory_ownership_resolves_actual_paths() {
         let root = tempfile::tempdir().unwrap();
@@ -3313,8 +3448,8 @@ mod tests {
                     {"sessionId":"owned","cwd":current_cwd,"pinned":true,"running":true},
                     {"sessionId":"foreign","cwd":foreign_cwd}
                 ]}}}))
-            } }))
-            .route("/api/{group}/{operation}", post(move |uri: Uri, Json(frame): Json<serde_json::Value>| {
+            } }));
+        let action_handler = post(move |uri: Uri, Json(frame): Json<serde_json::Value>| {
                 let calls = observed.clone();
                 async move {
                     calls.fetch_add(1, Ordering::SeqCst);
@@ -3322,17 +3457,21 @@ mod tests {
                     assert_eq!(frame["method"], method);
                     let expected = if method == "session/rename" {
                         serde_json::json!({"request":{"sessionId":"owned","title":"New title"}})
-                    } else { serde_json::json!({"request":{"sessionId":"owned"}}) };
+                    } else if method == "mind/session/fork" { serde_json::json!({"request":{"sessionId":"owned","childSessionId":"session-10000000-0000-4000-8000-000000000001"}}) }
+                    else { serde_json::json!({"request":{"sessionId":"owned"}}) };
                     assert_eq!(frame["payload"]["args"], expected);
                     let result = match method {
-                        "session/fork" => serde_json::json!({"ok":true,"value":{"sessionId":"fork-child"}}),
+                        "mind/session/fork" => serde_json::json!({"ok":true,"value":{"sessionId":"session-10000000-0000-4000-8000-000000000001"}}),
                         "workspace/archiveSession" => serde_json::json!({"ok":false,"error":{"code":"workspace/session-active","message":"Session has active execution","details":{}}}),
                         "session/rename" | "workspace/pinSession" | "workspace/unpinSession" => serde_json::json!({"ok":true,"value":{}}),
                         _ => panic!("unexpected action {method}"),
                     };
                     Json(serde_json::json!({"type":"server-response", "rpcId":frame["rpcId"], "result":result}))
                 }
-            }));
+            });
+        let app = app
+            .route("/api/{group}/{operation}", action_handler.clone())
+            .route("/api/mind/session/fork", action_handler);
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
@@ -3343,13 +3482,17 @@ mod tests {
             .unwrap();
         assert_eq!(sessions.len(), 1);
         assert!(sessions[0].pinned);
+        for invalid in ["", "owned", "../child", "session-invalid"] {
+            assert!(session_action_request("owned".into(), SessionAction::Fork { child_session_id: invalid.into() }, &sessions).is_err());
+        }
+        assert!(serde_json::from_value::<SessionAction>(serde_json::json!({"kind":"fork"})).is_err());
         for action in [
             SessionAction::Rename {
                 title: "New title".into(),
             },
             SessionAction::Pin,
             SessionAction::Unpin,
-            SessionAction::Fork,
+            SessionAction::Fork { child_session_id: "session-10000000-0000-4000-8000-000000000001".into() },
             SessionAction::Archive,
         ] {
             assert!(session_action_request("foreign".into(), action.clone(), &sessions).is_err());
@@ -3362,12 +3505,13 @@ mod tests {
                 let id = session_action_result(&action, result.unwrap()).unwrap();
                 assert_eq!(
                     id,
-                    matches!(action, SessionAction::Fork).then(|| "fork-child".to_string())
+                    matches!(action, SessionAction::Fork { .. }).then(|| "session-10000000-0000-4000-8000-000000000001".to_string())
                 );
             }
         }
         assert_eq!(calls.load(Ordering::SeqCst), 5);
         for method in [
+            "mind/session/fork",
             "workspace/pinSession",
             "workspace/unpinSession",
             "workspace/archiveSession",
@@ -3381,8 +3525,9 @@ mod tests {
             serde_json::json!({}),
             serde_json::json!({"sessionId":""}),
             serde_json::json!({"sessionId":42}),
+            serde_json::json!({"sessionId":"unexpected-child"}),
         ] {
-            assert!(session_action_result(&SessionAction::Fork, frame).is_err());
+            assert!(session_action_result(&SessionAction::Fork { child_session_id: "session-10000000-0000-4000-8000-000000000001".into() }, frame).is_err());
         }
         for (frame, expected) in [
             (
@@ -3393,7 +3538,7 @@ mod tests {
             ),
             (serde_json::json!({"kind":"pin"}), SessionAction::Pin),
             (serde_json::json!({"kind":"unpin"}), SessionAction::Unpin),
-            (serde_json::json!({"kind":"fork"}), SessionAction::Fork),
+            (serde_json::json!({"kind":"fork","childSessionId":"session-10000000-0000-4000-8000-000000000001"}), SessionAction::Fork { child_session_id: "session-10000000-0000-4000-8000-000000000001".into() }),
             (
                 serde_json::json!({"kind":"archive"}),
                 SessionAction::Archive,
@@ -4162,7 +4307,7 @@ mod tests {
         .unwrap();
         assert_eq!(renamed["title"], accepted_title);
         assert!(renamed["seq"].as_u64().is_some());
-        let fork_error = manage_fixture(&mut process, &directory, &id, SessionAction::Fork)
+        let fork_error = manage_fixture(&mut process, &directory, &id, SessionAction::Fork { child_session_id: "session-10000000-0000-4000-8000-000000000001".into() })
             .await
             .unwrap_err();
         assert_eq!(

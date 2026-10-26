@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { webviewWindow } from "@tauri-apps/api";
 import { availableMonitors, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
@@ -77,6 +77,9 @@ function projectWindowShowsTodoRail(route: string) {
 export const desktopApi = {
   fetchEditorRemoteImage(input: FetchEditorRemoteImageInput) {
     return invoke<EditorRemoteImage>('desktop_fetch_editor_remote_image', {input});
+  },
+  emitEvent<T>(event: string, payload: T) {
+    return emit(event, payload);
   },
   listenEvent<T>(event: string, onPayload: (payload: T) => void) {
     return listen<T>(event, ({ payload }) => onPayload(payload));

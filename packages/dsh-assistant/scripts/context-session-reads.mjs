@@ -46,7 +46,15 @@ export async function searchContextSessions(ctx, registry, context, request, sig
   if (items.length > 20) break;
  }
  contextStillCurrent(registry, context, signal);
- const visible = items.filter(item => !archive(ctx, item.sessionId));
+ const publicationRevision = registry.revision?.();
+ const visible = [];
+ for (const item of items) {
+  if (archive(ctx, item.sessionId)) continue;
+  const owner = await registry.forSession(item.sessionId, signal);
+  contextStillCurrent(registry, context, signal);
+  if (same(owner, context) && !archive(ctx, item.sessionId)) visible.push(item);
+ }
+ if (publicationRevision !== registry.revision?.()) throw new Error('Session context changed before publishing search');
  return { items: visible.slice(0, 20), hasMore: visible.length > 20 };
 }
 
@@ -74,12 +82,14 @@ export function installSessionReferenceScope(ctx, registry) {
   const context = { ...registry.forAgent(agent) };
   const inputs = structuredClone(references);
   const validate = async () => {
+   const revision = registry.revision?.();
    agentStillCurrent(registry, agent, context, signal);
-   for (const reference of inputs) {
-    const owner = await registry.forSession(reference.sessionId, signal);
+   for (const sessionId of new Set(inputs.map(reference => reference.sessionId))) {
+    const owner = await registry.forSession(sessionId, signal);
     agentStillCurrent(registry, agent, context, signal);
     if (!same(owner, context)) throw new SessionReferenceError('Referenced Session belongs to another context', 'SESSION_REFERENCE_INVALID_REFERENCE');
    }
+   if (revision !== registry.revision?.()) throw new SessionReferenceError('Referenced Session scope changed during validation', 'SESSION_REFERENCE_INVALID_REFERENCE');
   };
   await validate();
   agentStillCurrent(registry, agent, context, signal);

@@ -19,6 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+#[path = "file_office_read.rs"]
+pub(crate) mod reads;
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileOfficeInput {
@@ -85,6 +88,9 @@ pub(crate) struct FileOfficeCandidate {
     pub expected_version: u32,
     pub expected_hash: String,
     pub staged_content_id: String,
+    // A renderer projection is rebuilt from committed immutable bytes on replay.
+    // It is not part of the durable operation identity or commit receipt.
+    #[serde(skip_serializing, default)]
     pub model: Value,
 }
 impl FileOfficeCandidate {
@@ -193,26 +199,45 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         input: &FileOfficeRecalculateInput,
     ) -> AgentResult<OfficeRecalculationResult> {
         input.recalculation.validate()?;
+        let _admission = crate::office_worker::admit_source().await?;
         let baseline = input.baseline();
-        let bytes = self.read(request, &baseline)?;
+        let captured = self.read(request, &baseline)?;
+        let bytes = &captured.bytes;
         if format(&bytes.name)? != "xlsx" {
             return Err(error(
                 ErrorCode::InvalidArgument,
                 "Recalculation requires an XLSX File",
             ));
         }
+        // Register the private generation lifetime under the same lock as a
+        // fresh authorization/plan check. It conveys no renderer capability.
+        let context = self.store.with_current(|binding, db| {
+            if db.project_file_office_plan(request, binding, &baseline.bytes_input())?
+                != captured.plan
+            {
+                return Err(error(
+                    ErrorCode::SourceChanged,
+                    "Office baseline changed before recalculation",
+                ));
+            }
+            crate::office_worker::baseline_context(
+                binding,
+                &baseline.bytes_input(),
+                bytes.byte_length,
+            )
+        })?;
         let result = self
             .worker
-            .request(
+            .recalculate(
+                &context,
                 &request.request_id,
-                "office.recalculate",
-                "xlsx",
                 &bytes.base64,
-                OfficePayload::Recalculate(&input.recalculation),
+                &input.recalculation,
             )
-            .await?;
-        // As for inspection, re-authorize and verify the exact retained baseline.
-        self.read(request, &baseline)?;
+            .await;
+        // Reauthorize on both success and failure, before publishing a result.
+        self.verify_read(request, &baseline, &captured)?;
+        let result = result?;
         let result: OfficeRecalculationResult = serde_json::from_value(result).map_err(|_| {
             error(
                 ErrorCode::RuntimeIncompatible,
@@ -238,14 +263,14 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         &self,
         request: &RequestContext,
         input: &FileOfficeInput,
-    ) -> AgentResult<FileBytesResult> {
-        self.store.with_current(|binding, db| {
-            db.project_file_read_office_source(request, binding, &input.bytes_input())
-                .map(|x| x.0)
-        })
+    ) -> AgentResult<reads::OfficeRead> {
+        reads::read(self.store, request, &input.bytes_input())
+    }
+    fn verify_read(&self, request: &RequestContext, input: &FileOfficeInput, captured: &reads::OfficeRead) -> AgentResult<()> {
+        reads::verify(self.store, request, &input.bytes_input(), captured)
     }
     fn latest(&self, request: &RequestContext, input: &FileOfficeInput) -> AgentResult<()> {
-        self.store.with_current(|binding, db| {
+        let metadata = || self.store.with_current(|binding, db| {
             let target = db.file_version_registered_target(request, binding, &input.object)?;
             if target.current_version_number != i64::from(input.version_number) {
                 return Err(error(
@@ -269,28 +294,30 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
                     "Office File baseline hash changed",
                 ));
             }
-            use crate::file_version_service::FilesystemFileReader;
-            if FilesystemFileReader
-                .capture_original(std::path::Path::new(&target.managed_path))?
-                .content_hash()
-                != input.expected_content_hash
-            {
-                return Err(error(
-                    ErrorCode::FileChangedUnregistered,
-                    "Office File changed on disk",
-                ));
-            }
-            Ok(())
-        })
+            Ok(metadata)
+        });
+        let before = metadata()?;
+        let snapshot = crate::file_version_service::FilesystemFileReader
+            .capture_original(std::path::Path::new(&before.input.managed_path))?;
+        if snapshot.content_hash() != input.expected_content_hash {
+            return Err(error(ErrorCode::FileChangedUnregistered, "Office File changed on disk"));
+        }
+        if metadata()? != before { return Err(error(ErrorCode::RevisionConflict, "Office File metadata changed during preflight")); }
+        Ok(())
     }
     pub(crate) async fn inspect(
         &self,
         request: &RequestContext,
         input: &FileOfficeInput,
     ) -> AgentResult<FileOfficeInspection> {
+        let _admission = crate::office_worker::admit_source().await?;
+        self.inspect_admitted(request, input).await
+    }
+    async fn inspect_admitted(&self, request: &RequestContext, input: &FileOfficeInput) -> AgentResult<FileOfficeInspection> {
         #[cfg(feature = "office-performance")]
         let measured = std::time::Instant::now();
-        let bytes = self.read(request, input)?;
+        let captured = self.read(request, input)?;
+        let bytes = &captured.bytes;
         #[cfg(feature = "office-performance")]
         eprintln!("[office-performance] {} read {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
         let format = format(&bytes.name)?;
@@ -307,13 +334,13 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         #[cfg(feature = "office-performance")]
         eprintln!("[office-performance] {} worker-complete {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
         // Async work releases storage: recheck binding, owner, policy and bytes.
-        self.read(request, input)?;
+        self.verify_read(request, input, &captured)?;
         #[cfg(feature = "office-performance")]
         eprintln!("[office-performance] {} revalidated {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
         Ok(FileOfficeInspection {
-            object: bytes.object,
+            object: bytes.object.clone(),
             version_number: bytes.version_number,
-            content_hash: bytes.content_hash,
+            content_hash: bytes.content_hash.clone(),
             format,
             model: result
                 .get("model")
@@ -343,19 +370,19 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         let baseline = input.baseline();
         self.latest(request, &baseline)?;
         let original = self.read(request, &baseline)?;
-        let format = format(&original.name)?;
+        let format = format(&original.bytes.name)?;
         let result = self
             .worker
             .request(
                 &request.request_id,
                 "office.edit",
                 &format,
-                &original.base64,
+                &original.bytes.base64,
                 OfficePayload::Edit(&input.edits),
             )
             .await?;
         self.latest(request, &baseline)?;
-        self.read(request, &baseline)?;
+        self.verify_read(request, &baseline, &original)?;
         let encoded = result
             .get("base64")
             .and_then(Value::as_str)
@@ -433,14 +460,22 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         request: &RequestContext,
         input: &FileOfficeEditInput,
     ) -> AgentResult<FileOfficeSaved> {
+        let _admission = crate::office_worker::admit_source().await?;
         let candidate = self.prepare_edit(request, input).await?;
         let commit = FileContentService::new(self.store, &SystemFileContentClock)
             .update(request, &candidate.update())?;
+        let model = if candidate.model.is_null() {
+            self.inspect_admitted(request, &FileOfficeInput {
+                object: candidate.target.clone(),
+                version_number: commit.receipt.version_number.try_into().map_err(|_| error(ErrorCode::RuntimeIncompatible, "Invalid committed Office version"))?,
+                expected_content_hash: commit.receipt.content_hash.clone(),
+            }).await?.model
+        } else { candidate.model };
         Ok(FileOfficeSaved {
             object: candidate.target,
             version_number: commit.receipt.version_number,
             content_hash: commit.receipt.content_hash.clone(),
-            model: candidate.model,
+            model,
             commit,
         })
     }

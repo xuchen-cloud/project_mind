@@ -13,7 +13,9 @@ import { tagColorValue } from "../../lib/constants";
 import { queryKeys } from "../../lib/queryKeys";
 import { openFilePreview } from "../../state/file-preview-store";
 import { useFeedbackStore } from "../../state/feedback-store";
-import { projectMindApi } from "../../services/projectMindApi";
+import { recordDocumentApi } from "../../services/recordDocumentApi";
+import { fileDocumentApi } from "../../services/fileDocumentApi";
+import { fileOwnerScope } from "../../lib/file-types";
 import { cn } from "../../ui/lib/cn";
 import { FileVersionMenu } from "./FileVersionMenu";
 
@@ -135,24 +137,36 @@ export function DocumentTagDots({ tags }: { tags: DocumentTagRecord[] }) {
 // File list and content toolbar share the same compact version menu.
 export function DocumentVersionDropdown({ document, onOpenVersion }: {
   document: DocumentRecord;
-  onOpenVersion: (version: DocumentVersionRecord) => void;
+  onOpenVersion: (version: Pick<DocumentVersionRecord, "versionNumber">) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const versionsQuery = useQuery({
-    queryKey: queryKeys.documentVersions(document.id),
-    queryFn: () => projectMindApi.documentListVersions({ documentId: document.id }),
-    enabled: open,
+  const workspace = useQuery<WorkspaceStatusSnapshot>({ queryKey: queryKeys.workspaceStatus, enabled: false });
+  const root = workspace.data?.currentWorkspace?.rootPath;
+  const bindingQuery = useQuery({
+    queryKey: queryKeys.projectContentBinding(root ?? ""),
+    queryFn: () => recordDocumentApi.bindingGet(root!),
+    enabled: open && !!root,
+    staleTime: Infinity,
+    retry: false,
   });
-  const versions = versionsQuery.data ?? [];
+  const binding = bindingQuery.data;
+  const versionsQuery = useQuery({
+    queryKey: [...queryKeys.documentVersions(document.id), "recent", root, binding, document.projectId],
+    queryFn: () => fileDocumentApi.versionsList(binding!, { object: { workspaceId: binding!.workspaceId, scope: fileOwnerScope(document.projectId), kind: "file", id: String(document.id) }, limit: 50 }),
+    enabled: open && !!root && !!binding,
+    retry: false,
+  });
+  const versions = versionsQuery.data?.versions ?? [];
+  const readError = !root ? "请先打开工作区" : bindingQuery.isError || versionsQuery.isError ? "无法读取文件版本" : undefined;
   return <>
     <FileVersionMenu key={document.id} label={`选择 ${document.baseName} 的版本`} triggerLabel={`v${document.currentVersionNumber}`}
       versions={versions.map(version => ({ ...version, id: String(version.id), isCurrent: version.versionNumber === document.currentVersionNumber }))}
-      selectedVersion={document.currentVersionNumber} loading={versionsQuery.isLoading}
-      error={versionsQuery.isError ? "无法读取文件版本" : undefined} onRetry={() => void versionsQuery.refetch()}
+      selectedVersion={document.currentVersionNumber} loading={bindingQuery.isLoading || versionsQuery.isLoading}
+      error={readError} onRetry={() => { if (bindingQuery.isError) void bindingQuery.refetch(); else if (binding) void versionsQuery.refetch(); }}
       onOpenChange={setOpen} variant="badge" onSelect={versionNumber => {
         const version = versions.find(item => item.versionNumber === versionNumber);
-        if (version) onOpenVersion(version);
+        if (version) return onOpenVersion(version);
       }} onHistory={() => setHistoryOpen(true)} />
     {historyOpen ? <Suspense fallback={<p role="status" className="text-ui text-text-soft">正在加载版本历史…</p>}><FileVersionHistory document={document} onClose={() => setHistoryOpen(false)} /></Suspense> : null}
   </>;

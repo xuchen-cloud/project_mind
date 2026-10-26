@@ -1,7 +1,5 @@
 //! One process-wide CPU worker. Results belong to the captured Workspace generation.
-use super::{
-    contracts::VoicePlaybackChunk, contracts::VoiceSpeakerTurn, diarization, diarization_model,
-};
+use super::{contracts::VoicePlaybackChunk, contracts::VoiceSpeakerTurn, diarization_model};
 use crate::{lock_mutex, AppState, WorkspaceRuntime};
 use anyhow::{anyhow, Result};
 use std::{
@@ -16,30 +14,35 @@ use tauri::{Emitter, Manager};
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
 struct WorkerPermit;
+impl WorkerPermit {
+    fn acquire() -> Option<Self> {
+        RUNNING
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self)
+    }
+}
 impl Drop for WorkerPermit {
     fn drop(&mut self) {
         RUNNING.store(false, Ordering::Release);
+        super::supervision::wake();
     }
 }
 
 pub(crate) fn kick(workspace: Arc<WorkspaceRuntime>, app: tauri::AppHandle) -> Result<()> {
-    if RUNNING
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
+    let Some(permit) = WorkerPermit::acquire() else {
         return Ok(());
-    }
+    };
     let spawned = std::thread::Builder::new()
         .name("voice-diarization".into())
         .spawn(move || {
-            let _permit = WorkerPermit;
+            let _permit = permit;
             if let Err(error) = run(&workspace, &app) {
                 eprintln!("voice diarization worker: {error:#}");
                 let _ = app.emit("voice:error", format!("说话人分析失败：{error:#}"));
             }
         });
     if let Err(error) = spawned {
-        RUNNING.store(false, Ordering::Release);
         return Err(error.into());
     }
     Ok(())
@@ -73,10 +76,12 @@ fn run(workspace: &Arc<WorkspaceRuntime>, app: &tauri::AppHandle) -> Result<()> 
                 return Err(anyhow!("请先结束录音"));
             }
             let chunks = authorize_audio(&workspace.paths.root_path, snapshot.chunks)?;
-            diarization::analyze_with_embeddings(
+            super::diarization_process::analyze(
+                &workspace.paths.root_path,
                 &cache,
-                &chunks,
+                chunks,
                 &workspace.voice_diarization_interrupt,
+                &workspace.voice_diarization_process,
             )
         })();
         // Holding the current-Workspace lock fences a switch against the final commit.
@@ -88,6 +93,11 @@ fn run(workspace: &Arc<WorkspaceRuntime>, app: &tauri::AppHandle) -> Result<()> 
             || workspace
                 .voice_diarization_interrupt
                 .load(Ordering::Acquire)
+            || result.as_ref().is_err_and(|error| {
+                error
+                    .downcast_ref::<super::diarization_process::Cancelled>()
+                    .is_some()
+            })
         {
             db.voice_diarization_release(&session, revision)?;
             return Ok(());
@@ -121,7 +131,7 @@ fn run(workspace: &Arc<WorkspaceRuntime>, app: &tauri::AppHandle) -> Result<()> 
     }
 }
 
-fn authorize_audio(
+pub(super) fn authorize_audio(
     root: &Path,
     mut chunks: Vec<VoicePlaybackChunk>,
 ) -> Result<Vec<VoicePlaybackChunk>> {
@@ -143,6 +153,14 @@ fn authorize_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cpu_permit_allows_only_one_analysis_until_owner_finishes() {
+        let first = WorkerPermit::acquire().expect("first worker");
+        assert!(WorkerPermit::acquire().is_none());
+        drop(first);
+        assert!(WorkerPermit::acquire().is_some());
+    }
+
     #[test]
     fn diarization_audio_is_scoped_to_managed_voice_assets() {
         let root = tempfile::tempdir().unwrap();

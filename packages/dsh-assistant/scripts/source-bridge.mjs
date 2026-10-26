@@ -194,18 +194,33 @@ export async function installSourceService(ctx, project, bridge) {
   // policies and history assembly. Evidence failure terminates the stream.
   ctx.on('llm/stream', async function* (options, next) {
     const deliveries = [];
+    const queued = new Map();
+    let checked = false, checkedRevision;
+    const checkOwner = async () => {
+      const revision = project.revision?.();
+      if (!checked || revision !== checkedRevision) {
+        await owned(options.sessionId, options.signal);
+        checked = true; checkedRevision = revision;
+      }
+    };
     for (const message of options.messages) {
       for (const block of message.content ?? []) {
         if (block.type !== 'text') continue;
         for (const { projection, metadata } of sourceProjections(block.text)) {
           if (!options.sessionId || !message.id) throw new Error('Source delivery requires actual Session and message identity');
-          await owned(options.sessionId, options.signal);
+          await checkOwner();
           const kind = message.role === 'tool' ? 'read' : 'composer';
           const deliveryId = `${kind}:${message.id}:${metadata.id}`;
           const key = JSON.stringify([options.sessionId, deliveryId]);
           if (delivered.has(key)) continue;
+          const projectionHash = hash(projection);
+          if (queued.has(key)) {
+            if (queued.get(key) !== projectionHash) throw new Error('Conflicting source projection identity');
+            continue;
+          }
+          queued.set(key, projectionHash);
           deliveries.push({ key, payload: { operation: 'delivery', sessionId: options.sessionId, deliveryId,
-            projection, projectionHash: hash(projection) } });
+            projection, projectionHash } });
         }
       }
     }
@@ -214,12 +229,19 @@ export async function installSourceService(ctx, project, bridge) {
       // A provider chunk proves successful request admission. Failed HTTP/auth
       // requests create no delivery evidence. Persist before publishing chunks.
       if (!recorded) {
+        // Provider admission and each delivery cross external I/O. Recheck
+        // only if the authoritative scope/content generation changed.
+        const hadSources = checked;
+        if (hadSources && !project.revision) checked = false;
+        if (hadSources) await checkOwner();
         for (const { key, payload } of deliveries) {
+          await checkOwner();
           await bridge.request(payload, options.signal);
           delivered.add(key);
         }
         recorded = true;
       }
+      if (checked && checkedRevision !== project.revision?.()) await checkOwner();
       yield chunk;
     }
   });

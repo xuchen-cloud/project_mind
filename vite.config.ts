@@ -48,7 +48,7 @@ export default defineConfig({
           // them. Preserve the existing recursive grouping for the rest of the app.
           groups: [
             {name:'react-vendor', priority:20, test:/\/node_modules\/(?:react|react-dom)\//u},
-            {name:'host-common', priority:10, test: /(?:\/src\/services\/(?:agentApi|desktopApi)\.ts$|\/src\/ui\/(?:components\/(?:Button|ActionContextMenu|PopoverPanel|pressableStyles)|lib\/cn)\.[^/]+$|\/node_modules\/lucide-react\/|vite\/preload-helper)/u},
+            {name:'host-common', priority:10, test: /(?:\/src\/services\/(?:agentApi|desktopApi)\.ts$|\/src\/state\/feedback-store\.ts$|\/src\/lib\/source-navigation\.ts$|\/src\/ui\/(?:components\/(?:Button|ActionContextMenu|PopoverPanel|pressableStyles)|lib\/cn)\.[^/]+$|\/node_modules\/lucide-react\/|vite\/preload-helper)/u},
             {name(id) {
           // Keep diagram/code editor dependencies in their actual lazy graphs;
           // shared dependencies still use the host's normal vendor chunks.
@@ -144,7 +144,10 @@ export default defineConfig({
       "scripts/stage-dsh-runtime.test.mjs",
       "scripts/prepare-cli.test.mjs",
       "scripts/markdown-export-portability.test.mjs",
-      "scripts/office-performance/host-bundle-boundary.test.mjs",
+      "scripts/office-distribution.test.mjs",
+      "scripts/office-renderer-resources.test.mjs",
+      "scripts/office-performance/**",
+      "scripts/office-selection/**",
       "packages/dsh-ui/vendor-integrity.test.mjs",
       "packages/dsh-ui/preview/assets-integrity.test.mjs",
     ],

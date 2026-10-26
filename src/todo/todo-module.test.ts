@@ -724,3 +724,24 @@ it("reuses a resident Project source page on ordinary Todo loads but refreshes i
   expect(transport.projectPageGet).toHaveBeenCalledTimes(3);
   queryClient.clear();
 });
+
+it.each([false, true])("preserves the first projects request during Workspace Todo create (failure=%s)", async fail => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const workspacePage = { quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] } satisfies WorkspacePageData;
+  const transport = testTransport({projects:[],workspacePage,projectPages:{}});
+  let finish!: (value: ProjectListItem[]) => void;
+  const projects = vi.fn(() => new Promise<ProjectListItem[]>(resolve => { finish = resolve; }));
+  const pending = queryClient.fetchQuery({queryKey: queryKeys.projects.all, queryFn: projects}).catch(() => undefined);
+  const module = createTodoModule({queryClient,transport});
+  cacheWorkspaceTodoCollections(queryClient, workspacePage);
+  const saved = todo(77, {scope:"workspace"}, "新增");
+  if (fail) vi.mocked(transport.todoCreate).mockRejectedValueOnce(new Error("保存失败"));
+  else vi.mocked(transport.todoCreate).mockResolvedValueOnce(saved);
+  const changed = module.change({type:"create",ownership:{scope:"workspace"},content:"新增",priority:"not_urgent_important"});
+  if (fail) await expect(changed).rejects.toThrow("保存失败"); else await expect(changed).resolves.toEqual(saved);
+  finish([project(1,"Alpha")]);
+  await pending;
+  expect(queryClient.getQueryData(queryKeys.projects.all)).toEqual([project(1,"Alpha")]);
+  expect(projects).toHaveBeenCalledOnce();
+  expect(module.read({kind:"workspace"}).unfinishedTodos).toHaveLength(fail ? 0 : 1);
+});

@@ -1309,6 +1309,8 @@ test('embedded runtime rejects malformed or ambiguous context configuration befo
 });
 
 test('bounded session fork preserves completed history and independent durable continuation', { timeout: 60000 }, async t => {
+  assert.equal(process.versions.node.split('.')[0], '24', 'Run this regression with the bundled Node 24');
+  assert.equal(JSON.parse(await readFile(path.join(root,'node_modules/@deepseek-ai/dsh-base/package.json'),'utf8')).version,'0.2.0-rc.2');
   const temporary = await mkdtemp(path.join(tmpdir(), 'mind-dsh-session-fork-'));
   const provider = await startLocalProvider();
   const data = path.join(temporary, 'history');
@@ -1321,6 +1323,7 @@ test('bounded session fork preserves completed history and independent durable c
     finally { try { await runtime?.stop(); } finally { await provider.close(); await rm(temporary, { recursive: true, force: true }); } }
   });
   runtime = await launch(data, undefined, shared, project);
+  assert.equal(runtime.child.spawnfile,process.execPath,'the real runtime must inherit the fixed Node executable');
   const { sessionId } = await runtime.rpc('session/create', {});
   await runtime.rpc('session/rename', { sessionId, title: 'Fork fixture title' });
   source = await follow(runtime, sessionId);
@@ -1329,7 +1332,19 @@ test('bounded session fork preserves completed history and independent durable c
   const prefix = events(source).filter(event => event.seq <= end.seq);
   assert.ok(prefix.some(event => event.type === 'assistant/message' && assistantText(event) === 'Source completed answer'));
   // This is the exact bounded native request: no atSeq, cwd, or workspace override.
-  const forked = await runtime.rpc('session/fork', { sessionId });
+  const forkRequest = {sessionId,childSessionId:`session-${randomUUID()}`};
+  const discarded = await fetch(`${runtime.origin}/api/mind/session/fork`, {
+    method:'POST',headers:{...runtime.headers,'content-type':'application/json'},
+    body:JSON.stringify({type:'client-request',rpcId:randomUUID(),method:'mind/session/fork',payload:{args:{request:forkRequest}}}),
+    signal:AbortSignal.timeout(10000),
+  });
+  assert.equal(discarded.status,200);
+  // Deliberately discard the first server result: recovery knows only the
+  // stable request identity, and exercises the real durable runtime route.
+  await discarded.body.cancel();
+  const forked = await runtime.rpc('mind/session/fork', forkRequest);
+  assert.equal(forked.sessionId,forkRequest.childSessionId);
+  assert.deepEqual(await runtime.rpc('mind/session/fork',forkRequest),forked,'a lost response must return the same child');
   assert.equal(typeof forked.sessionId, 'string');
   assert.ok(forked.sessionId.length > 0);
   assert.notEqual(forked.sessionId, sessionId);
@@ -1358,7 +1373,15 @@ test('bounded session fork preserves completed history and independent durable c
   runtime = await launch(data, undefined, shared, project);
   child = await follow(runtime, forked.sessionId);
   assertRestoredHistory(child, durable);
+  assert.deepEqual(await runtime.rpc('mind/session/fork',forkRequest),forked,'restart must reconcile the durable child');
+  assert.equal((await runtime.rpc('mind/session/list',{})).items.filter(row=>row.sessionId===forked.sessionId).length,1);
+  const otherParent = await runtime.rpc('session/create',{});
+  await assert.rejects(runtime.rpc('mind/session/fork',{sessionId:otherParent.sessionId,childSessionId:forkRequest.childSessionId}),/Child identity belongs to another fork/);
+  assert.deepEqual(await runtime.rpc('mind/session/fork',forkRequest),forked,'a rejected lineage takeover must leave the original replay valid');
+  assert.equal((await runtime.rpc('mind/session/list',{})).items.filter(row=>row.sessionId===forkRequest.childSessionId).length,1);
+  assertRestoredHistory(child,durable);
   assert.equal(child.snapshot.header.parentSession, sessionId);
+  assert.equal(provider.requests.length,3,'recovery and rejected lineage takeover must not call the provider');
   assert.ok(events(child).some(event => event.type === 'assistant/message' && assistantText(event) === 'Fork independent answer'));
 });
 

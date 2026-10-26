@@ -37,6 +37,15 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
   let operationsIdle=Promise.resolve(),resolveOperationsIdle=()=>{};
   let operationFailure:unknown=null;
   let restoredDraft=false;
+  // Coalesce normal input before the expensive complete DOCX build. The File
+  // host's persistence debounce runs later, after it receives these bytes.
+  let buildTimer:ReturnType<typeof setTimeout>|null=null;
+  const cancelBuild=()=>{if(buildTimer!==null){clearTimeout(buildTimer);buildTimer=null;}};
+  function scheduleBuild(){
+    cancelBuild();
+    if(destroyed||loading||composing||context?.editor?.view.composing||activeOperations||uncommittedInput)return;
+    buildTimer=setTimeout(()=>{buildTimer=null;void flush().catch(()=>{});},300);
+  }
   let captured:{id:string;editor:NonNullable<FileActionContext['editor']>;doc:unknown;revision:number;from:number;to:number}|null=null;
   function selectionEditor(){
     ensureActive();const editor=context?.editor;
@@ -46,7 +55,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
   }
 
   document.addEventListener('compositionstart',()=>{if(!destroyed){composing=true;pending(true);}},true);
-  document.addEventListener('compositionend',()=>{if(!destroyed){composing=false;queueMicrotask(()=>{void flush().catch(()=>{});});}},true);
+  document.addEventListener('compositionend',()=>{if(!destroyed){composing=false;queueMicrotask(scheduleBuild);}},true);
   document.addEventListener('input',event=>{
     if(destroyed)return;
     const target=event.target as Element,editor=target.closest('.ProseMirror');
@@ -81,6 +90,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
   }
   async function flushActive(commitActiveInput:boolean):Promise<Edit[]>{
     ensureActive();
+    if(commitActiveInput)cancelBuild();
     if(composing||context?.editor?.view.composing)throw Error('请先完成当前输入法组合文字再保存。');
     if(activeOperations){if(!commitActiveInput)return last;await operationsIdle;ensureActive();}
     if(commitActiveInput){
@@ -99,11 +109,16 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
     ensureActive();
     if(commitActiveInput&&activeOperations)return flush(true);
+    if(composing||context?.editor?.view.composing){
+      if(commitActiveInput)throw Error('请先完成当前输入法组合文字再保存。');
+      return last;
+    }
+    if(!commitActiveInput&&(activeOperations||uncommittedInput))return last;
     if(loading||!context?.doc)throw Error('文档仍在加载，请稍后保存。');
     // Tiptap mutates its live state synchronously, while its React subscription
     // may commit after this frame. Sample that state at the save boundary so
     // a just-finished image paste cannot save the previous document revision.
-    if(commitActiveInput)host.render(context,loading);
+    if(commitActiveInput){host.render(context,loading);cancelBuild();}
     if(serializing){await serializing;ensureActive();if(savedRevision===revision)return last;}
     if(savedRevision===revision){pending(false);return last;}
     serializing=(async()=>{
@@ -112,11 +127,14 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
         const bytes=await deps.buildDocBytes(context!);
         ensureActive();
         if(!bytes)throw Error('无法生成 DOCX 保存字节。');
-        if(at!==revision)continue;
+        if(at!==revision){
+          if(commitActiveInput)continue;
+          scheduleBuild();return last;
+        }
         last=[{type:'snapshot',baselineHash:options.baselineHash,base64:base64(bytes)}];
         savedRevision=at;options.onChange(last);
       }
-      pending(false);return last;
+      cancelBuild();pending(false);return last;
     })();
     try{return await serializing;}catch(error){fail(error);throw error;}finally{serializing=null;}
   }
@@ -134,7 +152,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     },
     registerEditorView(view:any){if(!destroyed)views.set(view,{locked:options.readOnly});return()=>views.delete(view);},
     beginOperation(){if(destroyed)return;if(!activeOperations){operationFailure=null;operationsIdle=new Promise(resolve=>{resolveOperationsIdle=resolve;});}activeOperations++;pending(true);},
-    endOperation(error?:unknown){if(destroyed)return;if(error)operationFailure=error;activeOperations=Math.max(0,activeOperations-1);if(!activeOperations){resolveOperationsIdle();void flush().catch(()=>{});}},
+    endOperation(error?:unknown){if(destroyed)return;if(error)operationFailure=error;activeOperations=Math.max(0,activeOperations-1);if(!activeOperations){resolveOperationsIdle();scheduleBuild();}},
     get readOnly(){return options.readOnly&&!loading&&!restoringDraft;},
     get presentationMode(){return options.presentationMode;},
     get locked(){return destroyed||options.readOnly;},
@@ -189,9 +207,9 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
       if(!loading&&ctx.editor&&options.initialDocument&&!restoredDraft){restoredDraft=true;restoringDraft=true;try{ctx.editor.commands.setContent(options.initialDocument as any);}finally{restoringDraft=false;}}
       const signature=[ctx.editor?.state.doc,ctx.doc,ctx.section,ctx.sections,ctx.header,ctx.footer,ctx.sectionHfEdits,ctx.hfLinks,ctx.hfVariants,ctx.comments,ctx.footnotes,ctx.endnotes,ctx.pendingNumbering,ctx.styleUpserts,ctx.defaultFonts,ctx.pageColor,ctx.watermark,ctx.watermarkStyle,ctx.watermarkPicture,ctx.inkAnnotations,ctx.sources,ctx.zoteroDocumentData,ctx.themeColors,ctx.themeFonts,ctx.protection,ctx.writeProtection,ctx.removePersonalInfo,ctx.pgNumEdit,ctx.mirrorMargins,ctx.titlePg,ctx.evenOddHf,ctx.trailingStartType,ctx.sectionsDirty,ctx.pgNumDirtySections,ctx.hfVariantsDirty,ctx.sectionDirty,ctx.pageColorDirty,ctx.headerDirty,ctx.footerDirty,ctx.numberingDirty,ctx.commentsDirty,ctx.protectionDirty,ctx.writeProtectionDirty,ctx.removePersonalInfoDirty,ctx.inksDirty,ctx.watermarkDirty,ctx.notesDirty,ctx.sourcesDirty,ctx.zoteroDocumentDataDirty,ctx.themeFontsDirty,ctx.themeColorsDirty,ctx.titlePgDirty,ctx.evenOddHfDirty,ctx.mirrorMarginsDirty];
       const changed=signature.some((value,i)=>value!==previous[i]);previous=signature;
-      if(!loading){options.onReady?.();if(changed&&deps.isDocDirty(ctx)){revision++;pending(true);void flush().catch(()=>{});}}
+      if(!loading){options.onReady?.();if(changed&&deps.isDocDirty(ctx)){revision++;pending(true);scheduleBuild();}}
     },
-    destroy(){if(destroyed)return;destroyed=true;captured=null;rejectStopped(Error('Word 编辑器已关闭，旧文档操作已失效'));resolveOperationsIdle();events.clear();views.clear();context=null;pdf.cancelImages();URL.revokeObjectURL(sourceUrl);for(const url of comparisonUrls)URL.revokeObjectURL(url);comparisonUrls.clear();},
+    destroy(){if(destroyed)return;cancelBuild();destroyed=true;captured=null;rejectStopped(Error('Word 编辑器已关闭，旧文档操作已失效'));resolveOperationsIdle();events.clear();views.clear();context=null;pdf.cancelImages();URL.revokeObjectURL(sourceUrl);for(const url of comparisonUrls)URL.revokeObjectURL(url);comparisonUrls.clear();},
     undo(){if(!destroyed)context?.editor?.commands.undo();},redo(){if(!destroyed)context?.editor?.commands.redo();},
   };
   // The boundary plugin contributes its own editable predicate. Never capture

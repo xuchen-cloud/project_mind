@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "../../lib/queryKeys";
 import { SkillsPanel } from "./SkillsPanel";
 
-const mocks = vi.hoisted(() => ({ import: vi.fn(), pick: vi.fn(), list: vi.fn(), manage: vi.fn(), workspace: vi.fn(), projects: vi.fn(), file: vi.fn(), folder: vi.fn() }));
-vi.mock("../../services/skillsApi", () => ({ skillsApi: { list: mocks.list, manage: mocks.manage, import: mocks.import } }));
+const mocks = vi.hoisted(() => ({ cancel: vi.fn(), import: vi.fn(), pick: vi.fn(), list: vi.fn(), manage: vi.fn(), workspace: vi.fn(), projects: vi.fn(), file: vi.fn(), folder: vi.fn() }));
+vi.mock("../../services/skillsApi", () => ({ skillsApi: { list: mocks.list, cancel: mocks.cancel, manage: mocks.manage, import: mocks.import } }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { workspaceStatusGet: mocks.workspace, projectsList: mocks.projects } }));
 vi.mock("../../services/desktopApi", () => ({ desktopApi: { openFile: mocks.file, openFolder: mocks.folder, pickFile: mocks.pick } }));
 
@@ -34,6 +34,7 @@ beforeEach(() => {
   mocks.workspace.mockResolvedValue({ currentWorkspace: null });
   mocks.projects.mockResolvedValue([{ id: 7, name: "Native Project" }]);
   mocks.list.mockResolvedValue(catalog);
+  mocks.cancel.mockResolvedValue(null);
   mocks.file.mockResolvedValue(undefined);
   mocks.folder.mockResolvedValue(undefined);
 });
@@ -132,7 +133,7 @@ describe("SkillsPanel", () => {
     expect(screen.getByText("Research")).toBeInTheDocument();
     expect(screen.getByText("使用命令行管理工作区")).toBeInTheDocument();
     expect(screen.getByText("内置")).toBeInTheDocument();
-    expect(mocks.list).toHaveBeenCalledWith(null);
+    expect(mocks.list).toHaveBeenCalledWith(null, expect.objectContaining({ requestId: expect.any(String) }));
     await userEvent.click(screen.getByRole("button", { name: "打开 CLI" }));
     expect(mocks.file).toHaveBeenCalledWith("/builtin/CLI/SKILL.md");
     await userEvent.click(screen.getByRole("button", { name: "打开 CLI 目录" }));
@@ -168,11 +169,11 @@ describe("SkillsPanel", () => {
     mocks.workspace.mockResolvedValue({ currentWorkspace: { rootPath: "/workspace" } });
     mount("/projects/7");
     await screen.findByText("CLI");
-    expect(mocks.list).toHaveBeenCalledWith(7);
+    expect(mocks.list).toHaveBeenCalledWith(7, expect.objectContaining({ requestId: expect.any(String) }));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "发现范围" }), "");
-    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(null));
+    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(null, expect.objectContaining({ requestId: expect.any(String) })));
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "发现范围" }), "7");
-    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(7));
+    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(7, expect.objectContaining({ requestId: expect.any(String) })));
   });
   it("discards old catalog and open errors after workspace changes", async () => {
     mocks.workspace.mockResolvedValue({ currentWorkspace: { rootPath: "/old" } });
@@ -195,11 +196,11 @@ describe("SkillsPanel", () => {
     const { client } = mount();
     await screen.findByText("CLI");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "发现范围" }), "7");
-    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(7));
+    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(7, expect.objectContaining({ requestId: expect.any(String) })));
     const calls = mocks.list.mock.calls.length;
     act(() => { client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/workspace" } }, { updatedAt: Date.now() + 1000 }); });
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls + 1));
-    expect(mocks.list).toHaveBeenLastCalledWith(7);
+    expect(mocks.list).toHaveBeenLastCalledWith(7, expect.objectContaining({ requestId: expect.any(String) }));
     expect(screen.getByRole("combobox", { name: "发现范围" })).toHaveValue("7");
   });
   it("ignores stale discovery and opening failures when switching projects", async () => {
@@ -235,4 +236,21 @@ describe("SkillsPanel", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     expect(mocks.file).toHaveBeenCalledTimes(2);
   });
+});
+
+
+it("cancels an unfinished discovery on scope change and forces each explicit refresh", async () => {
+  mocks.workspace.mockResolvedValue({ currentWorkspace: { rootPath: "/workspace" } });
+  const pending = deferred<typeof catalog>(); mocks.list.mockReturnValueOnce(pending.promise);
+  const view = mount();
+  await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+  const options = mocks.list.mock.calls[0][1];
+  expect(options.requestId).toEqual(expect.any(String));
+  await screen.findByRole("option", { name: "Native Project" });
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "发现范围" }), "7");
+  expect(mocks.cancel).toHaveBeenCalledWith(options.requestId);
+  await screen.findByText("CLI");
+  await userEvent.click(screen.getByRole("button", { name: "刷新" }));
+  expect(mocks.list).toHaveBeenLastCalledWith(7, expect.objectContaining({ refresh: true }));
+  view.unmount();
 });

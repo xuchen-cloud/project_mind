@@ -1,6 +1,7 @@
 pub mod agent;
 mod ai_jobs;
 mod dsh_assistant;
+pub mod dsh_process;
 mod dsh_model;
 mod skills;
 mod project_directory;
@@ -21,6 +22,7 @@ mod source_service;
 mod source_session_summary;
 mod source_session_read;
 mod source_maintenance;
+mod maintenance_wake;
 mod project_file_maintenance;
 mod source_file_snapshot;
 mod source_file_read;
@@ -120,6 +122,43 @@ use record_export::{
 };
 use tauri::{Emitter, Manager, State, WebviewWindowBuilder};
 use tauri_plugin_opener::{open_path, reveal_item_in_dir};
+
+fn record_checkpoint_wake() -> &'static maintenance_wake::MaintenanceWake {
+    static WAKE: std::sync::OnceLock<maintenance_wake::MaintenanceWake> = std::sync::OnceLock::new();
+    WAKE.get_or_init(Default::default)
+}
+fn record_checkpoint_delay(db: &db::Database) -> agent::errors::AgentResult<std::time::Duration> {
+    let idle = source_maintenance::IDLE_RECHECK;
+    let Some(due) = db.record_next_checkpoint_at()? else {return Ok(idle);};
+    Ok((due-chrono::Utc::now()).to_std().unwrap_or_default()
+        .min(idle).max(std::time::Duration::from_secs(1)))
+}
+fn start_record_checkpoints(app: &tauri::AppHandle) {
+    use tauri::Listener;
+    app.listen("record:head-changed", |_| record_checkpoint_wake().wake());
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let started = tokio::time::Instant::now();
+            let delay = {
+                let state = handle.state::<AppState>();
+                let current = lock_mutex(&state.current_workspace);
+                if let Some(workspace) = current.as_ref() {
+                    let db = lock_mutex(&workspace.db);
+                    match db.record_seal_pending_checkpoints(false, &workspace.agent_binding.workspace_id)
+                        .and_then(|_| record_checkpoint_delay(&db)) {
+                        Ok(delay) => delay,
+                        Err(error) => {
+                            let _ = handle.emit("record:checkpoint-error", error);
+                            source_maintenance::IDLE_RECHECK
+                        }
+                    }
+                } else {source_maintenance::IDLE_RECHECK}
+            };
+            record_checkpoint_wake().wait_after(delay, started, std::time::Duration::from_secs(1)).await;
+        }
+    });
+}
 use workspace::{
     cleanup_legacy_app_data, create_passwordless_workspace, enable_passwordless_workspace,
     generate_workspace_secret_key, load_local_session, load_metadata, save_local_session,
@@ -188,10 +227,12 @@ pub(crate) struct WorkspaceRuntime {
     pub(crate) db: Mutex<Database>,
     file_commit_fence: Arc<workspace_commit_fence::WorkspaceCommitFence>,
     ai_jobs: AiJobManager,
-    voice_minutes_worker_running: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) voice_db: Mutex<Database>,
+    voice_minutes_worker: Arc<voice::processing::MinutesWorker>,
     pub(crate) voice_recovery_running: std::sync::atomic::AtomicBool,
     pub(crate) voice_recovery_interrupt: std::sync::atomic::AtomicBool,
     pub(crate) voice_diarization_interrupt: std::sync::atomic::AtomicBool,
+    pub(crate) voice_diarization_process: Arc<voice::diarization_process::ProcessOwner>,
 }
 
 impl WorkspaceRuntime {
@@ -228,6 +269,8 @@ impl WorkspaceRuntime {
         db.agent_gui_interrupt_orphans(&agent_binding)
             .map_err(|error| anyhow!(error.message))?;
         db.voice_diarization_recover()?;
+        let mut voice_db = Database::open_runtime_connection(&paths.db_path, &paths.root_path, lock_mutex(&secret_state).clone())?;
+        voice_db.bind_native_workspace(&metadata.workspace_id)?;
         Ok(Self {
             agent_binding,
             agent_runs: Mutex::new(std::collections::HashMap::new()),
@@ -239,10 +282,12 @@ impl WorkspaceRuntime {
             db: Mutex::new(db),
             file_commit_fence: Arc::new(workspace_commit_fence::WorkspaceCommitFence::new()),
             ai_jobs,
-            voice_minutes_worker_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            voice_db: Mutex::new(voice_db),
+            voice_minutes_worker: Arc::new(voice::processing::MinutesWorker::default()),
             voice_recovery_running: std::sync::atomic::AtomicBool::new(false),
             voice_recovery_interrupt: std::sync::atomic::AtomicBool::new(true),
             voice_diarization_interrupt: std::sync::atomic::AtomicBool::new(true),
+            voice_diarization_process: Arc::new(voice::diarization_process::ProcessOwner::default()),
         })
     }
 
@@ -261,7 +306,7 @@ impl WorkspaceRuntime {
             self.paths.db_path.clone(),
             self.paths.root_path.clone(),
             self.secret_state.clone(),
-            self.voice_minutes_worker_running.clone(),
+            self.voice_minutes_worker.clone(),
         );
     }
 
@@ -273,6 +318,7 @@ pub(crate) struct AppState {
     local_session_path: PathBuf,
     current_workspace: Mutex<Option<Arc<WorkspaceRuntime>>>,
     voice_runtime: Mutex<voice::runtime::VoiceRuntime>,
+    voice_closing: Arc<voice::shutdown::ClosingFlag>,
     exit_authorized: std::sync::atomic::AtomicBool,
     record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
     external_bridge: agent::bridge::BridgeRuntime,
@@ -285,11 +331,43 @@ impl AppState {
             return Ok(());
         };
         let mut voice = lock_mutex(&self.voice_runtime);
-        let mut db = lock_mutex(&workspace.db);
+        let mut db = lock_mutex(&workspace.voice_db);
         if voice.has_unfinished_session(&mut db, &workspace.paths.root_path)? {
             return Err(anyhow!("请先结束当前语音记录，再切换或关闭 Workspace"));
         }
         voice.reset();
+        Ok(())
+    }
+
+    fn begin_voice_shutdown(&self) -> Result<voice::shutdown::ClosingLease> {
+        let mut voice = lock_mutex(&self.voice_runtime);
+        let lease = self.voice_closing.reserve().ok_or_else(|| anyhow!("应用正在退出"))?;
+        let workspace = lock_mutex(&self.current_workspace).clone();
+        if let Some(workspace) = workspace.as_ref() {
+            if voice.has_unfinished_session(&mut lock_mutex(&workspace.voice_db), &workspace.paths.root_path)? {
+                return Err(anyhow!("请先结束当前语音记录，再退出应用"));
+            }
+        }
+        // This Send lease crosses awaits without pinning a mutex. Any failed
+        // teardown drops it and restores command admission automatically.
+        Ok(lease)
+    }
+
+    fn authorize_voice_shutdown(&self, _lease: &voice::shutdown::ClosingLease) -> Result<()> {
+        let mut voice = lock_mutex(&self.voice_runtime);
+        let workspace = lock_mutex(&self.current_workspace).clone();
+        if let Some(workspace) = workspace.as_ref() {
+            if voice.has_unfinished_session(&mut lock_mutex(&workspace.voice_db), &workspace.paths.root_path)? {
+                return Err(anyhow!("请先结束当前语音记录，再退出应用"));
+            }
+            workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
+            workspace.voice_diarization_process.stop()?;
+            workspace.voice_minutes_worker.cancel();
+            workspace.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
+        }
+        // Capture commands check this under the same voice mutex, so a start
+        // cannot sneak in after the final idle check and before process exit.
+        self.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -321,19 +399,40 @@ impl AppState {
         })
     }
 
-    fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) {
+    fn set_current_workspace(&self, runtime: Option<Arc<WorkspaceRuntime>>) -> Result<()> {
+        // Same order as capture commands: voice owner, then current identity.
+        // Recheck at the actual switch, after any preparation/checkpoint I/O.
+        let mut voice = lock_mutex(&self.voice_runtime);
         if let Some(previews) = self.app_handle.try_state::<html_preview::HtmlPreviewState>() {
             previews.close_all(&self.app_handle);
         }
+        let previous = lock_mutex(&self.current_workspace).clone();
+        if let Some(previous) = previous.as_ref() {
+            if voice.has_unfinished_session(&mut lock_mutex(&previous.voice_db), &previous.paths.root_path)? {
+                return Err(anyhow!("请先结束当前语音记录，再切换或关闭 Workspace"));
+            }
+            previous.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
+            previous.voice_diarization_process.stop()?;
+        }
         let mut current = lock_mutex(&self.current_workspace);
         if let Some(previous) = current.as_ref() {
+            previous.voice_minutes_worker.cancel();
             previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
+            source_service::clear_file_caches(&previous.agent_binding);
+            office_worker::clear_baselines(&previous.agent_binding);
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
             previous.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
         }
         self.office_selections.clear();
+        voice.reset();
         *current = runtime;
+        skills::invalidate();
+        source_maintenance::wake();
+        overview_maintenance::wake();
+        record_checkpoint_wake().wake();
+        voice::supervision::wake();
+        Ok(())
     }
 
     fn current_workspace(&self) -> Result<Arc<WorkspaceRuntime>> {
@@ -355,7 +454,7 @@ impl AppState {
         let runtime = Arc::new(WorkspaceRuntime::new(
             &self.app_handle, metadata, paths, Some(key),
         )?);
-        self.set_current_workspace(Some(runtime));
+        self.set_current_workspace(Some(runtime))?;
 
         let mut session = load_local_session(&self.local_session_path)?;
         session.record_recent_workspace(root_path);
@@ -372,13 +471,32 @@ impl AppState {
     fn close_current_workspace(&self) -> Result<WorkspaceStatusSnapshot> {
         self.ensure_voice_idle()?;
         self.seal_current_record_checkpoints()?;
+        let mut voice = lock_mutex(&self.voice_runtime);
+        let workspace = lock_mutex(&self.current_workspace).clone();
+        if let Some(workspace) = workspace.as_ref() {
+            if voice.has_unfinished_session(&mut lock_mutex(&workspace.voice_db), &workspace.paths.root_path)? {
+                return Err(anyhow!("请先结束当前语音记录，再切换或关闭 Workspace"));
+            }
+            workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
+            workspace.voice_diarization_process.stop()?;
+        }
         close_workspace_runtime(&self.local_session_path, &self.current_workspace, |previous| {
+            previous.voice_minutes_worker.cancel();
             previous.cancel_agent_runs();
             previous.file_commit_fence.invalidate();
+            source_service::clear_file_caches(&previous.agent_binding);
+            office_worker::clear_baselines(&previous.agent_binding);
             previous.voice_recovery_interrupt.store(true, std::sync::atomic::Ordering::Release);
             previous.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
             self.office_selections.clear();
         })?;
+        voice.reset();
+        drop(voice);
+        skills::invalidate();
+        source_maintenance::wake();
+        overview_maintenance::wake();
+        record_checkpoint_wake().wake();
+        voice::supervision::wake();
         if let Some(previews) = self.app_handle.try_state::<html_preview::HtmlPreviewState>() {
             previews.close_all(&self.app_handle);
         }
@@ -1249,7 +1367,9 @@ fn ai_profile_upsert(
     state: State<'_, AppState>,
     input: AiProviderProfileUpsertInput,
 ) -> CommandResult<AiProviderProfileRecord> {
-    with_db(state, |db| db.ai_profile_upsert(input))
+    let result = with_db(state, |db| db.ai_profile_upsert(input));
+    if result.is_ok() { overview_maintenance::wake(); }
+    result
 }
 
 #[tauri::command]
@@ -1257,7 +1377,9 @@ fn ai_profile_delete(
     state: State<'_, AppState>,
     input: AiProviderProfileDeleteInput,
 ) -> CommandResult<AiSettingsSnapshot> {
-    with_db(state, |db| db.ai_profile_delete(input))
+    let result = with_db(state, |db| db.ai_profile_delete(input));
+    if result.is_ok() { overview_maintenance::wake(); }
+    result
 }
 
 #[tauri::command]
@@ -1273,7 +1395,9 @@ fn ai_binding_upsert(
     state: State<'_, AppState>,
     input: AiCapabilityBindingUpsertInput,
 ) -> CommandResult<AiCapabilityBindingRecord> {
-    with_db(state, |db| db.ai_binding_upsert(input))
+    let result = with_db(state, |db| db.ai_binding_upsert(input));
+    if result.is_ok() { overview_maintenance::wake(); }
+    result
 }
 
 #[tauri::command]
@@ -1359,24 +1483,41 @@ fn ai_execution_settings_upsert(
     Ok(settings)
 }
 
+// Each service keeps a reversible admission lease until the final voice check.
+// Error propagation and future cancellation both drop already stopped services'
+// leases; they may create fresh workers if the application remains open.
+async fn finish_app_shutdown(
+    dsh: &dsh_assistant::DshAssistantState,
+    authorize: impl FnOnce() -> CommandResult<()>,
+) -> CommandResult<()> {
+    let skills = skills::shutdown().await?;
+    let dsh = dsh.shutdown().await?;
+    authorize()?;
+    skills.commit();
+    dsh.commit();
+    Ok(())
+}
+
 #[tauri::command]
 async fn app_exit(state: State<'_, AppState>) -> CommandResult<()> {
-    state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    let closing = state.begin_voice_shutdown().map_err(|error| error.to_string())?;
     settle_agents_before_exit(&state).await;
     state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
-    state.app_handle.state::<dsh_assistant::DshAssistantState>().shutdown().await?;
-    state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+    finish_app_shutdown(&state.app_handle.state::<dsh_assistant::DshAssistantState>(), || {
+        state.authorize_voice_shutdown(&closing).map_err(|error| error.to_string())
+    }).await?;
     state.app_handle.exit(0);
     Ok(())
 }
 
 #[tauri::command]
 async fn app_restart(state: State<'_, AppState>) -> CommandResult<()> {
-    state.ensure_voice_idle().map_err(|error| error.to_string())?;
+    let closing = state.begin_voice_shutdown().map_err(|error| error.to_string())?;
     settle_agents_before_exit(&state).await;
     state.seal_current_record_checkpoints().map_err(|error| error.to_string())?;
-    state.app_handle.state::<dsh_assistant::DshAssistantState>().shutdown().await?;
-    state.exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
+    finish_app_shutdown(&state.app_handle.state::<dsh_assistant::DshAssistantState>(), || {
+        state.authorize_voice_shutdown(&closing).map_err(|error| error.to_string())
+    }).await?;
     state.app_handle.request_restart();
     Ok(())
 }
@@ -1385,6 +1526,8 @@ async fn settle_agents_before_exit(state: &AppState) {
     let runtime = lock_mutex(&state.current_workspace).clone();
     if let Some(runtime) = runtime {
         runtime.cancel_agent_runs();
+        source_service::clear_file_caches(&runtime.agent_binding);
+        office_worker::clear_baselines(&runtime.agent_binding);
         // The Host cancels, then kills after its grace period. A damaged database
         // must not trap application exit; startup marks unfinished runs interrupted.
         let _ = tokio::time::timeout(std::time::Duration::from_secs(15), async {
@@ -1479,6 +1622,7 @@ pub fn run() {
                 current_workspace: Mutex::new(None),
                 record_editors: Arc::new(record_editor_coordination::RecordEditorCoordinator::default()),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
+                voice_closing: Arc::new(voice::shutdown::ClosingFlag::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
                 external_bridge: agent::bridge::BridgeRuntime::default(),
                 office_selections: office_selection::Selections::default(),
@@ -1496,71 +1640,112 @@ pub fn run() {
             project_file_maintenance::start(app.handle());
             overview_maintenance::start(app.handle());
             dsh_assistant::start_scheduled_tasks(app.handle());
-            let record_handle = app.handle().clone();
-            std::thread::Builder::new()
-                .name("record-checkpoints".into())
-                .spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let state = record_handle.state::<AppState>();
-                    let current = lock_mutex(&state.current_workspace);
-                    if let Some(workspace) = current.as_ref() {
-                        let db = lock_mutex(&workspace.db);
-                        if let Err(error) = db.record_seal_pending_checkpoints(false, &workspace.agent_binding.workspace_id) {
-                            let _ = record_handle.emit("record:checkpoint-error", error);
-                        }
-                    }
-                })?;
+            start_record_checkpoints(app.handle());
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("voice-supervisor".into())
-                .spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_millis(250));
-                    let state = handle.state::<AppState>();
-                    let workspace = lock_mutex(&state.current_workspace).clone();
-                    if let Some(workspace) = workspace {
-                        let mut voice = lock_mutex(&state.voice_runtime);
-                        let current = lock_mutex(&state.current_workspace);
-                        if !current
-                            .as_ref()
-                            .is_some_and(|current| Arc::ptr_eq(current, &workspace))
-                        {
-                            continue;
-                        }
-                        let mut db = lock_mutex(&workspace.db);
-                        let captured = committed_changes::capture_native_committed(&workspace.agent_binding, &mut db, "voice-supervisor", |db|
-                            voice.snapshot(db, &workspace.paths.root_path));
-                        let (result, changes) = match captured {
-                            Ok(captured) => captured,
-                            Err(error) => (Err(error), None),
-                        };
-                        let (recover, diarize, error) = match result {
-                            Ok(snapshot) => {
-                                let busy = !workspace.ai_secrets_unlocked()
-                                    || snapshot.as_ref().is_some_and(|session| {
-                                        matches!(session.phase.as_str(), "recording" | "preparing" | "ending")
-                                    });
-                                workspace.voice_recovery_interrupt.store(busy, std::sync::atomic::Ordering::Release);
-                                workspace.voice_diarization_interrupt.store(busy, std::sync::atomic::Ordering::Release);
-                                let recover = !busy && db.voice_cloud_has_ready(chrono::Utc::now().timestamp_millis()).unwrap_or(false);
-                                match db.voice_diarization_has_pending() {
-                                    Ok(pending) => (recover, !busy && pending, None),
-                                    Err(error) => (recover, false, Some(error)),
+                .spawn(move || {
+                    let mut wake_generation = 0;
+                    let mut interval = std::time::Duration::ZERO;
+                    loop {
+                        voice::supervision::wait(&mut wake_generation, interval);
+                        interval = voice::supervision::IDLE_INTERVAL;
+                        let state = handle.state::<AppState>();
+                        let workspace = lock_mutex(&state.current_workspace).clone();
+                        if let Some(workspace) = workspace {
+                            let mut voice = lock_mutex(&state.voice_runtime);
+                            let current = lock_mutex(&state.current_workspace);
+                            if !current
+                                .as_ref()
+                                .is_some_and(|current| Arc::ptr_eq(current, &workspace))
+                            {
+                                continue;
+                            }
+                            drop(current);
+                            let mut db = lock_mutex(&workspace.voice_db);
+                            let captured = committed_changes::capture_native_committed(
+                                &workspace.agent_binding,
+                                &mut db,
+                                "voice-supervisor",
+                                |db| voice.snapshot(db, &workspace.paths.root_path),
+                            );
+                            let (result, changes) = match captured {
+                                Ok(captured) => captured,
+                                Err(error) => (Err(error), None),
+                            };
+                            let (recover, diarize, error) = match result {
+                                Ok(snapshot) => {
+                                    let busy = !workspace.ai_secrets_unlocked()
+                                        || snapshot.as_ref().is_some_and(|session| {
+                                            matches!(
+                                                session.phase.as_str(),
+                                                "recording" | "preparing" | "ending"
+                                            )
+                                        });
+                                    workspace
+                                        .voice_recovery_interrupt
+                                        .store(busy, std::sync::atomic::Ordering::Release);
+                                    workspace
+                                        .voice_diarization_interrupt
+                                        .store(busy, std::sync::atomic::Ordering::Release);
+                                    let recovery = if busy {
+                                        Ok(None)
+                                    } else {
+                                        db.voice_cloud_next_retry_ms()
+                                    };
+                                    let now = chrono::Utc::now().timestamp_millis();
+                                    match recovery {
+                                        Ok(next) => {
+                                            if let Some(deadline) = next.filter(|deadline| *deadline > now)
+                                            {
+                                                interval = interval.min(std::time::Duration::from_millis(
+                                                    (deadline - now) as u64,
+                                                ));
+                                            }
+                                            let recover = next.is_some_and(|deadline| deadline <= now);
+                                            match db.voice_diarization_has_pending() {
+                                                Ok(pending) => (recover, !busy && pending, None),
+                                                Err(error) => (recover, false, Some(error)),
+                                            }
+                                        }
+                                        Err(error) => (false, false, Some(error)),
+                                    }
+                                }
+                                Err(error) => {
+                                    workspace
+                                        .voice_diarization_interrupt
+                                        .store(true, std::sync::atomic::Ordering::Release);
+                                    (false, false, Some(error))
+                                }
+                            };
+                            if voice.needs_supervision() {
+                                interval = interval.min(voice::supervision::ACTIVE_INTERVAL);
+                            }
+                            let minutes = db.voice_minutes_has_pending();
+                            drop(db);
+                            drop(voice);
+                            match minutes {
+                                Ok(true) => workspace.kick_voice_minutes(),
+                                Ok(false) => {}
+                                Err(error) => {
+                                    let _ = handle.emit("voice:error", error.to_string());
                                 }
                             }
-                            Err(error) => {
-                                workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
-                                (false, false, Some(error))
+                            if let Some(changes) = changes {
+                                committed_changes::publish_to(&handle, changes);
                             }
-                        };
-                        drop(db);
-                        drop(current);
-                        drop(voice);
-                        if let Some(changes) = changes { committed_changes::publish_to(&handle, changes); }
-                        if let Some(error) = error { let _ = handle.emit("voice:error", error.to_string()); }
-                        if recover { voice::recovery::kick(workspace.clone(), handle.clone()); }
-                        if diarize {
-                            if let Err(error) = voice::diarization_worker::kick(workspace.clone(), handle.clone()) {
+                            if let Some(error) = error {
                                 let _ = handle.emit("voice:error", error.to_string());
+                            }
+                            if recover {
+                                voice::recovery::kick(workspace.clone(), handle.clone());
+                            }
+                            if diarize {
+                                if let Err(error) =
+                                    voice::diarization_worker::kick(workspace.clone(), handle.clone())
+                                {
+                                    let _ = handle.emit("voice:error", error.to_string());
+                                }
                             }
                         }
                     }
@@ -1814,14 +1999,30 @@ pub fn run() {
                     api.prevent_exit();
                     let handle = app.clone();
                     tauri::async_runtime::spawn(async move {
-                        if handle.state::<dsh_assistant::DshAssistantState>().shutdown().await.is_err() {
-                            handle.state::<dsh_assistant::DshAssistantState>().exit_fallback();
+                        let state = handle.state::<AppState>();
+                        let closing = match state.begin_voice_shutdown() {
+                            Ok(closing) => closing,
+                            Err(error) => { let _ = handle.emit("voice:error", error.to_string()); return; }
+                        };
+                        if let Err(error) = finish_app_shutdown(&handle.state::<dsh_assistant::DshAssistantState>(), || {
+                            state.authorize_voice_shutdown(&closing).map_err(|error| error.to_string())
+                        }).await {
+                            let _ = handle.emit("voice:error", error);
+                            return;
                         }
-                        handle.state::<AppState>().exit_authorized.store(true, std::sync::atomic::Ordering::SeqCst);
                         handle.exit(0);
                     });
                 }
             } else if let tauri::RunEvent::Exit = event {
+                skills::exit_fallback();
+                let workspace = lock_mutex(&app.state::<AppState>().current_workspace).clone();
+                if let Some(workspace) = workspace {
+                    workspace.voice_diarization_interrupt.store(true, std::sync::atomic::Ordering::Release);
+                    workspace.voice_minutes_worker.cancel();
+                    if let Err(error) = workspace.voice_diarization_process.stop() {
+                        eprintln!("voice shutdown: {error:#}");
+                    }
+                }
                 app.state::<html_preview::HtmlPreviewState>().close_all(app);
                 app.state::<dsh_assistant::DshAssistantState>().exit_fallback();
             }
@@ -2003,5 +2204,38 @@ mod passwordless_workspace_tests {
             assert!(debug_write_workspace_key(temp.path(), id, "key").is_err());
             assert!(debug_read_workspace_key(temp.path(), id).is_err());
         }
+    }
+}
+
+
+#[cfg(test)]
+mod checkpoint_idle_tests {
+    use super::*;
+    #[test]
+    fn empty_checkpoint_catalog_has_no_one_second_poll() {
+        let root = tempfile::tempdir().unwrap();
+        let mut database = db::Database::open(&root.path().join("workspace.sqlite"),root.path(),None).unwrap();
+        assert_eq!(record_checkpoint_delay(&database).unwrap(),source_maintenance::IDLE_RECHECK);
+        let mut projection: record_documents::RecordDocumentProjection = serde_json::from_str(include_str!("record_document_projection.fixture.json")).unwrap();
+        let record = database.workspace_record_upsert(WorkspaceRecordUpsertInput {
+            note_id:None,title:Some("Deadline".into()),html:projection.html.clone(),markdown:projection.markdown.clone(),
+            default_code_language:projection.code_language.clone(),tag_ids:vec![],
+        }).unwrap();
+        let target=record_documents::RecordTarget{scope:agent::models::Scope::Workspace,record_id:record.id};
+        let source=database.record_document_source(&target).unwrap();
+        database.record_document_initialize("gui","baseline",&target,&source.source_hash,&projection,"checkpoint-test").unwrap();
+        let old=projection.document["content"][0]["content"][0]["text"].as_str().unwrap().to_string();
+        projection.document["content"][0]["content"][0]["text"]=serde_json::json!("Changed");
+        projection.html=projection.html.replace(&old,"Changed");
+        projection.markdown=projection.markdown.replace(&old,"Changed");
+        projection.text=projection.text.replace(&old,"Changed");
+        projection.body_hash=record_documents::body_hash(&projection.document,&projection.code_language);
+        database.record_document_commit("gui","autosave",&record_documents::RecordDocumentCommit {
+            target,base_revision:1,projection,origin:record_documents::RecordVersionOrigin::Manual,
+            actor:serde_json::json!({"kind":"gui"}),edit_session_id:Some("a".repeat(32)),
+        },"checkpoint-test").unwrap();
+        let delay=record_checkpoint_delay(&database).unwrap();
+        assert!(delay > std::time::Duration::from_secs(28) && delay <= source_maintenance::IDLE_RECHECK);
+
     }
 }

@@ -22,8 +22,10 @@ export interface SkillCatalog {
 export const skillsApi = {
   import: (projectId: number | null, archivePath: string) =>
     desktopApi.command<SkillCatalog>("skills_import", { projectId, archivePath }),
-  list: (projectId: number | null = null) =>
-    desktopApi.command<SkillCatalog>("skills_list", { projectId }),
+  list: (projectId: number | null = null, options?: { requestId: string; refresh: boolean }) =>
+    desktopApi.command<SkillCatalog>("skills_list", { projectId, ...options }),
+  cancel: (requestId: string) =>
+    desktopApi.command<null>("skills_list", { requestId, cancel: true }),
   manage: (projectId: number | null, entryPath: string, action: SkillAction) =>
     desktopApi.command<SkillCatalog>("skills_manage", { projectId, entryPath, action }),
 };

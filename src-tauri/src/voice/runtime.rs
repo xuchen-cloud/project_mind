@@ -90,6 +90,20 @@ struct CaptureRun {
     faults: tokio::sync::mpsc::Receiver<NativeCaptureFault>,
 }
 
+/// The voice owner serializes lifecycle transitions. Authorization only holds
+/// current_workspace long enough to compare its generation; slow work then uses
+/// the capture connection, leaving the application's shared DB available.
+pub(crate) fn with_serialized_storage<T>(
+    runtime: &std::sync::Mutex<VoiceRuntime>,
+    storage: &std::sync::Mutex<Database>,
+    authorize: impl FnOnce() -> Result<()>,
+    action: impl FnOnce(&mut VoiceRuntime, &mut Database) -> Result<T>,
+) -> Result<T> {
+    let mut voice = crate::lock_mutex(runtime);
+    authorize()?;
+    action(&mut voice, &mut crate::lock_mutex(storage))
+}
+
 impl VoiceRuntime {
     pub fn set_live_preview_enabled(&mut self, enabled: bool) {
         if let Some(active) = self.active.as_mut() {
@@ -429,9 +443,24 @@ impl VoiceRuntime {
     pub fn has_unfinished_session(
         &mut self,
         db: &mut Database,
-        workspace_root: &Path,
+        _workspace_root: &Path,
     ) -> Result<bool> {
-        Ok(self.snapshot(db, workspace_root)?.is_some())
+        // Checking the switch fence must never initialize models, recover files,
+        // or drain a capture run while holding current_workspace.
+        if self.active.as_ref().is_some_and(|active| {
+            active.persisted.lifecycle == "ended"
+                && active.run.is_none()
+                && active.pending_save.is_none()
+        }) {
+            self.active = None;
+        }
+        Ok(self.active.is_some() || db.voice_current_session()?.is_some())
+    }
+
+    pub(crate) fn needs_supervision(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.run.is_some() || active.pending_save.is_some())
     }
 
     fn load_if_needed(&mut self, db: &mut Database, session_id: &str) -> Result<()> {
@@ -946,6 +975,163 @@ fn take_native_capture_fault(_run: &mut CaptureRun) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shutdown_lease_rejects_start_during_await_and_failed_exit_restores_start() {
+        use std::sync::{Arc, Mutex};
+        let root = tempfile::tempdir().unwrap();
+        let storage = Mutex::new(
+            Database::open(&root.path().join("voice.sqlite"), root.path(), None).unwrap(),
+        );
+        let runtime = Mutex::new(VoiceRuntime::default());
+        let closing = Arc::new(super::super::shutdown::ClosingFlag::default());
+        let lease = {
+            let _voice = crate::lock_mutex(&runtime);
+            closing.reserve().unwrap()
+        };
+        // Teardown is now awaiting outside the voice mutex. This is the exact
+        // gap where start used to succeed and break final exit authorization.
+        let start = || {
+            with_serialized_storage(
+                &runtime,
+                &storage,
+                || {
+                    if closing.is_closing() {
+                        anyhow::bail!("应用正在退出");
+                    }
+                    Ok(())
+                },
+                |_, db| {
+                    db.voice_session_create(
+                        &RecordTarget::Workspace,
+                        "after-failed-exit",
+                        "after-failed-exit",
+                        "Voice",
+                    )
+                },
+            )
+        };
+        assert!(start().is_err());
+        assert!(crate::lock_mutex(&storage)
+            .voice_current_session()
+            .unwrap()
+            .is_none());
+        drop(lease); // an asynchronous teardown error unwinds the exit request
+        assert_eq!(start().unwrap().session_id, "after-failed-exit");
+    }
+
+    #[test]
+    fn lifecycle_wait_releases_shared_storage_and_identity_but_keeps_voice_serial() {
+        use std::sync::{mpsc, Mutex};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("voice.sqlite");
+        let shared = Mutex::new(Database::open(&path, root.path(), None).unwrap());
+        let storage =
+            Mutex::new(Database::open_runtime_connection(&path, root.path(), None).unwrap());
+        let runtime = Mutex::new(VoiceRuntime::default());
+        let current = Mutex::new("generation-a");
+        let (entered, started) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let runtime = &runtime;
+            let storage = &storage;
+            let current = &current;
+            let pending = scope.spawn(move || {
+                with_serialized_storage(
+                    runtime,
+                    storage,
+                    || {
+                        assert_eq!(*crate::lock_mutex(&current), "generation-a");
+                        Ok(())
+                    },
+                    |_, db| {
+                        db.voice_session_create(&RecordTarget::Workspace, "wait", "wait", "Voice")?;
+                        entered.send(()).unwrap();
+                        wait.recv().unwrap(); // synthetic model initialization/drain
+                        Ok(())
+                    },
+                )
+            });
+            started
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap();
+            assert!(
+                current.try_lock().is_ok(),
+                "slow voice work pinned Workspace identity"
+            );
+            let db = shared.try_lock().expect("slow voice work pinned shared DB");
+            assert!(db.voice_session_get("wait").unwrap().is_some());
+            assert!(
+                runtime.try_lock().is_err(),
+                "pause/end must remain serial during a start/drain"
+            );
+            release.send(()).unwrap();
+            pending.join().unwrap().unwrap();
+        });
+        let mut ran = false;
+        assert!(with_serialized_storage(
+            &runtime,
+            &storage,
+            || anyhow::bail!("Workspace changed"),
+            |_, _| {
+                ran = true;
+                Ok(())
+            }
+        )
+        .is_err());
+        assert!(
+            !ran,
+            "stale Workspace command must not access capture storage"
+        );
+    }
+
+    #[test]
+    fn idle_check_does_not_recover_or_mutate_a_persisted_session() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("voice.sqlite"), root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(&RecordTarget::Workspace, "idle", "idle", "Voice")
+            .unwrap();
+        let mut runtime = VoiceRuntime::default();
+        assert!(runtime
+            .has_unfinished_session(&mut db, root.path())
+            .unwrap());
+        let persisted = db.voice_session_get(&session.session_id).unwrap().unwrap();
+        assert_eq!(persisted.lifecycle, "preparing");
+        assert_eq!(persisted.revision, session.revision);
+        assert!(runtime.active.is_none());
+    }
+
+    #[test]
+    fn repeated_terminal_end_does_not_block_workspace_close() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("voice.sqlite"), root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(&RecordTarget::Workspace, "ended", "ended", "Voice")
+            .unwrap();
+        let ended = db
+            .voice_session_transition(
+                &session.session_id,
+                session.revision,
+                "ended",
+                None,
+                0,
+                session.capture_epoch,
+            )
+            .unwrap();
+        let mut runtime = VoiceRuntime::default();
+        assert_eq!(
+            runtime
+                .end(&mut db, &ended.session_id, ended.revision)
+                .unwrap()
+                .phase,
+            "ended"
+        );
+        assert!(!runtime
+            .has_unfinished_session(&mut db, root.path())
+            .unwrap());
+        runtime.reset();
+    }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn stopped_capture_runtime(

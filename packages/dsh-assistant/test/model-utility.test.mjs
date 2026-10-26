@@ -252,3 +252,20 @@ test('invalid/disabled profiles, unsupported family, missing credentials and cap
   assert.deepEqual(await run({ ...input, profile: { ...input.profile, providerFamily: 'gemini_compatible' } }),
     { ok: false, error: { code: 'TOOL_CALL_UNSUPPORTED' } });
 });
+
+test('catalog gpt-4 capacity satisfies native quarter-context output budget', async () => {
+  const result = await run({ operation: 'capacity', profile: profile('https://api.openai.com/v1'), modelId: 'gpt-4' });
+  assert.equal(result.ok, true);
+  assert.equal(result.data.contextWindow, 8192);
+  assert.equal(result.data.outputTokens, 2048);
+  assert.equal(result.data.inputBytes, 8192 - 2048 - 1024);
+});
+
+test('generation applies the native capacity fraction for 8K, small-output and large-context models', async t => {
+  const { url, requests } = await provider(t, (_body, res) => response(res));
+  for (const [contextWindow, maxTokens, expected] of [[8192, 8192, 2048], [32768, 128, 128], [131072, 16384, 4096]]) {
+    const result = await run({ ...frame(url), capacity: { contextWindow, maxTokens, source: 'dsh-catalog' } });
+    assert.equal(result.ok, true);
+    assert.equal(requests.at(-1).max_tokens ?? requests.at(-1).max_completion_tokens, expected);
+  }
+});

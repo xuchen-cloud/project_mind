@@ -27,3 +27,11 @@ describe("skillsApi", () => {
     await expect(skillsApi.manage(null, "/skills/.disabled/example", "enable")).rejects.toThrow("cannot move");
   });
 });
+
+it("passes refresh and cancellation identity to the existing native command", async () => {
+  vi.mocked(desktopApi.command).mockResolvedValue(null);
+  await skillsApi.list(7, { requestId: "scan-1", refresh: true });
+  expect(desktopApi.command).toHaveBeenLastCalledWith("skills_list", { projectId: 7, requestId: "scan-1", refresh: true });
+  await skillsApi.cancel("scan-1");
+  expect(desktopApi.command).toHaveBeenLastCalledWith("skills_list", { requestId: "scan-1", cancel: true });
+});

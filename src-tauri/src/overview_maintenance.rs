@@ -25,7 +25,41 @@ use crate::{
 use chrono::Utc;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::Manager;
+use tauri::{Manager, Listener};
+use std::{sync::OnceLock, time::Duration};
+fn wake_state() -> &'static crate::maintenance_wake::MaintenanceWake {
+    static WAKE: OnceLock<crate::maintenance_wake::MaintenanceWake> = OnceLock::new();
+    WAKE.get_or_init(Default::default)
+}
+pub(crate) fn wake() {wake_state().wake();}
+fn next_delay<S: BoundSourceStore>(store: &S) -> Duration {
+    let idle = crate::source_maintenance::IDLE_RECHECK;
+    store.with_current(|binding, db| {
+        let now = Utc::now();
+        let mut delay = idle;
+        let scopes = db.agent_active_project_ids()?.into_iter().map(|project_id| Scope::Project {project_id})
+            .chain(std::iter::once(Scope::Workspace));
+        for scope in scopes {
+            let schedule = db.overview_schedule_status(binding, &scope, now)?;
+            if let Some(due) = schedule.next_run_at {
+                let progress = db.agent_overview_maintenance_status(binding, &scope)?;
+                if progress.cancelled || progress.error_code.is_some() {continue;}
+                // These entries need a changed parent before another attempt.
+                // A pending count alone is not evidence of runnable work.
+                if progress.batch_id.is_none() && progress.directory_complete
+                    && progress.pending_count > 0 && progress.pending_count == progress.deferred_count {continue;}
+                let until = (due-now).to_std().unwrap_or_default().max(Duration::from_secs(2));
+                delay = delay.min(until);
+            }
+        }
+        Ok(delay)
+    }).unwrap_or_else(|error| {
+        if !matches!(error.code, ErrorCode::WorkspaceNotOpen | ErrorCode::WorkspaceChanged) {
+            eprintln!("Knowledge maintenance deadline: {:?}", error.code);
+        }
+        idle
+    })
+}
 
 pub(crate) fn request(
     binding: WorkspaceBinding,
@@ -120,6 +154,7 @@ pub(crate) fn control<S: BoundSourceStore>(
         }
         Ok(())
     })?;
+    wake();
     status(store, request, scope)
 }
 fn active(
@@ -935,6 +970,7 @@ fn complete<S: BoundSourceStore>(
 }
 
 pub(crate) fn start(app: &tauri::AppHandle) {
+    app.listen("mind:changed", |_| wake());
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let file = match crate::source_extraction_worker::SourceExtractionWorker::for_app(&app) {
@@ -946,6 +982,7 @@ pub(crate) fn start(app: &tauri::AppHandle) {
         };
         let record = crate::record_document_service::AppDocumentUtility(app.clone());
         loop {
+            let started = tokio::time::Instant::now();
             let state = app.state::<crate::AppState>();
             let selected = state.with_current(|binding, db| {
                 db.agent_overview_maintenance_resume_waiting(binding, Utc::now())?;
@@ -985,7 +1022,7 @@ pub(crate) fn start(app: &tauri::AppHandle) {
                     }
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            wake_state().wait_after(next_delay(&*state), started, Duration::from_secs(2)).await;
         }
     });
 }

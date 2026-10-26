@@ -164,7 +164,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     {menu ? createPortal(<ActionContextMenu x={menu.x} y={menu.y} ariaLabel="会话操作" onClose={() => setMenu(null)} actions={[
       { label: "重命名", icon: Pencil, onSelect: () => setEditing({ session: menu.session, title: menu.session.title }) },
       { label: menu.session.pinned ? "取消置顶" : "置顶", icon: menu.session.pinned ? PinOff : Pin, onSelect: () => void manage(menu.session, { kind: menu.session.pinned ? "unpin" : "pin" }) },
-      { label: "分叉会话", icon: GitFork, onSelect: () => void manage(menu.session, { kind: "fork" }) },
+      { label: "分叉会话", icon: GitFork, onSelect: () => void manage(menu.session, { kind: "fork", childSessionId: `session-${crypto.randomUUID()}` }) },
       { label: "归档", icon: Archive, disabled: !!sessionRuns?.[menu.session.id], onSelect: () => void manage(menu.session, { kind: "archive" }) },
       { label: "删除", icon: Trash2, tone: "danger", disabled: !!sessionRuns?.[menu.session.id], onSelect: () => setDeleting(menu.session) },
     ]} />, document.body) : null}

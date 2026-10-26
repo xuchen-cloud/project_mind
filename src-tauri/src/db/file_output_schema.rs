@@ -5,6 +5,7 @@ pub(super) const FILE_OUTPUT_SCHEMA_VERSION: i64 = 32;
 
 impl Database {
     pub(super) fn ensure_file_output_schema(&self) -> anyhow::Result<()> {
+        self.compact_office_candidate_receipts()?;
         if self.schema_version()? >= FILE_OUTPUT_SCHEMA_VERSION {
             return Ok(());
         }
@@ -20,11 +21,39 @@ impl Database {
         }
         result
     }
+    fn compact_office_candidate_receipts(&self) -> anyhow::Result<()> {
+        use rusqlite::OptionalExtension;
+        const KEY: &str = "migration.office_candidate_receipts_v1";
+        if self.conn.query_row("SELECT 1 FROM app_settings WHERE key=?1", [KEY], |_| Ok(())).optional()?.is_some() {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("UPDATE agent_operation_receipts SET result_json=json_remove(result_json,'$.model') WHERE operation='file.office.candidate' AND json_type(result_json,'$.model') IS NOT NULL", [])?;
+        tx.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES (?1,'true',?2)", rusqlite::params![KEY,chrono::Utc::now().to_rfc3339()])?;
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn office_candidate_upgrade_keeps_idempotency_and_stage_without_model_body() {
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+        db.conn.execute("DELETE FROM app_settings WHERE key='migration.office_candidate_receipts_v1'", []).unwrap();
+        db.conn.execute("INSERT INTO agent_operation_receipts(request_id,caller_id,payload_hash,operation,state,result_json,created_at) VALUES ('r','gui','original-hash','file.office.candidate','committed',?1,'fixture')",
+            [r#"{"target":{"id":"1"},"expectedVersion":1,"expectedHash":"fixed","stagedContentId":"stage","model":{"sourceBase64":"large"}}"#]).unwrap();
+        db.compact_office_candidate_receipts().unwrap();
+        db.compact_office_candidate_receipts().unwrap();
+        let (hash, body): (String,String) = db.conn.query_row("SELECT payload_hash,result_json FROM agent_operation_receipts WHERE request_id='r'", [], |row| Ok((row.get(0)?,row.get(1)?))).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(hash, "original-hash");
+        assert_eq!(value["stagedContentId"], "stage");
+        assert!(value.get("model").is_none());
+    }
 
     #[test]
     fn file_output_migration_preserves_native_rows_and_reopens_once() {

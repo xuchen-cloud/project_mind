@@ -12,9 +12,20 @@ use tokio::{
     process::Command,
 };
 
+#[path = "office_recalculation.rs"]
+mod recalculation;
+pub(crate) use recalculation::{baseline_context, clear_baselines, OfficeBaseline};
+
 const FRAME_LIMIT: usize = 180 * 1024 * 1024;
 const NODE_GUARD: &str = "data:text/javascript,if(process.versions.node!==%2724.21.0%27)throw%20new%20Error(%27Unsupported%20Office%20runtime%27)";
 static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+// Acquire before reading retained files, not after allocating their base64 frames.
+static SOURCE_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+pub(crate) async fn admit_source() -> AgentResult<tokio::sync::SemaphorePermit<'static>> {
+    tokio::time::timeout(Duration::from_secs(15), SOURCE_SLOTS.acquire()).await
+        .map_err(|_| failure(ErrorCode::EditorBusy, "Office utility is busy"))?
+        .map_err(|_| failure(ErrorCode::RuntimeUnavailable, "Office utility stopped"))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -121,6 +132,22 @@ pub(crate) enum OfficePayload<'a> {
 }
 
 pub(crate) trait OfficeUtility {
+    fn recalculate(
+        &self,
+        _baseline: &OfficeBaseline,
+        request_id: &str,
+        source: &str,
+        input: &OfficeRecalculation,
+    ) -> impl std::future::Future<Output = AgentResult<Value>> + Send {
+        self.request(
+            request_id,
+            "office.recalculate",
+            "xlsx",
+            source,
+            OfficePayload::Recalculate(input),
+        )
+    }
+
     fn request(
         &self,
         request_id: &str,
@@ -253,6 +280,15 @@ fn failure(code: ErrorCode, message: &str) -> AgentError {
 }
 
 impl OfficeUtility for OfficeWorker {
+    async fn recalculate(
+        &self,
+        baseline: &OfficeBaseline,
+        id: &str,
+        source: &str,
+        input: &OfficeRecalculation,
+    ) -> AgentResult<Value> {
+        recalculation::recalculate(self, baseline, id, source, input).await
+    }
     async fn request(
         &self,
         request_id: &str,
@@ -281,6 +317,13 @@ impl OfficeUtility for OfficeWorker {
                 "Invalid Office utility request",
             ));
         }
+        // Give one-shot work priority over unused warm baseline processes.
+        recalculation::evict_idle();
+        // Direct utility callers also acquire before decoding or copying payloads.
+        let _slot = tokio::time::timeout(Duration::from_secs(15), SLOTS.acquire())
+            .await
+            .map_err(|_| failure(ErrorCode::EditorBusy, "Office utility is busy"))?
+            .map_err(|_| failure(ErrorCode::RuntimeUnavailable, "Office utility stopped"))?;
         if let OfficePayload::Create(content) = payload {
             if !base64.is_empty() || !(content.is_object() || format == "docx" && content.as_str().is_some_and(|value| !value.trim().is_empty())) {
                 return Err(failure(ErrorCode::InvalidArgument, "Creation requires content and no source bytes"));
@@ -334,10 +377,6 @@ impl OfficeUtility for OfficeWorker {
             ));
         }
         frame.push(b'\n');
-        let _slot = tokio::time::timeout(Duration::from_secs(15), SLOTS.acquire())
-            .await
-            .map_err(|_| failure(ErrorCode::EditorBusy, "Office utility is busy"))?
-            .map_err(|_| failure(ErrorCode::RuntimeUnavailable, "Office utility stopped"))?;
         #[cfg(feature = "office-performance")]
         eprintln!("[office-performance] {request_id} worker-slot {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
         let temporary = tempfile::tempdir().map_err(|_| {
@@ -505,6 +544,24 @@ fn decode_response(request_id: &str, method: &str, bytes: &[u8]) -> AgentResult<
 }
 pub(crate) struct AppOfficeUtility(pub tauri::AppHandle);
 impl OfficeUtility for AppOfficeUtility {
+    async fn recalculate(
+        &self,
+        baseline: &OfficeBaseline,
+        id: &str,
+        source: &str,
+        input: &OfficeRecalculation,
+    ) -> AgentResult<Value> {
+        let app = self.0.clone();
+        let worker = tokio::task::spawn_blocking(move || OfficeWorker::for_app(&app))
+            .await
+            .map_err(|_| {
+                failure(
+                    ErrorCode::RuntimeUnavailable,
+                    "Cannot prepare Office baseline worker",
+                )
+            })??;
+        worker.recalculate(baseline, id, source, input).await
+    }
     async fn request(
         &self,
         id: &str,

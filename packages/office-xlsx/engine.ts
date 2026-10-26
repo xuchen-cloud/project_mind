@@ -118,20 +118,26 @@ export async function create(content: unknown, context?: Context): Promise<Uint8
   return candidate
 }
 type Metadata = Pick<Model, 'name' | 'styles' | 'sheets' | 'visuals' | 'definedNames'> & { dxfStyles?: Style[]; sessionId: string; activeTab: number; date1904?: boolean }
-async function withWorkbook<T>(bytes: Uint8Array, context: Context | undefined,
-  run: (client: Sidecar, path: string, dir: string, metadata: Metadata) => Promise<T>): Promise<T> {
+async function openWorkbook(bytes: Uint8Array, context?: Context) {
   if (!(bytes instanceof Uint8Array) || bytes.length > LIMIT_BYTES || bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
     throw new Error('Expected XLSX ZIP bytes, at most 64 MiB')
   }
   const ctx = contextSchema.parse(context ?? {})
   const dir = await mkdtemp(join(ctx.tempRoot ?? tmpdir(), 'office-xlsx-'))
   const client = new Sidecar(ctx.binaryPath ?? fileURLToPath(new URL(process.platform === 'win32' ? './xlsx-sidecar.exe' : './xlsx-sidecar', import.meta.url)))
+  const close = async () => { try { await client.stop() } finally { await rm(dir, { recursive: true, force: true }) } }
   try {
     const path = join(dir, 'source.xlsx')
     await writeFile(path, bytes, { flag: 'wx' })
     const metadata = metadataSchema.parse(await client.open(path)) as Metadata
-    return await run(client, path, dir, metadata)
-  } finally { await client.stop(); await rm(dir, { recursive: true, force: true }) }
+    return { client, path, dir, metadata, close }
+  } catch (error) { await close(); throw error }
+}
+async function withWorkbook<T>(bytes: Uint8Array, context: Context | undefined,
+  run: (client: Sidecar, path: string, dir: string, metadata: Metadata) => Promise<T>): Promise<T> {
+  const workbook = await openWorkbook(bytes, context)
+  try { return await run(workbook.client, workbook.path, workbook.dir, workbook.metadata) }
+  finally { await workbook.close() }
 }
 async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string, area: Area): Promise<Range> {
   const sheet = metadata.sheets.find((s) => s.id === sheetId)!
@@ -140,13 +146,17 @@ async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string,
   const nativeArea = { startRow: Math.min(area.startRow, sheet.rowCount - 1), endRow: Math.min(area.endRow, sheet.rowCount - 1),
     startColumn: Math.min(area.startColumn, sheet.columnCount - 1), endColumn: Math.min(area.endColumn, sheet.columnCount - 1) }
   const deadline = Date.now() + 5000
+  let retryDelay = 25
   while (true) {
     const result = rangeSchema.parse(await client.readRange({ sessionId: metadata.sessionId, sheetId, range: nativeArea }))
     if (result.indexingComplete) return { ...result, area,
       cells: result.cells.filter((c) => c.row >= area.startRow && c.row <= area.endRow && c.column >= area.startColumn && c.column <= area.endColumn),
       rows: result.rows.filter((r) => r.row >= area.startRow && r.row <= area.endRow) } as Range
     if (Date.now() >= deadline) throw new Error(`XLSX indexing incomplete: ${sheetId}`)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    // Each retry rereads the requested rectangle. Back off while the native
+    // indexer works, preserving the deadline and immediate first read.
+    await new Promise((resolve) => setTimeout(resolve, Math.min(retryDelay, deadline - Date.now())))
+    retryDelay = Math.min(retryDelay * 2, 250)
   }
 }
 /** Preload the used workbook in bounded native reads, matching upstream's
@@ -243,8 +253,8 @@ export async function loadRange(bytes: Uint8Array, sheetId: string, area: Area, 
   })
 }
 /** Keep the upstream native per-request 20k read budget while honoring the public whole-workbook budget. */
-async function nativeRecalculate(client:Sidecar,request:{path:string;edits:unknown[];reads:{sheet:string;range:Area}[]}):Promise<z.infer<typeof recalcSchema>>{
- const path=await calculationSource(client,request.path)
+async function nativeRecalculate(client:Sidecar,request:{path:string;edits:unknown[];reads:{sheet:string;range:Area}[]}, preparedPath?: string):Promise<z.infer<typeof recalcSchema>>{
+ const path=preparedPath ?? await calculationSource(client,request.path)
  const cells:z.infer<typeof recalcSchema>['cells']=[]
  let pending:{sheet:string;range:Area}[]=[],size=0,cached=false
  const flush=async()=>{if(!pending.length)return;const result=recalcSchema.parse(await client.recalcCells({...request,path,reads:pending}));cells.push(...result.cells);cached=result.cached;pending=[];size=0}
@@ -279,19 +289,41 @@ async function calculationSource(client: Sidecar, sourcePath: string): Promise<s
   await saveWorkbookViaSidecar({ client, sourcePath, targetPath, edits: [], formulaValues: seeds, tempRoot: dirname(sourcePath), temporaryCandidate: true })
   return targetPath
 }
+function recalculationInput(input: RecalculateRequest) {
+  const schema = z.object({ edits: workbookRecalcRequestSchema.shape.edits, reads: workbookRecalcRequestSchema.shape.reads }).strict()
+  const request = schema.parse(input)
+  if (request.reads.reduce((total, read) => total + areaSize(read.range), 0) > MAX_RANGE_CELLS) throw Error('Recalc read exceeds 100000 cells')
+  for (const { range } of request.reads) if (range.startRow > range.endRow || range.startColumn > range.endColumn) throw Error('Range boundaries are reversed')
+  for (const change of request.edits) if (!isUnicode(change.input)) throw Error('Invalid Unicode input')
+  return request
+}
+async function calculateWorkbook(client: Sidecar, path: string, metadata: Metadata, request: ReturnType<typeof recalculationInput>, preparedPath?: string): Promise<RecalculateResult> {
+  const names = new Map(metadata.sheets.map(sheet => [sheet.id, sheet.name])), ids = new Map(metadata.sheets.map(sheet => [sheet.name, sheet.id]))
+  const sheetName = (id: string) => { const name = names.get(id); if (name === undefined) throw Error('Unknown sheet'); return name }
+  // Every call sends its complete overlay against the same immutable source.
+  // The native model resets removed edits by rebuilding from that source.
+  const result = await nativeRecalculate(client, { path, edits: request.edits.map(({ sheetId, ...edit }) => ({ ...edit, sheet: sheetName(sheetId) })), reads: request.reads.map(({ sheetId, range }) => ({ sheet: sheetName(sheetId), range })) }, preparedPath)
+  return workbookRecalcResultSchema.parse({ cells: result.cells.map(({ sheet, value: _value, ...cell }) => { const sheetId = ids.get(sheet); if (!sheetId) throw Error('Unknown result sheet'); return { sheetId, ...cell } }) })
+}
+/** Native-only owner: one immutable source and sidecar, disposed with its lease. */
+export async function createRecalculationSession(bytes: Uint8Array, context?: Context) {
+  const workbook = await openWorkbook(bytes, context)
+  let preparedPath: string
+  try { preparedPath = await calculationSource(workbook.client, workbook.path) }
+  catch (error) { await workbook.close(); throw error }
+  let closed = false
+  return {
+    async recalculate(input: RecalculateRequest): Promise<RecalculateResult> {
+      if (closed) throw Error('Recalculation baseline is closed')
+      return calculateWorkbook(workbook.client, workbook.path, workbook.metadata, recalculationInput(input), preparedPath)
+    },
+    async close() { if (!closed) { closed = true; await workbook.close() } },
+  }
+}
 /** Read-only native computation against host-owned bytes. Inputs never contain paths or session capabilities. */
-export async function recalculate(bytes:Uint8Array,input:RecalculateRequest,context?:Context):Promise<RecalculateResult>{
- const schema=z.object({edits:workbookRecalcRequestSchema.shape.edits,reads:workbookRecalcRequestSchema.shape.reads}).strict()
- const request=schema.parse(input)
- if(request.reads.reduce((total,read)=>total+areaSize(read.range),0)>MAX_RANGE_CELLS)throw Error('Recalc read exceeds 100000 cells')
- for(const {range}of request.reads)if(range.startRow>range.endRow||range.startColumn>range.endColumn)throw Error('Range boundaries are reversed')
- for(const change of request.edits)if(!isUnicode(change.input))throw Error('Invalid Unicode input')
- return withWorkbook(bytes,context,async(client,path,_dir,metadata)=>{
-  const names=new Map(metadata.sheets.map(sheet=>[sheet.id,sheet.name])),ids=new Map(metadata.sheets.map(sheet=>[sheet.name,sheet.id]))
-  const sheetName=(id:string)=>{const name=names.get(id);if(name===undefined)throw Error('Unknown sheet');return name}
-  const result=await nativeRecalculate(client,{path,edits:request.edits.map(({sheetId,...edit})=>({...edit,sheet:sheetName(sheetId)})),reads:request.reads.map(({sheetId,range})=>({sheet:sheetName(sheetId),range}))})
-  return workbookRecalcResultSchema.parse({cells:result.cells.map(({sheet,value:_value,...cell})=>{const sheetId=ids.get(sheet);if(!sheetId)throw Error('Unknown result sheet');return{sheetId,...cell}})})
- })
+export async function recalculate(bytes: Uint8Array, input: RecalculateRequest, context?: Context): Promise<RecalculateResult> {
+  const request = recalculationInput(input)
+  return withWorkbook(bytes, context, (client, path, _dir, metadata) => calculateWorkbook(client, path, metadata, request))
 }
 /** Typed content changes, original styles and unrelated parts retained. */
 export async function edit(bytes: Uint8Array, edits: Edit[], context?: Context): Promise<Uint8Array> {

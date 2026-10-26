@@ -58,7 +58,7 @@ pub enum VoiceRecordLookup {
     },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoicePlaybackChunk {
     pub source: String,

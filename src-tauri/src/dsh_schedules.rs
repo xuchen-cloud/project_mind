@@ -105,17 +105,23 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
     let Some((binding, file)) = target else {
         return Ok(());
     };
-    let bytes = match tokio::fs::read(&file).await {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let legacy = runtime_data_directory(&assistant_data_root()?, &binding.workspace_id, None)?.join("scheduled-tasks.json");
-            match tokio::fs::read(&legacy).await {
-                Ok(bytes) => bytes,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(error) => return Err(format!("{}: {error}", legacy.display())),
-            }
-        },
-        Err(error) => return Err(format!("{}: {error}", file.display())),
+    let state = app.state::<DshAssistantState>();
+    let host_ready = {
+        let mut runtimes = state.inner.lock().await;
+        if state.stopping.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        verify_binding(app, &binding)?;
+        if runtimes.scopes.contains_key(&None) {
+            runtimes.scope_mut(None)?.check_ready(app).is_ok()
+        } else {
+            false
+        }
+    };
+    let legacy = runtime_data_directory(&assistant_data_root()?, &binding.workspace_id, None)?
+        .join("scheduled-tasks.json");
+    let Some(bytes) = restore_store(&file, &legacy, host_ready).await? else {
+        return Ok(());
     };
     if !enabled_tasks(&bytes)? {
         return Ok(());
@@ -132,9 +138,44 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
     inner.check_ready(app)
 }
 
+// A live admitted host already owns its scheduler and mutation persistence. Parsing the
+// recovery file is needed only when that host is absent or no longer admitted.
+async fn restore_store(
+    file: &std::path::Path,
+    legacy: &std::path::Path,
+    host_ready: bool,
+) -> Result<Option<Vec<u8>>, String> {
+    if host_ready {
+        return Ok(None);
+    }
+    for path in [file, legacy] {
+        match tokio::fs::read(path).await {
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn admitted_host_skips_real_recovery_file_io() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("scheduled-tasks.json");
+        let legacy = root.path().join("legacy.json");
+        // Reading a directory as a JSON file fails. A resident host never reads it.
+        std::fs::create_dir(&file).unwrap();
+        assert!(restore_store(&file, &legacy, true).await.unwrap().is_none());
+        assert!(restore_store(&file, &legacy, false).await.is_err());
+        std::fs::remove_dir(&file).unwrap();
+        std::fs::write(&legacy, br#"{"version":1,"tasks":[{"enabled":true}]}"#).unwrap();
+        let bytes = restore_store(&file, &legacy, false).await.unwrap().unwrap();
+        assert!(enabled_tasks(&bytes).unwrap());
+    }
+
     #[tokio::test]
     async fn scheduled_transport_preserves_native_envelopes_and_null_delete() {
         use axum::{

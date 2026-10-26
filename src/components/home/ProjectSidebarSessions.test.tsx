@@ -390,3 +390,16 @@ it("opens a real Workspace session through the same content Tabs as Project sess
   expect(api.selectSession).toHaveBeenCalledWith("alpha", null);
   expect(useAgentPanelStore.getState().open).toBe(false);
 });
+
+it("retries an unknown fork result with the same stable child identity", async () => {
+  api.manage.mockRejectedValueOnce(new Error("响应丢失")).mockImplementationOnce(async input => input.action.childSessionId);
+  render(component());
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Alpha 方案" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "分叉会话" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("响应丢失");
+  const original = api.manage.mock.calls[0][0];
+  expect(original.action.childSessionId).toMatch(/^session-[0-9a-f-]{36}$/);
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  await waitFor(() => expect(api.open).toHaveBeenCalledWith(expect.objectContaining({object:{kind:"session",id:original.action.childSessionId,title:"Alpha 方案"}})));
+  expect(api.manage.mock.calls[1][0].action).toEqual(original.action);
+});

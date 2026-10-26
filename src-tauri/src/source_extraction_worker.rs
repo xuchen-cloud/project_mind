@@ -39,7 +39,34 @@ fn unavailable() -> AgentError {
         "Source extraction resources are unavailable or incompatible",
     )
 }
+#[cfg(test)]
+static HASH_COUNTS: LazyLock<Mutex<HashMap<PathBuf, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+#[cfg(test)]
+static REQUEST_COUNTS: LazyLock<Mutex<HashMap<String, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+#[cfg(test)]
+pub(crate) fn verification_count(path: &Path) -> usize {
+    HASH_COUNTS.lock().unwrap().get(path).copied().unwrap_or(0)
+}
+#[cfg(test)]
+pub(crate) fn request_count(workspace: &str) -> usize {
+    REQUEST_COUNTS
+        .lock()
+        .unwrap()
+        .get(workspace)
+        .copied()
+        .unwrap_or(0)
+}
 fn hash_file(file: &Path) -> AgentResult<String> {
+    #[cfg(test)]
+    {
+        *HASH_COUNTS
+            .lock()
+            .unwrap()
+            .entry(file.to_owned())
+            .or_default() += 1;
+    }
     let metadata = fs::symlink_metadata(file).map_err(|_| unavailable())?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(unavailable());
@@ -56,12 +83,25 @@ fn hash_file(file: &Path) -> AgentResult<String> {
     }
     Ok(format!("{:x}", hash.finalize()))
 }
-fn verify_hash(file: &Path, hash: &Value) -> AgentResult<()> {
+fn verify_hash(file: &Path, hash: &Value) -> AgentResult<crate::source_file_snapshot::FileStamp> {
+    let before = fs::symlink_metadata(file).map_err(|_| unavailable())?;
+    if !before.is_file() || before.file_type().is_symlink() {
+        return Err(unavailable());
+    }
+    let before = crate::source_file_snapshot::FileStamp::from_metadata(&before);
     if hash.as_str() != Some(hash_file(file)?.as_str()) {
         return Err(unavailable());
     }
-    Ok(())
+    let after = fs::symlink_metadata(file).map_err(|_| unavailable())?;
+    if !after.is_file()
+        || after.file_type().is_symlink()
+        || crate::source_file_snapshot::FileStamp::from_metadata(&after) != before
+    {
+        return Err(unavailable());
+    }
+    Ok(before)
 }
+
 fn regular_json(file: &Path) -> AgentResult<Value> {
     let metadata = fs::symlink_metadata(file).map_err(|_| unavailable())?;
     if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 1024 * 1024 {
@@ -70,31 +110,108 @@ fn regular_json(file: &Path) -> AgentResult<Value> {
     serde_json::from_slice(&fs::read(file).map_err(|_| unavailable())?).map_err(|_| unavailable())
 }
 
+// Verified public parser resources are independent of Workspace content. Keep
+// at most two resource roots; one root's verification never blocks another.
+struct RuntimeSlot {
+    root: PathBuf,
+    worker: Mutex<Option<SourceExtractionWorker>>,
+}
+static VERIFIED_RUNTIMES: LazyLock<Mutex<std::collections::VecDeque<Arc<RuntimeSlot>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::VecDeque::new()));
 #[derive(Clone)]
 pub(crate) struct SourceExtractionWorker {
     node: PathBuf,
     entry: PathBuf,
     distribution: PathBuf,
     timeout: Duration,
+    fingerprint: String,
+    verified_files: Arc<Vec<(PathBuf, crate::source_file_snapshot::FileStamp)>>,
+    verified_directories: Arc<Vec<PathBuf>>,
 }
 impl SourceExtractionWorker {
     pub(crate) fn for_app(app: &tauri::AppHandle) -> AgentResult<Self> {
         use tauri::Manager;
         if let Ok(root) = app.path().resource_dir() {
             if root.join("source-extractor/runtime.json").is_file() {
-                return Self::bundled(&root);
+                return Self::bundled_cached(&root);
             }
         }
         #[cfg(debug_assertions)]
         {
-            return Self::bundled(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources"));
+            return Self::bundled_cached(
+                &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources"),
+            );
         }
         #[cfg(not(debug_assertions))]
         Err(unavailable())
     }
+    pub(crate) fn bundled_cached(resources: &Path) -> AgentResult<Self> {
+        let slot = {
+            let mut entries = VERIFIED_RUNTIMES.lock().map_err(|_| unavailable())?;
+            if let Some(index) = entries.iter().position(|entry| entry.root == resources) {
+                let entry = entries.remove(index).unwrap();
+                entries.push_back(entry.clone());
+                entry
+            } else {
+                if entries.len() == 2 {
+                    let index = entries
+                        .iter()
+                        .position(|entry| Arc::strong_count(entry) == 1)
+                        .ok_or_else(|| {
+                            AgentError::new(
+                                ErrorCode::RunBusy,
+                                "Source runtime verification is busy",
+                            )
+                        })?;
+                    entries.remove(index);
+                }
+                let entry = Arc::new(RuntimeSlot {
+                    root: resources.to_owned(),
+                    worker: Mutex::new(None),
+                });
+                entries.push_back(entry.clone());
+                entry
+            }
+        };
+        let mut cached = slot.worker.lock().map_err(|_| unavailable())?;
+        if let Some(worker) = cached
+            .as_ref()
+            .filter(|worker| worker.resources_unchanged())
+        {
+            return Ok(worker.clone());
+        }
+        *cached = None;
+        let worker = Self::bundled(resources)?;
+        *cached = Some(worker.clone());
+        Ok(worker)
+    }
+    fn resources_unchanged(&self) -> bool {
+        // Windows timestamps are not a content proof. Keep full verification
+        // there, exactly as with File snapshots, until a stronger proof exists.
+        if cfg!(windows) {
+            return false;
+        }
+        self.verified_directories
+            .iter()
+            .all(|path| require_directory(path).is_ok())
+            && self.verified_files.iter().all(|(path, stamp)| {
+                fs::symlink_metadata(path).is_ok_and(|metadata| {
+                    metadata.is_file()
+                        && !metadata.file_type().is_symlink()
+                        && crate::source_file_snapshot::FileStamp::from_metadata(&metadata)
+                            == *stamp
+                })
+            })
+    }
     pub(crate) fn bundled(resources: &Path) -> AgentResult<Self> {
         let root = resources.join("source-extractor");
         let distribution = root.join("source-dist");
+        let mut verified_files = Vec::new();
+        let mut verified_directories = Vec::new();
+        let mut verify = |path: &Path, hash: &Value| -> AgentResult<()> {
+            verified_files.push((path.to_owned(), verify_hash(path, hash)?));
+            Ok(())
+        };
         for directory in [
             &root,
             &distribution,
@@ -102,8 +219,19 @@ impl SourceExtractionWorker {
             &resources.join("agent-host"),
         ] {
             require_directory(directory)?;
+            verified_directories.push(directory.clone());
         }
-        let runtime = regular_json(&root.join("runtime.json"))?;
+        let runtime_path = root.join("runtime.json");
+        let runtime_stamp = crate::source_file_snapshot::FileStamp::from_metadata(
+            &fs::symlink_metadata(&runtime_path).map_err(|_| unavailable())?,
+        );
+        let runtime = regular_json(&runtime_path)?;
+        if crate::source_file_snapshot::FileStamp::from_metadata(
+            &fs::symlink_metadata(&runtime_path).map_err(|_| unavailable())?,
+        ) != runtime_stamp
+        {
+            return Err(unavailable());
+        }
         let node =
             resources
                 .join("agent-host")
@@ -121,15 +249,15 @@ impl SourceExtractionWorker {
         if runtime["nodeVersion"] != "24.21.0" || runtime["target"] != target {
             return Err(unavailable());
         }
-        verify_hash(&node, &runtime["nodeChecksum"])?;
-        verify_hash(&entry, &runtime["sourceEntryChecksum"])?;
+        verify(&node, &runtime["nodeChecksum"])?;
+        verify(&entry, &runtime["sourceEntryChecksum"])?;
         let manifest_file = distribution.join("source-worker-distribution.json");
-        verify_hash(&manifest_file, &runtime["sourceDistributionChecksum"])?;
+        verify(&manifest_file, &runtime["sourceDistributionChecksum"])?;
         let manifest = regular_json(&manifest_file)?;
         if manifest["schemaVersion"] != 1 {
             return Err(unavailable());
         }
-        verify_hash(
+        verify(
             &distribution.join("SOURCE-THIRD-PARTY-NOTICES.txt"),
             &manifest["noticesChecksum"],
         )?;
@@ -167,14 +295,35 @@ impl SourceExtractionWorker {
             if !parent.is_dir() || parent.file_type().is_symlink() {
                 return Err(unavailable());
             }
-            verify_hash(&file, &item["checksum"])?;
+            verified_directories.push(file.parent().ok_or_else(unavailable)?.to_owned());
+            verify(&file, &item["checksum"])?;
         }
+        drop(verify);
+        verified_files.push((runtime_path, runtime_stamp));
+        verified_directories.sort();
+        verified_directories.dedup();
         Ok(Self {
             node: node.canonicalize().map_err(|_| unavailable())?,
             entry: entry.canonicalize().map_err(|_| unavailable())?,
             distribution: distribution.canonicalize().map_err(|_| unavailable())?,
             timeout: Duration::from_secs(60),
+            verified_files: Arc::new(verified_files),
+            verified_directories: Arc::new(verified_directories),
+            fingerprint: format!(
+                "{:x}",
+                Sha256::digest(
+                    serde_json::to_vec(&(&runtime, &manifest)).map_err(|_| unavailable())?
+                )
+            ),
         })
+    }
+    pub(crate) fn cache_identity(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.entry.display(),
+            self.distribution.display(),
+            self.fingerprint
+        )
     }
     pub(crate) async fn request(
         &self,
@@ -211,6 +360,14 @@ impl SourceExtractionWorker {
             .map_err(|_| unavailable())?;
         let mut frame = serde_json::to_vec(&json!({"requestId":request_id,"format":format,"base64":base64::engine::general_purpose::STANDARD.encode(bytes)})).map_err(|_| unavailable())?;
         frame.push(b'\n');
+        #[cfg(test)]
+        {
+            *REQUEST_COUNTS
+                .lock()
+                .unwrap()
+                .entry(workspace_id.to_owned())
+                .or_default() += 1;
+        }
         let output = crate::utility_process::run_utility_process(
             &self.node,
             &self.entry,
@@ -377,6 +534,49 @@ fn decode_response(request_id: &str, bytes: &[u8]) -> AgentResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture_node(prepared: &Path, fixture: &Path) -> PathBuf {
+        let name = if cfg!(windows) { "node.exe" } else { "node" };
+        fs::create_dir(fixture.join("agent-host")).unwrap();
+        let node = fixture.join("agent-host").join(name);
+        // A hard link changes the shared Node inode's ctime on creation and cleanup,
+        // racing bundled() verification in other tests. Give each fixture its own inode.
+        fs::copy(prepared.join("agent-host").join(name), &node).unwrap();
+        node
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_runtime_fixture_does_not_change_shared_node_identity_or_stamp() {
+        use std::os::unix::fs::MetadataExt;
+
+        // Exercise the same fixture constructor without touching the packaged runtime.
+        let prepared = tempfile::tempdir().unwrap();
+        fs::create_dir(prepared.path().join("agent-host")).unwrap();
+        let source = prepared.path().join("agent-host/node");
+        fs::write(&source, b"fixture node").unwrap();
+        let before = fs::metadata(&source).unwrap();
+        let stamp = crate::source_file_snapshot::FileStamp::from_metadata(&before);
+        let fixture = tempfile::tempdir().unwrap();
+        let node = fixture_node(prepared.path(), fixture.path());
+        assert_ne!(
+            fs::metadata(&node).unwrap().ino(),
+            before.ino(),
+            "runtime fixtures must own an independent inode"
+        );
+        assert_eq!(fs::read(&node).unwrap(), fs::read(&source).unwrap());
+        assert_eq!(
+            crate::source_file_snapshot::FileStamp::from_metadata(&fs::metadata(&source).unwrap()),
+            stamp,
+            "creating a fixture must not invalidate a concurrent runtime verification"
+        );
+        drop(fixture);
+        assert_eq!(
+            crate::source_file_snapshot::FileStamp::from_metadata(&fs::metadata(&source).unwrap()),
+            stamp,
+            "removing a fixture must not invalidate a concurrent runtime verification"
+        );
+    }
     #[test]
     fn source_worker_rejects_inconsistent_coverage_and_source_anchors() {
         let mut data = json!({"state":"ready","reason":null,"chunks":[{"ordinal":0,"text":"abc","locator":{"kind":"paragraph","start":1,"end":1},"range":{"start":0,"end":3}}],"coverage":{"chars":3,"paragraphs":1,"complete":true}});
@@ -477,6 +677,57 @@ mod tests {
             "ready"
         );
     }
+    #[cfg(unix)]
+    #[test]
+    fn source_runtime_cache_reuses_verified_resources_and_rejects_restored_mtime_change() {
+        fn copy_tree(from: &Path, to: &Path) {
+            fs::create_dir_all(to).unwrap();
+            for item in fs::read_dir(from).unwrap() {
+                let item = item.unwrap();
+                let destination = to.join(item.file_name());
+                if item.file_type().unwrap().is_dir() {
+                    copy_tree(&item.path(), &destination);
+                } else {
+                    fs::copy(item.path(), destination).unwrap();
+                }
+            }
+        }
+        let prepared = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let temp = tempfile::tempdir().unwrap();
+        copy_tree(
+            &prepared.join("source-extractor"),
+            &temp.path().join("source-extractor"),
+        );
+        let node = fixture_node(&prepared, temp.path());
+        let worker = SourceExtractionWorker::bundled_cached(temp.path()).unwrap();
+        for _ in 0..100 {
+            let next = SourceExtractionWorker::bundled_cached(temp.path()).unwrap();
+            assert_eq!(next.cache_identity(), worker.cache_identity());
+        }
+        assert_eq!(
+            verification_count(&node),
+            1,
+            "unchanged wrappers must not rehash Node"
+        );
+        let font = temp
+            .path()
+            .join("source-extractor/source-dist/pdf-fonts/LiberationSans-Regular.ttf");
+        assert_eq!(verification_count(&font), 1);
+        let modified = fs::metadata(&font).unwrap().modified().unwrap();
+        let mut content = fs::read(&font).unwrap();
+        content[0] ^= 1;
+        fs::write(&font, content).unwrap();
+        fs::File::open(&font)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert!(SourceExtractionWorker::bundled_cached(temp.path()).is_err());
+        assert_eq!(
+            verification_count(&node),
+            2,
+            "changed stat proof forces full verification"
+        );
+    }
     #[test]
     fn source_worker_rejects_a_modified_packaged_parser_resource() {
         fn copy_tree(from: &Path, to: &Path) {
@@ -497,13 +748,7 @@ mod tests {
             &prepared.join("source-extractor"),
             &temp.path().join("source-extractor"),
         );
-        fs::create_dir(temp.path().join("agent-host")).unwrap();
-        let name = if cfg!(windows) { "node.exe" } else { "node" };
-        let source_node = prepared.join("agent-host").join(name);
-        let copied_node = temp.path().join("agent-host").join(name);
-        if fs::hard_link(&source_node, &copied_node).is_err() {
-            fs::copy(source_node, copied_node).unwrap();
-        }
+        fixture_node(&prepared, temp.path());
         let font = temp
             .path()
             .join("source-extractor/source-dist/pdf-fonts/LiberationSans-Regular.ttf");

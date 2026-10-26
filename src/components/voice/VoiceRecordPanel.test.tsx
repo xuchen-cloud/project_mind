@@ -19,7 +19,11 @@ const mocks = vi.hoisted(() => ({
   play: vi.fn(async () => undefined),
   pause: vi.fn(),
   seek: vi.fn(),
-  load: vi.fn(async (): Promise<void> => undefined),
+  load: vi.fn(async (..._args: unknown[]): Promise<void> => undefined),
+  position: 0,
+  created: vi.fn(),
+  disposed: vi.fn(),
+  setSpeed: vi.fn(),
 }));
 
 vi.mock("../../services/voiceApi", () => ({
@@ -34,14 +38,15 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../lib/voice-player", () => ({
   VoicePlayer: class {
+    constructor() { mocks.created(); }
     duration = 60;
-    position = 0;
-    load() { return mocks.load(); }
+    get position() { return mocks.position; }
+    load(...args: unknown[]) { return mocks.load(...args); }
     play() { return mocks.play(); }
     pause() { mocks.pause(); }
     seek(position: number) { mocks.seek(position); }
-    setSpeed() {}
-    dispose() {}
+    setSpeed(rate: number) { mocks.setSpeed(rate); }
+    dispose() { mocks.disposed(); }
   },
 }));
 
@@ -83,6 +88,10 @@ describe("VoiceRecordPanel", () => {
     mocks.minutesGet.mockReset().mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n讨论了发布计划。", status: "ready", error: null });
     mocks.minutesGenerate.mockReset().mockResolvedValue({ sessionId: "session-one", version: 1, content: "## 摘要\n讨论了发布计划。", status: "pending", error: null });
     mocks.toFileUrl.mockClear();
+    mocks.position = 0;
+    mocks.created.mockClear();
+    mocks.disposed.mockClear();
+    mocks.setSpeed.mockClear();
     mocks.play.mockClear();
     mocks.pause.mockClear();
     mocks.seek.mockClear();
@@ -101,6 +110,118 @@ describe("VoiceRecordPanel", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the same playing transport and speed when another saved chunk arrives", async () => {
+    const client = new QueryClient();
+    const target = { scope: "workspace" as const, recordId: 7 };
+    const view = render(<QueryClientProvider client={client}><VoiceRecordPanel target={target} /></QueryClientProvider>);
+    const play = await screen.findByRole("button", { name: "播放录音" });
+    await waitFor(() => expect(play).toBeEnabled());
+    fireEvent.change(screen.getByRole("combobox", { name: "播放倍速" }), { target: { value: "1.5" } });
+    fireEvent.click(play);
+    await screen.findByRole("button", { name: "暂停录音" });
+    const seeks = mocks.seek.mock.calls.length;
+    await act(async () => {
+      const snapshot = await mocks.playbackGet();
+      client.setQueryData(["voice-playback", target], { ...snapshot, chunks: [...snapshot.chunks,
+        { source: "microphone", epoch: 1, startMs: 60_000, durationMs: 60_000, path: "/voice/next.wav" }] });
+    });
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+    expect(mocks.created).toHaveBeenCalledOnce();
+    expect(mocks.disposed).not.toHaveBeenCalled();
+    expect(mocks.seek).toHaveBeenCalledTimes(seeks);
+    expect(screen.getByRole("button", { name: "暂停录音" })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "播放倍速" })).toHaveValue("1.5");
+    view.unmount();
+  });
+
+  it("updates playback frames without reading the saved Transcript again", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame; });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    const readText = vi.fn(() => "稳定转写");
+    mocks.transcriptList.mockResolvedValue({ segments: [{ id: "a", startMs: 0, endMs: 1000, get text() { return readText(); }, language: "zh" }], nextCursor: null });
+    const client = new QueryClient();
+    const view = render(<QueryClientProvider client={client}><VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "转写" }));
+    await screen.findByRole("button", { name: /稳定转写/ });
+    fireEvent.click(screen.getByRole("button", { name: "播放录音" }));
+    await screen.findByRole("button", { name: "暂停录音" });
+    readText.mockClear();
+    for (let index = 1; index <= 20; index++) {
+      mocks.position = index / 10;
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        pending.forEach(callback => callback(index * 16));
+      });
+    }
+    expect(screen.getByLabelText("录音进度")).toHaveValue("2000");
+    expect(readText).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("indexes speaker overlaps once for a transcript page rather than comparing every pair", async () => {
+    const readStart = vi.fn();
+    mocks.diarizationGet.mockResolvedValue({ sessionId: "session-one", revision: 1, status: "ready", error: null,
+      speakers: [{ id: 1, name: "小明", contactId: null, association: null, voiceprintReady: false }],
+      turns: Array.from({ length: 400 }, (_, index) => ({ get startMs() { readStart(); return index * 1000; }, endMs: index * 1000 + 800, speakerId: 1 })) });
+    mocks.transcriptList.mockResolvedValue({ segments: Array.from({ length: 100 }, (_, index) => ({ id: String(index), startMs: index * 1000, endMs: index * 1000 + 900, text: `句子${index}`, language: "zh" })), nextCursor: null });
+    const client = new QueryClient();
+    const view = render(<QueryClientProvider client={client}><VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} /></QueryClientProvider>);
+    await screen.findByRole("textbox", { name: "说话人1的名称" });
+    readStart.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "转写" }));
+    await screen.findByRole("button", { name: /句子99/ });
+    expect(readStart.mock.calls.length).toBeLessThan(8000);
+    view.unmount();
+  });
+
+  it("shares slow playback polling across consumers without overlapping API requests", async () => {
+    vi.useFakeTimers();
+    let resolve!: (snapshot: unknown) => void;
+    const snapshot = await mocks.playbackGet();
+    mocks.playbackGet.mockReset().mockImplementation(() => new Promise(done => { resolve = done; }));
+    const client = new QueryClient();
+    const target = { scope: "workspace" as const, recordId: 7 };
+    const view = render(<QueryClientProvider client={client}><VoiceRecordPanel target={target} /><VoiceRecordPanel target={target} /></QueryClientProvider>);
+    await act(() => vi.advanceTimersByTimeAsync(3500));
+    expect(mocks.playbackGet).toHaveBeenCalledOnce();
+    resolve({ ...snapshot, phase: "recording", chunks: [] });
+    await act(() => vi.advanceTimersByTimeAsync(1010));
+    expect(mocks.playbackGet).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(mocks.playbackGet).toHaveBeenCalledTimes(2);
+    view.unmount();
+    client.clear();
+  });
+
+  it("shows a failed playback manifest explicitly and lets the user retry", async () => {
+    const saved = await mocks.playbackGet();
+    mocks.playbackGet.mockRejectedValue(new Error("录音清单不可用"));
+    const client = new QueryClient();
+    const view = render(<QueryClientProvider client={client}><VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} /></QueryClientProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("录音清单不可用");
+    mocks.playbackGet.mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole("button", { name: "重新读取录音" }));
+    await screen.findByRole("button", { name: "播放录音" });
+    view.unmount();
+  });
+
+  it("aborts an in-flight audio load when the player panel closes", async () => {
+    let resolve!: () => void;
+    mocks.load.mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+    const client = new QueryClient();
+    const view = render(<QueryClientProvider client={client}><VoiceRecordPanel target={{ scope: "workspace", recordId: 7 }} /></QueryClientProvider>);
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledOnce());
+    const signal = mocks.load.mock.calls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    expect(mocks.disposed).toHaveBeenCalledOnce();
+    await act(async () => { resolve(); });
   });
 
   it("shows persisted local transcription failure beside the saved transcript", async () => {

@@ -17,6 +17,7 @@ function host({output={},save,failure,journalCount=1}={}){
   loads.push(path)
   if(path===outputPath||path===savePath){if(failure)throw failure;return path===outputPath?output:{handleSave:save??(async()=>{exports.capturedFixture();return {ok:true}})}}
   if(path==='./renderer-channel')return {sendHostMessage:message=>messages.push(message)}
+  if(path==='./selection')return {createSelectionController:()=>({})}
   if(path==='./initial-calculation')return {InitialCalculationGate:class{}}
   if(path.endsWith('/edit-journal'))return {journalSize:()=>journalCount}
   if(path.endsWith('/desktop-api'))return new Proxy({},{get:()=>schema})

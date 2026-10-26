@@ -216,6 +216,74 @@ impl Database {
     ) -> AgentResult<Option<Scope>> {
         Ok(self.maintenance_load(binding)?.map(|ledger| ledger.scope))
     }
+    /// Scheduling hint only; the durable selector and reservation still own all
+    /// authority, quota accounting and crash recovery when the worker wakes.
+    pub(crate) fn source_maintenance_wake_at(
+        &self, binding: &WorkspaceBinding, now: DateTime<Utc>,
+    ) -> AgentResult<Option<DateTime<Utc>>> {
+        let ledger = self.maintenance_load(binding)?;
+        let time = |seconds| DateTime::from_timestamp(seconds, 0).ok_or_else(invalid);
+        let parse = |raw: String| DateTime::parse_from_rfc3339(&raw)
+            .map(|at| at.with_timezone(&Utc)).map_err(|_| invalid());
+        let mut barrier = now;
+        let mut cleanup = None;
+        if let Some(ledger) = &ledger {
+            if let Some(reservation) = &ledger.reservation {
+                let expires = if reservation.generation == binding.generation {
+                    time(reservation.expires_at)?.max(now)
+                } else { now };
+                cleanup = Some(expires);
+                barrier = barrier.max(expires);
+            }
+            let reset = time(ledger.started_at + PERIOD_SECONDS)?;
+            if reset > now && (ledger.chars == BATCH_CHARS || ledger.chunks == BATCH_CHUNKS || ledger.jobs == BATCH_JOBS) {
+                barrier = barrier.max(reset);
+                cleanup = Some(cleanup.map_or(reset, |at| at.min(reset)));
+            }
+        }
+        // source_queue_claim allows only one extraction across the Workspace,
+        // even if its scope was paused/archived after a crash. Respect that
+        // lease before scheduling another scope; old generations reclaim now.
+        let prefix = format!("source-index:{}/", binding.workspace_id);
+        let running: Option<String> = self.conn.query_row(
+            "SELECT not_before FROM agent_jobs WHERE kind='extract' AND state='running'
+             AND substr(dedupe_key,1,length(?1))=?1 AND json_extract(payload_json,'$.generation')=?2
+             ORDER BY julianday(not_before) DESC LIMIT 1",
+            params![prefix,binding.generation], |row| row.get(0)).optional().map_err(io)?;
+        if let Some(running) = running { barrier = barrier.max(parse(running)?); }
+
+        let mut scopes = vec![Scope::Workspace];
+        scopes.extend(self.agent_active_project_ids()?.into_iter().map(|project_id| Scope::Project {project_id}));
+        let mut next = None;
+        for scope in scopes {
+            if ledger.as_ref().is_some_and(|ledger| ledger.paused_scopes.contains(&scope))
+                || !self.source_maintenance_enabled(binding, &scope)? { continue; }
+            // Includes unsynced log entries and an unfinished metadata backfill,
+            // without moving either cursor or issuing a claim.
+            if self.source_maintenance_has_work(binding, &scope, barrier)? {
+                next = Some(barrier);
+                break;
+            }
+            let queued: Option<String> = self.conn.query_row(
+                "SELECT not_before FROM agent_jobs WHERE kind='extract' AND state='queued' AND attempt<3
+                 AND scope_key=?1 AND substr(dedupe_key,1,length(?2))=?2
+                 ORDER BY julianday(not_before),id LIMIT 1",
+                params![scope.key(),prefix], |row| row.get(0)).optional().map_err(io)?;
+            if let Some(queued) = queued {
+                let due = parse(queued)?.max(barrier);
+                next = Some(next.map_or(due, |at: DateTime<Utc>| at.min(due)));
+            }
+        }
+        if let Some(next) = next {
+            // Real foreground activity retains its previous readiness cadence.
+            // Ordinary queued work instead sleeps until its durable deadline.
+            let foreground = if self.source_foreground_busy()? {now + Duration::milliseconds(500)} else {now};
+            let next = next.max(foreground);
+            Ok(Some(cleanup.map_or(next, |at| at.min(next))))
+        } else {
+            Ok(cleanup)
+        }
+    }
     fn source_maintenance_enabled(&self, binding: &WorkspaceBinding, scope: &Scope) -> AgentResult<bool> {
         match scope {
             Scope::Workspace => {
@@ -441,6 +509,10 @@ impl Database {
         self.conn.query_row("SELECT json_extract(s.coverage_json,'$.chars'),(SELECT count(*) FROM source_index_chunks c WHERE c.snapshot_id=s.id) FROM source_index_snapshots s WHERE s.object_key=?1 AND s.is_current=1 ORDER BY s.id DESC LIMIT 1", [object.key()?], |row| Ok((row.get::<_,i64>(0)? as usize,row.get::<_,i64>(1)? as usize))).map_err(io)
     }
 }
+
+#[cfg(test)]
+#[path = "source_maintenance_deadline_tests.rs"]
+mod deadline_tests;
 
 #[cfg(test)]
 mod tests {

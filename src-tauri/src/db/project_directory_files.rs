@@ -57,18 +57,111 @@ struct DirectoryMetadata {
     starred: bool,
     tags: Vec<i64>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+const MAX_SCAN_OPEN_DIRECTORIES: usize = 32;
+const MAX_GLOBAL_SCAN_OPEN_DIRECTORIES: usize = 128;
+static SCAN_OPEN_DIRECTORIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+struct ScanFdPermit;
+impl ScanFdPermit {
+    fn acquire() -> Result<Self> {
+        use std::sync::atomic::Ordering;
+        SCAN_OPEN_DIRECTORIES.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count|
+            (count < MAX_GLOBAL_SCAN_OPEN_DIRECTORIES).then_some(count + 1))
+            .map_err(|_| failure("scan_fd_budget", "Directory scans reached the global 128-handle budget; finish another scan and start again"))?;
+        Ok(Self)
+    }
+}
+impl Drop for ScanFdPermit {
+    fn drop(&mut self) { SCAN_OPEN_DIRECTORIES.fetch_sub(1, std::sync::atomic::Ordering::SeqCst); }
+}
+struct ScanEntry {
+    name: String,
+    kind: fs::FileType,
+}
 struct ScanFrame {
     relative_path: String,
-    after: Option<String>,
+    entries: Option<fs::ReadDir>,
+    // Unix DirEntry can own a reference to ReadDir's fd. Store only owned
+    // names/types so exhausted parents release their fd before descending.
+    buffered: std::collections::VecDeque<ScanEntry>,
+    exhausted: bool,
+    permit: Option<ScanFdPermit>,
+}
+impl ScanFrame {
+    fn new(relative_path: String) -> Self {
+        Self { relative_path, entries: None, buffered: Default::default(), exhausted: false, permit: None }
+    }
+    fn open(&mut self, directory: &Path, open_in_scan: usize) -> Result<()> {
+        if open_in_scan >= MAX_SCAN_OPEN_DIRECTORIES {
+            return Err(failure("scan_fd_budget", "Directory scan reached its 32-handle budget; nested wide directories require a narrower subtree scan"));
+        }
+        let permit = ScanFdPermit::acquire()?;
+        self.entries = Some(fs::read_dir(directory)?);
+        self.permit = Some(permit);
+        Ok(())
+    }
+    fn fill_batch(&mut self, entries_read: &mut usize) -> Vec<ScanFailure> {
+        let mut failures = vec![];
+        let mut batch = std::collections::BTreeMap::new();
+        while *entries_read < 128 {
+            match self.entries.as_mut().unwrap().next() {
+                Some(Ok(entry)) => {
+                    *entries_read += 1;
+                    if let Some(name) = entry.file_name().to_str() {
+                        match entry.file_type() {
+                            Ok(kind) => { batch.insert(name.to_owned(), ScanEntry { name: name.to_owned(), kind }); }
+                            Err(error) => failures.push(ScanFailure { relative_path: if self.relative_path.is_empty() { name.into() } else { format!("{}/{name}", self.relative_path) }, reason: error.to_string() }),
+                        }
+                    } else {
+                        failures.push(ScanFailure { relative_path: self.relative_path.clone(), reason: "Filename is not UTF-8".into() });
+                    }
+                }
+                Some(Err(error)) => {
+                    *entries_read += 1;
+                    failures.push(ScanFailure { relative_path: self.relative_path.clone(), reason: error.to_string() });
+                }
+                None => {
+                    self.exhausted = true;
+                    self.entries.take(); self.permit.take();
+                    break;
+                }
+            }
+        }
+        self.buffered.extend(batch.into_values());
+        failures
+    }
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ScanCursor {
     workspace_id: String,
     project_id: Option<i64>,
+    scan_id: String,
+    sequence: u64,
+}
+struct ScanSession {
+    root: PathBuf,
+    workspace_id: String,
+    project_id: Option<i64>,
+    only_new: bool,
+    start_relative: String,
+    sequence: u64,
     stack: Vec<ScanFrame>,
+    touched: std::time::Instant,
+}
+// ReadDir owns the native enumeration position across pages. Only bounded
+// batches (128 owned entries per frame, depth <=256) are retained. Open handles
+// are capped at 32 per scan and 128 globally. Abandoned GUI
+// cursors expire; maintenance explicitly drops cursors when a scope is removed.
+static SCAN_SESSIONS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<ScanSession>>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+pub(crate) fn discard_scan_cursor(cursor: &str) {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    if let Ok(bytes) = STANDARD.decode(cursor) {
+        if let Ok(cursor) = serde_json::from_slice::<ScanCursor>(&bytes) {
+            SCAN_SESSIONS.lock().unwrap().remove(&cursor.scan_id);
+        }
+    }
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,8 +184,12 @@ pub(crate) struct DirectoryScan {
     pub next_cursor: Option<String>,
     pub complete: bool,
     pub cancelled: bool,
+    #[cfg(test)]
+    pub entries_read: usize,
+    #[cfg(test)]
+    pub opened_directories: Vec<String>,
 }
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FileBytesInput {
     pub object: ObjectRef,
@@ -123,7 +220,7 @@ fn file_id(object: &ObjectRef) -> Result<(Option<i64>, i64)> {
     }
     Ok((project_id, id.unwrap()))
 }
-fn byte_limit(name: &str) -> usize {
+pub(crate) fn byte_limit(name: &str) -> usize {
     if Path::new(name)
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
@@ -206,6 +303,48 @@ fn business_path(root: &Path, relative: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
+fn physical_alias_possible(path: &Path) -> Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(fs::metadata(path)?.nlink() > 1)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
+        let file = crate::source_file_snapshot::open_regular(path).map_err(|e| anyhow!(e.message))?;
+        let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(information.nNumberOfLinks > 1)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        Ok(true)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_NEXT_DIRECTORY_MOVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CLAIMANT_IDENTITY_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+fn candidate_physical_identity(path: &Path) -> Result<file_versions::FileIdentity> {
+    #[cfg(test)]
+    CLAIMANT_IDENTITY_READS.with(|reads| reads.set(reads.get() + 1));
+    file_versions::path_identity(path)
+}
+fn directory_move_exclusive(original: &Path, target: &Path) -> Result<()> {
+    #[cfg(test)]
+    if FAIL_NEXT_DIRECTORY_MOVE.with(|fail| fail.replace(false)) {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected move denial").into());
+    }
+    file_versions::move_exclusive(original, target)
+}
+
 impl Database {
     pub(super) fn directory_schema(&self) -> Result<()> {
         self.conn.execute_batch("CREATE TABLE IF NOT EXISTS project_directory_files (
@@ -219,7 +358,11 @@ impl Database {
             document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
             payload TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS idx_project_directory_discovery_path
-            ON documents(project_id,managed_path) WHERE storage_mode='project_directory';")?;
+            ON documents(project_id,managed_path) WHERE storage_mode='project_directory';
+            CREATE INDEX IF NOT EXISTS idx_directory_file_identity ON project_directory_files(physical_identity);
+            CREATE INDEX IF NOT EXISTS idx_business_file_managed_path ON documents(managed_path COLLATE NOCASE) WHERE storage_mode!='managed_note_image';
+            CREATE INDEX IF NOT EXISTS idx_business_file_unicode_path ON documents(id) WHERE storage_mode!='managed_note_image' AND managed_path GLOB '*[^ -~]*';
+            CREATE INDEX IF NOT EXISTS idx_business_legacy_file_path ON documents(id) WHERE storage_mode NOT IN ('managed_note_image','project_directory');")?;
         crate::source_search_index::SourceIndex::prepare(&self.conn)
             .map_err(|e| anyhow!(e.message))?;
         Ok(())
@@ -292,6 +435,28 @@ impl Database {
     }
     fn directory_hash(&self, id: i64, version: i64) -> Result<Option<String>> {
         Ok(self.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2", params![id,version], |row| row.get(0)).optional()?)
+    }
+    /// Automatic same-path replacement is safe only after history owns an
+    /// independent immutable head. Pending v0 identities remain authoritative.
+    fn directory_has_frozen_head(&self, document: &crate::models::DocumentRecord) -> Result<bool> {
+        if document.storage_mode != "project_directory" || document.current_version_number <= 0 {
+            return Ok(false);
+        }
+        let head: Option<(String, String)> = self.conn.query_row(
+            "SELECT v.managed_path,h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2",
+            params![document.id, document.current_version_number], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional()?;
+        let Some((stored, hash)) = head else { return Ok(false) };
+        let snapshot = self.decode_path_ref(&stored);
+        if !file_versions::valid_hash(&hash) || snapshot == Path::new(&document.managed_path) {
+            return Ok(false);
+        }
+        file_versions::relative(&self.workspace_root, &snapshot)?;
+        match fs::symlink_metadata(&snapshot) {
+            Ok(metadata) => Ok(metadata.is_file() && !metadata.file_type().is_symlink()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
     fn directory_projection(&self, object: &ObjectRef) -> Result<DirectoryFile> {
         let (document, root) = self.directory_target(object)?;
@@ -391,56 +556,32 @@ impl Database {
         let path = business_path(&root, relative)?;
         let _project_lock = self.file_project_lock(project, false)?;
         let identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
-        // A registered path is only a candidate: resolve rechecks identity.
-        let ids: Vec<(i64,Option<i64>,String)> = self.conn.prepare("SELECT id,project_id,managed_path FROM documents WHERE storage_mode!='managed_note_image'")?.query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
-            return Err(failure(
-                "invalid_path",
-                "Only ordinary business Files can be registered",
-            ));
+            return Err(failure("invalid_path", "Only ordinary business Files can be registered"));
         }
         let current_identity = file_versions::path_identity(&path)?;
+        let claims = self.directory_claimants(&path, None)?;
         let mut existing = None;
-        for (id, owner, stored) in ids {
+        let mut relocated = None;
+        for (id, owner, stored) in claims {
+            if owner != project {
+                return Err(failure("ownership_mismatch", "Physical File is already owned by another Project"));
+            }
             let candidate = self.decode_path_ref(&stored);
-            if candidate == path
-                || file_versions::path_identity(&candidate).ok().as_ref() == Some(&current_identity)
-            {
-                if owner != project {
-                    return Err(failure(
-                        "ownership_mismatch",
-                        "Physical File is already owned by another Project",
-                    ));
-                }
+            if candidate == path || file_versions::path_identity(&candidate).ok().as_ref() == Some(&current_identity) {
                 existing = Some(id);
-                break;
+            } else {
+                relocated = Some(id);
             }
         }
         if existing.is_none() {
-            let saved: Vec<(i64, String)> = self
-                .conn
-                .prepare("SELECT document_id, physical_identity FROM project_directory_files")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?;
-            let identity = serde_json::to_string(&current_identity)?;
-            for (id, saved_identity) in saved {
-                if identity == saved_identity {
-                    let document = self.document_record(id)?;
-                    if document.project_id != project {
-                        return Err(failure(
-                            "ownership_mismatch",
-                            "Physical target may belong to another Project",
-                        ));
-                    }
-                    let object = ObjectRef {
-                        workspace_id: workspace.into(),
-                        scope: super::file_scope::scope(project),
-                        kind: ObjectKind::File,
-                        id: id.to_string(),
-                    };
-                    return self.directory_state(&object,"ambiguous", &format!("Possible external relocation to {relative}; confirm identity explicitly"));
-                }
+            if let Some(id) = relocated {
+                let object = ObjectRef {
+                    workspace_id: workspace.into(), scope: super::file_scope::scope(project),
+                    kind: ObjectKind::File, id: id.to_string(),
+                };
+                return self.directory_state(&object, "ambiguous", &format!("Possible external relocation to {relative}; confirm identity explicitly"));
             }
         }
         let object = existing.map(|id| ObjectRef {
@@ -565,6 +706,15 @@ impl Database {
                 "File exceeds the existing 100 MiB snapshot budget; version is not registered",
             );
         }
+        if !replacement && !self.directory_has_frozen_head(&document)? {
+            let known: Option<String> = self.conn.query_row(
+                "SELECT physical_identity FROM project_directory_files WHERE document_id=?1", [document.id], |r| r.get(0),
+            ).optional()?;
+            let physical = serde_json::to_string(&file_versions::path_identity(path)?)?;
+            if known.as_deref().filter(|value| !value.is_empty()).is_some_and(|value| value != physical) {
+                return self.directory_state(existing, "ambiguous", "Physical identity changed; confirm replacement or relocation");
+            }
+        }
         let snapshots = PathBuf::from(&document.history_dir_path);
         file_versions::create_owned_directories(&self.workspace_root, &snapshots)?;
         let snapshot = snapshots.join(file_versions::token());
@@ -607,7 +757,7 @@ impl Database {
             // captured bytes matched their registered hash above.
             if (document.storage_mode == "project_directory"
                 && known.as_deref().is_none_or(str::is_empty))
-                || (document.storage_mode != "project_directory"
+                || (!self.directory_has_frozen_head(&document)?
                     && known.as_deref().filter(|value| !value.is_empty())
                         .is_some_and(|value| value != captured_identity))
             {
@@ -831,7 +981,7 @@ impl Database {
             );
         }
         if known.as_deref().is_none_or(str::is_empty)
-            || (document.storage_mode != "project_directory" && known.as_deref() != Some(&identity))
+            || (!self.directory_has_frozen_head(&document)? && known.as_deref() != Some(&identity))
         {
             return self.directory_state(
                 object, "ambiguous", "Physical identity changed; confirm replacement or relocation",
@@ -985,34 +1135,68 @@ impl Database {
         }
         Ok(document)
     }
-    fn directory_unclaimed(&self, path: &Path, object: &ObjectRef) -> Result<()> {
-        let (_, id) = file_id(object)?;
-        let candidates: Vec<(i64,String)> = self.conn.prepare("SELECT id,managed_path FROM documents WHERE id!=?1 AND storage_mode!='managed_note_image'")?.query_map([id],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-        let target_identity = file_versions::path_identity(path).ok();
-        for (_, stored) in candidates {
+    /// An ordinary single-link file cannot alias another live path. Query
+    /// retained identities and ASCII paths by index. Actual hard links, Unicode
+    /// aliases and unregistered legacy imports retain live-path verification.
+    fn directory_claimants(&self, path: &Path, excluding: Option<i64>) -> Result<Vec<(i64, Option<i64>, String)>> {
+        let target_identity = match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_file() => Some(serde_json::to_string(&file_versions::path_identity(path)?)?),
+            Ok(_) => None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        let mut claims: std::collections::BTreeMap<i64, (Option<i64>, String)> = std::collections::BTreeMap::new();
+        let encoded = self.encode_path_ref(path);
+        let plain = path.to_string_lossy();
+        let absolute = format!("{}{}", super::ABSOLUTE_PATH_PREFIX, plain);
+        let mut statement = self.conn.prepare(
+            "SELECT id,project_id,managed_path FROM documents WHERE storage_mode!='managed_note_image' AND managed_path COLLATE NOCASE IN (?1,?2,?3)")?;
+        for row in statement.query_map(params![encoded, plain, absolute], |r| Ok((r.get::<_, i64>(0)?,r.get::<_, Option<i64>>(1)?,r.get::<_, String>(2)?)))? {
+            let (id, owner, stored) = row?;
+            if Some(id) == excluding { continue; }
             let candidate = self.decode_path_ref(&stored);
-            if candidate == path
-                || (target_identity.is_some()
-                    && file_versions::path_identity(&candidate).ok() == target_identity)
+            // NOCASE locates ASCII aliases on Windows/macOS. On a sensitive
+            // filesystem equally spelled variants may still be distinct Files.
+            if candidate == path || target_identity.as_ref().is_some_and(|identity|
+                candidate_physical_identity(&candidate).ok().and_then(|value| serde_json::to_string(&value).ok()).as_ref() == Some(identity))
             {
-                return Err(failure(
-                    "ownership_mismatch",
-                    "Selected target belongs to another File",
-                ));
+                claims.insert(id, (owner, stored));
             }
         }
-        if let Some(identity) = target_identity {
-            let identity = serde_json::to_string(&identity)?;
-            let registered: bool = self.conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM project_directory_files WHERE document_id!=?1 AND physical_identity=?2)",
-                params![id, identity], |row| row.get(0),
-            )?;
-            if registered {
-                return Err(failure(
-                    "ownership_mismatch",
-                    "Selected physical target is registered to another File",
-                ));
+        if let Some(identity) = &target_identity {
+            let mut statement = self.conn.prepare(
+                "SELECT d.id,d.project_id,d.managed_path FROM project_directory_files f JOIN documents d ON d.id=f.document_id WHERE f.physical_identity=?1 AND d.storage_mode!='managed_note_image'")?;
+            for row in statement.query_map([identity], |r| Ok((r.get::<_, i64>(0)?,r.get::<_, Option<i64>>(1)?,r.get::<_, String>(2)?)))? {
+                let (id, owner, stored) = row?;
+                if Some(id) != excluding { claims.insert(id, (owner, stored)); }
             }
+            let candidates = if physical_alias_possible(path)? {
+                "SELECT id,project_id,managed_path FROM documents WHERE storage_mode!='managed_note_image'"
+            } else {
+                // Unicode spelling/normalization aliases and legacy imports
+                // without a recorded identity cannot use the ASCII path index.
+                // Check that subset; ordinary registered Files stay indexed.
+                "SELECT id,project_id,managed_path FROM documents WHERE storage_mode!='managed_note_image' AND managed_path GLOB '*[^ -~]*'
+                 UNION SELECT d.id,d.project_id,d.managed_path FROM documents d LEFT JOIN project_directory_files f ON f.document_id=d.id WHERE d.storage_mode NOT IN ('managed_note_image','project_directory') AND (f.document_id IS NULL OR f.physical_identity='')"
+            };
+            let mut statement = self.conn.prepare(candidates)?;
+            for row in statement.query_map([], |r| Ok((r.get::<_, i64>(0)?,r.get::<_, Option<i64>>(1)?,r.get::<_, String>(2)?)))? {
+                let (id, owner, stored) = row?;
+                if Some(id) == excluding || claims.contains_key(&id) { continue; }
+                let candidate = self.decode_path_ref(&stored);
+                if candidate_physical_identity(&candidate).ok()
+                    .and_then(|value| serde_json::to_string(&value).ok()).as_ref() == Some(identity)
+                {
+                    claims.insert(id, (owner, stored));
+                }
+            }
+        }
+        Ok(claims.into_iter().map(|(id,(owner,path))| (id,owner,path)).collect())
+    }
+    fn directory_unclaimed(&self, path: &Path, object: &ObjectRef) -> Result<()> {
+        let (_, id) = file_id(object)?;
+        if !self.directory_claimants(path, Some(id))?.is_empty() {
+            return Err(failure("ownership_mismatch", "Selected physical target is registered to another File"));
         }
         Ok(())
     }
@@ -1065,10 +1249,13 @@ impl Database {
                 ));
             }
         } else if matches!(confirmation, "location" | "replacement") {
-            if hash.is_none_or(str::is_empty) {
+            let pending_directory_replacement = confirmation == "replacement"
+                && document.storage_mode == "project_directory"
+                && version == 0 && hash.is_none();
+            if hash.is_none_or(str::is_empty) && !pending_directory_replacement {
                 return Err(failure(
                     "invalid_argument",
-                    "An unregistered legacy File requires explicit initial registration",
+                    "An unregistered File requires explicit initial registration or replacement confirmation",
                 ));
             }
         } else {
@@ -1276,7 +1463,7 @@ impl Database {
             tx.execute("INSERT INTO project_directory_metadata_intents(document_id,payload) VALUES (?1,?2)",params![id,serde_json::to_string(&metadata)?])?;
         }
         tx.commit()?;
-        if let Err(error) = file_versions::move_exclusive(&original, &target) {
+        if let Err(error) = directory_move_exclusive(&original, &target) {
             // A denied Windows delete-share (or directory permission) can
             // reject the move after its intent was persisted. Cancel only
             // when both paths prove the move never took place. Otherwise the
@@ -1459,7 +1646,7 @@ impl Database {
         limit: u32,
     ) -> Result<DirectoryScan> {
         let project = project.into();
-        self.project_file_scan_page(workspace, project, cursor, limit, false, true)
+        self.project_file_scan_page(workspace, project, cursor, limit, false, true, "")
     }
     pub(crate) fn project_file_scan(
         &self,
@@ -1470,7 +1657,66 @@ impl Database {
         cancelled: bool,
     ) -> Result<DirectoryScan> {
         let project = project.into();
-        self.project_file_scan_page(workspace, project, cursor, limit, cancelled, false)
+        self.project_file_scan_page(workspace, project, cursor, limit, cancelled, false, "")
+    }
+    /// Native event paths are revalidated at the business boundary. A File
+    /// event does no directory enumeration; directory copies scan that subtree.
+    pub(crate) fn project_file_scan_new_at(
+        &self, workspace: &str, project: Option<i64>, relative: &str,
+        cursor: Option<&str>, limit: u32,
+    ) -> Result<DirectoryScan> {
+        self.directory_schema()?;
+        let root = self.directory_owner(workspace, project)?;
+        if cursor.is_some() {
+            return self.project_file_scan_page(workspace, project, cursor, limit, false, true, relative);
+        }
+        let mut result = DirectoryScan {
+            files: vec![], failures: vec![], excluded: vec![], next_cursor: None,
+            complete: true, cancelled: false,
+            #[cfg(test)]
+            entries_read: 0,
+            #[cfg(test)]
+            opened_directories: vec![],
+        };
+        // A removed event path can also be a formerly invalid business name.
+        // Prove containment/no symlinks before testing absence, then clear its
+        // old discovery failure. Existing entries still face business_path.
+        let candidate = root.join(relative);
+        file_versions::relative(&root, &candidate)?;
+        if fs::symlink_metadata(&candidate).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) {
+            return Ok(result);
+        }
+        let path = match business_path(&root, relative) {
+            Ok(path) => path,
+            Err(error) => {
+                result.failures.push(ScanFailure { relative_path: relative.into(), reason: error.to_string() });
+                result.complete = false;
+                return Ok(result);
+            }
+        };
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(result),
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.is_dir() {
+            return self.project_file_scan_page(workspace, project, None, limit, false, true, relative);
+        }
+        if !metadata.is_file() { return Ok(result); }
+        let known: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM documents WHERE project_id IS ?1 AND managed_path=?2 AND storage_mode='project_directory')",
+            params![project, self.encode_path_ref(&path)], |r| r.get(0),
+        )?;
+        if !known {
+            match self.project_file_register(workspace, project, relative) {
+                Ok(file) => result.files.push(file),
+                Err(error) => {
+                    result.failures.push(ScanFailure { relative_path: relative.into(), reason: format!("{error:#}") });
+                    result.complete = false;
+                }
+            }
+        }
+        Ok(result)
     }
     fn project_file_scan_page(
         &self,
@@ -1480,6 +1726,7 @@ impl Database {
         limit: u32,
         cancelled: bool,
         only_new: bool,
+        start_relative: &str,
     ) -> Result<DirectoryScan> {
         use base64::{engine::general_purpose::STANDARD, Engine};
         if !(1..=100).contains(&limit) {
@@ -1490,165 +1737,106 @@ impl Database {
         }
         self.directory_schema()?;
         let root = self.directory_owner(workspace, project)?;
-        let mut progress = if let Some(cursor) = cursor {
-            if cursor.len() > 65536 {
-                return Err(failure(
-                    "invalid_argument",
-                    "Scan cursor exceeds its budget",
-                ));
+        let position = if let Some(cursor) = cursor {
+            if cursor.len() > 1024 {
+                return Err(failure("invalid_argument", "Scan cursor exceeds its budget"));
             }
-            let decoded = STANDARD
-                .decode(cursor)
-                .map_err(|_| failure("invalid_argument", "Invalid scan cursor"))?;
-            let progress: ScanCursor = serde_json::from_slice(&decoded)
-                .map_err(|_| failure("invalid_argument", "Invalid scan cursor"))?;
-            if progress.workspace_id != workspace
-                || progress.project_id != project
-                || progress.stack.len() > 256
-            {
-                return Err(failure(
-                    "ownership_mismatch",
-                    "Scan cursor belongs to another scope",
-                ));
+            let decoded = STANDARD.decode(cursor).map_err(|_| failure("invalid_argument", "Invalid scan cursor"))?;
+            let position: ScanCursor = serde_json::from_slice(&decoded).map_err(|_| failure("invalid_argument", "Invalid scan cursor"))?;
+            if position.workspace_id != workspace || position.project_id != project {
+                return Err(failure("ownership_mismatch", "Scan cursor belongs to another scope"));
             }
-            for frame in &progress.stack {
-                if !frame.relative_path.is_empty() {
-                    business_path(&root, &frame.relative_path)?;
-                }
-                if frame
-                    .after
-                    .as_ref()
-                    .is_some_and(|name| name.contains(['/', '\\', '\0']))
-                {
-                    return Err(failure("invalid_argument", "Invalid scan position"));
-                }
-            }
-            progress
+            position
         } else {
-            ScanCursor {
-                workspace_id: workspace.into(),
-                project_id: project,
-                stack: vec![ScanFrame {
-                    relative_path: String::new(),
-                    after: None,
-                }],
-            }
+            ScanCursor { workspace_id: workspace.into(), project_id: project, scan_id: file_versions::token(), sequence: 0 }
         };
         let mut result = DirectoryScan {
-            files: vec![],
-            failures: vec![],
-            excluded: vec![],
-            next_cursor: None,
-            complete: false,
-            cancelled,
+            files: vec![], failures: vec![], excluded: vec![], next_cursor: None,
+            complete: false, cancelled,
+            #[cfg(test)]
+            entries_read: 0,
+            #[cfg(test)]
+            opened_directories: vec![],
         };
         if cancelled {
+            // Cancellation performs no enumeration. The same position remains
+            // resumable until explicitly discarded or its bounded lease expires.
             result.next_cursor = cursor.map(str::to_owned);
             return Ok(result);
         }
+        let session = {
+            let mut sessions = SCAN_SESSIONS.lock().unwrap();
+            sessions.retain(|_, session| session.lock().unwrap().touched.elapsed() < std::time::Duration::from_secs(600));
+            if cursor.is_none() {
+                if sessions.len() >= 64 {
+                    return Err(failure("scan_capacity", "Too many active directory scans; finish an existing scan first"));
+                }
+                sessions.insert(position.scan_id.clone(), std::sync::Arc::new(std::sync::Mutex::new(ScanSession {
+                    root: root.clone(), workspace_id: workspace.into(), project_id: project, only_new, start_relative: start_relative.into(), sequence: 0,
+                    stack: vec![ScanFrame::new(start_relative.into())], touched: std::time::Instant::now(),
+                })));
+            }
+            sessions.get(&position.scan_id).cloned().ok_or_else(|| failure("scan_expired", "Directory scan expired; start again"))?
+        };
+        let mut progress = session.lock().unwrap();
+        if progress.root != root || progress.workspace_id != workspace || progress.project_id != project || progress.only_new != only_new || progress.start_relative != start_relative {
+            return Err(failure("ownership_mismatch", "Scan cursor belongs to another scope or mode"));
+        }
+        if progress.sequence != position.sequence {
+            return Err(failure("invalid_argument", "Scan cursor was already consumed"));
+        }
+        progress.touched = std::time::Instant::now();
         let mut processed = 0;
         let mut snapshot_bytes = 0u64;
         let mut visited = 0;
-        // Only this page owns the enumeration cache. Each visited directory
-        // keeps at most the page's entry budget, not its full contents.
-        let mut entries_cache: std::collections::HashMap<
-            String,
-            std::collections::VecDeque<fs::DirEntry>,
-        > = std::collections::HashMap::new();
-        // Directory-only / excluded trees must yield too, even without Files.
+        let mut entries_read = 0;
+        let mut terminal_error = None;
+        // The filesystem enumeration budget is independent from returned Files.
+        // A continuation consumes the existing ReadDir, never restarts read_dir.
         while processed < limit && visited < 128 {
-            let Some(frame) = progress.stack.last().cloned() else {
-                break;
-            };
-            let directory = if frame.relative_path.is_empty() {
-                root.clone()
-            } else {
-                business_path(&root, &frame.relative_path)?
-            };
-            // Report a failed directory and continue its siblings. A later
-            // full pass retries it without pinning every subsequent File.
-            if !entries_cache.contains_key(&frame.relative_path) {
-                let mut invalid_name = false;
-                let entries = (|| -> Result<std::collections::VecDeque<fs::DirEntry>> {
-                    file_versions::relative(&self.workspace_root, &directory)?;
-                    let mut candidates = std::collections::BTreeMap::new();
-                    for entry in fs::read_dir(&directory)? {
-                        let entry = entry?;
-                        let name = entry.file_name();
-                        let Some(text) = name.to_str() else {
-                            invalid_name = true;
-                            continue;
-                        };
-                        if frame
-                            .after
-                            .as_ref()
-                            .is_some_and(|after| text <= after.as_str())
-                        {
-                            continue;
-                        }
-                        candidates.insert(text.to_owned(), entry);
-                        if candidates.len() > 128 {
-                            candidates.pop_last();
-                        }
-                    }
-                    Ok(candidates.into_values().collect())
-                })();
-                if invalid_name {
-                    result.failures.push(ScanFailure {
-                        relative_path: frame.relative_path.clone(),
-                        reason: "Filename is not UTF-8".into(),
-                    });
+            let open_in_scan = progress.stack.iter().filter(|frame| frame.entries.is_some()).count();
+            let Some(frame) = progress.stack.last_mut() else { break; };
+            let frame_relative = frame.relative_path.clone();
+            let directory = if frame_relative.is_empty() { Ok(root.clone()) } else { business_path(&root, &frame_relative) };
+            let directory = match directory {
+                Ok(directory) => directory,
+                Err(error) => {
+                    result.failures.push(ScanFailure { relative_path: frame_relative, reason: error.to_string() });
+                    progress.stack.pop(); visited += 1; continue;
                 }
+            };
+            if frame.entries.is_none() && !frame.exhausted {
+                let entries = file_versions::relative(&self.workspace_root, &directory)
+                    .and_then(|_| frame.open(&directory, open_in_scan));
                 match entries {
-                    Ok(entries) => {
-                        entries_cache.insert(frame.relative_path.clone(), entries);
+                    Ok(()) => {
+                        #[cfg(test)]
+                        result.opened_directories.push(frame_relative.clone());
                     }
                     Err(error) => {
-                        result.failures.push(ScanFailure {
-                            relative_path: frame.relative_path,
-                            reason: error.to_string(),
-                        });
+                        if error.downcast_ref::<FileServiceError>().is_some_and(|failure| failure.code == "scan_fd_budget") {
+                            terminal_error = Some(failure("scan_fd_budget", &format!("Directory scan at {frame_relative}: {error}")));
+                            break;
+                        }
+                        result.failures.push(ScanFailure { relative_path: frame_relative, reason: error.to_string() });
                         progress.stack.pop();
                         visited += 1;
                         continue;
                     }
                 }
             }
-            let entry = entries_cache
-                .get_mut(&frame.relative_path)
-                .unwrap()
-                .pop_front();
-            let Some(entry) = entry else {
-                progress.stack.pop();
-                continue;
+            if frame.buffered.is_empty() && !frame.exhausted {
+                if entries_read == 128 { break; }
+                result.failures.extend(frame.fill_batch(&mut entries_read));
+            }
+            let Some(entry) = frame.buffered.pop_front() else {
+                if frame.exhausted { progress.stack.pop(); continue; }
+                break;
             };
             visited += 1;
-            let name = match entry.file_name().into_string() {
-                Ok(name) => name,
-                Err(_) => {
-                    result.failures.push(ScanFailure {
-                        relative_path: frame.relative_path,
-                        reason: "Filename is not UTF-8".into(),
-                    });
-                    break;
-                }
-            };
-            let relative = if frame.relative_path.is_empty() {
-                name.clone()
-            } else {
-                format!("{}/{name}", frame.relative_path)
-            };
-            progress.stack.last_mut().unwrap().after = Some(name.clone());
-            let kind = match entry.file_type() {
-                Ok(kind) => kind,
-                Err(error) => {
-                    result.failures.push(ScanFailure {
-                        relative_path: relative,
-                        reason: error.to_string(),
-                    });
-                    continue;
-                }
-            };
+            let name = entry.name.clone();
+            let relative = if frame_relative.is_empty() { name.clone() } else { format!("{frame_relative}/{name}") };
+            let kind = entry.kind;
             if excluded_component(&name) {
                 result.excluded.push(ScanExcluded {
                     relative_path: relative,
@@ -1675,7 +1863,7 @@ impl Database {
                 });
                 continue;
             }
-            match entry.metadata() {
+            match fs::symlink_metadata(root.join(&relative)) {
                 Ok(metadata) if hidden_metadata(&metadata) => {
                     result.excluded.push(ScanExcluded {
                         relative_path: relative,
@@ -1707,10 +1895,7 @@ impl Database {
                     });
                     continue;
                 }
-                progress.stack.push(ScanFrame {
-                    relative_path: relative,
-                    after: None,
-                });
+                progress.stack.push(ScanFrame::new(relative));
                 continue;
             }
             if !kind.is_file() {
@@ -1731,10 +1916,10 @@ impl Database {
                 // the existing per-File byte budget has been charged. Oversized
                 // Files cost no snapshot bytes and still become visible failures.
                 let max_bytes = crate::file_text_patch::MAX_FILE_BYTES as u64;
-                let bytes = fs::metadata(entry.path()).map(|m| m.len()).unwrap_or(0);
+                let bytes = fs::metadata(root.join(&relative)).map(|m| m.len()).unwrap_or(0);
                 let charge = if bytes <= max_bytes { bytes } else { 0 };
                 if processed > 0 && snapshot_bytes + charge > max_bytes {
-                    progress.stack.last_mut().unwrap().after = frame.after;
+                    progress.stack.last_mut().unwrap().buffered.push_front(entry);
                     break;
                 }
                 snapshot_bytes += charge;
@@ -1751,10 +1936,21 @@ impl Database {
                 }
             }
         }
-        result.complete = progress.stack.is_empty() && result.failures.is_empty();
-        if !progress.stack.is_empty() {
-            result.next_cursor = Some(STANDARD.encode(serde_json::to_vec(&progress)?));
+        if terminal_error.is_some() { progress.stack.clear(); }
+        result.complete = progress.stack.is_empty() && result.failures.is_empty() && terminal_error.is_none();
+        #[cfg(test)]
+        { result.entries_read = entries_read; }
+        let finished = progress.stack.is_empty();
+        if !finished {
+            progress.sequence += 1;
+            let next = ScanCursor { workspace_id: workspace.into(), project_id: project, scan_id: position.scan_id.clone(), sequence: progress.sequence };
+            result.next_cursor = Some(STANDARD.encode(serde_json::to_vec(&next)?));
         }
+        // Registry -> session is the only nested lock order; release the session
+        // before removing it so other scan requests cannot deadlock cleanup.
+        drop(progress);
+        if finished { SCAN_SESSIONS.lock().unwrap().remove(&position.scan_id); }
+        if let Some(error) = terminal_error { return Err(error); }
         Ok(result)
     }
     pub(crate) fn project_file_resolve_related(
@@ -1818,13 +2014,32 @@ impl Database {
     ) -> crate::agent::errors::AgentResult<(FileBytesResult, crate::agent::models::SourceRef)> {
         self.project_file_read_source_bounded(request, binding, input, None)
     }
-    pub(crate) fn project_file_read_office_source(
+    pub(crate) fn project_file_office_plan(
         &self,
         request: &crate::agent::access::RequestContext,
         binding: &crate::agent::models::WorkspaceBinding,
         input: &FileBytesInput,
-    ) -> crate::agent::errors::AgentResult<(FileBytesResult, crate::agent::models::SourceRef)> {
-        self.project_file_read_source_bounded(request, binding, input, Some(crate::file_content::MAX_CONTENT as usize))
+    ) -> crate::agent::errors::AgentResult<crate::file_office::reads::OfficeReadPlan> {
+        use crate::agent::errors::{AgentError, ErrorCode};
+        let actual = self.source_read_historical_file(request, binding, &input.object)?;
+        request.authorize_object(binding, &input.object, &actual, "source.read")?;
+        let fail = |message| AgentError::new(ErrorCode::SourceNotReady, message);
+        if input.version_number == 0 || !file_versions::valid_hash(&input.expected_content_hash) {
+            return Err(AgentError::new(ErrorCode::InvalidArgument, "Invalid fixed Office version/hash"));
+        }
+        let (document, _) = self.directory_target(&input.object).map_err(|_| fail("Office File is unavailable"))?;
+        let retained: Option<(String, String, Option<String>)> = self.conn.query_row(
+            "SELECT v.managed_path,v.name,h.content_hash FROM document_versions v LEFT JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2",
+            params![document.id, input.version_number], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).optional().map_err(|_| fail("Cannot resolve Office File Version"))?;
+        let (path, name, hash) = retained.ok_or_else(|| fail("Office File Version is no longer retained"))?;
+        let hash = hash.ok_or_else(|| fail("Historical Office hash is unknown"))?;
+        if hash != input.expected_content_hash {
+            return Err(AgentError::new(ErrorCode::SourceChanged, "Office File Version hash differs from registration"));
+        }
+        Ok(crate::file_office::reads::OfficeReadPlan {
+            input: input.clone(), root: self.workspace_root.clone(), path: self.decode_path_ref(&path), name,
+        })
     }
     fn project_file_read_source_bounded(
         &self,

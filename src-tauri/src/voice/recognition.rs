@@ -78,6 +78,8 @@ pub struct UtteranceSegmenter {
     min_speech_samples: usize,
     max_samples: usize,
     overlap_samples: usize,
+    preview_delta_samples: usize,
+    preview_max_samples: usize,
     expected_sample: Option<u64>,
     pre_roll: VecDeque<f32>,
     active: Option<ActiveUtterance>,
@@ -103,6 +105,8 @@ impl UtteranceSegmenter {
             min_speech_samples: samples(config.min_speech_ms),
             max_samples,
             overlap_samples,
+            preview_delta_samples: samples(2_000),
+            preview_max_samples: samples(4_000),
             expected_sample: None,
             pre_roll: VecDeque::with_capacity(pre_roll_samples),
             active: None,
@@ -201,6 +205,32 @@ impl UtteranceSegmenter {
         })
     }
 
+    /// Provisional recognition since the last preview's audio watermark.
+    pub fn preview_since(&self, last_end: Option<u64>) -> Option<UtteranceSegment> {
+        let active = self.active.as_ref()?;
+        if active.speech_samples < self.min_speech_samples {
+            return None;
+        }
+        let end = active.start_sample + (active.samples.len() - active.trailing_silence) as u64;
+        let previous = last_end
+            .unwrap_or(active.start_sample)
+            .max(active.start_sample);
+        if end.saturating_sub(previous) < self.preview_delta_samples as u64 {
+            return None;
+        }
+        let start = previous
+            .saturating_sub(self.overlap_samples as u64)
+            .max(active.start_sample)
+            .max(end.saturating_sub(self.preview_max_samples as u64));
+        Some(UtteranceSegment {
+            start_sample: start,
+            samples: active.samples
+                [(start - active.start_sample) as usize..(end - active.start_sample) as usize]
+                .to_vec(),
+            forced_split: false,
+        })
+    }
+
     fn retain_pre_roll(&mut self, samples: &[f32]) {
         self.pre_roll.extend(samples.iter().copied());
         while self.pre_roll.len() > self.pre_roll_samples {
@@ -224,6 +254,44 @@ impl UtteranceSegmenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_audio_advances_without_replaying_the_whole_utterance() {
+        let mut segmenter = UtteranceSegmenter::new(1_000, SegmenterConfig::default()).unwrap();
+        let mut watermark = None;
+        let mut recognized = 0;
+        for at in (0..8_000).step_by(100) {
+            segmenter
+                .push(VadFrame {
+                    start_sample: at,
+                    samples: &[0.5; 100],
+                    speech: true,
+                })
+                .unwrap();
+            if (at + 100) % 2_000 == 0 {
+                let preview = segmenter.preview_since(watermark).unwrap();
+                recognized += preview.samples.len();
+                watermark = Some(preview.end_sample());
+            }
+        }
+        assert!(
+            recognized <= 9_050,
+            "8 seconds plus three 350ms overlaps: {recognized}"
+        );
+        assert!(
+            segmenter.preview_since(watermark).is_none(),
+            "unchanged audio must never run inference again"
+        );
+        // A short silence tail is not another two seconds of new speech.
+        segmenter
+            .push(VadFrame {
+                start_sample: 8_000,
+                samples: &[0.0; 100],
+                speech: false,
+            })
+            .unwrap();
+        assert!(segmenter.preview_since(watermark).is_none());
+    }
 
     fn config() -> SegmenterConfig {
         SegmenterConfig {

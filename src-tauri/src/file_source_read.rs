@@ -8,7 +8,7 @@ use crate::{
         file_tools::FileSourceReadInput,
         models::ObjectRef,
     },
-    source_file_snapshot::{capture_file, verify_file, FileReadPlan},
+    source_file_snapshot::{capture_file_scoped, verify_file, FileReadPlan},
     source_service::{BoundSourceStore, SourceReadTarget},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -82,7 +82,14 @@ impl<'a, S: BoundSourceStore> FileSourceReadService<'a, S> {
             record_version: None,
             file_version: Some(input.version_number),
         };
-        let plan = self.plan(request, &source)?;
+        let (plan, scope) = self.store.with_current(|binding, db| {
+            let plan = if matches!(request.caller, Caller::Gui) {
+                db.source_file_history_plan(request, binding, &source)?
+            } else {
+                db.source_file_plan(request, binding, &source)?
+            };
+            Ok((plan, crate::source_file_snapshot::file_read_scope(binding)?))
+        })?;
         let format = match std::path::Path::new(&plan.title)
             .extension()
             .and_then(|value| value.to_str())
@@ -118,23 +125,9 @@ impl<'a, S: BoundSourceStore> FileSourceReadService<'a, S> {
         };
         // The existing capture kernel enforces its tested 10 MiB text-file
         // bound, full registered hash, regular-file identity and change stamps.
-        let snapshot = capture_file(&plan).await?;
+        let snapshot = capture_file_scoped(&scope, &plan).await?;
         self.recheck(request, &source, &plan)?;
-        let text = std::str::from_utf8(&snapshot.bytes).map_err(|_| {
-            AgentError::new(
-                ErrorCode::SourceNotReady,
-                "Registered File source is not valid UTF-8",
-            )
-        })?;
-        let total = text.chars().count();
-        if start > total {
-            return Err(invalid());
-        }
-        let start_byte = text
-            .char_indices()
-            .nth(start)
-            .map(|(index, _)| index)
-            .unwrap_or(text.len());
+        let (text, total, start_byte) = snapshot.text_position(start)?;
         let boundaries: Vec<usize> = std::iter::once(start_byte)
             .chain(
                 text[start_byte..]

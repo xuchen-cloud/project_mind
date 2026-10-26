@@ -131,6 +131,7 @@ export function rendererAdapter(root){
     });
     build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]App\.tsx$/},async ({path})=>{
       let source=await readFile(path,'utf8');
+      source="import {usePreviewView} from "+JSON.stringify(resolve(root,'../editor-chrome/preview-view.ts'))+";\n"+source;
       source=embeddedStatus(embeddedAppChrome(source,path),path);
       source=replaceStatusZoom(ts,source,path,'<StatusZoom value={Math.round(zoom)} min={DOCS_ZOOM_MIN} max={DOCS_ZOOM_MAX} step={10} disabled={!doc} onChange={setZoom} onStep={direction=>setZoom(z=>stepDocsZoom(z,direction))} onValueClick={()=>setShowZoomDialog(true)}/>',resolve(root,'../editor-chrome/StatusZoom.tsx'));
       source=markEditorChrome(ts,source,path);
@@ -159,7 +160,8 @@ export function rendererAdapter(root){
       source=replace(source,"useState(() => aiPanelInitiallyOpen('aidocs.showAi'))","useState(false)");
       source=replace(source,"useAutoSavePref('aidocs.autoSave', window.desktop)","useState(false)");
       source=replace(source,'void writeRecoveryCopyImpl(fileCtxRef.current)','void window.__projectMindDocxHost.flush()');
-      source=replace(source,'  const hasUnsavedChanges = isDocDirty(fileCtxRef.current)',`  useEffect(() => { window.__projectMindDocxHost?.render(fileCtxRef.current, docLoading) })\n  const hasUnsavedChanges = embeddedDirty`);
+      source=replace(source,'  const hasUnsavedChanges = isDocDirty(fileCtxRef.current)',`  usePreviewView({zoom,setZoom,scrollers:()=>[scrollContainerRef.current]})
+  useEffect(() => { window.__projectMindDocxHost?.render(fileCtxRef.current, docLoading) })\n  const hasUnsavedChanges = embeddedDirty`);
       source=replace(source,'dirty: !!doc && (anyDirtyRef.current || dirtyRef.current),','dirty: !!doc && window.__projectMindDocxHost.dirty,');
       source=replace(source,'(saveAs: boolean, auto = false) => saveImpl(fileCtxRef.current, saveAs, auto)','(saveAs: boolean, auto = false) => window.__projectMindDocxHost.requestSave()');
       return {contents:source,loader:'tsx',resolveDir:resolve(path,'..')};

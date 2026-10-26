@@ -44,3 +44,16 @@ test('agent ownership changes across candidate and reference awaits reject stale
  const f=fixture();let release;const pending=new Promise(resolve=>{release=resolve;});f.resolver.listCandidates=async()=>{await pending;return [{sessionId:'source-a'}];};installSessionReferenceScope(f.ctx,f.registry);
  const target={...agentA,session:{header:{cwd:'/a'}}};const result=f.resolver.listCandidates(target);target.session.header.cwd='/b';release();await assert.rejects(result,/context.*changed/);
 });
+
+test('reference preparation validates each unique Session once per I/O boundary',async()=>{
+ const f=fixture();let checks=0;const forSession=f.registry.forSession;
+ f.registry.forSession=async id=>{checks++;return forSession(id);};installSessionReferenceScope(f.ctx,f.registry);
+ await f.resolver.prepare(agentA,[],Array.from({length:100},()=>({sessionId:'source-a'})));
+ assert.equal(checks,2);
+});
+test('search does not publish an earlier match whose ownership changes during a later read',async()=>{
+ const f=fixture(async id=>{if(id==='second')f.owners.set('source-a',b);return [document(id)];});
+ f.owners.set('second',a);
+ const result=await searchContextSessions(f.ctx,f.registry,a,{query:'find'});
+ assert.deepEqual(result.items.map(item=>item.sessionId),['second']);
+});

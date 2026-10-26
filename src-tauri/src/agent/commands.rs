@@ -272,6 +272,10 @@ pub(crate) fn agent_settings_update(
             AgentDomainService::new(binding, repo).settings_update(request, input.data.clone())
         },
     );
+    if result.is_ok() {
+        crate::source_maintenance::wake();
+        crate::overview_maintenance::wake();
+    }
     ApiResponse::from_result(input.request_id, result)
 }
 #[tauri::command]

@@ -6,33 +6,83 @@ import { observeSessionModel } from './session-model.mjs';
 import '../styles/scoped.css';
 import './host.css';
 
+const MAX_IDLE_CLIENTS = 3;
+const IDLE_TTL_MS = 5 * 60_000;
 const clients = new Map();
+const clientDisposals = new Set();
+let clientClock = 0;
+let idleTimer;
+
+function scheduleClientTrim() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(trimIdleClients, 0);
+}
+
+function trimIdleClients() {
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
+  const now = Date.now();
+  const idle = [];
+  for (const [projectId, entry] of clients) {
+    if (entry.users > 0 || !entry.client?.isIdle?.()) { entry.idleSince = null; continue; }
+    entry.idleSince ??= now;
+    idle.push([projectId, entry]);
+  }
+  idle.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+  const remaining = [];
+  const expired = [];
+  for (const item of idle) {
+    if (now - item[1].idleSince >= IDLE_TTL_MS) expired.push(item);
+    else remaining.push(item);
+  }
+  while (remaining.length > MAX_IDLE_CLIENTS) expired.push(remaining.shift());
+  for (const [projectId, entry] of expired) {
+    clients.delete(projectId);
+    entry.unsubscribe?.();
+    const disposal = Promise.resolve(entry.client.dispose());
+    clientDisposals.add(disposal);
+    void disposal.then(() => clientDisposals.delete(disposal), error => {
+      clientDisposals.delete(disposal);
+      console.error('DSH 空闲客户端关闭失败', error);
+    });
+  }
+  if (remaining.length > 0) idleTimer = setTimeout(trimIdleClients, Math.max(1,
+    Math.min(...remaining.map(([, entry]) => entry.idleSince + IDLE_TTL_MS - now))));
+}
+
 function acquire(projectId) {
   let entry = clients.get(projectId);
   if (entry === undefined) {
-    entry = { users: 0, promise: createDshClient(projectId) };
+    entry = { users: 0, lastUsed: ++clientClock, idleSince: null, promise: createDshClient(projectId) };
     clients.set(projectId, entry);
     void entry.promise.catch(() => { if (clients.get(projectId) === entry) clients.delete(projectId); });
-    void entry.promise.then(client => client.subscribe((type, data) => {
-      if (clients.get(projectId) !== entry) return;
-      if (type === 'busy')
-        window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy: data } }));
-      else if (type === 'sessionRuns')
-        window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: data } }));
-      else if (type === 'sessionTitles')
-        window.dispatchEvent(new CustomEvent('mind:dsh-session-titles', { detail: { projectId, titlesBySession: data } }));
-      else if (type === 'sessionsChanged')
-        window.dispatchEvent(new CustomEvent('mind:dsh-sessions-changed', { detail: { projectId } }));
-    }), () => {});
+    void entry.promise.then(client => {
+      entry.client = client;
+      entry.unsubscribe = client.subscribe((type, data) => {
+        if (clients.get(projectId) !== entry) return;
+        if (type === 'residency' || type === 'busy') scheduleClientTrim();
+        if (type === 'busy')
+          window.dispatchEvent(new CustomEvent('mind:dsh-project-busy', { detail: { projectId, busy: data } }));
+        else if (type === 'sessionRuns')
+          window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: data } }));
+        else if (type === 'sessionTitles')
+          window.dispatchEvent(new CustomEvent('mind:dsh-session-titles', { detail: { projectId, titlesBySession: data } }));
+        else if (type === 'sessionsChanged')
+          window.dispatchEvent(new CustomEvent('mind:dsh-sessions-changed', { detail: { projectId } }));
+      });
+      scheduleClientTrim();
+    }, () => {});
   }
   entry.users++;
+  entry.lastUsed = ++clientClock;
+  entry.idleSince = null;
   let released = false;
   return { promise: entry.promise, release() {
     if (released) return;
     released = true;
     entry.users--;
-    // A content page only releases its UI seat. The project graph and Session
-    // stores survive Tab closure; workspace teardown owns graph disposal.
+    entry.lastUsed = ++clientClock;
+    scheduleClientTrim();
   } };
 }
 
@@ -132,13 +182,16 @@ export function DshConversationHost(props) {
 export function DshSettingsHost(props) { return <Host {...props} sessionId={null} />; }
 
 export async function disposeDshClients() {
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
   const entries = [...clients.values()];
   for (const projectId of clients.keys()) {
     window.dispatchEvent(new CustomEvent('mind:dsh-session-runs', { detail: { projectId, runningBySession: {} } }));
     window.dispatchEvent(new CustomEvent('mind:dsh-session-titles', { detail: { projectId, titlesBySession: {} } }));
   }
   clients.clear();
-  await Promise.all(entries.map(entry => entry.promise.then(client => client.dispose(), () => {})));
+  for (const entry of entries) entry.unsubscribe?.();
+  await Promise.all([...clientDisposals, ...entries.map(entry => entry.promise.then(client => client.dispose(), () => {}))]);
 }
 window.addEventListener('mind:dsh-workspace-close', () => {
   void disposeDshClients().catch(error => console.error('DSH 客户端关闭失败', error));

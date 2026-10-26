@@ -48,6 +48,15 @@ struct Store {
     binding: Mutex<WorkspaceBinding>,
     db: Mutex<Database>,
 }
+
+#[tokio::test]
+async fn binary_file_read_keeps_text_preview_budget_after_moving_io_outside_store() {
+    let f = Fixture::with_file_bytes(&vec![b'x'; 10 * 1024 * 1024 + 1]);
+    let versions = f.read("budget-head", "file.versions.list", json!({"object":f.file}), &TextUtility::immediate()).await.unwrap();
+    let input = json!({"object":f.file,"versionNumber":1,"expectedContentHash":versions["currentContentHash"]});
+    let error = f.read("budget-bytes", "file.bytes.read", input, &TextUtility::immediate()).await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::BudgetExceeded);
+}
 impl CommittedChangePublisher for Store {
     fn publish_committed(&self, _: CommittedChanges) {}
 }
@@ -156,6 +165,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_file_bytes(EVIDENCE.as_bytes())
+    }
+    fn with_file_bytes(bytes: &[u8]) -> Self {
         let root = tempfile::tempdir().unwrap();
         let mut db = Database::open(&root.path().join("bridge.sqlite"), root.path(), None).unwrap();
         db.bind_native_workspace("bridge-workspace").unwrap();
@@ -174,7 +186,7 @@ impl Fixture {
             })
             .unwrap();
         let path = root.path().join("evidence.txt");
-        std::fs::write(&path, EVIDENCE).unwrap();
+        std::fs::write(&path, bytes).unwrap();
         let file = db
             .document_import(DocumentImportInput {
                 project_id: Some(project.id),

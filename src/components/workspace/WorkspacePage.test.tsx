@@ -445,7 +445,22 @@ describe("WorkspacePage", () => {
 
     await user.click(ownership);
     await user.type(screen.getByRole("searchbox", { name: "筛选 Todo 归属" }), "Alpha");
-    await user.click(screen.getByRole("option", { name: "Alpha" }));
+    // Select ownership and focus the editor before the next animation frame.
+    // A deferred focus return must not steal this newer user focus or input.
+    const frames: FrameRequestCallback[] = [];
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      await user.click(screen.getByRole("option", { name: "Alpha" }));
+      const composer = screen.getByPlaceholderText("写下要做的事");
+      await user.click(composer);
+      act(() => frames.splice(0).forEach((callback) => callback(performance.now())));
+      expect(composer).toHaveFocus();
+    } finally {
+      requestFrame.mockRestore();
+    }
     await user.type(screen.getByPlaceholderText("写下要做的事"), "推进里程碑 #同名");
     await user.click(screen.getByRole("button", { name: "创建" }));
 

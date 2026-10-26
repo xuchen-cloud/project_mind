@@ -12,28 +12,24 @@ fn hidden_test_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Co
     command
 }
 
-// Permission denial exercises the same failed-move branch as a Windows handle
-// opened without FILE_SHARE_DELETE. Restore permissions before asserting so a
-// failure also leaves the temporary fixture removable.
-#[cfg(unix)]
+// Inject failure after the durable move/metadata intents, independently of
+// Unix credentials or filesystem permission overrides.
 #[test]
 fn directory_file_failed_move_does_not_retry_or_apply_metadata_on_resolve() {
-    use std::os::unix::fs::PermissionsExt;
     let (_root, mut db, project, path) = fixture();
     fs::write(path.join("original.txt"), b"original bytes").unwrap();
     let first = db
         .project_file_register("wp1-workspace", project, "original.txt")
         .unwrap();
-    let original_permissions = fs::metadata(&path).unwrap().permissions();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).unwrap();
+    FAIL_NEXT_DIRECTORY_MOVE.with(|fail| fail.set(true));
     let result = db.document_update_meta(crate::models::DocumentUpdateMetaInput {
         document_id: first.object.id.parse().unwrap(),
         base_name: Some("renamed.txt".into()),
         is_starred: Some(true),
         tag_ids: Some(vec![]),
     });
-    fs::set_permissions(&path, original_permissions).unwrap();
-    assert!(result.is_err(), "read-only directory must reject the move");
+    assert!(result.is_err(), "injected move failure must be returned");
+    FAIL_NEXT_DIRECTORY_MOVE.with(|fail| assert!(!fail.get(), "real move boundary must consume injection"));
     let pending: i64 = db
         .conn
         .query_row("SELECT COUNT(*) FROM project_directory_moves", [], |r| {
@@ -2548,16 +2544,33 @@ fn directory_scan_yields_on_directory_only_trees() {
     for i in 0..150 {
         fs::create_dir(path.join(format!("folder-{i:03}"))).unwrap();
     }
-    let first = db
-        .project_file_scan_new("wp1-workspace", project, None, 1)
-        .unwrap();
-    assert!(first.files.is_empty());
-    assert!(!first.complete);
-    assert!(first.next_cursor.is_some());
-    let next = db
-        .project_file_scan_new("wp1-workspace", project, first.next_cursor.as_deref(), 1)
-        .unwrap();
-    assert!(next.complete);
+    let mut cursor = None;
+    let mut opened = std::collections::HashSet::new();
+    let mut entries_read = 0;
+    let mut complete = false;
+    // Real enumeration and visited-entry budgets are independent. Reading a
+    // full 128-entry root batch may defer its first empty child to the next
+    // page. Termination stays bounded without assuming precisely two pages.
+    for page in 0..4 {
+        let scan = db.project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 1).unwrap();
+        assert!(scan.files.is_empty());
+        assert!(scan.failures.is_empty());
+        assert!(scan.entries_read <= 128);
+        entries_read += scan.entries_read;
+        for directory in scan.opened_directories {
+            assert!(opened.insert(directory), "a directory must not be opened twice");
+        }
+        cursor = scan.next_cursor;
+        if cursor.is_none() { complete = scan.complete; break; }
+        assert!(!scan.complete);
+        if page == 0 { assert!(!opened.is_empty()); }
+    }
+    assert!(complete, "150 empty directories must finish within four bounded pages");
+    assert!(cursor.is_none());
+    assert_eq!(entries_read, 150, "root entries must each be read exactly once");
+    let expected: std::collections::HashSet<_> = std::iter::once(String::new())
+        .chain((0..150).map(|i| format!("folder-{i:03}"))).collect();
+    assert_eq!(opened, expected, "every empty directory must be visited exactly once");
 }
 
 #[test]
@@ -3323,4 +3336,280 @@ fn directory_file_gui_registration_sql_failure_preserves_live_and_history_then_r
     assert_eq!(committed.version_number, 2);
     assert_eq!(fs::read(&live).unwrap(), b"external bytes never replaced");
     assert_eq!(bytes(&db, &first), b"retained V1");
+}
+
+
+#[test]
+fn directory_file_version_zero_replacement_requires_confirmation_before_initial_snapshot() {
+    for publish_directly in [false, true] {
+        let (_root, db, project, path) = fixture();
+        let live = path.join("pending.bin");
+        fs::File::create(&live).unwrap()
+            .set_len(crate::file_text_patch::MAX_FILE_BYTES as u64 + 1).unwrap();
+        let pending = db.project_file_register("wp1-workspace", project, "pending.bin").unwrap();
+        assert_eq!(pending.version_number, 0);
+        fs::write(path.join("new.bin"), b"replacement bytes").unwrap();
+        fs::rename(path.join("new.bin"), &live).unwrap();
+        let current = if publish_directly {
+            db.directory_publish("wp1-workspace", Some(project), &live, &pending.object, false, None).unwrap()
+        } else {
+            db.project_file_resolve(&pending.object).unwrap()
+        };
+        assert_eq!(current.state, "ambiguous");
+        assert_eq!(current.version_number, 0);
+        assert_eq!(current.content_hash, None);
+        let versions: i64 = db.conn.query_row("SELECT COUNT(*) FROM document_versions WHERE document_id=?1", [&pending.object.id], |r| r.get(0)).unwrap();
+        assert_eq!(versions, 0);
+        let confirmed = db.project_file_reconcile(&pending.object, "pending.bin", 0, None, "replacement").unwrap();
+        assert_eq!(confirmed.state, "ready");
+        assert_eq!(confirmed.version_number, 1);
+        assert_eq!(confirmed.object, pending.object);
+        assert_eq!(bytes(&db, &confirmed), b"replacement bytes");
+    }
+}
+
+#[test]
+fn directory_file_version_zero_same_physical_file_can_recover_under_budget() {
+    let (_root, db, project, path) = fixture();
+    let live = path.join("pending.bin");
+    fs::File::create(&live).unwrap()
+        .set_len(crate::file_text_patch::MAX_FILE_BYTES as u64 + 1).unwrap();
+    let pending = db.project_file_register("wp1-workspace", project, "pending.bin").unwrap();
+    let physical = file_versions::path_identity(&live).unwrap();
+    fs::write(&live, b"same physical file now fits").unwrap();
+    assert_eq!(file_versions::path_identity(&live).unwrap(), physical);
+    let ready = db.project_file_resolve(&pending.object).unwrap();
+    assert_eq!(ready.state, "ready");
+    assert_eq!(ready.version_number, 1);
+    assert_eq!(ready.object, pending.object);
+}
+
+
+#[test]
+fn directory_scan_wide_directory_has_a_real_enumeration_budget_and_reads_once() {
+    let (_root, db, project, path) = fixture();
+    for i in 0..600 { fs::write(path.join(format!(".excluded-{i:04}")), b"hidden").unwrap(); }
+    let mut cursor = None;
+    let mut total = 0;
+    let mut excluded = std::collections::HashSet::new();
+    for _ in 0..16 {
+        let scan = db.project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 5).unwrap();
+        assert!(scan.entries_read <= 128, "actual read_dir work must yield");
+        total += scan.entries_read;
+        for entry in scan.excluded { assert!(excluded.insert(entry.relative_path), "entry enumerated twice"); }
+        assert!(scan.failures.is_empty());
+        cursor = scan.next_cursor;
+        if cursor.is_none() { break; }
+        let cancelled = db.project_file_scan("wp1-workspace", project, cursor.as_deref(), 5, true).unwrap();
+        assert_eq!(cancelled.entries_read, 0);
+        assert_eq!(cancelled.next_cursor, cursor);
+    }
+    assert!(cursor.is_none(), "wide scan must finish");
+    assert_eq!(total, 600, "one native enumeration across all pages");
+    assert_eq!(excluded.len(), 600);
+}
+
+#[test]
+fn directory_scan_event_path_does_not_enumerate_unrelated_wide_directories() {
+    let (_root, db, project, path) = fixture();
+    fs::create_dir(path.join("unrelated")).unwrap();
+    for i in 0..300 { fs::write(path.join(format!("unrelated/item-{i:03}")), b"unrelated").unwrap(); }
+    fs::write(path.join("new.txt"), b"event bytes").unwrap();
+    let first = db.project_file_scan_new_at("wp1-workspace", Some(project), "new.txt", None, 5).unwrap();
+    assert_eq!(first.entries_read, 0);
+    assert_eq!(first.files.len(), 1);
+    assert_eq!(first.files[0].relative_path, "new.txt");
+    let repeat = db.project_file_scan_new_at("wp1-workspace", Some(project), "new.txt", None, 5).unwrap();
+    assert_eq!(repeat.entries_read, 0);
+    assert!(repeat.files.is_empty());
+    let count: i64 = db.conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0)).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn directory_scan_retained_cursor_rejects_other_modes_scope_and_replays() {
+    let (_root, mut db, project, path) = fixture();
+    for i in 0..150 { fs::write(path.join(format!(".excluded-{i:03}")), b"hidden").unwrap(); }
+    let first = db.project_file_scan_new("wp1-workspace", project, None, 1).unwrap();
+    let cursor = first.next_cursor.unwrap();
+    let other = db.project_create(ProjectCreateInput { name: "Other scan scope".into(), summary: None, status: None }).unwrap();
+    assert_eq!(FileServiceError::from_error(db.project_file_scan_new("wp1-workspace", other.id, Some(&cursor), 1).unwrap_err()).code, "ownership_mismatch");
+    assert_eq!(FileServiceError::from_error(db.project_file_scan("wp1-workspace", project, Some(&cursor), 1, false).unwrap_err()).code, "ownership_mismatch");
+    let next = db.project_file_scan_new("wp1-workspace", project, Some(&cursor), 1).unwrap();
+    assert!(next.complete);
+    assert!(db.project_file_scan_new("wp1-workspace", project, Some(&cursor), 1).is_err());
+}
+
+#[test]
+fn directory_file_claims_detect_unregistered_external_hard_link_identities() {
+    let (_root, mut db, project, path) = fixture();
+    let other = db.project_create(ProjectCreateInput { name: "External owner".into(), summary: None, status: None }).unwrap();
+    let owner_path = PathBuf::from(&other.root_path).join("owner.txt");
+    fs::write(&owner_path, b"original owner").unwrap();
+    let owner = db.project_file_register("wp1-workspace", other.id, "owner.txt").unwrap();
+    let staging = PathBuf::from(&other.root_path).join("new.txt");
+    fs::write(&staging, b"unregistered external identity").unwrap();
+    fs::rename(&staging, &owner_path).unwrap();
+    fs::hard_link(&owner_path, path.join("alias.txt")).unwrap();
+    let error = db.project_file_register("wp1-workspace", project, "alias.txt").unwrap_err();
+    assert_eq!(FileServiceError::from_error(error).code, "ownership_mismatch");
+    assert_eq!(bytes(&db, &owner), b"original owner");
+}
+
+
+#[test]
+fn directory_file_claims_preserve_case_aliases_after_external_replacement() {
+    let (_root, db, project, path) = fixture();
+    for (original, alias) in [("mixed.txt", "MIXED.TXT"), ("Äown.txt", "äOWN.TXT")] {
+        fs::write(path.join(original), b"original").unwrap();
+        let first = db.project_file_register("wp1-workspace", project, original).unwrap();
+        if !path.join(alias).exists() { continue; } // This volume is case sensitive.
+        fs::write(path.join("external-replace.bin"), b"external").unwrap();
+        fs::rename(path.join("external-replace.bin"), path.join(original)).unwrap();
+        let second = db.project_file_register("wp1-workspace", project, alias).unwrap();
+        assert_eq!(second.object, first.object);
+        assert_eq!(second.version_number, 2);
+        assert_eq!(bytes(&db, &first), b"original");
+    }
+}
+
+
+#[test]
+fn directory_file_bulk_registration_does_not_read_every_registered_identity() {
+    let (_root, db, project, path) = fixture();
+    CLAIMANT_IDENTITY_READS.with(|reads| reads.set(0));
+    for i in 0..200 {
+        let name = format!("ordinary-{i:04}.txt");
+        fs::write(path.join(&name), b"bounded identity lookup").unwrap();
+        let file = db.project_file_register("wp1-workspace", project, &name).unwrap();
+        assert_eq!(file.state, "ready");
+    }
+    CLAIMANT_IDENTITY_READS.with(|reads| assert_eq!(reads.get(), 0,
+        "200 ordinary registrations must not reopen existing Files to prove non-aliasing"));
+    for (sql, expected_index) in [
+        ("SELECT document_id FROM project_directory_files WHERE physical_identity=?1", "idx_directory_file_identity"),
+        ("SELECT id FROM documents WHERE storage_mode!='managed_note_image' AND managed_path COLLATE NOCASE IN (?1)", "idx_business_file_managed_path"),
+    ] {
+        let mut statement = db.conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let plans: Vec<String> = statement.query_map(["absent"], |r| r.get(3)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        assert!(plans.iter().any(|plan| plan.contains(expected_index)), "{plans:?}");
+    }
+}
+
+#[cfg(unix)]
+fn scan_directory_fd_count(directory: &std::path::Path) -> usize {
+    let directory = directory.canonicalize().unwrap();
+    fs::read_dir("/dev/fd").unwrap().filter_map(|entry| {
+        let entry = entry.ok()?;
+        #[cfg(target_os = "macos")]
+        {
+            unsafe extern "C" { fn fcntl(fd: i32, command: i32, ...) -> i32; }
+            let fd: i32 = entry.file_name().to_str()?.parse().ok()?;
+            let mut bytes = [0i8; 1024];
+            if unsafe { fcntl(fd, 50, bytes.as_mut_ptr()) } != 0 { return None; } // F_GETPATH
+            let value = unsafe { std::ffi::CStr::from_ptr(bytes.as_ptr()) }.to_str().ok()?;
+            Some(std::path::PathBuf::from(value))
+        }
+        #[cfg(not(target_os = "macos"))]
+        { fs::read_link(entry.path()).ok() }
+    }).filter(|path| path == &directory).count()
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_scan_exhausted_buffers_release_real_directory_fds() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("one"), b"one").unwrap();
+    let baseline = scan_directory_fd_count(directory.path());
+    let mut frames = vec![];
+    for _ in 0..40 {
+        let mut frame = ScanFrame::new(String::new());
+        frame.open(directory.path(), 0).unwrap();
+        assert!(frame.fill_batch(&mut 0).is_empty());
+        assert!(frame.exhausted);
+        assert_eq!(frame.buffered.len(), 1);
+        frames.push(frame);
+    }
+    assert_eq!(scan_directory_fd_count(directory.path()), baseline, "owned names must not retain exhausted ReadDir FDs");
+    drop(frames);
+}
+
+#[test]
+fn directory_scan_open_fd_budget_fails_explicitly_and_releases_frames() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut frames = vec![];
+    for index in 0..MAX_SCAN_OPEN_DIRECTORIES {
+        let mut frame = ScanFrame::new(String::new());
+        frame.open(directory.path(), index).unwrap();
+        frames.push(frame);
+    }
+    #[cfg(unix)]
+    assert_eq!(scan_directory_fd_count(directory.path()), MAX_SCAN_OPEN_DIRECTORIES);
+    let mut extra = ScanFrame::new(String::new());
+    let error = extra.open(directory.path(), frames.len()).unwrap_err();
+    assert_eq!(FileServiceError::from_error(error).code, "scan_fd_budget");
+    assert!(extra.entries.is_none());
+    drop(frames);
+    extra.open(directory.path(), 0).unwrap();
+}
+
+#[test]
+fn directory_scan_deep_tree_preserves_all_paths_with_bounded_open_fds() {
+    let (_root, db, project, root) = fixture();
+    let mut path = root.clone();
+    for _ in 0..80 {
+        fs::write(path.join(".excluded"), b"hidden sibling").unwrap();
+        path = path.join("a"); fs::create_dir(&path).unwrap();
+    }
+    fs::write(path.join("leaf.txt"), b"deep leaf").unwrap();
+    let mut cursor = None;
+    let mut visited = std::collections::HashSet::new();
+    let mut files = vec![];
+    let mut reads = 0;
+    for _ in 0..32 {
+        let scan = db.project_file_scan_new("wp1-workspace", project, cursor.as_deref(), 5).unwrap();
+        assert!(scan.failures.is_empty(), "{:?}", scan.failures);
+        assert!(scan.entries_read <= 128);
+        reads += scan.entries_read;
+        for directory in scan.opened_directories { assert!(visited.insert(directory), "directory reopened"); }
+        files.extend(scan.files);
+        cursor = scan.next_cursor;
+        if cursor.is_none() { assert!(scan.complete); break; }
+    }
+    assert!(cursor.is_none(), "deep scan must terminate within the fixed page bound");
+    assert_eq!(visited.len(), 81);
+    assert_eq!(reads, 161);
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].relative_path, format!("{}leaf.txt", "a/".repeat(80)));
+}
+
+#[test]
+fn directory_scan_fd_budget_aborts_cursor_without_retaining_partial_frames() {
+    let (_root, db, project, root) = fixture();
+    fs::create_dir(root.join("nested")).unwrap();
+    let scan_id = file_versions::token();
+    let position = ScanCursor { workspace_id:"wp1-workspace".into(), project_id:Some(project), scan_id:scan_id.clone(), sequence:0 };
+    let cursor = STANDARD.encode(serde_json::to_vec(&position).unwrap());
+    let mut stack = vec![];
+    for index in 0..MAX_SCAN_OPEN_DIRECTORIES {
+        let mut frame = ScanFrame::new(String::new());
+        frame.open(&root, index).unwrap();
+        stack.push(frame);
+    }
+    // Model a resumed DFS with 32 still-enumerating ancestors and the next
+    // child already in its bounded batch. All handles are real ReadDir FDs.
+    stack.last_mut().unwrap().buffered.push_back(ScanEntry {
+        name:"nested".into(), kind:fs::metadata(root.join("nested")).unwrap().file_type(),
+    });
+    SCAN_SESSIONS.lock().unwrap().insert(scan_id.clone(), std::sync::Arc::new(std::sync::Mutex::new(ScanSession {
+        root:root.clone(), workspace_id:"wp1-workspace".into(), project_id:Some(project), only_new:true,
+        start_relative:String::new(), sequence:0, stack, touched:std::time::Instant::now(),
+    })));
+    let error = db.project_file_scan_new("wp1-workspace", project, Some(&cursor), 5).unwrap_err();
+    let error = FileServiceError::from_error(error);
+    assert_eq!(error.code, "scan_fd_budget");
+    assert!(error.message.contains("nested"));
+    assert!(!SCAN_SESSIONS.lock().unwrap().contains_key(&scan_id), "a failed cursor must release all retained frames");
+    #[cfg(unix)]
+    assert_eq!(scan_directory_fd_count(&root), 0);
 }

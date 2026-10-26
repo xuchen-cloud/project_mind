@@ -60,3 +60,17 @@ it("isolates project and workspace identity and ignores stale path resolution", 
   await waitFor(() => expect(recordDocumentApi.bindingGet).toHaveBeenCalledWith("/other"));
   expect(view.result.current.activeFileId).toBeNull();
 });
+
+it.each(["ambiguous", "unavailable"] as const)("withholds a %s path until identity is ready again", async state => {
+  const store = useProjectContentStore.getState();
+  store.open(scope, { kind: "file", id: 42, title: "File" });
+  vi.mocked(projectFileApi.resolve).mockImplementation(async (_binding, object) => ({ object, relativePath: "untrusted.txt", name: "File", state, versionNumber: 1, contentHash: null, reason: "需要核对" }));
+  const view = setup();
+  await waitFor(() => expect(projectFileApi.resolve).toHaveBeenCalled());
+  await act(async () => {});
+  expect(view.result.current.activeRelativePath).toBeNull();
+  vi.mocked(projectFileApi.resolve).mockImplementation(async (_binding, object) => ({ object, relativePath: "confirmed.txt", name: "File", state: "ready", versionNumber: 1, contentHash: null, reason: null }));
+  const { notifyProjectFilesChanged } = await import("../../lib/project-file-navigation");
+  act(() => notifyProjectFilesChanged(7, "/workspace"));
+  await waitFor(() => expect(view.result.current.activeRelativePath).toBe("confirmed.txt"));
+});
