@@ -51,6 +51,10 @@ Windows 只发布 NSIS `setup.exe`；macOS 分别发布 Apple Silicon 与 Intel 
 3. 工作流会校验标签中的数字版本与五处版本文件一致，仅构建 Windows x64
    NSIS 安装包，并将安装包和 Tauri 签名发布为 Pre-release。
 
+工作流在 CLI 和桌面资源构建前安装固定版本的 protoc 29.3，并执行
+`protoc --version`；本地语音依赖 `candle-onnx` 需要该编译器生成 ONNX protobuf
+绑定。更新 Rust 缓存不能代替安装 protoc。
+
 Windows-only patch 不生成或上传 `latest.json`，也不会修改
 `beta/latest.json`。因此它不会触发应用内自动更新，需要测试者从 GitHub Release
 页面手动下载安装；macOS 用户和当前 Beta 更新频道不受影响。
