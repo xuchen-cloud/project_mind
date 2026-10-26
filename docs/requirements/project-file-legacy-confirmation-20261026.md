@@ -2,6 +2,8 @@
 
 关联 [#266](https://github.com/xuchen-cloud/project_mind/issues/266)。基线 `develop` 的 `12d09c4`。
 
+后续用户修正：[#271](project-file-discovery-events-20261026.md) 将缺少身份的旧版导入原路径改为自动登记，无需逐个确认。以下内容保留 #266 当时的行为与验证记录。
+
 ## 工作包
 
 - 依赖：已有目录 File 的身份核对、归属校验、不可变版本快照、版本与内容 CAS。
