@@ -151,8 +151,30 @@ where
 /// Resolve packaged extraction resources only when a File read needs them.
 pub(crate) struct AppSourceUtility(pub(crate) tauri::AppHandle);
 impl SourceUtility for AppSourceUtility {
-    async fn session_inventory(&self,binding:&WorkspaceBinding,input:&crate::agent::record_list::RecordListInput,authorization:&str)->AgentResult<Value> {
-        crate::dsh_assistant::cli_session_inventory(&self.0,binding,input,authorization).await
+    async fn prepared_extractor(
+        &self,
+    ) -> AgentResult<Option<crate::source_extraction_worker::SourceExtractionWorker>> {
+        let app = self.0.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::source_extraction_worker::SourceExtractionWorker::for_app(&app)
+        })
+        .await
+        .map_err(|_| {
+            AgentError::new(
+                ErrorCode::RuntimeUnavailable,
+                "Cannot prepare source reader",
+            )
+        })?
+        .map(Some)
+    }
+
+    async fn session_inventory(
+        &self,
+        binding: &WorkspaceBinding,
+        input: &crate::agent::record_list::RecordListInput,
+        authorization: &str,
+    ) -> AgentResult<Value> {
+        crate::dsh_assistant::cli_session_inventory(&self.0, binding, input, authorization).await
     }
 
     async fn request(
@@ -162,17 +184,12 @@ impl SourceUtility for AppSourceUtility {
         format: &str,
         bytes: &[u8],
     ) -> AgentResult<Value> {
-        let app = self.0.clone();
-        let worker = tokio::task::spawn_blocking(move || {
-            crate::source_extraction_worker::SourceExtractionWorker::for_app(&app)
-        })
-        .await
-        .map_err(|_| {
+        let worker = self.prepared_extractor().await?.ok_or_else(|| {
             AgentError::new(
                 ErrorCode::RuntimeUnavailable,
                 "Cannot prepare source reader",
             )
-        })??;
+        })?;
         worker
             .request(workspace_id, request_id, format, bytes)
             .await

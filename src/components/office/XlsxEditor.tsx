@@ -1,3 +1,4 @@
+import {useOfficePreview,type OfficePreviewProps} from './useOfficePreview'
 import { EditorLoading } from "../document/EditorLoading"
 import { useEffect, useRef, useState } from 'react'
 import type { EditorProps, MountedEditor, SelectionController } from '../../../packages/office-xlsx/types'
@@ -6,7 +7,7 @@ import rendererUrl from '../../../packages/office-xlsx/dist/renderer.html?office
 import type {RegisterEditorOutput} from '../../lib/editor-output'
 
 export type { Model, Edit } from '../../../packages/office-xlsx/types'
-export type XlsxEditorProps = EditorProps & {
+export type XlsxEditorProps = EditorProps & OfficePreviewProps & {
   registerSelection?: (controller: SelectionController) => () => void
   registerOutput?: RegisterEditorOutput
   registerBeforeSave?: (callback: () => Promise<void>) => () => void
@@ -21,6 +22,7 @@ export function XlsxEditor(props: XlsxEditorProps) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<'runtime' | 'render' | null>('runtime')
   const loadingReady = useRef<Promise<void> | null>(null)
+  useOfficePreview(loading===null,()=>host.current?.querySelector('iframe')??null,props,setError)
   function observeReady(mounted: MountedEditor) {
     const ready = mounted.ready
     if (loadingReady.current === ready) return

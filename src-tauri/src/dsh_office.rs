@@ -427,7 +427,10 @@ impl OfficeCall {
             (input, inspected.model, None)
         };
         let source = store.with_current(|binding, db| {
-            db.project_file_read_office_source(
+            // The service already validated the retained bytes after compute.
+            // Re-authorize metadata for the projection without loading/encoding
+            // the complete file a second time while holding the database lock.
+            db.project_file_office_plan(
                 &request,
                 binding,
                 &crate::db::project_directory_files::FileBytesInput {
@@ -436,7 +439,13 @@ impl OfficeCall {
                     expected_content_hash: baseline.expected_content_hash,
                 },
             )
-            .map(|x| x.1)
+            .map(|plan| crate::agent::models::SourceRef {
+                object: plan.input.object,
+                revision: plan.input.expected_content_hash,
+                file_version: Some(plan.input.version_number),
+                record_version: None, block_id: None, locator: None,
+                title: plan.name, excerpt: String::new(),
+            })
         })?;
         let mut value = json!({"sourceRef":source,"model":model});
         if let Some(commit) = commit {

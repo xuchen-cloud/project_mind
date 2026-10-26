@@ -60,16 +60,22 @@ fn failed(operation: &'static str, error: impl std::fmt::Display) -> VoiceError 
 fn with_voice_db<T>(state: &AppState, workspace: &crate::WorkspaceRuntime, operation: &'static str,
     action: impl FnOnce(&mut super::runtime::VoiceRuntime, &mut crate::db::Database) -> anyhow::Result<T>) -> VoiceResult<T> {
     let request_id = format!("voice:{:032x}", rand::random::<u128>());
-    let (result, changes) = {
-        let mut voice = lock_mutex(&state.voice_runtime);
-        let current = lock_mutex(&state.current_workspace);
-        if !current.as_ref().is_some_and(|current| current.agent_binding == workspace.agent_binding) {
-            return Err(failed(operation, "Workspace changed before the command acquired storage"));
-        }
-        let mut db = lock_mutex(&workspace.db);
-        crate::committed_changes::capture_native_committed(&workspace.agent_binding, &mut db, &request_id, |db| action(&mut voice, db))
-            .map_err(|error| failed(operation, error))?
-    };
+    let (result, changes) = super::runtime::with_serialized_storage(
+        &state.voice_runtime, &workspace.voice_db,
+        || {
+            if state.voice_closing.is_closing() || state.exit_authorized.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(anyhow::anyhow!("应用正在退出"));
+            }
+            let current = lock_mutex(&state.current_workspace);
+            if !current.as_ref().is_some_and(|current| current.agent_binding == workspace.agent_binding) {
+                return Err(anyhow::anyhow!("Workspace changed before the command acquired storage"));
+            }
+            Ok(())
+        },
+        |voice, db| crate::committed_changes::capture_native_committed(
+            &workspace.agent_binding, db, &request_id, |db| action(voice, db)),
+    ).map_err(|error| failed(operation, error))?;
+    if operation != "snapshot_get" { super::supervision::wake(); }
     if let Some(changes) = changes {
         use crate::committed_changes::CommittedChangePublisher;
         state.publish_committed(changes);
@@ -154,6 +160,7 @@ pub(crate) async fn voice_diarization_start(state: State<'_, AppState>, input: V
         if playback.phase != "ended" { return Err(anyhow::anyhow!("请先结束录音，再区分说话人")); }
         if playback.chunks.is_empty() { return Err(anyhow::anyhow!("没有可分析的已保存录音")); }
         db.voice_diarization_enqueue(&snapshot.session_id)?;
+        super::supervision::wake();
         db.voice_diarization_get(&input)
     })
 }
@@ -219,11 +226,11 @@ pub(crate) fn voice_settings_upsert(
     let runtime = state
         .current_workspace()
         .map_err(|error| failed("settings_upsert", error))?;
-    lock_mutex(&runtime.db)
-        .voice_settings_upsert(&input)
-        .map_err(|error| failed("settings_upsert", error))?;
-    lock_mutex(&state.voice_runtime).set_live_preview_enabled(input.live_preview_enabled);
-    Ok(())
+    with_voice_db(&state, &runtime, "settings_upsert", |voice, db| {
+        db.voice_settings_upsert(&input)?;
+        voice.set_live_preview_enabled(input.live_preview_enabled);
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -451,5 +458,6 @@ pub(crate) fn voice_recovery_retry(
     let result = lock_mutex(&workspace.db)
         .voice_cloud_retry(&input)
         .map_err(|error| failed("recovery_retry", error));
+    super::supervision::wake();
     result
 }

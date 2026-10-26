@@ -6,34 +6,44 @@ const formats = new Set(['docx', 'xlsx', 'pptx']);
 const failure = (requestId, code, message) => ({ requestId, ok: false, error: { code, message } });
 
 /** Data-only Office boundary shared by the GUI and DSH native service. */
-export async function handleOfficeRequest(request) {
+export function createOfficeRecalculationSession() {
+  const state = { workbook: undefined, closed: false };
+  return {
+    handle: request => handleOfficeRequest(request, state),
+    async close() { state.closed = true; await state.workbook?.close(); state.workbook = undefined; },
+  };
+}
+export async function handleOfficeRequest(request, session) {
   const requestId = typeof request?.requestId === 'string' ? request.requestId : '';
   if (!requestId || requestId.length > 128 || !request || typeof request !== 'object'
       || Object.keys(request).some(key => !['requestId', 'method', 'data'].includes(key))) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Invalid Office request identity');
   }
   const { method, data } = request;
+  if (session && (session.closed || method !== 'office.recalculate')) return failure(requestId, 'INVALID_ARGUMENT', 'Private baseline only accepts active recalculation');
+  if (session?.workbook && data?.base64 !== undefined) return failure(requestId, 'INVALID_ARGUMENT', 'Private baseline bytes cannot be replaced');
+  const retained = !!session?.workbook;
   const creating = method === 'office.create';
   const recalculate = method === 'office.recalculate';
   const allowed = creating ? ['format', 'content'] : recalculate ? ['format', 'base64', 'recalculation'] : ['format', 'base64', 'edits'];
   if (!['office.inspect', 'office.edit', 'office.recalculate', 'office.create'].includes(method) || !data || typeof data !== 'object' || Array.isArray(data)
       || Object.keys(data).some(key => !allowed.includes(key)) || !formats.has(data.format)
       || (recalculate && data.format !== 'xlsx')
-      || (creating ? !(typeof data.content === 'string' && data.format === 'docx' && data.content.trim() || data.content && typeof data.content === 'object' && !Array.isArray(data.content)) : typeof data.base64 !== 'string')) {
+      || (creating ? !(typeof data.content === 'string' && data.format === 'docx' && data.content.trim() || data.content && typeof data.content === 'object' && !Array.isArray(data.content)) : !retained && typeof data.base64 !== 'string')) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Expected a supported Office format and fixed source bytes');
   }
   if (creating && Buffer.byteLength(JSON.stringify(data.content), 'utf8') > 2 * 1024 * 1024) {
     return failure(requestId, 'BUDGET_EXCEEDED', 'Office creation content exceeds 2 MiB');
   }
-  if (!creating && data.base64.length > Math.ceil(MAX_BYTES / 3) * 4) {
+  if (!creating && !retained && data.base64.length > Math.ceil(MAX_BYTES / 3) * 4) {
     return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
   }
   // Buffer decoding is permissive; require canonical base64 at the IPC boundary.
-  const bytes = creating ? undefined : Buffer.from(data.base64, 'base64');
-  if (!creating && (bytes.toString('base64') !== data.base64 || !bytes.length)) {
+  const bytes = creating || retained ? undefined : Buffer.from(data.base64, 'base64');
+  if (!creating && !retained && (bytes.toString('base64') !== data.base64 || !bytes.length)) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Office source bytes are incomplete');
   }
-  if (!creating && bytes.length > MAX_BYTES) return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
+  if (!creating && !retained && bytes.length > MAX_BYTES) return failure(requestId, 'BUDGET_EXCEEDED', 'Office source exceeds 100 MiB');
   if (method === 'office.edit' && (!Array.isArray(data.edits) || data.edits.length > MAX_EDITS)) {
     return failure(requestId, 'INVALID_ARGUMENT', 'Expected at most 256 Office edits');
   }
@@ -66,7 +76,13 @@ export async function handleOfficeRequest(request) {
     if (method === 'office.inspect') return { requestId, ok: true, data: { model: await engine.inspect(bytes, context) } };
     // engine.recalculate reuses workbookRecalcRequestSchema for strict nested
     // fields, coordinates and input lengths before opening the source bytes.
-    if (recalculate) return { requestId, ok: true, data: await engine.recalculate(bytes, data.recalculation, context) };
+    if (recalculate) {
+      if (session) {
+        session.workbook ??= await engine.createRecalculationSession(bytes, context);
+        return { requestId, ok: true, data: await session.workbook.recalculate(data.recalculation) };
+      }
+      return { requestId, ok: true, data: await engine.recalculate(bytes, data.recalculation, context) };
+    }
     const candidate = creating ? await engine.create(data.content, context) : await engine.edit(bytes, data.edits, context);
     if (!(candidate instanceof Uint8Array) || candidate.byteLength > MAX_BYTES) {
       return failure(requestId, 'BUDGET_EXCEEDED', 'Office candidate exceeds 100 MiB');

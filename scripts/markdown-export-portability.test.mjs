@@ -35,8 +35,8 @@ test('autocrlf checkout preserves pinned sources and generated adapters without 
       'packages/office-docx/vendor-web/LICENSE',
       'packages/office-pptx/vendor/LICENSE',
       'packages/office-xlsx/LICENSE',
-      'scripts/dsh-runtime-licenses/SPDX-MIT.txt',
-      'scripts/vendor-licenses/pi-0.99.1.LICENSE',
+      'scripts/dsh-runtime-licenses/pi-0.87.1.LICENSE',
+      'scripts/vendor-licenses/aws-sdk-js-v3.LICENSE',
     ];
     for(const file of pinnedFiles){
       await mkdir(path.dirname(path.join(repository,file)),{recursive:true});

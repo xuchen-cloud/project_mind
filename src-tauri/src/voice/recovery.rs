@@ -103,6 +103,7 @@ pub(crate) fn kick(workspace: Arc<WorkspaceRuntime>, handle: tauri::AppHandle) {
         workspace
             .voice_recovery_running
             .store(false, Ordering::Release);
+        super::supervision::wake();
     });
 }
 

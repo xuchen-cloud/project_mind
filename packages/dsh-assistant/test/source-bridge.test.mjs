@@ -196,3 +196,34 @@ test('Skill reference reads use the ordinary read while business files retain na
   assert.equal(ordinary, 2, 'cached canonical resources lose authorization when disabled');
   assert.equal(requests.length, 2);
 });
+
+test('one model request deduplicates ownership across 200 historical projections and rechecks revocation after admission', async () => {
+  const handlers = new Map();
+  let revision = 0, checks = 0, revoked = false;
+  const delivered = [];
+  const ctx = { connection: { fetch: { register() {} } }, agents: { list: () => [] }, on(name, handler) { handlers.set(name, handler); }, effect() {} };
+  const registry = { revision: () => revision, async forSession() { checks++; if (revoked) throw new Error('Session revoked'); } };
+  await installSourceService(ctx, registry, { async request(payload) { delivered.push(payload); } });
+  const messages = Array.from({ length: 200 }, (_, index) => textMessage(`m${index % 20}`, 'tool', fixedProjection({ id: `s${index % 20}` })));
+  const run = async next => { for await (const _ of handlers.get('llm/stream')({ sessionId: 'session', messages }, next)) {} };
+  await run(async function* () { yield { type: 'text-delta', text: 'ok' }; });
+  assert.equal(checks, 1);
+  assert.equal(delivered.length, 20);
+  const initial = delivered.length;
+  const freshMessages = [textMessage('new', 'tool', fixedProjection())];
+  await assert.rejects(async () => {
+    for await (const _ of handlers.get('llm/stream')({ sessionId: 'session', messages: freshMessages }, async function* () {
+      revision++; revoked = true;
+      yield { type: 'text-delta', text: 'must not escape' };
+    })) {}
+  }, /Session revoked/);
+  assert.equal(delivered.length, initial);
+});
+
+test('duplicate delivery identities with conflicting bytes fail before model admission', async () => {
+  const stream = await sourceStream(async () => { throw new Error('must not deliver'); });
+  await assert.rejects(stream([
+    textMessage('same-message', 'tool', fixedProjection()),
+    textMessage('same-message', 'tool', fixedProjection({ content: 'different' })),
+  ]), /Conflicting source projection identity/);
+});

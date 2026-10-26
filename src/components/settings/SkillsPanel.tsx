@@ -51,7 +51,7 @@ function SkillsScope({ root, initialProjectId, workspaceRevision }: { root: stri
         发现范围
         <select aria-label="发现范围" value={projectId ?? ""}
           className="min-w-0 max-w-full rounded-[var(--radius-8)] border border-border bg-bg px-3 py-2 text-body text-text"
-          onChange={event => setProjectId(event.target.value === "" ? null : Number(event.target.value))}>
+          onChange={event => { setProjectId(event.target.value === "" ? null : Number(event.target.value)); setAttempt(0); }}>
           <option value="">工作区</option>
           {projectId !== null && !items.some(project => project.id === projectId)
             ? <option value={projectId}>当前项目 #{projectId}</option> : null}
@@ -63,11 +63,11 @@ function SkillsScope({ root, initialProjectId, workspaceRevision }: { root: stri
         <Button size="sm" variant="ghost" onClick={() => void projects.refetch()}>重试加载项目</Button>
       </div> : null}
     </div> : <p className="text-body text-text-muted">当前使用独立工作区的 Skills。</p>}
-    <SkillsCatalog key={JSON.stringify([projectId, workspaceRevision, attempt])} projectId={projectId} />
+    <SkillsCatalog key={JSON.stringify([projectId, workspaceRevision, attempt])} projectId={projectId} refresh={attempt > 0} />
   </div>;
 }
 
-function SkillsCatalog({ projectId }: { projectId: number | null }) {
+function SkillsCatalog({ projectId, refresh }: { projectId: number | null; refresh: boolean }) {
   const [catalog, setCatalog] = useState<SkillCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -83,13 +83,20 @@ function SkillsCatalog({ projectId }: { projectId: number | null }) {
     setCatalog(null);
     setError(null);
     setOpenError(null);
-    void skillsApi.list(projectId).then(result => {
+    const requestId = crypto.randomUUID();
+    let settled = false;
+    void skillsApi.list(projectId, { requestId, refresh: refresh || attempt > 0 }).then(result => {
+      settled = true;
       if (generation.current === current) setCatalog(result);
     }, reason => {
+      settled = true;
       if (generation.current === current) setError(getErrorMessage(reason, "发现 Skills 失败"));
     });
-    return () => { generation.current++; };
-  }, [projectId, attempt]);
+    return () => {
+      generation.current++;
+      if (!settled) void skillsApi.cancel(requestId).catch(() => {});
+    };
+  }, [projectId, attempt, refresh]);
 
   async function openPath(path: string, folder: boolean) {
     const current = generation.current;

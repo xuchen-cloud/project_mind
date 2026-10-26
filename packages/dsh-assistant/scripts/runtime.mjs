@@ -6,11 +6,13 @@ import { boot, initProfile, loadProfileDirectory, createRuntimeResolution, Plugi
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline';
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment';
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy';
+import { installProcessOwnership } from './process-ownership.mjs';
 import { installScheduledTasks } from './scheduled-tasks.mjs';
 import { assistantEnvironment } from './isolation.mjs';
 import { readSharedModel, sharedModelPatches, installSharedCredential } from './shared-model.mjs';
 import { readContext, bindContext } from './project-workspace.mjs';
 import { installContextStreams } from './context-streams.mjs';
+import { installStableSessionFork } from './session-fork.mjs';
 import { installSessionReferenceScope } from './context-session-reads.mjs';
 import { migrateSharedRuntime, reconcileContextDirectories } from './shared-runtime-migration.mjs';
 import { installOfficeService } from './office-service.mjs';
@@ -92,6 +94,7 @@ try {
     ctx = host;
     host.provide('profileContext', profileContext);
     host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment);
+    await installProcessOwnership(host);
     await host.plugin(PluginPackages, { resolution });
     if (embedded) {
       installSharedCredential(host, sharedModel);
@@ -112,6 +115,7 @@ try {
     for (const registered of configuration.contexts ?? []) {
       if (registered.kind !== context.kind || registered.id !== context.id) await contexts.register(registered);
     }
+    installStableSessionFork(ctx, contexts);
     installContextStreams(ctx, contexts);
     installSessionReferenceScope(ctx, contexts);
     {

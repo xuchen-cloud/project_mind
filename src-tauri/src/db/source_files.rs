@@ -299,7 +299,10 @@ mod tests {
         let registered: String = db.conn.query_row("SELECT h.content_hash FROM source_file_version_hashes h JOIN document_versions v ON v.id=h.document_version_id WHERE v.document_id=?1 AND v.version_number=1", [file.id], |row| row.get(0)).unwrap();
         assert_eq!(registered, hash);
         let binding = WorkspaceBinding {
-            workspace_id: "file-workspace".into(),
+            // Each independently opened test database is a distinct Workspace.
+            // Shared cache invalidation must not treat parallel fixtures as
+            // competing generations of one application's current Workspace.
+            workspace_id: format!("file-workspace-{:032x}", rand::random::<u128>()),
             generation: "opened".into(),
         };
         let request = RequestContext {

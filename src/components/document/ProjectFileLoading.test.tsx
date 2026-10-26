@@ -8,7 +8,7 @@ import { recordDocumentApi } from '../../services/recordDocumentApi';
 import { officeFileApi } from '../../services/officeFileApi';
 import { officePreviewCache } from '../../lib/office-preview-cache';
 const runtime=vi.hoisted(()=>({mount:vi.fn()}));
-vi.mock('../../../packages/office-docx/dist/editor.mjs',()=>({mountFullEditor:runtime.mount}));
+vi.mock('../../../packages/office-docx/dist/full-editor.mjs',()=>({mountFullEditor:runtime.mount}));
 vi.mock('../../services/fileDocumentApi',()=>({fileDocumentApi:{versionsList:vi.fn()}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:vi.fn()}}));
 vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn(),applications:vi.fn(),openWith:vi.fn(),openLocal:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
@@ -25,7 +25,8 @@ it('shows only the active loading owner, then retains ready content through back
  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{id:'2',versionNumber:2,name:'sample.docx',createdAt:'2026-10-18',contentHash:'hash2',isCurrent:true}],nextCursor:null});
  vi.mocked(officeFileApi.inspect).mockReturnValue(inspected.promise);
  runtime.mount.mockImplementation((host:HTMLElement)=>{
-  const content=document.createElement('div');content.textContent='实际就绪正文';host.append(content);
+  const content=document.createElement('div');content.textContent='实际就绪正文';const frame=document.createElement('iframe');host.append(content,frame);
+  Object.assign(frame.contentWindow!,{__projectMindOfficePreview:{capture:()=>({zoom:100,scroll:[]}),restore:async()=>{}}});
   return {ready:ready.promise,update:vi.fn(),destroy:vi.fn()};
  });
  const client=new QueryClient();const view=render(<QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} fileName="sample.docx" visible focused/></QueryClientProvider>);

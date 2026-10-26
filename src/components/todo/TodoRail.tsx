@@ -763,7 +763,9 @@ export function TodoRail({
       setComposerCreatedTags([]);
     }
     setCreateProjectId(nextProjectId);
-    window.requestAnimationFrame(() => ownershipButtonRef.current?.focus());
+    // The trigger is already mounted. Return focus before a later user action
+    // can focus the composer, rather than stealing focus on the next frame.
+    ownershipButtonRef.current?.focus();
     setOwnershipPickerOpen(false);
     setOwnershipQuery("");
     controller.setControllerState((current) => ({

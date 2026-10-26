@@ -51,11 +51,11 @@ function requestRoute(frame) {
 function budget(capacity) {
   if (!object(capacity) || !positive(capacity.contextWindow) || !positive(capacity.maxTokens) ||
       !['dsh-catalog', 'conservative'].includes(capacity.source)) fail('INVALID_REQUEST');
-  const outputTokens = Math.min(OUTPUT_TOKENS, capacity.maxTokens);
+  const outputTokens = Math.min(OUTPUT_TOKENS, capacity.maxTokens, Math.floor(capacity.contextWindow / 4));
   // One UTF-8 byte per input token is a deliberately conservative upper bound,
   // including non-Latin text. Reserve room for protocol/tool/schema framing.
   const inputBytes = Math.min(INPUT_BYTES, capacity.contextWindow - outputTokens - CONTEXT_RESERVE);
-  if (inputBytes <= 0) fail('BUDGET_EXCEEDED');
+  if (inputBytes <= 0 || outputTokens <= 0) fail('BUDGET_EXCEEDED');
   return { inputBytes, outputTokens, contextWindow: capacity.contextWindow,
     maxTokens: capacity.maxTokens, source: capacity.source };
 }

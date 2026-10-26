@@ -29,6 +29,6 @@ export function useFocusedProjectContent(workspaceRoot: string, projectId: numbe
     activeRecordId: object?.kind === "record" ? Number(object.id) : null,
     activeSessionId: object?.kind === "session" ? String(object.id) : null,
     activeFileId,
-    activeRelativePath: activeFileId !== null ? resolved.data?.relativePath ?? null : null,
+    activeRelativePath: activeFileId !== null && resolved.data?.state === "ready" ? resolved.data.relativePath ?? null : null,
   };
 }

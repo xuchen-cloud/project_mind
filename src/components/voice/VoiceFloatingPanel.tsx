@@ -5,6 +5,7 @@ import type { VoiceSessionSnapshot, VoiceTarget, VoiceTranscriptSegment } from "
 import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
 import { useFeedbackStore } from "../../state/feedback-store";
+import { createVoiceLivePoll } from "./voice-live-poll";
 import { Button } from "../../ui/components";
 
 interface VoiceFloatingPanelProps {
@@ -39,71 +40,62 @@ export function VoiceFloatingPanel({ onChanged }: VoiceFloatingPanelProps) {
   const [interim, setInterim] = useState<string | null>(null);
   const [captionLines, setCaptionLines] = useState(4);
   const [recognitionEnabled, setRecognitionEnabled] = useState<boolean | null>(null);
-  const refreshSequence = useRef(0);
-  const activeSessionRef = useRef<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof createVoiceLivePoll> | null>(null);
+  const captionConfig = useRef({ captionLines, recognitionEnabled });
+  captionConfig.current = { captionLines, recognitionEnabled };
   const lastRefreshError = useRef<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    const sequence = ++refreshSequence.current;
-    try {
-      const next = await voiceApi.snapshotGet();
-      if (sequence !== refreshSequence.current) return;
-      activeSessionRef.current = next?.sessionId ?? null;
-      lastRefreshError.current = null;
-      setSession(next);
-      if (next && recognitionEnabled) {
-        const partial = next.interimText?.trim() || null;
-        setInterim(partial);
-        const visibleCount = Math.min(8, Math.max(2, captionLines)) - (partial ? 1 : 0);
-        const latest = await voiceApi.transcriptTail({ sessionId: next.sessionId, limit: Math.max(2, visibleCount) });
-        if (sequence === refreshSequence.current) setCaptions(latest.slice(-visibleCount));
-      } else {
-        setCaptions([]);
-        setInterim(null);
-      }
-    } catch (error) {
-      if (activeSessionRef.current) {
-        const detail = String(error);
-        if (detail !== lastRefreshError.current) {
-          lastRefreshError.current = detail;
-          pushToastRef.current({ tone: "error", title: recognitionEnabled ? "语音识别或字幕更新失败" : "语音记录状态更新失败", detail });
-        }
-      }
-    }
-  }, [captionLines, recognitionEnabled]);
+  const refresh = useCallback(() => pollRef.current?.refresh() ?? Promise.resolve(), []);
 
   useEffect(() => {
     void voiceApi.settingsGet().then((settings) => {
       setCaptionLines(Math.min(8, Math.max(2, settings.captionLines)));
       setRecognitionEnabled(Boolean(settings.speechProfile));
-    }).catch(() => undefined);
+    }).catch(error => pushToastRef.current({ tone: "error", title: "语音设置读取失败", detail: String(error) }));
   }, []);
 
   useEffect(() => {
     let active = true;
-    let timer: number | undefined;
-    void Promise.resolve()
-      .then(() => voiceApi.availabilityGet())
-      .then((result) => {
-        if (!active || !result.implemented) return;
-        setAvailable(true);
-        void refresh();
-        timer = window.setInterval(() => void refresh(), 1_000);
-      })
-      .catch(() => undefined);
+    void voiceApi.availabilityGet().then(result => {
+      if (!active || !result.implemented) return;
+      setAvailable(true);
+      pollRef.current = createVoiceLivePoll({
+        role: "main",
+        captions: () => !!captionConfig.current.recognitionEnabled,
+        onPacket({ session: next, captions: latest, error }) {
+          if (!error) lastRefreshError.current = null;
+          setSession(next?.phase === "ended" ? null : next);
+          if (next && captionConfig.current.recognitionEnabled && document.visibilityState !== "hidden") {
+            const partial = next.interimText?.trim() || null;
+            setInterim(partial);
+            const visibleCount = Math.min(8, Math.max(2, captionConfig.current.captionLines)) - (partial ? 1 : 0);
+            if (latest) setCaptions(latest.slice(-visibleCount));
+          } else { setCaptions([]); setInterim(null); }
+        },
+        onError(error) {
+          const detail = String(error);
+          if (detail === lastRefreshError.current) return;
+          lastRefreshError.current = detail;
+          pushToastRef.current({ tone: "error", title: "语音记录状态或字幕更新失败", detail });
+        },
+      });
+    }).catch(error => {
+      if (active) pushToastRef.current({ tone: "error", title: "语音记录状态读取失败", detail: String(error) });
+    });
     return () => {
       active = false;
-      refreshSequence.current += 1;
-      if (timer !== undefined) window.clearInterval(timer);
+      pollRef.current?.stop();
+      pollRef.current = null;
     };
   }, [refresh]);
 
+  useEffect(() => { pollRef.current?.configure(); }, [captionLines, recognitionEnabled]);
+
   async function run(operation: () => Promise<VoiceSessionSnapshot>, successTitle?: string) {
-    refreshSequence.current += 1;
     setPending(true);
     try {
       const next = await operation();
-      activeSessionRef.current = next.phase === "ended" ? null : next.sessionId;
+      pollRef.current?.changed(next);
       if (next.sessionId !== session?.sessionId || next.phase === "ended") { setCaptions([]); setInterim(null); }
       setSession(next.phase === "ended" ? null : next);
       if (next.phase === "ended") {
@@ -127,7 +119,6 @@ export function VoiceFloatingPanel({ onChanged }: VoiceFloatingPanelProps) {
       if (String(error).includes("another recording session already owns audio capture")) {
         const existing = await voiceApi.snapshotGet().catch(() => null);
         if (existing) {
-          activeSessionRef.current = existing.sessionId;
           setSession(existing);
           setCaptions([]);
           setInterim(null);

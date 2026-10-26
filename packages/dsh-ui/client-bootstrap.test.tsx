@@ -27,6 +27,7 @@ const fixture = vi.hoisted(() => {
   streams: new Set<AbortSignal>(),
   closed: vi.fn(),
   catalog: false,
+  sessionIds: undefined as string[] | undefined,
   dual: false,
   followReleases: new Map<string, () => void>(),
   blank: false,
@@ -63,7 +64,7 @@ vi.mock('./adapters/transport.mjs', async () => {
         const request = JSON.parse(String(init.body));
         const projections = { asOfSeq: -1, values: { sessionListMetadata: { blank: fixture.blank, lastPromptAt: fixture.blank ? null : 1 } } };
         const value = String(input).endsWith('/list')
-          ? { items: [ ...(fixture.dual ? [{ agentAvailable: true, sessionId: 'second-session', updatedAt: 1, running: false, blank: false, cwd: '/fixture/project' }] : []), { agentAvailable: true, sessionId: 'fixture-session', updatedAt: 1, running: false, blank: fixture.blank, cwd: '/fixture/project', ...(fixture.title === undefined ? {} : { projections: { kind: 'sequenced', asOfSeq: 0, values: { title: fixture.title } } }) }] }
+          ? { items: fixture.sessionIds ? fixture.sessionIds.map(sessionId => ({ agentAvailable: true, sessionId, updatedAt: 1, running: false, blank: false, cwd: '/fixture/project' })) : [ ...(fixture.dual ? [{ agentAvailable: true, sessionId: 'second-session', updatedAt: 1, running: false, blank: false, cwd: '/fixture/project' }] : []), { agentAvailable: true, sessionId: 'fixture-session', updatedAt: 1, running: false, blank: fixture.blank, cwd: '/fixture/project', ...(fixture.title === undefined ? {} : { projections: { kind: 'sequenced', asOfSeq: 0, values: { title: fixture.title } } }) }] }
           : projections;
         return Promise.resolve(new Response(JSON.stringify({ type: 'server-response', rpcId: request.rpcId, result: { ok: true, value } }), { headers: { 'content-type': 'application/json' } }));
       }
@@ -740,6 +741,125 @@ it('keeps a newly created blank Session composer interactive after the shared Wo
     });
   } finally {
     cleanup(); await client.dispose(); portal.remove(); fixture.workspaceOpen = undefined; fixture.catalog = false; fixture.blank = false;
+    if (fontsDescriptor) Object.defineProperty(document, 'fonts', fontsDescriptor); else Reflect.deleteProperty(document, 'fonts');
+  }
+});
+
+
+it('bounds idle retained Session generations to four and reloads an evicted generation from history', async () => {
+  fixture.catalog = true; fixture.calls.length = 0;
+  fixture.sessionIds = Array.from({ length: 7 }, (_, index) => `idle-${index}`);
+  fixture.followReleases.clear();
+  const client = await createDshClient(7);
+  const visit = async (id: string) => {
+    const opening = client.select(id);
+    await waitFor(() => expect(fixture.followReleases.has(id)).toBe(true));
+    fixture.followReleases.get(id)!();
+    const selected = await opening;
+    selected.release();
+  };
+  try {
+    for (const id of fixture.sessionIds) await visit(id);
+    await waitFor(() => expect(fixture.sessionIds!.filter(id => client.ctx.sessions.binding(id))).toHaveLength(4));
+    expect(client.ctx.sessions.binding('idle-0')).toBeUndefined();
+    expect(client.ctx.sessions.binding('idle-6')).toBeDefined();
+    const before = fixture.opens.filter(open => open.endpoint === 'session/follow' && (open.payload as any).args.request.address.sessionId === 'idle-0').length;
+    fixture.followReleases.delete('idle-0');
+    await visit('idle-0');
+    expect(fixture.opens.filter(open => open.endpoint === 'session/follow' && (open.payload as any).args.request.address.sessionId === 'idle-0')).toHaveLength(before + 1);
+    expect(fixture.calls.some(path => path.endsWith('/cancel'))).toBe(false);
+  } finally { await client.dispose(); fixture.catalog = false; fixture.sessionIds = undefined; }
+});
+
+it.each(['request', 'stream', 'interaction', 'submission', 'running', 'mainView', 'attachment', 'draft'])(
+  'never unloads a Session protected by %s while applying the idle LRU budget', async kind => {
+    fixture.catalog = true; fixture.calls.length = 0;
+    fixture.sessionIds = ['protected', ...Array.from({ length: 6 }, (_, index) => `candidate-${index}`)];
+    fixture.followReleases.clear();
+    const client = await createDshClient(7);
+    const cleanups: (() => void)[] = [];
+    const visit = async (id: string) => {
+      const opening = client.select(id);
+      await waitFor(() => expect(fixture.followReleases.has(id)).toBe(true));
+      fixture.followReleases.get(id)!();
+      return opening;
+    };
+    try {
+      const selected = await visit('protected');
+      const binding = selected.binding;
+      const controller = new AbortController(); cleanups.push(() => controller.abort());
+      if (kind === 'request') {
+        void client.ctx.connection.rpc.call('/api', 'fixture/pending', { args: { agentId: 'protected' } }, controller.signal).catch(() => {});
+      } else if (kind === 'stream') {
+        const stream = client.ctx.connection.rpc.open!('/api', 'fixture/stream', { args: { agentId: 'protected' } }, controller.signal)[Symbol.asyncIterator]();
+        void stream.next();
+      } else if (kind === 'interaction') {
+        const publish = client.ctx.uiSession.registerPendingInteraction(() => 1);
+        cleanups.push(publish({ key: 'pending-test', sessionId: 'protected' }, async () => {}));
+      } else if (kind === 'submission') {
+        const submission = binding.session.beginSubmission({ text: 'not yet durable', placement: 'transcript', attachments: [] });
+        cleanups.push(() => submission.abandon());
+      } else if (kind === 'running') {
+        client.ctx.sessions.handleSessionStatus('protected', true, true);
+        cleanups.push(() => client.ctx.sessions.handleSessionStatus('protected', false, true));
+      } else if (kind === 'mainView') {
+        const reference = client.ctx.sessions.retain('protected', { source: 'mainView' });
+        cleanups.push(() => reference.release());
+      } else {
+        const input = client.ctx.conversation.input.for(binding.ctx);
+        if (kind === 'attachment') input.state.update(draft => { draft.attachmentIds = ['not-yet-durable' as any]; });
+        else input.state.update(draft => { draft.draft = 'unpersisted text'; });
+        cleanups.push(() => input.state.update(draft => { draft.attachmentIds = []; draft.draft = ''; }));
+      }
+      selected.release();
+      for (const id of fixture.sessionIds.slice(1)) (await visit(id)).release();
+      await waitFor(() => expect(fixture.sessionIds!.filter(id => client.ctx.sessions.binding(id))).toHaveLength(5));
+      expect(client.ctx.sessions.binding('protected')).toBe(binding);
+      expect(client.isIdle()).toBe(false);
+      for (const cleanup of cleanups.splice(0)) cleanup();
+      await waitFor(() => expect(fixture.sessionIds!.filter(id => client.ctx.sessions.binding(id))).toHaveLength(4));
+      expect(client.ctx.sessions.binding('protected')).toBeUndefined();
+    } finally {
+      for (const cleanup of cleanups) cleanup();
+      await client.dispose(); fixture.catalog = false; fixture.sessionIds = undefined;
+    }
+  },
+);
+
+it('expires an idle Session after five minutes and restores its exact persisted draft on re-entry', async () => {
+  fixture.catalog = true; fixture.sessionIds = ['restore-id']; fixture.followReleases.clear();
+  const client = await createDshClient(7);
+  const residency = vi.fn();
+  const unsubscribe = client.subscribe((type: string) => { if (type === 'residency') residency(); });
+  const fontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts');
+  Object.defineProperty(document, 'fonts', { configurable: true, value: Object.assign(new EventTarget(), { ready: Promise.resolve() }) });
+  const clock = vi.spyOn(Date, 'now');
+  const open = async () => {
+    fixture.followReleases.delete('restore-id');
+    const opening = client.select('restore-id');
+    await waitFor(() => expect(fixture.followReleases.has('restore-id')).toBe(true));
+    fixture.followReleases.get('restore-id')!();
+    return opening;
+  };
+  try {
+    const selected = await open();
+    const text = 'survives idle eviction';
+    client.ctx.conversation.input.for(selected.binding.ctx).state.update(draft => { draft.draft = text; });
+    localStorage.setItem('dsh.conversation.restore-id', JSON.stringify({ draft: text, view: null, viewRequest: null }));
+    residency.mockClear();
+    selected.release();
+    await waitFor(() => expect(residency).toHaveBeenCalled());
+    expect(client.ctx.sessions.binding('restore-id')).toBeDefined();
+    clock.mockReturnValue(Date.now() + 300_001);
+    const pulse = client.ctx.sessions.retain('restore-id', { source: 'mainView' }); pulse.release();
+    await waitFor(() => expect(client.ctx.sessions.binding('restore-id')).toBeUndefined());
+    const reopened = await open();
+    render(client.ctx.slots.renderSlot('root', { mode: 'chat', reference: reopened }));
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveTextContent(text));
+    cleanup(); reopened.release();
+  } finally {
+    clock.mockRestore(); unsubscribe(); cleanup(); await client.dispose();
+    fixture.catalog = false; fixture.sessionIds = undefined; localStorage.removeItem('dsh.conversation.restore-id');
     if (fontsDescriptor) Object.defineProperty(document, 'fonts', fontsDescriptor); else Reflect.deleteProperty(document, 'fonts');
   }
 });

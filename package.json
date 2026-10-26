@@ -28,6 +28,7 @@
     "seed:demo": "cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data",
     "test:unit": "node scripts/patch-test-dom.mjs && vitest run",
     "test:unit:watch": "node scripts/patch-test-dom.mjs && vitest",
+    "test:tooling": "node --test scripts/desktop-runtime.test.mjs scripts/stage-dsh-runtime.test.mjs scripts/prepare-cli.test.mjs scripts/markdown-export-portability.test.mjs scripts/office-distribution.test.mjs scripts/office-renderer-resources.test.mjs scripts/office-performance/*.test.mjs scripts/office-performance/evidence/*.test.mjs scripts/office-selection/*.test.mjs",
     "check:portable-paths": "node scripts/check-portable-paths.mjs",
     "check:ui-standards": "node scripts/check-ui-standards.mjs",
     "check:bundle-boundaries": "node scripts/check-bundle-boundaries.mjs",

@@ -96,26 +96,7 @@ impl SentenceAssembler {
     }
 
     pub fn preview_text(&self, raw: &str) -> String {
-        let incoming = raw.trim();
-        let overlap = common_boundary_chars(&self.pending, incoming);
-        let suffix = incoming.chars().skip(overlap).collect::<String>();
-        let spacer = if self
-            .pending
-            .chars()
-            .last()
-            .is_some_and(|ch| ch.is_ascii_alphanumeric())
-            && suffix
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_ascii_alphanumeric())
-        {
-            " "
-        } else {
-            ""
-        };
-        format!("{}{}{}", self.pending, spacer, suffix)
-            .trim()
-            .to_string()
+        merge_preview_text(&self.pending, raw)
     }
 
     fn drain_through(&mut self, byte_end: usize) -> LocalAsrResult {
@@ -143,6 +124,29 @@ impl SentenceAssembler {
             forced_split: false,
         }
     }
+}
+
+/// Merge provisional speech fragments with the same overlap rule as final text.
+pub(crate) fn merge_preview_text(previous: &str, raw: &str) -> String {
+    let incoming = raw.trim();
+    let overlap = common_boundary_chars(previous, incoming);
+    let suffix = incoming.chars().skip(overlap).collect::<String>();
+    let spacer = if previous
+        .chars()
+        .last()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric())
+        && suffix
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric())
+    {
+        " "
+    } else {
+        ""
+    };
+    format!("{}{}{}", previous, spacer, suffix)
+        .trim()
+        .to_string()
 }
 
 fn is_terminal(ch: char) -> bool {
@@ -181,6 +185,25 @@ fn common_boundary_chars(previous: &str, next: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provisional_fragments_merge_without_overwriting_final_assembly() {
+        let first = merge_preview_text("", "我们确定周五发布");
+        let combined = merge_preview_text(&first, "周五发布并通知客户");
+        assert_eq!(combined, "我们确定周五发布并通知客户");
+        let mut final_text = SentenceAssembler::new();
+        final_text.push(LocalAsrResult {
+            start_sample: 0,
+            end_sample: 16_000,
+            text: "已确认".into(),
+            forced_split: true,
+        });
+        assert_eq!(
+            final_text.preview_text(&combined),
+            "已确认我们确定周五发布并通知客户"
+        );
+        assert_eq!(final_text.finish().unwrap().text, "已确认");
+    }
 
     #[test]
     fn joins_forced_chunks_then_emits_at_sentence_boundary() {

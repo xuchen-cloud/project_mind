@@ -1,6 +1,6 @@
 import { desktopApi } from "./desktopApi";
 
-export type DshSessionAction = { kind: "rename"; title: string } | { kind: "pin" | "unpin" | "fork" | "archive" };
+export type DshSessionAction = { kind: "rename"; title: string } | { kind: "pin" | "unpin" | "archive" } | { kind: "fork"; childSessionId: string };
 
 const starts = new Map<number | null, { key: string; promise: Promise<void> }>();
 const runtimeTails = new Map<number | null, Promise<unknown>>();

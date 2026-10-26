@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const PAGE_FILES: u32 = 5;
@@ -25,8 +25,83 @@ const PAGE_FILES: u32 = 5;
 #[derive(Default)]
 struct Pending {
     dirty: bool,
+    full_scan: bool,
+    directory_dirty: bool,
+    directory_full_scope: bool,
+    directory_paths: HashSet<String>,
+    paths: HashSet<String>,
     error: Option<String>,
     invalidated: bool,
+}
+impl Pending {
+    fn record_event(&mut self, root: &Path, event: &Event) -> bool {
+        if !business_event(root, event) { return false; }
+        self.dirty = true;
+        self.directory_dirty = true;
+        if event.need_rescan() || event.paths.is_empty() {
+            self.full_scan = true;
+            self.directory_full_scope = true;
+        } else {
+            for path in &event.paths {
+                let mut single = event.clone();
+                single.paths = vec![path.clone()];
+                if !business_event(root, &single) { continue; }
+                let Ok(relative_path) = path.strip_prefix(root) else { continue; };
+                let Some(relative) = relative_path.to_str() else {
+                    self.full_scan = true; self.directory_full_scope = true; break;
+                };
+                #[cfg(windows)]
+                let relative = relative.replace('\\', "/");
+                #[cfg(not(windows))]
+                let relative = relative.to_owned();
+                if relative.is_empty() {
+                    self.full_scan = true; self.directory_full_scope = true; break;
+                }
+                if !self.directory_full_scope {
+                    let parent = relative.rsplit_once('/').map_or("", |(parent, _)| parent);
+                    self.directory_paths.insert(parent.to_owned());
+                    // Entry additions/removals/renames may affect an expanded
+                    // directory itself as well as its parent's child listing.
+                    if path.is_dir() || matches!(event.kind,
+                        EventKind::Create(notify::event::CreateKind::Folder)
+                        | EventKind::Remove(notify::event::RemoveKind::Folder)
+                        | EventKind::Modify(ModifyKind::Name(_)))
+                    {
+                        self.directory_paths.insert(relative.clone());
+                    }
+                    if self.directory_paths.len() > 256 { self.directory_full_scope = true; }
+                }
+                if !self.full_scan {
+                    // Discovery coalesces subtrees independently from the UI's
+                    // exact branch hints; a root branch hint is not a full scan.
+                    if self.paths.iter().any(|parent| relative == *parent || relative.starts_with(&format!("{parent}/"))) { continue; }
+                    self.paths.retain(|child| !child.starts_with(&format!("{relative}/")));
+                    self.paths.insert(relative);
+                    if self.paths.len() > 256 {
+                        self.full_scan = true; self.directory_full_scope = true; break;
+                    }
+                }
+            }
+        }
+        if self.full_scan { self.paths.clear(); }
+        if self.directory_full_scope { self.directory_paths.clear(); }
+        true
+    }
+}
+fn merge_directory_notice(
+    notices: &mut HashMap<Option<i64>, Option<HashSet<String>>>,
+    scope: Option<i64>, paths: Option<HashSet<String>>,
+) {
+    use std::collections::hash_map::Entry;
+    match notices.entry(scope) {
+        Entry::Vacant(entry) => { entry.insert(paths); }
+        Entry::Occupied(mut entry) => {
+            if let (Some(current), Some(paths)) = (entry.get_mut().as_mut(), paths) {
+                current.extend(paths);
+                if current.len() > 256 { *entry.get_mut() = None; }
+            } else { *entry.get_mut() = None; }
+        }
+    }
 }
 #[derive(Hash, PartialEq, Eq)]
 struct DiscoveryFailure {
@@ -49,6 +124,7 @@ struct ProjectProgress {
     pending: Arc<Mutex<Pending>>,
     watch_error: Option<String>,
     cursor: Option<String>,
+    scan_path: Option<String>,
     errors: HashSet<DiscoveryFailure>,
     scan_errors: HashSet<DiscoveryFailure>,
 }
@@ -59,12 +135,21 @@ impl Default for ProjectProgress {
             watcher: None,
             pending: Arc::new(Mutex::new(Pending {
                 dirty: true,
+                full_scan: true,
                 ..Pending::default()
             })),
             watch_error: None,
             cursor: None,
+            scan_path: None,
             errors: HashSet::new(),
             scan_errors: HashSet::new(),
+        }
+    }
+}
+impl Drop for ProjectProgress {
+    fn drop(&mut self) {
+        if let Some(cursor) = &self.cursor {
+            crate::db::project_directory_files::discard_scan_cursor(cursor);
         }
     }
 }
@@ -76,6 +161,7 @@ struct Driver {
     next_scope: usize,
     next_catalogue: Option<Instant>,
     wake: Arc<tokio::sync::Notify>,
+    directory_notices: HashMap<Option<i64>, Option<HashSet<String>>>,
     #[cfg(test)]
     scanned_pages: HashMap<Option<i64>, usize>,
 }
@@ -165,10 +251,9 @@ impl Driver {
                 continue;
             }
             if progress.root.as_ref() != Some(&root) {
-                *progress = ProjectProgress {
-                    root: Some(root),
-                    ..ProjectProgress::default()
-                };
+                let mut next = ProjectProgress::default();
+                next.root = Some(root);
+                *progress = next;
             }
             let subscribed = (|| -> anyhow::Result<()> {
                 let root = db.project_file_discovery_root(&binding.workspace_id, scope)?;
@@ -183,8 +268,7 @@ impl Driver {
                         let mut pending = pending.lock().unwrap();
                         let changed = match event {
                             Ok(event) => {
-                                let changed = business_event(&callback_root, &event);
-                                pending.dirty |= changed;
+                                let changed = pending.record_event(&callback_root, &event);
                                 pending.invalidated |=
                                     event.paths.iter().any(|path| path == &callback_root)
                                         && matches!(
@@ -207,7 +291,12 @@ impl Driver {
                 watcher.watch(&watched_root, RecursiveMode::Recursive)?;
                 progress.watcher = Some(watcher);
                 // Recover the gap if the root was unavailable on initial setup.
-                progress.pending.lock().unwrap().dirty = true;
+                {
+                    let mut pending = progress.pending.lock().unwrap();
+                    pending.dirty = true;
+                    pending.full_scan = true;
+                    pending.paths.clear();
+                }
                 Ok(())
             })();
             match subscribed {
@@ -250,13 +339,19 @@ impl Driver {
                 };
             }
             for (&scope, progress) in &mut self.projects {
-                let (invalidated, error) = {
+                let (invalidated, error, directory_dirty, directory_full_scope, directory_paths) = {
                     let mut pending = progress.pending.lock().unwrap();
                     (
                         std::mem::take(&mut pending.invalidated),
                         pending.error.take(),
+                        std::mem::take(&mut pending.directory_dirty),
+                        std::mem::take(&mut pending.directory_full_scope),
+                        std::mem::take(&mut pending.directory_paths),
                     )
                 };
+                if directory_dirty {
+                    merge_directory_notice(&mut self.directory_notices, scope, (!directory_full_scope).then_some(directory_paths));
+                }
                 if let Some(error) = error {
                     let error = format!("Watch failed: {error}");
                     if progress.watch_error.as_ref() != Some(&error) {
@@ -266,6 +361,14 @@ impl Driver {
                 }
                 if invalidated {
                     progress.watcher = None;
+                    if let Some(cursor) = progress.cursor.take() {
+                        crate::db::project_directory_files::discard_scan_cursor(&cursor);
+                    }
+                    progress.scan_path = None;
+                    let mut pending = progress.pending.lock().unwrap();
+                    pending.dirty = true;
+                    pending.full_scan = true;
+                    pending.paths.clear();
                 }
             }
             if self.next_catalogue.is_none_or(|due| now >= due) {
@@ -281,9 +384,20 @@ impl Driver {
                         if !pending.dirty {
                             continue;
                         }
-                        // Clearing only at the beginning preserves events that
-                        // arrive during any page of this scan for another pass.
-                        pending.dirty = false;
+                        // Events arriving during any page remain queued for a
+                        // subsequent targeted pass, including already-read dirs.
+                        if pending.full_scan {
+                            pending.full_scan = false;
+                            pending.paths.clear();
+                            progress.scan_path = None;
+                            pending.dirty = false;
+                        } else {
+                            progress.scan_path = pending.paths.iter().next().cloned();
+                            if let Some(path) = &progress.scan_path {
+                                pending.paths.remove(path);
+                            }
+                            pending.dirty = !pending.paths.is_empty();
+                        }
                         progress.scan_errors.clear();
                     }
                 }
@@ -292,13 +406,21 @@ impl Driver {
                     *self.scanned_pages.entry(project).or_default() += 1;
                 }
                 let captured = capture_committed(binding, db, "project-file-discovery", || {
-                    db.project_file_scan_new(
-                        &binding.workspace_id,
-                        project,
-                        progress.cursor.as_deref(),
-                        PAGE_FILES,
-                    )
-                    .map_err(io_error)
+                    let scan = if let Some(path) = &progress.scan_path {
+                        db.project_file_scan_new_at(&binding.workspace_id, project, path, progress.cursor.as_deref(), PAGE_FILES)
+                    } else {
+                        db.project_file_scan_new(&binding.workspace_id, project, progress.cursor.as_deref(), PAGE_FILES)
+                    };
+                    scan.map_err(|error| {
+                        let error = crate::db::project_directory_files::FileServiceError::from_error(error);
+                        if matches!(error.code, "scan_capacity" | "scan_expired") {
+                            let mut pending = progress.pending.lock().unwrap();
+                            pending.dirty = true;
+                            if let Some(path) = &progress.scan_path { pending.paths.insert(path.clone()); }
+                            else { pending.full_scan = true; }
+                        }
+                        io_error(anyhow::anyhow!(error.message))
+                    })
                 });
                 let (result, changes) = match captured {
                     Ok(result) => result,
@@ -341,7 +463,12 @@ impl Driver {
                 if progress.cursor.is_none() {
                     // Keep only this complete scan's failures, so recovery
                     // rearms reporting without retaining an unbounded history.
-                    progress.errors = std::mem::take(&mut progress.scan_errors);
+                    if let Some(path) = &progress.scan_path {
+                        progress.errors.retain(|error| error.path != *path && !error.path.starts_with(&format!("{path}/")));
+                        progress.errors.extend(std::mem::take(&mut progress.scan_errors));
+                    } else {
+                        progress.errors = std::mem::take(&mut progress.scan_errors);
+                    }
                 }
                 self.next_scope = (index + 1) % self.scopes.len();
                 let busy = self
@@ -392,6 +519,21 @@ pub(crate) fn start(app: &tauri::AppHandle) {
                 Err(error) => {
                     eprintln!("Project File discovery worker stopped: {error}");
                     return;
+                }
+            }
+            // A notification is a UI invalidation hint, including empty-dir
+            // edits. Emit after with_current released DB/workspace locks.
+            if let Some(binding) = driver.binding.as_ref() {
+                for (project, paths) in std::mem::take(&mut driver.directory_notices) {
+                    let mut payload = serde_json::json!({"binding": binding, "projectId": project});
+                    if let Some(paths) = paths {
+                        let mut paths: Vec<_> = paths.into_iter().collect();
+                        paths.sort();
+                        payload["relativePaths"] = serde_json::json!(paths);
+                    }
+                    if let Err(error) = app.emit("mind:project-directory-dirty", payload) {
+                        eprintln!("Cannot publish directory dirty notification: {error}");
+                    }
                 }
             }
             let busy = match result {
@@ -523,13 +665,89 @@ mod tests {
                 && driver
                     .projects
                     .get(&Some(project))
-                    .is_some_and(|p| p.cursor.is_none())
+                    .is_some_and(|p| p.cursor.is_none() && !p.pending.lock().unwrap().dirty)
             {
                 return;
             }
         }
         panic!("Project discovery did not finish its bounded pages");
     }
+    #[test]
+    fn event_paths_coalesce_without_marking_the_whole_scope_dirty() {
+        use notify::event::{CreateKind, DataChange};
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("copied")).unwrap();
+        let mut pending = Pending::default();
+        let event = Event::new(EventKind::Create(CreateKind::File)).add_path(root.path().join("copied/new.txt"));
+        assert!(pending.record_event(root.path(), &event));
+        assert!(pending.record_event(root.path(), &event));
+        assert!(!pending.full_scan);
+        assert!(pending.directory_dirty, "empty directory changes must invalidate the UI too");
+        assert_eq!(pending.paths.len(), 1);
+        assert_eq!(pending.directory_paths, HashSet::from(["copied".to_string()]));
+        let directory = Event::new(EventKind::Create(CreateKind::Folder)).add_path(root.path().join("copied"));
+        pending.record_event(root.path(), &directory);
+        assert_eq!(pending.paths, HashSet::from(["copied".to_string()]));
+        let modified = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content))).add_path(root.path().join("copied/new.txt"));
+        pending.record_event(root.path(), &modified);
+        assert!(!pending.full_scan);
+        assert_eq!(pending.paths.len(), 1);
+        let root_change = Event::new(EventKind::Remove(notify::event::RemoveKind::Folder)).add_path(root.path().to_path_buf());
+        pending.record_event(root.path(), &root_change);
+        assert!(pending.full_scan);
+        assert!(pending.directory_full_scope);
+        assert!(pending.directory_paths.is_empty());
+        assert!(pending.paths.is_empty());
+    }
+
+    #[test]
+    fn directory_hints_merge_exact_branches_and_only_overflow_to_full_scope() {
+        use notify::event::{DataChange, ModifyKind};
+        let root = tempfile::tempdir().unwrap();
+        let mut pending = Pending::default();
+        for path in ["a/nested/file.txt", "a/nested/other.txt", "b/file.txt"] {
+            let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content))).add_path(root.path().join(path));
+            pending.record_event(root.path(), &event);
+        }
+        assert_eq!(pending.directory_paths, HashSet::from(["a/nested".to_string(), "b".to_string()]));
+        assert!(!pending.directory_full_scope);
+        let mut notices = HashMap::new();
+        merge_directory_notice(&mut notices, Some(7), Some(pending.directory_paths));
+        merge_directory_notice(&mut notices, Some(7), Some(HashSet::from(["a/nested".into(), "c".into()])));
+        assert_eq!(notices[&Some(7)].as_ref().unwrap().len(), 3);
+        merge_directory_notice(&mut notices, Some(7), Some((0..257).map(|i| format!("wide-{i}")).collect()));
+        assert!(notices[&Some(7)].is_none());
+        merge_directory_notice(&mut notices, Some(7), Some(HashSet::from(["later".into()])));
+        assert!(notices[&Some(7)].is_none(), "a later narrow event cannot erase full-scope invalidation");
+        merge_directory_notice(&mut notices, Some(8), Some(HashSet::from(["separate".into()])));
+        assert!(notices[&Some(8)].is_some());
+    }
+
+    #[test]
+    fn empty_directory_events_publish_scope_hints_without_business_writes() {
+        let (_root, store, projects) = fixture();
+        let project = projects[0].id;
+        let path = Path::new(&projects[0].root_path);
+        let now = Instant::now();
+        let mut driver = Driver::default();
+        drain(&mut driver, &store, now);
+        driver.directory_notices.clear();
+        let before = store.current.lock().unwrap().1.committed_change_watermark().unwrap();
+        fs::create_dir(path.join("empty-event-directory")).unwrap();
+        wait_for_native_dirty(&driver, Some(project));
+        drain(&mut driver, &store, now);
+        assert_eq!(driver.directory_notices.keys().copied().collect::<HashSet<_>>(), HashSet::from([Some(project)]));
+        assert!(driver.directory_notices[&Some(project)].as_ref().unwrap().contains(""));
+        assert_eq!(store.current.lock().unwrap().1.committed_change_watermark().unwrap(), before);
+        driver.directory_notices.clear();
+        fs::remove_dir(path.join("empty-event-directory")).unwrap();
+        wait_for_native_dirty(&driver, Some(project));
+        drain(&mut driver, &store, now);
+        assert_eq!(driver.directory_notices.keys().copied().collect::<HashSet<_>>(), HashSet::from([Some(project)]));
+        assert!(driver.directory_notices[&Some(project)].as_ref().unwrap().contains(""));
+        assert_eq!(store.current.lock().unwrap().1.committed_change_watermark().unwrap(), before);
+    }
+
     #[test]
     fn driver_finishes_initial_pages_then_never_rescans_static_scopes() {
         let (_root, store, projects) = fixture();
@@ -798,6 +1016,7 @@ mod tests {
             now + Duration::from_secs(120),
             &mut reports,
         );
+        assert!(driver.projects[&Some(project)].errors.is_empty(), "all three removed failure paths must be cleared before recurrence");
         for i in [0, 130, 259] {
             fs::create_dir(path.join(format!("{i:03}\\invalid"))).unwrap();
         }

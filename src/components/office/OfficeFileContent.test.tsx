@@ -12,10 +12,13 @@ vi.mock('../../services/editorWorkbookImport',()=>({inspectImportedWorkbook:vi.f
 vi.mock('../../../packages/office-html2docx/dist/index.mjs',()=>({convertAltChunkHtml:vi.fn()}));
 vi.mock('../../services/desktopApi',()=>({desktopApi:{listSystemFontFamilies:vi.fn(),editorFontMetrics:vi.fn(),editorCaptureSources:vi.fn(),editorCaptureSource:vi.fn(),fetchEditorRemoteImage:vi.fn()}}));
 const spreadsheet = vi.hoisted(()=>({savedModelUpdate:undefined as undefined|{previous:XlsxModel;current:XlsxModel},recalculate:undefined as undefined|((input:RecalculateRequest)=>Promise<RecalculateResult>),importWorkbook:undefined as undefined|((bytes:Uint8Array)=>Promise<XlsxModel>),captureSources:undefined as undefined|(()=>Promise<ScreenSourcesResult>),captureSource:undefined as undefined|((input:{id:string})=>Promise<ScreenCaptureResult|null>)}));
+const preview = vi.hoisted(()=>({capture:vi.fn(()=>({zoom:135,scroll:[{top:640,left:12}]})),restored:vi.fn()}));
 const wordFlush = vi.hoisted(()=>({output:vi.fn(async(_command:string)=>{}),fetchImage:undefined as undefined|((url:string)=>Promise<{mime:'image/png'|'image/jpeg'|'image/gif';base64:string}>),wait:undefined as undefined|(()=>Promise<void>),convert:undefined as undefined|((html:string)=>Promise<Uint8Array|null>)}));
 vi.mock('./DocxEditor',async()=>{
  const {useEffect,useRef,useState}=await import('react');
- return{DocxEditor:(props:{model:{nodes:{text:string}[]};edits:{text:string}[];onChange:(edits:unknown[])=>void;readOnly:boolean;registerOutput?:(handler:(command:string)=>Promise<void>)=>()=>void;registerBeforeSave?:(flush:()=>Promise<void>)=>()=>void;onPendingChange?:(value:boolean)=>void;onSaveRequest?:()=>Promise<void>;onConvertAltChunkHtml?:(html:string)=>Promise<Uint8Array|null>;onFetchImage?:(url:string)=>Promise<{mime:'image/png'|'image/jpeg'|'image/gif';base64:string}>})=>{
+ return{DocxEditor:(props:{model:{nodes:{text:string}[]};edits:{text:string}[];onChange:(edits:unknown[])=>void;readOnly:boolean;registerOutput?:(handler:(command:string)=>Promise<void>)=>()=>void;registerBeforeSave?:(flush:()=>Promise<void>)=>()=>void;onPendingChange?:(value:boolean)=>void;onSaveRequest?:()=>Promise<void>;onConvertAltChunkHtml?:(html:string)=>Promise<Uint8Array|null>;registerPreview?:(access:{capture:()=>unknown})=>()=>void;initialPreviewView?:unknown;onFetchImage?:(url:string)=>Promise<{mime:'image/png'|'image/jpeg'|'image/gif';base64:string}>})=>{
+  useEffect(()=>props.registerPreview?.({capture:preview.capture}),[props.registerPreview]);
+  useEffect(()=>{if(props.initialPreviewView)preview.restored(props.initialPreviewView);},[]);
   wordFlush.convert=props.onConvertAltChunkHtml;wordFlush.fetchImage=props.onFetchImage;
   useEffect(()=>props.registerOutput?.(async command=>wordFlush.output(command)),[props.registerOutput]);
   const draft=useRef<string|null>(null),latest=useRef(props);latest.current=props;
@@ -37,7 +40,8 @@ it('converts Word HTML chunks on demand through the lazy browser converter witho
 });
 vi.mock('./PptxEditor',async()=>{
  const {useEffect,useRef,useState}=await import('react');
- return{PptxEditor:(props:{registerBeforeSave?:(flush:()=>Promise<void>)=>()=>void;onPendingChange?:(value:boolean)=>void;onChange:(edits:unknown[])=>void;onSaveRequest?:()=>Promise<void>})=>{
+ return{PptxEditor:(props:{registerPreview?:(access:{capture:()=>unknown})=>()=>void;registerBeforeSave?:(flush:()=>Promise<void>)=>()=>void;onPendingChange?:(value:boolean)=>void;onChange:(edits:unknown[])=>void;onSaveRequest?:()=>Promise<void>})=>{
+  useEffect(()=>props.registerPreview?.({capture:preview.capture}),[props.registerPreview]);
   const text=useRef<string|null>(null),latest=useRef(props);latest.current=props;
   const [receipt,setReceipt]=useState('');
   useEffect(()=>props.registerBeforeSave?.(async()=>{if(text.current!==null){latest.current.onChange([{kind:'command',name:'slides:set-text',args:[text.current]}]);text.current=null;latest.current.onPendingChange?.(false);}}),[props.registerBeforeSave]);
@@ -46,7 +50,8 @@ vi.mock('./PptxEditor',async()=>{
 });
 vi.mock('./XlsxEditor',async()=>{
   const {useEffect,useRef}=await import('react');
-  return{XlsxEditor:(props:{savedModelUpdate?:{previous:XlsxModel;current:XlsxModel};registerBeforeSave:(flush:()=>Promise<void>)=>()=>void;onPendingChange:(pending:boolean)=>void;onChange:(edits:unknown[])=>void;onRecalculate?:(input:RecalculateRequest)=>Promise<RecalculateResult>;onInspectImportedWorkbook?:(bytes:Uint8Array)=>Promise<XlsxModel>;onCaptureScreenSources?:()=>Promise<ScreenSourcesResult>;onCaptureScreenSource?:(input:{id:string})=>Promise<ScreenCaptureResult|null>})=>{
+  return{XlsxEditor:(props:{registerPreview?:(access:{capture:()=>unknown})=>()=>void;savedModelUpdate?:{previous:XlsxModel;current:XlsxModel};registerBeforeSave:(flush:()=>Promise<void>)=>()=>void;onPendingChange:(pending:boolean)=>void;onChange:(edits:unknown[])=>void;onRecalculate?:(input:RecalculateRequest)=>Promise<RecalculateResult>;onInspectImportedWorkbook?:(bytes:Uint8Array)=>Promise<XlsxModel>;onCaptureScreenSources?:()=>Promise<ScreenSourcesResult>;onCaptureScreenSource?:(input:{id:string})=>Promise<ScreenCaptureResult|null>})=>{
+    useEffect(()=>props.registerPreview?.({capture:preview.capture}),[props.registerPreview]);
     spreadsheet.savedModelUpdate=props.savedModelUpdate;
     spreadsheet.recalculate=props.onRecalculate;
     spreadsheet.importWorkbook=props.onInspectImportedWorkbook;
@@ -102,6 +107,32 @@ it('calculates against the current File baseline without creating a version, inc
  expect(officeFileApi.recalculate).toHaveBeenLastCalledWith(binding,{...baseline,versionNumber:3,expectedContentHash:'sha256:new',recalculation:request});
  view.cleanup();
 });
+it('coalesces identical in-flight recalculations and preserves each distinct edit result',async()=>{
+ vi.mocked(officeFileApi.inspect).mockResolvedValue({model:{format:'xlsx'}} as never);
+ const finishes:((value:RecalculateResult)=>void)[]=[];
+ vi.mocked(officeFileApi.recalculate).mockImplementation(()=>new Promise(resolve=>{finishes.push(resolve);}));
+ const view=await mount();await screen.findByRole('textbox',{name:'正在编辑的单元格'});
+ const request={edits:[{sheetId:'sheet-1',row:0,column:0,input:'1'}],reads:[]};
+ const first=spreadsheet.recalculate!(request),duplicates=Array.from({length:49},()=>spreadsheet.recalculate!(structuredClone(request)));
+ const newer=spreadsheet.recalculate!({...request,edits:[{...request.edits[0],input:'2'}]});
+ expect(officeFileApi.recalculate).toHaveBeenCalledTimes(2);
+ const a={cells:[]},b={cells:[]};finishes[1](b);finishes[0](a);
+ await expect(first).resolves.toBe(a);for(const same of duplicates)await expect(same).resolves.toBe(a);await expect(newer).resolves.toBe(b);
+ // No result cache: a later request must validate/recompute against native state.
+ const again=spreadsheet.recalculate!(request);expect(officeFileApi.recalculate).toHaveBeenCalledTimes(3);
+ finishes[2](a);await again;view.cleanup();
+});
+it('shares a failed identical calculation then permits an explicit retry',async()=>{
+ vi.mocked(officeFileApi.inspect).mockResolvedValue({model:{format:'xlsx'}} as never);
+ let reject!:(reason:Error)=>void;
+ vi.mocked(officeFileApi.recalculate).mockImplementation(()=>new Promise((_resolve,fail)=>{reject=fail;}));
+ const view=await mount();await screen.findByRole('textbox',{name:'正在编辑的单元格'});
+ const first=spreadsheet.recalculate!({edits:[],reads:[]}),second=spreadsheet.recalculate!({edits:[],reads:[]});
+ const rejected=Promise.all([expect(first).rejects.toThrow('native failed'),expect(second).rejects.toThrow('native failed')]);
+ expect(officeFileApi.recalculate).toHaveBeenCalledTimes(1);reject(Error('native failed'));await rejected;
+ vi.mocked(officeFileApi.recalculate).mockResolvedValue({cells:[]});
+ await spreadsheet.recalculate!({edits:[],reads:[]});expect(officeFileApi.recalculate).toHaveBeenCalledTimes(2);view.cleanup();
+});
 it.each(['close','save'] as const)('rejects a calculation completed after %s changes its source context',async change=>{
  const xlsx={format:'xlsx'};
  vi.mocked(officeFileApi.inspect).mockResolvedValue({model:xlsx} as never);
@@ -109,8 +140,9 @@ it.each(['close','save'] as const)('rejects a calculation completed after %s cha
  let finish!:(result:RecalculateResult)=>void;
  vi.mocked(officeFileApi.recalculate).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
  const view=await mount();const input=await screen.findByRole('textbox',{name:'正在编辑的单元格'});
- const calculation=spreadsheet.recalculate!({edits:[],reads:[]});
- const rejected=expect(calculation).rejects.toThrow(change==='close'?'文件已关闭或切换':'文件版本已变更');
+ const calculation=spreadsheet.recalculate!({edits:[],reads:[]}),same=spreadsheet.recalculate!({edits:[],reads:[]});
+ expect(officeFileApi.recalculate).toHaveBeenCalledTimes(1);
+ const rejected=Promise.all([calculation,same].map(result=>expect(result).rejects.toThrow(change==='close'?'文件已关闭或切换':'文件版本已变更')));
  if(change==='close')view.cleanup();
  else{fireEvent.change(input,{target:{value:'新值'}});await act(()=>view.flush());}
  finish({cells:[]});await rejected;
@@ -119,14 +151,15 @@ it.each(['close','save'] as const)('rejects a calculation completed after %s cha
 const binding={workspaceId:'workspace',generation:'generation'};
 const baseline={object:{workspaceId:'workspace',scope:{kind:'project' as const,projectId:7},kind:'file' as const,id:'42'},versionNumber:2,expectedContentHash:'sha256:old'};
 const model={format:'docx',nodes:[{id:'p0',text:'原文'}]};
-beforeEach(()=>{officePreviewCache.clear();vi.clearAllMocks();wordFlush.wait=undefined;vi.mocked(officeFileApi.inspect).mockResolvedValue({model} as never);});
+beforeEach(()=>{officePreviewCache.clear();vi.clearAllMocks();preview.capture.mockImplementation(()=>({zoom:135,scroll:[{top:640,left:12}]}));wordFlush.wait=undefined;vi.mocked(officeFileApi.inspect).mockResolvedValue({model} as never);});
 async function mount(readOnly=false, preview=false){
   const toolbar=document.createElement('div'),menuToolbar=document.createElement('span');document.body.append(menuToolbar,toolbar);
   let guard:(()=>Promise<void>)|undefined;
   const saved=vi.fn();const dirty=vi.fn();
-  const result=render(<OfficeFileContent toolbar={toolbar} menuToolbar={menuToolbar} binding={binding} baseline={baseline} readOnly={readOnly} registerFlush={flush=>{guard=flush;return()=>{guard=undefined;};}} onDirtyChange={dirty} onSaved={saved}/>);
+  const content=(visible=true)=><div hidden={!visible}><OfficeFileContent visible={visible} toolbar={toolbar} menuToolbar={menuToolbar} binding={binding} baseline={baseline} readOnly={readOnly} registerFlush={flush=>{guard=flush;return()=>{guard=undefined;};}} onDirtyChange={dirty} onSaved={saved}/></div>;
+  const result=render(content());
   if(!preview) {const edit=await screen.findByRole('button',{name:readOnly?'完整视图':'编辑'});await waitFor(()=>expect(edit).not.toBeDisabled());fireEvent.click(edit);}
-  return{...result,saved,dirty,menuToolbar,toolbar,flush:()=>guard!(),cleanup:()=>{result.unmount();toolbar.remove();menuToolbar.remove();}};
+  return{...result,setVisible:(visible:boolean)=>result.rerender(content(visible)),saved,dirty,menuToolbar,toolbar,flush:()=>guard!(),cleanup:()=>{result.unmount();toolbar.remove();menuToolbar.remove();}};
 }
 it('loads the fixed File version, saves edits, and keeps the committed model for the next edit',async()=>{
   vi.mocked(officeFileApi.save).mockResolvedValue({model:{...model,nodes:[{id:'p0',text:'已修改'}]},commit:{receipt:{documentId:42,versionNumber:3,contentHash:'sha256:new',noChange:false},versionPath:null}} as never);
@@ -330,7 +363,7 @@ it('rejects a save that becomes read-only while beforeSave is pending',async()=>
  const result=pending.then(()=>null,reason=>reason);
  await waitFor(()=>expect(wordFlush.wait).toHaveBeenCalledOnce());expect(officeFileApi.save).not.toHaveBeenCalled();
  const nextSaved=vi.fn();
- view.rerender(<OfficeFileContent toolbar={view.toolbar} menuToolbar={view.menuToolbar} binding={binding} baseline={baseline} readOnly registerFlush={()=>()=>{}} onDirtyChange={view.dirty} onSaved={nextSaved}/>);
+ view.rerender(<div><OfficeFileContent toolbar={view.toolbar} menuToolbar={view.menuToolbar} binding={binding} baseline={baseline} readOnly registerFlush={()=>()=>{}} onDirtyChange={view.dirty} onSaved={nextSaved}/></div>);
  let failure:unknown;await act(async()=>{release();failure=await result;});
  expect(officeFileApi.save).not.toHaveBeenCalled();expect(failure).toBeInstanceOf(Error);expect((failure as Error).message).toContain('只读');
  expect(screen.getByText('已修改')).toBeVisible();expect(screen.getByRole('button',{name:'修改正文'})).toBeDisabled();
@@ -347,4 +380,70 @@ it('sends Excel an explicit matching model receipt only after native persistence
  expect(spreadsheet.savedModelUpdate).toBeUndefined();fireEvent.change(input,{target:{value:'已修改'}});await act(()=>view.flush());
  expect(spreadsheet.savedModelUpdate?.previous).toBe(previous);expect(spreadsheet.savedModelUpdate?.current).toBe(current);
  view.cleanup();
+});
+
+it('releases clean hidden Office models/renderers and restores the isolated preview view',async()=>{
+ const view=await mount(false,true);await screen.findByText('原文');
+ view.setVisible(false);
+ await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());
+ expect(preview.capture).toHaveBeenCalledOnce();
+ expect(officeFileApi.save).not.toHaveBeenCalled();
+ view.setVisible(true);await screen.findByText('原文');
+ await waitFor(()=>expect(preview.restored).toHaveBeenCalledWith({zoom:135,scroll:[{top:640,left:12}]}));
+ expect(officeFileApi.inspect).toHaveBeenCalledTimes(1);
+ view.cleanup();
+});
+it('pins hidden editing, pending input and failed CAS while keeping the close guard live',async()=>{
+ const view=await mount();const input=await screen.findByRole('textbox',{name:'未提交的 Word 输入'});
+ fireEvent.change(input,{target:{value:'隐藏草稿'}});view.setVisible(false);
+ expect(input).toBeInTheDocument();expect(preview.capture).not.toHaveBeenCalled();
+ vi.mocked(officeFileApi.save).mockRejectedValueOnce(Error('CAS 冲突'));
+ await act(async()=>{await expect(view.flush()).rejects.toThrow('CAS 冲突');});
+ expect(screen.getByText('隐藏草稿')).toBeInTheDocument();
+ expect(officeFileApi.save).toHaveBeenCalledWith(binding,expect.objectContaining(baseline),expect.any(String));
+ view.setVisible(true);expect(screen.getByText('隐藏草稿')).toBeVisible();view.cleanup();
+});
+it('does not evict a saved editing session until the user finishes editing',async()=>{
+ vi.mocked(officeFileApi.save).mockResolvedValue({model:{...model,nodes:[{id:'p0',text:'已修改'}]},commit:{receipt:{documentId:42,versionNumber:3,contentHash:'sha256:new',noChange:false},versionPath:null}} as never);
+ const view=await mount();await screen.findByText('原文');fireEvent.click(screen.getByRole('button',{name:'修改正文'}));await act(()=>view.flush());
+ view.setVisible(false);expect(screen.getByText('已修改')).toBeInTheDocument();expect(preview.capture).not.toHaveBeenCalled();view.cleanup();
+});
+it('keeps a preview mounted through an in-flight output before releasing it',async()=>{
+ let finish!:()=>void;wordFlush.output.mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;}));
+ const view=await mount(false,true);await screen.findByText('原文');
+ fireEvent.click(screen.getByRole('button',{name:'文件菜单'}));fireEvent.click(screen.getByRole('menuitem',{name:/导出.*PDF/}));
+ await waitFor(()=>expect(wordFlush.output).toHaveBeenCalled());view.setVisible(false);
+ expect(screen.getByText('原文')).toBeInTheDocument();
+ await act(async()=>finish());await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());view.cleanup();
+});
+
+it('captures preview coordinates before the containing File becomes hidden',async()=>{
+ const view=await mount(false,true);await screen.findByText('原文');
+ preview.capture.mockImplementation(()=>{expect(screen.getByText('原文').closest('[hidden]')).toBeNull();return{zoom:135,scroll:[{top:640,left:12}]};});
+ view.setVisible(false);await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());expect(preview.capture).toHaveBeenCalledOnce();view.cleanup();
+});
+it('repeated clean-preview switches leave zero hidden renderer instances and keep close a no-op',async()=>{
+ const view=await mount(false,true);await screen.findByText('原文');
+ for(let i=0;i<10;i++){
+   view.setVisible(false);await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());await act(()=>view.flush());
+   view.setVisible(true);await screen.findByText('原文');
+ }
+ expect(preview.capture).toHaveBeenCalledTimes(10);expect(officeFileApi.inspect).toHaveBeenCalledTimes(1);expect(officeFileApi.save).not.toHaveBeenCalled();view.cleanup();
+});
+
+it.each(['xlsx','pptx'] as const)('releases a clean hidden %s preview as well as Word',async format=>{
+ vi.mocked(officeFileApi.inspect).mockResolvedValue({model:{format}} as never);
+ const view=await mount(false,true);const label=format==='xlsx'?'正在编辑的单元格':'未提交的 PPT 输入';await screen.findByRole('textbox',{name:label});
+ view.setVisible(false);await waitFor(()=>expect(screen.queryByRole('textbox',{name:label,hidden:true})).toBeNull());expect(preview.capture).toHaveBeenCalledOnce();view.cleanup();
+});
+it('keeps the clean preview mounted if view capture fails and surfaces the actual failure',async()=>{
+ const view=await mount(false,true);await screen.findByText('原文');preview.capture.mockImplementation(()=>{throw Error('视图捕获失败');});
+ view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();expect(screen.getByRole('alert',{hidden:true})).toHaveTextContent('视图捕获失败');expect(officeFileApi.save).not.toHaveBeenCalled();view.cleanup();
+});
+it('does not restore an old workspace generation view after a hidden switch',async()=>{
+ const view=await mount(false,true);await screen.findByText('原文');view.setVisible(false);await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());
+ const next={...binding,generation:'new-generation'};
+ const content=(visible:boolean)=><div hidden={!visible}><OfficeFileContent visible={visible} toolbar={view.toolbar} binding={next} baseline={baseline} readOnly={false} registerFlush={()=>()=>{}} onDirtyChange={view.dirty} onSaved={view.saved}/></div>;
+ view.rerender(content(false));view.rerender(content(true));await screen.findByText('原文');
+ expect(officeFileApi.inspect).toHaveBeenLastCalledWith(next,baseline);expect(preview.restored).not.toHaveBeenCalled();view.cleanup();
 });

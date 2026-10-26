@@ -911,3 +911,21 @@ async fn excluded_old_overview_item_is_absent_from_next_visible_source_prompt() 
 
 #[path = "overview_delivery_tests.rs"]
 mod delivery;
+
+
+#[tokio::test]
+async fn completed_and_cancelled_overview_work_sleeps_until_event_or_schedule() {
+    let f = fixture();
+    f.store.with_current(|binding, db| {
+        // Both enabled scopes have completed their initial cycle. A never-run
+        // Workspace legitimately has immediate work even if this Project is done.
+        db.overview_schedule_finished(binding, &Scope::Workspace, false, Utc::now())?;
+        db.overview_schedule_finished(binding, &f.scope, false, Utc::now())
+    }).unwrap();
+    assert_eq!(next_delay(&f.store), crate::source_maintenance::IDLE_RECHECK);
+    let request = request(f.store.binding.clone(), &f.scope, "idle-resume".into());
+    control(&f.store, &request, &f.scope, "refresh").unwrap();
+    assert_eq!(next_delay(&f.store), Duration::from_secs(2));
+    control(&f.store, &request, &f.scope, "cancel").unwrap();
+    assert_eq!(next_delay(&f.store), crate::source_maintenance::IDLE_RECHECK);
+}

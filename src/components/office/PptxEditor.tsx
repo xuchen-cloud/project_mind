@@ -1,3 +1,4 @@
+import {useOfficePreview,type OfficePreviewProps} from './useOfficePreview';
 import {EditorLoading} from "../document/EditorLoading";
 import {useEffect,useRef,useState} from 'react';
 import rendererUrl from '../../../packages/office-pptx/dist/renderer.html?office-resource';
@@ -10,7 +11,7 @@ export interface PptxSelectionController {
  captureSelection:()=>Promise<{selectionId:string;text:string}>;
  applySelection:(input:{selectionId:string;change:unknown})=>Promise<{text:string}>;
 }
-export interface PptxEditorProps {
+export interface PptxEditorProps extends OfficePreviewProps {
  registerSelection?:(controller:PptxSelectionController)=>()=>void;
  model:PptxModel; edits:PptxEdit[]; onChange:(edits:PptxEdit[])=>void; readOnly:boolean;
  presentationMode?:'preview'|'edit';
@@ -31,6 +32,7 @@ export function PptxEditor(props:PptxEditorProps){
  const requests=useRef(new Map<number,{resolve:(value?:any)=>void;reject:(e:Error)=>void}>());const seq=useRef(0);
  const [error,setError]=useState('');
  const [renderedEpoch,setRenderedEpoch]=useState(0);
+ useOfficePreview(renderedEpoch>0&&initialized.current,()=>frame.current,props,setError);
  const saveFocusPending=useRef(false);
  const epoch=useRef(1),sentEpoch=useRef(0),contextModel=useRef(props.model),mounted=useRef(true);
  // Invalidate synchronously with new props, before an old port callback or Promise

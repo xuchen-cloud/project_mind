@@ -40,6 +40,15 @@ import { ModelPicker } from './model-picker.jsx';
 import { createTauriTransport } from './transport.mjs';
 import { adaptFileReferences, adaptFileMessageRenderer, fileReferenceToken, fixedFileFromPath, resolveFileReference } from './file-references.mjs';
 
+const MAX_IDLE_SESSIONS = 4;
+const SESSION_IDLE_TTL_MS = 5 * 60_000;
+const PASSIVE_STREAMS = new Set(['$events', 'session/control', 'workspace/follow', 'session/follow']);
+
+function requestSession(payload) {
+  const args = payload?.args;
+  return args?.agentId ?? args?.sessionId ?? args?.request?.address?.sessionId ?? null;
+}
+
 function HostFrame({ mode, reference, renderSlot, SessionProvider }) {
   return <div className="dsh-ui-frame">
     {mode === 'settings'
@@ -63,6 +72,53 @@ export async function createDshClient(projectId) {
   let disposed = false;
   const lifetime = new AbortController();
   const residentSessions = new Map();
+  const selecting = new Map();
+  const operations = new Map();
+  const streaming = new Map();
+  let sessionClock = 0;
+  let residentTimer;
+  let activityChanged = () => {};
+  const beginOperation = id => {
+    operations.set(id, (operations.get(id) ?? 0) + 1);
+    activityChanged();
+    return () => {
+      const remaining = operations.get(id) - 1;
+      if (remaining === 0) operations.delete(id); else operations.set(id, remaining);
+      activityChanged();
+    };
+  };
+  const rpc = {
+    ...transport.rpc,
+    async call(channel, endpoint, payload, signal) {
+      const finish = beginOperation(requestSession(payload));
+      try { return await transport.rpc.call(channel, endpoint, payload, signal); }
+      finally { finish(); }
+    },
+    async *open(channel, endpoint, payload, signal, uplink) {
+      const id = requestSession(payload);
+      const token = {};
+      const finish = PASSIVE_STREAMS.has(endpoint) ? () => {} : beginOperation(id);
+      try {
+        for await (const frame of transport.rpc.open(channel, endpoint, payload, signal, uplink)) {
+          if (endpoint === 'session/follow') {
+            if (frame.type === 'snapshot') {
+              if (frame.assistantStream?.activeAttempt) streaming.set(id, token); else if (streaming.get(id) === token) streaming.delete(id);
+            } else if (frame.type === 'assistant-stream' && frame.frame.type === 'start') streaming.set(id, token);
+            activityChanged();
+          }
+          yield frame;
+          if (endpoint === 'session/follow' && frame.type === 'assistant-stream' && frame.frame.type === 'end') {
+            if (streaming.get(id) === token) streaming.delete(id);
+            activityChanged();
+          }
+        }
+      } finally { if (endpoint === 'session/follow' && streaming.get(id) === token) streaming.delete(id); finish(); activityChanged(); }
+    },
+  };
+  const fetch = async (...args) => {
+    const finish = beginOperation(null);
+    try { return await transport.fetch(...args); } finally { finish(); }
+  };
   const notify = (type, value) => { for (const listener of listeners) listener(type, value); };
   try {
     const fibers = [];
@@ -109,7 +165,7 @@ export async function createDshClient(projectId) {
       'shell.overlay': { kind: 'list', scope: 'root' },
       'settings.section': { kind: 'list', scope: 'root' },
     } }, HostFrame);
-    installConnection(ctx, { transport: { rpc: transport.rpc, ownsHost: true } });
+    installConnection(ctx, { transport: { rpc, ownsHost: true } });
     // Await each provider before dependents: a pending Cordis fiber's await()
     // only waits current work, not a future activation by another plugin.
     await install(typert).await();
@@ -119,7 +175,7 @@ export async function createDshClient(projectId) {
     await install(locale).await();
     await install(resources).await();
     await install(shortcuts).await();
-    await install({ inject: ['remote'], apply: scope => { new FileUploadRuntime(scope, { fetch: transport.fetch }); } }).await();
+    await install({ inject: ['remote'], apply: scope => { new FileUploadRuntime(scope, { fetch }); } }).await();
     await install(sessions).await();
     await install(workspaces).await();
     await install(uiSession).await();
@@ -156,7 +212,7 @@ export async function createDshClient(projectId) {
     const registerSource = ctx.inputTriggers.registerSource;
     ctx.inputTriggers.registerSource = function(source) {
       return registerSource.call(this, projectId !== null && source.name === 'reference'
-        ? adaptFileReferences(source, transport.fetch, data => notify('file', data)) : source);
+        ? adaptFileReferences(source, fetch, data => notify('file', data)) : source);
     };
     try { await install(references).await(); }
     finally { ctx.inputTriggers.registerSource = registerSource; }
@@ -167,6 +223,87 @@ export async function createDshClient(projectId) {
     for (const fiber of fibers) if (fiber.state === 0) {
       throw new Error(`助手组件依赖未就绪：${Object.keys(fiber.inject).filter(name => ctx.get(name) === undefined).join('、')}`);
     }
+    const sessionProtected = id => {
+      if (selecting.has(id) || operations.has(id) || streaming.has(id)) return true;
+      const binding = ctx.sessions.binding(id);
+      if (!binding) return false;
+      const retained = ctx.sessions.retainInfo(id).getSnapshot();
+      if (Object.entries(retained.retainedBy).some(([source, count]) => source !== 'projectContent' && count > 0)) return true;
+      const resident = residentSessions.get(id);
+      const events = binding.eventSource.getSnapshot();
+      if (resident && resident.eventRevision !== events.revision) {
+        resident.eventRevision = events.revision;
+        resident.hasTransient = events.entries.some(entry => entry.type === 'transient');
+      }
+      if (resident?.hasTransient) return true;
+      const snapshot = binding.session.getSnapshot();
+      if (snapshot.running || snapshot.awaitingFirstTurn || snapshot.pendingSubmissions.length > 0
+        || snapshot.openState === 'loading' || snapshot.loadingOlder) return true;
+      if (ctx.uiSession.sessionStatus.getSnapshot().get(id)?.pendingInteraction !== undefined) return true;
+      const input = ctx.conversation.input.for(binding.ctx).state.getSnapshot();
+      if (input.phase !== 'plain' || input.attachmentIds.length > 0 || input.occurrences.length > 0 || input.queue.length > 0) return true;
+      if (input.draft !== '') {
+        // Text is evictable only after the upstream store has actually persisted
+        // the exact draft. Quota/storage failures must keep the live shell.
+        try {
+          if (JSON.parse(localStorage.getItem(`dsh.conversation.${id}`) ?? 'null')?.draft !== input.draft) return true;
+        } catch { return true; }
+      }
+      return false;
+    };
+    const dropResident = (id, entry) => {
+      residentSessions.delete(id);
+      for (const unsubscribe of entry.unsubscribes) unsubscribe();
+      entry.reference.release();
+    };
+    const trimResidents = () => {
+      clearTimeout(residentTimer);
+      residentTimer = undefined;
+      if (disposed) return;
+      const now = Date.now();
+      const idle = [];
+      for (const [id, entry] of residentSessions) {
+        if (sessionProtected(id)) { entry.idleSince = null; continue; }
+        entry.idleSince ??= now;
+        idle.push([id, entry]);
+      }
+      idle.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      const remaining = [];
+      for (const [id, entry] of idle) {
+        if (now - entry.idleSince >= SESSION_IDLE_TTL_MS) dropResident(id, entry);
+        else remaining.push([id, entry]);
+      }
+      while (remaining.length > MAX_IDLE_SESSIONS) {
+        const [id, entry] = remaining.shift();
+        dropResident(id, entry);
+      }
+      notify('residency');
+      if (remaining.length > 0) residentTimer = setTimeout(trimResidents, Math.max(1,
+        Math.min(...remaining.map(([, entry]) => entry.idleSince + SESSION_IDLE_TTL_MS - now))));
+    };
+    activityChanged = () => {
+      if (disposed) return;
+      clearTimeout(residentTimer);
+      // Settle the current Remote/store publication before deciding to unload.
+      residentTimer = setTimeout(trimResidents, 0);
+    };
+    const retainResident = id => {
+      let entry = residentSessions.get(id);
+      if (!entry) {
+        const reference = ctx.sessions.retain(id, { source: 'projectContent' });
+        const binding = reference.binding;
+        const input = ctx.conversation.input.for(binding.ctx);
+        entry = { reference, lastUsed: ++sessionClock, idleSince: null, unsubscribes: [
+          binding.session.subscribe(activityChanged), binding.eventSource.subscribe(activityChanged),
+          input.state.subscribe(activityChanged), ctx.sessions.retainInfo(id).subscribe(activityChanged),
+        ] };
+        residentSessions.set(id, entry);
+      }
+      entry.lastUsed = ++sessionClock;
+      entry.idleSince = null;
+      return entry;
+    };
+    const unsubscribeResidency = ctx.uiSession.sessionStatus.subscribe(activityChanged);
     const currentSessionRuns = () => Object.fromEntries(Object.entries(ctx.sessions.list.getSnapshot().byId).map(([id, item]) => [id, item.running]));
     const currentSessionTitles = () => {
       const { ids, byId } = ctx.sessions.list.getSnapshot();
@@ -213,6 +350,7 @@ export async function createDshClient(projectId) {
     const unsubscribeList = ctx.sessions.list.subscribe(() => {
       runtimePending = true;
       scheduleListChange();
+      activityChanged();
     });
     const unsubscribeWorkspaces = ctx.workspaces.list.subscribe(scheduleListChange);
     const unsubscribeStatus = ctx.remote.$on('api-session/status', (_id, running) => {
@@ -220,34 +358,57 @@ export async function createDshClient(projectId) {
     });
     return {
       ctx,
+      isIdle() {
+        return selecting.size === 0 && operations.size === 0 && streaming.size === 0 && !currentBusy()
+          && ![...ctx.uiSession.sessionStatus.getSnapshot().values()].some(status => status.pendingInteraction !== undefined)
+          && !Object.values(ctx.sessions.list.getSnapshot().byId).some(row =>
+            Object.entries(row.retainedBy).some(([source, count]) => source !== 'projectContent' && count > 0))
+          && [...residentSessions.keys()].every(id => !sessionProtected(id));
+      },
       async select(id, signal) {
         if (disposed) throw new Error('助手客户端已关闭');
         if (typeof id !== 'string' || id.length === 0) throw new Error('会话页面必须指定 Session ID');
-        const opening = AbortSignal.any([lifetime.signal, signal ?? new AbortController().signal, AbortSignal.timeout(15000)]);
-        // The native catalog is authoritative, but the original client receives
-        // it asynchronously through session/control before a retain is legal.
-        await new Promise((resolve, reject) => {
-          let unsubscribe;
-          const cleanup = () => { unsubscribe?.(); opening.removeEventListener('abort', abort); };
-          const abort = () => { cleanup(); reject(opening.reason); };
-          const check = () => {
-            if (ctx.sessions.list.getSnapshot().byId[id] === undefined) return;
-            cleanup(); resolve();
-          };
-          unsubscribe = ctx.sessions.list.subscribe(check);
-          opening.addEventListener('abort', abort, { once: true });
-          if (opening.aborted) abort(); else check();
-        });
-        opening.throwIfAborted();
-        const selected = ctx.sessions.retain(id, { source: 'mainView', signal: opening });
+        selecting.set(id, (selecting.get(id) ?? 0) + 1);
         try {
-          await selected.ready;
+          const opening = AbortSignal.any([lifetime.signal, signal ?? new AbortController().signal, AbortSignal.timeout(15000)]);
+          // The native catalog is authoritative, but the original client receives
+          // it asynchronously through session/control before a retain is legal.
+          await new Promise((resolve, reject) => {
+            let unsubscribe;
+            const cleanup = () => { unsubscribe?.(); opening.removeEventListener('abort', abort); };
+            const abort = () => { cleanup(); reject(opening.reason); };
+            const check = () => {
+              if (ctx.sessions.list.getSnapshot().byId[id] === undefined) return;
+              cleanup(); resolve();
+            };
+            unsubscribe = ctx.sessions.list.subscribe(check);
+            opening.addEventListener('abort', abort, { once: true });
+            if (opening.aborted) abort(); else check();
+          });
           opening.throwIfAborted();
-          if (!residentSessions.has(id)) residentSessions.set(id, ctx.sessions.retain(id, { source: 'projectContent' }));
-          return selected;
-        } catch (error) {
-          selected.release();
-          throw error;
+          const selected = ctx.sessions.retain(id, { source: 'mainView', signal: opening });
+          try {
+            await selected.ready;
+            opening.throwIfAborted();
+            const entry = retainResident(id);
+            const release = selected.release.bind(selected);
+            let released = false;
+            selected.release = () => {
+              if (released) return;
+              released = true;
+              release();
+              entry.lastUsed = ++sessionClock;
+              activityChanged();
+            };
+            return selected;
+          } catch (error) {
+            selected.release();
+            throw error;
+          }
+        } finally {
+          const remaining = selecting.get(id) - 1;
+          if (remaining === 0) selecting.delete(id); else selecting.set(id, remaining);
+          activityChanged();
         }
       },
       subscribe(listener) {
@@ -259,25 +420,31 @@ export async function createDshClient(projectId) {
         return () => listeners.delete(listener);
       },
       async insertFile(sessionId, path, sourceRef, selection) {
-        if (ctx.sessions.binding(sessionId) === undefined) throw new Error('请先选择项目会话');
-        const scope = ctx.sessions.scope(sessionId);
-        const input = scope === undefined ? undefined : ctx.conversation.input.for(scope);
-        if (input === undefined) throw new Error('助手输入框尚未就绪');
-        const mention = formatFileMention({ path, kind: 'file' }, false);
-        if (mention === undefined) throw new Error('此文件路径不能作为助手引用');
-        const state = input.state.getSnapshot();
-        const end = state.draft.length;
-        if (!selection) sourceRef ??= await resolveFileReference(transport.fetch, sessionId, path, lifetime.signal);
-        lifetime.signal.throwIfAborted();
-        if (ctx.sessions.binding(sessionId) === undefined) throw new Error('目标会话已关闭');
-        if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef, selection), label: selection ? `${path} · 选区` : path, appearance: 'file', clipboardText: mention },
-          { start: end, end, draftRev: state.draftRev })) throw new Error('输入框正在提交，请稍后引用文件');
-        input.focus();
+        const finish = beginOperation(sessionId);
+        try {
+          if (ctx.sessions.binding(sessionId) === undefined) throw new Error('请先选择项目会话');
+          const scope = ctx.sessions.scope(sessionId);
+          const input = scope === undefined ? undefined : ctx.conversation.input.for(scope);
+          if (input === undefined) throw new Error('助手输入框尚未就绪');
+          const mention = formatFileMention({ path, kind: 'file' }, false);
+          if (mention === undefined) throw new Error('此文件路径不能作为助手引用');
+          const state = input.state.getSnapshot();
+          const end = state.draft.length;
+          if (!selection) sourceRef ??= await resolveFileReference(fetch, sessionId, path, lifetime.signal);
+          lifetime.signal.throwIfAborted();
+          if (ctx.sessions.binding(sessionId) === undefined) throw new Error('目标会话已关闭');
+          if (!input.insertReference({ source: 'reference', ref: fileReferenceToken(sessionId, path, sourceRef, selection), label: selection ? `${path} · 选区` : path, appearance: 'file', clipboardText: mention },
+            { start: end, end, draftRev: state.draftRev })) throw new Error('输入框正在提交，请稍后引用文件');
+          input.focus();
+        } finally { finish(); }
       },
       async dispose() {
         if (disposed) return;
         disposed = true;
         lifetime.abort();
+        clearTimeout(residentTimer);
+        unsubscribeResidency();
+        for (const [id, entry] of residentSessions) dropResident(id, entry);
         unsubscribeList();
         unsubscribeWorkspaces();
         unsubscribeStatus();

@@ -182,7 +182,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         &self, request: &RequestContext, source: &crate::source_service::SourceReadTarget, utility: &W,
     ) -> AgentResult<(Value, crate::source_file_snapshot::FileReadPlan, crate::source_file_snapshot::FileVerification)> {
         let extraction = self.extract_file(request, source, utility).await?;
-        let data: Extraction = serde_json::from_value(extraction.data.clone()).map_err(|_| protocol())?;
+        let data: Extraction = serde_json::from_value((**extraction.data).clone()).map_err(|_| protocol())?;
         let status = FileExtractionStatus {state:data.state,coverage:data.coverage,reason:data.reason};
         let input=SourceReadInput {source:source.clone(),view:SourceReadView::Full,selection:None,cursor:None,budget_chars:None};
         let (text,_) = projection(&status,text_locations(data.chunks)?,&input)?;
@@ -204,7 +204,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         }
         let extraction = self.extract_file(request, source, utility).await?;
         let data: Extraction =
-            serde_json::from_value(extraction.data.clone()).map_err(|_| protocol())?;
+            serde_json::from_value((**extraction.data).clone()).map_err(|_| protocol())?;
         let mut complete = data.coverage["complete"] == true;
         let mut chunks = vec![];
         let mut previous_location = None;
@@ -313,7 +313,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         let cursor = crate::source_text_page::decode_cursor(input)?;
         let extraction = self.extract_file(request, &input.source, utility).await?;
         let data: Extraction =
-            serde_json::from_value(extraction.data.clone()).map_err(|_| protocol())?;
+            serde_json::from_value((**extraction.data).clone()).map_err(|_| protocol())?;
         let status = FileExtractionStatus {
             state: data.state,
             coverage: data.coverage,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, rename } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Context } from '@deepseek-ai/cordis';
@@ -197,4 +198,93 @@ test('resource reads require a current registry skill and stay within its canoni
   await rename(path.join(f.bundledSkillDir, '.disabled', 'reader'), base);
   await rm(skillFile);
   assert.equal(await isSkillResourceRead(ctx.skills, reference, options), false, 'cached discovery cannot authorize a removed skill');
+});
+
+test('bounded catalog reader reuses discovery but detects external skill edits and forced refresh', async t => {
+  const { createSkillCatalogReader } = await import('../scripts/skills.mjs');
+  assert.equal(typeof createSkillCatalogReader, 'function');
+  const f = await fixture(t);
+  const file = await f.put(f.bundledSkillDir, 'cached', 'Initial');
+  let discoveries = 0;
+  const reader = createSkillCatalogReader({ maxEntries: 2, maxBytes: 100000, discover: async (...args) => { discoveries++; return discoverSkills(...args); } });
+  assert.equal((await reader(f.cwd, f)).skills[0].description, 'Initial');
+  await reader(f.cwd, f); assert.equal(discoveries, 1);
+  await writeFile(file, '---\nname: cached\ndescription: Changed externally\n---\nInstructions\n');
+  assert.equal((await reader(f.cwd, f)).skills[0].description, 'Changed externally');
+  assert.equal(discoveries, 2);
+  await reader(f.cwd, f, { refresh: true }); assert.equal(discoveries, 3);
+  await rm(file); assert.equal((await reader(f.cwd, f)).skills.length, 0);
+});
+
+test('resource reads resolve the requested target once across unrelated skill candidates', async t => {
+  const fs = (await import('node:fs/promises')).default;
+  const { syncBuiltinESMExports } = await import('node:module');
+  const { isSkillResourceRead } = await import('../scripts/skills.mjs');
+  const f = await fixture(t);
+  const target = path.join(f.cwd, 'business.txt'); await writeFile(target, 'business');
+  const skills = [];
+  for (let index = 0; index < 20; index++) {
+    const base = path.dirname(await f.put(f.bundledSkillDir, `s${index}`, 'Example'));
+    skills.push({ provider: 'filesystem', resourceBase: { kind: 'directory', path: base } });
+  }
+  let targets = 0;
+  const original = fs.realpath;
+  fs.realpath = async value => { if (value === target) targets++; return original(value); };
+  syncBuiltinESMExports();
+  try { assert.equal(await isSkillResourceRead({ snapshot: async () => ({ complete: true, skills }) }, target, { cwd: f.cwd }), false); }
+  finally { fs.realpath = original; syncBuiltinESMExports(); }
+  assert.equal(targets, 1);
+});
+
+
+test('catalog cache observes managed disabled content and enforces entry and byte budgets', async t => {
+  const { createSkillCatalogReader, manageSkill } = await import('../scripts/skills.mjs');
+  const f = await fixture(t);
+  const file = await f.put(path.join(f.cwd, '.dsh/skills'), 'managed', 'Active');
+  let discoveries = 0;
+  const discover = async (...args) => {discoveries++; return discoverSkills(...args);};
+  const reader = createSkillCatalogReader({maxEntries: 1, discover});
+  await reader(f.cwd, f); await reader(f.cwd, f); assert.equal(discoveries, 1);
+  await manageSkill(f.cwd, {action: 'disable', entryPath: path.dirname(file)}, f);
+  assert.equal((await reader(f.cwd, f)).skills[0].disabled, true);
+  const disabled = path.join(path.dirname(path.dirname(file)), '.disabled/managed');
+  await writeFile(path.join(disabled, 'SKILL.md'), '---\nname: managed\ndescription: Parked edit\n---\nInstructions');
+  assert.equal((await reader(f.cwd, f)).skills[0].description, 'Parked edit');
+  await manageSkill(f.cwd, {action:'enable',entryPath:disabled}, f);
+  assert.equal((await reader(f.cwd, f)).skills[0].disabled, false);
+  const other = path.join(f.cwd, 'other'); await mkdir(other);
+  await reader(other,f); const before = discoveries; await reader(f.cwd,f); assert.equal(discoveries,before+1);
+  const tiny = createSkillCatalogReader({maxBytes:1,discover});
+  const start=discoveries; await tiny(f.cwd,f); await tiny(f.cwd,f); assert.equal(discoveries,start+2);
+});
+
+test('actual serve child exits when its parent exits and closes the input pipe', {timeout:10000}, async t => {
+  const f = await fixture(t);
+  const script = fileURLToPath(new URL('../scripts/skills.mjs', import.meta.url));
+  const parent = `const {spawn}=require('node:child_process');
+const {createInterface}=require('node:readline');
+const child=spawn(process.execPath,[process.argv[1],'--serve'],{stdio:['pipe','pipe','inherit']});
+child.once('error',error=>{console.error(error);process.exitCode=1;});
+child.once('exit',(code,signal)=>{console.error('Skills child exited before ready:',code,signal);process.exitCode=1;});
+createInterface({input:child.stdout}).once('line',line=>{
+  const response=JSON.parse(line);
+  if(response.ok!==true) throw new Error(response.error||'Skills catalog failed');
+  process.stdout.write(child.pid+'\\n',()=>process.exit(0));
+});
+child.stdin.write(JSON.stringify({cwd:process.argv[2],userData:process.argv[3]})+'\\n');`;
+  const {stdout} = await promisify(execFile)(process.execPath, ['--eval',parent,script,f.cwd,f.dshHome], {
+    env:{...process.env,PROJECT_MIND_DSH_USER_DATA:f.dshHome,DSH_AGENTS_HOME:f.agentsHome,DSH_BUNDLED_SKILL_DIR:f.bundledSkillDir}, timeout:8000,
+  });
+  const pid = Number(stdout.trim()); assert.ok(Number.isSafeInteger(pid) && pid>0);
+  let alive=true;
+  t.after(() => {
+    if (!alive) return;
+    try { process.kill(pid, 'SIGKILL'); }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+  });
+  for(let index=0;index<200;index++) {
+    try {process.kill(pid,0);} catch(error) {if(error.code!=='ESRCH') throw error;alive=false;break;}
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
+  assert.equal(alive,false,'the real --serve process must not survive its parent');
 });

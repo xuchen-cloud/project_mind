@@ -1080,6 +1080,19 @@ impl Database {
         }
     }
 
+    pub(crate) fn record_next_checkpoint_at(&self) -> AgentResult<Option<chrono::DateTime<Utc>>> {
+        // Do not fetch document_json/html/markdown/text to schedule a timer.
+        // RFC3339 offsets are accepted in persisted data; compare instants.
+        let due: Option<Option<String>> = self.conn.query_row(
+            "SELECT checkpoint_due_at FROM record_document_heads WHERE edit_session_id IS NOT NULL
+             ORDER BY julianday(checkpoint_due_at),record_key LIMIT 1",
+            [], |row| row.get(0)).optional().map_err(io_error)?;
+        due.map(|raw| {
+            let raw = raw.ok_or_else(damaged)?;
+            chrono::DateTime::parse_from_rfc3339(&raw).map(|at| at.with_timezone(&Utc)).map_err(|_| damaged())
+        }).transpose()
+    }
+
     pub(crate) fn record_pending_checkpoints(
         &self,
         recovery: bool,
@@ -1797,6 +1810,35 @@ mod tests {
             projection,
         )
     }
+    #[test]
+    fn checkpoint_deadline_reads_only_metadata_and_orders_instants_across_offsets() {
+        let (_directory, mut database, target, projection) = setup();
+        assert!(database.record_next_checkpoint_at().unwrap().is_none());
+        let second = database.workspace_record_upsert(WorkspaceRecordUpsertInput {
+            note_id: None, title: Some("Second deadline".into()), html: projection.html.clone(),
+            markdown: projection.markdown.clone(), default_code_language: projection.code_language.clone(), tag_ids: vec![],
+        }).unwrap();
+        let second = RecordTarget {scope: Scope::Workspace, record_id: second.id};
+        for (index, target) in [&target, &second].into_iter().enumerate() {
+            let source = database.record_document_source(target).unwrap();
+            database.record_document_initialize("gui", &format!("baseline-{index}"), target,
+                &source.source_hash, &projection, "workspace-test").unwrap();
+        }
+        // The first deadline is 17:00Z on the previous date; text sorting would
+        // incorrectly pick the second deadline at 00:00Z.
+        let first_due = "2026-10-27T01:00:00+08:00";
+        let second_due = "2026-10-27T00:00:00Z";
+        database.conn.execute("UPDATE record_document_heads SET edit_session_id=?1,checkpoint_due_at=?2 WHERE record_key=?3",
+            params!["a".repeat(32),first_due,target.key().unwrap()]).unwrap();
+        database.conn.execute("UPDATE record_document_heads SET edit_session_id=?1,checkpoint_due_at=?2 WHERE record_key=?3",
+            params!["b".repeat(32),second_due,second.key().unwrap()]).unwrap();
+        let expected = chrono::DateTime::parse_from_rfc3339(first_due).unwrap().with_timezone(&Utc);
+        assert_eq!(database.record_next_checkpoint_at().unwrap(), Some(expected));
+        database.conn.execute("UPDATE record_document_heads SET document_json='{}'", []).unwrap();
+        assert_eq!(database.record_next_checkpoint_at().unwrap(), Some(expected), "timing must not materialize the document body");
+        assert!(database.record_seal_pending_checkpoints(true, "workspace-test").is_err(), "actual sealing still rejects damaged snapshots");
+    }
+
     #[test]
     fn preview_requires_existing_head_without_initializing_it() {
         let (_directory, database, target, _projection) = setup();

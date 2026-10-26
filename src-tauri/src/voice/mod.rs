@@ -23,3 +23,11 @@ pub mod activity;
 pub mod fsmn;
 
 pub(crate) mod recovery;
+
+pub(crate) mod supervision;
+
+pub mod diarization_process;
+
+pub(crate) mod diarization_parent;
+
+pub(crate) mod shutdown;

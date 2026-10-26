@@ -1,3 +1,4 @@
+import {installXlsxPreviewView} from './preview-view'
 import {createSelectionController} from './selection'
 import {connectHostChannel,onHostMessage,sendHostMessage} from './renderer-channel'
 import { CellValueType, CommandType, LifecycleStages } from '@univerjs/core'
@@ -154,6 +155,7 @@ const api:Record<string,any>={
   const start=request.resumeAt?matches.findIndex(c=>c.sheetId===request.resumeAt.sheetId&&c.row===request.resumeAt.row&&c.column===request.resumeAt.column):0;const page=matches.slice(Math.max(start,0),Math.max(start,0)+request.limit),next=matches[Math.max(start,0)+request.limit];return{matches:page,complete:!next,...(next?{nextCursor:{sheetId:next.sheetId,row:next.row,column:next.column}}:{}),indexingComplete:true}},
 }
 export async function initialize(){options=await new Promise<Options>(resolve=>{const init=(event:MessageEvent)=>{if(event.source!==parent||event.data?.officeXlsx!==true||event.data.type!=='init')return;window.removeEventListener('message',init);if(!event.ports[0])throw Error('Excel 宿主缺少专属通信端口');connectHostChannel(event.ports[0]);resolve(event.data.value)};window.addEventListener('message',init);parent.postMessage({officeXlsx:true,type:'bootstrap'},'*')})
+ installXlsxPreviewView(()=>ready?context?.univerRef.current:undefined)
  // A clean mount (or restored host draft) is the comparison baseline, not an edit.
  lastSignature=JSON.stringify(options.edits)
  applyAppearance();syncLock()

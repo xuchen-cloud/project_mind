@@ -25,6 +25,29 @@ fn unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
 }
 
 impl Database {
+    /// Keep the existing atomic claim and capture its lease for cancellation.
+    pub(crate) fn voice_minutes_claim_owned(&mut self) -> Result<Option<(i64, String, String)>> {
+        let Some((id, session)) = self.voice_minutes_claim_next()? else {
+            return Ok(None);
+        };
+        let lease = self.conn.query_row(
+            "SELECT started_at FROM voice_minutes_jobs WHERE id=?1 AND status='running'",
+            [id],
+            |row| row.get(0),
+        )?;
+        Ok(Some((id, session, lease)))
+    }
+
+    /// Release only an in-flight minutes job on Workspace cancellation. Keep
+    /// its idempotency key and the applied minutes/Transcript watermark intact.
+    pub(crate) fn voice_minutes_release_job(&self, job_id: i64, lease: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE voice_minutes_jobs SET status='pending', preview='', error=NULL, started_at=NULL WHERE id=?1 AND status='running' AND started_at=?2",
+            params![job_id, lease],
+        )?;
+        Ok(())
+    }
+
     pub(super) fn ensure_cloud_recovery_schema(&self) -> Result<()> {
         self.conn.execute_batch(r#"
             CREATE TABLE IF NOT EXISTS voice_cloud_epochs (
@@ -184,8 +207,13 @@ impl Database {
             .collect()
     }
 
-    pub(crate) fn voice_cloud_has_ready(&self, now_ms: i64) -> Result<bool> {
-        Ok(self.conn.query_row("SELECT EXISTS(SELECT 1 FROM voice_cloud_gaps WHERE end_ms > cursor_ms AND EXISTS (SELECT 1 FROM voice_cloud_epochs e WHERE e.session_id=voice_cloud_gaps.session_id AND e.epoch=voice_cloud_gaps.epoch AND e.finalized=1) AND next_retry_ms <= ?1 AND status IN ('pending','running'))", [now_ms], |row| row.get(0))?)
+    /// The supervisor sleeps until the next durable retry deadline, or a new
+    /// voice mutation wakes it. Empty workspaces need no 250ms scan.
+    pub(crate) fn voice_cloud_next_retry_ms(&self) -> Result<Option<i64>> {
+        Ok(self.conn.query_row(
+            "SELECT MIN(next_retry_ms) FROM voice_cloud_gaps WHERE end_ms > cursor_ms AND status IN ('pending','running') AND EXISTS (SELECT 1 FROM voice_cloud_epochs e WHERE e.session_id=voice_cloud_gaps.session_id AND e.epoch=voice_cloud_gaps.epoch AND e.finalized=1)",
+            [], |row| row.get(0),
+        )?)
     }
 
     pub(crate) fn voice_cloud_claim(&mut self, now_ms: i64) -> Result<Option<CloudGap>> {
@@ -308,6 +336,88 @@ impl Database {
 mod tests {
     use super::*;
     #[test]
+    fn cancelled_minutes_job_resumes_without_advancing_transcript_or_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("db.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "minutes-cancel",
+                "minutes-cancel",
+                "Voice",
+            )
+            .unwrap();
+        db.voice_transcript_append_final(
+            &session.session_id,
+            "first",
+            100,
+            200,
+            "first fact",
+            None,
+        )
+        .unwrap();
+        assert!(db
+            .voice_minutes_enqueue(&session.session_id, "same-request")
+            .unwrap());
+        let (job, _, lease) = db.voice_minutes_claim_owned().unwrap().unwrap();
+        db.voice_minutes_update_preview(job, "provisional").unwrap();
+        db.voice_minutes_release_job(job, &lease).unwrap();
+        drop(db);
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let lookup = VoiceRecordLookup::Workspace {
+            record_id: session.workspace_note_id.unwrap(),
+        };
+        let snapshot = db.voice_minutes_get(&lookup).unwrap().unwrap();
+        assert_eq!(snapshot.status, "pending");
+        assert_eq!(snapshot.version, 0);
+        assert!(snapshot.preview.is_empty());
+        assert!(
+            !db.voice_minutes_enqueue(&session.session_id, "same-request")
+                .unwrap(),
+            "cancellation retains the request key"
+        );
+        let (resumed, _, resumed_lease) = db.voice_minutes_claim_owned().unwrap().unwrap();
+        assert_eq!(resumed, job);
+        let input = db.voice_minutes_input(&session.session_id).unwrap();
+        assert_eq!(input.segments.len(), 1);
+        db.voice_minutes_apply(
+            &session.session_id,
+            input.expected_version,
+            input.source_max_rowid,
+            "cumulative minutes",
+            "title",
+        )
+        .unwrap();
+        db.voice_minutes_finish_job(job, None).unwrap();
+        db.voice_minutes_release_job(job, &resumed_lease).unwrap(); // a late release cannot reopen completed work
+        assert_eq!(
+            db.voice_minutes_get(&lookup).unwrap().unwrap().status,
+            "ready"
+        );
+        assert!(db
+            .voice_minutes_input(&session.session_id)
+            .unwrap()
+            .segments
+            .is_empty());
+        // Late recovery inserts may have earlier timestamps; rowid still wins.
+        db.voice_transcript_append_final(&session.session_id, "late", 0, 100, "late fact", None)
+            .unwrap();
+        let next = db.voice_minutes_input(&session.session_id).unwrap();
+        assert_eq!(next.segments.len(), 1);
+        assert_eq!(next.segments[0].text, "late fact");
+        assert!(db
+            .voice_minutes_apply(
+                &session.session_id,
+                input.expected_version,
+                next.source_max_rowid,
+                "stale",
+                "stale"
+            )
+            .is_err());
+    }
+
+    #[test]
     fn recognition_failures_keep_local_history_and_cloud_recovery_separate() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("db.sqlite");
@@ -377,6 +487,9 @@ mod tests {
             db.voice_cloud_release(gap.id, Some("network"), now)
                 .unwrap();
             assert!(db.voice_cloud_claim(now + 1).unwrap().is_none());
+            if attempt == 0 {
+                assert_eq!(db.voice_cloud_next_retry_ms().unwrap(), Some(5_000));
+            }
         }
         assert_eq!(db.voice_cloud_gaps("cloud").unwrap()[0].status, "failed");
         drop(db);

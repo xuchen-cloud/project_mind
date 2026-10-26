@@ -1122,12 +1122,7 @@ export function ProjectSidebar({
                                   <DocumentVersionDropdown
                                     document={document as DocumentRecord}
                                     onOpenVersion={(version) => {
-                                      if (openPreview(document, version.versionNumber)) return;
-                                      void runDesktopAction(
-                                        desktopApi.openFile(version.managedPath),
-                                        "打开版本文件失败",
-                                        version.managedPath,
-                                      );
+                                      openPreview(document, version.versionNumber);
                                     }}
                                   />
                                 ) : null}

@@ -3,6 +3,7 @@ import voiceCaptionCapability from "../../src-tauri/capabilities/voice-caption.j
 import mainWindowCapability from "../../src-tauri/capabilities/default.json";
 const tauriMocks = vi.hoisted(() => ({
   invokeMock: vi.fn(),
+  emitEventMock: vi.fn(async () => undefined),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
   openMock: vi.fn(),
   saveMock: vi.fn(),
@@ -47,6 +48,11 @@ const tauriMocks = vi.hoisted(() => ({
     setFocus: ReturnType<typeof vi.fn>;
   }>,
   getCurrentWebviewWindowMock: vi.fn(() => ({ label: "main", listen: vi.fn(async () => () => {}) })),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => () => {}),
+  emit: tauriMocks.emitEventMock,
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -132,6 +138,15 @@ describe("desktopApi", () => {
     tauriMocks.getCurrentWebviewWindowMock.mockReset();
     tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "main", listen: vi.fn(async () => () => {}) });
     tauriMocks.webviewWindowInstances.length = 0;
+  });
+
+  it("broadcasts runtime events and propagates delivery failure", async () => {
+    tauriMocks.emitEventMock.mockReset().mockResolvedValue(undefined);
+    await desktopApi.emitEvent("voice:live-state", { type: "gone" });
+    expect(tauriMocks.emitEventMock).toHaveBeenCalledWith("voice:live-state", { type: "gone" });
+    const error = new Error("event delivery failed");
+    tauriMocks.emitEventMock.mockRejectedValueOnce(error);
+    await expect(desktopApi.emitEvent("voice:live-state", { type: "gone" })).rejects.toBe(error);
   });
 
   it("proxies command invocations through Tauri invoke", async () => {

@@ -183,6 +183,7 @@ export function createTodoQueryCache(queryClient: QueryClient) {
         ...(projectId == null
           ? []
           : [
+              queryClient.cancelQueries({ queryKey: queryKeys.projects.all }),
               queryClient.cancelQueries({ queryKey: queryKeys.projectPage(projectId) }),
               queryClient.cancelQueries({
                 queryKey: queryKeys.todoCollections.projectOwned(projectId),
@@ -191,7 +192,6 @@ export function createTodoQueryCache(queryClient: QueryClient) {
         queryClient.cancelQueries({ queryKey: queryKeys.workspacePage }),
         queryClient.cancelQueries({ queryKey: queryKeys.todoCollections.workspaceOwned }),
         queryClient.cancelQueries({ queryKey: queryKeys.todoCollections.workspaceRail }),
-        queryClient.cancelQueries({ queryKey: queryKeys.projects.all }),
       ]),
     upsert: (todo: TodoRecord) => {
       if (todo.scope === "workspace") {

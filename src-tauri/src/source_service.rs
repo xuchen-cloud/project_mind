@@ -20,9 +20,31 @@ pub(crate) trait BoundSourceStore:
     ) -> AgentResult<T>;
 }
 pub(crate) trait SourceUtility {
-    fn session_inventory(&self, _binding: &WorkspaceBinding, _input: &crate::agent::record_list::RecordListInput, _authorization: &str)
-        -> impl std::future::Future<Output = AgentResult<Value>> + Send {
-        async { Err(AgentError::new(ErrorCode::RuntimeUnavailable,"Session inventory requires the native DSH runtime")) }
+    fn prepared_extractor(
+        &self,
+    ) -> impl std::future::Future<
+        Output = AgentResult<Option<crate::source_extraction_worker::SourceExtractionWorker>>,
+    > + Send {
+        async { Ok(None) }
+    }
+    fn extraction_identity(
+        &self,
+    ) -> impl std::future::Future<Output = AgentResult<Option<String>>> + Send {
+        async { Ok(None) }
+    }
+
+    fn session_inventory(
+        &self,
+        _binding: &WorkspaceBinding,
+        _input: &crate::agent::record_list::RecordListInput,
+        _authorization: &str,
+    ) -> impl std::future::Future<Output = AgentResult<Value>> + Send {
+        async {
+            Err(AgentError::new(
+                ErrorCode::RuntimeUnavailable,
+                "Session inventory requires the native DSH runtime",
+            ))
+        }
     }
     fn request(
         &self,
@@ -33,6 +55,10 @@ pub(crate) trait SourceUtility {
     ) -> impl std::future::Future<Output = AgentResult<Value>> + Send;
 }
 impl SourceUtility for crate::source_extraction_worker::SourceExtractionWorker {
+    async fn extraction_identity(&self) -> AgentResult<Option<String>> {
+        Ok(Some(self.cache_identity()))
+    }
+
     async fn request(
         &self,
         workspace_id: &str,
@@ -50,6 +76,425 @@ impl SourceUtility for crate::source_extraction_worker::SourceExtractionWorker {
         .await
     }
 }
+// Cache only outputs from a versioned extractor. Test/adaptor utilities without
+// that identity retain their existing call behavior. Each request still plans,
+// captures/verifies bytes, then reauthorizes before and after this lookup.
+const EXTRACTION_ENTRIES: usize = 4;
+const EXTRACTION_RESULT_BYTES: usize = 16 * 1024 * 1024;
+static EXTRACTION_SLOTS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::Arc::new(tokio::sync::Semaphore::new(EXTRACTION_ENTRIES))
+    });
+#[derive(Debug)]
+pub(crate) struct FileExtractionData {
+    value: Value,
+    // The permit follows returned data, even after policy/generation invalidates
+    // a cache entry while an authorized request is still using its result.
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+impl std::ops::Deref for FileExtractionData {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.value
+    }
+}
+const EXTRACTION_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+struct CachedExtraction {
+    binding: WorkspaceBinding,
+    plan: crate::source_file_snapshot::FileReadPlan,
+    parser: String,
+    result: tokio::sync::OnceCell<AgentResult<std::sync::Arc<FileExtractionData>>>,
+}
+static FILE_EXTRACTIONS: std::sync::LazyLock<
+    std::sync::Mutex<
+        std::collections::VecDeque<(std::time::Instant, std::sync::Arc<CachedExtraction>)>,
+    >,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::VecDeque::new()));
+pub(crate) fn clear_file_caches(binding: &WorkspaceBinding) {
+    crate::source_file_snapshot::clear_binding(binding);
+    if let Ok(mut entries) = FILE_EXTRACTIONS.lock() {
+        entries.retain(|(_, entry)| &entry.binding != binding);
+    }
+}
+fn invalidate_file_extractions(binding: &WorkspaceBinding, object: &ObjectRef) {
+    crate::source_file_snapshot::invalidate_file_cache(binding, object);
+    if let Ok(mut entries) = FILE_EXTRACTIONS.lock() {
+        entries.retain(|(_, entry)| &entry.binding != binding || &entry.plan.object != object);
+    }
+}
+fn extraction_slot(
+    binding: &WorkspaceBinding,
+    plan: &crate::source_file_snapshot::FileReadPlan,
+    parser: String,
+    active: Option<&crate::source_file_snapshot::FileByteSnapshot>,
+) -> AgentResult<std::sync::Arc<CachedExtraction>> {
+    let busy = || {
+        AgentError::new(
+            ErrorCode::RunBusy,
+            "Source extraction cache is at its active byte or entry budget",
+        )
+    };
+    let mut entries = FILE_EXTRACTIONS.lock().map_err(|_| busy())?;
+    // clear_file_caches marks snapshots inactive before taking this cache lock.
+    // Check under the same lock as insertion to prevent a late post-close fill.
+    if active.is_some_and(|snapshot| !snapshot.cache_is_active()) {
+        return Err(AgentError::new(
+            ErrorCode::WorkspaceChanged,
+            "Source extraction generation is no longer active",
+        ));
+    }
+    let now = std::time::Instant::now();
+    entries.retain(|(used, entry)| {
+        (entry.binding.workspace_id != binding.workspace_id || entry.binding == *binding)
+            && (now.duration_since(*used) < EXTRACTION_IDLE
+                || std::sync::Arc::strong_count(entry) > 1)
+    });
+    if let Some(index) = entries.iter().position(|(_, entry)| {
+        entry.binding == *binding && entry.plan == *plan && entry.parser == parser
+    }) {
+        let (_, entry) = entries.remove(index).unwrap();
+        entries.push_back((now, entry.clone()));
+        return Ok(entry);
+    }
+    if entries.len() == EXTRACTION_ENTRIES {
+        let index = entries
+            .iter()
+            .position(|(_, entry)| {
+                std::sync::Arc::strong_count(entry) == 1
+                    && entry.result.get().is_none_or(|result| {
+                        result
+                            .as_ref()
+                            .map_or(true, |data| std::sync::Arc::strong_count(data) == 1)
+                    })
+            })
+            .ok_or_else(busy)?;
+        entries.remove(index);
+    }
+    let entry = std::sync::Arc::new(CachedExtraction {
+        binding: binding.clone(),
+        plan: plan.clone(),
+        parser,
+        result: tokio::sync::OnceCell::new(),
+    });
+    entries.push_back((now, entry.clone()));
+    Ok(entry)
+}
+async fn extracted_data<W: SourceUtility>(
+    binding: &WorkspaceBinding,
+    request_id: &str,
+    plan: &crate::source_file_snapshot::FileReadPlan,
+    bytes: &[u8],
+    utility: &W,
+    active: Option<&crate::source_file_snapshot::FileByteSnapshot>,
+) -> AgentResult<std::sync::Arc<FileExtractionData>> {
+    let Some(parser) = utility.extraction_identity().await? else {
+        return utility
+            .request(
+                &plan.object.workspace_id,
+                request_id,
+                plan.format.worker_format(),
+                bytes,
+            )
+            .await
+            .map(|value| {
+                std::sync::Arc::new(FileExtractionData {
+                    value,
+                    _permit: None,
+                })
+            });
+    };
+    let entry = extraction_slot(binding, plan, parser, active)?;
+    // OnceCell releases initialization on cancellation. Errors are shared with
+    // existing waiters, then removed so an explicit later request can retry.
+    let result = entry
+        .result
+        .get_or_init(|| async {
+            let permit = EXTRACTION_SLOTS.clone().try_acquire_owned().map_err(|_| {
+                AgentError::new(
+                    ErrorCode::RunBusy,
+                    "Source extraction active result budget is full",
+                )
+            })?;
+            let data = utility
+                .request(
+                    &plan.object.workspace_id,
+                    request_id,
+                    plan.format.worker_format(),
+                    bytes,
+                )
+                .await?;
+            if serde_json::to_vec(&data)
+                .map_err(|_| {
+                    AgentError::new(
+                        ErrorCode::RuntimeIncompatible,
+                        "Invalid extraction cache result",
+                    )
+                })?
+                .len()
+                > EXTRACTION_RESULT_BYTES
+            {
+                return Err(AgentError::new(
+                    ErrorCode::BudgetExceeded,
+                    "Source extraction exceeds its cache byte limit",
+                ));
+            }
+            Ok(std::sync::Arc::new(FileExtractionData {
+                value: data,
+                _permit: Some(permit),
+            }))
+        })
+        .await
+        .clone();
+    if result
+        .as_ref()
+        .map_or(true, |data| data["state"] == "failed")
+    {
+        if let Ok(mut entries) = FILE_EXTRACTIONS.lock() {
+            entries.retain(|(_, current)| !std::sync::Arc::ptr_eq(current, &entry));
+        }
+    }
+    result
+}
+#[cfg(test)]
+mod extraction_cache_tests {
+    use super::*;
+    use crate::agent::models::{ObjectKind, Scope};
+    use crate::source_file_snapshot::{FileReadPlan, FileSourceFormat};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct Counter {
+        calls: AtomicUsize,
+        identity: String,
+        fail: std::sync::atomic::AtomicBool,
+    }
+    impl Counter {
+        fn new(identity: String) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                identity,
+                fail: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+    }
+    impl SourceUtility for Counter {
+        async fn extraction_identity(&self) -> AgentResult<Option<String>> {
+            Ok(Some(self.identity.clone()))
+        }
+        async fn request(&self, _: &str, _: &str, _: &str, bytes: &[u8]) -> AgentResult<Value> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(AgentError::new(ErrorCode::IoFailed, "worker failed"));
+            }
+            Ok(serde_json::json!({"state":"ready","text":String::from_utf8_lossy(bytes)}))
+        }
+    }
+    fn fixture() -> (tempfile::TempDir, WorkspaceBinding, FileReadPlan, Counter) {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.txt");
+        std::fs::write(&path, b"evidence").unwrap();
+        let binding = WorkspaceBinding {
+            workspace_id: "cache-workspace".into(),
+            generation: dir.path().display().to_string(),
+        };
+        let plan = FileReadPlan {
+            object: ObjectRef {
+                workspace_id: binding.workspace_id.clone(),
+                scope: Scope::Workspace,
+                kind: ObjectKind::File,
+                id: "42".into(),
+            },
+            file_version: 1,
+            registered_hash: format!("sha256:{:x}", Sha256::digest(b"evidence")),
+            title: "source.txt".into(),
+            updated_at: "now".into(),
+            path,
+            format: FileSourceFormat::Text,
+        };
+        let counter = Counter::new(binding.generation.clone());
+        (dir, binding, plan, counter)
+    }
+    #[tokio::test]
+    async fn source_extraction_cache_shares_one_worker_for_one_hundred_pages_and_inflight_reads() {
+        let _gate = crate::source_file_snapshot::CACHE_TEST_GATE.lock().await;
+        let (_dir, binding, plan, utility) = fixture();
+        let (a, b, c) = tokio::join!(
+            extracted_data(&binding, "a", &plan, b"evidence", &utility, None),
+            extracted_data(&binding, "b", &plan, b"evidence", &utility, None),
+            extracted_data(&binding, "c", &plan, b"evidence", &utility, None)
+        );
+        let first = a.unwrap();
+        assert!(Arc::ptr_eq(&first, &b.unwrap()));
+        assert!(Arc::ptr_eq(&first, &c.unwrap()));
+        for _ in 0..100 {
+            let next = extracted_data(&binding, "page", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap();
+            assert!(Arc::ptr_eq(&first, &next));
+        }
+        assert_eq!(utility.calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn source_extraction_cache_keys_version_generation_parser_and_invalidation() {
+        let _gate = crate::source_file_snapshot::CACHE_TEST_GATE.lock().await;
+        let (_dir, binding, plan, utility) = fixture();
+        drop(
+            extracted_data(&binding, "a", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap(),
+        );
+        let mut newer = plan.clone();
+        newer.file_version += 1;
+        drop(
+            extracted_data(&binding, "v", &newer, b"evidence", &utility, None)
+                .await
+                .unwrap(),
+        );
+        let parser = Counter::new(format!("{}-new-parser", utility.identity));
+        drop(
+            extracted_data(&binding, "p", &plan, b"evidence", &parser, None)
+                .await
+                .unwrap(),
+        );
+        let mut reopened = binding.clone();
+        reopened.generation.push_str("-reopened");
+        drop(
+            extracted_data(&reopened, "g", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap(),
+        );
+        invalidate_file_extractions(&reopened, &plan.object);
+        drop(
+            extracted_data(&reopened, "r", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(utility.calls.load(Ordering::SeqCst), 4);
+        assert_eq!(parser.calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn source_extraction_cache_shares_failure_without_retaining_it_for_retry() {
+        let _gate = crate::source_file_snapshot::CACHE_TEST_GATE.lock().await;
+        let (_dir, binding, plan, utility) = fixture();
+        utility.fail.store(true, Ordering::SeqCst);
+        let (a, b) = tokio::join!(
+            extracted_data(&binding, "a", &plan, b"evidence", &utility, None),
+            extracted_data(&binding, "b", &plan, b"evidence", &utility, None)
+        );
+        assert_eq!(a.unwrap_err().code, ErrorCode::IoFailed);
+        assert_eq!(b.unwrap_err().code, ErrorCode::IoFailed);
+        assert_eq!(utility.calls.load(Ordering::SeqCst), 1);
+        utility.fail.store(false, Ordering::SeqCst);
+        assert_eq!(
+            extracted_data(&binding, "retry", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap()["state"],
+            "ready"
+        );
+        assert_eq!(utility.calls.load(Ordering::SeqCst), 2);
+    }
+    #[tokio::test]
+    async fn source_extraction_cache_close_does_not_refill_and_keeps_live_result_charged() {
+        let _gate = crate::source_file_snapshot::CACHE_TEST_GATE.lock().await;
+        struct Paused {
+            started: tokio::sync::Notify,
+            release: tokio::sync::Notify,
+        }
+        impl SourceUtility for Paused {
+            async fn extraction_identity(&self) -> AgentResult<Option<String>> {
+                Ok(Some("paused-parser".into()))
+            }
+            async fn request(&self, _: &str, _: &str, _: &str, _: &[u8]) -> AgentResult<Value> {
+                self.started.notify_one();
+                self.release.notified().await;
+                Ok(serde_json::json!({"state":"ready","chunks":[]}))
+            }
+        }
+        let (_dir, binding, plan, _) = fixture();
+        let scope = crate::source_file_snapshot::file_read_scope(&binding).unwrap();
+        let snapshot = crate::source_file_snapshot::capture_file_scoped(&scope, &plan)
+            .await
+            .unwrap();
+        let utility = Paused {
+            started: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        };
+        let pending = extracted_data(
+            &binding,
+            "paused",
+            &plan,
+            &snapshot.bytes,
+            &utility,
+            Some(&snapshot),
+        );
+        tokio::pin!(pending);
+        tokio::select! { _=utility.started.notified()=>{}, result=&mut pending=>panic!("worker did not pause: {result:?}") }
+        let during = EXTRACTION_SLOTS.available_permits();
+        clear_file_caches(&binding);
+        assert_eq!(EXTRACTION_SLOTS.available_permits(), during);
+        utility.release.notify_one();
+        let result = pending.await.unwrap();
+        assert!(FILE_EXTRACTIONS
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(_, entry)| entry.binding != binding));
+        assert_eq!(EXTRACTION_SLOTS.available_permits(), during);
+        assert_eq!(
+            extracted_data(
+                &binding,
+                "late",
+                &plan,
+                &snapshot.bytes,
+                &utility,
+                Some(&snapshot)
+            )
+            .await
+            .unwrap_err()
+            .code,
+            ErrorCode::WorkspaceChanged
+        );
+        drop(result);
+        assert_eq!(EXTRACTION_SLOTS.available_permits(), during + 1);
+    }
+    #[tokio::test]
+    async fn source_extraction_cache_eviction_and_idle_expiry_start_new_work() {
+        let _gate = crate::source_file_snapshot::CACHE_TEST_GATE.lock().await;
+        let (_dir, binding, plan, utility) = fixture();
+        for i in 0..=EXTRACTION_ENTRIES {
+            let mut target = plan.clone();
+            target.file_version = i as u32 + 1;
+            drop(
+                extracted_data(&binding, "fill", &target, b"evidence", &utility, None)
+                    .await
+                    .unwrap(),
+            );
+        }
+        drop(
+            extracted_data(&binding, "evicted", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(utility.calls.load(Ordering::SeqCst), EXTRACTION_ENTRIES + 2);
+        {
+            let mut entries = FILE_EXTRACTIONS.lock().unwrap();
+            for (used, entry) in entries.iter_mut() {
+                if entry.binding == binding {
+                    *used -= EXTRACTION_IDLE;
+                }
+            }
+        }
+        drop(
+            extracted_data(&binding, "expired", &plan, b"evidence", &utility, None)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(utility.calls.load(Ordering::SeqCst), EXTRACTION_ENTRIES + 3);
+    }
+}
 /// Internal extraction result, deliberately not a tool response: adapters must
 /// paginate/budget the chunks before any model-facing response.
 #[derive(Debug)]
@@ -58,9 +503,9 @@ pub(crate) struct SourceFileExtraction {
     pub title: String,
     pub revision: String,
     pub file_version: u32,
-    pub data: Value,
+    pub data: std::sync::Arc<FileExtractionData>,
     pub(super) plan: crate::source_file_snapshot::FileReadPlan,
-    pub(super) snapshot: crate::source_file_snapshot::FileByteSnapshot,
+    pub(super) snapshot: std::sync::Arc<crate::source_file_snapshot::FileByteSnapshot>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -454,22 +899,50 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         source: &SourceReadTarget,
         utility: &W,
     ) -> AgentResult<SourceFileExtraction> {
-        let plan = self
+        let (plan, scope) = self
             .store
-            .with_current(|binding, db| db.source_file_plan(request, binding, source))?;
-        let snapshot = crate::source_file_snapshot::capture_file(&plan).await?;
+            .with_current(|binding, db| {
+                let plan = db.source_file_plan(request, binding, source)?;
+                Ok((plan, crate::source_file_snapshot::file_read_scope(binding)?))
+            })
+            .map_err(|error| {
+                invalidate_file_extractions(&request.binding, &source.object);
+                error
+            })?;
+        let snapshot = crate::source_file_snapshot::capture_file_scoped(&scope, &plan)
+            .await
+            .map_err(|error| {
+                invalidate_file_extractions(&request.binding, &source.object);
+                error
+            })?;
         self.verify_file_plan(request, source, &plan)?;
-        let data = utility
-            .request(
-                &plan.object.workspace_id,
+        let prepared = utility.prepared_extractor().await?;
+        self.verify_file_plan(request, source, &plan)?;
+        let data = if let Some(worker) = prepared.as_ref() {
+            extracted_data(
+                &request.binding,
                 &request.request_id,
-                plan.format.worker_format(),
+                &plan,
                 &snapshot.bytes,
+                worker,
+                Some(&snapshot),
             )
-            .await?;
+            .await
+        } else {
+            extracted_data(
+                &request.binding,
+                &request.request_id,
+                &plan,
+                &snapshot.bytes,
+                utility,
+                Some(&snapshot),
+            )
+            .await
+        };
         // Stop on revocation before inspecting the filesystem again. Utility
         // work and both byte checks run outside Workspace database locks.
         self.verify_file_plan(request, source, &plan)?;
+        let data = data?;
         crate::source_file_snapshot::verify_file(&plan, &snapshot).await?;
         self.verify_file_plan(request, source, &plan)?;
         Ok(SourceFileExtraction {
@@ -509,11 +982,20 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             .with_current(|binding, db| db.source_file_plan(request, binding, source));
         match current {
             Ok(current) if &current == plan => Ok(()),
-            Ok(_) => Err(changed()),
+            Ok(_) => {
+                invalidate_file_extractions(&request.binding, &source.object);
+                Err(changed())
+            }
             // A previously registered current version becoming unready is a
             // change, never permission to publish the older extraction.
-            Err(error) if error.code == ErrorCode::SourceNotReady => Err(changed()),
-            Err(error) => Err(error),
+            Err(error) if error.code == ErrorCode::SourceNotReady => {
+                invalidate_file_extractions(&request.binding, &source.object);
+                Err(changed())
+            }
+            Err(error) => {
+                invalidate_file_extractions(&request.binding, &source.object);
+                Err(error)
+            }
         }
     }
     pub(crate) async fn read_record<W: crate::record_document_service::DocumentUtility>(
@@ -743,20 +1225,20 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 }),
                 ObjectKind::File => {
                     async {
-                        let plan = self.store.with_current(|binding, db| {
-                            db.source_file_search_plan(
+                        let (plan, scope) = self.store.with_current(|binding, db| {
+                            let plan = db.source_file_search_plan(
                                 request,
                                 binding,
                                 &source,
                                 input.include_history,
                                 &candidate.title,
-                            )
+                            )?;
+                            Ok((plan, crate::source_file_snapshot::file_read_scope(binding)?))
                         })?;
                         // Release the potentially 50 MiB byte buffer immediately;
                         // only the verified identity/stat receipt survives ranking.
-                        let receipt = crate::source_file_snapshot::capture_file(&plan)
-                            .await?
-                            .verification();
+                        let receipt = crate::source_file_snapshot::verification_scoped(&scope, &plan)
+                            .await?;
                         let current = self.store.with_current(|binding, db| {
                             db.source_file_search_plan(
                                 request,
@@ -859,9 +1341,13 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         request: &RequestContext,
         input: &SourcePolicyUpdate,
     ) -> AgentResult<SourcePolicy> {
-        self.with_committed(request, |binding, db| {
+        let policy = self.with_committed(request, |binding, db| {
             db.source_policy_update(request, binding, input)
-        })
+        })?;
+        if input.object.kind == crate::agent::models::ObjectKind::File {
+            invalidate_file_extractions(&request.binding, &input.object);
+        }
+        Ok(policy)
     }
     pub(crate) fn read(
         &self,

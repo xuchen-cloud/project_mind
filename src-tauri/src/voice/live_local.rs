@@ -20,7 +20,6 @@ use std::{
 const RATE: u64 = 16_000;
 const VAD_FRAME: usize = 480;
 const MAX_TRACK_LAG: usize = 3 * RATE as usize;
-const PREVIEW_INTERVAL_SAMPLES: u64 = 2 * RATE;
 
 #[derive(Clone, Debug)]
 pub struct TranscriptFinal {
@@ -296,7 +295,9 @@ struct Pipeline {
     assembler: SentenceAssembler,
     results: mpsc::Sender<Result<RecognitionUpdate>>,
     epoch_offset_ms: u64,
-    last_preview_sample: u64,
+    last_preview_sample: Option<u64>,
+    preview_text: String,
+    next_preview_at: std::time::Instant,
     preview_enabled: Arc<AtomicBool>,
 }
 
@@ -316,7 +317,9 @@ impl Pipeline {
             assembler: SentenceAssembler::new(),
             results,
             epoch_offset_ms,
-            last_preview_sample: 0,
+            last_preview_sample: None,
+            preview_text: String::new(),
+            next_preview_at: std::time::Instant::now(),
             preview_enabled,
         })
     }
@@ -341,19 +344,30 @@ impl Pipeline {
         for segment in segments {
             self.submit(segment)?;
         }
-        let end_sample = start_sample + samples.len() as u64;
         if self.preview_enabled.load(Ordering::Relaxed)
-            && end_sample.saturating_sub(self.last_preview_sample) >= PREVIEW_INTERVAL_SAMPLES
+            && std::time::Instant::now() >= self.next_preview_at
         {
-            if let Some(preview) = self.segmenter.preview() {
+            if let Some(preview) = self.segmenter.preview_since(self.last_preview_sample) {
+                let end = preview.end_sample();
+                let started = std::time::Instant::now();
                 self.preview(preview)?;
-                self.last_preview_sample = end_sample;
+                // Backlogged capture must prioritize final Transcript over captions.
+                // At most one preview per two wall-clock seconds; expensive
+                // inference earns three times its cost before another preview.
+                self.next_preview_at = std::time::Instant::now()
+                    + started
+                        .elapsed()
+                        .saturating_mul(3)
+                        .max(std::time::Duration::from_secs(2));
+                self.last_preview_sample = Some(end);
             }
         }
         Ok(())
     }
 
     fn submit(&mut self, mut segment: UtteranceSegment) -> Result<()> {
+        self.preview_text.clear();
+        self.last_preview_sample = None;
         segment.start_sample += self.epoch_offset_ms * RATE / 1_000;
         let answer = self.worker.submit(segment)?;
         let result = answer
@@ -388,7 +402,9 @@ impl Pipeline {
         let result = answer
             .recv()
             .map_err(|_| anyhow!("SenseVoice preview worker closed"))??;
-        let text = self.assembler.preview_text(&result.text);
+        self.preview_text =
+            super::transcript_assembly::merge_preview_text(&self.preview_text, &result.text);
+        let text = self.assembler.preview_text(&self.preview_text);
         if self.preview_enabled.load(Ordering::Relaxed) {
             self.results
                 .send(Ok(RecognitionUpdate::Partial(text)))

@@ -1,16 +1,15 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pause, Play, Volume2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Volume2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { VoiceRecordLookup, VoiceTranscriptCursor, VoiceSpeaker } from "../../lib/voice-types";
+import type { VoiceRecordLookup, VoiceTranscriptCursor, VoiceSpeaker, VoiceSpeakerTurn } from "../../lib/voice-types";
 import type { ContactRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
-import { desktopApi } from "../../services/desktopApi";
 import { voiceApi } from "../../services/voiceApi";
 import { projectMindApi } from "../../services/projectMindApi";
 import { ContactMentionPicker } from "../contact/ContactMentionPicker";
 import { Button, TextField } from "../../ui/components";
-import { VoicePlayer } from "../../lib/voice-player";
+import { VoicePlaybackControls, type VoicePlaybackHandle } from "./VoicePlaybackControls";
 
 export interface VoiceRecordPanelProps {
   target: VoiceRecordLookup;
@@ -25,6 +24,29 @@ function formatTime(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+type SpeakerInterval = { turn: VoiceSpeakerTurn; maxEnd: number; left: SpeakerInterval | null; right: SpeakerInterval | null };
+
+function indexSpeakerTurns(turns: VoiceSpeakerTurn[]): SpeakerInterval | null {
+  const sorted = [...turns].sort((a, b) => a.startMs - b.startMs);
+  function build(start: number, end: number): SpeakerInterval | null {
+    if (start >= end) return null;
+    const middle = (start + end) >>> 1;
+    const left = build(start, middle);
+    const right = build(middle + 1, end);
+    const turn = sorted[middle];
+    return { turn, left, right, maxEnd: Math.max(turn.endMs, left?.maxEnd ?? 0, right?.maxEnd ?? 0) };
+  }
+  return build(0, sorted.length);
+}
+
+function overlappingSpeakers(node: SpeakerInterval | null, start: number, end: number, ids: Set<number>) {
+  if (!node || node.maxEnd <= start) return;
+  overlappingSpeakers(node.left, start, end, ids);
+  if (node.turn.startMs >= end) return;
+  if (node.turn.endMs > start) ids.add(node.turn.speakerId);
+  overlappingSpeakers(node.right, start, end, ids);
 }
 
 function SpeakerContactSelector({ speaker, busy, onLink }: { speaker: VoiceSpeaker; busy: boolean; onLink: (contactId: number | null) => Promise<boolean> }) {
@@ -59,17 +81,78 @@ function SpeakerContactSelector({ speaker, busy, onLink }: { speaker: VoiceSpeak
   </div>;
 }
 
-export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceNavigationKey, onMinutesCommitted, onCopyMinutes }: VoiceRecordPanelProps) {
+export function VoiceRecordPanel({ target: requestedTarget, visible = true, sourceTimeMs, sourceNavigationKey, onMinutesCommitted, onCopyMinutes }: VoiceRecordPanelProps) {
   const queryClient = useQueryClient();
+  const targetKey = JSON.stringify(requestedTarget);
+  // Keep observation lifetimes stable when parents recreate the same lookup.
+  const target = useMemo(() => requestedTarget, [targetKey]);
+  const voiceReads = useMemo(() => ({
+    active: false,
+    visible: false,
+    generation: 0,
+    dirty: new Set<string>(),
+    draining: new Map<string, Promise<void>>(),
+    recoveryProgress: undefined as string | undefined,
+    endedSession: null as string | null,
+  }), [target]);
+  const drainVoiceReads = useCallback(() => {
+    if (!voiceReads.active || !voiceReads.visible) return;
+    const generation = voiceReads.generation;
+    const isCurrent = () => voiceReads.active && voiceReads.generation === generation;
+    for (const key of voiceReads.dirty) {
+      if (voiceReads.draining.has(key)) continue;
+      const filter = { queryKey: [key, target], exact: true };
+      const job = (async () => {
+        while (isCurrent() && voiceReads.visible && voiceReads.dirty.has(key)) {
+          const query = queryClient.getQueryCache().find(filter);
+          if (query?.state.fetchStatus === "fetching") {
+            // Wait for the actual IPC read even while its observers are disabled.
+            // Its failure remains visible in Query state; the dirty read is still due.
+            await query.promise?.catch(() => undefined);
+          }
+          if (!isCurrent() || !voiceReads.visible) return;
+          voiceReads.dirty.delete(key);
+          await queryClient.invalidateQueries(filter, { cancelRefetch: false });
+        }
+      })().finally(() => {
+        if (isCurrent()) voiceReads.draining.delete(key);
+      });
+      voiceReads.draining.set(key, job);
+    }
+  }, [queryClient, target, voiceReads]);
+  const refreshAfterVoiceRead = useCallback((key: string) => {
+    if (!voiceReads.active) return Promise.resolve();
+    voiceReads.dirty.add(key);
+    drainVoiceReads();
+    return voiceReads.draining.get(key) ?? Promise.resolve();
+  }, [drainVoiceReads, voiceReads]);
+  useEffect(() => {
+    voiceReads.active = true;
+    return () => {
+      voiceReads.active = false;
+      voiceReads.generation++;
+      voiceReads.dirty.clear();
+      voiceReads.draining.clear();
+      voiceReads.recoveryProgress = undefined;
+      voiceReads.endedSession = null;
+    };
+  }, [voiceReads]);
+  useEffect(() => {
+    voiceReads.visible = visible;
+    if (visible) drainVoiceReads();
+    return () => { voiceReads.visible = false; };
+  }, [drainVoiceReads, visible, voiceReads]);
   const playbackQuery = useQuery({
     queryKey: ["voice-playback", target],
     queryFn: () => voiceApi.playbackGet(target),
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled: visible,
     refetchInterval: (query) => visible && ["recording", "paused"].includes(query.state.data?.phase ?? "") ? 1_000 : false,
     retry: false,
   });
-  const previousPlayback = useRef(playbackQuery.data);
   const ended = playbackQuery.data?.phase === "ended";
+  const recording = ["recording", "paused"].includes(playbackQuery.data?.phase ?? "");
   const diarizationKey = ["voice-diarization", target];
   const diarizationQuery = useQuery({
     queryKey: diarizationKey,
@@ -129,42 +212,38 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
       return false;
     } finally { setSpeakerBusy(false); }
   }
-  function speakerLabel(startMs: number, endMs: number) {
-    const snapshot = diarizationQuery.data;
-    const ids = new Set(snapshot?.turns.filter((turn) => turn.startMs < endMs && turn.endMs > startMs).map((turn) => turn.speakerId));
-    return snapshot?.speakers.filter((speaker) => ids.has(speaker.id)).map((speaker) => speaker.name).join("、") || "未确定";
-  }
   useEffect(() => {
-    const previous = previousPlayback.current;
     const current = playbackQuery.data;
-    previousPlayback.current = current;
-    if (current?.phase === "ended" && previous?.sessionId === current.sessionId
-      && ["recording", "paused"].includes(previous.phase)) {
-      void queryClient.invalidateQueries({ queryKey: ["voice-transcript", target] });
+    if (current?.phase === "ended" && voiceReads.endedSession !== current.sessionId) {
+      voiceReads.endedSession = current.sessionId;
+      // The first ended observation can follow a minutes read from before
+      // voice_end enqueued final minutes, just like a recording -> ended change.
+      for (const key of ["voice-transcript", "voice-minutes", "voice-recovery"]) {
+        void refreshAfterVoiceRead(key);
+      }
     }
-  }, [playbackQuery.data, queryClient, target]);
-  const [loadedDuration, setLoadedDuration] = useState(0);
+  }, [playbackQuery.data?.phase, playbackQuery.data?.sessionId, refreshAfterVoiceRead, voiceReads]);
+  const [totalMs, setTotalMs] = useState(0);
   const [ready, setReady] = useState(false);
-  const totalMs = loadedDuration;
-  const playerRef = useRef<VoicePlayer | null>(null);
-  const positionRef = useRef(0);
-  const speedRef = useRef(1);
-  const [positionMs, setPositionMs] = useState(0);
-  const [speed, setSpeed] = useState(1);
-  const [playing, setPlaying] = useState(false);
-  const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const [sourceSeekStatus, setSourceSeekStatus] = useState<string | null>(null);
+  const playbackRef = useRef<VoicePlaybackHandle | null>(null);
+  const onPlaybackAvailability = useCallback((available: boolean, duration: number) => {
+    setReady(available);
+    setTotalMs(duration);
+  }, []);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [minutesError, setMinutesError] = useState<string | null>(null);
   const [generatingMinutes, setGeneratingMinutes] = useState(false);
   const [copyingMinutes, setCopyingMinutes] = useState(false);
+  useEffect(() => { setGeneratingMinutes(false); }, [voiceReads]);
   const lastMinutesVersion = useRef<number | null>(null);
   const lastCommittedMinutes = useRef<{ sessionId: string; version: number } | null>(null);
   const minutesQuery = useQuery({
     queryKey: ["voice-minutes", target],
     queryFn: () => voiceApi.minutesGet(target),
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled: visible,
-    refetchInterval: (query) => !visible ? false : ["pending", "running"].includes(query.state.data?.status ?? "") ? 500 : 5_000,
+    refetchInterval: (query) => !visible ? false : ["pending", "running"].includes(query.state.data?.status ?? "") ? 500 : recording ? 5_000 : false,
     retry: false,
   });
   const minutesBusy = generatingMinutes || ["pending", "running"].includes(minutesQuery.data?.status ?? "");
@@ -189,14 +268,26 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
   const recoveryQuery = useQuery({
     queryKey: ["voice-recovery", target],
     queryFn: () => voiceApi.recoveryGet(target),
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled: visible && !!playbackQuery.data,
-    refetchInterval: visible ? 5_000 : false,
+    refetchInterval: (query) => visible && (recording || query.state.data?.some(gap => ["waiting", "pending", "running"].includes(gap.status))) ? 5_000 : false,
     retry: false,
   });
-  const recoveryProgress = recoveryQuery.data?.map(gap => `${gap.id}:${gap.cursorMs}`).join(",");
+  const recoveryProgress = recoveryQuery.data?.map(gap => `${gap.id}:${gap.cursorMs}:${gap.status === "ready"}`).join(",");
+  const hasRecoveredTranscript = recoveryQuery.data?.some(gap => gap.status === "ready" || gap.cursorMs > gap.startMs) ?? false;
   useEffect(() => {
-    if (recoveryProgress) void queryClient.invalidateQueries({ queryKey: ["voice-transcript", target] });
-  }, [recoveryProgress, queryClient, target]);
+    if (recoveryProgress === undefined) return;
+    const previous = voiceReads.recoveryProgress;
+    voiceReads.recoveryProgress = recoveryProgress;
+    if (previous === recoveryProgress) return;
+    if (recoveryProgress) void refreshAfterVoiceRead("voice-transcript");
+    // Every committed recovery batch can enqueue minutes, including a first
+    // snapshot that already completed before this panel observed the task.
+    if (previous !== undefined || hasRecoveredTranscript) {
+      void refreshAfterVoiceRead("voice-minutes");
+    }
+  }, [recoveryProgress, hasRecoveredTranscript, refreshAfterVoiceRead, voiceReads]);
   const transcriptQuery = useInfiniteQuery({
     queryKey: ["voice-transcript", target],
     initialPageParam: null as VoiceTranscriptCursor | null,
@@ -210,109 +301,48 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
     retry: false,
   });
 
-  useEffect(() => {
-    const chunks = playbackQuery.data?.chunks;
-    if (!chunks?.length) {
-      setLoadedDuration(0);
-      setReady(false);
-      return;
+  const segments = useMemo(() => transcriptQuery.data?.pages.flatMap(page => page.segments) ?? [], [transcriptQuery.data?.pages]);
+  const speakerIndex = useMemo(() => indexSpeakerTurns(diarizationQuery.data?.turns ?? []), [diarizationQuery.data?.turns]);
+  const speakerLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    if (diarizationQuery.data?.status !== "ready") return labels;
+    for (const segment of segments) {
+      const ids = new Set<number>();
+      overlappingSpeakers(speakerIndex, segment.startMs, segment.endMs, ids);
+      labels.set(segment.id, diarizationQuery.data.speakers.filter(speaker => ids.has(speaker.id)).map(speaker => speaker.name).join("、") || "未确定");
     }
-    const player = new VoicePlayer();
-    playerRef.current = player;
-    const abort = new AbortController();
-    setReady(false);
-    setPlaying(false);
-    setPositionMs(0);
-    positionRef.current = 0;
-    setPlaybackError(null);
-    void player.load(chunks, desktopApi.toFileUrl, abort.signal).then(() => {
-      if (abort.signal.aborted) return;
-      setLoadedDuration(player.duration * 1000);
-      player.setSpeed(speedRef.current);
-      setReady(true);
-    }).catch(error => {
-      if (!abort.signal.aborted) setPlaybackError(`音频加载失败：${error instanceof Error ? error.message : String(error)}`);
-    });
-    return () => { abort.abort(); player.dispose(); playerRef.current = null; };
-  }, [playbackQuery.data?.chunks]);
+    return labels;
+  }, [segments, speakerIndex, diarizationQuery.data?.speakers, diarizationQuery.data?.status]);
 
-  useEffect(() => {
-    setSourceSeekStatus(null);
-    if (!visible || sourceTimeMs == null || !ready || !playerRef.current) return;
-    if (!Number.isFinite(sourceTimeMs) || sourceTimeMs < 0 || sourceTimeMs > totalMs) {
-      setSourceSeekStatus("来源时间点已超出当前录音范围，无法定位。");
-      return;
-    }
-    // Pause before seeking: an already playing resident player must not
-    // schedule audio while a new source destination is being revealed.
-    playerRef.current.pause();
-    playerRef.current.seek(sourceTimeMs / 1000);
-    positionRef.current = sourceTimeMs;
-    setPositionMs(sourceTimeMs);
-    setPlaying(false);
-    setSourceSeekStatus(`已定位录音来源 ${formatTime(sourceTimeMs)}。`);
-  }, [visible, ready, totalMs, sourceTimeMs, sourceNavigationKey]);
-
-  function syncAudio(nextPositionMs: number, shouldPlay: boolean) {
-    const player = playerRef.current;
-    if (!player) return;
-    player.seek(nextPositionMs / 1000);
-    player.setSpeed(speedRef.current);
-    if (!shouldPlay) player.pause();
-  }
-
-  useEffect(() => {
-    if (!playing) return;
-    let frame = 0;
-    const tick = () => {
-      const next = (playerRef.current?.position ?? 0) * 1000;
-      positionRef.current = next;
-      setPositionMs(next);
-      if (next >= totalMs) {
-        setPlaying(false);
-        syncAudio(totalMs, false);
-        return;
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [playing, totalMs]);
-
+  if (playbackQuery.isError && !playbackQuery.data) return <section aria-label="录音播放">
+    <p role="alert" className="text-caption text-danger">录音加载失败：{String(playbackQuery.error)}</p>
+    <Button type="button" size="sm" variant="secondary" onClick={() => void playbackQuery.refetch()}>重新读取录音</Button>
+  </section>;
   if (playbackQuery.isLoading || !playbackQuery.data) return null;
 
-  const togglePlayback = () => {
-    if (playing) {
-      setPlaying(false);
-      syncAudio(positionRef.current, false);
-      return;
-    }
-    const start = positionRef.current >= totalMs ? 0 : positionRef.current;
-    setPlaybackError(null);
-    positionRef.current = start;
-    setPositionMs(start);
-    syncAudio(start, true);
-    void playerRef.current?.play().then(() => setPlaying(true)).catch(error => {
-      setPlaybackError(`音频未能启动：${error instanceof Error ? error.message : String(error)}`);
-    });
-  };
-
-  const seek = (next: number) => {
-    positionRef.current = next;
-    setPositionMs(next);
-    syncAudio(next, playing);
-  };
+  const seek = (next: number) => playbackRef.current?.seek(next);
 
   const generateMinutes = async () => {
+    const observation = voiceReads;
     setGeneratingMinutes(true);
     setMinutesError(null);
     try {
       await voiceApi.minutesGenerate({ target, requestId: crypto.randomUUID() });
-      await minutesQuery.refetch();
+      await refreshAfterVoiceRead("voice-minutes");
     } catch (error) {
-      setMinutesError(error instanceof Error ? error.message : String(error));
+      if (observation.active) setMinutesError(error instanceof Error ? error.message : String(error));
     } finally {
-      setGeneratingMinutes(false);
+      if (observation.active) setGeneratingMinutes(false);
+    }
+  };
+
+  const retryRecovery = async () => {
+    const observation = voiceReads;
+    try {
+      await voiceApi.recoveryRetry(target);
+      await refreshAfterVoiceRead("voice-recovery");
+    } catch (error) {
+      if (observation.active) setMinutesError(String(error));
     }
   };
 
@@ -340,6 +370,8 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
           {playbackQuery.data.phase === "ended" ? "已保存" : "录制尚未结束"}
         </span>
       </div>
+      {playbackQuery.isError ? <p role="alert" className="mb-2 text-caption text-danger">录音刷新失败：{String(playbackQuery.error)}</p> : null}
+      {recoveryQuery.isError ? <p role="alert" className="mb-2 text-caption text-danger">补转写状态读取失败：{String(recoveryQuery.error)}</p> : null}
       {recoveryQuery.data?.some(gap => gap.status !== "ready") ? (
         <div className="mb-3 text-caption text-text-muted" role="status">
           {recoveryQuery.data.filter(gap => gap.status !== "ready").map(gap => (
@@ -350,54 +382,12 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
             </p>
           ))}
           {recoveryQuery.data.some(gap => gap.status === "failed") ? (
-            <Button variant="ghost" onClick={() => void voiceApi.recoveryRetry(target).then(() => recoveryQuery.refetch()).catch(error => setMinutesError(String(error)))}>重试补转写</Button>
+            <Button variant="ghost" onClick={() => void retryRecovery()}>重试补转写</Button>
           ) : null}
         </div>
       ) : null}
-      {totalMs > 0 ? (
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            aria-label={playing ? "暂停录音" : "播放录音"}
-            leadingIcon={playing ? <Pause size={14} /> : <Play size={14} />}
-            onClick={togglePlayback}
-            disabled={!ready}
-          >
-            {playing ? "暂停" : "播放"}
-          </Button>
-          <span className="w-10 text-right font-mono text-caption tabular-nums text-text-muted">{formatTime(positionMs)}</span>
-          <input
-            className="min-w-24 flex-1 accent-[var(--color-accent)]"
-            type="range"
-            min={0}
-            max={Math.max(1, totalMs)}
-            step={100}
-            value={Math.min(positionMs, totalMs)}
-            aria-label="录音进度"
-            onChange={(event) => seek(Number(event.target.value))}
-          />
-          <span className="w-10 font-mono text-caption tabular-nums text-text-muted">{formatTime(totalMs)}</span>
-          <select
-            className="h-7 rounded-[var(--radius-6)] border border-border bg-bg px-2 text-ui text-text"
-            aria-label="播放倍速"
-            value={speed}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              speedRef.current = next;
-              setSpeed(next);
-              syncAudio(positionRef.current, playing);
-            }}
-          >
-            {[0.75, 1, 1.25, 1.5, 2].map((value) => <option key={value} value={value}>{value}×</option>)}
-          </select>
-        </div>
-      ) : (
-        <p className="text-body text-text-muted">暂停或结束录制后，这里会显示已保存的音频。</p>
-      )}
-      {playbackError ? <p className="mt-2 text-caption text-danger">{playbackError}</p> : null}
-      {visible && sourceSeekStatus ? <p role="status" className="mt-2 text-caption text-text-soft">{sourceSeekStatus}</p> : null}
+      <VoicePlaybackControls ref={playbackRef} sessionId={playbackQuery.data.sessionId} chunks={playbackQuery.data.chunks}
+        visible={visible} sourceTimeMs={sourceTimeMs} sourceNavigationKey={sourceNavigationKey} onAvailability={onPlaybackAvailability} />
       {ended ? <section aria-label="说话人区分" className="mt-4 border-t border-border pt-3">
         <h3 className="text-body font-medium text-text">说话人</h3>
         {diarizationQuery.isPending ? <p className="mt-2 text-caption text-text-muted">正在读取说话人状态…</p> : null}
@@ -449,18 +439,18 @@ export function VoiceRecordPanel({ target, visible = true, sourceTimeMs, sourceN
             {playbackQuery.data?.recognitionError ? <p role="alert" className="mb-2 text-caption text-danger">本次录音的转写曾中断，可能缺少部分内容。{playbackQuery.data.recognitionError}</p> : null}
             {transcriptQuery.isPending ? <p className="text-body text-text-muted">正在加载转写…</p> : null}
             {transcriptQuery.isError ? <p className="text-body text-danger">转写加载失败：{String(transcriptQuery.error)}</p> : null}
-            {transcriptQuery.data?.pages.flatMap((page) => page.segments).length === 0 ? (
+            {segments.length === 0 ? (
               <p className="text-body text-text-muted">暂无转写。</p>
             ) : null}
             <ol className="grid gap-1">
-              {transcriptQuery.data?.pages.flatMap((page) => page.segments).map((segment) => (
+              {segments.map((segment) => (
                 <li key={segment.id}>
                   <button type="button" className="w-full rounded-[var(--radius-6)] px-2 py-1.5 text-left text-body text-text hover:bg-bg-hover disabled:cursor-not-allowed disabled:text-text-muted"
                     disabled={!ready || segment.startMs > totalMs}
                     onClick={() => seek(segment.startMs)}
                     title={segment.startMs > totalMs ? "对应音频尚不可用" : undefined}>
                     <span className="mr-2 font-mono text-caption tabular-nums text-text-muted">{formatTime(segment.startMs)}</span>
-                    {diarizationQuery.data?.status === "ready" ? <span className="mr-2 text-caption text-text-muted">{speakerLabel(segment.startMs, segment.endMs)}</span> : null}
+                    {diarizationQuery.data?.status === "ready" ? <span className="mr-2 text-caption text-text-muted">{speakerLabels.get(segment.id)}</span> : null}
                     {segment.text}
                   </button>
                 </li>

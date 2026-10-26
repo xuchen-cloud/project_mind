@@ -9,6 +9,9 @@ import type { DocumentRecord, ProjectTagRecord } from "../../lib/types";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
+const nativeVersionMocks = vi.hoisted(() => ({binding:vi.fn(async()=>({workspaceId:"w",generation:"g"})),list:vi.fn()}));
+vi.mock("../../services/recordDocumentApi",()=>({recordDocumentApi:{bindingGet:nativeVersionMocks.binding}}));
+vi.mock("../../services/fileDocumentApi",()=>({fileDocumentApi:{versionsList:nativeVersionMocks.list}}));
 const documentMutationMocks = vi.hoisted(() => ({
   documentMetaMutation: { mutate: vi.fn(), isPending: false },
   documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
@@ -104,6 +107,7 @@ describe("ProjectSidebar", () => {
   });
   beforeEach(() => {
     closeFilePreview();
+    nativeVersionMocks.binding.mockClear();nativeVersionMocks.list.mockReset();
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
@@ -227,9 +231,9 @@ describe("ProjectSidebar", () => {
   it("chooses a sidebar file version without also opening the latest file", async () => {
     const document = buildDocument({ id: 29, name: "brief.pdf", baseName: "brief.pdf", currentVersionNumber: 2, versionCount: 2 });
     const versions = [2, 1].map(versionNumber => ({ id: versionNumber, documentId: 29, versionNumber, name: "brief.pdf", sourcePath: "/source", managedPath: "/managed", createdAt: "2026-10-15T10:00:00Z" }));
-    projectMindApiMocks.documentListVersions.mockResolvedValue(versions as never);
+    nativeVersionMocks.list.mockResolvedValue({object:{workspaceId:"w",scope:{kind:"project",projectId:1},kind:"file",id:"29"},currentVersionNumber:2,currentContentHash:"hash",versions:versions.map(version=>({...version,id:String(version.id),contentHash:"hash",isCurrent:version.versionNumber===2})),nextCursor:null});
     renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/tmp/project" }} documents={[document]} onOpenProject={() => undefined} />);
-    expect(projectMindApiMocks.documentListVersions).not.toHaveBeenCalled();
+    expect(nativeVersionMocks.list).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "选择 brief.pdf 的版本" }));
     const menu = await screen.findByRole("menu");
     const old = await within(menu).findByRole("menuitemradio", {name:"v1",exact:true});

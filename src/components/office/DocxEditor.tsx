@@ -1,3 +1,4 @@
+import {useOfficePreview,type OfficePreviewProps} from './useOfficePreview';
 import {EditorLoading} from "../document/EditorLoading";
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import '../../../packages/office-docx/dist/editor-shell.css';
@@ -8,7 +9,7 @@ import type {EditorController,EditorOptions,FaceVerticalMetrics,EditorRemoteImag
 export type {FaceVerticalMetrics} from '../../../packages/office-docx/editor-types';
 export type {DocxModel,DocxModel as Model,Edit,Edit as DocxEdit} from '../../../packages/office-docx/types';
 export type DocxSelectionController=Pick<EditorController,'captureSelection'|'replaceSelection'>&{applySelection(input:{selectionId:string;change:unknown}):Promise<{text:string}>};
-export interface DocxEditorProps{
+export interface DocxEditorProps extends OfficePreviewProps{
   model:DocxModel;edits:Edit[];onChange(edits:Edit[]):void;readOnly?:boolean;presentationMode?:'preview'|'edit';
   registerOutput?:RegisterEditorOutput;
   registerSelection?:(controller:DocxSelectionController)=>()=>void;
@@ -31,6 +32,7 @@ export function DocxEditor(props:DocxEditorProps){
   const [error,setError]=useState<string|null>(null);
   const [loading,setLoading]=useState<'runtime'|'render'|null>('runtime');
   const loadingReady=useRef<Promise<void>|null>(null);
+  useOfficePreview(loading===null,()=>host.current?.querySelector('iframe')??null,props,setError);
   function observeReady(mounted:EditorController){
     const ready=mounted.ready;
     if(loadingReady.current===ready)return;
