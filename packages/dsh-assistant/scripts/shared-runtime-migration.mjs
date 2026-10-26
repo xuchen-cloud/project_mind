@@ -3,6 +3,7 @@ import { zstdCompressSync, zstdDecompressSync, constants } from 'node:zlib';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, open, rename, rm, lstat } from 'node:fs/promises';
 import { validateStore } from './scheduled-tasks-schema.mjs';
+import { syncDirectory } from './fs-durability.mjs';
 
 const manifestName = 'mind-migration.json';
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
@@ -17,10 +18,6 @@ async function durableWrite(file, data) {
 async function syncTreeDirectories(directory) {
  for(const entry of await entries(directory)) if(entry.isDirectory()) await syncTreeDirectories(path.join(directory,entry.name));
  await syncDirectory(directory);
-}
-async function syncDirectory(directory) {
- const handle = await open(directory, 'r');
- try { await handle.sync(); } finally { await handle.close(); }
 }
 async function entries(directory) {
  try { return (await readdir(directory, { withFileTypes: true })).sort((a,b)=>a.name.localeCompare(b.name)); }

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { sessionInventory } from './session-inventory.mjs';
 import { searchContextSessions } from './context-session-reads.mjs';
+import { syncDirectory } from './fs-durability.mjs';
 import { realpath, stat, readFile, open, rename, mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
@@ -57,8 +58,7 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     const handle = await open(temporary, 'wx', 0o600);
     try { await handle.writeFile(JSON.stringify(mappings) + '\n'); await handle.sync(); } finally { await handle.close(); }
     await rename(temporary, file);
-    const directory = await open(home, 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    await syncDirectory(home);
   };
   const current = context => {
     const value = ctx.workspaceRegistry.get(context.workspaceId);
