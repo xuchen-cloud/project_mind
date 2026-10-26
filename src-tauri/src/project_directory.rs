@@ -899,7 +899,7 @@ pub(crate) fn project_file_reconcile(
     object: ObjectRef,
     relative_path: String,
     expected_version_number: u32,
-    expected_content_hash: String,
+    expected_content_hash: Option<String>,
     confirmation: String,
 ) -> Result<DirectoryFile, FileServiceError> {
     file_caller(&caller, object_project(&object)?)?;
@@ -908,7 +908,7 @@ pub(crate) fn project_file_reconcile(
             &object,
             &relative_path,
             expected_version_number,
-            &expected_content_hash,
+            expected_content_hash.as_deref(),
             &confirmation,
         )
     })

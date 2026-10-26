@@ -15,10 +15,12 @@ export interface ProjectFileIdentityActionsProps {
   projectId: number | null;
   fileId: number;
   visible: boolean;
+  initialOpen?: boolean;
   onChanged?: () => void;
+  onRecovered?: () => void;
 }
 interface Resolved { binding: AgentWorkspaceBinding; file: ProjectDirectoryFile }
-type Action = "move" | "rename" | "location" | "replacement";
+type Action = "move" | "rename" | "location" | "replacement" | "registration";
 const states = { ready: "位置已核对", missing: "文件缺失", ambiguous: "身份待确认", unavailable: "文件不可用" };
 function message(error: unknown) {
   if (error && typeof error === "object" && "message" in error) return String(error.message);
@@ -33,11 +35,11 @@ function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
 export function ProjectFileIdentityActions(props: ProjectFileIdentityActionsProps) {
   return <IdentityActions key={JSON.stringify([props.workspaceRoot, props.projectId, props.fileId])} {...props} />;
 }
-function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged }: ProjectFileIdentityActionsProps) {
+function IdentityActions({ workspaceRoot, projectId, fileId, visible, initialOpen = false, onChanged, onRecovered }: ProjectFileIdentityActionsProps) {
   const ownerLabel = projectId === null ? "工作区" : "项目";
   const client = useQueryClient();
   const panelId = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [resolved, setResolved] = useState<Resolved>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -47,6 +49,7 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
   const request = useRef<AbortController | null>(null);
   const active = useRef(visible); active.current = visible;
   const callback = useRef(onChanged); callback.current = onChanged;
+  const recovered = useRef(onRecovered); recovered.current = onRecovered;
 
   function current(controller: AbortController) {
     return active.current && request.current === controller && !controller.signal.aborted;
@@ -91,6 +94,7 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
       await changed(controller, binding);
       check(controller);
       setResolved({ binding, file });
+      if (file.state === "ambiguous") setTarget(value => value || file.relativePath);
     } catch (failure) { if (current(controller)) setError(message(failure)); }
     finally { if (current(controller)) { request.current = null; setBusy(false); } }
   }
@@ -111,8 +115,9 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
   }, [visible, open]);
 
   async function perform(action: Action) {
-    if (!active.current || !open || request.current || !resolved || !resolved.file.contentHash) return;
-    if (action === "replacement" && !replacementConfirmed) return;
+    if (!active.current || !open || request.current || !resolved) return;
+    if (action !== "registration" && !resolved.file.contentHash) return;
+    if ((action === "replacement" || action === "registration") && !replacementConfirmed) return;
     const { binding, file } = resolved;
     const controller = new AbortController(); request.current = controller;
     setBusy(true); setError(undefined);
@@ -122,7 +127,7 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
       const cas = [file.versionNumber, file.contentHash!] as const;
       const result = action === "rename" ? await projectFileApi.rename(...args, name, ...cas)
         : action === "move" ? await projectFileApi.move(...args, target, ...cas)
-        : await projectFileApi.reconcile(...args, target, ...cas, action);
+        : await projectFileApi.reconcile(...args, action === "registration" ? file.relativePath : target, file.versionNumber, file.contentHash, action);
       check(controller); validate(result, file.object);
       await checkBinding(controller, binding);
       await changed(controller, binding);
@@ -131,6 +136,7 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
       setReplacementConfirmed(false);
       // Unavailable is an actual failed registration, not a successful new version.
       if (result.state !== "ready") setError(result.reason ?? "文件核对未完成；未确认新版本。");
+      else recovered.current?.();
     } catch (failure) { if (current(controller)) setError(message(failure)); }
     finally { if (current(controller)) { request.current = null; setBusy(false); } }
   }
@@ -140,7 +146,7 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
   return <section className="project-file-identity" hidden={!visible} aria-label="文件身份与位置">
     <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => {
       request.current?.abort(); request.current = null; setBusy(false);
-      setResolved(undefined); setError(undefined); setReplacementConfirmed(false); setOpen(value => !value);
+      setResolved(undefined); setError(undefined); setTarget(""); setReplacementConfirmed(false); setOpen(value => !value);
     }}>文件位置</button>
     {open && visible ? <div id={panelId} className="project-file-identity__panel project-file-identity__panel--location" role="region" aria-label="文件位置核对">
       <HomeSidebarList label="文件位置操作">
@@ -151,8 +157,12 @@ function IdentityActions({ workspaceRoot, projectId, fileId, visible, onChanged 
         <dt>最新已登记版本</dt><dd>{file.contentHash ? `v${file.versionNumber}` : "尚未登记可核验的版本"}</dd></dl> : null}
       <button type="button" disabled={busy || file?.state !== "ready"} onClick={() => void openCurrent()}>在本地打开当前文件</button>
       <p className="project-file-identity__hint">此面板用于核对当前位置；文件缺失或身份待确认时，已保留的历史版本和引用仍可读取。</p>
-      {file && !file.contentHash ? <p>缺少已登记内容校验信息，暂不能移动或确认身份。读取失败或超出原生快照预算不会建立新版本。</p> : null}
-      {file?.state === "ready" || needsConfirmation ? <>
+      {file && !file.contentHash ? file.state === "ambiguous" ? <>
+        <p>旧文件缺少已登记的内容校验信息。请确认当前位置的文件，登记后即可在应用内打开。</p>
+        <label className="project-file-identity__confirmation"><input type="checkbox" checked={replacementConfirmed} disabled={busy} onChange={event => setReplacementConfirmed(event.target.checked)} />我确认当前位置的文件是要继续使用的文件：将当前内容登记为新版本，旧版本仍保留为未经核验的内容。</label>
+        <button type="button" disabled={busy || !replacementConfirmed} onClick={() => void perform("registration")}>确认并登记当前文件</button>
+      </> : <p>缺少已登记内容校验信息，暂不能移动或确认身份。读取失败或超出原生快照预算不会建立新版本。</p> : null}
+      {file?.contentHash && (file.state === "ready" || needsConfirmation) ? <>
         <label>同{ownerLabel}目标相对路径<input value={target} disabled={busy} placeholder="例如：资料/说明.md" onChange={event => { setTarget(event.target.value); setReplacementConfirmed(false); }} /></label>
         <p className="project-file-identity__hint">目标必须位于当前{ownerLabel}内。操作前会核对文件内容和版本。</p>
         {file.state === "ready" ? <>

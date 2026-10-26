@@ -8,6 +8,7 @@ import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { projectFileApi } from "../../services/projectFileApi";
 import { htmlPreviewApi } from "../../services/htmlPreviewApi";
 import { ProjectFileContent } from "./ProjectFileContent";
+import { ProjectFileIdentityActions } from "./ProjectFileIdentityActions";
 import { officeFileApi } from "../../services/officeFileApi";
 import { officePreviewCache } from "../../lib/office-preview-cache";
 import { desktopApi } from "../../services/desktopApi";
@@ -30,7 +31,7 @@ vi.mock("../office/XlsxEditor", () => ({ XlsxEditor: (props: { registerBeforeSav
 } }));
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
-vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), openLocal: vi.fn(), applications: vi.fn(), openWith: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { readBytes: vi.fn(), resolve: vi.fn(), resolveRelated: vi.fn(), reconcile: vi.fn(), openLocal: vi.fn(), applications: vi.fn(), openWith: vi.fn() }, fileBytes: (result: { base64: string }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
 vi.mock("../../services/htmlPreviewApi", () => ({ htmlPreviewApi: { create: vi.fn(), layout: vi.fn(), action: vi.fn(), status: vi.fn(), close: vi.fn() } }));
 const binding = { workspaceId: "w", generation: "g" };
 const object = { workspaceId: "w", scope: { kind: "project" as const, projectId: 2 }, kind: "file" as const, id: "7" };
@@ -68,6 +69,32 @@ beforeEach(() => {
 function originalMissing() {
   return new AgentApiError({ code: 'SOURCE_NOT_READY', message: 'Original File is missing', details: { reason: 'original_missing' }, retryable: false });
 }
+it.each([true, false])('opens a legacy File after explicit recovery with a registered hash: %s, without relying on a cached version query', async registered => {
+  const current = { object, relativePath: "sample.txt", name: "sample.txt", versionNumber: 2, contentHash: registered ? "hash2" : null, state: "ambiguous" as const, reason: "旧版导入文件尚未记录文件身份，请确认当前位置后打开。" };
+  const recoveredVersion = registered ? 2 : 3;
+  vi.mocked(projectFileApi.resolve).mockResolvedValue(current);
+  vi.mocked(projectFileApi.reconcile).mockImplementation(async () => {
+    const ready = { ...current, versionNumber: recoveredVersion, contentHash: `hash${recoveredVersion}`, state: "ready" as const, reason: null };
+    vi.mocked(projectFileApi.resolve).mockResolvedValue(ready);
+    vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: recoveredVersion, currentContentHash: ready.contentHash, versions: [version(recoveredVersion), version(1)], nextCursor: null });
+    return ready;
+  });
+  const client = new QueryClient();
+  render(<QueryClientProvider client={client}><ProjectFileContent {...input} identityRecovery={onRecovered =>
+    <ProjectFileIdentityActions {...input} initialOpen onRecovered={onRecovered} />
+  } /></QueryClientProvider>);
+  await screen.findByText("旧版导入文件尚未记录文件身份，请确认当前位置后打开。", { selector: '[role="alert"]' });
+  expect(projectFileApi.readBytes).not.toHaveBeenCalled();
+  expect(client.getQueryCache().find({ queryKey: ["documentVersions", 7] })).toBeUndefined();
+  if (!registered) fireEvent.click(await screen.findByRole("checkbox", { name: /旧版本仍保留为未经核验/ }));
+  const submit = await screen.findByRole("button", { name: registered ? "确认同一文件的新位置" : "确认并登记当前文件" });
+  await waitFor(() => expect(submit).toBeEnabled());
+  fireEvent.click(submit);
+  await screen.findByText(`version${recoveredVersion}`);
+  expect(projectFileApi.reconcile).toHaveBeenCalledWith(binding, object, "sample.txt", 2, current.contentHash, registered ? "location" : "registration");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "文件位置核对" })).not.toBeInTheDocument();
+});
 // Use the registered content-tab guard with the real Office component/session:
 // Project/window leave also invokes this same guard through the layout registrar.
 async function editedOffice(format: 'docx' | 'xlsx' = 'docx') {
@@ -729,7 +756,7 @@ it('shows external open failures and permits retry without changing the fixed ve
 });
 it('shows the recovery slot only after current File identity needs attention', async () => {
   const client = new QueryClient();
-  const wrap = () => <QueryClientProvider client={client}><ProjectFileContent {...input} identityRecovery={<button>文件位置核对入口</button>} /></QueryClientProvider>;
+  const wrap = () => <QueryClientProvider client={client}><ProjectFileContent {...input} identityRecovery={() => <button>文件位置核对入口</button>} /></QueryClientProvider>;
   const rendered = render(wrap()); await screen.findByText('version2');
   expect(screen.queryByText('文件位置核对入口')).toBeNull();
   vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath:'sample.txt', name:'sample.txt', versionNumber:2, contentHash:'hash2', state:'missing', reason:'文件缺失' });

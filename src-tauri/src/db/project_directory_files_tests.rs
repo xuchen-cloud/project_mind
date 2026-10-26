@@ -212,6 +212,460 @@ fn import_for_location(db: &mut Database, project: i64, source: &Path) -> Object
     }
 }
 
+fn legacy_unregistered_fixture() -> (tempfile::TempDir, Database, i64, PathBuf, ObjectRef) {
+    let (root, mut db, project, path) = fixture();
+    let source = path.join("旧版资料 空格.txt");
+    fs::write(&source, b"legacy live bytes").unwrap();
+    let imported = db
+        .document_import_legacy_fixture(crate::models::DocumentImportInput {
+            project_id: Some(project),
+            source_path: source.to_string_lossy().into_owned(),
+            is_starred: true,
+            tag_ids: None,
+        })
+        .unwrap();
+    db.directory_schema().unwrap();
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [imported.id],
+        )
+        .unwrap();
+    let object = ObjectRef {
+        workspace_id: "wp1-workspace".into(),
+        scope: Scope::Project {
+            project_id: project,
+        },
+        kind: ObjectKind::File,
+        id: imported.id.to_string(),
+    };
+    let unresolved = db.project_file_resolve(&object).unwrap();
+    assert_eq!(unresolved.state, "ambiguous");
+    assert_eq!(unresolved.content_hash, None);
+    assert_eq!(
+        unresolved.reason.as_deref(),
+        Some("旧版导入文件尚未记录文件身份，请确认当前位置后打开")
+    );
+    (root, db, project, path, object)
+}
+
+#[test]
+fn imported_file_legacy_registration_freezes_new_version_and_retains_unknown_history_after_reopen()
+{
+    let (root, mut db, _project, path, object) = legacy_unregistered_fixture();
+    let id = object.id.parse::<i64>().unwrap();
+    let before = db.document_record(id).unwrap();
+    let old_versions = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    let confirmed = db
+        .project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+        .unwrap();
+    assert_eq!(confirmed.state, "ready");
+    assert_eq!(confirmed.object, object);
+    assert_eq!(confirmed.version_number, 2);
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "revision_conflict"
+    );
+    assert_eq!(bytes(&db, &confirmed), b"legacy live bytes");
+    assert_eq!(
+        fs::read(path.join("旧版资料 空格.txt")).unwrap(),
+        b"legacy live bytes"
+    );
+    let after = db.document_record(id).unwrap();
+    assert_eq!(after.managed_path, before.managed_path);
+    assert_eq!(after.is_starred, before.is_starred);
+    assert_eq!(after.created_at, before.created_at);
+    assert_eq!(after.version_count, before.version_count + 1);
+    let versions = db
+        .document_list_versions(crate::models::DocumentListVersionsInput { document_id: id })
+        .unwrap();
+    assert_eq!(versions.len(), 2);
+    let retained = versions
+        .iter()
+        .find(|v| v.id == old_versions[0].id)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(retained).unwrap(),
+        serde_json::to_value(&old_versions[0]).unwrap()
+    );
+    assert_eq!(db.directory_hash(id, 1).unwrap(), None);
+    assert_eq!(db.directory_hash(id, 2).unwrap(), confirmed.content_hash);
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_read_bytes(&FileBytesInput {
+                object: object.clone(),
+                version_number: 1,
+                expected_content_hash: confirmed.content_hash.clone().unwrap(),
+            })
+            .unwrap_err()
+        )
+        .code,
+        "version_unregistered"
+    );
+    drop(db);
+    let mut db = Database::open(&root.path().join("test.sqlite"), root.path(), None).unwrap();
+    db.bind_native_workspace("wp1-workspace").unwrap();
+    let reopened = db.project_file_resolve(&object).unwrap();
+    assert_eq!(reopened.state, "ready");
+    assert_eq!(reopened.version_number, 2);
+    assert_eq!(reopened.content_hash, confirmed.content_hash);
+    assert_eq!(bytes(&db, &reopened), b"legacy live bytes");
+    assert_eq!(db.directory_hash(id, 1).unwrap(), None);
+    fs::write(path.join("旧版资料 空格.txt"), b"edited after registration").unwrap();
+    assert_eq!(bytes(&db, &reopened), b"legacy live bytes");
+    let edited = db.project_file_resolve(&object).unwrap();
+    assert_eq!(edited.version_number, 3);
+    assert_eq!(bytes(&db, &edited), b"edited after registration");
+    assert_eq!(db.directory_hash(id, 1).unwrap(), None);
+}
+
+#[test]
+fn imported_file_legacy_registration_accepts_absent_identity_record() {
+    let (_root, db, _project, _path, object) = legacy_unregistered_fixture();
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [&object.id],
+        )
+        .unwrap();
+    let confirmed = db
+        .project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+        .unwrap();
+    assert_eq!(confirmed.state, "ready");
+    assert_eq!(confirmed.version_number, 2);
+}
+
+#[test]
+fn imported_file_legacy_registration_requires_exact_confirmation_and_current_path() {
+    let (_root, db, _project, path, object) = legacy_unregistered_fixture();
+    for (hash, confirmation) in [
+        (None, ""),
+        (None, "other"),
+        (None, "location"),
+        (None, "replacement"),
+        (Some(""), "location"),
+        (Some(""), "replacement"),
+        (Some(""), "registration"),
+    ] {
+        let error = db
+            .project_file_reconcile(&object, "旧版资料 空格.txt", 1, hash, confirmation)
+            .unwrap_err();
+        assert_eq!(
+            FileServiceError::from_error(error).code,
+            "invalid_argument",
+            "{hash:?} {confirmation}"
+        );
+    }
+    fs::write(path.join("different.txt"), b"legacy live bytes").unwrap();
+    let error = db
+        .project_file_reconcile(&object, "different.txt", 1, None, "registration")
+        .unwrap_err();
+    assert_eq!(FileServiceError::from_error(error).code, "invalid_argument");
+    let unchanged = db.document_record(object.id.parse().unwrap()).unwrap();
+    assert_eq!(unchanged.current_version_number, 1);
+    assert_eq!(unchanged.version_count, 1);
+    assert_eq!(db.directory_hash(unchanged.id, 1).unwrap(), None);
+    assert_eq!(
+        fs::read(path.join("旧版资料 空格.txt")).unwrap(),
+        b"legacy live bytes"
+    );
+}
+
+#[test]
+fn imported_file_legacy_registration_rejects_known_identity_or_registered_history() {
+    let (_root, mut db, project, path, object) = legacy_unregistered_fixture();
+    let id = object.id.parse::<i64>().unwrap();
+    let physical = serde_json::to_string(
+        &file_versions::path_identity(&path.join("旧版资料 空格.txt")).unwrap(),
+    )
+    .unwrap();
+    db.conn
+        .execute(
+            "UPDATE project_directory_files SET physical_identity=?1 WHERE document_id=?2",
+            params![physical, id],
+        )
+        .unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "invalid_argument"
+    );
+    db.conn
+        .execute(
+            "UPDATE project_directory_files SET physical_identity='' WHERE document_id=?1",
+            [id],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "UPDATE documents SET storage_mode='project_directory' WHERE id=?1",
+            [id],
+        )
+        .unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "invalid_argument"
+    );
+    fs::write(path.join("known.txt"), b"registered import").unwrap();
+    let known = import_for_location(&mut db, project, &path.join("known.txt"));
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_files WHERE document_id=?1",
+            [&known.id],
+        )
+        .unwrap();
+    let pending = db.project_file_resolve(&known).unwrap();
+    assert_eq!(pending.state, "ambiguous");
+    assert!(pending.content_hash.is_some());
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(
+                &known,
+                "known.txt",
+                1,
+                pending.content_hash.as_deref(),
+                "registration"
+            )
+            .unwrap_err()
+        )
+        .code,
+        "invalid_argument"
+    );
+    assert_eq!(
+        db.project_file_reconcile(
+            &known,
+            "known.txt",
+            1,
+            pending.content_hash.as_deref(),
+            "location"
+        )
+        .unwrap()
+        .state,
+        "ready"
+    );
+}
+
+#[test]
+fn imported_file_legacy_registration_rejects_foreign_physical_owner_and_forged_scope() {
+    let (_root, mut db, project, path, object) = legacy_unregistered_fixture();
+    let other = db
+        .project_create(ProjectCreateInput {
+            name: "Other owner".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    let owned_path = Path::new(&other.root_path).join("owned.txt");
+    fs::write(&owned_path, b"owned content").unwrap();
+    let owner = db
+        .project_file_register("wp1-workspace", other.id, "owned.txt")
+        .unwrap();
+    let live = path.join("旧版资料 空格.txt");
+    fs::remove_file(&live).unwrap();
+    fs::hard_link(&owned_path, &live).unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "ownership_mismatch"
+    );
+    let mut forged = object.clone();
+    forged.scope = Scope::Project {
+        project_id: other.id,
+    };
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&forged, "owned.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "ownership_mismatch"
+    );
+    forged.scope = Scope::Project {
+        project_id: project,
+    };
+    forged.workspace_id = "foreign-workspace".into();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&forged, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "ownership_mismatch"
+    );
+    assert_eq!(bytes(&db, &owner), b"owned content");
+    assert_eq!(fs::read(&live).unwrap(), b"owned content");
+    assert_eq!(
+        db.document_record(object.id.parse().unwrap())
+            .unwrap()
+            .version_count,
+        1
+    );
+}
+
+#[test]
+fn imported_file_legacy_registration_preserves_snapshot_budget_and_pending_move_intents() {
+    let (_root, db, _project, path, object) = legacy_unregistered_fixture();
+    let id = object.id.parse::<i64>().unwrap();
+    let live = path.join("旧版资料 空格.txt");
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&live)
+        .unwrap()
+        .set_len(crate::file_text_patch::MAX_FILE_BYTES as u64 + 1)
+        .unwrap();
+    let unavailable = db
+        .project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+        .unwrap();
+    assert_eq!(unavailable.state, "unavailable");
+    assert_eq!(unavailable.content_hash, None);
+    assert_eq!(unavailable.version_number, 1);
+    assert_eq!(db.document_record(id).unwrap().version_count, 1);
+    let snapshots: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM document_versions WHERE document_id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(snapshots, 1);
+    fs::write(&live, b"legacy live bytes").unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO project_directory_metadata_intents(document_id,payload) VALUES (?1,'{}')",
+            [id],
+        )
+        .unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "ambiguous_identity"
+    );
+    assert_eq!(
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_directory_metadata_intents WHERE document_id=?1",
+                [id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    db.conn
+        .execute(
+            "DELETE FROM project_directory_metadata_intents WHERE document_id=?1",
+            [id],
+        )
+        .unwrap();
+    db.conn.execute("INSERT INTO project_directory_moves(document_id,original_path,target_path,physical_identity,content_hash,version_number) VALUES (?1,?2,?3,'','',1)", params![id, db.encode_path_ref(&live), db.encode_path_ref(&path.join("moved.txt"))]).unwrap();
+    assert_eq!(
+        FileServiceError::from_error(
+            db.project_file_reconcile(&object, "旧版资料 空格.txt", 1, None, "registration")
+                .unwrap_err()
+        )
+        .code,
+        "ambiguous_identity"
+    );
+    assert_eq!(
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_directory_moves WHERE document_id=?1",
+                [id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert!(!path.join("moved.txt").exists());
+    assert_eq!(db.directory_hash(id, 1).unwrap(), None);
+    assert_eq!(fs::read(&live).unwrap(), b"legacy live bytes");
+}
+
+#[test]
+fn imported_file_legacy_registration_rechecks_stale_version_and_hash_under_file_lock() {
+    for changed_hash in [false, true] {
+        let (root, db, project, path, object) = legacy_unregistered_fixture();
+        let id = object.id.parse::<i64>().unwrap();
+        let guard = db.file_version_lock(id).unwrap();
+        let thread_root = root.path().to_path_buf();
+        let thread_object = object.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut other =
+                Database::open(&thread_root.join("test.sqlite"), &thread_root, None).unwrap();
+            other.bind_native_workspace("wp1-workspace").unwrap();
+            started_tx.send(()).unwrap();
+            let result = other
+                .project_file_reconcile(
+                    &thread_object,
+                    "旧版资料 空格.txt",
+                    1,
+                    None,
+                    "registration",
+                )
+                .map_err(|error| FileServiceError::from_error(error).code);
+            done_tx
+                .send(result.map(|file| file.version_number))
+                .unwrap();
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(matches!(
+            done_rx.recv_timeout(std::time::Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        if changed_hash {
+            let hash = file_versions::checksum(&path.join("旧版资料 空格.txt")).unwrap();
+            db.conn.execute("INSERT INTO source_file_version_hashes(document_version_id,content_hash) SELECT id,?1 FROM document_versions WHERE document_id=?2 AND version_number=1", params![hash, id]).unwrap();
+        } else {
+            db.directory_publish_locked(
+                "wp1-workspace",
+                Some(project),
+                &path.join("旧版资料 空格.txt"),
+                &object,
+                true,
+                Some((1, "")),
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        drop(guard);
+        assert_eq!(
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            Err("revision_conflict")
+        );
+        worker.join().unwrap();
+        assert_eq!(
+            fs::read(path.join("旧版资料 空格.txt")).unwrap(),
+            b"legacy live bytes"
+        );
+    }
+}
+
 #[test]
 fn imported_file_location_first_resolve_freezes_managed_copy_and_adopted_head() {
     for adopted in [false, true] {
@@ -260,7 +714,7 @@ fn imported_file_location_legacy_identity_requires_explicit_confirmation() {
         .unwrap();
     let first = db.project_file_resolve(&object).unwrap();
     assert_eq!(first.state, "ambiguous");
-    assert!(first.reason.as_deref().unwrap().contains("confirm"));
+    assert_eq!(first.reason.as_deref(), Some("旧版导入文件尚未记录文件身份，请确认当前位置后打开"));
     assert_ne!(
         first.reason.as_deref(),
         Some("File location has not been checked")
@@ -276,7 +730,7 @@ fn imported_file_location_legacy_identity_requires_explicit_confirmation() {
             &object,
             "Presentation12.pptx",
             1,
-            first.content_hash.as_deref().unwrap(),
+            first.content_hash.as_deref(),
             "location",
         )
         .unwrap();
@@ -405,7 +859,7 @@ fn directory_file_external_edits_and_atomic_replacement_keep_old_snapshots() {
             &first.object,
             "note.txt",
             second.version_number,
-            second.content_hash.as_deref().unwrap(),
+            second.content_hash.as_deref(),
             "replacement",
         )
         .unwrap_err();
@@ -716,7 +1170,7 @@ fn directory_file_external_move_is_ambiguous_and_crossproject_physical_ownership
             &file.object,
             "external.bin",
             1,
-            file.content_hash.as_ref().unwrap(),
+            file.content_hash.as_deref(),
             "location",
         )
         .unwrap();
@@ -1612,6 +2066,18 @@ fn directory_file_restore_process_crashes_never_overwrite_foreign_live_files() {
             if stage == 4 { 3 } else { 2 }
         );
         if stage < 4 {
+            for (hash, confirmation) in [
+                (second.content_hash.as_deref(), "replacement"),
+                (None, "registration"),
+            ] {
+                let rejected = db
+                    .project_file_reconcile(&first.object, "live.bin", 2, hash, confirmation)
+                    .unwrap_err();
+                assert_eq!(
+                    FileServiceError::from_error(rejected).code,
+                    "ambiguous_identity"
+                );
+            }
             assert_eq!(fs::read(&backup).unwrap(), RESTORE_CURRENT_BYTES);
             assert_eq!(
                 db.conn

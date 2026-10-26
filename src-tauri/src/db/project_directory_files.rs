@@ -775,7 +775,7 @@ impl Database {
                 object,
                 "ambiguous",
                 if known.as_deref().is_none_or(str::is_empty) {
-                    "Imported File has no recorded physical identity; confirm location or replacement"
+                    "旧版导入文件尚未记录文件身份，请确认当前位置后打开"
                 } else {
                     "Physical identity changed; confirm replacement or relocation"
                 },
@@ -972,36 +972,78 @@ impl Database {
         object: &ObjectRef,
         relative: &str,
         version: u32,
-        hash: &str,
+        hash: Option<&str>,
         confirmation: &str,
     ) -> Result<DirectoryFile> {
         self.directory_schema()?;
-        self.directory_restore_recover(object)?;
-        let (project, _) = file_id(object)?;
+        let (project, id) = file_id(object)?;
         let _project_lock = self.file_project_lock(project, false)?;
-        self.directory_baseline(object, version, hash)?;
+        let _file_lock = self.file_version_lock(id)?;
+        self.directory_restore_recover_locked(object)?;
+        let document = self.directory_baseline(object, version, hash.unwrap_or(""))?;
         let root = self.directory_owner(&object.workspace_id, project)?;
         let path = business_path(&root, relative)?;
-        self.directory_unclaimed(&path, object)?;
-        if !matches!(confirmation, "location" | "replacement") {
+        if confirmation == "registration" {
+            let known: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT physical_identity FROM project_directory_files WHERE document_id=?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            // Missing historical registration cannot establish old bytes. Only
+            // explicit confirmation of this legacy File's current location may
+            // freeze the live content as a new version; never backfill history.
+            if hash.is_some()
+                || document.storage_mode == "project_directory"
+                || !known.as_deref().is_none_or(str::is_empty)
+                || path != Path::new(&document.managed_path)
+            {
+                return Err(failure(
+                    "invalid_argument",
+                    "Initial registration requires an unregistered legacy File at its current location",
+                ));
+            }
+            let pending: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM project_directory_moves WHERE document_id=?1 UNION ALL SELECT 1 FROM project_directory_metadata_intents WHERE document_id=?1)",
+                [id], |row| row.get(0),
+            )?;
+            if pending {
+                return Err(failure(
+                    "ambiguous_identity",
+                    "Pending File move must be resolved before initial registration",
+                ));
+            }
+        } else if matches!(confirmation, "location" | "replacement") {
+            if hash.is_none_or(str::is_empty) {
+                return Err(failure(
+                    "invalid_argument",
+                    "An unregistered legacy File requires explicit initial registration",
+                ));
+            }
+        } else {
             return Err(failure(
                 "invalid_argument",
-                "Explicit location or replacement confirmation is required",
+                "Explicit location, replacement or registration confirmation is required",
             ));
         }
-        if confirmation == "location" && file_versions::checksum(&path)? != hash {
+        self.directory_unclaimed(&path, object)?;
+        if confirmation == "location" && Some(file_versions::checksum(&path)?.as_str()) != hash {
             return Err(failure(
                 "hash_mismatch",
                 "Relocation cannot replace registered content; explicitly confirm replacement",
             ));
         }
-        self.directory_publish(
+        self.directory_publish_locked(
             &object.workspace_id,
             project,
             &path,
             object,
             true,
-            Some((version, hash)),
+            Some((version, hash.unwrap_or(""))),
+            None,
+            None,
         )
     }
 
