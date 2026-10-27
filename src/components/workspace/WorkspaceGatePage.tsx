@@ -5,6 +5,7 @@ import { Button } from "../../ui/components";
 
 interface WorkspaceGatePageProps {
   loading: boolean;
+  error?: string | null;
   recentWorkspaces: WorkspaceSummary[];
   onOpenExisting: () => void;
   onCreateWorkspace: () => void;
@@ -13,22 +14,12 @@ interface WorkspaceGatePageProps {
 
 export function WorkspaceGatePage({
   loading,
+  error,
   recentWorkspaces,
   onOpenExisting,
   onCreateWorkspace,
   onOpenRecent,
 }: WorkspaceGatePageProps) {
-  if (loading) {
-    return (
-      <div className="workspace-gate-shell flex h-dvh items-center justify-center px-6">
-        <p className="flex items-center gap-2 text-body text-text-secondary">
-          <span className="spin h-3.5 w-3.5 rounded-full border border-border-strong border-t-accent" />
-          正在检查最近使用的 Workspace…
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="workspace-gate-shell flex min-h-dvh items-center justify-center px-6 py-10">
       <main className="workspace-gate grid w-full max-w-5xl overflow-hidden rounded-[var(--radius-12)] border border-border bg-bg lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
@@ -81,6 +72,11 @@ export function WorkspaceGatePage({
             </h2>
           </div>
 
+          {loading ? <p role="status" className="mb-3 flex items-center gap-2 text-body text-text-secondary">
+            <span aria-hidden="true" className="spin h-3.5 w-3.5 shrink-0 rounded-full border border-border-strong border-t-accent" />
+            正在检查最近使用的 Workspace…
+          </p> : null}
+          {error ? <p role="alert" className="mb-3 text-body text-danger">{error}</p> : null}
           {recentWorkspaces.length > 0 ? (
             <div className="divide-y divide-border border-y border-border">
               {recentWorkspaces.map((workspace) => (
@@ -99,11 +95,11 @@ export function WorkspaceGatePage({
                 </button>
               ))}
             </div>
-          ) : (
+          ) : !loading && !error ? (
             <p className="border-t border-border py-4 text-body leading-6 text-text-secondary">
               还没有最近使用的 Workspace。
             </p>
-          )}
+          ) : null}
         </aside>
       </main>
     </div>

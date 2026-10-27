@@ -215,8 +215,6 @@ impl Database {
     pub fn document_relocate(&mut self, input: DocumentRelocateInput) -> Result<DocumentRecord> {
         let _locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let current = self.document_record(input.document_id)?;
         if current.current_version_number <= 0 || current.current_version_number > u32::MAX as i64 {
             bail!("Invalid File Version for relocation");
         }

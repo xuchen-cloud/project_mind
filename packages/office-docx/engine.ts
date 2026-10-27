@@ -32,7 +32,7 @@ export async function inspect(bytes: Uint8Array, _context?: Context): Promise<Do
   const { parsed, document } = await open(bytes);
   const section = readSections(parsed)[0]?.settings ?? DEFAULT_SECTION;
   const px = (twips: number) => twips / 15;
-  return { format: 'docx', authoring:await summary(bytes), sourceBase64: Buffer.from(bytes).toString('base64'), baselineHash: createHash('sha256').update(bytes).digest('hex'), document,
+  return { format: 'docx', authoring:await summary(bytes,parsed), sourceBase64: Buffer.from(bytes).toString('base64'), baselineHash: createHash('sha256').update(bytes).digest('hex'), document,
     documentCss: docStyleCss(parsed),
     nodes: textNodes(document), assets: assets(document), readOnly: !!parsed.protection?.enforced || !!parsed.writeProtection?.hash,
     page: { width: px(section.pageWidth), height: px(section.pageHeight),

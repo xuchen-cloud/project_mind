@@ -11,19 +11,19 @@ export function useDraftResources(value:string,resources:Record<string,string>,d
     if(!resolveResource)return;
     let active=true;
     const references=markdownImageReferences(value).filter(reference=>!resources[reference]&&canResolveMarkdownImage(reference));
-    void Promise.all(references.map(async reference=>{
-      let request=requests.get(reference);
-      if(!request){request=Promise.resolve().then(()=>resolveResource(reference));requests.set(reference,request);}
-      try{
-        const url=await request;
-        if(!url&&requests.get(reference)===request)requests.delete(reference);
-        return url?[reference,url] as const:undefined;
-      }catch(reason){
-        if(requests.get(reference)===request)requests.delete(reference);
-        if(active)onError(`无法读取图片资源：${getErrorMessage(reason)}`);
-      }
-    })).then(entries=>{
-      if(active)setResolved({requests,urls:Object.fromEntries(entries.filter((entry):entry is readonly [string,string]=>entry!==undefined))});
+    references.forEach(reference=>{
+      void (async()=>{
+        let request=requests.get(reference);
+        if(!request){request=Promise.resolve().then(()=>resolveResource(reference));requests.set(reference,request);}
+        try{
+          const url=await request;
+          if(!url&&requests.get(reference)===request)requests.delete(reference);
+          if(active&&url)setResolved(previous=>({requests,urls:{...(previous.requests===requests?previous.urls:{}),[reference]:url}}));
+        }catch(reason){
+          if(requests.get(reference)===request)requests.delete(reference);
+          if(active)onError(`无法读取图片资源：${getErrorMessage(reason)}`);
+        }
+      })();
     });
     return()=>{active=false;};
   },[value,resources,requests,resolveResource,onError]);

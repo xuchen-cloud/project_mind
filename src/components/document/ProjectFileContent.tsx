@@ -47,7 +47,7 @@ export function projectFilePreviewKind(name: string, mime: string): Kind {
   if (/^(text\/|application\/(json|xml))/u.test(mime) || /\.(txt|log|csv)$/iu.test(name) || /^(readme|license)$/iu.test(name)) return "text";
   return "unsupported";
 }
-interface Loaded { resolveResource?: (reference:string) => Promise<string|undefined>; binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; reload: number; versions: FileVersionMetadata[]; signal: AbortSignal }
+interface Loaded { resourceController?: AbortController; resolveResource?: (reference:string) => Promise<string|undefined>; binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; reload: number; versions: FileVersionMetadata[]; signal: AbortSignal }
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
   return a?.workspaceId === b.workspaceId && a.id === b.id && a.kind === b.kind && sameFileOwner(a.scope, b.scope);
 }
@@ -69,11 +69,6 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
   const discardCloseRevision = useRef<number | undefined>(undefined);
   const pendingEditorClose = useRef<Promise<void> | null>(null);
   const editorContext = useRef<Loaded | undefined>(undefined);
-  const resourceLifetime = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const lifetime = new AbortController(); resourceLifetime.current = lifetime;
-    return () => lifetime.abort();
-  }, []);
   const [editorMenu,setEditorMenu] = useState<HTMLSpanElement | null>(null);
   const [editorToolbar,setEditorToolbar] = useState<HTMLSpanElement | null>(null);
   const registerEditorFlush = useCallback((flush: () => Promise<void>) => {
@@ -131,6 +126,9 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
   const [reload, setReload] = useState(0);
   const [availableVersions, setAvailableVersions] = useState<FileVersionMetadata[]>([]);
   const [loaded, setLoaded] = useState<Loaded>();
+  // A retained Markdown editor owns its resources across hide/revalidation;
+  // replacing or unmounting that document ends all of its pending image reads.
+  useEffect(() => () => loaded?.resourceController?.abort(), [loaded?.resourceController]);
   const [error, setError] = useState<string>();
   const [needsRecovery, setNeedsRecovery] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -265,36 +263,38 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
         if (!asset.mime.startsWith("image/")) throw new Error("关联资源不是图片");
         return `data:${asset.mime};base64,${asset.base64}`;
       };
+      const initialImages = new Set<string>();
       if (kind === "markdown") {
         for (const reference of markdownImageReferences(text!)) {
+          if (/^data:image\//iu.test(reference)) { resources[reference] = reference; continue; }
           try {
-            resources[reference] = await resolveMarkdownImage(reference, signal);
-          } catch (failure) { signal.throwIfAborted(); warnings.push(`${reference}：${message(failure)}`); }
+            if (selection !== undefined) throw new Error("此历史版本未保留关联资源快照");
+            if (!localResourcePath(reference)) throw new Error("不加载未纳管的外部图片");
+            initialImages.add(reference);
+          } catch (failure) { warnings.push(`${reference}：${message(failure)}`); }
         }
       }
       signal.throwIfAborted();
-      if (live && assetCount > 0) {
-        const verified = await projectFileApi.resolve(binding, object);
-        signal.throwIfAborted();
-        if (verified.state !== "ready" || verified.versionNumber !== version || verified.contentHash !== selected.contentHash || verified.relativePath !== live.relativePath) throw new Error(verified.reason ?? "文件在关联资源读取期间发生变化，请刷新。");
-      }
       // Editing can begin while a retained editor is revalidated.
       // Its fixed baseline must survive that asynchronous read until CAS save.
       if (editorDirty.current && selection === undefined) return;
       sourceCallback.current?.({ object: result.object, revision: result.contentHash, fileVersion: result.versionNumber, recordVersion: null, blockId: null, locator: null, title: result.name, excerpt: "" });
       const rendererId = ++rendererSequence.current;
-      const resolveResource = kind === "markdown" && selection === undefined ? async (reference: string) => {
-        const resourceSignal = resourceLifetime.current!.signal;
+      const resourceController = kind === "markdown" && selection === undefined ? new AbortController() : undefined;
+      const resolveResource = resourceController ? async (reference: string) => {
+        const resourceSignal = resourceController.signal;
         resourceSignal.throwIfAborted();
         const image = await resolveMarkdownImage(reference, resourceSignal);
+        resourceSignal.throwIfAborted();
         const current = await projectFileApi.resolve(binding, object);
         resourceSignal.throwIfAborted();
         if (current.state !== "ready" || !sameObject(current.object, object) || current.relativePath !== live!.relativePath) throw new Error("文件位置在关联资源读取期间发生变化，请刷新。");
+        if (initialImages.has(reference) && (current.versionNumber !== version || current.contentHash !== selected.contentHash)) throw new Error("文件在关联资源读取期间发生变化，请刷新。");
         return image;
       } : undefined;
       setLoaded(previous => {
         const sameHtml = previous?.kind === "html" && kind === "html" && previous.version === version && previous.contentHash === result.contentHash && previous.reload === reload && previous.binding.workspaceId === binding.workspaceId && previous.binding.generation === binding.generation;
-        return { binding, object: result.object, name: live?.name ?? result.name, renderName: result.name, kind, text, resources, resolveResource, warnings, bytes: kind === "image" || kind === "pdf" ? bytes : undefined, version, contentHash: result.contentHash, rendererId: sameHtml ? previous.rendererId : rendererId, reload, versions, signal };
+        return { binding, object: result.object, name: live?.name ?? result.name, renderName: result.name, kind, text, resources, resolveResource, resourceController, warnings, bytes: kind === "image" || kind === "pdf" ? bytes : undefined, version, contentHash: result.contentHash, rendererId: sameHtml ? previous.rendererId : rendererId, reload, versions, signal };
       });
     })().catch(failure => { if (!signal.aborted) { if (!editorDirty.current) setLoaded(undefined); setError(message(failure)); sourceCallback.current?.(null); } }).finally(() => { if (!signal.aborted) setReading(false); });
     return () => { lifetime.abort(); dependentIds.current.clear(); sourceCallback.current?.(null); };

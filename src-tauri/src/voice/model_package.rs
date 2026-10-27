@@ -301,32 +301,6 @@ mod tests {
     }
 
     #[test]
-    fn imported_package_survives_app_startup_cleanup() {
-        let source = tempfile::tempdir().unwrap();
-        let app_data = tempfile::tempdir().unwrap();
-        let model = source.path().join("model.int8.onnx");
-        fs::write(&model, b"model").unwrap();
-        let checksum = sha256(&model).unwrap();
-        let files = [("model.int8.onnx", checksum.as_str())];
-        import_verified(source.path(), app_data.path(), &files, "test").unwrap();
-        let package = app_data.path().join("voice-models/test");
-        assert!(package.join(VERIFIED_MARKER).is_file());
-
-        let session = app_data.path().join("workspace-session.json");
-        fs::write(&session, b"{}").unwrap();
-        let legacy = app_data.path().join("legacy-cache");
-        fs::create_dir(&legacy).unwrap();
-        fs::write(legacy.join("old-file"), b"old").unwrap();
-        crate::workspace::cleanup_legacy_app_data(app_data.path(), &session).unwrap();
-        crate::workspace::cleanup_legacy_app_data(app_data.path(), &session).unwrap();
-
-        assert!(package.join(VERIFIED_MARKER).is_file());
-        assert!(session.is_file());
-        assert!(!legacy.exists());
-        verify_cached(&package, &files, "test").unwrap();
-    }
-
-    #[test]
     fn replaces_incomplete_cached_package_after_source_verification() {
         let source = tempfile::tempdir().unwrap();
         let cache = tempfile::tempdir().unwrap();

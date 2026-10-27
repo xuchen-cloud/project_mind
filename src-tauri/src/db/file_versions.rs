@@ -1552,9 +1552,6 @@ impl Database {
                 return Ok(FileVersionCommitOutcome::replay(receipt));
             }
         }
-        if registered.is_none() && gui.is_none() {
-            self.ensure_project_file_layout(project_id)?;
-        }
         let restore_source = if let Some((restore, _)) = restore {
             let (request, update) = registered.expect("restore needs registered target");
             let source = self

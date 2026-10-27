@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { Archive, Clock, GitFork, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
 import { useUiStore } from "../../state/ui-store";
@@ -21,12 +22,14 @@ export interface ProjectSidebarSessionsProps {
 type Session = Awaited<ReturnType<typeof dshAssistantApi.sessions>>[number];
 
 export function ProjectSidebarSessions(props: ProjectSidebarSessionsProps) {
-  // Remount the async owner at every scope/visibility boundary, including A → B → A.
+  // Remount the async owner at scope/visibility boundaries; known names live in the scoped query cache.
   return <ScopedSessions key={JSON.stringify([props.workspaceRoot, props.projectId, props.enabled])} {...props} />;
 }
 
 function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessionId }: ProjectSidebarSessionsProps) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const queryClient = useQueryClient();
+  const sessionsKey = ["agent", "sidebar-sessions", workspaceRoot, projectId] as const;
+  const [sessions, setSessions] = useState<Session[]>(() => queryClient.getQueryData<Session[]>(sessionsKey) ?? []);
   const [loading, setLoading] = useState(enabled);
   const [opening, setOpening] = useState(false);
   const [busyLabel, setBusyLabel] = useState("正在打开会话");
@@ -59,7 +62,10 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     setError(null);
     try {
       const saved = await dshAssistantApi.sessions(projectId);
-      if (!controller.signal.aborted) setSessions(saved);
+      if (!controller.signal.aborted) {
+        queryClient.setQueryData(sessionsKey, saved);
+        setSessions(saved);
+      }
     } catch (reason) {
       if (!controller.signal.aborted) setError({ message: getErrorMessage(reason, "读取项目会话失败"), retry: () => { void load(); } });
     } finally {
@@ -145,7 +151,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     <div className="home-side__heading"><span>会话</span><div className="home-side__heading-actions">
       {loading || opening ? <span role="status" aria-label={opening ? busyLabel : "正在读取项目会话"} className="inline-flex"><LoaderCircle size={14} className="spin" aria-hidden="true" /></span> : null}
       {projectId === null ? <button type="button" aria-label="定时任务" title="定时任务" onClick={() => useUiStore.getState().openSettings("scheduled-tasks")}><Clock size={15} /></button> : null}
-      <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || loading || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
+      <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
     </div></div>
     <HomeSidebarList label={`${scopeLabel}会话列表`} searchKey={query}>
       {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}

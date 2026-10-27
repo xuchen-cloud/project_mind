@@ -1,7 +1,7 @@
 //! Common database startup for desktop opens, recovery and future
 //! headless hosts. Opening SQLite alone is not a complete Workspace startup.
 use crate::{agent::errors::AgentError, db::Database};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::path::Path;
 
 pub(crate) struct OpenedWorkspaceDatabase {
@@ -25,11 +25,9 @@ pub(crate) fn open_workspace_database(
     if let Err(error)=crate::file_content::recover_expired(root_path,workspace_id,chrono::Utc::now().timestamp_millis()) {
         eprintln!("File upload recovery pending: {}",error.message);
     }
-    db.record_migrate_operation_keys(workspace_id)
-        .map_err(|error| anyhow!(error.message))?;
-    db.source_registry_reconcile()?;
-    db.record_compact_operation_receipts()
-        .map_err(|error| anyhow!(error.message))?;
+    // Current writes publish canonical keys, compact receipts and registry
+    // entries in the same transaction. Only unfinished writes need recovery;
+    // replaying all historical changes here adds work on every normal open.
     let checkpoint_error = db.record_seal_pending_checkpoints(true, workspace_id).err();
     Ok(OpenedWorkspaceDatabase {
         db,

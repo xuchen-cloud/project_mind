@@ -9,6 +9,7 @@ import { writeNotices } from './write-notices.mjs';
 import ts from 'typescript';
 import postcss from 'postcss';
 import {rendererAdapter} from './renderer-build.mjs';
+import {adaptSummaryReader} from './authoring-summary-build.mjs';
 
 const root = import.meta.dirname;
 const names = ['docx-engine', 'pptx-engine', 'pptx-render', 'zip-gate', 'ui', 'i18n', 'font-metrics', 'agent-core', 'ai-provider'];
@@ -39,6 +40,7 @@ for (const [entry, platform] of [['engine', 'node']]) {
     bundle: true, format: 'esm', target: 'es2022', alias, treeShaking: true, metafile: true,
     jsx: 'automatic', logLevel: 'warning', legalComments: 'eof', loader: { '.css': 'empty' }, inject: ['css-escape.ts'],
     plugins: [{ name: 'create-html-dom', setup(build) {
+      build.onLoad({filter:/[\\/]cli[\\/]src[\\/]formats[\\/]docx\.ts$/},async args=>({contents:adaptSummaryReader(await readFile(args.path,'utf8')),loader:'ts'}));
       build.onResolve({filter:/^(supports-color|bufferutil|utf-8-validate)$/},args=>({path:args.path,namespace:'unavailable-optional'}));
       build.onLoad({filter:/.*/,namespace:'unavailable-optional'},args=>({contents:`throw new Error(${JSON.stringify('Optional module disabled in the Office worker')});`,loader:'js'}));
       build.onResolve({filter:/^\.\.?\/dom$/,namespace:'file'}, args=>/[\\/]upstream[\\/]packages[\\/]cli[\\/]src[\\/]/.test(args.importer)?{path:resolve(root,'authoring-dom.ts')}:undefined);

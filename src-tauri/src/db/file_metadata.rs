@@ -313,8 +313,6 @@ impl Database {
         }
         let _locks = self.file_native_write_locks(input.document_id)?;
         let current = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(current.project_id)?;
-        let current = self.document_record(input.document_id)?;
         let old = self.file_metadata_state(&current)?;
         let base_name = input
             .base_name

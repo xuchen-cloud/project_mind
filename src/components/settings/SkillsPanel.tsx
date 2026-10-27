@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { getErrorMessage } from "../../lib/errors";
@@ -25,17 +25,21 @@ export function SkillsPanel({ open }: { open: boolean }) {
 
   if (!open) return null;
   if (workspace.isPending) return <p role="status">正在加载发现范围…</p>;
-  if (workspace.isError) return <div role="alert">
+  if (workspace.isError && !workspace.data) return <div role="alert">
     <p>{getErrorMessage(workspace.error, "加载工作区失败")}</p>
     <Button size="sm" variant="secondary" onClick={() => void workspace.refetch()}>重试</Button>
   </div>;
 
-  return <SkillsScope key={JSON.stringify([root, projectId])} root={root} initialProjectId={projectId} workspaceRevision={workspace.dataUpdatedAt} />;
+  return <>
+    {workspace.isError ? <div role="alert"><p>{getErrorMessage(workspace.error, "加载工作区失败")}</p><Button size="sm" onClick={() => void workspace.refetch()}>重试加载工作区</Button></div> : null}
+    <SkillsScope key={JSON.stringify([root, projectId])} root={root} initialProjectId={projectId} workspaceRevision={workspace.dataUpdatedAt} />
+  </>;
 }
 
 function SkillsScope({ root, initialProjectId, workspaceRevision }: { root: string | null; initialProjectId: number | null; workspaceRevision: number }) {
   const [projectId, setProjectId] = useState(initialProjectId);
   const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState(false);
   const projects = useQuery({
     queryKey: ["projects", "skills", root],
     queryFn: () => projectMindApi.projectsList(),
@@ -45,13 +49,13 @@ function SkillsScope({ root, initialProjectId, workspaceRevision }: { root: stri
 
   return <div className="space-y-5">
     <SectionHeader title="Skills" description="查看当前范围发现的技能，打开技能文件或所在目录。"
-      actions={<Button size="sm" variant="secondary" onClick={() => setAttempt(value => value + 1)}>刷新</Button>} />
+      actions={<Button size="sm" variant="secondary" disabled={busy} onClick={() => setAttempt(value => value + 1)}>刷新</Button>} />
     {root !== null ? <div className="space-y-2">
       <label className="flex flex-wrap items-center gap-3 text-body text-text-muted">
         发现范围
         <select aria-label="发现范围" value={projectId ?? ""}
           className="min-w-0 max-w-full rounded-[var(--radius-8)] border border-border bg-bg px-3 py-2 text-body text-text"
-          onChange={event => { setProjectId(event.target.value === "" ? null : Number(event.target.value)); setAttempt(0); }}>
+          onChange={event => { setProjectId(event.target.value === "" ? null : Number(event.target.value)); setAttempt(0); setBusy(false); }}>
           <option value="">工作区</option>
           {projectId !== null && !items.some(project => project.id === projectId)
             ? <option value={projectId}>当前项目 #{projectId}</option> : null}
@@ -63,40 +67,52 @@ function SkillsScope({ root, initialProjectId, workspaceRevision }: { root: stri
         <Button size="sm" variant="ghost" onClick={() => void projects.refetch()}>重试加载项目</Button>
       </div> : null}
     </div> : <p className="text-body text-text-muted">当前使用独立工作区的 Skills。</p>}
-    <SkillsCatalog key={JSON.stringify([projectId, workspaceRevision, attempt])} projectId={projectId} refresh={attempt > 0} />
+    <SkillsCatalog key={JSON.stringify(projectId)} root={root} projectId={projectId} workspaceRevision={workspaceRevision} refreshToken={attempt} busy={busy} setBusy={setBusy} />
   </div>;
 }
 
-function SkillsCatalog({ projectId, refresh }: { projectId: number | null; refresh: boolean }) {
-  const [catalog, setCatalog] = useState<SkillCatalog | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function SkillsCatalog({ root, projectId, workspaceRevision, refreshToken, busy, setBusy }: { root: string | null; projectId: number | null; workspaceRevision: number; refreshToken: number; busy: boolean; setBusy: (value: boolean) => void }) {
+  const queryClient = useQueryClient();
+  const catalogKey = ["agent", "skills", root, projectId] as const;
   const [attempt, setAttempt] = useState(0);
   const [openError, setOpenError] = useState<string | null>(null);
   const [manageError, setManageError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<DiscoveredSkill | null>(null);
   const generation = useRef(0);
   const openOperation = useRef(0);
+  const previousRefresh = useRef([workspaceRevision, refreshToken, attempt]);
+  const catalogQuery = useQuery({
+    queryKey: catalogKey,
+    queryFn: async ({ signal }) => {
+      const requestId = crypto.randomUUID();
+      const cancel = () => { void skillsApi.cancel(requestId).catch(() => {}); };
+      signal.addEventListener("abort", cancel, { once: true });
+      try { return await skillsApi.list(projectId, { requestId, refresh: refreshToken > 0 || attempt > 0 }); }
+      finally { signal.removeEventListener("abort", cancel); }
+    },
+    retry: false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const catalog = catalogQuery.data;
+  const error = catalogQuery.error ? getErrorMessage(catalogQuery.error, "发现 Skills 失败") : null;
+  function setCatalog(value: SkillCatalog) { queryClient.setQueryData(catalogKey, value); }
 
+  useLayoutEffect(() => () => { generation.current++; }, []);
   useEffect(() => {
-    const current = ++generation.current;
-    setCatalog(null);
-    setError(null);
-    setOpenError(null);
-    const requestId = crypto.randomUUID();
-    let settled = false;
-    void skillsApi.list(projectId, { requestId, refresh: refresh || attempt > 0 }).then(result => {
-      settled = true;
-      if (generation.current === current) setCatalog(result);
-    }, reason => {
-      settled = true;
-      if (generation.current === current) setError(getErrorMessage(reason, "发现 Skills 失败"));
-    });
-    return () => {
-      generation.current++;
-      if (!settled) void skillsApi.cancel(requestId).catch(() => {});
-    };
-  }, [projectId, attempt, refresh]);
+    if (busy) return;
+    const next = [workspaceRevision, refreshToken, attempt];
+    if (next.some((value, index) => value !== previousRefresh.current[index])) {
+      previousRefresh.current = next;
+      let cancelled = false;
+      // An explicit refresh replaces even an initial discovery with no cached data.
+      void queryClient.cancelQueries({ queryKey: catalogKey }).then(() => {
+        if (!cancelled) void catalogQuery.refetch();
+      });
+      return () => { cancelled = true; };
+    }
+  }, [workspaceRevision, refreshToken, attempt, busy, queryClient, catalogQuery.refetch]);
 
   async function openPath(path: string, folder: boolean) {
     const current = generation.current;
@@ -116,6 +132,8 @@ function SkillsCatalog({ projectId, refresh }: { projectId: number | null; refre
     setBusy(true);
     setManageError(null);
     try {
+      await queryClient.cancelQueries({ queryKey: catalogKey });
+      if (generation.current !== current) return;
       const result = await skillsApi.manage(projectId, skill.entryPath, action);
       if (generation.current === current) {
         setCatalog(result);
@@ -134,6 +152,8 @@ function SkillsCatalog({ projectId, refresh }: { projectId: number | null; refre
     setBusy(true);
     setManageError(null);
     try {
+      await queryClient.cancelQueries({ queryKey: catalogKey });
+      if (generation.current !== current) return;
       const archive = await desktopApi.pickFile({ title: "导入 Skill", filters: [{ name: "Skill 压缩包", extensions: ["zip", "skill"] }] });
       if (archive && generation.current === current) {
         const result = await skillsApi.import(projectId, archive);
@@ -146,7 +166,7 @@ function SkillsCatalog({ projectId, refresh }: { projectId: number | null; refre
     }
   }
 
-  if (error) return <div role="alert" className="space-y-2 text-body text-text-muted">
+  if (error && !catalog) return <div role="alert" className="space-y-2 text-body text-text-muted">
     <p>{error}</p>
     <Button size="sm" variant="secondary" onClick={() => setAttempt(value => value + 1)}>重试</Button>
   </div>;
@@ -155,6 +175,8 @@ function SkillsCatalog({ projectId, refresh }: { projectId: number | null; refre
   const skills = [...catalog.skills].sort((a, b) => Number(b.source === "bundled") - Number(a.source === "bundled"));
 
   return <div className="space-y-4">
+    {catalogQuery.isFetching ? <p role="status" className="text-body text-text-muted">正在刷新 Skills…</p> : null}
+    {error ? <div role="alert" className="space-y-2 text-body text-text-muted"><p>{error}</p><Button size="sm" disabled={busy || catalogQuery.isFetching} onClick={() => setAttempt(value => value + 1)}>重试</Button></div> : null}
     <div className="flex items-start justify-between gap-3">
       <p className="text-caption text-text-muted">导入包含 SKILL.md 的 ZIP，安装到当前范围的 Skills 目录。同名 Skill 不会被覆盖。</p>
       <Button size="sm" variant="secondary" disabled={busy || !catalog.complete} onClick={() => void importSkill()}>导入 Skill</Button>

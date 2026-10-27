@@ -14,7 +14,7 @@ import { readContext, bindContext } from './project-workspace.mjs';
 import { installContextStreams } from './context-streams.mjs';
 import { installStableSessionFork } from './session-fork.mjs';
 import { installSessionReferenceScope } from './context-session-reads.mjs';
-import { migrateSharedRuntime, reconcileContextDirectories } from './shared-runtime-migration.mjs';
+import { prepareCurrentRuntime } from './current-runtime.mjs';
 import { installOfficeService } from './office-service.mjs';
 import { installOfficeSelectionService } from './office-selection-service.mjs';
 import { createSourceBridge, installSourceService, installSourceTitles } from './source-bridge.mjs';
@@ -48,10 +48,7 @@ Object.assign(process.env, assistantEnvironment());
 await prepareBundledSkills();
 Object.assign(process.env, bundledSkillEnvironment());
 const home = process.env.DSH_HOME;
-if (embedded && configuration.migration) {
-  await migrateSharedRuntime({ ...configuration.migration, home });
-  await reconcileContextDirectories({ home, contexts: configuration.contexts ?? [context] });
-}
+if (embedded) await prepareCurrentRuntime({ home, contexts: configuration.contexts ?? [context] });
 const cwd = embedded ? home : path.join(home, 'workspace');
 await mkdir(cwd, { recursive: true });
 process.chdir(cwd);

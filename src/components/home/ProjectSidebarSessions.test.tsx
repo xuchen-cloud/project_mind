@@ -1,4 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+import { act, fireEvent, render as baseRender, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ProjectSidebarSessions, type ProjectSidebarSessionsProps } from "./ProjectSidebarSessions";
 import { useAgentPanelStore } from "../../state/agent-panel-store";
@@ -7,6 +9,10 @@ const api = vi.hoisted(() => ({ start: vi.fn(), sessions: vi.fn(), selectSession
 vi.mock("../../services/dshAssistantApi", () => ({ dshAssistantApi: api }));
 vi.mock("../../services/projectContentApi", () => ({ openProjectContent: api.open, manageProjectSession: api.manage }));
 
+function render(element: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return baseRender(element, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 const saved = [
   { id: "alpha", title: "Alpha 方案", running: false },
   { id: "beta", title: "Beta 复盘", running: true },
@@ -62,7 +68,7 @@ it("shows the loading spinner in the heading immediately before creation", async
   expect(screen.queryByText(/正在读取|正在打开/)).toBeNull();
   expect(screen.queryByRole("button", { name: "刷新会话" })).toBeNull();
   const create = screen.getByRole("button", { name: "新增会话" });
-  expect(create).toBeDisabled();
+  expect(create).toBeEnabled();
   expect(create.previousElementSibling).toBe(status);
   expect(status.closest(".home-side__heading")).not.toBeNull();
   expect(screen.getByRole("region", { name: "项目会话列表" })).not.toContainElement(status);
@@ -402,4 +408,59 @@ it("retries an unknown fork result with the same stable child identity", async (
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   await waitFor(() => expect(api.open).toHaveBeenCalledWith(expect.objectContaining({object:{kind:"session",id:original.action.childSessionId,title:"Alpha 方案"}})));
   expect(api.manage.mock.calls[1][0].action).toEqual(original.action);
+});
+
+
+it("restores known names on A-B-A while refreshing and keeps navigation usable after refresh failure", async () => {
+  const view = render(component());
+  await screen.findByRole("button", { name: "Alpha 方案" });
+  const other = deferred<typeof saved>();
+  const refresh = deferred<typeof saved>();
+  api.sessions.mockReturnValueOnce(other.promise).mockReturnValueOnce(refresh.promise);
+  view.rerender(component({ projectId: 8 }));
+  expect(screen.queryByRole("button", { name: "Alpha 方案" })).toBeNull();
+  expect(screen.getByRole("button", { name: "新增会话" })).toBeEnabled();
+  view.rerender(component());
+  expect(screen.getByRole("button", { name: "Alpha 方案" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "新增会话" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Alpha 方案" }));
+  await waitFor(() => expect(api.open).toHaveBeenCalledWith(expect.objectContaining({ projectId: 7, object: { kind: "session", id: "alpha", title: "Alpha 方案" } })));
+  await act(async () => { other.resolve([{ id: "other", title: "其他项目", running: false }]); refresh.reject(new Error("刷新失败")); });
+  expect(screen.getByRole("alert")).toHaveTextContent("刷新失败");
+  expect(screen.getByRole("button", { name: "Alpha 方案" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "其他项目" })).toBeNull();
+});
+
+it("retains same-scope names and allows creation while a refresh is pending", async () => {
+  render(component());
+  await screen.findByRole("button", { name: "Alpha 方案" });
+  const pending = deferred<typeof saved>();
+  api.sessions.mockReturnValueOnce(pending.promise);
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.getByRole("button", { name: "Alpha 方案" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "新增会话" }));
+  await waitFor(() => expect(api.selectSession).toHaveBeenCalledWith(null, 7));
+  await act(async () => pending.resolve([]));
+  expect(screen.getByRole("button", { name: "Alpha 方案" })).toBeVisible();
+});
+
+
+it("retains cached names across remounts and discards an earlier A refresh after A-B-A", async () => {
+  const view = render(component());
+  await screen.findByRole("button", { name: "Alpha 方案" });
+  const old = deferred<typeof saved>();
+  const other = deferred<typeof saved>();
+  const current = deferred<typeof saved>();
+  api.sessions.mockReturnValueOnce(old.promise).mockReturnValueOnce(other.promise).mockReturnValueOnce(current.promise);
+  act(() => window.dispatchEvent(new Event("focus")));
+  view.rerender(component({ projectId: 8 }));
+  expect(screen.queryByRole("button", { name: "Alpha 方案" })).toBeNull();
+  view.rerender(<div />);
+  view.rerender(component());
+  expect(screen.getByRole("button", { name: "Alpha 方案" })).toBeVisible();
+  await act(async () => { old.resolve([{ id: "old", title: "过时名称", running: false }]); other.reject(new Error("其他范围失败")); });
+  expect(screen.queryByRole("button", { name: "过时名称" })).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(async () => current.resolve([{ id: "new", title: "最新名称", running: false }]));
+  expect(screen.getByRole("button", { name: "最新名称" })).toBeVisible();
 });

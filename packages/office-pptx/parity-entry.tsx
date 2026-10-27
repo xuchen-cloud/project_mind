@@ -3,7 +3,7 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {openPptx} from '@genoffice/pptx-engine';
 import {createParitySession} from './parity-session';
-import {candidateEdit} from './parity-candidate';
+import {candidateEdit,captureCandidateBaseline} from './parity-candidate';
 import {samePackage} from './parity-history';
 import {createApi} from './parity-api.mjs';
 import {App} from './vendor/apps/slides/src/renderer/App';
@@ -34,7 +34,7 @@ let epoch=0;
 const post=(type:string,payload:object={},context=epoch)=>{if(context!==epoch)return;const message={source:'project-mind-pptx',epoch:context,type,...payload};if(hostChannel)hostChannel.postMessage(message);else parent.postMessage(message,'*')};
 const checkContext=(context:number)=>{if(context!==epoch)throw new Error('PPTX 编辑内容已替换')};
 let session:ReturnType<typeof createParitySession>;
-let baseline:Awaited<ReturnType<typeof openPptx>>;
+let baseline:ReturnType<typeof captureCandidateBaseline>;
 let initializing=false,dirtyVersion=0,snapshotVersion=0;
 let snapshotTimer:ReturnType<typeof setTimeout>|undefined;
 let composing=false,activeInput=false,readOnly=false;
@@ -201,7 +201,7 @@ async function receiveHost(m:any){
    const nextBaseline=await openPptx(new Uint8Array(Buffer.from(m.model.sourceBase64,'base64')));checkContext(context);
    if(same){
     // Native acknowledgment keeps App, selection and the bounded upstream undo/redo snapshots.
-    baseline=nextBaseline;initializing=false;
+    baseline=captureCandidateBaseline(nextBaseline);initializing=false;
     snapshotVersion=dirtyVersion;error=null;if(readOnly)setTextEditReadOnly(true);syncReadOnly();if(!readOnly)setTextEditReadOnly(false);settleTextEditSave();post('initialized',{},context);pending();
     previousSaves.forEach(resolve=>resolve({ok:true}));return;
    }
@@ -209,12 +209,13 @@ async function receiveHost(m:any){
    // Structural upstream ops mutate the session archive (including undo/redo).
    // Keep the native baseline independent so candidate manifests compare with
    // the original File even before the first native save acknowledgment.
-   const opened=await openPptx(new Uint8Array(Buffer.from(candidate?.base64??m.model.sourceBase64,'base64')));checkContext(context);
+   const source=captureCandidateBaseline(nextBaseline);
+   const opened=candidate?await openPptx(new Uint8Array(Buffer.from(candidate.base64,'base64'))):nextBaseline;checkContext(context);
    previousSaves.forEach(resolve=>resolve({ok:false,error:'PPTX 编辑内容已替换'}));previousSaves=[];
    abandonTextEdit();root.render(null);
    dirtyVersion=0;snapshotVersion=0;error=null;activeInput=false;composing=false;
-   setTextEditReadOnly(readOnly);setTextEditComposing(false);baseline=nextBaseline;
-   const created=createParitySession(opened,{metrics:browserFontMetrics,emit:(name,payload)=>{if(session===created&&!initializing)emit(name,payload)},onCommand:()=>{if(session===created&&!initializing){dirtyVersion++;activeInput=false;pending();scheduleSnapshot()}},confirmChart:async message=>confirm(message)});
+   setTextEditReadOnly(readOnly);setTextEditComposing(false);baseline=source;
+   const created=createParitySession(opened,{lazyInitialLayout:true,metrics:browserFontMetrics,emit:(name,payload)=>{if(session===created&&!initializing)emit(name,payload)},onCommand:()=>{if(session===created&&!initializing){dirtyVersion++;activeInput=false;pending();scheduleSnapshot()}},confirmChart:async message=>confirm(message)});
    session=created;
    for(const e of m.edits){if(e.kind==='candidate')continue;if(e.kind!=='command')throw new Error('PPTX 编辑会话必须以新基线打开');await created.invoke(e.name,e.args);checkContext(context)}
    initializing=false;

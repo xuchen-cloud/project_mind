@@ -96,6 +96,10 @@ export async function prepareDshProduction(source, destination, target, run) {
   for (const name of sourceNames) await copyClean(path.join(source, name), path.join(destination, name), true);
   await run(process.execPath, [process.env.npm_execpath, 'ci', '--omit=dev', '--ignore-scripts',
     '--no-audit', '--no-fund', `--os=${target.platform}`, `--cpu=${target.arch}`], destination);
+  // These pinned local fixes are pure JavaScript and required on Windows too.
+  // Apply to the fresh target tree without enabling native lifecycle scripts.
+  await run(process.execPath, [path.join(destination, 'scripts/patch-dsh-deps.mjs'),
+    path.join(destination, 'node_modules/@deepseek-ai')], destination);
   // dsh-subprocess-local's postinstall only repairs this helper's mode. Apply
   // that repair immediately after ci, using the release target, not the host.
   const helper = path.join(destination, 'node_modules/node-pty/prebuilds', `${target.platform}-${target.arch}`, 'spawn-helper');

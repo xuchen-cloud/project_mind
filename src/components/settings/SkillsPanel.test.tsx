@@ -254,3 +254,70 @@ it("cancels an unfinished discovery on scope change and forces each explicit ref
   expect(mocks.list).toHaveBeenLastCalledWith(7, expect.objectContaining({ refresh: true }));
   view.unmount();
 });
+
+
+it("keeps the same-scope catalog and file actions visible during refresh and after failure", async () => {
+  const { client } = mount();
+  await screen.findByText("CLI");
+  const pending = deferred<typeof catalog>();
+  mocks.list.mockReturnValueOnce(pending.promise);
+  await userEvent.click(screen.getByRole("button", { name: "刷新" }));
+  expect(screen.getByText("CLI")).toBeVisible();
+  expect(screen.getByText("正在刷新 Skills…")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "打开 CLI" }));
+  expect(mocks.file).toHaveBeenCalledWith("/builtin/CLI/SKILL.md");
+  await act(async () => pending.reject(new Error("refresh failed")));
+  expect(await screen.findByRole("alert")).toHaveTextContent("refresh failed");
+  expect(screen.getByText("CLI")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "打开 CLI 目录" }));
+  expect(mocks.folder).toHaveBeenCalledWith("/builtin/CLI");
+  mocks.workspace.mockRejectedValueOnce(new Error("status failed"));
+  await act(async () => { await client.refetchQueries({ queryKey: queryKeys.workspaceStatus }); });
+  expect(screen.getByText("CLI")).toBeVisible();
+  expect(await screen.findByText("status failed")).toBeVisible();
+});
+
+it("hides old scope data immediately while the new catalog is pending", async () => {
+  mocks.workspace.mockResolvedValue({ currentWorkspace: { rootPath: "/workspace" } });
+  mount();
+  await screen.findByText("CLI");
+  const pending = deferred<typeof catalog>();
+  mocks.list.mockReturnValueOnce(pending.promise);
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: "发现范围" }), "7");
+  expect(screen.queryByText("CLI")).toBeNull();
+  expect(screen.getByText("正在发现 Skills…")).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "发现范围" })).toBeEnabled();
+  await act(async () => pending.resolve({ ...catalog, skills: [{ ...catalog.skills[0], name: "Project skill" }] }));
+  expect(await screen.findByText("Project skill")).toBeVisible();
+});
+
+
+it("does not let a pending refresh overwrite a Skill mutation", async () => {
+  mount();
+  await screen.findByText("CLI");
+  const pending = deferred<typeof catalog>();
+  mocks.list.mockReturnValueOnce(pending.promise);
+  await userEvent.click(screen.getByRole("button", { name: "刷新" }));
+  const refreshedRequest = mocks.list.mock.calls.at(-1)![1].requestId;
+  mocks.manage.mockResolvedValue({ ...catalog, skills: [{ ...catalog.skills[0], disabled: true }] });
+  await userEvent.click(screen.getByRole("button", { name: "禁用 CLI" }));
+  expect(await screen.findByText("已禁用")).toBeVisible();
+  expect(mocks.cancel).toHaveBeenCalledWith(refreshedRequest);
+  await act(async () => pending.resolve(catalog));
+  expect(screen.getByRole("button", { name: "启用 CLI" })).toBeEnabled();
+});
+
+
+it("replaces an initial pending discovery on explicit refresh and ignores its late result", async () => {
+  const pending = deferred<typeof catalog>();
+  mocks.list.mockReturnValueOnce(pending.promise);
+  mount();
+  await screen.findByText("正在发现 Skills…");
+  const requestId = mocks.list.mock.calls[0][1].requestId;
+  await userEvent.click(screen.getByRole("button", { name: "刷新" }));
+  expect(await screen.findByText("CLI")).toBeVisible();
+  expect(mocks.cancel).toHaveBeenCalledWith(requestId);
+  expect(mocks.list).toHaveBeenLastCalledWith(null, expect.objectContaining({ refresh: true }));
+  await act(async () => pending.resolve({ ...catalog, skills: [] }));
+  expect(screen.getByText("CLI")).toBeVisible();
+});

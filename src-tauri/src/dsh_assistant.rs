@@ -31,6 +31,9 @@ mod schedules;
 #[path = "dsh_cli.rs"]
 mod cli;
 
+#[path = "dsh_boot.rs"]
+mod boot;
+
 #[cfg(test)]
 #[path = "dsh_workspace_tests.rs"]
 mod workspace_tests;
@@ -44,6 +47,7 @@ const INVALID_READY: &str = "助手启动返回了无效地址，请重试";
 #[derive(Default)]
 pub(crate) struct DshAssistantState {
     stopping: AtomicBool,
+    boot: boot::BootControl,
     // Serializes runtime identity changes and authenticated carrier mutations.
     inner: Mutex<ScopedRuntimes>,
     requests: std::sync::Mutex<HashMap<String, PendingRequest>>,
@@ -86,7 +90,9 @@ impl ScopedRuntimes {
                 owner.reject_running_replacement().await?;
             }
             self.stop().await?;
-            let mut process = cli::launch(app, &host).await?;
+            let state = app.state::<DshAssistantState>();
+            if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
+            let mut process = state.boot.run(cli::launch(app, &host, &target.identity)).await?;
             let current = Configuration::resolve(app, None);
             if current.as_ref().map(|config| &config.identity).ok() != Some(&host.identity) {
                 process.stop().await?;
@@ -185,19 +191,14 @@ impl ProjectContext {
         if !(1..=9_007_199_254_740_991).contains(&project_id) {
             return Err("请选择当前工作区中的有效项目".into());
         }
-        let project = db
-            .project_page_get(crate::models::ProjectIdInput { project_id })
-            .map_err(|_| "项目不存在或已不可用，请重新选择项目".to_string())?
-            .project;
-        if project.name.trim().is_empty() {
+        let (name, root) = db
+            .project_context_metadata(project_id)
+            .map_err(|_| "项目不存在或已不可用，请重新选择项目".to_string())?;
+        if name.trim().is_empty() {
             return Err("项目名称为空，请先修复项目".into());
         }
-        let directory = canonical_project_directory(workspace_root, Path::new(&project.root_path))?;
-        Ok(Self {
-            id: project.id,
-            name: project.name,
-            directory,
-        })
+        let directory = canonical_project_directory(workspace_root, &root)?;
+        Ok(Self { id: project_id, name, directory })
     }
 }
 
@@ -1501,24 +1502,26 @@ impl Drop for ShutdownLease<'_> {
 impl DshAssistantState {
     // Keep the mutation lock through the native workspace transition, so a
     // concurrent start cannot reuse old credentials between stop and lock/switch.
-    pub(crate) async fn invalidate<T>(
+    pub(crate) async fn invalidate<T, F: std::future::Future<Output = Result<T, String>>>(
         &self,
         _app: &tauri::AppHandle,
-        change: impl FnOnce() -> Result<T, String>,
+        change: impl FnOnce() -> F,
     ) -> Result<T, String> {
+        let _transition = self.boot.transition();
         let mut inner = self.inner.lock().await;
         if self.stopping.load(Ordering::SeqCst) {
             return Err("应用正在退出".into());
         }
         let stopped = inner.stop().await;
         stopped?;
-        change()
+        change().await
     }
 
     pub(crate) async fn shutdown(&self) -> Result<ShutdownLease<'_>, String> {
         self.stopping.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .map_err(|_| "应用正在退出")?;
         let lease = ShutdownLease { stopping: &self.stopping, committed: false };
+        self.boot.cancel();
         self.inner.lock().await.stop().await?;
         Ok(lease)
     }
@@ -1559,6 +1562,7 @@ impl DshAssistantState {
     // for a runtime mutation already in flight.
     pub(crate) fn exit_fallback(&self) {
         self.stopping.store(true, Ordering::SeqCst);
+        self.boot.cancel();
         if let Ok(mut inner) = self.inner.try_lock() {
             // Once try_lock succeeds, stop only performs process I/O and does
             // not dispatch UI work. It is safe to await grace on this thread.
@@ -2660,6 +2664,33 @@ pub(crate) async fn dsh_assistant_delete_session(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_transition_cancels_unready_child_and_releases_runtime_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("boot.pid");
+        let state = Arc::new(DshAssistantState::default());
+        let booting = state.clone();
+        let mut command = Command::new(development_node("node").unwrap());
+        command.arg("-e").arg("require('node:fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)").arg(&pid_file);
+        let task = tokio::spawn(async move {
+            let _runtime = booting.inner.lock().await;
+            booting.boot.run(AssistantProcess::launch(command, &serde_json::json!({"type":"configure"}))).await.map(|_| ())
+        });
+        let pid: i32 = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(value) = tokio::fs::read_to_string(&pid_file).await {
+                    if let Ok(pid) = value.parse() { break pid; }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("unready child started");
+        let _transition = state.boot.transition();
+        let _runtime = tokio::time::timeout(Duration::from_secs(2), state.inner.lock()).await.expect("switch must not wait for READY_TIMEOUT");
+        assert!(task.await.unwrap().is_err());
+        dsh_process_assert_gone(&[pid]).await;
+    }
+
     #[cfg(unix)]
     fn dsh_process_guardian_fixture() -> &'static Path {
         static FIXTURE: std::sync::OnceLock<(tempfile::TempDir, PathBuf)> = std::sync::OnceLock::new();

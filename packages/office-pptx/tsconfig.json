@@ -22,6 +22,9 @@
     "paths": {
       "@genoffice/docx-engine/math": [
         "vendor/packages/docx-engine/src/math.ts"
+      ],
+      "@genoffice/docx-engine/metafile": [
+        "vendor/packages/docx-engine/src/metafile.ts"
       ]
     }
   },
@@ -36,6 +39,7 @@
     "parity-context-browser.ts",
     "parity-presentation.ts",
     "parity-output.ts",
+    "parity-images.ts",
     "parity-selection.ts",
     "browser-fonts.ts",
     "browser-clipboard.ts"

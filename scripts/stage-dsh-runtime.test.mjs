@@ -9,6 +9,7 @@ import path from 'node:path';
 import { checksum } from './record-worker-notices.mjs';
 import { desktopRuntimeTarget } from './desktop-runtime-target.mjs';
 import { dshNoticeAssets, prepareDshProduction, stageDshRuntime, verifyDshDistribution } from './stage-dsh-runtime.mjs';
+import { writePathDependencyFixture } from '../packages/dsh-assistant/test/fixtures/dsh-path-patches.mjs';
 
 const exec = promisify(execFile);
 const put = async (file, value) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, value); };
@@ -58,6 +59,9 @@ async function fixture(t) {
   await put(path.join(source, 'scripts/builtin-skills.mjs'), 'export const prepareBundledSkills = async () => {};');
   await put(path.join(source, 'scripts/skill-management.mjs'), 'export const manageSkill = async () => {};');
   await put(path.join(source, 'scripts/shared-model.mjs'), 'export const mainModel = true;');
+  for (const name of ['patch-dsh-deps.mjs', 'context-directory.mjs']) {
+    await copyFile(new URL(`../packages/dsh-assistant/scripts/${name}`, import.meta.url), path.join(source, 'scripts', name));
+  }
   await put(path.join(source, 'scripts/runtime.mjs'), `import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -110,8 +114,16 @@ console.log(JSON.stringify({anchor:path.join(root,'package.json'), cwd:process.c
 test('fresh DSH preparation copies vendor before target npm ci and excludes source caches and node_modules', async t => {
   const f = await fixture(t);
   const fresh = path.join(f.repository, 'fresh');
+  let installs = 0, patches = 0;
   await prepareDshProduction(f.source, fresh, f.target, async (command, args, cwd) => {
     assert.equal(command, process.execPath);
+    if (args[0] === path.join(fresh, 'scripts/patch-dsh-deps.mjs')) {
+      assert.equal(installs, 1);
+      assert.deepEqual(args, [path.join(fresh, 'scripts/patch-dsh-deps.mjs'), path.join(fresh, 'node_modules/@deepseek-ai')]);
+      await exec(command, args, { cwd });patches++;
+      return;
+    }
+    installs++;
     assert.deepEqual(args.slice(1), ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', `--os=${fixturePlatform}`, '--cpu=x64']);
     assert.equal(cwd, fresh);
     assert.equal(await readFile(path.join(cwd, 'vendor/dsh-desktop-client-ui/index.js'), 'utf8'), "export const brand = 'DSH';");
@@ -119,12 +131,47 @@ test('fresh DSH preparation copies vendor before target npm ci and excludes sour
       assert.deepEqual(await readFile(path.join(cwd, 'skills', name)), Buffer.from(contents));
     }
     await assert.rejects(lstat(path.join(cwd, 'node_modules')), { code: 'ENOENT' });
-    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'isolation.mjs', 'model-utility-entry.mjs', 'model-utility.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
+    assert.deepEqual(await readdir(path.join(cwd, 'scripts')), ['builtin-skills.mjs', 'context-directory.mjs', 'isolation.mjs', 'model-utility-entry.mjs', 'model-utility.mjs', 'patch-dsh-deps.mjs', 'runtime.mjs', 'shared-model.mjs', 'skill-management.mjs', 'skills.mjs']);
+    await writePathDependencyFixture(path.join(cwd, 'node_modules/@deepseek-ai'));
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'), 'fresh-helper');
     await put(path.join(cwd, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'), 'other-target');
   });
+  assert.equal(patches, 1);
   if (process.platform !== 'win32') assert.equal((await lstat(path.join(fresh, 'node_modules/node-pty/prebuilds/darwin-x64/spawn-helper'))).mode & 0o777, 0o755);
   assert.equal((await lstat(path.join(fresh, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'))).mode & 0o111, 0);
+});
+
+test('fresh Windows preparation applies pure dependency patches before the absent spawn-helper return', async t => {
+  const f = await fixture(t);
+  const fresh = path.join(f.repository, 'fresh-windows');
+  const calls = [];
+  await prepareDshProduction(f.source, fresh, { platform: 'win32', arch: 'x64' }, async (command, args, cwd) => {
+    calls.push(args);
+    if (calls.length === 1) {
+      assert.ok(args.includes('--ignore-scripts'));
+      assert.ok(args.includes('--os=win32'));
+      await writePathDependencyFixture(path.join(cwd, 'node_modules/@deepseek-ai'));
+    } else {
+      assert.deepEqual(args, [path.join(fresh, 'scripts/patch-dsh-deps.mjs'), path.join(fresh, 'node_modules/@deepseek-ai')]);
+      await exec(command, args, { cwd });
+    }
+  });
+  assert.equal(calls.length, 2, 'only npm ci and the explicit pure-JS patch may run');
+  const patched = path.join(fresh, 'node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js');
+  const { projectKey } = await import(pathToFileURL(patched));
+  assert.equal(projectKey(String.raw`\\?\UNC\server\share\项目`), projectKey(String.raw`\\server\share\项目`));
+  assert.equal(projectKey(String.raw`\\?\C:\workspace`), projectKey(String.raw`C:\workspace`));
+  assert.match(await readFile(path.join(fresh, 'node_modules/@deepseek-ai/dsh-workspace/lib/index.js'), 'utf8'), /const _stripV =/);
+  await assert.rejects(lstat(path.join(fresh, 'node_modules/node-pty/prebuilds/win32-x64/spawn-helper')), { code: 'ENOENT' });
+});
+
+test('fresh Windows preparation propagates a critical pure patch failure', async t => {
+  const f = await fixture(t);
+  const fresh = path.join(f.repository, 'fresh-windows-broken');
+  await assert.rejects(prepareDshProduction(f.source, fresh, { platform: 'win32', arch: 'x64' }, async (command, args, cwd) => {
+    if (args.includes('ci')) await writePathDependencyFixture(path.join(cwd, 'node_modules/@deepseek-ai'), ['upstream changed', 'upstream changed']);
+    else await exec(command, args, { cwd });
+  }), /pinned anchor mismatch/);
 });
 
 test('DSH staging preserves imports/browser and independent home, selects target dependencies, licenses and shared Node', async t => {

@@ -21,11 +21,11 @@ test('project identity and directory must be explicit and valid', async () => {
   }
 });
 
-test('startup restores only unaccounted current-project sessions through the registry', async t => {
+test('registration skips Session scans and a membership read repairs only unaccounted current-project sessions', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'mind-project-reconcile-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const canonical = await realpath(directory);
-  const attached = [];
+  const attached = []; let lists = 0;
   const mapped = {
     id: 'mapped', path: canonical, title: 'Project', sessionIds: ['owned'],
     async attachSession(id) { attached.push(id); this.sessionIds.push(id); },
@@ -33,26 +33,32 @@ test('startup restores only unaccounted current-project sessions through the reg
   const ctx = {
     workspaceRegistry: { get: id => { assert.equal(id, 'mapped'); return mapped; }, archivedSessionIds: ['removed'] },
     workspaceController: { create: async () => ({ workspace: { workspaceId: 'mapped', title: 'Project' } }) },
-    sessionController: { list: async () => ({ items: [
+    sessionController: { list: async () => { lists++; return { items: [
       { sessionId: 'orphan', cwd: canonical }, { sessionId: 'owned', cwd: canonical },
       { sessionId: 'removed', cwd: canonical }, { sessionId: 'foreign', cwd: `${canonical}/other` },
-    ] }) },
+    ] }; } },
     connection: { fetch: { register() {} } }, effect() {},
   };
   await bindContext(ctx, { id: 1, name: 'Project', directory: canonical });
-  assert.deepEqual(attached, ['orphan']);
+  assert.equal(lists, 0);
+  assert.deepEqual(attached, []);
   assert.deepEqual((await ctx.workspaceController.initializeDefault()).workspace.sessionIds, ['owned', 'orphan']);
+  assert.deepEqual(attached, ['orphan']);
+  await ctx.workspaceController.initializeDefault();
+  assert.deepEqual(attached, ['orphan'], 'already repaired membership is reused');
 });
 
-test('startup reports registry attach failure rather than publishing fake membership', async t => {
+test('membership read reports registry attach failure while registration remains usable', async t => {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-project-reconcile-error-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const ctx = {
     workspaceRegistry: { archivedSessionIds: [], get: () => ({ sessionIds: [], attachSession: async () => { throw new Error('stored cwd mismatch'); } }) },
     workspaceController: { create: async () => ({ workspace: { workspaceId: 'mapped' } }) },
     sessionController: { list: async () => ({ items: [{ sessionId: 'orphan', cwd: directory }] }) },
+    connection: { fetch: { register() {} } }, effect() {},
   };
-  await assert.rejects(bindContext(ctx, { id: 1, name: 'Project', directory }), /stored cwd mismatch/);
+  await bindContext(ctx, { id: 1, name: 'Project', directory });
+  await assert.rejects(ctx.workspaceController.initializeDefault(), /stored cwd mismatch/);
 });
 
 const workspaceId = '00bc24e8-bd28-4a46-967b-29cb0ae4aa41';
@@ -590,4 +596,26 @@ test('real cold persistence changes remain visible while known live files are ex
   // Native committed authorization revocation is synchronous, with no clock advance.
   f.ctx.emit('domain/changed', { domain: 'workspace', table: 'workspaces', operation: 'deleted', key: f.registry.workspace.workspaceId });
   await assert.rejects(f.registry.forSession(f.session.id), /another context/);
+});
+
+
+test('registering current scopes never lists real JSONL history or preloads unopened projects',async t=>{
+ const f=await persistedStreamFixture(t);
+ assert.deepEqual(f.counts(),{lists:0,artifacts:0});
+ await f.registry.register(f.contexts[0]);
+ assert.deepEqual(f.counts(),{lists:0,artifacts:0},'repeated registration is metadata-only');
+ const snapshot=await f.registry.snapshot(f.registry.select(f.contexts[0]));
+ assert.ok(snapshot.items[0].sessionIds.includes(f.session.id));
+ assert.deepEqual(f.counts(),{lists:1,artifacts:1},'a relevant read shares one persistence catalogue');
+});
+
+
+test('lazy unopened mappings keep ownership when a new native scope reuses the directory',async t=>{
+ const {writeFile,mkdir}=await import('node:fs/promises');
+ const root=await realpath(await mkdtemp(path.join(tmpdir(),'mind-unopened-mapping-')));
+ t.after(()=>rm(root,{recursive:true,force:true}));
+ const home=path.join(root,'home');await mkdir(home);
+ await writeFile(path.join(home,'mind-contexts.json'),JSON.stringify({version:1,contexts:[{kind:'project',id:7,directory:root,workspaceId:'old'}]}));
+ const ctx={workspaceController:{},sessionController:{list:async()=>{assert.fail('must not list Session history');}}};
+ await assert.rejects(bindContext(ctx,{kind:'project',id:8,name:'Other',directory:root},{home}),/belongs to another native scope/);
 });

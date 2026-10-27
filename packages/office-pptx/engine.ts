@@ -8,7 +8,7 @@ import JSZip from 'jszip';
 import { XMLValidator } from 'fast-xml-parser';
 import type { PptxModel, PptxEdit } from './types';
 import { validateEdits, validateXmlCharacters } from './validate';
-import {auditDeck} from './vendor/packages/pipelines/src/slides/audit-deck';
+import {auditOpenedDeck} from './audit-opened';
 import {create as createDeck,applyCreationOperations} from './create';
 import {synchronizeGeneratedChartWorkbooks} from './chart-workbook';
 import {authoringSummary} from './authoring';
@@ -31,7 +31,7 @@ function nonVisualId(el: SlideElement): string | null {
 
 export async function inspect(bytes: Uint8Array): Promise<PptxModel> {
   const opened=await openValidated(bytes);
-  return { ...modelOf(opened), sourceBase64: Buffer.from(bytes).toString('base64'), layoutAudit: await auditDeck(bytes),authoring:authoringSummary(opened) };
+  return { ...modelOf(opened), sourceBase64: Buffer.from(bytes).toString('base64'), layoutAudit: auditOpenedDeck(opened),authoring:authoringSummary(opened) };
 }
 
 async function openValidated(bytes: Uint8Array): Promise<OpenedPptx> {

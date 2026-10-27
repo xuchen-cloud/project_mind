@@ -41,6 +41,8 @@ pub struct WorkspacePaths {
 pub struct LocalSessionState {
     pub last_opened_workspace_root: Option<String>,
     pub recent_workspace_roots: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_workspace_summaries: Vec<WorkspaceSummary>,
 }
 
 impl Default for LocalSessionState {
@@ -48,6 +50,7 @@ impl Default for LocalSessionState {
         Self {
             last_opened_workspace_root: None,
             recent_workspace_roots: Vec::new(),
+            recent_workspace_summaries: Vec::new(),
         }
     }
 }
@@ -59,7 +62,27 @@ impl LocalSessionState {
             .retain(|candidate| candidate != &root);
         self.recent_workspace_roots.insert(0, root.clone());
         self.recent_workspace_roots.truncate(8);
+        self.recent_workspace_summaries
+            .retain(|summary| self.recent_workspace_roots.contains(&summary.root_path));
         self.last_opened_workspace_root = Some(root);
+    }
+
+    pub fn record_opened_workspace(&mut self, summary: WorkspaceSummary) {
+        self.record_recent_workspace(Path::new(&summary.root_path));
+        self.recent_workspace_summaries
+            .retain(|cached| cached.root_path != summary.root_path);
+        self.recent_workspace_summaries.insert(0, summary);
+    }
+
+    /// Display data only: never stat or read any recent Workspace directory.
+    /// Old sessions get path-derived labels until that Workspace is opened.
+    pub fn recent_workspaces(&self) -> Vec<WorkspaceSummary> {
+        self.recent_workspace_roots.iter().map(|root| {
+            self.recent_workspace_summaries.iter()
+                .find(|summary| summary.root_path == *root)
+                .cloned()
+                .unwrap_or_else(|| workspace_display_summary(Path::new(root), String::new()))
+        }).collect()
     }
 
     pub fn clear_current_workspace(&mut self) {
@@ -193,7 +216,14 @@ fn validate_local_secret_key(key: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    static METADATA_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub fn load_metadata(root_path: &Path) -> Result<(WorkspaceMetadata, WorkspacePaths)> {
+    #[cfg(test)]
+    METADATA_READS.with(|reads| reads.set(reads.get() + 1));
     let paths = workspace_paths(root_path);
     let raw = fs::read_to_string(&paths.metadata_path).with_context(|| {
         format!(
@@ -221,6 +251,10 @@ pub fn load_metadata(root_path: &Path) -> Result<(WorkspaceMetadata, WorkspacePa
 }
 
 pub fn workspace_summary(root_path: &Path, metadata: &WorkspaceMetadata) -> WorkspaceSummary {
+    workspace_display_summary(root_path, metadata.created_at.clone())
+}
+
+fn workspace_display_summary(root_path: &Path, created_at: String) -> WorkspaceSummary {
     let paths = workspace_paths(root_path);
     WorkspaceSummary {
         root_path: root_path.to_string_lossy().to_string(),
@@ -230,7 +264,7 @@ pub fn workspace_summary(root_path: &Path, metadata: &WorkspaceMetadata) -> Work
             .and_then(|segment| segment.to_str())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| root_path.to_string_lossy().to_string()),
-        created_at: metadata.created_at.clone(),
+        created_at,
     }
 }
 
@@ -273,39 +307,6 @@ pub fn save_local_session(path: &Path, state: &LocalSessionState) -> Result<()> 
             path.display()
         )
     })
-}
-
-pub fn cleanup_legacy_app_data(app_data_dir: &Path, session_path: &Path) -> Result<()> {
-    if !app_data_dir.exists() {
-        fs::create_dir_all(app_data_dir)?;
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(app_data_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        // Imported voice models belong to the current app and must survive restarts.
-        if path == session_path
-            || (path == app_data_dir.join("voice-models") && entry.file_type()?.is_dir())
-            || (path == app_data_dir.join("debug-workspace-keys") && entry.file_type()?.is_dir())
-        {
-            continue;
-        }
-        if path.is_dir() {
-            fs::remove_dir_all(&path).with_context(|| {
-                format!(
-                    "failed to remove legacy app data directory {}",
-                    path.display()
-                )
-            })?;
-        } else {
-            fs::remove_file(&path).with_context(|| {
-                format!("failed to remove legacy app data file {}", path.display())
-            })?;
-        }
-    }
-
-    Ok(())
 }
 
 fn save_metadata(path: &Path, metadata: &WorkspaceMetadata) -> Result<()> {
@@ -391,6 +392,54 @@ mod tests {
     use super::LocalSessionState;
 
     #[test]
+    fn recent_summaries_never_read_workspace_metadata_for_cached_or_old_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let (metadata, _) = super::create_passwordless_workspace(root.path()).unwrap();
+        let summary = super::workspace_summary(root.path(), &metadata);
+        let root_string = summary.root_path.clone();
+        let mut cached = LocalSessionState::default();
+        cached.record_opened_workspace(summary.clone());
+        let encoded = serde_json::to_string(&cached).unwrap();
+        assert!(!encoded.contains(metadata.local_secret_key.as_deref().unwrap()));
+        assert!(!encoded.contains("passwordVerifier"));
+        let cached: LocalSessionState = serde_json::from_str(&encoded).unwrap();
+        // Older sessions have no cached summaries and need no migration scan.
+        let old: LocalSessionState = serde_json::from_value(serde_json::json!({
+            "lastOpenedWorkspaceRoot": null,
+            "recentWorkspaceRoots": [root_string, "unavailable-workspace"]
+        })).unwrap();
+        let reads = super::METADATA_READS.with(|reads| reads.get());
+        assert_eq!(cached.recent_workspaces()[0].created_at, summary.created_at);
+        let recent = old.recent_workspaces();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].display_name, summary.display_name);
+        assert_eq!(recent[0].metadata_path, summary.metadata_path);
+        assert!(recent[0].created_at.is_empty());
+        assert_eq!(recent[1].display_name, "unavailable-workspace");
+        assert!(recent[1].created_at.is_empty());
+        assert_eq!(super::METADATA_READS.with(|reads| reads.get()), reads);
+    }
+
+    #[test]
+    fn recent_summary_cache_tracks_only_the_eight_recent_roots() {
+        let mut session = LocalSessionState::default();
+        for index in 0..10 {
+            session.record_opened_workspace(super::workspace_display_summary(
+                Path::new(&format!("workspace-{index}")), "opened".into()));
+        }
+        session.record_opened_workspace(super::workspace_display_summary(
+            Path::new("workspace-5"), "updated".into()));
+        assert_eq!(session.recent_workspace_roots.len(), 8);
+        assert_eq!(session.recent_workspace_summaries.len(), 8);
+        assert_eq!(session.recent_workspaces()[0].root_path, "workspace-5");
+        assert_eq!(session.recent_workspaces()[0].created_at, "updated");
+        assert!(!session.recent_workspace_summaries.iter().any(|summary|
+            summary.root_path == "workspace-0" || summary.root_path == "workspace-1"));
+        session.clear_current_workspace();
+        assert_eq!(session.recent_workspaces().len(), 8);
+    }
+
+    #[test]
     fn leaving_workspace_clears_auto_restore_but_preserves_recents() {
         let mut session = LocalSessionState::default();
         session.record_recent_workspace(Path::new("first-workspace"));
@@ -406,48 +455,6 @@ mod tests {
                 "first-workspace".to_string()
             ]
         );
-    }
-}
-
-#[cfg(test)]
-mod legacy_app_data_tests {
-    use super::cleanup_legacy_app_data;
-    use std::fs;
-
-    #[test]
-    fn cleanup_preserves_debug_workspace_keys_across_restarts() {
-        let app_data = tempfile::tempdir().unwrap();
-        let session = app_data.path().join("session.json");
-        let keys = app_data.path().join("debug-workspace-keys");
-        let models = app_data.path().join("voice-models");
-        fs::write(&session, "session").unwrap();
-        fs::create_dir(&keys).unwrap();
-        fs::write(keys.join("workspace-id"), "workspace-key").unwrap();
-        fs::create_dir(&models).unwrap();
-        fs::write(models.join("model"), "voice-model").unwrap();
-        fs::write(app_data.path().join("legacy-data"), "obsolete").unwrap();
-
-        cleanup_legacy_app_data(app_data.path(), &session).unwrap();
-        cleanup_legacy_app_data(app_data.path(), &session).unwrap();
-
-        assert_eq!(
-            fs::read_to_string(keys.join("workspace-id")).unwrap(),
-            "workspace-key"
-        );
-        assert!(session.is_file());
-        assert!(models.join("model").is_file());
-        assert!(!app_data.path().join("legacy-data").exists());
-    }
-
-    #[test]
-    fn cleanup_removes_file_named_as_debug_workspace_key_directory() {
-        let app_data = tempfile::tempdir().unwrap();
-        let keys = app_data.path().join("debug-workspace-keys");
-        fs::write(&keys, "not-a-directory").unwrap();
-
-        cleanup_legacy_app_data(app_data.path(), &app_data.path().join("session.json")).unwrap();
-
-        assert!(!keys.exists());
     }
 }
 

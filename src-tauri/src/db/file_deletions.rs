@@ -402,8 +402,6 @@ impl Database {
             self.file_delete_directory_registration(&current)?;
             return Ok(current);
         }
-        self.ensure_project_file_layout(current.project_id)?;
-        let current = self.document_record(input.document_id)?;
         let old = self.file_delete_state(&current)?;
         let request_id = token();
         let base = self.workspace_root.join(JOURNALS);
@@ -642,12 +640,16 @@ mod tests {
             assert_eq!(
                 output.status.signal(),
                 Some(9),
-                "{}",
+                "stage {stage}, status {}\nstdout: {}\nstderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
         }
         #[cfg(not(unix))]
-        assert_eq!(output.status.code(), Some(91));
+        assert_eq!(output.status.code(), Some(91),
+            "stage {stage}, status {}\nstdout: {}\nstderr: {}", output.status,
+            String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     }
     #[test]
     #[ignore = "subprocess-only fixture started by File deletion crash tests"]

@@ -3,7 +3,7 @@ import {newPasteCascade,pasteShiftPx,recordPaste,pageKey} from './vendor/apps/sl
 import {withReplayContext} from './parity-context';
 import * as engine from '@genoffice/pptx-engine';
 import { runTxn } from './vendor/packages/pptx-ops/src/ops';
-import { buildRenderSlide, HeuristicMetrics, type FontMetricsProvider } from '@genoffice/pptx-render';
+import { buildRenderSlide, makeViewport, resolveFill, HeuristicMetrics, type RenderSlide, type FontMetricsProvider } from '@genoffice/pptx-render';
 import { createHandlers } from './parity-handlers.mjs';
 import { safeExternalUrl } from './vendor/packages/electron-utils/src/safe-external-url';
 import type { PptxCommand } from './types';
@@ -41,6 +41,8 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
   onCommand?: (edit:PptxCommand)=>void;
   confirmChart?: (message:string)=>Promise<boolean>;
   metrics?: FontMetricsProvider;
+  /** In-process opening only; export/query and mutation results remain eager. */
+  lazyInitialLayout?: boolean;
 } = {}) {
   const metrics=options.metrics??new HeuristicMetrics();
   const state: State = { opened, path:'document.pptx',fitWidthPx:960,undoStack:[],redoStack:[] };
@@ -54,6 +56,20 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
   const restore=(_s:State,s:Snapshot)=>{opened=state.opened;opened.deck.slides=structuredClone(s.slides);opened.deck.size={...s.size};opened.archive.entries.clear();s.entries.forEach((v,k)=>opened.archive.entries.set(k,v));state.metaDirty=s.metaDirty;normalize()};
   const media=(o:engine.OpenedPptx)=>(part:string)=>{const bytes=o.archive.entries.get(part);if(!bytes)return undefined;const ext=part.split('.').pop();const mime=({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',svg:'image/svg+xml',webp:'image/webp'} as Record<string,string>)[ext??'']??'application/octet-stream';return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`};
   const buildAll=(o=state.opened,width=state.fitWidthPx)=>{normalize();return o.deck.slides.map((s,i)=>suppressFilledSlidePrompts(buildRenderSlide(s,o.deck.size,{fitWidthPx:width,metrics,media:media(o),slideNo:i+1})))};
+  const buildInitial=(width:number):RenderSlide[]=>{
+    normalize();
+    const o=state.opened,vp=makeViewport(o.deck.size,width),resolveMedia=media(o);
+    return o.deck.slides.map((slide,index)=>{
+      let rendered:RenderSlide|undefined;
+      const layout=()=>rendered??=suppressFilledSlidePrompts(buildRenderSlide(slide,o.deck.size,{fitWidthPx:width,metrics,media:resolveMedia,slideNo:index+1}));
+      const sldOpen=/<p:sld\b[^>]*>/.exec(slide.bodyPrefix)?.[0];
+      return {...vp,background:resolveFill(slide.background,vp,resolveMedia),
+        ...(slide.bgOwn?{bgOwn:true}:{}),...(slide.masterSpHidden?{bgGraphicsHidden:true}:{}),
+        ...(sldOpen&&/\sshow="0"/.test(sldOpen)?{hidden:true}:{}),partPath:slide.path,
+        get nodes(){return layout().nodes},
+      };
+    });
+  };
   const rebuild=(_s:State,index:number)=>{normalize();const slide=opened.deck.slides[index];return slide?suppressFilledSlidePrompts(buildRenderSlide(slide,opened.deck.size,{fitWidthPx:state.fitWidthPx,metrics,media:media(opened),slideNo:index+1})):null};
   const emitHistory=()=>queueMicrotask(()=>options.emit?.('slides:history-changed',{canUndo:state.undoStack.length>0,canRedo:state.redoStack.length>0}));
   const push=()=>{state.undoStack.push(snap());if(state.undoStack.length>100)state.undoStack.shift();state.redoStack=[];emitHistory()};
@@ -85,7 +101,7 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
   };
   return {
     state, setReadOnly(value:boolean){readOnly=value},
-    openResult:(width=state.fitWidthPx)=>{state.fitWidthPx=width;return {path:state.path,slides:buildAll(),size:{...opened.deck.size}}},
+    openResult:(width=state.fitWidthPx)=>{state.fitWidthPx=width;return {path:state.path,slides:options.lazyInitialLayout?buildInitial(width):buildAll(),size:{...opened.deck.size}}},
     async invoke(name:string,args:any[]=[]) {
       const marker=args.at(-1);const recordedAt=marker?.__projectMindReplayAt;
       if(recordedAt!==undefined){if(!Number.isSafeInteger(recordedAt))throw new Error('Invalid replay timestamp');args=args.slice(0,-1)}

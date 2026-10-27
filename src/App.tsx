@@ -1,3 +1,4 @@
+import { getErrorMessage } from "./lib/errors";
 import { ProjectContentWorkspace, contentTabRoute } from "./components/project/ProjectContentWorkspace";
 import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
 import { prepareProjectContentClose, prepareWorkspaceContentClose } from "./lib/project-content-lifecycle";
@@ -314,7 +315,11 @@ export function WorkspaceLayout({
 
   const workspaceStatusQuery = useQuery({
     queryKey: queryKeys.workspaceStatus,
-    queryFn: projectMindApi.workspaceStatusGet,
+    queryFn: async ({ signal }) => {
+      const status = await projectMindApi.workspaceStatusGet();
+      signal.throwIfAborted();
+      return status;
+    },
   });
   const currentWorkspace = workspaceStatusQuery.data?.currentWorkspace ?? null;
   useEffect(() => {
@@ -538,6 +543,8 @@ export function WorkspaceLayout({
 
   const applyWorkspaceStatus = useCallback(
     async (snapshot: WorkspaceStatusSnapshot, clearScopedState: boolean) => {
+      // A slow startup/refetch response must not replace a completed user switch.
+      await queryClient.cancelQueries({ queryKey: queryKeys.workspaceStatus });
       if (clearScopedState) {
         for (const key of queryKeys.workspaceScoped) {
           queryClient.removeQueries({ queryKey: key });
@@ -1304,6 +1311,7 @@ export function WorkspaceLayout({
       <>
         <WorkspaceGatePage
           loading={workspaceStatusQuery.isLoading}
+          error={workspaceStatusQuery.error ? getErrorMessage(workspaceStatusQuery.error, "无法打开最近使用的 Workspace") : null}
           recentWorkspaces={workspaceStatusQuery.data?.recentWorkspaces ?? []}
           onOpenExisting={() => void handleOpenExistingWorkspace()}
           onCreateWorkspace={() => {

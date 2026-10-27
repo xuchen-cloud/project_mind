@@ -66,6 +66,8 @@ mod file_relocations;
 pub(crate) mod file_content;
 pub(crate) mod project_directory_files;
 pub(crate) mod dsh_source_evidence;
+#[cfg(test)]
+mod startup_tests;
 mod voice_recovery;
 mod voice_diarization;
 pub(crate) use voice_recovery::CloudGap;
@@ -377,7 +379,6 @@ impl Database {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
         }
         db.migrate()?;
-        db.source_registry_prepare()?;
         db.voice_retry_asset_cleanup()?;
         Ok(db)
     }
@@ -415,6 +416,14 @@ impl Database {
 
     pub fn migrate(&mut self) -> Result<()> {
         let initial_schema_version = self.schema_version()?;
+        // A published schema already contains its tables, indexes and outbox
+        // triggers. Reopening it must not rerun DDL or scan historical data.
+        if initial_schema_version == CURRENT_SCHEMA_VERSION {
+            return Ok(());
+        }
+        if initial_schema_version > CURRENT_SCHEMA_VERSION {
+            anyhow::bail!("Workspace database schema is newer than this application");
+        }
         let is_fresh_workspace = initial_schema_version == 0 && !self.table_exists("projects")?;
         self.conn.execute_batch(
             r#"
@@ -872,7 +881,6 @@ impl Database {
         self.ensure_agent_run_provenance_schema()?;
         self.ensure_workspace_overview_schema()?;
         self.ensure_agent_memory_schema()?;
-        self.ensure_workspace_file_schema()?;
         self.prune_out_of_scope_project_tag_links()?;
         self.conn.execute_batch(
             r#"
@@ -899,6 +907,9 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_ai_profiles_enabled ON ai_provider_profiles(enabled, updated_at DESC);
             "#,
         )?;
+        // Publish the current version only after every preceding schema step
+        // succeeds. An interrupted initialization remains eligible for retry.
+        self.ensure_workspace_file_schema()?;
         Ok(())
     }
 
@@ -2341,9 +2352,18 @@ impl Database {
         Ok((self.project_record(id)?, directory))
     }
 
+    /// Agent context needs identity metadata, without hydrating the Project's
+    /// Files, Records, Todos or filesystem layout.
+    pub(crate) fn project_context_metadata(&self, project_id: i64) -> Result<(String, PathBuf)> {
+        let (name, root): (String, String) = self.conn.query_row(
+            "SELECT name,root_path FROM projects WHERE id=?1",
+            [project_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok((name, self.decode_path_ref(&root)))
+    }
+
     pub fn project_page_get(&mut self, input: ProjectIdInput) -> Result<ProjectPageData> {
-        self.ensure_project_file_layout(input.project_id)?;
-        self.refresh_document_health(input.project_id)?;
         let project = self.project_record(input.project_id)?;
         let project_documents = self.fetch_project_documents_for_project(input.project_id)?;
         let records = self.fetch_project_notes(input.project_id)?;
@@ -3555,7 +3575,6 @@ impl Database {
         &mut self,
         input: DocumentImportNoteImageInput,
     ) -> Result<DocumentRecord> {
-        self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
         let source = PathBuf::from(&input.source_path);
         if !source.exists() {
@@ -3637,7 +3656,6 @@ impl Database {
         &mut self,
         input: DocumentImportClipboardNoteImageInput,
     ) -> Result<DocumentRecord> {
-        self.ensure_project_file_layout(input.project_id)?;
         let timestamp = now_iso();
         let target_dir = self.note_image_target_dir(input.project_id)?;
         let file_name = sanitize_import_file_name(&input.file_name, &input.mime_type)?;
@@ -3767,8 +3785,7 @@ impl Database {
         &mut self,
         input: DocumentListVersionsInput,
     ) -> Result<Vec<DocumentVersionRecord>> {
-        let document = self.document_record(input.document_id)?;
-        self.ensure_project_file_layout(document.project_id)?;
+        self.document_record(input.document_id)?;
         self.fetch_document_versions(input.document_id)
     }
 
@@ -6119,7 +6136,12 @@ impl Database {
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         if ids.is_empty() { return Ok(vec![]); }
-        let root = self.file_scope_root(project_id)?;
+        // Catalogue reads need the stored ownership root only. Physical overlap
+        // and path integrity are checked by actual File access/write services.
+        let root = match project_id {
+            Some(id) => self.project_context_metadata(id)?.1,
+            None => self.workspace_root.join("files"),
+        };
         let mut documents = Vec::new();
         for id in ids {
             let document = self.document_record(id)?;
@@ -6489,33 +6511,6 @@ impl Database {
         ids.into_iter().map(|id| self.todo_record(id)).collect()
     }
 
-    fn backfill_file_layout_metadata(&self) -> Result<()> {
-        self.conn.execute(
-            "UPDATE documents SET base_name = name WHERE base_name = ''",
-            [],
-        )?;
-        self.conn.execute(
-            "UPDATE documents SET current_version_number = 1 WHERE current_version_number < 1",
-            [],
-        )?;
-        self.conn.execute(
-            r#"
-            UPDATE documents
-            SET version_count = CASE
-              WHEN version_count < current_version_number THEN current_version_number
-              WHEN version_count < 1 THEN 1
-              ELSE version_count
-            END
-            "#,
-            [],
-        )?;
-        Ok(())
-    }
-
-    fn ensure_project_file_layout(&mut self, _project_id: impl Into<Option<i64>>) -> Result<()> {
-        self.backfill_file_layout_metadata()
-    }
-
     fn note_image_target_dir(&mut self, project_id: i64) -> Result<PathBuf> {
         let project = self.project_record(project_id)?;
         let project_root = PathBuf::from(&project.root_path);
@@ -6662,6 +6657,7 @@ impl Database {
             .join(format!(".{}.pm-versions", document_id))
     }
 
+    #[cfg(test)]
     fn refresh_document_health(&mut self, project_id: i64) -> Result<()> {
         let mut stmt = self
             .conn
@@ -9250,7 +9246,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     }
 
     #[test]
-    fn voice_minutes_migration_repairs_existing_jobs_table_without_started_at() {
+    fn voice_minutes_schema_repairs_existing_jobs_table_without_started_at() {
         let (harness, database) = setup_database();
         database
             .conn
@@ -9260,6 +9256,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .conn
             .execute("ALTER TABLE voice_minutes_jobs DROP COLUMN preview", [])
             .unwrap();
+        database.ensure_voice_minutes_schema().unwrap();
         drop(database);
 
         let reopened = Database::open(

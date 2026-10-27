@@ -1,79 +1,76 @@
-// Re-applies local \\?\ verbatim-prefix fixes to vendored @deepseek-ai deps.
-// node_modules is gitignored, so these patches must be re-applied to survive
-// fresh installs. Idempotent: skips a file if its patch marker is already present.
-//
-// Root cause being patched: Rust Path::canonicalize adds the \\?\ prefix while
-// node fs.realpath strips it, so the same directory is encoded two ways across
-// the Rust/node boundary. The downstream fixes (normalizeDirectory helpers in
-// the dsh-assistant scripts) keep node-side comparisons consistent, but two
-// vendored package internals also encode paths and must strip the prefix too:
-//   - dsh-session-persistence-jsonl: projectKey() must strip \\?\ so
-//     assertStoredIdentity agrees with the migration's projectKey.
-//   - dsh-workspace: record.path / session attach / mutate filter must strip
-//     \\?\ so Rust-prefixed paths match node-realpath-stripped paths.
+// Pure-JS fixes for the two pinned rc.2 packages that compare/encode paths
+// crossing Rust canonicalize and Node realpath. Also run explicitly after the
+// release install, which intentionally disables all npm lifecycle scripts.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { normalizeDirectory } from './context-directory.mjs';
 
-const root = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.resolve(import.meta.dirname, '..', 'node_modules', '@deepseek-ai');
-
-function applyPatch(rel, marker, ops) {
-  const file = path.join(root, rel);
-  if (!fs.existsSync(file)) { console.warn(`[patch-dsh-deps] missing: ${rel}`); return; }
-  let src = fs.readFileSync(file, 'utf8');
-  if (src.includes(marker)) { console.log(`[patch-dsh-deps] already patched: ${rel}`); return; }
-  let changed = false;
-  for (const op of ops) {
-    if (op.pattern instanceof RegExp) {
-      const next = src.replace(op.pattern, op.replacement);
-      if (next === src) console.warn(`[patch-dsh-deps] regex no-match in ${rel}: ${op.pattern}`);
-      else { src = next; changed = true; }
-    } else {
-      if (!src.includes(op.from)) { console.warn(`[patch-dsh-deps] anchor missing in ${rel}: ${op.from.slice(0, 60)}...`); continue; }
-      src = src.replace(op.from, op.to); changed = true;
-    }
-  }
-  if (changed) { fs.writeFileSync(file, src); console.log(`[patch-dsh-deps] patched: ${rel}`); }
-  else console.warn(`[patch-dsh-deps] no changes applied to ${rel}`);
+const defaultRoot = path.resolve(import.meta.dirname, '..', 'node_modules', '@deepseek-ai');
+const helper = name => `const ${name} = (${normalizeDirectory.toString()});`;
+const count = (source, anchor) => source.split(anchor).length - 1;
+function replaceExact(source, before, after, label) {
+  const applied = count(source, after);
+  if (applied === 1 && count(source, before) === count(after, before)) return source;
+  if (applied !== 0 || count(source, before) !== 1) throw new Error(`[patch-dsh-deps] pinned anchor mismatch: ${label}`);
+  return source.replace(before, after);
 }
 
-// dsh-session-persistence-jsonl: projectKey strips \\?\ so assertStoredIdentity
-// (projectKey(header.cwd)) agrees with the session storage directory.
-applyPatch('dsh-session-persistence-jsonl/lib/index.js', 'String.fromCharCode(92,92,63,92)', [
-  {
-    from: 'if (cwd.length === 0) throw new Error("cannot encode an empty project path");',
-    to:   'if (cwd.length === 0) throw new Error("cannot encode an empty project path"); if (cwd.startsWith(String.fromCharCode(92,92,63,92))) cwd = cwd.slice(4);',
-  },
-]);
+function persistencePatch(source) {
+  const empty = 'if (cwd.length === 0) throw new Error("cannot encode an empty project path");';
+  const old = `${empty} if (cwd.startsWith(String.fromCharCode(92,92,63,92))) cwd = cwd.slice(4);`;
+  const patched = `${empty} cwd = _mindNormalizeDirectory(cwd);`;
+  if (source.includes(old)) source = replaceExact(source, old, patched, 'session projectKey v1');
+  else {
+    if (source.includes('String.fromCharCode(92,92,63,92)')) throw new Error('[patch-dsh-deps] unknown session path patch');
+    source = replaceExact(source, empty, patched, 'session projectKey');
+  }
+  if (source.includes('const _mindNormalizeDirectory') && !source.includes(helper('_mindNormalizeDirectory'))) throw new Error('[patch-dsh-deps] unknown session path helper');
+  const anchor = 'function projectKey(cwd) {';
+  return replaceExact(source, anchor, `${helper('_mindNormalizeDirectory')}\n${anchor}`, 'session path helper');
+}
 
-// dsh-workspace: normalize \\?\ on record.path + session attach/compare.
-applyPatch('dsh-workspace/lib/index.js', '_stripV', [
-  // 1) helper after realpathNormalize
-  {
-    from: 'return await realpath(path);\n}',
-    to:   'return await realpath(path);\n}\nconst _vprefix = win32.sep + win32.sep + \'?\' + win32.sep;\nfunction _stripV(p) { return p && typeof p === \'string\' && p.startsWith(_vprefix) ? p.slice(_vprefix.length) : p; }',
-  },
-  // 2) constructor: strip record.path
-  {
-    from: 'this.record = record;',
-    to:   'this.record = record && record.path ? { ...record, path: _stripV(record.path) } : record;',
-  },
-  // 3) attachSession: resolve record.path via realpath before comparing cwd
-  {
-    from: 'if (cwd !== this.record.path) throw new Error',
-    to:   'const wsp = await realpathNormalize(this.record.path); if (cwd !== wsp) throw new Error',
-  },
-  // 4) mutate filter: strip both sides
-  {
-    from: 'this.host.sessionPath(id) === changed.path',
-    to:   '_stripV(this.host.sessionPath(id)) === _stripV(changed.path)',
-  },
-  // 5) mutate return: insert path: _stripV(changed.path) before sessionIds
-  {
-    pattern: /(\.\.\.changed,\n)([ \t]+)(sessionIds,)/,
-    replacement: '$1$2path: _stripV(changed.path),\n$2$3',
-  },
-]);
+function workspacePatch(source) {
+  const anchor = 'return await realpath(path);\n}';
+  const oldHelper = "const _vprefix = win32.sep + win32.sep + '?' + win32.sep;\nfunction _stripV(p) { return p && typeof p === 'string' && p.startsWith(_vprefix) ? p.slice(_vprefix.length) : p; }";
+  if (source.includes(oldHelper)) source = replaceExact(source, oldHelper, helper('_stripV'), 'workspace path helper v1');
+  if (source.includes('function _stripV') || source.includes('const _vprefix')
+    || source.includes('const _stripV') && !source.includes(helper('_stripV'))) throw new Error('[patch-dsh-deps] unknown workspace path patch');
+  source = replaceExact(source, anchor, `${anchor}\n${helper('_stripV')}`, 'workspace path helper');
+  for (const [before, after, label] of [
+    ['this.record = record;', 'this.record = record && record.path ? { ...record, path: _stripV(record.path) } : record;', 'record path'],
+    ['if (cwd !== this.record.path) throw new Error', 'const wsp = await realpathNormalize(this.record.path); if (cwd !== wsp) throw new Error', 'attach path'],
+    ['this.host.sessionPath(id) === changed.path', '_stripV(this.host.sessionPath(id)) === _stripV(changed.path)', 'mutation membership'],
+  ]) source = replaceExact(source, before, after, label);
+  const pattern = /(\.\.\.changed,\n)([ \t]+)(sessionIds,)/g;
+  const applied = [...source.matchAll(/\.\.\.changed,\n([ \t]+)path: _stripV\(changed.path\),\n\1sessionIds,/g)].length;
+  const pending = [...source.matchAll(pattern)].length;
+  if (applied === 0 && pending === 1) {
+    source = source.replace(pattern, '$1$2path: _stripV(changed.path),\n$2$3');
+  } else if (applied !== 1 || pending !== 0) throw new Error('[patch-dsh-deps] pinned anchor mismatch: mutation path');
+  return source;
+}
 
-console.log('[patch-dsh-deps] done');
+export function patchDshDependencies(root = defaultRoot) {
+  // Validate both complete patches before writing either file. A missing pinned
+  // anchor is a build failure, never a warning that ships an unpatched runtime.
+  const files = [
+    ['dsh-session-persistence-jsonl/lib/index.js', persistencePatch],
+    ['dsh-workspace/lib/index.js', workspacePatch],
+  ].map(([relative, patch]) => {
+    const file = path.join(root, relative);
+    const before = fs.readFileSync(file, 'utf8');
+    return { file, before, after: patch(before) };
+  });
+  const changed = [];
+  for (const { file, before, after } of files) if (before !== after) {
+    fs.writeFileSync(file, after);
+    changed.push(file);
+  }
+  return changed;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const changed = patchDshDependencies(process.argv[2] ? path.resolve(process.argv[2]) : defaultRoot);
+  console.log(`[patch-dsh-deps] ready (${changed.length} files updated)`);
+}

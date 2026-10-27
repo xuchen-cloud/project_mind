@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { normalizeDirectory } from './context-directory.mjs';
 import { watch } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sessionInventory, createSessionReadCache } from './session-inventory.mjs';
@@ -152,9 +153,6 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     return catalog;
   };
   const key = value => `${value.kind ?? 'project'}:${value.id}`;
-  // Windows canonicalize() emits a verbatim \\?\ prefix that node's realpath
-  // strips; normalize both sides so persisted/registry paths compare equal.
-  const normalizeDirectory = value => typeof value === 'string' && value.startsWith('\\\\?\\') ? value.slice(4) : value;
   const isRemoved = id => committedArchived ? committedArchived.has(id) : ctx.workspaceRegistry.archivedSessionIds.includes(id);
   const file = home && path.join(home, 'mind-contexts.json');
   let mappings = { version: 1, contexts: [] };
@@ -184,7 +182,7 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       const existing = contexts.get(key(context));
       const persisted = mappings.contexts.find(item => key(item) === key(context));
       if (existing && normalizeDirectory(existing.directory) !== normalizeDirectory(context.directory)) throw new Error('Context directory changed; restart the assistant');
-      if ([...contexts.values()].some(item => key(item) !== key(context) && normalizeDirectory(item.directory) === normalizeDirectory(context.directory))) throw new Error('Context directory already belongs to another native scope');
+      if ([...contexts.values(), ...mappings.contexts].some(item => key(item) !== key(context) && normalizeDirectory(item.directory) === normalizeDirectory(context.directory))) throw new Error('Context directory already belongs to another native scope');
       let workspaceId = persisted?.workspaceId;
       if (workspaceId) {
         const record = ctx.workspaceRegistry.get(workspaceId);
@@ -194,10 +192,6 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
         workspaceId = workspace.workspaceId;
       }
       const mapped = ctx.workspaceRegistry.get(workspaceId);
-      const catalog = await original.sessionList.call(sessions, {});
-      for (const item of catalog.items) {
-        if (item.cwd === context.directory && !isRemoved(item.sessionId) && !mapped.sessionIds.includes(item.sessionId)) await mapped.attachSession(item.sessionId);
-      }
       // Native display names may repeat across scopes; the registry identity owns
       // membership, while the standalone rename UI enforces unique display names.
       if (mapped.title !== undefined && mapped.title !== context.name) await mapped.setTitle(context.name);
@@ -264,8 +258,21 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     workspace: bootstrap, register, forSession, scopeForSession, select,
     revision: () => `${contentRevision}:${watchGeneration}`,
     async snapshot(context, signal) {
-      const value = current(context).workspace;
       const { value: rows } = await readCatalog(signal);
+      select(context);
+      const mapped = ctx.workspaceRegistry.get(context.workspaceId);
+      // Current Session creation persists its history before attaching it to
+      // the Workspace. Repair that crash window only when membership is read;
+      // registering a native scope must not enumerate shared Session history.
+      for (const item of rows.items) {
+        signal?.throwIfAborted();
+        if (item.cwd === context.directory && !isRemoved(item.sessionId) && !mapped.sessionIds.includes(item.sessionId)) {
+          await mapped.attachSession(item.sessionId);
+          signal?.throwIfAborted();
+          select(context);
+        }
+      }
+      const value = current(context).workspace;
       const own = new Set(rows.items.filter(item => item.cwd === context.directory).map(item => item.sessionId));
       return { items: [value], archivedSessionIds: [...(committedArchived ?? ctx.workspaceRegistry.archivedSessionIds)].filter(id => own.has(id)),
         pinnedSessionIds: (ctx.workspaceRegistry.pinnedSessionIds ?? []).filter(id => own.has(id)) };
@@ -277,7 +284,8 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     },
   };
   ctx.mindContexts = registry;
-  workspaces.initializeDefault = async () => current(bootstrap);
+  const initialize = async (context, signal) => ({ workspace: (await registry.snapshot(context, signal)).items[0] });
+  workspaces.initializeDefault = () => initialize(bootstrap);
   workspaces.create = async request => {
     const directory = await realpath(request.path);
     const context = [...contexts.values()].find(item => item.directory === directory);
@@ -360,7 +368,7 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     const { kind, id, name, directory } = await forSession(request.sessionId, signal);
     return { context: { kind, id, name, directory } };
   });
-  route('mind/workspace/initializeDefault', request => current(select(request.context)));
+  route('mind/workspace/initializeDefault', (request, signal) => initialize(select(request.context), signal));
   route('mind/session/list', (request, signal) => sessions.list({ cwd: select(request.context).directory }, signal));
   route('mind/session/create', request => create(request, select(request.context)));
   route('mind/session/search', (request, signal) => searchContextSessions(ctx, registry, select(request.context), request, signal));

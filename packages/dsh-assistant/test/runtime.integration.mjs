@@ -4,7 +4,7 @@ import { fork, execFile } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
-import { mkdtemp, mkdir, realpath, writeFile, readFile, rm, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, writeFile, readFile, rm, chmod, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,14 +28,14 @@ async function waitFor(read, description, timeoutMs = 15000) {
   throw new Error(`Timed out: ${description}`);
 }
 
-async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace, cli) {
+async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace, cli, contexts) {
   const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), '--port', '0', '--no-open'], {
     cwd: root, execArgv: [], silent: true,
     env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(path.dirname(data), 'skill-management'),
       ...((project || workspace) ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
       ...(patch ? { PROJECT_MIND_DSH_PATCH: patch } : {}), LOCAL_TEST_KEY: 'local-integration-key' },
   });
-  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, ...(workspace ? { workspace } : { project }), ...(cli ? { cli } : {}) }) + '\n');
+  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, ...(workspace ? { workspace } : { project }), ...(cli ? { cli } : {}), ...(contexts ? { contexts } : {}) }) + '\n');
   let output = '';
   let ready;
   let ended;
@@ -1773,4 +1773,44 @@ test('one shared assistant process isolates workspace and two project Sessions a
  }
  for(const context of [workspace,...projects])assert.equal((await runtime.rpc('mind/session/fileAccess',{context,path:attachmentPath})).allowed,context.id===projects[0].id);
  assert.equal(provider.requests.length,4,'history restore must not send model requests');
+});
+
+
+test('current-layout startup keeps lazy project histories and workspace schedules across directory moves', {timeout:60000}, async t=>{
+ const temporary=await realpath(await mkdtemp(path.join(tmpdir(),'mind-current-startup-')));
+ const provider=await startLocalProvider();let runtime;
+ t.after(async()=>{try{await runtime?.stop();}finally{await provider.close();await rm(temporary,{recursive:true,force:true});}});
+ const workspace={kind:'workspace',id:randomUUID(),name:'Workspace',directory:path.join(temporary,'workspace')};
+ const project={kind:'project',id:275,name:'Lazy Project',directory:path.join(workspace.directory,'project')};
+ await mkdir(project.directory,{recursive:true});
+ const home=path.join(temporary,'shared-runtime');
+ const model={name:'Current layout model',baseUrl:provider.url,modelId:'local-test-model',apiKey:'local-integration-key',supportsImage:false};
+ const start=contexts=>launch(home,undefined,model,undefined,undefined,undefined,workspace,undefined,contexts);
+ runtime=await start([workspace,project]);
+ const mapped=(await runtime.rpc('mind/context',{context:project})).workspaceId;
+ const created=await runtime.rpc('mind/session/create',{context:project});
+ await runtime.rpc('session/rename',{sessionId:created.sessionId,title:'Saved project history'});
+ const workspaceSession=await runtime.rpc('mind/session/create',{context:workspace});
+ const task=await runtime.rpc('mind/schedules',{operation:'create',task:{title:'Retained task',prompt:'scheduled prompt',sessionId:workspaceSession.sessionId,enabled:false,rule:{kind:'days',interval:1,startDate:'2026-01-01',time:'09:00'}}});
+ await runtime.stop();
+ // Old homes and obsolete migration markers cannot become startup dependencies.
+ await mkdir(path.join(temporary,'workspace-legacy/storages'),{recursive:true});
+ await writeFile(path.join(temporary,'workspace-legacy/storages/workspace.json'),'invalid legacy registry');
+ await writeFile(path.join(home,'mind-migration.json'),'invalid obsolete manifest');
+ const moved={...project,directory:path.join(workspace.directory,'renamed')};
+ await rename(project.directory,moved.directory);
+ runtime=await start([workspace]);
+ assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),[task]);
+ await assert.rejects(runtime.rpc('mind/session/list',{context:moved}),/not registered/);
+ const saved=JSON.parse(await readFile(path.join(home,'mind-contexts.json'),'utf8'));
+ assert.equal(saved.contexts.find(item=>item.id===project.id).directory,project.directory,'unadmitted project mapping stays untouched');
+ await runtime.stop();
+ runtime=await start([workspace,moved]);
+ assert.equal((await runtime.rpc('mind/context',{context:moved})).workspaceId,mapped);
+ const list=await runtime.rpc('mind/session/list',{context:moved});
+ assert.deepEqual(list.items.map(item=>item.sessionId),[created.sessionId]);
+ const stream=await follow(runtime,created.sessionId);
+ try {assert.equal(stream.snapshot.header.cwd,moved.directory);}finally{await stream.close();}
+ assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),[task]);
+ assert.equal(provider.requests.length,0);
 });
