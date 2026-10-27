@@ -152,6 +152,9 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     return catalog;
   };
   const key = value => `${value.kind ?? 'project'}:${value.id}`;
+  // Windows canonicalize() emits a verbatim \\?\ prefix that node's realpath
+  // strips; normalize both sides so persisted/registry paths compare equal.
+  const normalizeDirectory = value => typeof value === 'string' && value.startsWith('\\\\?\\') ? value.slice(4) : value;
   const isRemoved = id => committedArchived ? committedArchived.has(id) : ctx.workspaceRegistry.archivedSessionIds.includes(id);
   const file = home && path.join(home, 'mind-contexts.json');
   let mappings = { version: 1, contexts: [] };
@@ -180,12 +183,12 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       context = await readContext(JSON.stringify({ [context.kind ?? 'project']: context }));
       const existing = contexts.get(key(context));
       const persisted = mappings.contexts.find(item => key(item) === key(context));
-      if (existing && existing.directory !== context.directory) throw new Error('Context directory changed; restart the assistant');
-      if ([...contexts.values()].some(item => key(item) !== key(context) && item.directory === context.directory)) throw new Error('Context directory already belongs to another native scope');
+      if (existing && normalizeDirectory(existing.directory) !== normalizeDirectory(context.directory)) throw new Error('Context directory changed; restart the assistant');
+      if ([...contexts.values()].some(item => key(item) !== key(context) && normalizeDirectory(item.directory) === normalizeDirectory(context.directory))) throw new Error('Context directory already belongs to another native scope');
       let workspaceId = persisted?.workspaceId;
       if (workspaceId) {
         const record = ctx.workspaceRegistry.get(workspaceId);
-        if (!record || record.path !== context.directory || persisted.directory !== context.directory) throw new Error('Native context directory changed; restart to restore its history');
+        if (!record || normalizeDirectory(record.path) !== normalizeDirectory(context.directory) || normalizeDirectory(persisted.directory) !== normalizeDirectory(context.directory)) throw new Error('Native context directory changed; restart to restore its history');
       } else {
         const { workspace } = await original.create.call(workspaces, { path: context.directory });
         workspaceId = workspace.workspaceId;
@@ -233,10 +236,10 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     } catch { watcherFailed = true; }
   }
   const available = context => context && !revokedWorkspaces.has(context.workspaceId)
-    && (!workspacePaths.has(context.workspaceId) || workspacePaths.get(context.workspaceId) === context.directory);
+    && (!workspacePaths.has(context.workspaceId) || normalizeDirectory(workspacePaths.get(context.workspaceId)) === normalizeDirectory(context.directory));
   const select = selector => {
     const value = contexts.get(key(selector ?? bootstrap));
-    if (!available(value) || selector?.directory !== undefined && selector.directory !== value.directory) throw Object.assign(new Error('Native context is not registered'), { code: 'SCOPE_DENIED' });
+    if (!available(value) || selector?.directory !== undefined && normalizeDirectory(selector.directory) !== normalizeDirectory(value.directory)) throw Object.assign(new Error('Native context is not registered'), { code: 'SCOPE_DENIED' });
     return value;
   };
   const scopeForSession = async (sessionId, signal) => {

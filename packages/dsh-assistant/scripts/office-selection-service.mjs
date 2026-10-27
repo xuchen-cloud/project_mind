@@ -1,11 +1,14 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 /** Capabilities refer to a live selection explicitly attached by the user. */
 export async function installOfficeSelectionService(ctx, project, bridge) {
   async function owner(sessionId, signal) {
     if (!sessionId) throw new Error('Editor requires an actual Session');
     if (project.forSession) return project.forSession(sessionId,signal);
-    if (!(await ctx.sessionController.list({cwd:project.directory})).items.some(item=>item.sessionId===sessionId&&item.cwd===project.directory)) throw new Error('Editor Session belongs to another Project');
+    if (!(await ctx.sessionController.list({cwd:project.directory})).items.some(item=>item.sessionId===sessionId&&normalizeDirectory(item.cwd)===normalizeDirectory(project.directory))) throw new Error('Editor Session belongs to another Project');
     signal?.throwIfAborted();
     return project;
   }
@@ -27,7 +30,7 @@ export async function installOfficeSelectionService(ctx, project, bridge) {
       const sessionId=exec.agent.session.id;
       const policy=ctx.get('sandboxPolicy')?.resolve({session:exec.agent.session});
       if (!policy || !['workspace-write','danger-full-access'].includes(policy.mode)) throw new Error('当前会话为只读，不能修改 Office 选区');
-      if (policy.workspaceRoot!==context.directory) throw new Error('Editor policy belongs to another Project');
+      if (normalizeDirectory(policy.workspaceRoot)!==normalizeDirectory(context.directory)) throw new Error('Editor policy belongs to another Project');
       // Once dispatched, observe the actual result even if Stop races the edit.
       // Native one-use selection identity prevents a retry from applying twice.
       return bridge.request({operation:'officeSelectionApply',sessionId,selectionId:args.selection_id,requestId:String(exec.callId),mode:policy.mode,change:args.change});

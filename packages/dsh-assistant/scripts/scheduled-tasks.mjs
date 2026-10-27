@@ -6,6 +6,9 @@ import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import { exact, requestIdentity, validateTaskInput, validateStore } from './scheduled-tasks-schema.mjs';
 import { occurrences } from './scheduled-tasks-time.mjs';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 export async function installScheduledTasks(ctx, context, home) {
  const registry=typeof context.forSession==='function'?context:undefined;
  context=registry?registry.workspace:context;
@@ -24,7 +27,7 @@ export async function installScheduledTasks(ctx, context, home) {
   if(registry){
    const owner=await registry.forSession(id);
    if(owner.kind!=='workspace'||owner.id!==context.id)throw new Error('Scheduled Session belongs to another context or was removed');
-  }else if(!(await ctx.sessionController.list({cwd:context.directory})).items.some(row=>row.sessionId===id&&row.cwd===context.directory))throw new Error('Scheduled Session belongs to another context or was removed');
+  }else if(!(await ctx.sessionController.list({cwd:context.directory})).items.some(row=>row.sessionId===id&&normalizeDirectory(row.cwd)===normalizeDirectory(context.directory)))throw new Error('Scheduled Session belongs to another context or was removed');
  };
  const input=async task=>{
   validateTaskInput(task);await owner(task.sessionId);

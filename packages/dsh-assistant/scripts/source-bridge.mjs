@@ -2,6 +2,9 @@ import { randomUUID, createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { isSkillResourceRead } from './skills.mjs';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 export const SOURCE_PREFIX = 'MIND_DSH_SOURCE ';
 export function createSourceBridge(input, write) {
   const pending = new Map();
@@ -98,7 +101,7 @@ export async function installSourceService(ctx, project, bridge) {
   const owned = async (sessionId, signal) => {
     if (project.forSession) return project.forSession(sessionId, signal);
     const catalog = await ctx.sessionController.list({cwd:project.directory});
-    if (!catalog.items.some(item => item.sessionId === sessionId && item.cwd === project.directory)) throw new Error('Source Session belongs to another Project');
+    if (!catalog.items.some(item => item.sessionId === sessionId && normalizeDirectory(item.cwd) === normalizeDirectory(project.directory))) throw new Error('Source Session belongs to another Project');
   };
   for (const operation of ['resolve', 'prepare']) ctx.connection.fetch.register({
     path: `/api/mind/source/${operation}`, methods: ['POST'], requestBody: 'buffered',

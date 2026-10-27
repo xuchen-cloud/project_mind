@@ -1,5 +1,8 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 // Match the native File SourceRef returned by inspect. An unconstrained JSON
 // parameter allowed models to quote the reference, which native cannot parse.
 const sourceRefParameter={type:'object',required:true,additionalProperties:false,
@@ -40,14 +43,14 @@ export async function installOfficeService(ctx,project,bridge) {
     if (!sessionId) throw new Error('Office editing requires an actual Session');
     if(project.forSession){const context=await project.forSession(sessionId,exec.signal);return {sessionId,context};}
     const catalog=await ctx.sessionController.list({cwd:project.directory});
-    if (!catalog.items.some(item=>item.sessionId===sessionId&&item.cwd===project.directory)) throw new Error('Office Session belongs to another Project');
+    if (!catalog.items.some(item=>item.sessionId===sessionId&&normalizeDirectory(item.cwd)===normalizeDirectory(project.directory))) throw new Error('Office Session belongs to another Project');
     exec.signal.throwIfAborted();
     return {sessionId,context:project};
   }
   function writable(exec,context) {
     const policy=ctx.get('sandboxPolicy')?.resolve({session:exec.agent.session});
     if(!policy||!['workspace-write','danger-full-access'].includes(policy.mode))throw new Error('当前会话为只读，不能修改 Office 文件');
-    if(policy.workspaceRoot!==context.directory)throw new Error('Office policy belongs to another context');
+    if(normalizeDirectory(policy.workspaceRoot)!==normalizeDirectory(context.directory))throw new Error('Office policy belongs to another context');
     return policy.mode;
   }
   const sourceParameter=structuredClone(sourceRefParameter);

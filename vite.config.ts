@@ -109,12 +109,14 @@ export default defineConfig({
   },
   server: {
     // File-provider backed worktrees can miss native filesystem events.
+    // 本地真实磁盘用原生监听（空闲近 0 CPU）；worktree 环境设 VITE_WATCH_POLLING=1 开轮询。
     watch: {
-      usePolling: true,
+      usePolling: process.env.VITE_WATCH_POLLING === '1',
       interval: 300,
       // Backend staging and fixtures contain HTML/JS but are not browser inputs.
       // Watching them reloads the main UI during native and runtime verification.
-      ignored: ["**/src-tauri/**", "**/packages/dsh-assistant/**", "**/*.test.*"],
+      // node_modules/target/.git 体量巨大，轮询或原生监听都不该扫，否则 CPU 空转。
+      ignored: ["**/node_modules/**", "**/target/**", "**/.git/**", "**/src-tauri/**", "**/packages/dsh-assistant/**", "**/packages/office-*/**", "**/packages/agent-host/**", "**/*.test.*"],
     },
     port: 1420,
     strictPort: true,

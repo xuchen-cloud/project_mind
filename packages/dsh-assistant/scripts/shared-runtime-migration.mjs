@@ -5,6 +5,9 @@ import { mkdir, readdir, readFile, open, rename, rm, lstat } from 'node:fs/promi
 import { validateStore } from './scheduled-tasks-schema.mjs';
 import { syncDirectory } from './fs-durability.mjs';
 
+const _vp = path.sep + path.sep + '?' + path.sep;
+const normalizeDirectory = value => typeof value === 'string' && value.startsWith(_vp) ? value.slice(_vp.length) : value;
+
 const manifestName = 'mind-migration.json';
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 async function exists(file) {
@@ -166,6 +169,7 @@ export async function migrateSharedRuntime({ legacyRoot, home, workspaceId }) {
 // Exact rc.2 dsh-session-persistence-jsonl projectKey spelling. Session IDs and
 // their contents remain unchanged when a native scope's directory moves.
 function projectKey(cwd) {
+ cwd=normalizeDirectory(cwd);
  let readable='',separatorRun=false;
  for(let i=0;i<cwd.length;i++) {
   const code=cwd.charCodeAt(i),ch=String.fromCharCode(code);
@@ -204,9 +208,9 @@ export async function reconcileContextDirectories({home,contexts}) {
  for(const context of contexts) {
   const key=`${context.kind}:${context.id}`;
   if(targets.has(key)||!path.isAbsolute(context.directory)) throw new Error('Invalid native directory bindings');
-  targets.set(key,context.directory);
+  targets.set(key,normalizeDirectory(context.directory));
  }
- const moves=mappings.contexts.filter(context=>targets.has(`${context.kind}:${context.id}`)&&targets.get(`${context.kind}:${context.id}`)!==context.directory);
+ const moves=mappings.contexts.filter(context=>targets.has(`${context.kind}:${context.id}`)&&targets.get(`${context.kind}:${context.id}`)!==normalizeDirectory(context.directory));
  if(!moves.length) return mappings;
  const registry=await readJson(path.join(home,'storages/workspace.json'));
  const staging=`${home}.directory-staging`,backup=`${home}.directory-backup-${randomUUID()}`;
@@ -219,7 +223,7 @@ export async function reconcileContextDirectories({home,contexts}) {
   for(const context of moves) {
    const directory=targets.get(`${context.kind}:${context.id}`);
    const record=registry.tables?.workspaces?.[context.workspaceId];
-   if(!record||record.path!==context.directory) throw new Error('Context mapping disagrees with workspace registry');
+   if(!record||normalizeDirectory(record.path)!==normalizeDirectory(context.directory)) throw new Error('Context mapping disagrees with workspace registry');
    if(mappings.contexts.some(other=>other!==context&&(other.directory===directory||(targets.get(`${other.kind}:${other.id}`)??other.directory)===directory))) throw new Error('Native directory binding conflict');
    for(const group of await entries(path.join(staging,'sessions'))) {
     if(!group.isDirectory()) throw new Error('Unexpected session group');
@@ -231,7 +235,7 @@ export async function reconcileContextDirectories({home,contexts}) {
       const file=path.join(sessionDirectory,generation.name);const bytes=await readFile(file);
       const compressed=generation.name.endsWith('.zstd');
       const {header,rest}=splitHeader(bytes,compressed);
-      if(header.cwd!==context.directory) continue;
+      if(normalizeDirectory(header.cwd)!==normalizeDirectory(context.directory)) continue;
       header.cwd=directory;
       const first=Buffer.from(JSON.stringify(header)+'\n');
       const encoded=compressed?zstdCompressSync(first,{params:{[constants.ZSTD_c_checksumFlag]:1}}):first;

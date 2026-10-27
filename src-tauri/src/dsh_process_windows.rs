@@ -24,7 +24,7 @@ pub(super) struct JobLease(Arc<Mutex<Option<crate::office_process::ProcessTree>>
 impl JobLease {
     pub(super) fn attach(child: &Child) -> Result<Self, String> {
         let job = crate::office_process::ProcessTree::attach(child)
-            .map_err(|error| format!("无法保护助手进程：{error}"))?;
+            .map_err(|error| format!("无法保护助手进程：{}", error.message))?;
         let process = child.raw_handle().ok_or("无法取得助手进程句柄")?;
         let mut duplicate = std::ptr::null_mut();
         let current = unsafe { GetCurrentProcess() };

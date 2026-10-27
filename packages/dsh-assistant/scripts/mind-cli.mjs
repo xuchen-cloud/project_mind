@@ -3,6 +3,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { access, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 // The configure frame contains binding facts only. Lease credentials arrive
 // later, in memory, for one authenticated shell execution.
 export async function readMindCli(line, context) {
@@ -54,7 +57,7 @@ export function installMindCli(ctx, context, cli, bridge) {
       if (registry) sessionContext = await registry.forSession(sessionId, spec.signal);
       else {
         const catalog = await scope.sessionController.list({ cwd: context.directory }, spec.signal);
-        if (!catalog.items.some(item => item.sessionId === sessionId && item.cwd === context.directory)) throw new Error('Mind CLI Session belongs to another context');
+        if (!catalog.items.some(item => item.sessionId === sessionId && normalizeDirectory(item.cwd) === normalizeDirectory(context.directory))) throw new Error('Mind CLI Session belongs to another context');
         sessionContext = context;
       }
       spec.signal?.throwIfAborted();

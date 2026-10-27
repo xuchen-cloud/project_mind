@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { isAppendSurfaceEvent, deriveEventMessage } from '@deepseek-ai/dsh-session/surface';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const size = value => [...JSON.stringify(value)].length;
 const fail = (code, message, details) => { throw Object.assign(new Error(message), { code, details }); };
@@ -57,7 +60,7 @@ export async function sessionInventory(sessions, context, input, authorization, 
     || [titleQuery, contentQuery].some(q => q != null && (typeof q !== 'string' || !q.trim() || [...q].length > 256))
     || input.tag != null || (input.tagIds?.length ?? 0) > 0) fail('INVALID_ARGUMENT', 'Invalid session list filters');
   const catalog = async () => (await sessions.list({}, signal)).items
-    .filter(row => row.cwd === context.directory).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    .filter(row => normalizeDirectory(row.cwd) === normalizeDirectory(context.directory)).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
   const rows = await catalog();
   const revision = sessions.revision?.();
   const snapshot = hash([rows, revision]);
@@ -79,7 +82,7 @@ export async function sessionInventory(sessions, context, input, authorization, 
     if (cached) return cached;
     const inspection = await sessions.inspect(row.sessionId, signal);
     signal?.throwIfAborted();
-    if (inspection.meta.cwd !== context.directory) fail('SCOPE_DENIED', 'Session moved outside the authorized scope');
+    if (normalizeDirectory(inspection.meta.cwd) !== normalizeDirectory(context.directory)) fail('SCOPE_DENIED', 'Session moved outside the authorized scope');
     if (sessions.revision?.() !== revision) fail('SOURCE_CHANGED', 'Session content changed while reading');
     const value = { content: transcript(inspection.events), createdAt: new Date(inspection.meta.createdAt).toISOString() };
     cache?.set(`read:${row.sessionId}`, value);

@@ -2,6 +2,9 @@ import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
 
+const _vp = String.fromCharCode(92,92,63,92);
+const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+
 const key = context => `${context.kind}:${context.id}:${context.directory}`;
 // Match the pinned upstream fork default: include events after the last completed
 // turn until a new turn/user append/inbox splice starts. Never copy a live tail.
@@ -30,7 +33,7 @@ export function createStableSessionFork(ctx, registry) {
     catch (error) { if (!(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error; }
     if (child) {
       try {
-        if (child.header.parentSession !== request.sessionId || child.header.cwd !== context.directory) throw new Error('Child identity belongs to another fork');
+        if (child.header.parentSession !== request.sessionId || normalizeDirectory(child.header.cwd) !== normalizeDirectory(context.directory)) throw new Error('Child identity belongs to another fork');
         if (key(await registry.forSession(request.childSessionId, signal)) !== key(context)) throw new Error('Child identity belongs to another fork');
       } finally { child[Symbol.dispose](); }
       // A previous response or workspace attachment may have failed after the
@@ -40,7 +43,7 @@ export function createStableSessionFork(ctx, registry) {
     } else {
       const source = await ctx.sessionQuery.observeSession(request.sessionId);
       try {
-        if (source.header.cwd !== context.directory) throw new Error('Fork source belongs to another context');
+        if (normalizeDirectory(source.header.cwd) !== normalizeDirectory(context.directory)) throw new Error('Fork source belongs to another context');
         const boundary = completedBoundary(source.events, request.sessionId);
         const seed = buildForkSeed(source.events, boundary);
         // Reuse rc.2's controller-owned preset and model-selection setup, as
