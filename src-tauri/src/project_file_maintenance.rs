@@ -1,4 +1,4 @@
-//! Native Project File discovery, independent of page selection and AI settings.
+//! Demand-activated native File discovery, independent of AI settings.
 use crate::{
     agent::{
         errors::{AgentError, AgentResult, ErrorCode},
@@ -14,13 +14,42 @@ use notify::{
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 use tauri::{Emitter, Manager};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const PAGE_FILES: u32 = 5;
+
+#[derive(Default)]
+struct Demand {
+    binding: Option<WorkspaceBinding>,
+    scopes: HashSet<Option<i64>>,
+}
+impl Demand {
+    fn activate(&mut self, binding: &WorkspaceBinding, scope: Option<i64>) {
+        if self.binding.as_ref() != Some(binding) {
+            self.binding = Some(binding.clone());
+            self.scopes.clear();
+        }
+        self.scopes.insert(scope);
+    }
+}
+fn demand() -> &'static Arc<Mutex<Demand>> {
+    static DEMAND: OnceLock<Arc<Mutex<Demand>>> = OnceLock::new();
+    DEMAND.get_or_init(Default::default)
+}
+fn demand_wake() -> &'static Arc<tokio::sync::Notify> {
+    static WAKE: OnceLock<Arc<tokio::sync::Notify>> = OnceLock::new();
+    WAKE.get_or_init(Default::default)
+}
+/// Call under the current Workspace binding on explicit Project/Files use.
+/// Merely loading the workspace or reading the project catalogue is not demand.
+pub(crate) fn activate(binding: &WorkspaceBinding, project_id: Option<i64>) {
+    demand().lock().unwrap().activate(binding, project_id);
+    demand_wake().notify_one();
+}
 
 #[derive(Default)]
 struct Pending {
@@ -120,6 +149,7 @@ impl DiscoveryFailure {
 }
 struct ProjectProgress {
     root: Option<PathBuf>,
+    cache_key: Option<crate::project_directory::DirectoryScope>,
     watcher: Option<RecommendedWatcher>,
     pending: Arc<Mutex<Pending>>,
     watch_error: Option<String>,
@@ -132,12 +162,9 @@ impl Default for ProjectProgress {
     fn default() -> Self {
         Self {
             root: None,
+            cache_key: None,
             watcher: None,
-            pending: Arc::new(Mutex::new(Pending {
-                dirty: true,
-                full_scan: true,
-                ..Pending::default()
-            })),
+            pending: Arc::new(Mutex::new(Pending::default())),
             watch_error: None,
             cursor: None,
             scan_path: None,
@@ -148,6 +175,9 @@ impl Default for ProjectProgress {
 }
 impl Drop for ProjectProgress {
     fn drop(&mut self) {
+        if let Some(key) = &self.cache_key {
+            crate::project_directory::forget_scope(key);
+        }
         if let Some(cursor) = &self.cursor {
             crate::db::project_directory_files::discard_scan_cursor(cursor);
         }
@@ -156,6 +186,8 @@ impl Drop for ProjectProgress {
 #[derive(Default)]
 struct Driver {
     binding: Option<WorkspaceBinding>,
+    demand: Arc<Mutex<Demand>>,
+    activated: HashSet<Option<i64>>,
     projects: HashMap<Option<i64>, ProjectProgress>,
     scopes: Vec<Option<i64>>,
     next_scope: usize,
@@ -230,8 +262,8 @@ fn business_event(root: &Path, event: &Event) -> bool {
     })
 }
 impl Driver {
-    /// Catalogue checks never enumerate file trees. Each scope is subscribed
-    /// before its initial scan; subsequent scans require a native dirty event.
+    /// Catalogue checks read SQLite only. Only explicitly activated scopes
+    /// subscribe and start discovery; subsequent scans require native events.
     fn refresh_catalogue(
         &mut self,
         binding: &WorkspaceBinding,
@@ -242,6 +274,10 @@ impl Driver {
         let catalogue = db
             .project_file_discovery_catalogue(&binding.workspace_id)
             .map_err(io_error)?;
+        let catalogue: Vec<_> = catalogue
+            .into_iter()
+            .filter(|(scope, _)| self.activated.contains(scope))
+            .collect();
         let scopes: Vec<_> = catalogue.iter().map(|(scope, _)| *scope).collect();
         let active: HashSet<_> = scopes.iter().copied().collect();
         self.projects.retain(|scope, _| active.contains(scope));
@@ -252,7 +288,15 @@ impl Driver {
             }
             if progress.root.as_ref() != Some(&root) {
                 let mut next = ProjectProgress::default();
+                next.cache_key = Some(crate::project_directory::DirectoryScope::new(
+                    binding, scope, &root,
+                ));
                 next.root = Some(root);
+                {
+                    let mut pending = next.pending.lock().unwrap();
+                    pending.dirty = true;
+                    pending.full_scan = true;
+                }
                 *progress = next;
             }
             let subscribed = (|| -> anyhow::Result<()> {
@@ -263,6 +307,7 @@ impl Driver {
                 let pending = Arc::clone(&progress.pending);
                 let wake = Arc::clone(&self.wake);
                 let callback_root = watched_root.clone();
+                let cache_key = progress.cache_key.clone().unwrap();
                 let mut watcher =
                     notify::recommended_watcher(move |event: notify::Result<Event>| {
                         let mut pending = pending.lock().unwrap();
@@ -285,11 +330,26 @@ impl Driver {
                             }
                         };
                         if changed {
+                            if pending.invalidated {
+                                pending.directory_dirty = true;
+                                pending.directory_full_scope = true;
+                                pending.directory_paths.clear();
+                            }
+                            crate::project_directory::invalidate_scope(
+                                &cache_key,
+                                if pending.invalidated || pending.directory_full_scope {
+                                    None
+                                } else {
+                                    Some(&pending.directory_paths)
+                                },
+                                pending.invalidated,
+                            );
                             wake.notify_one();
                         }
                     })?;
                 watcher.watch(&watched_root, RecursiveMode::Recursive)?;
                 progress.watcher = Some(watcher);
+                crate::project_directory::watch_scope(progress.cache_key.as_ref().unwrap());
                 // Recover the gap if the root was unavailable on initial setup.
                 {
                     let mut pending = progress.pending.lock().unwrap();
@@ -313,7 +373,9 @@ impl Driver {
             }
         }
         self.scopes = scopes;
-        self.next_scope %= self.scopes.len();
+        if !self.scopes.is_empty() {
+            self.next_scope %= self.scopes.len();
+        }
         self.next_catalogue = Some(now + POLL_INTERVAL);
         Ok(())
     }
@@ -335,8 +397,22 @@ impl Driver {
             if self.binding.as_ref() != Some(binding) {
                 *self = Self {
                     binding: Some(binding.clone()),
+                    demand: Arc::clone(&self.demand),
+                    wake: Arc::clone(&self.wake),
                     ..Self::default()
                 };
+            }
+            let activated = {
+                let demand = self.demand.lock().unwrap();
+                if demand.binding.as_ref() == Some(binding) {
+                    demand.scopes.clone()
+                } else {
+                    HashSet::new()
+                }
+            };
+            if activated != self.activated {
+                self.activated = activated;
+                self.next_catalogue = None;
             }
             for (&scope, progress) in &mut self.projects {
                 let (invalidated, error, directory_dirty, directory_full_scope, directory_paths) = {
@@ -360,6 +436,7 @@ impl Driver {
                     }
                 }
                 if invalidated {
+                    crate::project_directory::invalidate_scope(progress.cache_key.as_ref().unwrap(), None, true);
                     progress.watcher = None;
                     if let Some(cursor) = progress.cursor.take() {
                         crate::db::project_directory_files::discard_scan_cursor(&cursor);
@@ -483,7 +560,11 @@ impl Driver {
             Ok(outcome) => outcome,
             Err(error) => {
                 if error.code == ErrorCode::WorkspaceNotOpen {
-                    *self = Self::default();
+                    *self = Self {
+                        demand: Arc::clone(&self.demand),
+                        wake: Arc::clone(&self.wake),
+                        ..Self::default()
+                    };
                 }
                 return Err(error);
             }
@@ -498,7 +579,11 @@ impl Driver {
 pub(crate) fn start(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut driver = Driver::default();
+        let mut driver = Driver {
+            demand: Arc::clone(demand()),
+            wake: Arc::clone(demand_wake()),
+            ..Driver::default()
+        };
         let mut last_error = None;
         loop {
             let handle = app.clone();
@@ -618,6 +703,70 @@ mod tests {
         };
         (root, store, projects)
     }
+    fn activated_driver(store: &Store) -> Driver {
+        let driver = Driver::default();
+        let current = store.current.lock().unwrap();
+        for (scope, _) in current
+            .1
+            .project_file_discovery_catalogue(&current.0.workspace_id)
+            .unwrap()
+        {
+            driver.demand.lock().unwrap().activate(&current.0, scope);
+        }
+        driver
+    }
+    #[test]
+    fn unopened_scopes_never_watch_or_scan_and_files_are_discovered_on_use() {
+        let (_root, store, projects) = fixture();
+        for project in &projects {
+            fs::write(
+                Path::new(&project.root_path).join("new.txt"),
+                b"discovered on use",
+            )
+            .unwrap();
+        }
+        let mut driver = Driver::default();
+        let now = Instant::now();
+        for hour in 0..4 {
+            drain(&mut driver, &store, now + Duration::from_secs(hour * 3600));
+        }
+        assert!(driver.projects.is_empty());
+        assert!(driver.scanned_pages.is_empty());
+        assert!(store.events.lock().unwrap().is_empty());
+        let binding = store.current.lock().unwrap().0.clone();
+        driver
+            .demand
+            .lock()
+            .unwrap()
+            .activate(&binding, Some(projects[1].id));
+        drain(&mut driver, &store, now);
+        assert_eq!(driver.projects.len(), 1);
+        assert!(driver.projects[&Some(projects[1].id)].watcher.is_some());
+        assert_eq!(
+            driver.scanned_pages.keys().copied().collect::<HashSet<_>>(),
+            HashSet::from([Some(projects[1].id)])
+        );
+        let mut current = store.current.lock().unwrap();
+        assert!(current
+            .1
+            .project_page_get(crate::models::ProjectIdInput {
+                project_id: projects[0].id
+            })
+            .unwrap()
+            .project_documents
+            .is_empty());
+        assert_eq!(
+            current
+                .1
+                .project_page_get(crate::models::ProjectIdInput {
+                    project_id: projects[1].id
+                })
+                .unwrap()
+                .project_documents[0]
+                .name,
+            "new.txt"
+        );
+    }
     fn wait_for_native_dirty(driver: &Driver, scope: Option<i64>) {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !driver.projects[&scope].pending.lock().unwrap().dirty {
@@ -729,7 +878,7 @@ mod tests {
         let project = projects[0].id;
         let path = Path::new(&projects[0].root_path);
         let now = Instant::now();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         drain(&mut driver, &store, now);
         driver.directory_notices.clear();
         let before = store.current.lock().unwrap().1.committed_change_watermark().unwrap();
@@ -759,7 +908,7 @@ mod tests {
             fs::create_dir(path.join(format!("{i:03}"))).unwrap();
         }
         fs::write(path.join("000/new.txt"), b"first page change").unwrap();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         let now = Instant::now();
         let mut reports = vec![];
         driver.step(&store, now).unwrap();
@@ -796,7 +945,7 @@ mod tests {
             fs::create_dir(first.join(format!("{i:03}"))).unwrap();
         }
         let now = Instant::now();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         driver.step(&store, now).unwrap();
         assert!(driver.projects[&Some(projects[0].id)].cursor.is_some());
         // This directory was already enumerated by the first page. Only a
@@ -858,7 +1007,7 @@ mod tests {
     #[test]
     fn driver_catalogue_discovers_new_projects_and_workspace_files_and_removes_archived_watches() {
         let (root, store, projects) = fixture();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         let now = Instant::now();
         drain(&mut driver, &store, now);
         let scanned = driver.scanned_pages.clone();
@@ -886,6 +1035,11 @@ mod tests {
             b"new project",
         )
         .unwrap();
+        driver
+            .demand
+            .lock()
+            .unwrap()
+            .activate(&store.current.lock().unwrap().0, Some(new_project.id));
         fs::write(root.path().join("files/workspace.txt"), b"workspace file").unwrap();
         wait_for_native_dirty(&driver, None);
         drain(&mut driver, &store, now + POLL_INTERVAL);
@@ -930,7 +1084,7 @@ mod tests {
         let (_root, store, projects) = fixture();
         let path = std::path::Path::new(&projects[0].root_path);
         let offline = path.with_extension("offline");
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         let now = Instant::now();
         drain(&mut driver, &store, now);
         fs::rename(path, &offline).unwrap();
@@ -981,7 +1135,7 @@ mod tests {
             };
             fs::create_dir(path.join(name)).unwrap();
         }
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         let now = Instant::now();
         let mut reports = vec![];
         finish_project_scan(&mut driver, &store, project, now, &mut reports);
@@ -1048,7 +1202,7 @@ mod tests {
         )
         .unwrap();
         fs::write(root.path().join("never-register.md"), b"private root bytes").unwrap();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         for _ in 0..8 {
             driver.step(&store, Instant::now()).unwrap();
         }
@@ -1133,7 +1287,7 @@ mod tests {
             b"other",
         )
         .unwrap();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         let now = Instant::now();
         driver.step(&store, now).unwrap();
         driver.step(&store, now).unwrap();
@@ -1186,11 +1340,16 @@ mod tests {
             fs::write(path.join(name), name).unwrap();
         }
         let now = Instant::now();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         driver.step(&store, now).unwrap();
         assert!(!store.events.lock().unwrap().is_empty());
         fs::write(path.join("0.txt"), b"new generation").unwrap();
         store.current.lock().unwrap().0.generation = "g2".into();
+        driver
+            .demand
+            .lock()
+            .unwrap()
+            .activate(&store.current.lock().unwrap().0, Some(projects[0].id));
         store.events.lock().unwrap().clear();
         driver.step(&store, now).unwrap();
         let events = store.events.lock().unwrap();
@@ -1229,7 +1388,7 @@ mod tests {
         )
         .unwrap();
         let now = Instant::now();
-        let mut driver = Driver::default();
+        let mut driver = activated_driver(&store);
         driver.step(&store, now).unwrap();
         driver.step(&store, now).unwrap();
         let events = store.events.lock().unwrap();

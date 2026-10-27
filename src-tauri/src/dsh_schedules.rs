@@ -118,9 +118,7 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
             false
         }
     };
-    let legacy = runtime_data_directory(&assistant_data_root()?, &binding.workspace_id, None)?
-        .join("scheduled-tasks.json");
-    let Some(bytes) = restore_store(&file, &legacy, host_ready).await? else {
+    let Some(bytes) = restore_store(&file, host_ready).await? else {
         return Ok(());
     };
     if !enabled_tasks(&bytes)? {
@@ -142,20 +140,16 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
 // recovery file is needed only when that host is absent or no longer admitted.
 async fn restore_store(
     file: &std::path::Path,
-    legacy: &std::path::Path,
     host_ready: bool,
 ) -> Result<Option<Vec<u8>>, String> {
     if host_ready {
         return Ok(None);
     }
-    for path in [file, legacy] {
-        match tokio::fs::read(path).await {
-            Ok(bytes) => return Ok(Some(bytes)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("{}: {error}", path.display())),
-        }
+    match tokio::fs::read(file).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("{}: {error}", file.display())),
     }
-    Ok(None)
 }
 
 #[cfg(test)]
@@ -168,11 +162,15 @@ mod tests {
         let legacy = root.path().join("legacy.json");
         // Reading a directory as a JSON file fails. A resident host never reads it.
         std::fs::create_dir(&file).unwrap();
-        assert!(restore_store(&file, &legacy, true).await.unwrap().is_none());
-        assert!(restore_store(&file, &legacy, false).await.is_err());
+        assert!(restore_store(&file, true).await.unwrap().is_none());
+        assert!(restore_store(&file, false).await.is_err());
         std::fs::remove_dir(&file).unwrap();
         std::fs::write(&legacy, br#"{"version":1,"tasks":[{"enabled":true}]}"#).unwrap();
-        let bytes = restore_store(&file, &legacy, false).await.unwrap().unwrap();
+        assert!(restore_store(&file, false).await.unwrap().is_none());
+        let current = br#"{"version":1,"tasks":[{"enabled":true}],"requests":{"saved":"keep"}}"#;
+        std::fs::write(&file, current).unwrap();
+        let bytes = restore_store(&file, false).await.unwrap().unwrap();
+        assert_eq!(bytes, current);
         assert!(enabled_tasks(&bytes).unwrap());
     }
 

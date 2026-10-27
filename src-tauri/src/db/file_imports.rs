@@ -779,7 +779,6 @@ impl Database {
                 return Ok(ImportOutcome::Agent(previous));
             }
         }
-        self.ensure_project_file_layout(project_id)?;
         let root = self.ensure_file_scope_root(project_id)?;
         if let ImportSource::File(path) = &source {
             regular(path)?;

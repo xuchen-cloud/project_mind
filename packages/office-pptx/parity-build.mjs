@@ -4,8 +4,15 @@ import {buildImportPath} from './build-import-path.mjs';
 import ts from 'typescript';
 import {markEditorChrome} from '../editor-chrome/build-adapter.mjs';
 import {installTextEditTransforms} from './parity-text-edit-build.mjs';
+export function initialThumbsSource(source){
+ if(!source.includes('initial = 24')||!source.includes("rootMargin: '150% 0px'"))throw Error('Pinned thumbnail visibility seam changed');
+ return source.replace('initial = 24','initial = 0').replace("rootMargin: '150% 0px'","rootMargin: '25% 0px'");
+}
 export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-parity',setup(b){
  if(browser)installTextEditTransforms(b,root);
+ // Let the first canvas paint before thumbnail observers request nearby pages.
+ // Inactive sorter/thumbnail rails must not eagerly request 24 layouts each.
+ if(browser)b.onLoad({filter:/use-visible-thumbs\.ts$/},args=>({contents:initialThumbsSource(readFileSync(args.path,'utf8')),loader:'ts'}));
  if(browser)b.onLoad({filter:/parity-entry\.tsx$/},args=>({contents:readFileSync(args.path,'utf8').replaceAll('min(16px,35%)','min(var(--editor-chrome-fade-size),35%)').replaceAll('min(24px,35%)','min(var(--editor-chrome-fade-block-size),35%)'),loader:'tsx'}));
  // Preserve pinned source bytes while making generated IDs/timestamps replayable across browser/native.
  b.onLoad({filter:/(?:pptx-engine[\\/]src[\\/](?:xml-utils|index|sections|generate|comments|insert|headerfooter)\.ts|parity-handlers\.mjs)$/},args=>{
@@ -36,15 +43,16 @@ export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-pa
   source=source.replaceAll('    ctx.setStatus(\n      r.ok', "    if (hostOutput && !r.ok && !(r as any).canceled) throw new Error(r.error ?? t('appUnknownError'))\n    ctx.setStatus(\n      r.ok")
    .replace("ctx.setStatus(t('appExportImagesFailed', { error: String(err) }))", "ctx.setStatus(t('appExportImagesFailed', { error: String(err) })); if (hostOutput) throw err")
    .replace("ctx.setStatus(t('appExportPdfFailed', { error: String(err) }))", "ctx.setStatus(t('appExportPdfFailed', { error: String(err) })); if (hostOutput) throw err");
+  source="import {prepareSlideImages} from "+JSON.stringify(buildImportPath(root,'parity-images.ts'))+";\n"+source;
   // Re-read exact layouts after pending font loads, before baking SVG/PNG.
   source=source.replaceAll('const visible = ctx.slides.filter','let visible = ctx.slides.filter');
-  const refresh="ctx = {...ctx, slides: await window.slidesApi.getRenderSlides()}; visible = ctx.slides.filter(s => !s.hidden);\n";
+  const refresh="ctx = {...ctx, slides: await window.slidesApi.getRenderSlides()}; visible = ctx.slides.filter(s => !s.hidden); ctx = {...ctx, images: await prepareSlideImages(visible, ctx.images)};\n";
   source=source.replace('const pngs = await renderSlidesToPngBase64(visible, ctx.images)',refresh+'const pngs = await renderSlidesToPngBase64(visible, ctx.images)');
   source=source.replace('const { pages, fontCss } = await renderSlidesToPdfPages(visible, ctx.images)',refresh+'const { pages, fontCss } = await renderSlidesToPdfPages(visible, ctx.images)');
   return {contents:source,loader:'ts'};
  });
- b.onLoad({filter:/PrintDialog\.tsx$/},args=>({contents:readFileSync(args.path,'utf8')
-  .replace('const rendered = await renderSlidesToPngBase64(slides, images)','const freshSlides = await window.slidesApi.getRenderSlides(); const rendered = await renderSlidesToPngBase64(freshSlides, images)')
+ b.onLoad({filter:/PrintDialog\.tsx$/},args=>({contents:"import {prepareSlideImages} from "+JSON.stringify(buildImportPath(root,'parity-images.ts'))+";\n"+readFileSync(args.path,'utf8')
+  .replace('const rendered = await renderSlidesToPngBase64(slides, images)','const freshSlides = await window.slidesApi.getRenderSlides(); const readyImages = await prepareSlideImages(freshSlides, images); const rendered = await renderSlidesToPngBase64(freshSlides, readyImages)')
   .replace('void (async () => {\n      try {','setPngs(null); void (async () => {\n      try {')
   .replace('// eslint-disable-next-line react-hooks/exhaustive-deps\n  }, [])','// Layout changes include newly loaded exact font metrics.\n  }, [slides, images])'),loader:'tsx'}));
  b.onLoad({filter:/SlideCanvas\.tsx$/},args=>({contents:readFileSync(args.path,'utf8').replace('if (hidePhPrompts) return null','if (hidePhPrompts || (node as any).projectMindSuppressPrompt) return null'),loader:'tsx'}));

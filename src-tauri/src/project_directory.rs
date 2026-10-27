@@ -1,28 +1,156 @@
 //! Read-only access to the current DB project's physical directory.
 use crate::{
+    agent::models::WorkspaceBinding,
     source_file_snapshot::{open_regular, FileStamp},
+    source_service::BoundSourceStore,
     AppState,
 };
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     io::Read,
     path::{Component, Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 use tauri::{Manager, State, Webview};
 
 const TEXT_LIMIT: usize = 2 * 1024 * 1024;
 const IMAGE_LIMIT: usize = 10 * 1024 * 1024;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DirectoryEntry {
     name: String,
     relative_path: String,
     kind: &'static str,
     bytes: u64,
+}
+
+/// Identity includes the open generation and authoritative physical root. A
+/// numeric Project id cannot share a listing with another Workspace or root.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct DirectoryScope {
+    workspace: String,
+    generation: String,
+    project: Option<i64>,
+    root: PathBuf,
+}
+impl DirectoryScope {
+    pub(crate) fn new(binding: &WorkspaceBinding, project: Option<i64>, root: &Path) -> Self {
+        Self {
+            workspace: binding.workspace_id.clone(),
+            generation: binding.generation.clone(),
+            project,
+            root: root.to_owned(),
+        }
+    }
+}
+struct CachedDirectory {
+    stamp: FileStamp,
+    entries: Vec<DirectoryEntry>,
+}
+#[derive(Default)]
+struct ScopeListings {
+    watched: bool,
+    revision: u64,
+    branches: HashMap<String, CachedDirectory>,
+    #[cfg(test)]
+    enumerations: usize,
+}
+#[derive(Default)]
+struct DirectoryCache(Mutex<HashMap<DirectoryScope, ScopeListings>>);
+impl DirectoryCache {
+    fn watch(&self, key: &DirectoryScope) {
+        let mut scopes = self.0.lock().unwrap();
+        let scope = scopes.entry(key.clone()).or_default();
+        // Anything changed during a lost subscription must be read on use.
+        scope.revision += 1;
+        scope.branches.clear();
+        scope.watched = true;
+    }
+    fn invalidate(&self, key: &DirectoryScope, paths: Option<&HashSet<String>>, lost_watch: bool) {
+        let mut scopes = self.0.lock().unwrap();
+        let Some(scope) = scopes.get_mut(key) else {
+            return;
+        };
+        scope.revision += 1;
+        if lost_watch {
+            scope.watched = false;
+        }
+        if let Some(paths) = paths {
+            // A folder removal/rename also retires cached descendants.
+            scope.branches.retain(|path, _| {
+                !paths.iter().any(|dirty| {
+                    path == dirty || (!dirty.is_empty() && path.starts_with(&format!("{dirty}/")))
+                })
+            });
+        } else {
+            scope.branches.clear();
+        }
+    }
+    fn list(&self, key: &DirectoryScope, relative: &str) -> Result<Vec<DirectoryEntry>> {
+        // A single directory stat catches membership changes even before the
+        // native notification arrives. It never enumerates unopened children.
+        let resolved = resolve(&key.root, relative)?;
+        let stamp = FileStamp::from_metadata(&fs::metadata(&resolved.canonical)?);
+        let revision = {
+            let mut scopes = self.0.lock().unwrap();
+            let scope = scopes.entry(key.clone()).or_default();
+            if scope.watched {
+                if let Some(cached) = scope
+                    .branches
+                    .get(relative)
+                    .filter(|cached| cached.stamp == stamp)
+                {
+                    let entries = cached.entries.clone();
+                    drop(scopes);
+                    resolved.verify()?;
+                    return Ok(entries);
+                }
+            }
+            #[cfg(test)]
+            {
+                scope.enumerations += 1;
+            }
+            scope.revision
+        };
+        let entries = list(&key.root, relative)?;
+        let after = FileStamp::from_metadata(&fs::metadata(&resolved.canonical)?);
+        resolved.verify()?;
+        let mut scopes = self.0.lock().unwrap();
+        let scope = scopes.entry(key.clone()).or_default();
+        // A dirty event during I/O must survive the older read's completion.
+        if scope.watched && scope.revision == revision && stamp == after {
+            scope.branches.insert(
+                relative.to_owned(),
+                CachedDirectory {
+                    stamp,
+                    entries: entries.clone(),
+                },
+            );
+        }
+        Ok(entries)
+    }
+}
+fn directory_cache() -> &'static DirectoryCache {
+    static CACHE: OnceLock<DirectoryCache> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+pub(crate) fn watch_scope(key: &DirectoryScope) {
+    directory_cache().watch(key);
+}
+pub(crate) fn forget_scope(key: &DirectoryScope) {
+    directory_cache().0.lock().unwrap().remove(key);
+}
+pub(crate) fn invalidate_scope(
+    key: &DirectoryScope,
+    paths: Option<&HashSet<String>>,
+    lost_watch: bool,
+) {
+    directory_cache().invalidate(key, paths, lost_watch);
 }
 
 #[derive(Debug, Serialize)]
@@ -261,10 +389,6 @@ fn preview(root: &Path, relative: &str) -> Result<DirectoryPreview> {
     }
 }
 
-fn project_root(state: State<'_, AppState>, project_id: Option<i64>) -> Result<PathBuf, String> {
-    crate::with_db(state, |db| db.ensure_file_scope_root(project_id))
-}
-
 fn authorize_identity(
     label: &str,
     window_label: &str,
@@ -304,30 +428,81 @@ pub(crate) fn authorize_caller(caller: &Webview, project_id: impl Into<Option<i6
     )
 }
 
-#[tauri::command]
-pub(crate) fn project_directory_list(
+/// Authorization stays on the caller thread; native directory I/O and SQLite
+/// run on the blocking pool. Do not pin the Workspace DB lock while listing.
+async fn directory_task<T: Send + 'static>(
     caller: Webview,
-    state: State<'_, AppState>,
     project_id: Option<i64>,
-    relative_path: Option<String>,
-) -> Result<Vec<DirectoryEntry>, String> {
+    task: impl FnOnce(&DirectoryScope) -> Result<T> + Send + 'static,
+) -> Result<T, String> {
     authorize_caller(&caller, project_id)?;
-    list(
-        &project_root(state, project_id)?,
-        relative_path.as_deref().unwrap_or(""),
-    )
-    .map_err(|error| format!("{error:#}"))
+    let app = caller.app_handle().clone();
+    let expected_binding = app.state::<AppState>().current_workspace()
+        .map_err(|error| error.to_string())?.agent_binding.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let key = BoundSourceStore::with_current(&*state, |binding, db| {
+            if binding != &expected_binding {
+                return Err(crate::agent::errors::AgentError::new(
+                    crate::agent::errors::ErrorCode::WorkspaceChanged,
+                    "Workspace changed before reading the directory",
+                ));
+            }
+            let root = db.ensure_file_scope_root(project_id).map_err(|error| {
+                crate::agent::errors::AgentError::new(
+                    crate::agent::errors::ErrorCode::IoFailed,
+                    format!("{error:#}"),
+                )
+            })?;
+            crate::project_file_maintenance::activate(binding, project_id);
+            Ok(DirectoryScope::new(binding, project_id, &root))
+        })
+        .map_err(|error| error.message)?;
+        let result = task(&key).map_err(|error| format!("{error:#}"))?;
+        BoundSourceStore::with_current(&*state, |binding, db| {
+            let root = db.ensure_file_scope_root(project_id).map_err(|error| {
+                crate::agent::errors::AgentError::new(
+                    crate::agent::errors::ErrorCode::IoFailed,
+                    format!("{error:#}"),
+                )
+            })?;
+            if DirectoryScope::new(binding, project_id, &root) != key {
+                return Err(crate::agent::errors::AgentError::new(
+                    crate::agent::errors::ErrorCode::IoFailed,
+                    "Workspace or Project changed while reading the directory",
+                ));
+            }
+            Ok(())
+        })
+        .map_err(|error| error.message)?;
+        Ok(result)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub(crate) fn project_directory_preview(
+pub(crate) async fn project_directory_list(
     caller: Webview,
-    state: State<'_, AppState>,
+    project_id: Option<i64>,
+    relative_path: Option<String>,
+) -> Result<Vec<DirectoryEntry>, String> {
+    directory_task(caller, project_id, move |key| {
+        directory_cache().list(key, relative_path.as_deref().unwrap_or(""))
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn project_directory_preview(
+    caller: Webview,
     project_id: Option<i64>,
     relative_path: String,
 ) -> Result<DirectoryPreview, String> {
-    authorize_caller(&caller, project_id)?;
-    preview(&project_root(state, project_id)?, &relative_path).map_err(|error| format!("{error:#}"))
+    directory_task(caller, project_id, move |key| {
+        preview(&key.root, &relative_path)
+    })
+    .await
 }
 
 /// Resolve an assistant link using the authoritative project directory.
@@ -359,35 +534,147 @@ fn reference_relative(root: &Path, reference: &str) -> Result<String> {
 }
 
 #[tauri::command]
-pub(crate) fn project_directory_resolve_reference(
+pub(crate) async fn project_directory_resolve_reference(
     caller: Webview,
-    state: State<'_, AppState>,
     project_id: Option<i64>,
     reference: String,
 ) -> Result<String, String> {
-    authorize_caller(&caller, project_id)?;
-    reference_relative(&project_root(state, project_id)?, &reference)
-        .map_err(|error| format!("{error:#}"))
+    directory_task(caller, project_id, move |key| {
+        reference_relative(&key.root, &reference)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn project_directory_open(
+pub(crate) async fn project_directory_open(
     caller: Webview,
-    state: State<'_, AppState>,
     project_id: Option<i64>,
     relative_path: String,
 ) -> Result<(), String> {
-    authorize_caller(&caller, project_id)?;
-    let resolved = resolve(&project_root(state, project_id)?, &relative_path)
-        .map_err(|error| format!("{error:#}"))?;
-    resolved.verify().map_err(|error| format!("{error:#}"))?;
-    crate::open_path_with_system_app(&resolved.canonical).map_err(|error| format!("{error:#}"))
+    directory_task(caller, project_id, move |key| {
+        let resolved = resolve(&key.root, &relative_path)?;
+        resolved.verify()?;
+        crate::open_path_with_system_app(&resolved.canonical)
+    })
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    fn cached_scope(root: &Path) -> DirectoryScope {
+        DirectoryScope::new(
+            &WorkspaceBinding {
+                workspace_id: "workspace-a".into(),
+                generation: "generation-a".into(),
+            },
+            Some(7),
+            root,
+        )
+    }
+    fn enumerations(cache: &DirectoryCache, scope: &DirectoryScope) -> usize {
+        cache.0.lock().unwrap()[scope].enumerations
+    }
+    #[test]
+    fn directory_cache_reuses_a_b_a_without_reenumerating_and_refreshes_only_dirty_branches() {
+        let root = tempdir().unwrap();
+        for branch in ["a", "b"] {
+            fs::create_dir(root.path().join(branch)).unwrap();
+            fs::write(root.path().join(branch).join("old.txt"), b"old").unwrap();
+        }
+        let scope = cached_scope(root.path());
+        let cache = DirectoryCache::default();
+        cache.watch(&scope);
+        assert_eq!(cache.list(&scope, "a").unwrap()[0].name, "old.txt");
+        cache.list(&scope, "b").unwrap();
+        cache.list(&scope, "a").unwrap();
+        assert_eq!(enumerations(&cache, &scope), 2);
+        // A data change does not change the parent directory stamp. The native
+        // dirty path must still retire that branch while preserving its sibling.
+        fs::write(root.path().join("a/old.txt"), b"longer content").unwrap();
+        cache.invalidate(&scope, Some(&HashSet::from(["a".into()])), false);
+        cache.list(&scope, "b").unwrap();
+        assert_eq!(enumerations(&cache, &scope), 2);
+        assert_eq!(cache.list(&scope, "a").unwrap()[0].bytes, 14);
+        assert_eq!(enumerations(&cache, &scope), 3);
+    }
+    #[test]
+    fn directory_cache_discovers_additions_on_use_even_before_a_native_event() {
+        let root = tempdir().unwrap();
+        let scope = cached_scope(root.path());
+        let cache = DirectoryCache::default();
+        cache.watch(&scope);
+        assert!(cache.list(&scope, "").unwrap().is_empty());
+        fs::write(root.path().join("new.txt"), b"new").unwrap();
+        assert_eq!(cache.list(&scope, "").unwrap()[0].name, "new.txt");
+        assert_eq!(enumerations(&cache, &scope), 2);
+    }
+    #[test]
+    fn directory_cache_isolates_workspace_generation_root_and_project_and_distrusts_lost_watches() {
+        let root = tempdir().unwrap();
+        fs::write(root.path().join("file.txt"), b"old").unwrap();
+        let scope = cached_scope(root.path());
+        let cache = DirectoryCache::default();
+        cache.watch(&scope);
+        cache.list(&scope, "").unwrap();
+        for changed in [
+            DirectoryScope {
+                workspace: "workspace-b".into(),
+                ..scope.clone()
+            },
+            DirectoryScope {
+                generation: "generation-b".into(),
+                ..scope.clone()
+            },
+            DirectoryScope {
+                project: None,
+                ..scope.clone()
+            },
+            DirectoryScope {
+                root: root.path().join("other"),
+                ..scope.clone()
+            },
+        ] {
+            assert!(!cache.0.lock().unwrap().contains_key(&changed));
+        }
+        cache.invalidate(&scope, None, true);
+        fs::write(root.path().join("file.txt"), b"changed content").unwrap();
+        assert_eq!(cache.list(&scope, "").unwrap()[0].bytes, 15);
+        cache.list(&scope, "").unwrap();
+        assert_eq!(
+            enumerations(&cache, &scope),
+            3,
+            "an unavailable watcher must never vouch for a cache hit"
+        );
+        cache.watch(&scope);
+        cache.list(&scope, "").unwrap();
+        cache.list(&scope, "").unwrap();
+        assert_eq!(enumerations(&cache, &scope), 4);
+    }
+    #[test]
+    fn directory_cache_folder_invalidation_retires_descendants_but_keeps_other_subtrees() {
+        let root = tempdir().unwrap();
+        fs::create_dir_all(root.path().join("a/nested")).unwrap();
+        fs::create_dir(root.path().join("b")).unwrap();
+        let scope = cached_scope(root.path());
+        let cache = DirectoryCache::default();
+        cache.watch(&scope);
+        for path in ["", "a", "a/nested", "b"] {
+            cache.list(&scope, path).unwrap();
+        }
+        cache.invalidate(&scope, Some(&HashSet::from(["".into(), "a".into()])), false);
+        let scopes = cache.0.lock().unwrap();
+        assert_eq!(
+            scopes[&scope]
+                .branches
+                .keys()
+                .map(String::as_str)
+                .collect::<HashSet<_>>(),
+            HashSet::from(["b"])
+        );
+    }
 
     fn ds_store_directory_fixture() -> tempfile::TempDir {
         let root = tempdir().unwrap();
@@ -757,7 +1044,7 @@ mod tests {
     }
 }
 
-use crate::agent::models::{ObjectRef, Scope, WorkspaceBinding};
+use crate::agent::models::{ObjectRef, Scope};
 use crate::db::project_directory_files::{
     DirectoryFile, DirectoryScan, FileBytesInput, FileBytesResult, FileServiceError,
 };

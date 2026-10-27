@@ -1,13 +1,11 @@
 import path from 'node:path';
+import { normalizeDirectory } from './context-directory.mjs';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { randomUUID, createHash } from 'node:crypto';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import { exact, requestIdentity, validateTaskInput, validateStore } from './scheduled-tasks-schema.mjs';
 import { occurrences } from './scheduled-tasks-time.mjs';
-
-const _vp = String.fromCharCode(92,92,63,92);
-const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
 
 export async function installScheduledTasks(ctx, context, home) {
  const registry=typeof context.forSession==='function'?context:undefined;

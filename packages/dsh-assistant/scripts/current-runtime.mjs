@@ -2,13 +2,9 @@ import path from 'node:path';
 import { zstdCompressSync, zstdDecompressSync, constants } from 'node:zlib';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, open, rename, rm, lstat } from 'node:fs/promises';
-import { validateStore } from './scheduled-tasks-schema.mjs';
 import { syncDirectory } from './fs-durability.mjs';
+import { normalizeDirectory } from './context-directory.mjs';
 
-const _vp = path.sep + path.sep + '?' + path.sep;
-const normalizeDirectory = value => typeof value === 'string' && value.startsWith(_vp) ? value.slice(_vp.length) : value;
-
-const manifestName = 'mind-migration.json';
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 async function exists(file) {
  try { await lstat(file); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
@@ -65,111 +61,20 @@ async function copyTree(source, destination) {
  } else throw new Error(`Unsupported history entry: ${source}`);
 }
 
-/** Import one native Workspace's former per-scope homes before Harness boots.
- * The native lifecycle serializes this call. A complete staged home is published
- * with one directory rename; interrupted staging is rebuilt from retained sources.
+/** Open only the current shared home. Old per-scope homes are never read.
+ * Recovery is limited to an already published current directory-move journal.
  */
-export async function migrateSharedRuntime({ legacyRoot, home, workspaceId }) {
- if(!path.isAbsolute(legacyRoot)||!path.isAbsolute(home)||typeof workspaceId!=='string'||!workspaceId) throw new Error('Invalid migration identity');
- await recoverDirectoryMove(home);
- if(await exists(home)) {
-  if(await exists(path.join(home,manifestName))) {
-   const saved=await readJson(path.join(home,manifestName));
-   if(saved.version!==1||saved.workspaceId!==workspaceId||saved.complete!==true) throw new Error('Shared runtime migration identity mismatch');
-   return readJson(path.join(home,'mind-contexts.json'));
-  }
-  if((await entries(home)).length) throw new Error('Shared runtime destination contains unrecognized data');
-  await rm(home,{recursive:true});
- }
- const staging=`${home}.migration-staging`;
- await mkdir(path.dirname(home),{recursive:true,mode:0o700});
- await rm(staging,{recursive:true,force:true});
- const contexts=[];
- const workspaceRecords={};
- const global={initialized:true,workspaceIds:[],archivedSessionIds:[],pinnedSessionIds:[]};
- const sessions=new Set();
- const accountedSessions=new Set();
- const sources=[];
- try {
-  await mkdir(staging,{mode:0o700});
-  const candidates=(await entries(legacyRoot)).filter(entry=>entry.name==='workspace'||/^[1-9]\d*$/.test(entry.name)).sort((a,b)=>a.name==='workspace'?-1:b.name==='workspace'?1:a.name.localeCompare(b.name));
-  for(const scope of candidates) {
-   if(!scope.isDirectory()) throw new Error('Legacy scope is not a real directory');
-   if(scope.name!=='workspace'&&!Number.isSafeInteger(Number(scope.name))) throw new Error('Invalid legacy native Project identity');
-   const source=path.join(legacyRoot,scope.name);
-   const registryFile=path.join(source,'storages/workspace.json');
-   const sessionGroups=await entries(path.join(source,'sessions'));
-   const registry=await exists(registryFile)?await readJson(registryFile):null;
-   if(!registry) {
-    if(sessionGroups.length||await exists(path.join(source,'scheduled-tasks.json'))) throw new Error(`Legacy scope ${scope.name} has history without workspace registry`);
-    continue;
-   }
-   if(registry.unit?.name!=='workspace'||registry.unit.version!==2||!registry.tables?.workspaces||!Array.isArray(registry.global?.workspaceIds)||registry.global.pendingMutation) throw new Error(`Invalid or interrupted workspace registry: ${scope.name}`);
-   const ids=registry.global.workspaceIds;
-   if(ids.length!==1||Object.keys(registry.tables.workspaces).length!==1) throw new Error(`Legacy scope ${scope.name} must contain exactly one workspace`);
-   const id=ids[0],record=registry.tables.workspaces[id];
-   if(!record||typeof record.path!=='string'||!path.isAbsolute(record.path)||!Array.isArray(record.sessionIds)) throw new Error('Invalid legacy workspace record');
-   if(Object.hasOwn(workspaceRecords,id)) throw new Error(`Workspace identity conflict: ${id}`);
-   for(const sessionId of record.sessionIds) {
-    if(typeof sessionId!=='string'||accountedSessions.has(sessionId)) throw new Error(`Session ownership conflict: ${sessionId}`);
-    accountedSessions.add(sessionId);
-   }
-   const ownSessions=new Set();
-   for(const group of sessionGroups) {
-    if(!group.isDirectory()) throw new Error('Unexpected session layout');
-    for(const session of await entries(path.join(source,'sessions',group.name))) {
-     if(!session.isDirectory()) throw new Error('Unexpected legacy session layout');
-     const sessionDirectory=path.join(source,'sessions',group.name,session.name);
-     const generations=(await entries(sessionDirectory)).filter(item=>/^session(?:\.v[1-9]\d*)?\.jsonl(?:\.zstd)?$/.test(item.name));
-     if(!generations.length) throw new Error('Session has no committed history');
-     let sessionId;
-     for(const generation of generations) {
-      const bytes=await readFile(path.join(sessionDirectory,generation.name));
-      const {header}=splitHeader(bytes,generation.name.endsWith('.zstd'));
-      if(header.type!=='session'||typeof header.id!=='string'||header.cwd!==record.path) throw new Error(`Session history belongs to another directory: ${scope.name}`);
-      if(sessionId!==undefined&&sessionId!==header.id) throw new Error('Session generation identity conflict');
-      sessionId=header.id;
-     }
-     if(sessions.has(sessionId)) throw new Error(`Session identity conflict: ${sessionId}`);
-     sessions.add(sessionId);ownSessions.add(sessionId);
-     for(const artifact of await entries(sessionDirectory)) if(artifact.name!=='session.lock') await copyTree(path.join(sessionDirectory,artifact.name),path.join(staging,'sessions',group.name,session.name,artifact.name));
-    }
-   }
-   for(const sessionId of record.sessionIds) if(!ownSessions.has(sessionId)) throw new Error(`Workspace references missing session: ${sessionId}`);
-   workspaceRecords[id]=record;global.workspaceIds.push(id);
-   for(const field of ['archivedSessionIds','pinnedSessionIds']) {
-    const values=registry.global[field]??[];
-    if(!Array.isArray(values)||values.some(id=>!ownSessions.has(id))) throw new Error(`Invalid registry ${field}`);
-    global[field].push(...values);
-   }
-   if(scope.name==='workspace'&&registry.global.defaultWorkspaceId) global.defaultWorkspaceId=registry.global.defaultWorkspaceId;
-   contexts.push({kind:scope.name==='workspace'?'workspace':'project',id:scope.name==='workspace'?workspaceId:Number(scope.name),directory:record.path,workspaceId:id});
-   sources.push(scope.name);
-   for(const tree of ['attachments']) if(await exists(path.join(source,tree))) await copyTree(path.join(source,tree),path.join(staging,tree));
-   const tasksFile=path.join(source,'scheduled-tasks.json');
-   if(await exists(tasksFile)) {
-    if(scope.name!=='workspace') throw new Error('Project scope contains unexpected scheduled tasks');
-    validateStore(await readJson(tasksFile));
-    await durableWrite(path.join(staging,'scheduled-tasks.json'),await readFile(tasksFile));
-   }
-  }
-  const mappings={version:1,contexts};
-  await durableWrite(path.join(staging,'storages/workspace.json'),JSON.stringify({unit:{name:'workspace',version:2},global,tables:{workspaces:workspaceRecords}})+'\n');
-  await durableWrite(path.join(staging,'mind-contexts.json'),JSON.stringify(mappings)+'\n');
-  await durableWrite(path.join(staging,manifestName),JSON.stringify({version:1,workspaceId,complete:true,sources})+'\n');
-  await syncTreeDirectories(staging);
-  await rename(staging,home);await syncDirectory(path.dirname(home));
-  return mappings;
- } catch(error) {
-  await rm(staging,{recursive:true,force:true});
-  throw error;
- }
+export async function prepareCurrentRuntime({ home, contexts }) {
+ if(!path.isAbsolute(home)) throw new Error('Invalid runtime home');
+ const mappings=await reconcileContextDirectories({home,contexts});
+ await mkdir(home,{recursive:true,mode:0o700});
+ return mappings;
 }
 
 // Exact rc.2 dsh-session-persistence-jsonl projectKey spelling. Session IDs and
 // their contents remain unchanged when a native scope's directory moves.
-function projectKey(cwd) {
- cwd=normalizeDirectory(cwd);
+export function projectKey(cwd) {
+ if(cwd.length===0) throw new Error('cannot encode an empty project path');
  let readable='',separatorRun=false;
  for(let i=0;i<cwd.length;i++) {
   const code=cwd.charCodeAt(i),ch=String.fromCharCode(code);
@@ -196,14 +101,26 @@ async function recoverDirectoryMove(home) {
 }
 
 /** Native identity, rather than directory spelling, owns the persisted DSH ID.
- * Called only before starting Harness, after the native host resolves all current
- * directories. Existing scopes omitted from contexts are retained unchanged.
+ * Called only before starting Harness, for scopes admitted by the native host. Existing scopes omitted from contexts are retained unchanged.
  */
 export async function reconcileContextDirectories({home,contexts}) {
  await recoverDirectoryMove(home);
  const mappingFile=path.join(home,'mind-contexts.json');
- const mappings=await readJson(mappingFile);
+ let mappings;
+ try { mappings=await readJson(mappingFile); }
+ catch(error) { if(error.code!=='ENOENT') throw error; mappings={version:1,contexts:[]}; }
  if(mappings.version!==1||!Array.isArray(mappings.contexts)||!Array.isArray(contexts)) throw new Error('Invalid context mappings');
+ const identities=new Set(),workspaceIds=new Set(),directories=new Set();
+ const currentWorkspace=contexts.find(context=>context.kind==='workspace');
+ for(const context of mappings.contexts) {
+  if(!context||typeof context.directory!=='string'||!path.isAbsolute(context.directory)
+   ||typeof context.workspaceId!=='string'||!context.workspaceId
+   ||!(context.kind==='workspace'?typeof context.id==='string'&&context.id:context.kind==='project'&&Number.isSafeInteger(context.id)&&context.id>0)) throw new Error('Invalid context mappings');
+  if(currentWorkspace&&context.kind==='workspace'&&context.id!==currentWorkspace.id) throw new Error('Native workspace mapping identity mismatch');
+  const key=`${context.kind}:${context.id}`,directory=normalizeDirectory(context.directory);
+  if(identities.has(key)||workspaceIds.has(context.workspaceId)||directories.has(directory)) throw new Error('Context mapping ownership conflict');
+  identities.add(key);workspaceIds.add(context.workspaceId);directories.add(directory);
+ }
  const targets=new Map();
  for(const context of contexts) {
   const key=`${context.kind}:${context.id}`;
@@ -224,7 +141,7 @@ export async function reconcileContextDirectories({home,contexts}) {
    const directory=targets.get(`${context.kind}:${context.id}`);
    const record=registry.tables?.workspaces?.[context.workspaceId];
    if(!record||normalizeDirectory(record.path)!==normalizeDirectory(context.directory)) throw new Error('Context mapping disagrees with workspace registry');
-   if(mappings.contexts.some(other=>other!==context&&(other.directory===directory||(targets.get(`${other.kind}:${other.id}`)??other.directory)===directory))) throw new Error('Native directory binding conflict');
+   if(mappings.contexts.some(other=>other!==context&&(normalizeDirectory(other.directory)===directory||(targets.get(`${other.kind}:${other.id}`)??normalizeDirectory(other.directory))===directory))) throw new Error('Native directory binding conflict');
    for(const group of await entries(path.join(staging,'sessions'))) {
     if(!group.isDirectory()) throw new Error('Unexpected session group');
     for(const session of await entries(path.join(staging,'sessions',group.name))) {

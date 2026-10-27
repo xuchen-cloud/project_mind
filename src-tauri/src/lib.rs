@@ -73,6 +73,7 @@ mod system_fonts;
 pub mod voice;
 mod workspace;
 mod workspace_initialization;
+mod workspace_startup;
 mod committed_changes;
 
 use std::{
@@ -160,7 +161,7 @@ fn start_record_checkpoints(app: &tauri::AppHandle) {
     });
 }
 use workspace::{
-    cleanup_legacy_app_data, create_passwordless_workspace, enable_passwordless_workspace,
+    create_passwordless_workspace, enable_passwordless_workspace,
     generate_workspace_secret_key, load_local_session, load_metadata, save_local_session,
     verify_workspace_password, workspace_summary, WorkspaceMetadata,
     WorkspacePaths, WORKSPACE_SECURITY_MODE,
@@ -374,16 +375,7 @@ impl AppState {
     fn status_snapshot(&self) -> Result<WorkspaceStatusSnapshot> {
         let current = lock_mutex(&self.current_workspace).clone();
         let recent_state = load_local_session(&self.local_session_path)?;
-        let recent_workspaces = recent_state
-            .recent_workspace_roots
-            .iter()
-            .filter_map(|root| {
-                let root_path = PathBuf::from(root);
-                load_metadata(&root_path)
-                    .ok()
-                    .map(|(metadata, _)| workspace_summary(&root_path, &metadata))
-            })
-            .collect::<Vec<_>>();
+        let recent_workspaces = recent_state.recent_workspaces();
 
         Ok(WorkspaceStatusSnapshot {
             current_workspace: current.as_ref().map(|runtime| runtime.summary.clone()),
@@ -442,6 +434,11 @@ impl AppState {
     }
 
     fn open_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
+        self.activate_workspace_root(root_path)?;
+        self.status_snapshot()
+    }
+
+    fn activate_workspace_root(&self, root_path: &Path) -> Result<()> {
         self.ensure_voice_idle()?;
         self.seal_current_record_checkpoints()?;
         #[cfg(debug_assertions)]
@@ -454,13 +451,14 @@ impl AppState {
         let runtime = Arc::new(WorkspaceRuntime::new(
             &self.app_handle, metadata, paths, Some(key),
         )?);
+        let summary = runtime.summary.clone();
         self.set_current_workspace(Some(runtime))?;
 
         let mut session = load_local_session(&self.local_session_path)?;
-        session.record_recent_workspace(root_path);
+        session.record_opened_workspace(summary);
         save_local_session(&self.local_session_path, &session)?;
 
-        self.status_snapshot()
+        Ok(())
     }
 
     fn create_workspace_root(&self, root_path: &Path) -> Result<WorkspaceStatusSnapshot> {
@@ -618,6 +616,36 @@ fn with_db<T>(
 ) -> CommandResult<T> {
     with_bound_db(state, None, task)
 }
+
+async fn with_db_async<T: Send + 'static>(
+    app: tauri::AppHandle,
+    task: impl FnOnce(&mut Database) -> Result<T> + Send + 'static,
+) -> CommandResult<T> {
+    let binding = app.state::<AppState>().current_workspace()
+        .map_err(|error| error.to_string())?.agent_binding.clone();
+    spawn_bound_db_worker(binding, move |binding| {
+        with_bound_db(app.state::<AppState>(), Some(binding), task)
+    }).await
+}
+
+async fn spawn_bound_db_worker<T: Send + 'static>(
+    binding: agent::models::WorkspaceBinding,
+    task: impl FnOnce(&agent::models::WorkspaceBinding) -> CommandResult<T> + Send + 'static,
+) -> CommandResult<T> {
+    tauri::async_runtime::spawn_blocking(move || task(&binding))
+        .await.map_err(|error| error.to_string())?
+}
+
+fn require_workspace_binding(
+    expected: &agent::models::WorkspaceBinding,
+    current: &agent::models::WorkspaceBinding,
+) -> CommandResult<()> {
+    if expected != current {
+        return Err("Workspace binding changed before the command acquired storage".into());
+    }
+    Ok(())
+}
+
 fn with_bound_db<T>(
     state: State<'_, AppState>, binding: Option<&agent::models::WorkspaceBinding>,
     task: impl FnOnce(&mut Database) -> Result<T>,
@@ -631,8 +659,8 @@ fn with_bound_db<T>(
         if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &runtime)) {
             return Err("Workspace changed before the command acquired storage".into());
         }
-        if binding.is_some_and(|expected| expected != &runtime.agent_binding) {
-            return Err("Workspace binding changed before File import".into());
+        if let Some(expected) = binding {
+            require_workspace_binding(expected, &runtime.agent_binding)?;
         }
         let mut db = lock_mutex(&runtime.db);
         committed_changes::capture_native_committed(&runtime.agent_binding, &mut db, &request_id, task)
@@ -961,8 +989,47 @@ fn desktop_list_system_font_families() -> CommandResult<Vec<String>> {
 }
 
 #[tauri::command]
-fn workspace_status_get(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state.status_snapshot().map_err(|error| error.to_string())
+async fn workspace_status_get(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
+    let app = state.app_handle.clone();
+    let startup = app.state::<workspace_startup::WorkspaceStartup>().inner().clone();
+    let restore_app = app.clone();
+    startup.status(
+        move || async move {
+            let io_app = restore_app.clone();
+            restore_app.state::<dsh_assistant::DshAssistantState>()
+                .invalidate(&restore_app, || workspace_io(io_app, |state| {
+                    let session = load_local_session(&state.local_session_path)?;
+                    if let Some(root) = session.last_opened_workspace_root {
+                        state.activate_workspace_root(Path::new(&root))?;
+                    }
+                    Ok(())
+                })).await
+        },
+        move || workspace_io(app, AppState::status_snapshot),
+    ).await
+}
+
+/// Metadata reads, database recovery, credential IO and native teardown all
+/// run outside the main event loop and async executor workers.
+async fn workspace_io<T: Send + 'static>(
+    app: tauri::AppHandle,
+    action: impl FnOnce(&AppState) -> Result<T> + Send + 'static,
+) -> CommandResult<T> {
+    tauri::async_runtime::spawn_blocking(move || {
+        action(&app.state::<AppState>()).map_err(|error| error.to_string())
+    }).await.map_err(|error| error.to_string())?
+}
+
+async fn workspace_change(
+    app: tauri::AppHandle,
+    change: impl FnOnce(&AppState) -> Result<WorkspaceStatusSnapshot> + Send + 'static,
+) -> CommandResult<WorkspaceStatusSnapshot> {
+    let startup = app.state::<workspace_startup::WorkspaceStartup>().inner().clone();
+    startup.manual(move || async move {
+        let io_app = app.clone();
+        app.state::<dsh_assistant::DshAssistantState>()
+            .invalidate(&app, || workspace_io(io_app, change)).await
+    }).await
 }
 
 #[tauri::command]
@@ -970,11 +1037,9 @@ async fn workspace_create(
     state: State<'_, AppState>,
     input: WorkspaceCreateInput,
 ) -> CommandResult<WorkspaceStatusSnapshot> {
-    state.app_handle.state::<dsh_assistant::DshAssistantState>()
-        .invalidate(&state.app_handle, || {
-            state.create_workspace_root(Path::new(input.root_path.trim())).map_err(|error| error.to_string())
-        })
-        .await
+    workspace_change(state.app_handle.clone(), move |state| {
+        state.create_workspace_root(Path::new(input.root_path.trim()))
+    }).await
 }
 
 #[tauri::command]
@@ -982,32 +1047,26 @@ async fn workspace_open(
     state: State<'_, AppState>,
     input: WorkspaceOpenInput,
 ) -> CommandResult<WorkspaceStatusSnapshot> {
-    state.app_handle.state::<dsh_assistant::DshAssistantState>()
-        .invalidate(&state.app_handle, || {
-            state.open_workspace_root(Path::new(input.root_path.trim())).map_err(|error| error.to_string())
-        })
-        .await
+    workspace_change(state.app_handle.clone(), move |state| {
+        state.open_workspace_root(Path::new(input.root_path.trim()))
+    }).await
 }
 
 #[tauri::command]
 async fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceStatusSnapshot> {
-    state.app_handle.state::<dsh_assistant::DshAssistantState>()
-        .invalidate(&state.app_handle, || {
-            state.close_current_workspace().map_err(|error| error.to_string())
-        })
-        .await
+    workspace_change(state.app_handle.clone(), AppState::close_current_workspace).await
 }
 
 #[tauri::command]
-fn projects_list(
+async fn projects_list(
     state: State<'_, AppState>,
     input: Option<ProjectsListInput>,
 ) -> CommandResult<Vec<ProjectListItem>> {
-    with_db(state, |db| {
+    with_db_async(state.app_handle.clone(), move |db| {
         db.projects_list(input.unwrap_or(ProjectsListInput {
             include_archived: Some(false),
         }))
-    })
+    }).await
 }
 
 #[tauri::command]
@@ -1019,16 +1078,16 @@ fn project_create(
 }
 
 #[tauri::command]
-fn project_page_get(
+async fn project_page_get(
     state: State<'_, AppState>,
     input: ProjectIdInput,
 ) -> CommandResult<ProjectPageData> {
-    with_db(state, |db| db.project_page_get(input))
+    with_db_async(state.app_handle.clone(), move |db| db.project_page_get(input)).await
 }
 
 #[tauri::command]
-fn workspace_page_get(state: State<'_, AppState>) -> CommandResult<WorkspacePageData> {
-    with_db(state, |db| db.workspace_page_get())
+async fn workspace_page_get(state: State<'_, AppState>) -> CommandResult<WorkspacePageData> {
+    with_db_async(state.app_handle.clone(), |db| db.workspace_page_get()).await
 }
 
 #[tauri::command]
@@ -1614,7 +1673,6 @@ pub fn run() {
 
             let app_data_dir = default_app_data_dir()?;
             let local_session_path = app_data_dir.join(LOCAL_WORKSPACE_SESSION_FILE_NAME);
-            cleanup_legacy_app_data(&app_data_dir, &local_session_path)?;
 
             let state = AppState {
                 app_handle: app.handle().clone(),
@@ -1628,12 +1686,8 @@ pub fn run() {
                 office_selections: office_selection::Selections::default(),
             };
 
-            let local_session = load_local_session(&local_session_path)?;
-            if let Some(last_root) = local_session.last_opened_workspace_root {
-                let _ = state.open_workspace_root(Path::new(&last_root));
-            }
-
             app.manage(dsh_assistant::DshAssistantState::default());
+            app.manage(workspace_startup::WorkspaceStartup::default());
             app.manage(state);
             agent::bridge::commands::restore(app.handle());
             source_maintenance::start(app.handle());

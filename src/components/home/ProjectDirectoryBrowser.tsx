@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import type { ProjectFileMenuControls, ProjectSidebarDocumentItem } from "../layout/ProjectSidebar";
@@ -16,8 +16,75 @@ import { HomeSidebarList } from "./HomeSidebarList";
 import { FileIcon } from "../document/FileIcon";
 import "./project-directory.css";
 
-function DirectoryBranch({ projectId, workspaceRoot, rootPath, relativePath, depth, enabled, activeRelativePath, onFileContextMenu, renderRenameInput }: {
-  projectId: number | null; workspaceRoot?: string; rootPath: string; relativePath: string; depth: number; enabled: boolean; activeRelativePath?: string | null;
+/** Shared demand boundaries for physical file views, including resident panels. */
+export function useDirectoryVisibility(element: RefObject<HTMLElement | null>, scopeKey: string) {
+  const [visibleScope, setVisibleScope] = useState({ key: scopeKey, enabled: false });
+  const enabled = visibleScope.key === scopeKey && visibleScope.enabled;
+  const isVisible = useCallback(() => {
+    if (document.visibilityState === "hidden" || !element.current) return false;
+    for (let node: HTMLElement | null = element.current; node; node = node.parentElement) {
+      if (node.hidden || node.inert || node.hasAttribute("inert") || getComputedStyle(node).display === "none" || getComputedStyle(node).visibility === "hidden") return false;
+    }
+    return true;
+  }, [element]);
+  useLayoutEffect(() => {
+    const visibility = () => {
+      const enabled = isVisible();
+      setVisibleScope(previous => previous.key === scopeKey && previous.enabled === enabled ? previous : { key: scopeKey, enabled });
+    };
+    const observer = new MutationObserver(visibility);
+    for (let node: HTMLElement | null = element.current; node; node = node.parentElement) {
+      observer.observe(node,{attributes:true,attributeFilter:["hidden","inert","style","class"]});
+    }
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
+    return () => {observer.disconnect();document.removeEventListener("visibilitychange", visibility);};
+  }, [element, scopeKey, isVisible]);
+  return { enabled, isVisible };
+}
+
+export function useProjectDirectoryListing({ projectId, workspaceRoot, binding, rootPath, relativePath, enabled }: {
+  projectId: number | null; workspaceRoot?: string; binding?: AgentWorkspaceBinding; rootPath: string; relativePath: string; enabled: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const queryKey = [...queryKeys.projectDirectory(rootPath, projectId, relativePath, 0), workspaceRoot, ...(binding ? [binding.workspaceId, binding.generation] : [])];
+  const existing = queryClient.getQueryCache().find({ queryKey, exact: true });
+  // Visible views share an in-progress read. Completed data still needs
+  // reconciliation: the flat view does not consume directory dirty hints.
+  const sharesActiveRead = existing?.isActive() && existing.state.fetchStatus === "fetching";
+  const cachedOnMount = useRef(!sharesActiveRead && existing && (existing.state.data !== undefined || existing.state.fetchStatus !== "idle")
+    ? { promise: existing.state.fetchStatus !== "idle" ? existing.promise : undefined } : undefined);
+  const directory = useQuery({
+    queryKey,
+    queryFn: () => projectDirectoryApi.list(projectId, relativePath),
+    retry: false,
+    enabled,
+    staleTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const used = useRef(false);
+  useEffect(() => {
+    if (!enabled || used.current) return;
+    used.current = true;
+    // Retain the usable snapshot across A-B-A navigation. Revalidate once on
+    // actual use against the native watcher-backed cache, including changes
+    // made while this branch was unmounted. No disk enumeration on a cache hit.
+    if (!cachedOnMount.current) return;
+    let disposed = false;
+    // A read started before unmount may still be in flight. Its completion
+    // cannot consume this use's reconciliation, since dirty hints were absent.
+    void Promise.resolve(cachedOnMount.current.promise).catch(() => {}).then(() => {
+      if (!disposed) return directory.refetch({ cancelRefetch: false });
+    });
+    return () => { disposed = true; used.current = false; };
+  }, [enabled]);
+  return directory;
+}
+
+function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, onFileContextMenu, renderRenameInput }: {
+  projectId: number | null; workspaceRoot?: string; binding?: AgentWorkspaceBinding; rootPath: string; relativePath: string; depth: number; enabled: boolean; activeRelativePath?: string | null;
   onFileContextMenu: (path: string, x: number, y: number) => void;
   renderRenameInput?: (path: string) => ReactNode;
 }) {
@@ -34,14 +101,7 @@ function DirectoryBranch({ projectId, workspaceRoot, rootPath, relativePath, dep
     setExpanded(previous => previous.has(ancestor) ? previous : new Set([...previous, ancestor]));
   }, [activeRelativePath, relativePath]);
   const indentation = { paddingInlineStart: 4 + depth * 12 };
-  const directory = useQuery({
-    queryKey: queryKeys.projectDirectory(rootPath, projectId, relativePath, 0),
-    queryFn: () => projectDirectoryApi.list(projectId, relativePath),
-    retry: false,
-    enabled,
-    staleTime: Infinity,
-    gcTime: 0,
-  });
+  const directory = useProjectDirectoryListing({ projectId, workspaceRoot, binding, rootPath, relativePath, enabled });
   return <>
     {directory.isPending ? <p className="project-directory__message" style={indentation} role="status">正在读取目录…</p> : null}
     {directory.isError ? <div className="project-directory__message" style={indentation} role="alert">{getErrorMessage(directory.error, "无法读取项目目录")}<button type="button" onClick={() => void directory.refetch()}>重试读取目录</button></div> : null}
@@ -73,7 +133,7 @@ function DirectoryBranch({ projectId, workspaceRoot, rootPath, relativePath, dep
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
       </button>}
       {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
-        <DirectoryBranch workspaceRoot={workspaceRoot} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} />
+        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} />
       </div> : null}
     </div>; })}
   </>;
@@ -86,26 +146,12 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
 }) {
   const queryClient = useQueryClient();
   const element = useRef<HTMLDivElement>(null);
-  const [enabled, setEnabled] = useState(false);
-  const isVisible = () => {
-    if (document.visibilityState === "hidden" || !element.current) return false;
-    for (let node: HTMLElement | null = element.current; node; node = node.parentElement) {
-      if (node.hidden || node.inert || node.hasAttribute("inert") || getComputedStyle(node).display === "none" || getComputedStyle(node).visibility === "hidden") return false;
-    }
-    return true;
-  };
-  useLayoutEffect(() => {
-    const visibility = () => setEnabled(isVisible());
-    const observer = new MutationObserver(visibility);
-    for (let node: HTMLElement | null = element.current; node; node = node.parentElement) {
-      observer.observe(node,{attributes:true,attributeFilter:["hidden","inert","style","class"]});
-    }
-    visibility();
-    document.addEventListener("visibilitychange", visibility);
-    return () => {observer.disconnect();document.removeEventListener("visibilitychange", visibility);};
-  }, [rootPath,projectId]);
+  const { enabled, isVisible } = useDirectoryVisibility(element, JSON.stringify([rootPath, projectId]));
   const [menuError, setMenuError] = useState("");
   const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
+  const [boundWorkspace, setBoundWorkspace] = useState<{ root: string; binding: AgentWorkspaceBinding }>();
+  const bindingRequired = !!activeWorkspaceRoot && "__TAURI_INTERNALS__" in window;
+  const directoryBinding = boundWorkspace?.root === activeWorkspaceRoot ? boundWorkspace?.binding : undefined;
   const refreshDirectories = useRef<(paths: string[] | null | undefined) => void>(() => {});
   // All directory change sources share one queue for this mounted scope.
   // Layout cleanup retires it before a new scope can use the same element.
@@ -168,12 +214,6 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     for (const [id,path] of paths) if (previous.paths.get(id) !== path) addParents(path);
     if (changed.size) refreshDirectories.current([...changed]);
   }, [queryClient,rootPath,projectId,documents]);
-  useEffect(() => {
-    // Focus is an unknown-path reconciliation; watcher/commits use exact paths.
-    const focus = () => { if (document.visibilityState !== "hidden") refreshDirectories.current(null); };
-    window.addEventListener("focus", focus);
-    return () => window.removeEventListener("focus", focus);
-  }, [queryClient, rootPath, projectId]);
   const request = useRef(0);
   useEffect(() => {
     if (!activeWorkspaceRoot || !("__TAURI_INTERNALS__" in window)) return;
@@ -192,6 +232,8 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
       unlisten = await desktopApi.listenEvent("mind:project-directory-dirty", changed);
       if (disposed) { unlisten(); return; }
       binding = await recordDocumentApi.bindingGet(activeWorkspaceRoot);
+      if (disposed) return;
+      setBoundWorkspace({ root: activeWorkspaceRoot, binding });
       for (const hint of earlyHints) changed(hint); earlyHints.length = 0;
     })().catch(reason => { if (!disposed) setMenuError(getErrorMessage(reason, "无法监听目录变化")); });
     return () => { disposed = true; unlisten?.(); };
@@ -231,7 +273,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     }
   };
   return <div ref={element} className="project-directory">{menuError ? <p role="alert">{menuError}</p> : null}<HomeSidebarList label={projectId === null ? "工作区目录内容" : "项目目录内容"}>
-    <DirectoryBranch workspaceRoot={workspaceRoot} key={rootPath} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} />
+    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} />
   </HomeSidebarList></div>;
 }
 

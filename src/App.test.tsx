@@ -67,6 +67,7 @@ function configureCanonicalRecords(queryClient: QueryClient) {
 vi.mock("./services/desktopApi", () => ({
   desktopApi: {
     confirm: vi.fn(),
+    pickDirectory: vi.fn(),
     listenEvent: vi.fn(async () => () => undefined),
     command: vi.fn(async (name: string) => {
       if (name === "voice_availability_get") return { implemented: false, reason: "test" };
@@ -320,6 +321,25 @@ describe("WorkspaceLayout", () => {
     vi.mocked(isProjectWindow).mockReturnValue(false);
     vi.mocked(getCurrentWindowLabel).mockReturnValue("main");
     useUiStore.setState(createUiStoreState());
+  });
+
+  it("keeps a manually opened Workspace when the startup status resolves late", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const empty = { currentWorkspace: null, recentWorkspaces: [], aiSecretsUnlocked: false, securityMode: "workspace_password_encrypted" };
+    let restore!: (value: typeof empty) => void;
+    vi.mocked(projectMindApi.workspaceStatusGet).mockReturnValue(new Promise(resolve => { restore = resolve; }));
+    const next = { ...empty, currentWorkspace: { rootPath: "/tmp/selected-workspace", metadataPath: "/tmp/selected-workspace/.project-mind/workspace.json", displayName: "Selected Workspace", createdAt: "2026-10-28" }, aiSecretsUnlocked: true };
+    vi.mocked(desktopApi.pickDirectory).mockResolvedValue(next.currentWorkspace.rootPath);
+    vi.mocked(desktopApi.prepareVoiceLeave).mockResolvedValue(true);
+    vi.mocked(projectMindApi.workspaceOpen).mockResolvedValue(next);
+    vi.mocked(projectMindApi.projectsList).mockResolvedValue([]);
+    vi.mocked(projectMindApi.workspacePageGet).mockResolvedValue({ quickNote: null, records: [], workspaceDocuments: [], unfinishedTodos: [], finishedTodos: [] });
+    const router = createMemoryRouter([{ path: "/", element: <WorkspaceLayout />, children: [{ path: "workspace", element: <div /> }] }], { initialEntries: ["/"] });
+    render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "打开已有 Workspace" }));
+    await waitFor(() => expect(client.getQueryData(queryKeys.workspaceStatus)).toEqual(next));
+    await act(async () => { restore(empty); });
+    expect(client.getQueryData(queryKeys.workspaceStatus)).toEqual(next);
   });
 
   it("opens Workspace Records and Sessions in the shared content Tabs and splits without duplicating the sidebar", async () => {

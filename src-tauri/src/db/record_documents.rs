@@ -272,119 +272,6 @@ fn snapshot(
 }
 
 impl Database {
-    /// Preserve outbox sequence, payload revision and dates while upgrading the
-    /// previous Workspace-local Record key format. No object lookup is needed:
-    /// logs for explicitly deleted Records still retain their original identity.
-    pub(crate) fn record_migrate_operation_keys(&self, workspace_id: &str) -> AgentResult<()> {
-        let tx = self.conn.unchecked_transaction().map_err(io_error)?;
-        let mut cursor = 0_i64;
-        loop {
-            let mut statement = tx.prepare("SELECT seq,object_key,scope_key FROM agent_change_log WHERE seq>?1 AND object_key LIKE 'record:%' ORDER BY seq LIMIT 500").map_err(io_error)?;
-            let rows = statement
-                .query_map([cursor], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                })
-                .map_err(io_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(io_error)?;
-            drop(statement);
-            if rows.is_empty() {
-                break;
-            }
-            for (seq, key, scope_key) in rows {
-                cursor = seq;
-                let parts: Vec<_> = key.split(':').collect();
-                let (scope, id) = match parts.as_slice() {
-                    ["record", "workspace", id] => (Scope::Workspace, *id),
-                    ["record", "project", project, id] => (
-                        Scope::Project {
-                            project_id: project.parse().map_err(|_| damaged())?,
-                        },
-                        *id,
-                    ),
-                    _ => return Err(damaged()),
-                };
-                if scope.key() != scope_key {
-                    return Err(damaged());
-                }
-                let target = RecordTarget {
-                    scope,
-                    record_id: id.parse().map_err(|_| damaged())?,
-                };
-                if format!("record:{}", target.key()?) != key {
-                    return Err(damaged());
-                }
-                tx.execute(
-                    "UPDATE agent_change_log SET object_key=?1 WHERE seq=?2",
-                    params![target.object_key(workspace_id)?, seq],
-                )
-                .map_err(io_error)?;
-            }
-        }
-        tx.commit().map_err(io_error)
-    }
-    /// Upgrade the previous full-response receipts one row at a time. Payload
-    /// hashes and commit revisions survive; no historic body needs a second copy.
-    pub(crate) fn record_compact_operation_receipts(&self) -> AgentResult<()> {
-        let tx = self.conn.unchecked_transaction().map_err(io_error)?;
-        let mut cursor = 0_i64;
-        loop {
-            let row = tx.query_row("SELECT rowid,result_json FROM agent_operation_receipts WHERE rowid>?1 AND operation IN ('record.create','record.document.initialize','record.document.commit','record.document.checkpoint','record.quick_note.transfer','record.version.restore','record.patch') AND (json_type(result_json,'$.projection')='object' OR json_type(result_json,'$.head.projection')='object') ORDER BY rowid LIMIT 1", [cursor], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?))).optional().map_err(io_error)?;
-            let Some((rowid, stored)) = row else {
-                break;
-            };
-            cursor = rowid;
-            let mut value: Value = serde_json::from_str(&stored).map_err(|_| damaged())?;
-            let head = if value.get("head").is_some() {
-                value.get_mut("head").ok_or_else(damaged)?
-            } else {
-                &mut value
-            };
-            let projection = head.get("projection").ok_or_else(damaged)?;
-            let document = projection.get("document").ok_or_else(damaged)?;
-            let language: Option<String> = serde_json::from_value(
-                projection
-                    .get("codeLanguage")
-                    .cloned()
-                    .unwrap_or(Value::Null),
-            )
-            .map_err(|_| damaged())?;
-            let hash = projection
-                .get("bodyHash")
-                .and_then(Value::as_str)
-                .ok_or_else(damaged)?
-                .to_string();
-            if body_hash(document, &language) != hash {
-                return Err(damaged());
-            }
-            let target: RecordTarget =
-                serde_json::from_value(head.get("target").cloned().ok_or_else(damaged)?)
-                    .map_err(|_| damaged())?;
-            target.key()?;
-            if head
-                .get("headRevision")
-                .and_then(Value::as_u64)
-                .is_none_or(|revision| revision == 0 || revision > i64::MAX as u64)
-            {
-                return Err(damaged());
-            }
-            let map = head.as_object_mut().ok_or_else(damaged)?;
-            map.remove("projection");
-            map.remove("editSessionId");
-            map.remove("checkpointDueAt");
-            map.insert("bodyHash".into(), json!(hash));
-            tx.execute(
-                "UPDATE agent_operation_receipts SET result_json=?1 WHERE rowid=?2",
-                params![value.to_string(), rowid],
-            )
-            .map_err(io_error)?;
-        }
-        tx.commit().map_err(io_error)
-    }
     pub(crate) fn record_create(
         &self,
         caller: &str,
@@ -3056,25 +2943,9 @@ mod tests {
         let capacity = database.record_version_capacity(&target).unwrap();
         assert_eq!(capacity.receipt_count, 3);
         assert!(capacity.receipt_bytes < 4096);
-        let mut legacy = serde_json::to_value(&saved).unwrap();
-        legacy["head"] = json!({"target":target,"headRevision":saved.head.head_revision,"projection":commit.projection,"editSessionId":"a".repeat(32),"checkpointDueAt":"old"});
-        database.conn.execute("UPDATE agent_operation_receipts SET result_json=?1 WHERE request_id='autosave-first'", [legacy.to_string()]).unwrap();
-        database.record_compact_operation_receipts().unwrap();
-        database.record_compact_operation_receipts().unwrap();
-        let compacted: String = database.conn.query_row("SELECT result_json FROM agent_operation_receipts WHERE request_id='autosave-first'", [], |row| row.get(0)).unwrap();
-        assert!(compacted.len() < 2048);
-        assert!(!compacted.contains("Large draft"));
-        assert_eq!(
-            database
-                .record_document_commit("gui", "autosave-first", &commit, "workspace-test")
-                .unwrap()
-                .head
-                .head_revision,
-            2
-        );
     }
     #[test]
-    fn record_change_log_uses_canonical_object_keys_and_migrates_legacy_rows() {
+    fn record_change_log_uses_canonical_object_keys() {
         let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();
         database
@@ -3090,22 +2961,6 @@ mod tests {
         let expected = format!("workspace-test/workspace/record/{}", target.record_id);
         let actual: String = database.conn.query_row("SELECT object_key FROM agent_change_log WHERE operation='record.document.initialize'", [], |row| row.get(0)).unwrap();
         assert_eq!(actual, expected);
-        database.conn.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES ('record:project:7:42','project:7','record.patch','rev','old')", []).unwrap();
-        database
-            .record_migrate_operation_keys("workspace-test")
-            .unwrap();
-        database
-            .record_migrate_operation_keys("workspace-test")
-            .unwrap();
-        let migrated: (String,String,String) = database.conn.query_row("SELECT object_key,revision,created_at FROM agent_change_log WHERE operation='record.patch'", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
-        assert_eq!(
-            migrated,
-            (
-                "workspace-test/project:7/record/42".into(),
-                "rev".into(),
-                "old".into()
-            )
-        );
     }
     #[test]
     fn record_reference_edges_follow_cas_restore_and_entity_deletion_atomically() {
@@ -3347,7 +3202,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_shared_open_migrates_receipts_and_recovers_checkpoints_on_every_reopen() {
+    fn workspace_shared_open_recovers_current_checkpoints_once_and_preserves_replay() {
         use crate::agent::{
             access::ScopeGrant,
             changes::{ChangeInput, ChangeRepository},
@@ -3374,22 +3229,6 @@ mod tests {
         };
         let saved = database
             .record_document_commit("gui", "draft", &input, "workspace-test")
-            .unwrap();
-        let mut old_receipt = serde_json::to_value(&saved).unwrap();
-        old_receipt["head"] = json!({"target":target,"headRevision":2,"projection":input.projection,"editSessionId":"a".repeat(32),"checkpointDueAt":"old"});
-        database
-            .conn
-            .execute(
-                "UPDATE agent_operation_receipts SET result_json=?1 WHERE request_id='draft'",
-                [old_receipt.to_string()],
-            )
-            .unwrap();
-        database
-            .conn
-            .execute(
-                "UPDATE agent_change_log SET object_key=?1",
-                [format!("record:{}", target.key().unwrap())],
-            )
             .unwrap();
         drop(database);
         let grant = ScopeGrant {

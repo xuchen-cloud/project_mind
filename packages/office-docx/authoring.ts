@@ -139,8 +139,12 @@ export async function editOperations(bytes: Uint8Array, ops: Record<string, unkn
         closeDocument(doc);
     }
 }
-export async function summary(bytes: Uint8Array): Promise<AuthoringSummary> {
-    const doc = await openDocument(bytes);
+export async function summary(bytes: Uint8Array, parsed?: Awaited<ReturnType<typeof import('./upstream/packages/docx-engine/src/index').parseDocx>>): Promise<AuthoringSummary> {
+    // authoring-summary-build adapts this pinned entry with a real, unmounted
+    // Tiptap Editor. Read helpers use the identical schema/state; edits keep the
+    // original mounted editor and DOM. Reuse the validated parse on inspection.
+    const read = openDocument as typeof openDocument & ((bytes: Uint8Array, initial: {summary:true;parsed:NonNullable<typeof parsed>})=>ReturnType<typeof openDocument>);
+    const doc = parsed ? await read(bytes,{summary:true,parsed}) : await openDocument(bytes);
     try {
         return { blocks: describeDocument(doc, undefined, 10000), styles: listStyles(doc), tableStyles: listTableStyles(doc), sections: listSections(doc), headersFooters: headerFooterState(doc), notes: listNotes(doc) } as unknown as AuthoringSummary;
     }

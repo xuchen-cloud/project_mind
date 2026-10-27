@@ -204,3 +204,80 @@ it("ignores a Project Session with the same id and uses the first real Workspace
   await beginTask();
   expect(screen.getByRole("combobox", { name: "绑定会话" })).toHaveValue("first");
 });
+
+
+it("allows task creation, editing and pause while optional session names remain pending", async () => {
+  let resolve!: (sessions: { id: string; title: string }[]) => void;
+  api.sessions.mockImplementation(() => new Promise(done => { resolve = done; }));
+  api.list.mockResolvedValue([savedTask]);
+  api.update.mockImplementation(async (_id, input) => ({ ...savedTask, ...input }));
+  render(<ScheduledTasksPanel open />);
+  await screen.findByText(savedTask.title);
+  expect(screen.getByText("正在读取工作区会话…")).toBeVisible();
+  expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled();
+  await beginTask();
+  fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "新任务草稿" } });
+  expect(screen.getByRole("button", { name: "保存任务" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "新建工作区会话" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  expect(screen.getByLabelText("绑定会话")).toHaveValue(savedTask.sessionId);
+  expect(screen.getByLabelText("绑定会话")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "保存任务" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+  await screen.findByText("已暂停");
+  await act(async () => resolve([{ id: savedTask.sessionId, title: "迟到的会话名" }]));
+  expect(await screen.findByText("会话：迟到的会话名")).toBeVisible();
+  expect(screen.getByText("已暂停")).toBeVisible();
+});
+
+
+it("can create a Workspace session and save a task without waiting for its optional name refresh", async () => {
+  api.sessions.mockReturnValue(new Promise(() => {}));
+  api.selectSession.mockResolvedValue("new-workspace-session");
+  render(<ScheduledTasksPanel open />);
+  await beginTask();
+  fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "独立新建" } });
+  fireEvent.change(screen.getByLabelText("任务内容"), { target: { value: "整理进展" } });
+  fireEvent.click(screen.getByRole("button", { name: "新建工作区会话" }));
+  await waitFor(() => expect(screen.getByLabelText("绑定会话")).toHaveValue("new-workspace-session"));
+  expect(screen.getByRole("button", { name: "保存任务" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "保存任务" }));
+  await screen.findByText("独立新建");
+  expect(api.selectSession).toHaveBeenCalledExactlyOnceWith(null, null);
+  expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "new-workspace-session" }), expect.any(String));
+});
+
+it("runs and deletes a saved task while conversation names are pending", async () => {
+  api.sessions.mockReturnValue(new Promise(() => {}));
+  api.list.mockResolvedValue([savedTask]);
+  api.run.mockResolvedValue(savedTask);
+  api.delete.mockResolvedValue(undefined);
+  render(<ScheduledTasksPanel open />);
+  fireEvent.click(await screen.findByRole("button", { name: "立即执行" }));
+  await screen.findByText(/已发送到原会话/);
+  expect(api.openContent).toHaveBeenCalledWith({ workspaceRoot: "/workspace", projectId: null, object: { kind: "session", id: savedTask.sessionId, title: savedTask.title } });
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(screen.queryByText(savedTask.title)).not.toBeInTheDocument());
+  expect(api.delete).toHaveBeenCalledExactlyOnceWith(savedTask.id);
+});
+
+
+it("discards a stale Session-name completion across Workspace A-B-A", async () => {
+  api.list.mockResolvedValue([savedTask]);
+  const pending: Array<(values: { id: string; title: string }[]) => void> = [];
+  api.sessions.mockImplementation(() => new Promise(done => pending.push(done)));
+  render(<ScheduledTasksPanel open />);
+  await waitFor(() => expect(pending).toHaveLength(1));
+  act(() => useAgentPanelStore.getState().bindWorkspace("/other-workspace"));
+  await waitFor(() => expect(pending).toHaveLength(2));
+  act(() => useAgentPanelStore.getState().bindWorkspace("/workspace"));
+  await waitFor(() => expect(pending).toHaveLength(3));
+  await act(async () => { pending[0]([{ id: savedTask.sessionId, title: "过时会话名" }]); pending[1]([{ id: savedTask.sessionId, title: "其他工作区" }]); });
+  expect(screen.queryByText(/会话：过时会话名|会话：其他工作区/)).toBeNull();
+  expect(screen.getByText(savedTask.title)).toBeVisible();
+  await act(async () => pending[2]([{ id: savedTask.sessionId, title: "当前会话名" }]));
+  expect(await screen.findByText("会话：当前会话名")).toBeVisible();
+});

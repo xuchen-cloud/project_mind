@@ -3197,6 +3197,9 @@ fn temporary_legacy_missing_record_is_hidden_without_deleting_record_or_versions
         .project_file_register("wp1-workspace", project, "normal.docx")
         .unwrap();
     fs::remove_file(path.join("normal.docx")).unwrap();
+    // Actual File access confirms missing health; reading the Project page
+    // itself must remain a metadata-only operation.
+    assert_eq!(db.project_file_resolve(&normal.object).unwrap().state, "missing");
     let record_state = |db: &Database| {
         db.conn.query_row(
             "SELECT name,base_name,managed_path,original_path,current_version_number,version_count FROM documents WHERE id=?1",

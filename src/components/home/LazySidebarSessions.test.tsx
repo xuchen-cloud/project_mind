@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { LazySidebarSessions } from "./LazySidebarSessions";
@@ -26,7 +27,8 @@ it("defers session code until visible, then replaces loading feedback with real 
   useAgentPanelStore.getState().clearWorkspace();
   useAgentPanelStore.getState().bindWorkspace("/workspace");
   const props = { workspaceRoot: "/workspace", projectId: null, query: "", enabled: false };
-  const view = render(<LazySidebarSessions {...props} />);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(<LazySidebarSessions {...props} />, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
   expect(mocks.moduleRequested).not.toHaveBeenCalled();
   expect(mocks.start).not.toHaveBeenCalled();
   view.rerender(<LazySidebarSessions {...props} enabled />);

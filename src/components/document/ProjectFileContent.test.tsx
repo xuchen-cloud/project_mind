@@ -819,3 +819,70 @@ it('keeps the failed Office version selection open and preserves its draft and C
   expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v1');
   rendered.unmount();
 });
+
+
+it('mounts Markdown text and controls before images settle, and reveals each completed image independently', async () => {
+  relatedFixture('# Text first\n\n![slow](images/slow.png)\n\n![fast](images/fast.png)', 'sample.md', 'text/markdown', 'markdown');
+  const originalResolve = vi.mocked(projectFileApi.resolveRelated).getMockImplementation()!;
+  let finish!: (value: Awaited<ReturnType<typeof projectFileApi.resolveRelated>>) => void;
+  vi.mocked(projectFileApi.resolveRelated).mockImplementation((...args) => args[2] === 'images/slow.png' ? new Promise(resolve => { finish = resolve; }) : originalResolve(...args));
+  const rendered = view();
+  await screen.findByRole('heading', { name: 'Text first', exact: true }, { timeout: 5000 });
+  expect(screen.getByRole('button', { name: '源码', exact: true })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '刷新', exact: true })).toBeEnabled();
+  await waitFor(() => expect(rendered.container.querySelector('img[alt="fast"]')).toHaveAttribute('src', expect.stringContaining('data:image/png')));
+  expect(rendered.container.querySelector('img[alt="slow"]')).not.toHaveAttribute('src');
+  fireEvent.click(screen.getByRole('button', { name: '源码', exact: true }));
+  expect(await screen.findByRole('textbox', { name: 'Markdown 源码' })).toHaveAttribute('contenteditable', 'true');
+  await act(async () => finish(await originalResolve(binding, object, 'images/slow.png')));
+  fireEvent.click(screen.getByRole('button', { name: '块编辑', exact: true }));
+  await waitFor(() => expect(rendered.container.querySelector('img[alt="slow"]')).toHaveAttribute('src', expect.stringContaining('data:image/png')));
+});
+
+it('keeps Markdown text visible and reports an asynchronous image failure locally', async () => {
+  relatedFixture('# Still readable\n\n![image](images/a.png)', 'sample.md', 'text/markdown', 'markdown');
+  let reject!: (reason: Error) => void;
+  vi.mocked(projectFileApi.resolveRelated).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  view();
+  await screen.findByRole('heading', { name: 'Still readable', exact: true }, { timeout: 5000 });
+  await act(async () => reject(new Error('图片暂不可用')));
+  expect(await screen.findByRole('alert')).toHaveTextContent('图片暂不可用');
+  expect(screen.getByRole('heading', { name: 'Still readable', exact: true })).toBeVisible();
+  expect(screen.getByRole('button', { name: '源码', exact: true })).toBeEnabled();
+});
+
+it('does not continue image reads after its Markdown document has unmounted', async () => {
+  relatedFixture('# Leaving\n\n![image](images/a.png)', 'sample.md', 'text/markdown', 'markdown');
+  let finish!: (value: Awaited<ReturnType<typeof projectFileApi.resolveRelated>>) => void;
+  vi.mocked(projectFileApi.resolveRelated).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const rendered = view();
+  await screen.findByRole('heading', { name: 'Leaving', exact: true }, { timeout: 5000 });
+  await waitFor(() => expect(projectFileApi.resolveRelated).toHaveBeenCalledOnce());
+  rendered.unmount();
+  await act(async () => finish({ object: { ...object, id: '8' }, versionNumber: 3, contentHash: 'asset3', relativePath: 'images/a.png', state: 'ready', reason: null, name: 'a.png', mime: 'image/png' }));
+  expect(projectFileApi.readBytes).toHaveBeenCalledOnce();
+});
+
+
+it('rejects asynchronous initial images if the original Markdown version changes while reading them', async () => {
+  relatedFixture('# Fixed text\n\n![image](images/a.png)', 'sample.md', 'text/markdown', 'markdown');
+  const originalResolve = vi.mocked(projectFileApi.resolveRelated).getMockImplementation()!;
+  let finish!: (value: Awaited<ReturnType<typeof projectFileApi.resolveRelated>>) => void;
+  vi.mocked(projectFileApi.resolveRelated).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const rendered = view();
+  await screen.findByRole('heading', { name: 'Fixed text', exact: true }, { timeout: 5000 });
+  await waitFor(() => expect(projectFileApi.resolveRelated).toHaveBeenCalledOnce());
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({ object, relativePath: 'sample.txt', name: 'sample.md', versionNumber: 3, contentHash: 'hash3', state: 'ready', reason: null });
+  await act(async () => finish(await originalResolve(binding, object, 'images/a.png')));
+  expect(await screen.findByRole('alert')).toHaveTextContent('文件在关联资源读取期间发生变化');
+  expect(screen.getByRole('heading', { name: 'Fixed text', exact: true })).toBeVisible();
+  expect(rendered.container.querySelector('img[alt="image"]')).not.toHaveAttribute('src');
+});
+
+it('renders embedded Markdown data images without external resource requests', async () => {
+  relatedFixture(`# Embedded\n\n![inline](data:image/png;base64,${pngBase64})`, 'sample.md', 'text/markdown', 'markdown');
+  const rendered = view();
+  await screen.findByRole('heading', { name: 'Embedded', exact: true }, { timeout: 5000 });
+  expect(rendered.container.querySelector('img[alt="inline"]')).toHaveAttribute('src', `data:image/png;base64,${pngBase64}`);
+  expect(projectFileApi.resolveRelated).not.toHaveBeenCalled();
+});

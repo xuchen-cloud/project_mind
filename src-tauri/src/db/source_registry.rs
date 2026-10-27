@@ -117,6 +117,7 @@ impl Database {
             .map(|count| count == 1)
             .map_err(io_error)
     }
+    #[cfg(test)]
     pub(super) fn source_registry_prepare(&self) -> anyhow::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute_batch(include_str!("source_registry.sql"))?;
