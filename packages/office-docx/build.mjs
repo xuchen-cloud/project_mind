@@ -26,6 +26,12 @@ for (const [name, path] of Object.entries({
 alias['@genoffice/ui/fonts'] = resolve(root,'upstream/packages/ui/src/fonts');
 for(const name of ['headless-export','safe-external-url']) alias[`@genoffice/electron-utils/${name}`]=resolve(root,`upstream/packages/electron-utils/src/${name}.ts`);
 alias['@genoffice/ui/ai-panel-prefs'] = resolve(root,'upstream/packages/ui/src/ai-panel-prefs.ts');
+// Force all react/react-dom imports to the local node_modules copy. Without
+// this, packages/editor-chrome/preview-view.ts resolves react from the project
+// root node_modules (a different version), creating two React copies in the
+// bundle and crashing hooks with "Cannot read properties of null (reading 'useRef')".
+alias.react = resolve(root, 'node_modules/react');
+alias['react-dom'] = resolve(root, 'node_modules/react-dom');
 await mkdir(resolve(root, 'dist'), { recursive: true });
 const inputs = new Set();
 for (const [entry, platform] of [['engine', 'node']]) {

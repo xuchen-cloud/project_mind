@@ -259,13 +259,11 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
   }, [editing,readOnly]);
   useLayoutEffect(() => {
     if (visible) {captureFailure.current=undefined;setSuspended(false);return;}
-    // Editing keeps native undo/selection even after autosave. Dirty/pending,
-    // beforeSave and output operations must never be reclaimed by visibility.
-    if (suspended || editing || snapshot?.edits.length || editorPending || snapshot?.saving || savingInput || outputBusy || !snapshot || !previewAccess) return;
-    if (captureFailure.current) {setError(message(captureFailure.current));return;}
-    try {previewView.current ??= previewAccess.capture();setSuspended(true);}
-    catch (reason) {setError(message(reason));}
-  },[visible,suspended,editing,snapshot,editorPending,savingInput,outputBusy,previewAccess]);
+    // Keep the editor mounted when hidden so tab switching is instant.
+    // The parent's [hidden] wrapper handles visual hiding; the iframe stays
+    // alive and the renderer does not reload on re-visibility. The session is
+    // only cleared when the document binding actually changes (see effect above).
+  },[visible]);
   const frozen = !editing || readOnly || !!snapshot?.saving;
   const selection = useOfficeSelection({
     binding, object: baseline.object, format: snapshot?.model.format, label: fileName ?? 'Office 文件',

@@ -116,7 +116,7 @@ export default defineConfig({
       // Backend staging and fixtures contain HTML/JS but are not browser inputs.
       // Watching them reloads the main UI during native and runtime verification.
       // node_modules/target/.git 体量巨大，轮询或原生监听都不该扫，否则 CPU 空转。
-      ignored: ["**/node_modules/**", "**/target/**", "**/.git/**", "**/src-tauri/**", "**/packages/dsh-assistant/**", "**/packages/office-*/**", "**/packages/agent-host/**", "**/*.test.*"],
+      ignored: ["**/node_modules/**", "**/target/**", "**/.git/**", "**/src-tauri/**", "**/packages/dsh-assistant/**", "**/packages/office-*/**", "**/packages/agent-host/**", "**/*.test.*", "**/.*.tmpdir/**", "**/*.tmp"],
     },
     port: 1420,
     strictPort: true,

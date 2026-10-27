@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {readFileSync, statSync} from 'node:fs';
 import {dirname, resolve, relative, extname, sep} from 'node:path';
 
 const suffix = '?office-resource';
@@ -62,8 +62,14 @@ export function officeRendererResources() {
       server.middlewares.use((req, res, next) => {
         const path = devFiles.get((req.url ?? '').split('?')[0].slice(devPrefix.length));
         if (!(req.url ?? '').startsWith(devPrefix) || !path) return next();
+        // ETag from file size+mtime lets the browser reuse its cache (and V8
+        // code cache) via a 304 without re-downloading the multi-MB renderer.
+        const stat = statSync(path);
+        const etag = `"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
+        if (req.headers['if-none-match'] === etag) { res.statusCode = 304; res.end(); return; }
         res.setHeader('Content-Type', mime[extname(path)] ?? 'application/octet-stream');
         res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('ETag', etag);
         res.end(readFileSync(path));
       });
     },

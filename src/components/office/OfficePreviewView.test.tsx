@@ -25,8 +25,10 @@ it('rejects restoration when its frame is disposed, without resurrecting its vie
  await expect(pending).rejects.toThrow('预览已关闭');expect(owner.__projectMindOfficePreview).toBeUndefined();
 });
 it('surfaces a missing renderer view bridge instead of throwing from the React effect',async()=>{
+ vi.useFakeTimers();
  const failed=vi.fn();function Host(){useOfficePreview(true,()=>null,{registerPreview:vi.fn(()=>()=>{})},failed);return null;}
- render(<Host/>);await act(async()=>{});expect(failed).toHaveBeenCalledWith('Office 预览视图尚未就绪');
+ render(<Host/>);await act(async()=>{await vi.advanceTimersByTimeAsync(600);});expect(failed).toHaveBeenCalledWith('Office 预览视图尚未就绪');
+ vi.useRealTimers();
 });
 
 it('does not require the eviction bridge for standalone format editor consumers',async()=>{

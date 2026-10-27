@@ -9,7 +9,7 @@ export function useOfficePreview(ready:boolean,frame:()=>HTMLIFrameElement|null,
     if(!ready||(!props.registerPreview&&!props.initialPreviewView))return;
     let active=true,unregister:(()=>void)|undefined;
     void (async()=>{
-      const access=previewAccess(latest.current.frame());
+      const access=await previewAccess(latest.current.frame());
       if(latest.current.props.initialPreviewView)await access.restore(latest.current.props.initialPreviewView);
       if(active)unregister=latest.current.props.registerPreview?.(access);
     })().catch(reason=>{if(active)latest.current.onError(reason instanceof Error?reason.message:String(reason));});

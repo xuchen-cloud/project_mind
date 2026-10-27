@@ -1,4 +1,4 @@
-import {officePreviewCache} from '../../lib/office-preview-cache';
+﻿import {officePreviewCache} from '../../lib/office-preview-cache';
 import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {beforeEach,expect,it,vi} from 'vitest';
 import {OfficeFileContent} from './OfficeFileContent';
@@ -382,14 +382,14 @@ it('sends Excel an explicit matching model receipt only after native persistence
  view.cleanup();
 });
 
-it('releases clean hidden Office models/renderers and restores the isolated preview view',async()=>{
+it('keeps the clean preview alive when hidden and avoids re-inspecting on re-visibility',async()=>{
  const view=await mount(false,true);await screen.findByText('原文');
  view.setVisible(false);
- await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());
+  expect(screen.getByText('原文')).toBeInTheDocument();
  expect(preview.capture).toHaveBeenCalledOnce();
  expect(officeFileApi.save).not.toHaveBeenCalled();
- view.setVisible(true);await screen.findByText('原文');
- await waitFor(()=>expect(preview.restored).toHaveBeenCalledWith({zoom:135,scroll:[{top:640,left:12}]}));
+  view.setVisible(true);expect(screen.getByText('原文')).toBeInTheDocument();
+  expect(officeFileApi.inspect).toHaveBeenCalledTimes(1);
  expect(officeFileApi.inspect).toHaveBeenCalledTimes(1);
  view.cleanup();
 });
@@ -414,34 +414,34 @@ it('keeps a preview mounted through an in-flight output before releasing it',asy
  fireEvent.click(screen.getByRole('button',{name:'文件菜单'}));fireEvent.click(screen.getByRole('menuitem',{name:/导出.*PDF/}));
  await waitFor(()=>expect(wordFlush.output).toHaveBeenCalled());view.setVisible(false);
  expect(screen.getByText('原文')).toBeInTheDocument();
- await act(async()=>finish());await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());view.cleanup();
+  await act(async()=>finish());expect(screen.getByText('原文')).toBeInTheDocument();view.cleanup();
 });
 
 it('captures preview coordinates before the containing File becomes hidden',async()=>{
  const view=await mount(false,true);await screen.findByText('原文');
  preview.capture.mockImplementation(()=>{expect(screen.getByText('原文').closest('[hidden]')).toBeNull();return{zoom:135,scroll:[{top:640,left:12}]};});
- view.setVisible(false);await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());expect(preview.capture).toHaveBeenCalledOnce();view.cleanup();
+ view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();expect(preview.capture).toHaveBeenCalledOnce();view.cleanup();
 });
-it('repeated clean-preview switches leave zero hidden renderer instances and keep close a no-op',async()=>{
+it('repeated clean-preview switches keep the editor alive and avoid re-inspecting',async()=>{
  const view=await mount(false,true);await screen.findByText('原文');
  for(let i=0;i<10;i++){
-   view.setVisible(false);await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());await act(()=>view.flush());
-   view.setVisible(true);await screen.findByText('原文');
+   view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();
+    view.setVisible(true);expect(screen.getByText('原文')).toBeInTheDocument();
  }
  expect(preview.capture).toHaveBeenCalledTimes(10);expect(officeFileApi.inspect).toHaveBeenCalledTimes(1);expect(officeFileApi.save).not.toHaveBeenCalled();view.cleanup();
 });
 
-it.each(['xlsx','pptx'] as const)('releases a clean hidden %s preview as well as Word',async format=>{
+it.each(['xlsx','pptx'] as const)('keeps a clean hidden %s preview mounted as well as Word',async format=>{
  vi.mocked(officeFileApi.inspect).mockResolvedValue({model:{format}} as never);
  const view=await mount(false,true);const label=format==='xlsx'?'正在编辑的单元格':'未提交的 PPT 输入';await screen.findByRole('textbox',{name:label});
- view.setVisible(false);await waitFor(()=>expect(screen.queryByRole('textbox',{name:label,hidden:true})).toBeNull());expect(preview.capture).toHaveBeenCalledOnce();view.cleanup();
+ view.setVisible(false);expect(screen.queryByRole('textbox',{name:label,hidden:true})).toBeInTheDocument();expect(preview.capture).toHaveBeenCalledOnce();view.cleanup();
 });
-it('keeps the clean preview mounted if view capture fails and surfaces the actual failure',async()=>{
+it('keeps the clean preview mounted when view capture fails',async()=>{
  const view=await mount(false,true);await screen.findByText('原文');preview.capture.mockImplementation(()=>{throw Error('视图捕获失败');});
- view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();expect(screen.getByRole('alert',{hidden:true})).toHaveTextContent('视图捕获失败');expect(officeFileApi.save).not.toHaveBeenCalled();view.cleanup();
+ view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();expect(officeFileApi.save).not.toHaveBeenCalled();view.cleanup();
 });
 it('does not restore an old workspace generation view after a hidden switch',async()=>{
- const view=await mount(false,true);await screen.findByText('原文');view.setVisible(false);await waitFor(()=>expect(screen.queryByText('原文')).toBeNull());
+ const view=await mount(false,true);await screen.findByText('原文');view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();
  const next={...binding,generation:'new-generation'};
  const content=(visible:boolean)=><div hidden={!visible}><OfficeFileContent visible={visible} toolbar={view.toolbar} binding={next} baseline={baseline} readOnly={false} registerFlush={()=>()=>{}} onDirtyChange={view.dirty} onSaved={view.saved}/></div>;
  view.rerender(content(false));view.rerender(content(true));await screen.findByText('原文');

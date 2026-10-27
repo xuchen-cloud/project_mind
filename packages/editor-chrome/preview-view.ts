@@ -3,10 +3,15 @@ import {useLayoutEffect,useRef} from 'react';
 export interface OfficePreviewView {zoom:number;page?:number;sheetId?:string;scroll:{top:number;left:number}[];sheetScroll?:{sheetViewStartRow:number;sheetViewStartColumn:number;offsetX:number;offsetY:number}}
 export interface OfficePreviewAccess {capture():OfficePreviewView;restore(view:OfficePreviewView):Promise<void>}
 export type RegisterOfficePreview = (access:OfficePreviewAccess)=>()=>void;
-export function previewAccess(frame:HTMLIFrameElement|null):OfficePreviewAccess {
-  const access=(frame?.contentWindow as (Window & {__projectMindOfficePreview?:OfficePreviewAccess})|null)?.__projectMindOfficePreview;
-  if(!access)throw Error('Office 预览视图尚未就绪');
-  return access;
+export async function previewAccess(frame:HTMLIFrameElement|null):Promise<OfficePreviewAccess> {
+  // Wait for the iframe's useLayoutEffect to set __projectMindOfficePreview.
+  // This can take a few frames after the iframe loads, especially on slow machines.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const access = (frame?.contentWindow as (Window & {__projectMindOfficePreview?:OfficePreviewAccess})|null)?.__projectMindOfficePreview;
+    if (access) return access;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw Error('Office 预览视图尚未就绪');
 }
 export const nextPreviewFrame = () => new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
 export function usePreviewView(input:{zoom:number;setZoom:(zoom:number)=>void;page?:number;setPage?:(page:number)=>void;scrollers:()=>Array<HTMLElement|null>}) {

@@ -17,6 +17,10 @@ use windows::Win32::{
 
 const RATE: u64 = 48_000;
 const CHANNELS: u16 = 2;
+/// Timing tolerance for WASAPI packet position checks (10ms @ 48kHz).
+/// Shared-mode WASAPI timestamps can be unstable when other applications
+/// (e.g., WeLink meetings) are using the audio device.
+const TIMING_TOLERANCE_SAMPLES: u64 = 480;
 
 pub type WindowsCaptureFault = String;
 pub struct WindowsCaptureOutputs {
@@ -308,7 +312,7 @@ impl Track {
                     ));
                 }
                 let position = timestamp.saturating_sub(started) * RATE / 10_000_000;
-                if position + 96 < self.next_sample {
+                if position + TIMING_TOLERANCE_SAMPLES < self.next_sample {
                     return Err(anyhow!(
                         "{:?} late audio packet (position={position}, next_sample={}, frames={frames}, flags={flags:#x}, sequence={}, qpc_100ns={timestamp}, start_qpc_100ns={started})",
                         self.source,
@@ -316,7 +320,7 @@ impl Track {
                         self.sequence
                     ));
                 }
-                if position > self.next_sample + 96 {
+                if position > self.next_sample + TIMING_TOLERANCE_SAMPLES {
                     self.silence_to(epoch, position)?;
                 }
                 self.send(epoch, &samples)?;
