@@ -9,6 +9,7 @@
   },
   "scripts": {
     "setup": "npm ci --no-audit --no-fund",
+    "postinstall": "node scripts/patch-dsh-deps.mjs",
     "build": "node scripts/desktop.mjs build",
     "dev": "node scripts/desktop.mjs dev",
     "start": "node scripts/desktop.mjs start",
