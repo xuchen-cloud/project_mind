@@ -35,6 +35,41 @@ async function sourceStream(request) {
 
 const textMessage = (id, role, text) => ({ id, role, content: [{ type: 'text', text }] });
 
+for (const [kind, canonical, native, foreign] of [
+  ['UNC', String.raw`\\server\share\项目`, String.raw`\\?\UNC\server\share\项目`, String.raw`\\server\other\项目`],
+  ['drive', String.raw`C:\项目`, String.raw`\\?\C:\项目`, String.raw`D:\项目`],
+]) {
+  for (const [directory, cwd] of [[native, canonical], [canonical, native]]) {
+    test(`Windows ${kind} legacy source routes admit equivalent paths and reject foreign Sessions (${directory})`, async () => {
+      const routes = [], requests = [];
+      let sessionCwd = cwd;
+      await installSourceService({
+        sessionController: { async list() { return { items: [{ sessionId: 'session', cwd: sessionCwd }] }; } },
+        connection: { fetch: { register: route => routes.push(route) } }, agents: { list: () => [] }, on() {}, effect() {},
+      }, { directory }, { async request(payload) { requests.push(payload); return { fixed: true }; } });
+      for (const operation of ['resolve', 'prepare']) {
+        const route = routes.find(item => item.path.endsWith('/' + operation));
+        const call = async (sessionId = 'session') => (await route.fetch(new Request(`http://local/api/mind/source/${operation}`, {
+          method: 'POST', body: JSON.stringify({ type: 'client-request', method: `mind/source/${operation}`, rpcId: operation,
+            payload: { args: { request: { sessionId, path: 'files/证据.txt' } } } }),
+        }))).json();
+        sessionCwd = cwd;
+        assert.equal((await call()).result.ok, true);
+        for (const other of [foreign, directory + String.raw`\child`, String.raw`UNC\server\share\项目`]) {
+          sessionCwd = other;
+          const response = await call();
+          assert.equal(response.result.ok, false);
+          assert.match(response.result.error.message, /another Project/);
+        }
+        sessionCwd = cwd;
+        assert.equal((await call('foreign')).result.ok, false);
+      }
+      assert.deepEqual(requests.map(item => item.operation), ['resolve', 'prepare']);
+      assert.ok(requests.every(item => item.sessionId === 'session' && item.path === 'files/证据.txt'));
+    });
+  }
+}
+
 test('bash source marker literals do not poison the current or next model turn', async () => {
   const file = fileURLToPath(new URL('../../../src-tauri/src/dsh_assistant.rs', import.meta.url));
   const source = execFileSync('bash', ['-c', 'cat "$1"', 'source-regression', file], { encoding: 'utf8' });

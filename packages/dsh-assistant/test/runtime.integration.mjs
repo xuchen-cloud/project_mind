@@ -13,6 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference';
 import { startLocalProvider } from './fixtures/local-provider.mjs';
+import { bindingPrompt } from '../scripts/mind-cli.mjs';
 
 // Run explicitly: node --test packages/dsh-assistant/test/runtime.integration.mjs
 // Real subprocess + rc.2 Web RPC/mux + provider SSE; no SDK, browser, or build.
@@ -1397,7 +1398,7 @@ test('Mind CLI lease rc.2 runtime: model shell uses native Workspace binding and
       try { await runtime?.stop(); } finally { await provider.close(); await rm(temp, { recursive: true, force: true }); }
     }
   });
-  const workspace = { id: randomUUID(), name: 'CLI Workspace', directory: path.join(temp, 'workspace') };
+  const workspace = { id: randomUUID(), name: 'CLI Workspace', directory: path.join(temp, "workspace 中文 O'Neil $HOME `tick") };
   await mkdir(workspace.directory);
   const bin = path.join(temp, 'bundle'); await mkdir(bin);
   const windows = process.platform === 'win32';
@@ -1410,11 +1411,13 @@ test('Mind CLI lease rc.2 runtime: model shell uses native Workspace binding and
 if (!$env:PROJECT_MIND_CLI_TOKEN) { exit 31 }
 if ($env:PROJECT_MIND_CLI_DISCOVERY -ne '${discovery.replaceAll("'", "''")}') { exit 32 }
 if (!(Test-Path -LiteralPath '${marker.replaceAll("'", "''")}')) { exit 33 }
+if ($args.Count -ne 6 -or $args[0] -cne 'doctor' -or $args[1] -cne '--workspace' -or $args[2] -cne '${workspace.directory.replaceAll("'", "''")}') { exit 34 }
 '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixture-receipt"}}'
 ` : `#!/bin/sh
 [ -n "$PROJECT_MIND_CLI_TOKEN" ] || exit 31
 [ "$PROJECT_MIND_CLI_DISCOVERY" = '${discovery}' ] || exit 32
 [ -f '${marker}' ] || exit 33
+[ "$#" = 6 ] && [ "$1" = doctor ] && [ "$2" = --workspace ] && [ "$3" = '${workspace.directory.replaceAll("'", "'\\''")}' ] || exit 34
 printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixture-receipt"}}'
 `);
   await chmod(executable, 0o700);
@@ -1439,7 +1442,7 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
   await runtime.rpc('session/rename', { sessionId, title: 'CLI binding fixture' });
   stream = await follow(runtime, sessionId);
   provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: 'cli-runtime-bash', type: 'function', function: {
-    name: windows ? 'pwsh' : 'bash', arguments: JSON.stringify({ description: 'Inspect native Workspace CLI binding', command: `mind doctor --workspace '${cli.workspace.replaceAll("'", "''")}' --connection ${cli.connection} --json` }),
+    name: windows ? 'pwsh' : 'bash', arguments: JSON.stringify({ description: 'Inspect native Workspace CLI binding', command: `mind doctor ${bindingPrompt(cli).match(/Binding flags: (.+?)\. Operation scope/)[1]} --json` }),
   } }] });
   await prompt(runtime, stream, sessionId, 'Use the bound native CLI to inspect this Workspace');
   const reply = providerToolReply(bodies, 'cli-runtime-bash');
@@ -1449,7 +1452,7 @@ printf '%s\\n' '{"ok":true,"data":{"fixture":"native-cli-read","receipt":"fixtur
   assert.equal(leases.size, 0);
   const system = bodies[0].messages.filter(message => message.role === 'system').map(message =>
     typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n')).join('\n');
-  for (const fact of ['project-mind-cli', JSON.stringify(executable), '--workspace-scope', cli.connection]) assert.ok(system.includes(fact), fact);
+  assert.ok(system.includes(bindingPrompt(cli)), 'runtime must publish the same executable shell binding');
   assert.ok(!JSON.stringify(bodies).includes(token), 'lease credentials must never enter model input');
   assert.ok(!runtime.diagnostics().includes(token), 'lease credentials must never enter runtime logs');
   assert.ok(!JSON.stringify(events(stream)).includes(token), 'lease credentials must never enter durable Session events');

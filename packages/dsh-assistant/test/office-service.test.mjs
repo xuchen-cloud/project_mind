@@ -10,6 +10,45 @@ function harness() {
   const bridge={request:async(payload,signal)=>{requests.push({payload,signal});return{sourceRef:structuredClone(officeSourceRef),model:{format:'docx',nodes:[{id:'p0',text:'原文'}],assets:[{dataUrl:'large image'}],document:{content:[]}}};}};
   return{ctx,tools,requests,bridge};
 }
+
+for (const [kind, canonical, native, foreign] of [
+  ['UNC', String.raw`\\server\share\项目`, String.raw`\\?\UNC\server\share\项目`, String.raw`\\server\other\项目`],
+  ['drive', String.raw`C:\项目`, String.raw`\\?\C:\项目`, String.raw`D:\项目`],
+]) {
+  for (const [directory, cwd] of [[native, canonical], [canonical, native]]) {
+    for (const shared of [true, false]) {
+      test(`Windows ${kind} Office ${shared ? 'registry' : 'legacy'} tools preserve path equivalence and write scope (${directory})`, async () => {
+        const h = harness(), context = { kind: 'project', directory };
+        let mode = 'workspace-write', workspaceRoot = cwd, sessionCwd = cwd;
+        h.ctx.get = () => ({ resolve: () => ({ mode, workspaceRoot }) });
+        h.ctx.sessionController.list = async () => ({ items: [{ sessionId: 'actual', cwd: sessionCwd }] });
+        const registry = { async forSession(id) { if (id !== 'actual') throw new Error('Unknown Session'); return context; } };
+        await installOfficeService(h.ctx, shared ? registry : context, h.bridge);
+        const exec = { agent: { session: { id: 'actual' } }, callId: 'windows-edit', signal: new AbortController().signal };
+        const edit = () => h.tools.get('file_office_edit').execute({ source_ref: officeSourceRef, edits: [] }, exec);
+        const create = () => h.tools.get('file_office_create').execute({ name: 'new.docx', content: '<p>内容</p>', request_id: 'windows-create' }, exec);
+        await h.tools.get('file_office_inspect').execute({ file_path: 'work.docx' }, exec);
+        await edit(); await create();
+        assert.deepEqual(h.requests.map(({ payload }) => payload.operation), ['officeInspect', 'officeEdit', 'officeCreate']);
+        for (const root of [foreign, directory + String.raw`\child`, String.raw`UNC\server\share\项目`]) {
+          workspaceRoot = root;
+          await assert.rejects(edit(), /policy belongs/);
+          await assert.rejects(create(), /policy belongs/);
+        }
+        workspaceRoot = cwd; mode = 'read-only';
+        await assert.rejects(edit(), /只读/);
+        mode = 'workspace-write'; exec.agent.session.id = 'foreign';
+        await assert.rejects(edit(), /Unknown Session|another Project/);
+        if (!shared) {
+          exec.agent.session.id = 'actual'; sessionCwd = foreign;
+          await assert.rejects(edit(), /another Project/);
+        }
+        assert.equal(h.requests.length, 3, 'denied requests never reach native IO');
+      });
+    }
+  }
+}
+
 test('DSH Office tools resolve a real Session and expose semantic targets without image bytes',async()=>{
   const h=harness();await installOfficeService(h.ctx,{directory:'/project'},h.bridge);
   const signal=new AbortController().signal;

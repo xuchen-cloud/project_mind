@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
-import { createStableSessionFork } from '../scripts/session-fork.mjs';
+import { createStableSessionFork, installStableSessionFork } from '../scripts/session-fork.mjs';
 const childSessionId = 'session-10000000-0000-4000-8000-000000000001';
 function fixture() {
   const owner = {kind:'project',id:7,workspaceId:'mapped',directory:'/project'};
@@ -19,6 +19,56 @@ function fixture() {
   const request={context:owner,sessionId:'parent',childSessionId};
   return {ctx,registry,request,rows,attached,stats:()=>({creations,flushes}),failAttach:value=>{attachFailure=value;},failRead:value=>{readFailure=value;}};
 }
+
+for (const [kind, canonical, native, foreign] of [
+  ['UNC', String.raw`\\server\share\项目`, String.raw`\\?\UNC\server\share\项目`, String.raw`\\server\other\项目`],
+  ['drive', String.raw`C:\项目`, String.raw`\\?\C:\项目`, String.raw`D:\项目`],
+]) {
+  for (const [directory, cwd] of [[native, canonical], [canonical, native]]) {
+    test(`Windows ${kind} fork route creates and recovers an equivalent-path child without admitting foreign scope (${directory})`, async () => {
+      const f = fixture(), routes = [];
+      f.request.context.directory = directory;
+      f.rows.get('parent').header.cwd = cwd;
+      let owner = f.request.context;
+      // The real registry supplies the authoritative scope; header checks below
+      // must still catch a path change after that asynchronous lookup.
+      f.registry.forSession = async id => { assert.ok(f.rows.has(id)); return owner; };
+      f.ctx.connection = { fetch: { register: route => routes.push(route) } };
+      installStableSessionFork(f.ctx, f.registry);
+      const call = async () => (await routes[0].fetch(new Request('http://local/api/mind/session/fork', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'client-request', method: 'mind/session/fork', rpcId: 'windows-fork', payload: { args: { request: f.request } } }),
+      }))).json();
+      assert.equal((await call()).result.ok, true);
+      assert.equal(f.rows.get(childSessionId).header.cwd, cwd, 'fork retains the source path spelling');
+      installStableSessionFork(f.ctx, f.registry);
+      routes.shift();
+      const retry = await call();
+      assert.equal(retry.result.ok, true);
+      assert.equal(retry.result.value.sessionId, childSessionId);
+      assert.equal(f.stats().creations, 1);
+      assert.ok(f.attached.has(childSessionId));
+      for (const other of [foreign, directory + String.raw`\child`, String.raw`UNC\server\share\项目`]) {
+        f.rows.get(childSessionId).header.cwd = other;
+        const denied = await call();
+        assert.equal(denied.result.ok, false);
+        assert.match(denied.result.error.message, /another fork/);
+      }
+      f.rows.delete(childSessionId);
+      for (const other of [foreign, directory + String.raw`\child`, String.raw`UNC\server\share\项目`]) {
+        f.rows.get('parent').header.cwd = other;
+        const denied = await call();
+        assert.equal(denied.result.ok, false);
+        assert.match(denied.result.error.message, /another context/);
+      }
+      f.rows.get('parent').header.cwd = cwd;
+      owner = { ...f.request.context, id: 8 };
+      assert.equal((await call()).result.ok, false, 'equal paths do not grant a different native scope');
+      assert.equal(f.stats().creations, 1);
+    });
+  }
+}
+
 test('lost response and runtime restart recover the same durable child without creating again',async()=>{
   const f=fixture();let fork=createStableSessionFork(f.ctx,f.registry);
   const result=await fork(f.request);assert.equal(result.sessionId,childSessionId);

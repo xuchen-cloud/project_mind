@@ -105,6 +105,24 @@ it("copies a PowerShell command with quoted Windows paths", async () => {
   expect(writeText.mock.lastCall![0]).not.toContain("token");
 });
 
+it("escapes typographic apostrophes in copied PowerShell paths without changing MCP paths", async () => {
+  const user = userEvent.setup();
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const cliPath = String.raw`C:\Apps\Mind’s CLI\mind.exe`;
+  const workspacePath = String.raw`\\?\UNC\server\‘共享’\‚工作‛ $HOME`;
+  vi.mocked(externalConnectionsApi.status).mockResolvedValue({
+    ...baseStatus, cliShell: "powershell", cliPath, workspacePath, connections: [grant],
+  });
+  setup();
+  await user.click(await screen.findByRole("button", { name: "复制 CLI 命令" }));
+  expect(writeText).toHaveBeenCalledWith(String.raw`& 'C:\Apps\Mind’’s CLI\mind.exe' doctor --workspace '\\?\UNC\server\‘‘共享’’\‚‚工作‛‛ $HOME' --connection 'grant-1' --json`);
+  await user.click(screen.getByRole("button", { name: "复制 MCP 配置" }));
+  expect(JSON.parse(writeText.mock.lastCall![0]).mcpServers.projectmind).toEqual({
+    command: cliPath, args: ["mcp", "serve", "--workspace", workspacePath, "--connection", grant.id],
+  });
+});
+
 it("allows the local switch without an open Workspace but disables creation", async () => {
   vi.mocked(externalConnectionsApi.status).mockResolvedValue({ ...baseStatus, binding: null, workspacePath: null, cliPath: null });
   setup(null);
