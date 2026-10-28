@@ -24,9 +24,9 @@ Discover `mind todo list --help` and `mind schema todo.list --json`. For today/t
 | `cursor` | Returned continuation cursor. |
 | `limit`, `budgetChars` | Optional page bounds: 1–50 items (default 20), 1–12000 serialized page characters (default 4000). |
 
-Set `$TODO_SCOPE` to the task's authorized scope JSON: `{"kind":"workspace"}`, or Project scope with the exact supplied/returned Project ID. `$DAY` is the resolved local date. These are input variables, not credentials:
+Set `$TODO_SCOPE` to the task's authorized scope JSON: `{"kind":"workspace"}`, or Project scope with the exact supplied/returned Project ID. `$DAY` is the resolved local date. These are input variables, not credentials. The following stdin examples use **Bash**; for PowerShell, send the same DTO through the [Shell input recipe](shell-input.md#powershell):
 
-```sh
+```bash
 mind todo list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":$TODO_SCOPE,"status":"unfinished","dueFrom":"$DAY","dueTo":"$DAY","limit":50,"budgetChars":12000}
 JSON
@@ -59,15 +59,15 @@ Dates are valid calendar dates in exact `YYYY-MM-DD` form. `dueDate:null` means 
 
 `progressDate` is the child's stored recording date, distinct from deadline, creation timestamp and completion timestamp. The UI parser supplies local today on add and preserves the existing value on edit; `@MMDD` / `@YYYYMMDD` sets **dueDate**, not progressDate. Native writes validate and store the supplied progressDate; the CLI does not infer it from content. Supply local today for a new child and preserve the read value on edit unless changing that date is intended. Native completion manages `completedAt` separately.
 
-## Minimal stdin writes and readback
+## Bash stdin writes and readback
 
-Inspect `todo.create`, `todo.get`, `todo.update` schemas first. The shell snippets below use `jq` only to carry native JSON forward; if unavailable, construct the same DTO from returned JSON. Variables last only within their shell execution: rebind from prior native results when using another tool shell. Replace the sample request IDs **once before first execution** with IDs unique to this task; keep the chosen ID and exact payload for recovery, including generated child updates. Execute only recipes that match the requested change. Todo supports native create/update, **not dry-run**; tell the user when a requested trial/preview cannot be executed and describe the proposed change without writing.
+Inspect `todo.create`, `todo.get`, `todo.update` schemas first. The **Bash** snippets below use `jq` only to carry native JSON forward; if unavailable, construct the same DTO from returned JSON. PowerShell should construct that DTO as an object and follow [Shell input](shell-input.md#powershell), retaining the CLI exit code and JSON response before extracting fields. Variables last only within their shell execution: rebind from prior native results when using another tool shell. Replace the sample request IDs **once before first execution** with IDs unique to this task; keep the chosen ID and exact payload for recovery, including generated child updates. Execute only recipes that match the requested change. Todo supports native create/update, **not dry-run**; tell the user when a requested trial/preview cannot be executed and describe the proposed change without writing.
 
 ### Create
 
 `$TODO_SCOPE` is the authorized scope JSON established above. This creates one undated Todo with explicitly chosen importance and no urgency:
 
-```sh
+```bash
 created=$(mind todo create --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"requestId":"delivery-create-001","input":{"scope":$TODO_SCOPE,"content":"Deliver the draft","priority":"not_urgent_important","dueDate":null,"tagIds":[],"children":[]}}
 JSON
@@ -82,7 +82,7 @@ Inspect the receipt before continuing. For an existing Todo, obtain `$TODO_TARGE
 
 Obtain a current baseline before an update recipe (reuse a sufficient native read), then run again afterward for readback; keep the returned `object`, `revision` and `snapshot`:
 
-```sh
+```bash
 current=$(mind todo get --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"target":$TODO_TARGET}
 JSON
@@ -96,7 +96,7 @@ Continue only if the call succeeded and the extracted target/revision is valid. 
 
 ### Complete the parent
 
-```sh
+```bash
 mind todo update --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"requestId":"delivery-complete-001","input":{"target":$TODO_TARGET,"expectedRevision":$TODO_REVISION,"changes":[{"change":"status","status":"finished"}]}}
 JSON
@@ -108,7 +108,7 @@ Read back parent status. Children keep their own status. To reopen, use `unfinis
 
 Resolve `$SUBTASK_DATE` as local today in the user's timezone; it is independent of any requested deadline:
 
-```sh
+```bash
 mind todo update --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"requestId":"delivery-child-add-001","input":{"target":$TODO_TARGET,"expectedRevision":$TODO_REVISION,"changes":[{"change":"child_create","content":"Review the draft","progressDate":"$SUBTASK_DATE","dueDate":null}]}}
 JSON
@@ -118,9 +118,9 @@ Read back and retain the new child's actual `snapshot.children[].id`. Creating a
 
 ### Update / complete a Subtask
 
-After a fresh `todo.get`, set `$CHILD_ID` to the selected returned numeric child ID. This constructs a complete `child_update` from its current fields, changes status to finished, and sends JSON via stdin:
+After a fresh `todo.get`, set `$CHILD_ID` to the selected returned numeric child ID. This Bash pipeline constructs a complete `child_update` from its current fields, changes status to finished, and sends JSON via stdin. For PowerShell, construct the same DTO and use [Shell input](shell-input.md#powershell):
 
-```sh
+```bash
 printf '%s\n' "$current" | jq -ce --argjson childId "$CHILD_ID" '
   select(.ok == true) | .data as $todo |
   $todo.snapshot.children[] | select(.id == $childId) |

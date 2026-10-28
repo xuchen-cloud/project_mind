@@ -2,6 +2,8 @@
 
 Load this branch only for Record or File work. Discover the relevant subcommand help and exact method schema before constructing input; the installed CLI owns field names and limits.
 
+Command examples use **Bash** binding syntax. For PowerShell paths and JSON input, follow [Shell input](shell-input.md#powershell).
+
 ## Choose create or continue
 
 Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-authorization) and [write decision](../SKILL.md#4-apply-the-requested-change). Reuse already-read native references/content; when insufficient, follow relevant authorized source queries, references and necessary pages to establish the target. A bounded result cannot establish that the entire scope contains no related object.
@@ -22,29 +24,35 @@ Record read DTOs now use `object`, matching File reads; `record` remains an inpu
 
 Read all content needed to preserve the requested edit, following returned cursors. A bounded excerpt is not the whole document. Pending editor previews are not Committed Content; an editor-busy/pending-review failure requires resolution before a native Record commit.
 
+### Read budgets
+
+For `record.get` and `source.read`, `budgetChars` counts Unicode characters in the **serialized page**, including metadata, spans, excerpt and cursor, rather than just body text. The default is 4000; the schema allows positive budgets up to 12000. Even a short Record can exceed a small budget because its page metadata must fit.
+
+When `BUDGET_EXCEEDED` returns `error.details.minimumBudgetChars`, that value is the dynamic budget needed for the page metadata plus at least one body character (or an empty page for an empty body). It is not a fixed constant or proportional to the full document length. Increase `budgetChars` to at least the returned minimum within the method's schema limit, preserving the source/object, selection, revision and cursor so the same read can progress. If the minimum exceeds the schema maximum, report that actual limit instead of retrying an invalid budget. Apply this recovery only to these page reads when the error supplies the field; other `BUDGET_EXCEEDED` errors retain their method-specific meaning.
+
 ## Record create / patch
 
 For a new Record, prepare UTF-8 Markdown, preview, then commit the intended payload with a stable request ID. `$PROJECT_ID` comes from the binding/authorized reads; for Workspace Records replace `--project "$PROJECT_ID"` with `--workspace-scope`:
 
-```sh
+```bash
 mind record create --title 'Release notes' --body-file note.md --project "$PROJECT_ID" --dry-run --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 mind record create --title 'Release notes' --body-file note.md --project "$PROJECT_ID" --request-id "$CREATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
 Existing Record edits use `record.patch`'s native RecordPatch shape, including current `baseRevision`, canonical block identities/hashes and its stable `requestId`. `--patch-file` accepts that JSON directly:
 
-```sh
+```bash
 mind record patch --patch-file patch.json --dry-run --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 mind record patch --patch-file patch.json --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
-Use stdin (`--input-file -` / `--patch-file -`) for small transient JSON inputs in managed directories. Record create/patch dry-run saves no version or receipt and may omit the mutation request ID. Preview does not reserve the baseline: commit checks it again. Discover schema limits before preparing a large body.
+For small transient JSON inputs, follow [Shell input](shell-input.md): Bash can use stdin (`--input-file -` / `--patch-file -`); PowerShell should use a system temporary file with the corresponding `--input-file` / `--patch-file` option. Keep these inputs outside managed directories. Record create/patch dry-run saves no version or receipt and may omit the mutation request ID. Preview does not reserve the baseline: commit checks it again. Discover schema limits before preparing a large body.
 
 ## File create / replace
 
 Files belong to a Workspace or one Project. They share the same import, version, editing and receipt pipeline. Workspace Files are managed under the Workspace `files` directory; they do not change the ownership of Project Files. `file create --name NAME --body-file PATH --project ID` creates UTF-8 content in a Project; use `--workspace-scope` for Workspace Files. Workspace authorization does not automatically include every Project. For full content replacement, preserve identity and use the current File version/hash:
 
-```sh
+```bash
 mind file update --id "$FILE_ID" --source-file replacement.bin --project "$PROJECT_ID" --expected-version "$FILE_VERSION" --expected-hash "$FILE_HASH" --request-id "$UPDATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
@@ -52,7 +60,7 @@ For Workspace File replacement, use `--workspace-scope` instead of `--project "$
 
 To create already-generated binary bytes as an independent File, use a new stable request ID:
 
-```sh
+```bash
 mind file create --name 'Report.docx' --source-file report.docx --project "$PROJECT_ID" --request-id "$CREATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
@@ -75,7 +83,7 @@ A stable `request_id` identifies the original complete create payload. In a Proj
 
 To read back exact saved bytes for local inspection or editing, first obtain the authorized ObjectRef and fixed version/hash from the native result or version read. Build the exact `file.bytes.read` DTO from `mind schema file.bytes.read --json`, then:
 
-```sh
+```bash
 mind file download --input-file read.json --out downloaded.docx --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 

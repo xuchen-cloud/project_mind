@@ -2,7 +2,9 @@
 
 Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. All four commands accept one JSON input with the same common fields. `record`, `todo` and `file` lists also support common metadata shorthand:
 
-```sh
+Command examples use **Bash** binding syntax; for PowerShell, follow [Shell input](shell-input.md#powershell).
+
+```bash
 mind file list --project "$PROJECT_ID" --limit 20 --query 'Report' --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 mind record list --workspace-scope --limit 0 --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
@@ -34,13 +36,13 @@ In metadata mode, Record/File/Session bodies are absent. Todo retains its existi
 
 Voice Records are Records: `record.list` includes both `recordType:"text"` and `recordType:"voice"` once each. Record detail is the committed Record body; its Transcript is a separate source of that same Voice Record. `session.list` means real DSH **chat** sessions, not recording sessions or the retired Pi metadata table.
 
-## Examples
+## Bash examples
 
-`$PROJECT_ID`, `$WORKSPACE`, `$CONNECTION`, IDs and tag IDs must come from the current binding or native results. The shell examples use JSON stdin; the same JSON can be placed in a UTF-8 file and passed as `--input-file query.json`.
+`$PROJECT_ID`, `$WORKSPACE`, `$CONNECTION`, IDs and tag IDs must come from the current binding or native results. These examples use **Bash** JSON stdin. For PowerShell binding, JSON serialization and temporary-file input, follow [Shell input](shell-input.md#powershell) with the same DTO.
 
 Count Records in one call:
 
-```sh
+```bash
 mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"limit":0}
 JSON
@@ -48,7 +50,7 @@ JSON
 
 Batch-read two complete Record bodies (within the response budget):
 
-```sh
+```bash
 mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"ids":["$RECORD_ID_A","$RECORD_ID_B"],"mode":"detail","budgetChars":12000}
 JSON
@@ -56,7 +58,7 @@ JSON
 
 Find Record metadata by title, body and tag together:
 
-```sh
+```bash
 mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"titleQuery":"复盘","contentQuery":"部署","tag":"研发","mode":"metadata","limit":10}
 JSON
@@ -64,7 +66,7 @@ JSON
 
 Count unfinished parent Todos with a tag; then read matching parent/child action text:
 
-```sh
+```bash
 mind todo list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"status":"unfinished","tagIds":[$TAG_ID],"includeChildren":false,"limit":0}
 JSON
@@ -75,7 +77,7 @@ JSON
 
 Find Files by title, or by extracted content with details:
 
-```sh
+```bash
 mind file list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"titleQuery":"方案","mode":"metadata"}
 JSON
@@ -86,7 +88,7 @@ JSON
 
 Find real Workspace chats, or batch-read a chosen chat's conversation text:
 
-```sh
+```bash
 mind session list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"workspace"},"titleQuery":"发布","contentQuery":"回滚","mode":"metadata"}
 JSON
@@ -97,7 +99,7 @@ JSON
 
 Continue an inventory with **all the original filters** and the returned cursor:
 
-```sh
+```bash
 mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"tag":"研发","limit":10,"cursor":"$NEXT_CURSOR"}
 JSON
@@ -107,7 +109,7 @@ JSON
 
 Record read inputs (`record.get`, `record.blocks.get`, `record.versions.list/get/compare`) use `object`, matching File reads. Legacy `record` remains accepted as an input alias; never send both. Use the exact returned ObjectRef, not a reconstructed reference:
 
-```sh
+```bash
 mind record versions list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
 {"object":$RECORD_OBJECT,"limit":10}
 JSON
@@ -116,4 +118,4 @@ mind file versions list --input-file - --workspace "$WORKSPACE" --connection "$C
 JSON
 ```
 
-When a `source.read` response cannot fit its character budget, `BUDGET_EXCEEDED.details` contains the authorized `object`, a bounded `title`, and `minimumBudgetChars` for a progressing page. This already establishes the authorized source's existence/title; do not repeat a probe just for that information. To read content, retry with sufficient budget and the same source/selection/cursor. Other errors (permission, stale source, unsupported extraction, byte-size limits) retain their specific meaning.
+For `record.get` / `source.read` budget accounting and recovery using `minimumBudgetChars`, follow [Read budgets](record-file.md#read-budgets). In a `source.read` budget error, the returned authorized `object` and bounded `title` already establish that source's existence/title; reuse that evidence rather than probing again just for it. List-detail budget errors still follow the list behavior above.
