@@ -1,9 +1,7 @@
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import { buildForkSeed } from '@deepseek-ai/dsh-session/fork';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
-
-const _vp = String.fromCharCode(92,92,63,92);
-const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+import { normalizeDirectory } from './context-directory.mjs';
 
 const key = context => `${context.kind}:${context.id}:${context.directory}`;
 // Match the pinned upstream fork default: include events after the last completed

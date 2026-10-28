@@ -1,9 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { isSkillResourceRead } from './skills.mjs';
-
-const _vp = String.fromCharCode(92,92,63,92);
-const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+import { normalizeDirectory } from './context-directory.mjs';
 
 export const SOURCE_PREFIX = 'MIND_DSH_SOURCE ';
 export function createSourceBridge(input, write) {

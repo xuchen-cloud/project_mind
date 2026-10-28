@@ -4,6 +4,37 @@ import { sessionInventory } from '../scripts/session-inventory.mjs';
 
 const context = { directory: '/owned', kind: 'project', id: 1 };
 const scope = { kind: 'project', projectId: 1 };
+
+for (const [kind, canonical, native, foreign] of [
+  ['UNC', String.raw`\\server\share\项目`, String.raw`\\?\UNC\server\share\项目`, String.raw`\\server\other\项目`],
+  ['drive', String.raw`C:\项目`, String.raw`\\?\C:\项目`, String.raw`D:\项目`],
+]) {
+  for (const [directory, cwd] of [[native, canonical], [canonical, native]]) {
+    test(`Windows ${kind} inventory admits equivalent paths and excludes foreign scope (${directory})`, async () => {
+      const f = fixture();
+      f.rows[0].cwd = cwd;
+      f.rows[1].cwd = foreign;
+      const page = await sessionInventory(f.sessions, { ...context, directory }, { scope }, 'grant');
+      assert.deepEqual(page.items.map(item => item.id), ['a']);
+      assert.equal(page.totalCount, 1);
+      assert.equal(f.inspected(), 0);
+    });
+
+    test(`Windows ${kind} inventory rechecks equivalent inspection paths and rejects moved history (${directory})`, async () => {
+      const f = fixture();
+      f.rows.splice(1);
+      f.rows[0].cwd = directory;
+      let inspectedCwd = cwd;
+      f.sessions.inspect = async () => ({ meta: { cwd: inspectedCwd, createdAt: 100 }, events: [] });
+      const input = { scope, mode: 'detail' };
+      const page = await sessionInventory(f.sessions, { ...context, directory }, input, 'grant');
+      assert.deepEqual(page.items.map(item => item.id), ['a']);
+      inspectedCwd = foreign;
+      await assert.rejects(sessionInventory(f.sessions, { ...context, directory }, input, 'grant'), { code: 'SCOPE_DENIED' });
+    });
+  }
+}
+
 function fixture() {
   const rows = [
     { sessionId: 'a', cwd: '/owned', updatedAt: 1000, projections: { values: { title: 'Plan% Alpha' } } },

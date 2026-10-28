@@ -1,7 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
-
-const _vp = String.fromCharCode(92,92,63,92);
-const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+import { normalizeDirectory } from './context-directory.mjs';
 
 /** Capabilities refer to a live selection explicitly attached by the user. */
 export async function installOfficeSelectionService(ctx, project, bridge) {

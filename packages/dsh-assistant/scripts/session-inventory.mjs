@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isAppendSurfaceEvent, deriveEventMessage } from '@deepseek-ai/dsh-session/surface';
-
-const _vp = String.fromCharCode(92,92,63,92);
-const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+import { normalizeDirectory } from './context-directory.mjs';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const size = value => [...JSON.stringify(value)].length;

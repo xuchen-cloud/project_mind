@@ -15,8 +15,9 @@ type ConnectionScope = "workspace" | "project";
 type ConnectionMode = "collaborate" | "read_only";
 const COLLABORATE_OPERATIONS = ["content.create", "record.patch", "record.restore", "todo.update", "file.update", "file.restore", "operation.undo"];
 function shellQuote(value: string, shell: ExternalConnectionsStatus["cliShell"]) {
+  // PowerShell recognizes typographic apostrophes as quote delimiters too.
   return shell === "powershell"
-    ? `'${value.replaceAll("'", "''")}'`
+    ? `'${value.replace(/['\u2018\u2019\u201a\u201b]/g, quote => quote + quote)}'`
     : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 

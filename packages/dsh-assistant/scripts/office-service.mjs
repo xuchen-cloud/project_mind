@@ -1,7 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
-
-const _vp = String.fromCharCode(92,92,63,92);
-const normalizeDirectory = v => typeof v === 'string' && v.startsWith(_vp) ? v.slice(_vp.length) : v;
+import { normalizeDirectory } from './context-directory.mjs';
 
 // Match the native File SourceRef returned by inspect. An unconstrained JSON
 // parameter allowed models to quote the reference, which native cannot parse.
