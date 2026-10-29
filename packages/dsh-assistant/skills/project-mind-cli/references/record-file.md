@@ -1,12 +1,12 @@
 # Record / File guide
 
-Load this branch only for Record or File work. Discover the relevant subcommand help and exact method schema before constructing input; the installed CLI owns field names and limits.
+Load this branch for structured Record/File reads, writes or budget recovery. For ordinary search and text reads, use the [quick card](../SKILL.md#search--read). Discover the relevant subcommand help and exact method schema before constructing JSON input; the installed CLI owns field names and limits.
 
 Command examples use **Bash** binding syntax. For PowerShell paths and JSON input, follow [Shell input](shell-input.md#powershell).
 
 ## Choose create or continue
 
-Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-authorization) and [write decision](../SKILL.md#4-apply-the-requested-change). Reuse already-read native references/content; when insufficient, follow relevant authorized source queries, references and necessary pages to establish the target. A bounded result cannot establish that the entire scope contains no related object.
+Apply the shared [binding/authorization check](binding.md#check-binding-and-authorization) and [write decision](writes.md#apply-the-requested-change). Reuse already-read native references/content; when insufficient, follow relevant authorized source queries, references and necessary pages to establish the target. A bounded result cannot establish that the entire scope contains no related object.
 
 - **Record:** append new facts or correct affected passages in the same Record when that is the user's intended information unit. Apply the requested edit to the current body and preserve unrelated content; native versions retain prior committed text. Create a new Record for independently useful information or an explicitly separate entry. A shared topic/title alone does not justify combining independent entries.
 - **File:** continue edits, additions or replacements of the same managed material through its existing File ID, producing a new version. Create a File for an independent deliverable. A filename is neither object identity nor a ban on creating another File with that name; resolve the user's intended material and Workspace or Project scope using native evidence.
@@ -19,14 +19,14 @@ Record read DTOs now use `object`, matching File reads; `record` remains an inpu
 
 ## Read the current content
 
-- **Record:** `record get` for bounded body pages; `record blocks get` for canonical block IDs/hashes before a patch; `record versions` for historical evidence. Preserve returned revision/cursor when continuing pages. `reference list` follows incoming/outgoing native references.
+- **Record:** `record get ID` (or `record get --id ID`) defaults to line-numbered text and automatically reads the pages needed, within the CLI's capacity limits. `--offset 1 --limit 40` selects a 1-based line window. Add `--json` for one precise bounded body page, preserving returned revision/cursor when continuing; line-window flags are text-only. Use `record blocks get` for canonical block IDs/hashes before a patch and `record versions` for historical evidence. `reference list` follows incoming/outgoing native references.
 - **File:** use `file source read`, `source.read` or File version methods as appropriate. To edit a File, obtain the exact current bytes, version number and full `sha256:…` hash; keep the same File ID for subsequent edits.
 
 Read all content needed to preserve the requested edit, following returned cursors. A bounded excerpt is not the whole document. Pending editor previews are not Committed Content; an editor-busy/pending-review failure requires resolution before a native Record commit.
 
 ### Read budgets
 
-For `record.get` and `source.read`, `budgetChars` counts Unicode characters in the **serialized page**, including metadata, spans, excerpt and cursor, rather than just body text. The default is 4000; the schema allows positive budgets up to 12000. Even a short Record can exceed a small budget because its page metadata must fit.
+For precise JSON page reads through `record.get` and `source.read`, `budgetChars` counts Unicode characters in the **serialized page**, including metadata, spans, excerpt and cursor, rather than just body text. The default is 4000; the schema allows positive budgets up to 12000. Even a short Record can exceed a small budget because its page metadata must fit. Ordinary `record get` text reads handle pagination automatically; use JSON when you need the exact page metadata or a cursor/selector.
 
 When `BUDGET_EXCEEDED` returns `error.details.minimumBudgetChars`, that value is the dynamic budget needed for the page metadata plus at least one body character (or an empty page for an empty body). It is not a fixed constant or proportional to the full document length. Increase `budgetChars` to at least the returned minimum within the method's schema limit, preserving the source/object, selection, revision and cursor so the same read can progress. If the minimum exceeds the schema maximum, report that actual limit instead of retrying an invalid budget. Apply this recovery only to these page reads when the error supplies the field; other `BUDGET_EXCEEDED` errors retain their method-specific meaning.
 
@@ -70,7 +70,7 @@ Paths stay local; the CLI stages bytes before committing. Explicit staged upload
 
 If `file.patch` rejects a directory File with “Directory File updates must use the directory service”, use the existing `file update` staged full replacement: read its exact current bytes, apply the requested edit locally, retain its ID and submit with current version/hash. This is a storage-mode branch, not a permission workaround; other permission errors still require authorized resolution.
 
-Finish with the [receipt and readback criteria](../SKILL.md#5-verify-and-report). Use the shared [recovery process](../SKILL.md#recover-from-the-actual-outcome) for conflicts, uncertain outcomes and requested undo/restoration.
+Finish with the [receipt and readback criteria](writes.md#verify-and-report). Use the shared [recovery process](writes.md#recover-from-the-actual-outcome) for conflicts, uncertain outcomes and requested undo/restoration.
 
 
 ## Office create and inspect

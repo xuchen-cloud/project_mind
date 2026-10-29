@@ -13,6 +13,34 @@ function editorWithParagraph(text: string) {
 }
 
 describe("stable Record block anchors", () => {
+  it.each([true, false])("allocates before create and retains IDs through create and remount (editable=%s)", async (editable) => {
+    const onCreate = vi.fn();
+    const editor = new Editor({ element: document.createElement("div"), editable, onCreate,
+      extensions: buildRichEditorExtensions("", { stableBlocks: true }),
+      content: { type: "doc", content: [
+        { type: "paragraph", attrs: { blockId: firstId }, content: [{ type: "text", text: "Existing" }] },
+        { type: "paragraph" },
+      ] } });
+    try {
+      expect(onCreate).not.toHaveBeenCalled();
+      const initial = editor.getJSON();
+      const ids = initial.content!.map(node => node.attrs!.blockId);
+      expect(ids[0]).toBe(firstId);
+      expect(ids[1]).toMatch(/^[0-9a-f]{32}$/);
+      expect(ids[1]).not.toBe(firstId);
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+      expect(editor.getJSON()).toEqual(initial);
+      expect(editor.isEditable).toBe(editable);
+      expect(editor.commands.undo()).toBe(false);
+      editor.unmount();
+      editor.mount(document.createElement("div"));
+      await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+      expect(editor.getJSON()).toEqual(initial);
+      expect(editor.isEditable).toBe(editable);
+      expect(editor.commands.undo()).toBe(false);
+    } finally { editor.destroy(); }
+  });
+
   it("keeps the original anchor when a duplicate is inserted before it", () => {
     const editor = editorWithParagraph("Original");
     try {

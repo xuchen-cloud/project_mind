@@ -9,27 +9,31 @@ Usage:
   mind schema METHOD --json
   mind doctor --workspace PATH --connection ID [--verbose] --json
   mind connection status --workspace PATH --connection ID --json
-  mind schedule list --workspace PATH --connection ID --json
+  mind schedule list --workspace PATH --connection ID [--json]
   mind schedule create|update|delete|run --input-file INPUT.json --workspace PATH --connection ID --json
-  mind project list --workspace PATH --connection ID --json
+  mind project list --workspace PATH --connection ID [--json]
   mind context get (--project ID | --workspace-scope) --workspace PATH --connection ID [--query TEXT] [--budget-chars N] --json
-  mind search QUERY (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] --json
+  mind search (QUERY | --query TEXT) (--project ID | --workspace-scope) --workspace PATH --connection ID [--budget-chars N] [--json]
+  mind context get --input-file PATH|- --workspace PATH --connection ID --json
   mind context overview get --input-file PATH|- --workspace PATH --connection ID --json
-  mind knowledge search|get --input-file PATH|- --workspace PATH --connection ID --json
-  mind source search|read --input-file PATH|- --workspace PATH --connection ID --json
-  mind reference list --kind record|todo|file|quick_note --id ID --direction incoming|outgoing (--project ID | --workspace-scope) [--cursor TOKEN] [--limit N] [--budget-chars N] --workspace PATH --connection ID --json
-  mind reference list --input-file PATH|- --workspace PATH --connection ID --json
+  mind knowledge search --input-file PATH|- --workspace PATH --connection ID [--json]
+  mind knowledge get --input-file PATH|- --workspace PATH --connection ID --json
+  mind source search --input-file PATH|- --workspace PATH --connection ID [--json]
+  mind source read --input-file PATH|- --workspace PATH --connection ID --json
+  mind reference list --kind record|todo|file|quick_note --id ID --direction incoming|outgoing (--project ID | --workspace-scope) [--cursor TOKEN] [--limit N] [--budget-chars N] --workspace PATH --connection ID [--json]
+  mind reference list --input-file PATH|- --workspace PATH --connection ID [--json]
   mind record blocks get --input-file PATH|- --workspace PATH --connection ID --json
-  mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json
-  mind file|record|todo list (--project ID | --workspace-scope) [--limit N] [--cursor TOKEN] [--query TITLE] [--budget-chars N] --workspace PATH --connection ID --json
+  mind record get (ID | --id ID) (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] [--offset LINE] [--limit LINES] --workspace PATH --connection ID [--json]
+  mind file|record|todo list (--project ID | --workspace-scope) [--limit N] [--cursor TOKEN] [--query TITLE] [--budget-chars N] --workspace PATH --connection ID [--json]
   mind file download --input-file READ.json --out NEW_PATH --workspace PATH --connection ID --json
   mind file create --name NAME --source-file PATH (--project ID | --workspace-scope) --request-id ID --workspace PATH --connection ID --json
-  mind file list --input-file PATH|- --workspace PATH --connection ID --json
-  mind session list --input-file PATH|- --workspace PATH --connection ID --json
-  mind record list --input-file PATH|- --workspace PATH --connection ID --json
-  mind record get --input-file PATH|- --workspace PATH --connection ID --json
+  mind file list --input-file PATH|- --workspace PATH --connection ID [--json]
+  mind session list --input-file PATH|- --workspace PATH --connection ID [--json]
+  mind record list --input-file PATH|- --workspace PATH --connection ID [--json]
+  mind record get --input-file PATH|- --workspace PATH --connection ID [--json]
   mind record versions list|get|compare --input-file PATH|- --workspace PATH --connection ID --json
   mind todo get|list --input-file PATH|- --workspace PATH --connection ID --json
+  mind todo list --input-file PATH|- --workspace PATH --connection ID [--json]
   mind todo create|update --input-file PATH|- --workspace PATH --connection ID --json
   mind todo create --body-file PATH|- (--project ID | --workspace-scope) [--priority VALUE] [--due-date YYYY-MM-DD] --request-id ID --workspace PATH --connection ID --json
   mind todo update --patch-file PATH|- --workspace PATH --connection ID --json
@@ -53,7 +57,7 @@ Usage:
   mind operation get|list|undo|restore-created --input-file PATH|- --workspace PATH --connection ID --json
   mind mcp serve --workspace PATH --connection ID
 
-The --connection ID is issued by the open application for an authorized Workspace; --workspace must point to that same Workspace. Discovery commands work offline without either binding option. file download requires a new local output path and returns metadata without base64. Use `mind COMMAND --help` for focused offline help. Use `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. record get reads one bounded body page; pass its nextCursor with --cursor to continue. reference list returns one page (default 20 items, 4000 characters); pass nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.create or file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json
+The --connection ID is issued by the open application for an authorized Workspace; --workspace must point to that same Workspace. Discovery commands work offline without either binding option. file download requires a new local output path and returns metadata without base64. Use `mind COMMAND --help` for focused offline help. Use `mind schema METHOD --json` for the exact input DTO. --input-file - reads JSON from stdin (up to 2 MiB). Write inputs require a stable requestId; reuse the same ID when retrying. Record create/patch --dry-run preview without writing and may omit mutation requestId; --budget-chars applies only to these previews (1–12000, default 4000). Record Markdown is limited to 1 MiB. Common search/list commands default to concise text; human source search defaults to budgetChars=12000 unless explicitly set. Search coverage, hasMore and stale counts go to stderr; --json preserves the exact single-page response envelope. record get defaults to source text with 1-based line numbers (not canonical Markdown or block IDs), automatically following pages at one revision, capped at 8 MiB and 4096 pages. --offset LINE (default 1) and --limit LINES select a text line window; reads stop after its last complete line, and partial reads report an unknown total. Both require text output. record get --json reads one bounded body page; pass its nextCursor with --cursor to continue. --cursor requires --json for record get. context get provides context navigation and summaries; use search to find source body content. reference list returns one page (default 20 items, 4000 characters); pass nextCursor with --cursor to continue. --patch-file accepts native RecordPatch JSON for record patch, or the existing wrapped mutation JSON for file patch and todo update; it cannot be combined with --input-file. Body and source file paths stay local; content is sent to the bound application. Text bodies must be UTF-8, and generated JSON is limited to 2 MiB. File update --source-file sends binary content through the existing staged upload. File upload reads up to 100 MiB locally, sends only bytes, and resumes a staged upload by its stable phase IDs. If status reports an expired stage, it checks the same final file.create or file.update receipt; an uncommitted expired upload still fails. If --request-id is provided, it must match the input requestId. Example: mind source read --input-file read.json --workspace ./work --connection ID --json
 "#;
 
 fn cli_path(command: &str) -> String {
@@ -136,6 +140,15 @@ pub(super) fn command(command: &str) -> String {
                 out.push_str(&format!("--priority accepts {} (default not_urgent_not_important).\n", crate::agent::outputs::TODO_PRIORITIES.join(", ")));
             }
         }
+    }
+    if command == "record.get" {
+        out.push_str("\nDefault: source text with 1-based line numbers, not canonical Markdown or block IDs. Automatically follows pages with a pinned revision; total cap 8 MiB / 4096 pages. --offset LINE (default 1) and --limit LINES select a text window and stop after its last complete line; partial reads report an unknown total. With --json, returns exactly one original bridge page; --cursor continues it. Line windows cannot accompany --json.\n");
+    }
+    if command == "context.get" {
+        out.push_str("\nContext navigation and summaries, not body search. Use `mind search QUERY` for source body content. --input-file accepts the registered context.get DTO and cannot accompany shorthand scope/query/budget options.\n");
+    }
+    if command != "record.get" && super::cli_presentation::supports(command) {
+        out.push_str("\nCommon search/list commands default to concise text; human source search defaults to budgetChars=12000 unless explicitly set. Search coverage, hasMore and stale counts go to stderr; --json preserves the exact single-page response envelope.\n");
     }
     out
 }

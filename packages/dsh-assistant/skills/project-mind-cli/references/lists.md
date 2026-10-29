@@ -1,15 +1,17 @@
 # List, count and batch-read native objects
 
-Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. All four commands accept one JSON input with the same common fields. `record`, `todo` and `file` lists also support common metadata shorthand:
+Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. Lists default to readable text; add `--json` for the precise single-page response, counts and continuation metadata used in this guide. All four commands accept one JSON input with the same common fields. `record`, `todo` and `file` lists also support common metadata shorthand:
 
 Command examples use **Bash** binding syntax; for PowerShell, follow [Shell input](shell-input.md#powershell).
 
 ```bash
-mind file list --project "$PROJECT_ID" --limit 20 --query 'Report' --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind file list --project "$PROJECT_ID" --limit 20 --query 'Report' --workspace "$WORKSPACE" --connection "$CONNECTION"
 mind record list --workspace-scope --limit 0 --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
 Use `--cursor "$NEXT_CURSOR"` with unchanged scope/query to continue. `--query` maps to `titleQuery`, and `--budget-chars` sets the response budget. Use JSON for detail, content queries, tags and other filters; do not combine `--input-file` with shorthand scope/query/limit/cursor/budget options. Session lists continue to use JSON.
+
+List `--query` is a literal title substring filter. For whitespace-separated AND terms across a Record's title and body, use [Search and read](reading.md#search-and-read).
 
 Common JSON fields:
 

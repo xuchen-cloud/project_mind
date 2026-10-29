@@ -54,8 +54,13 @@ export const StableRecordBlocks = Extension.create({
       renderHTML: (attrs: Record<string, unknown>) => validId(attrs.blockId) ? { "data-block-id": attrs.blockId } : {},
     } } }];
   },
-  onCreate() {
-    this.editor.view.dispatch(this.editor.state.tr.setMeta(STABLE_RECORD_BLOCKS_KEY, true).setMeta("addToHistory", false));
+  onBeforeCreate() {
+    // Tiptap defers `create` to a timer, but controllers can capture/save the
+    // mounted document immediately. Allocate initial identities before mount
+    // returns, using the same transaction owner as subsequent edits.
+    this.editor.on("mount", ({ editor }) => {
+      editor.view.dispatch(editor.state.tr.setMeta(STABLE_RECORD_BLOCKS_KEY, true).setMeta("addToHistory", false));
+    });
   },
   addProseMirrorPlugins() {
     const recordKey = this.options.recordKey ?? `editor:${crypto.randomUUID()}`;
