@@ -28,7 +28,7 @@ try {
 exit $mindExitCode
 ```
 
-The CLI's JSON stdout passes through unchanged, including error responses; the exit code is saved before cleanup. Inspect both the process result and JSON `ok` / `error` using the [recovery rules](../SKILL.md#recover-from-the-actual-outcome). Serialization, file-write and cleanup failures remain errors. For another method, replace only the DTO and command; `record.patch` uses `--patch-file $path` for its native RecordPatch payload. For dependent calls, retain each response and exit code, proceed only after success, and exit with the relevant failure code rather than overwriting it with a later call.
+The CLI's JSON stdout passes through unchanged, including error responses; the exit code is saved before cleanup. Inspect both the process result and JSON `ok` / `error` using the [recovery rules](writes.md#recover-from-the-actual-outcome). Serialization, file-write and cleanup failures remain errors. For another method, replace only the DTO and command; `record.patch` uses `--patch-file $path` for its native RecordPatch payload. For dependent calls, retain each response and exit code, proceed only after success, and exit with the relevant failure code rather than overwriting it with a later call.
 
 ### Text pipelines and encoding
 
@@ -38,4 +38,4 @@ PowerShell pipelines can work: PowerShell 7 sending correct UTF-8 JSON text with
 
 Examples marked `bash` use Bash variable expansion, here-docs, command substitution and, where shown, `jq`. They are not PowerShell scripts. `--input-file -` reads JSON from stdin (up to 2 MiB); `--patch-file -` accepts native RecordPatch JSON. A quoted here-doc delimiter such as `<<'JSON'` preserves literal text; the unquoted `<<JSON` in examples expands variables. Build JSON with a serializer when values need JSON escaping, rather than interpolating arbitrary text into those templates.
 
-See the [known receipt example](../SKILL.md#recover-from-the-actual-outcome) for a Bash here-doc read using the supplied binding and an actual receipt ID.
+See the [known receipt example](writes.md#recover-from-the-actual-outcome) for a Bash here-doc read using the supplied binding and an actual receipt ID.

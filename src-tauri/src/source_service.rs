@@ -602,6 +602,9 @@ pub(crate) struct SourceSearchPage {
     pub items: Vec<crate::source_search_index::SearchCandidate>,
     pub has_more: bool,
     pub stale_count: usize,
+    /// Non-Record results depend on extraction/index coverage, including on an empty page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage_note: Option<&'static str>,
 }
 pub(crate) struct SourceIndexBudget {
     pub max_chars: usize,
@@ -658,101 +661,270 @@ fn flatten_record(
     document: &Value,
     selection: Option<&SourceSelection>,
 ) -> AgentResult<(String, Vec<TextSpan>)> {
+    // Spans still identify the original nonempty leaf blocks, in DFS order.
+    // Table punctuation belongs to the projection, never to a leaf's evidence.
+    #[derive(Default)]
+    struct Projection {
+        text: String,
+        spans: Vec<TextSpan>,
+        chars: usize,
+    }
+    impl Projection {
+        fn push(&mut self, text: &str) {
+            self.text.push_str(text);
+            self.chars += text.chars().count();
+        }
+        fn append(&mut self, mut other: Self) {
+            for span in &mut other.spans {
+                span.start_byte += self.text.len();
+                span.end_byte += self.text.len();
+                span.start += self.chars;
+                span.end += self.chars;
+            }
+            self.push(&other.text);
+            self.spans.extend(other.spans);
+        }
+    }
+    struct Renderer<'a> {
+        selected_block: Option<&'a str>,
+        range: Option<&'a SourceLocator>,
+        block_found: bool,
+        paragraph: u32,
+    }
+    impl Renderer<'_> {
+        fn selected(&self, node: &Value, ancestor_selected: bool) -> bool {
+            self.selected_block.is_none()
+                || ancestor_selected
+                || node.pointer("/attrs/blockId").and_then(Value::as_str) == self.selected_block
+        }
+        fn render(&mut self, node: &Value, ancestor_selected: bool) -> Projection {
+            let children = node.get("content").and_then(Value::as_array);
+            let block = node.pointer("/attrs/blockId").and_then(Value::as_str);
+            let selected = self.selected(node, ancestor_selected);
+            self.block_found |= block.is_some() && block == self.selected_block;
+            let container = children.is_some_and(|children| {
+                children
+                    .iter()
+                    .any(|child| child.pointer("/attrs/blockId").is_some())
+            });
+            if let Some(id) = block.filter(|_| !container) {
+                let mut body = String::new();
+                let mut inline = vec![node];
+                while let Some(part) = inline.pop() {
+                    match part.get("type").and_then(Value::as_str) {
+                        Some("text") => body
+                            .push_str(part.get("text").and_then(Value::as_str).unwrap_or_default()),
+                        Some("hardBreak") => body.push('\n'),
+                        Some("internalReference" | "contactMention" | "tagMention") => body
+                            .push_str(
+                                part.pointer("/attrs/label")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default(),
+                            ),
+                        Some("image") => body.push_str(
+                            part.pointer("/attrs/alt")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        ),
+                        _ => (),
+                    }
+                    if let Some(content) = part.get("content").and_then(Value::as_array) {
+                        inline.extend(content.iter().rev());
+                    }
+                }
+                let mut result = Projection::default();
+                if !body.is_empty() {
+                    self.paragraph += 1;
+                    let in_range = match self.range {
+                        Some(SourceLocator::Paragraph { start, end }) => {
+                            (*start..=*end).contains(&self.paragraph)
+                        }
+                        _ => true,
+                    };
+                    if selected && in_range {
+                        result.push(&body);
+                        result.spans.push(TextSpan {
+                            start_byte: 0,
+                            end_byte: body.len(),
+                            start: 0,
+                            end: result.chars,
+                            block_id: id.into(),
+                            paragraph: self.paragraph,
+                        });
+                    }
+                }
+                return result;
+            }
+            let Some(children) = children else {
+                return Projection::default();
+            };
+            // Narrow selections keep the existing leaf/ancestor selection
+            // behavior: selecting a cell must not include neighboring cells.
+            let table_selected = selected || children.iter().any(|row| self.selected(row, false));
+            if node["type"] == "table" && self.range.is_none() && table_selected {
+                return self.table(children, selected);
+            }
+            let mut result = Projection::default();
+            for child in children {
+                let part = self.render(child, selected);
+                if !part.text.is_empty() {
+                    if !result.text.is_empty() {
+                        result.push("\n\n");
+                    }
+                    result.append(part);
+                }
+            }
+            result
+        }
+        fn table(&mut self, rows: &[Value], ancestor_selected: bool) -> Projection {
+            struct Cell {
+                column: usize,
+                colspan: usize,
+                rowspan: usize,
+                body: Projection,
+            }
+            let mut projected = vec![];
+            // Only spanning cells occupy later rows. Keep intervals rather than
+            // expanding a colspan/rowspan into a potentially huge dense grid.
+            let mut occupied: Vec<(usize, usize, usize)> = vec![];
+            let mut detailed = false;
+            for (row_index, row) in rows.iter().enumerate() {
+                let selected = self.selected(row, ancestor_selected);
+                self.block_found |= row
+                    .pointer("/attrs/blockId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| Some(id) == self.selected_block);
+                occupied.retain(|&(_, _, until)| until > row_index);
+                let mut column = 0;
+                let mut cells = vec![];
+                if let Some(content) = row.get("content").and_then(Value::as_array) {
+                    for cell in content {
+                        let span = |name| {
+                            cell.get("attrs")
+                                .and_then(|attrs| attrs.get(name))
+                                .and_then(Value::as_u64)
+                                .unwrap_or(1) as usize
+                        };
+                        let colspan = span("colspan");
+                        let rowspan = span("rowspan");
+                        while let Some(&(_, end, _)) = occupied
+                            .iter()
+                            .find(|&&(start, end, _)| start < column + colspan && column < end)
+                        {
+                            column = end;
+                        }
+                        let body = self.render(cell, selected);
+                        detailed |= colspan > 1 || rowspan > 1 || body.text.contains(['\n', '|']);
+                        if rowspan > 1 {
+                            occupied.push((column, column + colspan, row_index + rowspan));
+                        }
+                        cells.push(Cell {
+                            column,
+                            colspan,
+                            rowspan,
+                            body,
+                        });
+                        column += colspan;
+                    }
+                }
+                projected.push((selected, cells));
+            }
+            let mut result = Projection::default();
+            for (row_index, (selected, cells)) in projected.into_iter().enumerate() {
+                if !selected {
+                    continue;
+                }
+                if !result.text.is_empty() {
+                    result.push(if detailed { "\n\n" } else { "\n" });
+                }
+                if detailed {
+                    // Markdown has no portable merged/multiline cell syntax.
+                    // Explicit coordinates and fenced raw bodies preserve both
+                    // relationships and exact evidence spans without guessing
+                    // headers, duplicating merged values, or escaping evidence.
+                    result.push(&format!("**Row {}**", row_index + 1));
+                    for cell in cells {
+                        let column = cell.column + 1;
+                        let label = if cell.colspan > 1 {
+                            format!("Columns {column}-{}", cell.column + cell.colspan)
+                        } else {
+                            format!("Column {column}")
+                        };
+                        result.push(&format!("\n\n{label}"));
+                        if cell.colspan > 1 || cell.rowspan > 1 {
+                            result.push(&format!(
+                                " (colspan={}, rowspan={})",
+                                cell.colspan, cell.rowspan
+                            ));
+                        }
+                        // A body may itself contain code or a nested table.
+                        let fence = "`".repeat(
+                            cell.body
+                                .text
+                                .split(|c| c != '`')
+                                .map(str::len)
+                                .max()
+                                .unwrap_or(0)
+                                .max(2)
+                                + 1,
+                        );
+                        result.push(&format!(":\n\n{fence}text\n"));
+                        result.append(cell.body);
+                        result.push(&format!("\n{fence}"));
+                    }
+                } else {
+                    result.push("| ");
+                    for (index, cell) in cells.into_iter().enumerate() {
+                        if index > 0 {
+                            result.push(" | ");
+                        }
+                        result.append(cell.body);
+                    }
+                    result.push(" |");
+                    if row_index == 0
+                        && rows[0]["content"].as_array().is_some_and(|cells| {
+                            !cells.is_empty()
+                                && cells.iter().all(|cell| cell["type"] == "tableHeader")
+                        })
+                    {
+                        result.push("\n|");
+                        for _ in rows[0]["content"].as_array().unwrap() {
+                            result.push(" --- |");
+                        }
+                    }
+                }
+            }
+            result
+        }
+    }
     let range = selection.and_then(|selection| selection.locator.as_ref());
     if let Some(locator) = range {
         if !matches!(locator, SourceLocator::Paragraph {start,end} if *start>0 && end>=start) {
             return Err(invalid("Record selection requires a valid paragraph range"));
         }
     }
-    let selected_block = selection.and_then(|selection| selection.block_id.as_ref());
-    let mut block_found = selected_block.is_none();
-    let mut paragraph = 0u32;
-
-    let mut text = String::new();
-    let mut spans = vec![];
-    let mut chars = 0;
-    let mut stack = vec![(document, false)];
-    while let Some((node, ancestor_selected)) = stack.pop() {
-        let children = node.get("content").and_then(Value::as_array);
-        let block = node.pointer("/attrs/blockId").and_then(Value::as_str);
-        let selected = selected_block.is_none()
-            || ancestor_selected
-            || block.is_some_and(|id| selected_block.is_some_and(|selected| selected == id));
-        block_found |=
-            block.is_some_and(|id| selected_block.is_some_and(|selected| selected == id));
-        let container = children.is_some_and(|children| {
-            children
-                .iter()
-                .any(|child| child.pointer("/attrs/blockId").is_some())
-        });
-        if let Some(id) = block.filter(|_| !container) {
-            let mut body = String::new();
-            let mut inline = vec![node];
-            while let Some(part) = inline.pop() {
-                match part.get("type").and_then(Value::as_str) {
-                    Some("text") => {
-                        body.push_str(part.get("text").and_then(Value::as_str).unwrap_or_default())
-                    }
-                    Some("hardBreak") => body.push('\n'),
-                    Some("internalReference" | "contactMention" | "tagMention") => body.push_str(
-                        part.pointer("/attrs/label")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default(),
-                    ),
-                    Some("image") => body.push_str(
-                        part.pointer("/attrs/alt")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default(),
-                    ),
-                    _ => (),
-                }
-                if let Some(content) = part.get("content").and_then(Value::as_array) {
-                    inline.extend(content.iter().rev());
-                }
-            }
-            if !body.is_empty() {
-                paragraph += 1;
-                let in_range = match range {
-                    Some(SourceLocator::Paragraph { start, end }) => {
-                        (*start..=*end).contains(&paragraph)
-                    }
-                    _ => true,
-                };
-                if !selected || !in_range {
-                    continue;
-                }
-                if !text.is_empty() {
-                    text.push_str("\n\n");
-                    chars += 2;
-                }
-                let start = chars;
-                chars += body.chars().count();
-                spans.push(TextSpan {
-                    start_byte: text.len(),
-                    end_byte: text.len() + body.len(),
-                    start,
-                    end: chars,
-                    block_id: id.into(),
-                    paragraph,
-                });
-                text.push_str(&body);
-            }
-        } else if let Some(content) = children {
-            stack.extend(content.iter().rev().map(|child| (child, selected)));
-        }
-    }
-    if !block_found || matches!(range,Some(SourceLocator::Paragraph {start,..}) if *start>paragraph)
+    let selected_block = selection.and_then(|selection| selection.block_id.as_deref());
+    let mut renderer = Renderer {
+        selected_block,
+        range,
+        block_found: selected_block.is_none(),
+        paragraph: 0,
+    };
+    let result = renderer.render(document, false);
+    if !renderer.block_found
+        || matches!(range,Some(SourceLocator::Paragraph {start,..}) if *start>renderer.paragraph)
     {
         return Err(AgentError::new(
             ErrorCode::NotFound,
             "Selected source range is no longer present",
         ));
     }
-    if matches!(range,Some(SourceLocator::Paragraph {end,..}) if *end>paragraph) {
+    if matches!(range,Some(SourceLocator::Paragraph {end,..}) if *end>renderer.paragraph) {
         return Err(invalid("Paragraph range exceeds this source"));
     }
-    Ok((text, spans))
+    Ok((result.text, result.spans))
 }
+
 pub(crate) struct SourceService<'a, S> {
     pub(super) store: &'a S,
 }
@@ -1196,6 +1368,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             items: vec![],
             has_more: false,
             stale_count: 0,
+            coverage_note: (input.kinds.is_empty() || input.kinds.iter().any(|kind| *kind != ObjectKind::Record)).then_some("Current Records are searched from saved content. Other source kinds depend on available indexes; no matches does not prove their content is absent."),
         };
         let mut file_checks = vec![];
         for candidate in candidates.items {
@@ -1998,6 +2171,235 @@ mod tests {
         )
         .unwrap();
     }
+    // Dedicated Record table projection fixtures keep canonical leaf identities
+    // stable across full reads, block selections, paragraph reads and indexing.
+    fn record_table_block(id: u32, text: &str) -> Value {
+        json!({"type":"paragraph","attrs":{"blockId":format!("{id:032x}")},
+            "content":[{"type":"text","text":text}]})
+    }
+    fn record_table_fixture() -> Value {
+        let cell = |id: u32, paragraph: u32, text: &str, header: bool| {
+            json!({"type":if header {"tableHeader"} else {"tableCell"},
+                "attrs":{"blockId":format!("{id:032x}"),"colspan":1,"rowspan":1},
+                "content":[record_table_block(paragraph, text)]})
+        };
+        json!({"type":"doc","content":[record_table_block(1,"列车🚄发布排期"),
+            {"type":"table","attrs":{"blockId":format!("{:032x}",10)},"content":[
+                {"type":"tableRow","attrs":{"blockId":format!("{:032x}",11)},"content":[
+                    cell(12,13,"版本",true),cell(14,15,"中国区发布日期",true),cell(16,17,"国际区发布日期",true)]},
+                {"type":"tableRow","attrs":{"blockId":format!("{:032x}",20)},"content":[
+                    cell(21,22,"5.1",false),cell(23,24,"2026-11-04",false),cell(25,26,"2026-11-11",false)]},
+                {"type":"tableRow","attrs":{"blockId":format!("{:032x}",30)},"content":[
+                    cell(31,32,"5.2",false),cell(33,34,"2026-12-02",false),cell(35,36,"待定",false)]}
+            ]},record_table_block(40,"以上为计划日期")]})
+    }
+    fn assert_record_table_spans(document: &Value, text: &str, spans: &[TextSpan]) {
+        let mut leaves = vec![];
+        let mut stack = vec![document];
+        while let Some(node) = stack.pop() {
+            if node["type"] == "paragraph" {
+                let mut body = String::new();
+                for inline in node["content"].as_array().unwrap() {
+                    if inline["type"] == "hardBreak" {
+                        body.push('\n');
+                    } else if let Some(text) = inline["text"].as_str() {
+                        body.push_str(text);
+                    }
+                }
+                if !body.is_empty() {
+                    leaves.push((node["attrs"]["blockId"].as_str().unwrap(), body));
+                }
+            } else if let Some(children) = node["content"].as_array() {
+                stack.extend(children.iter().rev());
+            }
+        }
+        let characters: Vec<_> = text.chars().collect();
+        assert_eq!(spans.len(), leaves.len());
+        for (index, (span, (id, body))) in spans.iter().zip(&leaves).enumerate() {
+            assert_eq!(span.block_id, *id);
+            assert_eq!(span.paragraph, index as u32 + 1);
+            assert_eq!(&text[span.start_byte..span.end_byte], body);
+            assert_eq!(
+                characters[span.start..span.end].iter().collect::<String>(),
+                *body
+            );
+        }
+        assert_eq!(
+            committed_paragraphs(document).unwrap(),
+            leaves.into_iter().map(|(_, body)| body).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn record_table_projection_keeps_release_rows_and_original_leaf_spans() {
+        let document = record_table_fixture();
+        let (text, spans) = flatten_record(&document, None).unwrap();
+        assert_eq!(text, "列车🚄发布排期\n\n| 版本 | 中国区发布日期 | 国际区发布日期 |\n| --- | --- | --- |\n| 5.1 | 2026-11-04 | 2026-11-11 |\n| 5.2 | 2026-12-02 | 待定 |\n\n以上为计划日期");
+        assert_record_table_spans(&document, &text, &spans);
+    }
+    #[test]
+    fn record_table_projection_preserves_multiline_and_merged_cell_coordinates() {
+        let mut document = record_table_fixture();
+        let rows = document["content"][1]["content"].as_array_mut().unwrap();
+        rows[0]["content"][1]["attrs"]["colspan"] = json!(2);
+        rows[0]["content"].as_array_mut().unwrap().remove(2);
+        rows[1]["content"][0]["attrs"]["rowspan"] = json!(2);
+        rows[2]["content"].as_array_mut().unwrap().remove(0);
+        rows[1]["content"][1]["content"][0]["content"] = json!([
+            {"type":"text","text":"2026-11-04"},{"type":"hardBreak"},
+            {"type":"text","text":"中国 | 灰度🚄"}]);
+        rows[1]["content"][1]["content"]
+            .as_array_mut()
+            .unwrap()
+            .push(record_table_block(27, "```text\n补充说明\n```"));
+        let (text, spans) = flatten_record(&document, None).unwrap();
+        assert!(text.contains("Columns 2-3 (colspan=2, rowspan=1)"));
+        assert!(text.contains("Column 1 (colspan=1, rowspan=2)"));
+        assert!(text.contains("2026-11-04\n中国 | 灰度🚄\n\n```text\n补充说明\n```"));
+        assert!(text.contains("Column 2:\n\n````text\n2026-11-04"));
+        let last_row = text.split("**Row 3**").nth(1).unwrap();
+        assert!(last_row.starts_with("\n\nColumn 2:\n\n```text\n2026-12-02"));
+        assert!(last_row.contains("Column 3:\n\n```text\n待定"));
+        assert_record_table_spans(&document, &text, &spans);
+        let (cell, spans) = flatten_record(
+            &document,
+            Some(&SourceSelection {
+                block_id: Some(format!("{:032x}", 23)),
+                locator: None,
+            }),
+        )
+        .unwrap();
+        assert_eq!(cell, "2026-11-04\n中国 | 灰度🚄\n\n```text\n补充说明\n```");
+        assert_eq!(
+            spans.iter().map(|span| span.paragraph).collect::<Vec<_>>(),
+            vec![5, 6]
+        );
+        let (row, spans) = flatten_record(
+            &document,
+            Some(&SourceSelection {
+                block_id: Some(format!("{:032x}", 30)),
+                locator: None,
+            }),
+        )
+        .unwrap();
+        assert!(row.starts_with("**Row 3**\n\nColumn 2:"));
+        assert!(!row.contains("5.1") && !row.contains("2026-11-04"));
+        assert_eq!(spans.len(), 2);
+    }
+    #[test]
+    fn record_table_projection_keeps_empty_cells_without_inventing_paragraphs() {
+        let mut document = record_table_fixture();
+        document["content"][1]["content"][1]["content"][1]["content"][0]["content"] = json!([]);
+        let (text, spans) = flatten_record(&document, None).unwrap();
+        assert!(text.contains("| 5.1 |  | 2026-11-11 |"));
+        assert_record_table_spans(&document, &text, &spans);
+    }
+    #[tokio::test]
+    async fn record_table_projection_read_selection_paging_and_index_keep_leaf_identity() {
+        let (directory, store, request, mut input) = fixture("before");
+        let document = record_table_fixture();
+        let (expected, _) = flatten_record(&document, None).unwrap();
+        commit_document(&store, &input, document.clone(), &expected);
+        input.budget_chars = Some(12000);
+        let service = SourceService::new(&store);
+        let full = service.read(&request, &input).unwrap();
+        assert_eq!(full.text, expected);
+        assert_eq!(full.spans.len(), 11);
+        input.view = SourceReadView::Range;
+        for (id, expected, paragraphs) in [
+            (10, "| 版本 | 中国区发布日期 | 国际区发布日期 |\n| --- | --- | --- |\n| 5.1 | 2026-11-04 | 2026-11-11 |\n| 5.2 | 2026-12-02 | 待定 |", vec![2,3,4,5,6,7,8,9,10]),
+            (20, "| 5.1 | 2026-11-04 | 2026-11-11 |", vec![5,6,7]),
+            (23, "2026-11-04", vec![6]),
+            (24, "2026-11-04", vec![6]),
+        ] {
+            input.selection = Some(SourceSelection { block_id: Some(format!("{id:032x}")), locator: None });
+            let page = service.read(&request, &input).unwrap();
+            assert_eq!(page.text, expected);
+            assert!(page.range_complete);
+            assert!(!page.complete);
+            assert_eq!(page.spans.iter().map(|span| match span.locator {
+                SourceLocator::Paragraph { start, end } => {assert_eq!(start,end); start},
+                _ => panic!("Record needs paragraph locators"),
+            }).collect::<Vec<_>>(), paragraphs);
+        }
+        input.selection = Some(SourceSelection {
+            block_id: Some(format!("{:032x}", 23)),
+            locator: Some(SourceLocator::Paragraph { start: 7, end: 7 }),
+        });
+        assert!(service.read(&request, &input).unwrap().text.is_empty());
+        input.selection = Some(SourceSelection {
+            block_id: None,
+            locator: Some(SourceLocator::Paragraph { start: 6, end: 7 }),
+        });
+        assert_eq!(
+            service.read(&request, &input).unwrap().text,
+            "2026-11-04\n\n2026-11-11"
+        );
+        input.selection = None;
+        input.view = SourceReadView::Full;
+        input.budget_chars = Some(1800);
+        let mut paged = String::new();
+        loop {
+            let page = service.read(&request, &input).unwrap();
+            let characters: Vec<_> = page.text.chars().collect();
+            for span in &page.spans {
+                assert!(span.start < span.end && span.end <= characters.len());
+                let original = full
+                    .spans
+                    .iter()
+                    .find(|original| original.block_id == span.block_id)
+                    .unwrap();
+                assert_eq!(
+                    serde_json::to_value(&span.locator).unwrap(),
+                    serde_json::to_value(&original.locator).unwrap()
+                );
+            }
+            paged.push_str(&page.text);
+            input.cursor = page.next_cursor;
+            if input.cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(paged, expected);
+        service
+            .index_record(&request, &input.source, SourceIndexBudget::default())
+            .unwrap();
+        let found = service
+            .search(
+                &request,
+                &SourceSearchInput {
+                    scope: Scope::Workspace,
+                    query: "2026-11-04".into(),
+                    kinds: vec![ObjectKind::Record],
+                    selected: vec![],
+                    include_history: false,
+                    limit: None,
+                    budget_chars: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(found.items.len(), 1);
+        assert_eq!(found.items[0].source_ref.revision, full.source_ref.revision);
+        assert!(found.items[0].source_ref.excerpt.contains("2026-11-04"));
+        assert!(found.items[0].source_ref.block_id.is_none());
+        assert!(found.items[0].source_ref.locator.is_none());
+        // The retrieval cache still stores the original leaf identities; the
+        // direct current-Record search above deliberately has no block locator.
+        let connection =
+            rusqlite::Connection::open(directory.path().join("source.sqlite")).unwrap();
+        let (block, locator): (String, String) = connection
+            .query_row(
+                "SELECT block_id,locator_json FROM source_index_chunks WHERE text='2026-11-04'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(block, format!("{:032x}", 24));
+        assert!(matches!(
+            serde_json::from_str::<SourceLocator>(&locator).unwrap(),
+            SourceLocator::Paragraph { start: 6, end: 6 }
+        ));
+    }
     #[test]
     fn source_read_block_range_includes_its_children_and_no_adjacent_body() {
         let (_directory, store, request, mut input) = fixture("before");
@@ -2337,7 +2739,7 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn source_search_indexes_committed_blocks_and_rechecks_real_revision_before_returning_evidence(
+    async fn source_search_uses_current_body_and_rechecks_real_revision_before_returning_evidence(
     ) {
         let (_directory, store, request, input) = fixture("合同风险 evidence");
         let service = SourceService::new(&store);
@@ -2355,10 +2757,8 @@ mod tests {
             .unwrap();
         let page = service.search(&request, &query).await.unwrap();
         assert_eq!(page.items.len(), 1);
-        assert_eq!(
-            page.items[0].source_ref.block_id.as_deref(),
-            Some("1234567890abcdef1234567890abcdef")
-        );
+        // Search references the saved document; precise blocks come from a source read.
+        assert!(page.items[0].source_ref.block_id.is_none());
         let read = service.read(&request, &input).unwrap();
         assert_eq!(page.items[0].source_ref.revision, read.source_ref.revision);
         assert!(crate::agent::context::serialized_chars(&page).unwrap() <= 3000);
@@ -2366,7 +2766,7 @@ mod tests {
         commit_document(&store, &input, document, "新的证据 evidence");
         let stale = service.search(&request, &query).await.unwrap();
         assert!(stale.items.is_empty());
-        assert_eq!(stale.stale_count, 1);
+        assert_eq!(stale.stale_count, 0);
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
             .unwrap();
@@ -2390,6 +2790,11 @@ mod tests {
             service.read(&request, &input).unwrap().source_ref.revision
         );
     }
+    fn cached_record_search(store: &Store, request: &RequestContext, query: &str) -> crate::source_search_index::SearchPage {
+        store.with_current(|binding, db| {
+            db.source_cached_record_search_for_test(request, binding, query)
+        }).unwrap()
+    }
     #[tokio::test]
     async fn source_index_record_reports_partial_when_scope_batch_character_budget_is_reached() {
         let body = format!("evidence {}", "a".repeat(900));
@@ -2405,21 +2810,7 @@ mod tests {
                 },
             )
             .unwrap();
-        let page = service
-            .search(
-                &request,
-                &SourceSearchInput {
-                    scope: Scope::Workspace,
-                    query: "evidence".into(),
-                    kinds: vec![],
-                    selected: vec![],
-                    include_history: false,
-                    limit: None,
-                    budget_chars: None,
-                },
-            )
-            .await
-            .unwrap();
+        let page = cached_record_search(&store, &request, "evidence");
         assert_eq!(page.items.len(), 1);
         assert!(!page.items[0].coverage.complete);
         assert_eq!(page.items[0].coverage.chars, 600);
@@ -2448,14 +2839,17 @@ mod tests {
             limit: None,
             budget_chars: None,
         };
-        let partial = service.search(&request, &query).await.unwrap();
+        let partial = cached_record_search(&store, &request, &query.query);
+        let current = service.search(&request, &query).await.unwrap();
+        assert!(current.items[0].coverage.complete);
+        assert_eq!(current.items[0].coverage.chars, body.chars().count() as u32);
         assert_eq!(partial.items.len(), 1);
         assert_eq!(partial.items[0].coverage.chars, 3400);
         assert!(!partial.items[0].coverage.complete);
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
             .unwrap();
-        let complete = service.search(&request, &query).await.unwrap();
+        let complete = cached_record_search(&store, &request, &query.query);
         assert_eq!(complete.items.len(), 1);
         assert_eq!(complete.items[0].coverage.chars, 4009);
         assert!(complete.items[0].coverage.complete);

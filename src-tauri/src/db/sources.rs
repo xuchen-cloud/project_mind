@@ -518,7 +518,7 @@ impl Database {
         }
         let index = crate::source_search_index::SourceIndex::prepare(&self.conn)?;
         self.source_prune_cache(binding, &input.scope)?;
-        index.search(
+        let mut cached = index.search_cached(
             request,
             binding,
             &input.scope,
@@ -531,7 +531,27 @@ impl Database {
             } else {
                 &input.kinds
             }),
-        )
+            false,
+        )?;
+        if input.kinds.is_empty() || input.kinds.contains(&ObjectKind::Record) {
+            let mut records = self.source_search_current_records(request, binding, input)?;
+            records.has_more |= cached.has_more;
+            records.items.append(&mut cached.items);
+            let limit = input.limit.unwrap_or(8);
+            if records.items.len() > limit {
+                records.has_more = true;
+                records.items.truncate(limit);
+            }
+            return Ok(records);
+        }
+        Ok(cached)
+    }
+    #[cfg(test)]
+    pub(crate) fn source_cached_record_search_for_test(
+        &self, request: &RequestContext, binding: &WorkspaceBinding, query: &str,
+    ) -> AgentResult<crate::source_search_index::SearchPage> {
+        crate::source_search_index::SourceIndex::prepare(&self.conn)?.search(
+            request, binding, &Scope::Workspace, query, &[], false, 8, None)
     }
     pub(crate) fn source_verify_search_page(
         &self,

@@ -48,6 +48,7 @@ mod record_documents;
 mod record_references;
 mod workspace_record_references;
 mod sources;
+mod source_record_search;
 mod source_files;
 mod source_native;
 mod source_navigation;

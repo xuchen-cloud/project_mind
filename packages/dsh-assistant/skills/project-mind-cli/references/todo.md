@@ -2,7 +2,7 @@
 
 ## Choose create or update
 
-Apply the shared [binding/authorization check](../SKILL.md#check-binding-and-authorization) and [write decision](../SKILL.md#4-apply-the-requested-change) before creating or changing a Todo. Reuse relevant native evidence; if needed, list the intended scope with appropriate date/status filters and read plausible targets with `todo.get`.
+Apply the shared [binding/authorization check](binding.md#check-binding-and-authorization) and [write decision](writes.md#apply-the-requested-change) before creating or changing a Todo. Reuse relevant native evidence; if needed, list the intended scope with appropriate date/status filters and read plausible targets with `todo.get`.
 
 - **Create:** the user means a distinct action or deliverable. Similar text alone does not justify merging; different dates, occurrences or delivery meaning can warrant separate Todos. A bounded list does not prove that no related Todo exists.
 - **Update:** the user refers to the same action. Use its native ObjectRef and current revision; change only the requested content, status, priority, deadline or children, preserving other fields.
@@ -130,4 +130,4 @@ printf '%s\n' "$current" | jq -ce --argjson childId "$CHILD_ID" '
 ' | mind todo update --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json
 ```
 
-To edit content/deadline instead, replace only those values in the constructed child mutation and preserve its current status. Setting `dueDate:null` explicitly clears the deadline. Parent deadline changes use `{"change":"deadline","dueDate":null}` to clear, or an explicit date to set. Finish with the [receipt and readback criteria](../SKILL.md#5-verify-and-report); use the [recovery process](../SKILL.md#recover-from-the-actual-outcome) for failures or uncertain outcomes.
+To edit content/deadline instead, replace only those values in the constructed child mutation and preserve its current status. Setting `dueDate:null` explicitly clears the deadline. Parent deadline changes use `{"change":"deadline","dueDate":null}` to clear, or an explicit date to set. Finish with the [receipt and readback criteria](writes.md#verify-and-report); use the [recovery process](writes.md#recover-from-the-actual-outcome) for failures or uncertain outcomes.

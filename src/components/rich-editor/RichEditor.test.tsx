@@ -18,6 +18,38 @@ import appStyles from "../../styles/app.css?raw";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
 
+it.each(["", "<p></p>", "<p>Existing</p>", `<p data-block-id="${"e".repeat(32)}">Existing</p>`])("validates an immediate canonical Record save after mounting %s", async (html) => {
+  const { handleRecordDocumentRequest } = await import("../../workers/record-document-worker");
+  const { persistRecordSnapshot } = await import("../../lib/record-save-persistence");
+  const { recordDocumentApi } = await import("../../services/recordDocumentApi");
+  const controllerRef = { current: null as RichEditorController | null };
+  // Only the native IPC boundary is replaced. Validate the actual adapter input
+  // with the canonical worker rather than repairing a fixture before saving.
+  const bodySave = vi.spyOn(recordDocumentApi, "bodySave").mockImplementation(async (_binding, input, requestId) => {
+    const result = await handleRecordDocumentRequest({ requestId, method: "record.validate", data: { document: input.document } });
+    if (!result.ok || !result.data || !("document" in result.data)) throw new Error(JSON.stringify(result));
+    const projection = result.data;
+    const head = { target: input.target, headRevision: 2, editSessionId: input.editSessionId, checkpointDueAt: null, projection };
+    const metadata = { title: null, tagIds: [], revision: "m1", updatedAt: "saved" };
+    const record = { id: 7, title: null, contentHtml: projection.html, contentMarkdown: projection.markdown, tags: [], createdAt: "created", updatedAt: "saved" };
+    return { commit: { head, metadata, noChange: false, beforeVersion: null, afterVersion: null }, editor: { head, metadata, record } };
+  });
+  try {
+    const onSave = vi.fn(async (committedContent: import("./types").RichEditorValue) => persistRecordSnapshot({
+      scope: "workspace", workspaceKey: "/fixture", recordId: 7, title: "", tagIds: [], defaultCodeLanguage: null, committedContent,
+      canonicalBody: { binding: { workspaceId: "w1", generation: "g1" }, requestId: "immediate-save", baseRevision: 1,
+        document: controllerRef.current!.getCommittedDocumentJson(), origin: "manual", editSessionId: "f".repeat(32) },
+    }));
+    render(<RichEditor variant="bare" recordKey="w1:workspace:7" defaultHtml={html} controllerRef={controllerRef} onSave={onSave} />);
+    expect(controllerRef.current).not.toBeNull();
+    // No waitFor, focus, edit, or create timer before the first save.
+    await act(async () => { await controllerRef.current!.save({ force: true }); });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(bodySave).toHaveBeenCalledTimes(1);
+    if (html.includes("data-block-id")) expect(bodySave.mock.calls[0][1].document.content![0].attrs!.blockId).toBe("e".repeat(32));
+  } finally { bodySave.mockRestore(); }
+});
+
 it("restores a paused canonical Record's undo history and selection into a new editor", async () => {
   const user = userEvent.setup();
   const controllerRef = { current: null as RichEditorController | null };
@@ -4871,6 +4903,13 @@ describe("RichEditor context menus", () => {
   });
 
   it("renders inline rewrite suggestions in the editor and accepts the streamed result", async () => {
+    const { handleRecordDocumentRequest } = await import("../../workers/record-document-worker");
+    const controllerRef = { current: null as RichEditorController | null };
+    const validateCommitted = async () => {
+      const result = await handleRecordDocumentRequest({ requestId: "compare", method: "record.validate",
+        data: { document: controllerRef.current!.getCommittedDocumentJson() } });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+    };
     const user = userEvent.setup();
     const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
     let targetKey = "";
@@ -4892,6 +4931,8 @@ describe("RichEditor context menus", () => {
     const onChange = vi.fn();
     const { container } = render(
       <RichEditor
+        recordKey="workspace/record/compare"
+        controllerRef={controllerRef}
         variant="bare"
         defaultHtml="<p>hello world</p>"
         onChange={onChange}
@@ -4995,10 +5036,12 @@ describe("RichEditor context menus", () => {
         expect(container.querySelectorAll(".ProseMirror p")[0]?.textContent).toBe("hello world");
         expect(compareButton).toHaveTextContent("原文");
       });
+      await validateCommitted();
 
       fireEvent.pointerUp(compareButton, { pointerId: index + 1 });
       expect(container.querySelectorAll(".ProseMirror p")[0]?.textContent).toBe("a much longer rewritten paragraph");
       expect(compareButton).toHaveTextContent("对比");
+      await validateCommitted();
     }
 
     expect(Array.from(container.querySelectorAll(".ProseMirror p")).map((item) => item.textContent)).toEqual([
@@ -5012,6 +5055,7 @@ describe("RichEditor context menus", () => {
       expect(container.querySelector(".ProseMirror")?.textContent).toContain("a much longer rewritten paragraph");
       expect(container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
     });
+    await validateCommitted();
 
     enqueueSpy.mockRestore();
     ensureSyncSpy.mockRestore();

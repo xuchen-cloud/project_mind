@@ -232,6 +232,7 @@ impl<'a> SourceIndex<'a> {
         request.authorize(binding, scope, "source.read")?;
         self.conn.query_row("SELECT count(DISTINCT s.object_key),count(*),(SELECT count(*) FROM source_index_chunks c JOIN source_index_snapshots t ON t.id=c.snapshot_id WHERE t.workspace_id=?1 AND t.scope_key=?2),coalesce(sum(length(CAST(s.object_json AS BLOB))+length(CAST(s.title AS BLOB))+length(s.revision)+length(s.coverage_json)),0)+(SELECT coalesce(sum(length(CAST(c.title AS BLOB))+length(CAST(c.text AS BLOB))+length(c.locator_json)+coalesce(length(c.block_id),0)),0) FROM source_index_chunks c JOIN source_index_snapshots t ON t.id=c.snapshot_id WHERE t.workspace_id=?1 AND t.scope_key=?2) FROM source_index_snapshots s WHERE s.workspace_id=?1 AND s.scope_key=?2",params![binding.workspace_id,scope.key()],|row|Ok(SourceCacheCapacity {objects:row.get::<_,i64>(0)? as u64,snapshots:row.get::<_,i64>(1)? as u64,chunks:row.get::<_,i64>(2)? as u64,content_bytes:row.get::<_,i64>(3)? as u64})).map_err(io_error)
     }
+    #[cfg(test)]
     pub(crate) fn search(
         &self,
         request: &RequestContext,
@@ -242,6 +243,20 @@ impl<'a> SourceIndex<'a> {
         include_history: bool,
         limit: usize,
         kinds: Option<&[ObjectKind]>,
+    ) -> AgentResult<SearchPage> {
+        self.search_cached(request, binding, scope, query, selected, include_history, limit, kinds, true)
+    }
+    pub(crate) fn search_cached(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        scope: &Scope,
+        query: &str,
+        selected: &[String],
+        include_history: bool,
+        limit: usize,
+        kinds: Option<&[ObjectKind]>,
+        current_records: bool,
     ) -> AgentResult<SearchPage> {
         request.authorize(binding, scope, "source.read")?;
         if query.trim().is_empty() {
@@ -305,10 +320,10 @@ impl<'a> SourceIndex<'a> {
             .map_err(|_| invalid("Invalid granted objects"))?;
         // Apply scope/policy/current-version constraints before materializing
         // candidates, including the short-query fallback.
-        let source_filters = "s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current)
+        let source_filters = format!("s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current)
             AND (?9 IS NULL OR json_extract(s.object_json,'$.kind') IN (SELECT value FROM json_each(?9)))
             AND (?11 IS NULL OR s.object_key IN (SELECT value FROM json_each(?11)))
-            AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1)";
+            AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1) {}", if current_records { "" } else { "AND NOT (json_extract(s.object_json,'$.kind')='record' AND s.is_current)" });
         let filters = format!("{source_filters} AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')");
         let matches = if long.is_empty() {
             format!("SELECT c.id AS rowid,0.0 AS rank,substr(c.text,1,240) AS excerpt FROM source_index_snapshots s JOIN source_index_chunks c ON c.snapshot_id=s.id WHERE {filters}")
