@@ -82,6 +82,14 @@ pub(crate) async fn execute<S: BoundRecordStore + crate::file_version_service::B
             let input: RecordPatchPreviewInput = decode(params)?;
             return Ok(json!(service.patch_preview(request, &input).await?));
         }
+        "record.text.patch" => {
+            let input = decode::<crate::agent::record_text::RecordTextPatch>(params)?;
+            json!(service.text_patch(request, &input).await?)
+        }
+        "record.text.patch.preview" => {
+            let input = decode::<crate::agent::record_text::RecordTextPreview>(params)?;
+            return Ok(json!(service.text_patch_preview(request, &input).await?));
+        }
         "record.restore" => {
             let input = decode::<MutationInput<RecordRestoreInput>>(params)?.bind(request)?;
             json!(service.restore(request, &input).await?)

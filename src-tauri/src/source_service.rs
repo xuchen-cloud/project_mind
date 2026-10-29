@@ -580,7 +580,7 @@ pub(crate) struct SourceSearchInput {
     #[schemars(
         length(min = 1, max = 256),
         regex(pattern = r"\S"),
-        description = "Query containing non-whitespace characters, at most 256 characters including surrounding whitespace. Search trims surrounding whitespace and accepts at most 16 whitespace-separated terms."
+        description = "Query containing non-whitespace characters, at most 256 characters including surrounding whitespace. Search trims surrounding whitespace and accepts at most 16 whitespace-separated literal terms, combined with document-level AND across title and saved/indexed content. This is not a regular-expression search."
     )]
     pub query: String,
     #[serde(default)]
@@ -595,12 +595,17 @@ pub(crate) struct SourceSearchInput {
     pub limit: Option<usize>,
     #[schemars(range(min = 1, max = 12000))]
     pub budget_chars: Option<usize>,
+    #[serde(default)]
+    #[schemars(length(max = 4096), description = "Opaque continuation from nextCursor. Query, scope, kinds, selected sources, grants, workspace binding and source data must remain unchanged. Expires after 30 minutes; restart on SOURCE_CHANGED.")]
+    pub cursor: Option<String>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SourceSearchPage {
     pub items: Vec<crate::source_search_index::SearchCandidate>,
     pub has_more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
     pub stale_count: usize,
     /// Non-Record results depend on extraction/index coverage, including on an empty page.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -633,13 +638,13 @@ pub(crate) struct SourceSnapshot {
     pub document: Value,
     pub updated_at: String,
 }
-struct TextSpan {
-    start_byte: usize,
-    end_byte: usize,
-    start: usize,
-    end: usize,
-    block_id: String,
-    paragraph: u32,
+pub(crate) struct TextSpan {
+    pub(crate) start_byte: usize,
+    pub(crate) end_byte: usize,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) block_id: String,
+    pub(crate) paragraph: u32,
 }
 pub(crate) fn committed_paragraphs(document: &Value) -> AgentResult<Vec<String>> {
     let (text, spans) = flatten_record(document, None)?;
@@ -657,7 +662,7 @@ fn changed() -> AgentError {
         "Source changed during reading; start from its current reference",
     )
 }
-fn flatten_record(
+pub(crate) fn flatten_record(
     document: &Value,
     selection: Option<&SourceSelection>,
 ) -> AgentResult<(String, Vec<TextSpan>)> {
@@ -1320,6 +1325,11 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         input: &SourceSearchInput,
     ) -> AgentResult<SourceSearchPage> {
         use crate::agent::models::ObjectKind;
+        use crate::source_search_index::cursor::{State, Position};
+        if input.query.trim().is_empty() { return Err(invalid("Source search query must contain non-whitespace characters")); }
+        if input.query.chars().count()>256 { return Err(invalid("Source search query must contain at most 256 characters")); }
+        if input.query.split_whitespace().count()>16 { return Err(invalid("Source search query must contain at most 16 whitespace-separated terms")); }
+        if input.selected.len()>50 { return Err(invalid("Source search selected sources must contain at most 50 items")); }
         let budget = input.budget_chars.unwrap_or(3000).min(12000);
         if budget == 0 {
             return Err(invalid("Source search budget must be positive"));
@@ -1332,7 +1342,12 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         let native_selected: Vec<_> = input.selected.iter().filter(|object| object.kind != ObjectKind::SessionSummary).cloned().collect();
         let wants_native = (input.kinds.is_empty() || !native_kinds.is_empty())
             && (input.selected.is_empty() || !native_selected.is_empty());
-        let candidates = self.store.with_current(|binding, db| {
+        let (candidates, state) = self.store.with_current(|binding, db| {
+            if input.cursor.is_none() { request.authorize(binding, &input.scope, "source.read")?; }
+            // Validate cursor binding before regular authorization, so changed grants
+            // or binding produce the continuation contract's SOURCE_CHANGED error.
+            let (epoch, secret) = db.source_search_epoch(binding, &input.scope)?;
+            let state = State::begin(request, binding, input, epoch, secret)?;
             request.authorize(binding, &input.scope, "source.read")?;
             for selected in &input.selected {
                 if selected.workspace_id != binding.workspace_id || selected.scope != input.scope {
@@ -1351,27 +1366,24 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             if wants_summary {
                 let summary = crate::source_session_summary::search(db, request, binding, input)?;
                 candidates.has_more |= summary.has_more;
-                let native = std::mem::take(&mut candidates.items);
-                let mut native = native.into_iter();
-                let mut summary = summary.items.into_iter();
-                loop {
-                    match (native.next(), summary.next()) {
-                        (None, None) => break,
-                        (a, b) => { candidates.items.extend(a); candidates.items.extend(b); }
-                    }
-                }
+                candidates.items.extend(summary.items);
             }
+            candidates.items.sort_by_key(|item| Position::of(item, input));
             if candidates.items.len() > limit { candidates.has_more = true; candidates.items.truncate(limit); }
-            Ok(candidates)
+            Ok((candidates, state))
         })?;
         let mut page = SourceSearchPage {
             items: vec![],
             has_more: false,
+            next_cursor: None,
             stale_count: 0,
             coverage_note: (input.kinds.is_empty() || input.kinds.iter().any(|kind| *kind != ObjectKind::Record)).then_some("Current Records are searched from saved content. Other source kinds depend on available indexes; no matches does not prove their content is absent."),
         };
         let mut file_checks = vec![];
+        let mut last_consumed = state.after.clone();
+        let candidates_has_more = candidates.has_more;
         for candidate in candidates.items {
+            last_consumed = Some(Position::of(&candidate, input));
             let source = SourceReadTarget {
                 object: candidate.source_ref.object.clone(),
                 revision: Some(candidate.source_ref.revision.clone()),
@@ -1463,15 +1475,22 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
                 Err(error) => return Err(error),
             }
         }
-        page.has_more = candidates.has_more && !page.items.is_empty();
+        page.has_more = candidates_has_more;
+        if page.has_more {
+            page.next_cursor = last_consumed.clone().map(|position| state.encode(position)).transpose()?;
+        }
         while crate::agent::context::serialized_chars(&page)? > budget {
-            if page.items.pop().is_none() {
-                return Err(AgentError::new(
-                    ErrorCode::BudgetExceeded,
-                    "Source search metadata does not fit this budget",
-                ));
+            // Trim from the end and resume after the last retained result, not
+            // after all SQL candidates: budget clipping must not drop matches.
+            if page.items.len() <= 1 {
+                let minimum = crate::agent::context::serialized_chars(&page)?;
+                return Err(AgentError::new(ErrorCode::BudgetExceeded,
+                    "Source search item and continuation do not fit this budget")
+                    .with_details(serde_json::json!({"minimumBudgetChars":minimum})));
             }
+            page.items.pop();
             page.has_more = true;
+            page.next_cursor = page.items.last().map(|item| state.encode(Position::of(item, input))).transpose()?;
         }
         // Recheck retained results after all async captures and budget trimming.
         // Revocation is checked before filesystem inspection and after it.
@@ -1497,6 +1516,8 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             crate::source_file_snapshot::verify_file_receipt(&plan, &receipt).await?;
         }
         self.store.with_current(|binding, db| {
+            let (epoch, _) = db.source_search_epoch(binding, &input.scope)?;
+            if epoch != state.epoch { return Err(crate::source_search_index::cursor::changed()); }
             db.source_verify_search_page(request, binding, input, &page)?;
             Ok(page)
         })
@@ -1806,6 +1827,7 @@ mod tests {
                     include_history: false,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
@@ -2047,6 +2069,7 @@ mod tests {
                     include_history: false,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
@@ -2374,6 +2397,7 @@ mod tests {
                     include_history: false,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
@@ -2751,6 +2775,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         service
             .index_record(&request, &input.source, SourceIndexBudget::default())
@@ -2838,6 +2863,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         let partial = cached_record_search(&store, &request, &query.query);
         let current = service.search(&request, &query).await.unwrap();
@@ -2890,6 +2916,7 @@ mod tests {
                     include_history: true,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
@@ -2945,6 +2972,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         assert_eq!(
             SourceService::new(&store)
@@ -3043,6 +3071,7 @@ mod tests {
                     include_history: false,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
@@ -3066,4 +3095,9 @@ mod tests {
             2
         );
     }
+    mod search_paging_tests {
+        use super::*;
+        include!("source_search_paging_tests.rs");
+    }
+
 }

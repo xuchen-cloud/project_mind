@@ -31,9 +31,10 @@ const WRITE_OPERATIONS: [&str; 8] = [
     "operation.undo",
     "schedule.manage",
 ];
+const CONTACT_OPERATIONS: [&str; 2] = ["contact.read", "contact.write"];
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StoredScope {
     workspace_id: String,
     workspace_content: bool,
@@ -253,6 +254,25 @@ impl Database {
             .map_err(io_error)
     }
 
+    /// Exact native provisioning lookup. A capped/public Workspace list may
+    /// hide a malformed or foreign-scope row with this same reserved identity;
+    /// treating it as missing would overwrite or delete its existing credential.
+    pub(crate) fn agent_connection_embedded_grant(
+        &self,
+        binding: &WorkspaceBinding,
+        id: &str,
+    ) -> AgentResult<Option<ConnectionGrant>> {
+        self.connection_binding(binding)?;
+        let Some(stored) = self.stored_connection(id)? else {
+            return Ok(None);
+        };
+        let scope: StoredScope = decode(&stored.scope_json)?;
+        if scope.workspace_id != binding.workspace_id {
+            return Err(denied());
+        }
+        public_grant(stored, scope).map(Some)
+    }
+
     pub fn agent_connection_create(
         &self,
         binding: &WorkspaceBinding,
@@ -304,7 +324,9 @@ impl Database {
         let mut operations: Vec<String> = READ_OPERATIONS.iter().map(|s| (*s).into()).collect();
         operations.push("session.read".into());
         let selected: HashSet<&str> = input.write_operations.iter().map(String::as_str).collect();
-        if selected.iter().any(|operation| !WRITE_OPERATIONS.contains(operation)) {
+        if selected.iter().any(|operation| {
+            !WRITE_OPERATIONS.contains(operation) && !CONTACT_OPERATIONS.contains(operation)
+        }) {
             return Err(AgentError::new(
                 ErrorCode::InvalidArgument,
                 "Unsupported connection operation",
@@ -319,7 +341,10 @@ impl Database {
             }
             operations.push("schedule.read".into());
         }
-        if !selected.is_empty() {
+        if selected
+            .iter()
+            .any(|operation| WRITE_OPERATIONS.contains(operation))
+        {
             operations.push("operation.read".into());
         }
         for operation in WRITE_OPERATIONS {
@@ -329,6 +354,12 @@ impl Database {
         }
         if selected.contains("operation.undo") {
             operations.push("operation.restore_created".into());
+        }
+        if selected.contains("contact.read") || selected.contains("contact.write") {
+            operations.push("contact.read".into());
+        }
+        if selected.contains("contact.write") {
+            operations.push("contact.write".into());
         }
         let scope = StoredScope {
             workspace_id: binding.workspace_id.clone(),
@@ -393,12 +424,11 @@ impl Database {
 
     /// Native provisioning only. Preserve the credential and receipt identity,
     /// and compare the exact previously validated grant before widening it.
-    pub(crate) fn agent_connection_upgrade_embedded_workspace_grant(
+    pub(crate) fn agent_connection_upgrade_embedded_grant(
         &self,
         binding: &WorkspaceBinding,
         previous: &ConnectionGrant,
         token: &str,
-        operations: &[String],
     ) -> AgentResult<()> {
         self.connection_binding(binding)?;
         let stored = self.stored_connection(&previous.id)?.ok_or_else(denied)?;
@@ -418,9 +448,6 @@ impl Database {
         if serde_json::to_value(&actual).map_err(io_error)?
             != serde_json::to_value(previous).map_err(io_error)?
             || scope.workspace_id != binding.workspace_id
-            || !scope.workspace_content
-            || scope.all_projects
-            || !scope.project_ids.is_empty()
             || scope.objects.is_some()
             || !stored.enabled
             || stored.revoked_at.is_some()
@@ -428,10 +455,14 @@ impl Database {
         {
             return Err(denied());
         }
-        scope.all_projects = true;
+        // The only allowed target is the exact current native grant derived
+        // from a recognized historical native identity. This cannot upgrade
+        // an external grant or repair arbitrary edited/malformed permissions.
+        let upgraded = crate::agent::bridge::embedded::upgraded_grant(&actual, binding)?;
+        scope.all_projects = upgraded.all_projects;
         let changed = self.conn.execute(
             "UPDATE agent_connection_grants SET scope_grant_json=?1,operations_json=?2 WHERE id=?3 AND scope_grant_json=?4 AND operations_json=?5 AND client_label=?6 AND created_at=?7 AND enabled=1 AND revoked_at IS NULL",
-            params![serde_json::to_string(&scope).map_err(io_error)?, serde_json::to_string(operations).map_err(io_error)?, previous.id, stored.scope_json, stored.operations_json, stored.client_label, stored.created_at],
+            params![serde_json::to_string(&scope).map_err(io_error)?, serde_json::to_string(&upgraded.operations).map_err(io_error)?, previous.id, stored.scope_json, stored.operations_json, stored.client_label, stored.created_at],
         ).map_err(io_error)?;
         if changed != 1 {
             return Err(denied());

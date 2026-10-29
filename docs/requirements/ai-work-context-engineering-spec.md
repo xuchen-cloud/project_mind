@@ -410,6 +410,7 @@ run events与业务change events是两条流：前者用于会话展示，后者
 - 初始化：旧HTML经共享editor schema解析，生成ID并验证再次序列化后语义未损失；创建baseline版本。未知自定义节点必须保留原始attrs/content，做不到则只读并给迁移诊断，不能静默丢表格、图片标注或附件。
 - 同一块文字编辑、移动、变更mark保留ID；split左/原块保留ID、新块生成ID；merge保留最前块ID，其余ID退休。复制粘贴创建新ID，剪切移动保留ID（同Record）；跨Record粘贴/移动在目标生成新ID。撤销删除可恢复原ID，同一文档任何时刻不重复。
 - 旧HTML只在首次初始化或显式导入时转换，正常保存不能重新生成所有ID。整篇Markdown导入视为新内容，有明确ID变化，不用模糊文本匹配冒充稳定锚点。
+- CLI 文本编辑复用原生 patch 的权限、严格 `headRevision` CAS、编辑器协调、版本、幂等收据和撤销事务。唯一字面替换与追加不要求调用者提供块 ID；Markdown 编辑必须同时提供当前读取的完整基线与修改稿，以精确差异保留未修改块、样式、资源及引用。它不是整篇导入：不能无损确定对应关系时明确拒绝，禁止按相似文本猜测块身份或重建整篇正文。
 - 编辑器新增 `getCommittedDocumentJson()`，复用ADR-0003的Committed Content投影；当前 `getDocumentJson()` 是live editor JSON，可能含未接受AI预览，绝不能直接用于版本、CLI读取或patch基线。
 - canonical解析/序列化提取为无DOM共享模块，Node utility worker和编辑器使用同一schema/转换fixture；Rust对操作与引用/作用域做再次验证。HTML/Markdown/JSON同事务更新，不能维护三个各自可写的事实源。
 

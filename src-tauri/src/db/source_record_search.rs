@@ -56,7 +56,7 @@ impl Database {
         .expect("string array");
         let sql = format!(
             r#"
-            SELECT n.id, h.markdown, length(h.markdown)
+            SELECT n.id, substr(h.markdown, max(1,coalesce((SELECT min(nullif(instr(lower(h.markdown),lower(t.value)),0)) FROM json_each(?5) t),1)-80),320), length(h.markdown)
             FROM {table} n JOIN record_document_heads h ON h.{column}=n.id
             WHERE {predicate}
               AND (?2 IS NULL OR ?3||'/'||?4||'/record/'||n.id IN (SELECT value FROM json_each(?2)))
@@ -65,12 +65,19 @@ impl Database {
               AND NOT EXISTS (SELECT 1 FROM json_each(?5) term
                   WHERE instr(lower(COALESCE(n.title,'')),lower(term.value))=0
                     AND instr(lower(h.markdown),lower(term.value))=0)
+              AND (?9 IS NULL OR (
+                1-(COALESCE(n.title,'')=?6 COLLATE NOCASE),
+                1-(?3||'/'||?4||'/record/'||n.id IN (SELECT value FROM json_each(?7))))>(?10,?11)
+                OR ((1-(COALESCE(n.title,'')=?6 COLLATE NOCASE),
+                     1-(?3||'/'||?4||'/record/'||n.id IN (SELECT value FROM json_each(?7))))=(?10,?11)
+                    AND (n.updated_at<?13 OR (n.updated_at=?13 AND (?3||'/'||?4||'/record/'||n.id,0)>(?9,?12)))))
             ORDER BY (COALESCE(n.title,'')=?6 COLLATE NOCASE) DESC,
                 (?3||'/'||?4||'/record/'||n.id IN (SELECT value FROM json_each(?7))) DESC,
-                n.updated_at DESC,n.id DESC LIMIT ?8
+                n.updated_at DESC,?3||'/'||?4||'/record/'||n.id LIMIT ?8
         "#
         );
         let limit = input.limit.unwrap_or(8);
+        let after = crate::source_search_index::cursor::position(input)?;
         let mut stmt = self.conn.prepare(&sql).map_err(storage_error)?;
         let rows = stmt
             .query_map(
@@ -82,7 +89,10 @@ impl Database {
                     terms_json,
                     input.query.trim(),
                     selected,
-                    limit as i64 + 1
+                    limit as i64 + 1,
+                    after.as_ref().map(|p| p.key.as_str()), after.as_ref().map(|p| p.exact),
+                    after.as_ref().map(|p| p.selected), after.as_ref().map(|p| p.version),
+                    after.as_ref().map(|p| p.updated_at.as_str())
                 ],
                 |r| {
                     Ok((
@@ -125,6 +135,7 @@ impl Database {
                 title: title.clone(),
                 excerpt: excerpt.clone(),
                 score: 0.0,
+                updated_at: fingerprint.updated_at,
                 source_ref: SourceRef {
                     object: fingerprint.object,
                     revision: fingerprint.revision,
@@ -191,6 +202,41 @@ mod tests {
             markdown: text.into(),
             text: text.into(),
             code_language: None,
+        }
+    }
+
+    #[test]
+    fn source_search_prepare_and_prune_preserve_epoch_and_install_all_existing_triggers() {
+        let root=tempfile::tempdir().unwrap();
+        let db=Database::open(&root.path().join("search.sqlite"),root.path(),None).unwrap();
+        let binding=WorkspaceBinding {workspace_id:"search-epoch".into(),generation:"open".into()};
+        let before=db.source_search_epoch(&binding,&Scope::Workspace).unwrap();
+        // Runtime tables are prepared before Database::open returns; cache tables
+        // are prepared by source_search_epoch before the marker is installed.
+        for table in ["source_index_snapshots","source_index_chunks","source_access_policies",
+            "source_file_version_hashes","record_document_heads","record_versions","notes","workspace_notes",
+            "projects","documents","document_versions","todos","voice_records","recording_sessions",
+            "voice_transcript_segments","note_tag_links","workspace_note_tag_links","document_tag_links",
+            "todo_tag_links","agent_object_withdrawals","agent_knowledge_nodes","agent_knowledge_versions",
+            "agent_source_policies"] {
+            let exists:bool=db.conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",[table],|r|r.get(0)).unwrap();
+            if !exists {continue;}
+            for event in ["INSERT","UPDATE","DELETE"] {
+                let name=format!("source_search_epoch_{table}_{event}");
+                let installed:bool=db.conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?1)",[&name],|r|r.get(0)).unwrap();
+                assert!(installed,"missing {name}");
+            }
+        }
+        for table in ["agent_session_search_rows","agent_run_provenance","agent_run_source_dependencies"] {
+            for event in ["UPDATE","DELETE"] {
+                let name=format!("source_search_epoch_{table}_{event}");
+                let installed:bool=db.conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?1)",[&name],|r|r.get(0)).unwrap();
+                assert!(installed,"missing {name}");
+            }
+        }
+        for _ in 0..4 {
+            assert_eq!(db.source_search_epoch(&binding,&Scope::Workspace).unwrap(),before,
+                "prepare/prune must not invalidate the next CLI page");
         }
     }
 
@@ -263,6 +309,7 @@ mod tests {
             include_history: false,
             limit: Some(8),
             budget_chars: None,
+            cursor: None,
         };
         let page = db
             .source_search_candidates(&request, &binding, &input)

@@ -20,6 +20,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+#[path = "record_text_service.rs"]
+mod text_edits;
+
 /// Adapters submit the committed tree only. HTML, Markdown and text come from
 /// the shared converter; title and tags use independent metadata operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -820,11 +823,14 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
         base: &RecordDocumentHead,
         operations: &[crate::agent::outputs::BlockEdit],
     ) -> AgentResult<(RecordDocumentProjection, RecordPatchMetadata)> {
-        let mut converted = self.utility.request(&request.request_id, "record.patch", json!({
+        let converted = self.utility.request(&request.request_id, "record.patch", json!({
             "document":base.projection.document,
             "codeLanguage":base.projection.code_language,
             "operations":operations,
         })).await?;
+        Self::decode_patch_projection(converted)
+    }
+    fn decode_patch_projection(mut converted: Value) -> AgentResult<(RecordDocumentProjection, RecordPatchMetadata)> {
         let metadata: RecordPatchMetadata = converted
             .as_object_mut()
             .and_then(|object| object.remove("patch"))
@@ -901,6 +907,16 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             RecordPatchPreparation::Base(base) => base,
         };
         let (projection, metadata) = self.convert_patch(request, &base, &patch.operations).await?;
+        self.commit_converted_patch(request, crate::agent::record_text::RecordMutation::Blocks(patch), &projection, &metadata).await
+    }
+    async fn commit_converted_patch(
+        &self,
+        request: &RequestContext,
+        edit: crate::agent::record_text::RecordMutation<'_>,
+        projection: &RecordDocumentProjection,
+        metadata: &RecordPatchMetadata,
+    ) -> AgentResult<RecordPatchResult> {
+        let target = edit.target()?;
         // Coordinate after pure conversion and before the submission lock:
         // editor autosave needs that same lock to flush its committed draft.
         self.flush_editors(request, &target, "record.patch").await?;
@@ -910,11 +926,11 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .await?;
         self.access(request, &target, "record.patch", |db| {
             Self::authorize_references(request, db, &projection.document, "record.patch")?;
-            db.record_patch_commit(
+            db.record_mutation_commit(
                 &request.caller.key(),
-                patch,
-                &projection,
-                &metadata,
+                edit,
+                projection,
+                metadata,
                 &request.binding.workspace_id,
             )
         })
@@ -1380,7 +1396,7 @@ mod tests {
                 callback();
             }
             let mut result = serde_json::to_value(&self.projection).unwrap();
-            if method == "record.patch" {
+            if matches!(method, "record.patch" | "record.text.patch") {
                 result["patch"] = json!({"createdBlockIds":[],"deletedBlockIds":[],"normalizations":[],"noChange":false});
             }
             Ok(result)
@@ -2344,6 +2360,7 @@ mod tests {
             crate::record_documents::body_hash(&result.document, &result.code_language);
         result
     }
+    include!("record_text_service_tests.rs");
     #[tokio::test]
     async fn patch_preview_is_bounded_and_leaves_no_native_write_or_editor_flush() {
         let (directory, store, mut utility, mut request, target) = setup();

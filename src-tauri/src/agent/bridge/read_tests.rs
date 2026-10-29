@@ -414,7 +414,7 @@ async fn e16_reused_corpus_search() {
     let source = SourceService::new(&store);
     let scope = Scope::Project { project_id };
     let record_input = SourceSearchInput { scope: scope.clone(), query: "recordneedle".into(),
-        kinds: vec![ObjectKind::Record], selected: vec![], include_history: false, limit: Some(8), budget_chars: None };
+        kinds: vec![ObjectKind::Record], selected: vec![], include_history: false, limit: Some(8), budget_chars: None, cursor: None };
     let record_ref = source.search(&request, &record_input).await.unwrap().items.first().unwrap().source_ref.clone();
     let record_worker = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
     let (read, captured) = crate::overview_evidence::capture(&store, &request, &SourceReadInput {
@@ -458,7 +458,7 @@ async fn e16_reused_corpus_search() {
     assert!(context_times[94] <= 300_000);
     for (query, kind) in [("recordneedle", ObjectKind::Record), ("fileneedle", ObjectKind::File)] {
         let input = SourceSearchInput { scope: Scope::Project { project_id }, query: query.into(),
-            kinds: vec![kind], selected: vec![], include_history: false, limit: Some(8), budget_chars: None };
+            kinds: vec![kind], selected: vec![], include_history: false, limit: Some(8), budget_chars: None, cursor: None };
         if kind == ObjectKind::File {
             let page = source.search(&request, &input).await.unwrap();
             let object = page.items.first().unwrap().source_ref.object.clone();

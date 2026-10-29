@@ -442,6 +442,7 @@ mod tests {
             include_history: true,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         let found = service.search(&request, &query).await.unwrap();
         assert_eq!(found.items.len(), 1);
@@ -616,6 +617,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         let found = service.search(&request, &query).await.unwrap();
         assert_eq!(found.items.len(), 1);
@@ -750,6 +752,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         let found = service.search(&request, &query).await.unwrap();
         assert_eq!(found.items.len(), 1);

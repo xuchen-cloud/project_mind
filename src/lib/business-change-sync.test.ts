@@ -95,3 +95,54 @@ it("refreshes Workspace File lists and versions without invalidating a Project's
   expect(client.getQueryState(queryKeys.projectPage(7))?.isInvalidated).toBe(false);
   sync.stop(); client.clear();
 });
+
+it("recovers missed CLI contact changes after disconnect and refreshes contacts and searches without Project reloads", async () => {
+  const client = new QueryClient();
+  const contactsKey = [...queryKeys.contacts.all, "all"];
+  const contactSearchKey = [...queryKeys.contacts.all, "search", "昵称 备注"];
+  client.setQueryData(contactsKey, ["旧联系人"]);
+  client.setQueryData(contactSearchKey, []);
+  client.setQueryData(queryKeys.workspacePage, {});
+  client.setQueryData(queryKeys.projects.all, []);
+  client.setQueryData(queryKeys.projectPage(7), {});
+  client.setQueryData(queryKeys.search("名字"), []);
+  client.setQueryData(queryKeys.search("备注", 7), []);
+  const fetchContacts = vi.fn(async () => ["CLI 修改后的联系人"]);
+  const observer = new QueryObserver(client, { queryKey: contactsKey, queryFn: fetchContacts, staleTime: Infinity });
+  const unsubscribe = observer.subscribe(() => {});
+  const read = vi.fn().mockRejectedValueOnce(new Error("disconnected")).mockResolvedValueOnce({
+    entries: [change(11, null, "contact", "42")], cursor: 11, hasMore: false, resetRequired: false,
+  });
+  const sync = createBusinessChangeSync({ binding, queryClient: client, readChanges: read, initialSeq: 10 });
+  await expect(sync.catchUp()).rejects.toThrow("disconnected");
+  expect(sync.lastSeq()).toBe(10);
+  await sync.catchUp();
+  await tick();
+  expect(read.mock.calls).toEqual([[10], [10]]);
+  expect(fetchContacts).toHaveBeenCalledOnce();
+  expect(client.getQueryData(contactsKey)).toEqual(["CLI 修改后的联系人"]);
+  expect(client.getQueryState(contactSearchKey)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.search("名字"))?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.search("备注", 7))?.isInvalidated).toBe(true);
+  for (const key of [queryKeys.workspacePage, queryKeys.projects.all, queryKeys.projectPage(7)]) {
+    expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+  }
+  expect(sync.lastSeq()).toBe(11);
+  sync.stop(); unsubscribe(); client.clear();
+});
+
+it.each([
+  "w2/workspace/contact/7", "w1/workspace/contact/0", "w1/workspace/contact/-1", "w1/workspace/contact/1.5",
+  "w1/workspace/contact/7/extra", "w1/project:7/contact/7", "w1/workspace/contact/01",
+])("does not treat malformed or foreign contact key %s as a local contact change", async (objectKey) => {
+  const client = new QueryClient();
+  client.setQueryData(queryKeys.contacts.all, []);
+  client.setQueryData(queryKeys.search("联系人"), []);
+  const sync = createBusinessChangeSync({ binding, queryClient: client, readChanges: async () => ({
+    entries: [{ ...change(1, null, "contact"), objectKey }], cursor: 1, hasMore: false, resetRequired: false,
+  }) });
+  await sync.catchUp();
+  expect(client.getQueryState(queryKeys.contacts.all)?.isInvalidated).toBe(false);
+  expect(client.getQueryState(queryKeys.search("联系人"))?.isInvalidated).toBe(false);
+  sync.stop(); client.clear();
+});

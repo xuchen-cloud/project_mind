@@ -229,7 +229,7 @@ fn legacy_workspace_native_grant_upgrades_without_rotating_identity_or_credentia
     legacy.all_projects = false;
     legacy
         .write_operations
-        .retain(|operation| operation != "schedule.manage");
+        .retain(|operation| operation != "schedule.manage" && !CONTACT_OPERATIONS.contains(&operation.as_str()));
     let original = db
         .agent_connection_create(&binding, &legacy, &id, &token)
         .unwrap();
@@ -238,6 +238,7 @@ fn legacy_workspace_native_grant_upgrades_without_rotating_identity_or_credentia
     assert_eq!((reused_id, reused_token), (id.clone(), token.clone()));
     let upgraded = db.agent_connection_list(&binding).unwrap().remove(0);
     assert!(upgraded.all_projects);
+    assert!(CONTACT_OPERATIONS.iter().all(|operation| upgraded.operations.iter().any(|actual| actual.as_str() == *operation)));
     assert_eq!(upgraded.created_at, original.created_at);
     let request = db
         .agent_connection_authenticate(&binding, &id, &token, "upgraded")
@@ -382,7 +383,7 @@ fn legacy_workspace_upgrade_preserves_revocation_user_edits_and_credentials() {
         legacy.all_projects = false;
         legacy
             .write_operations
-            .retain(|operation| operation != "schedule.manage");
+            .retain(|operation| operation != "schedule.manage" && !CONTACT_OPERATIONS.contains(&operation.as_str()));
         match change {
             "label" => legacy.client_label = "User changed connection".into(),
             "operations" => {
@@ -569,4 +570,147 @@ fn native_office_workspace_request_reuses_embedded_grant_and_actual_project_memb
     assert!(request.authorize(&binding, &Scope::Project { project_id: second + 100 }, "source.read").is_err());
     db.agent_connection_revoke(&binding, &original.0).unwrap();
     assert!(workspace_request_with_credentials(&db, &binding, "revoked-office", &secrets).is_err());
+}
+
+#[test]
+fn current_project_and_workspace_grants_add_contacts_without_widening_content_or_rotating_token() {
+    for workspace in [false, true] {
+        let (_root, db, binding, first, _) = fixture();
+        let secrets = Secrets::default();
+        let project = if workspace { None } else { Some(first) };
+        let id = grant_id(&binding.workspace_id, project);
+        let token = "a".repeat(64);
+        let mut old = grant_input(project);
+        old.write_operations
+            .retain(|operation| !CONTACT_OPERATIONS.contains(&operation.as_str()));
+        let original = db
+            .agent_connection_create(&binding, &old, &id, &token)
+            .unwrap();
+        secrets.save(&id, &token).unwrap();
+        let saved_secrets = secrets.0.borrow().clone();
+        assert_eq!(
+            ensure_grant(&db, &binding, project, &secrets).unwrap(),
+            (id.clone(), token.clone())
+        );
+        assert_eq!(*secrets.0.borrow(), saved_secrets);
+        let upgraded = db
+            .agent_connection_embedded_grant(&binding, &id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(upgraded.created_at, original.created_at);
+        assert_eq!(upgraded.project_ids, original.project_ids);
+        assert_eq!(upgraded.workspace_content, original.workspace_content);
+        assert_eq!(upgraded.all_projects, original.all_projects);
+        assert!(CONTACT_OPERATIONS
+            .iter()
+            .all(|operation| upgraded.operations.iter().any(|actual| actual.as_str() == *operation)));
+        let request = db
+            .agent_connection_authenticate(&binding, &id, &token, "contact-native")
+            .unwrap();
+        if !workspace {
+            assert!(!request.scope_grant.workspace_content);
+            assert_eq!(request.scope_grant.project_ids, vec![first]);
+            assert!(request
+                .authorize(&binding, &Scope::Workspace, "source.read")
+                .is_err());
+        }
+        assert_eq!(
+            ensure_grant(&db, &binding, project, &secrets).unwrap(),
+            (id, token)
+        );
+        assert_eq!(db.agent_connection_list(&binding).unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn contact_reads_and_writes_follow_actual_execution_mode() {
+    let control = EmbeddedCliControl::default();
+    for mode in ["read-only", "workspace-write", "danger-full-access"] {
+        let opened = control.open(mode).unwrap();
+        let token = opened["token"].as_str().unwrap();
+        for method in ["contact.list", "contact.search", "contact.get"] {
+            assert!(control.authorize(token, method).is_ok(), "{mode} {method}");
+        }
+        for method in ["contact.create", "contact.update"] {
+            assert_eq!(
+                control.authorize(token, method).is_ok(),
+                mode != "read-only",
+                "{mode} {method}"
+            );
+        }
+        control.close(opened["leaseId"].as_str().unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn contacts_upgrade_rejects_malformed_native_grants_without_changing_credentials_or_storage() {
+    for change in [
+        "partial-contact",
+        "missing-write",
+        "extra-operation",
+        "duplicate-operation",
+        "label",
+        "object-scope",
+        "foreign-workspace",
+        "unknown-scope-field",
+        "wrong-token",
+        "missing-token",
+        "revoked",
+    ] {
+        let (root, db, binding, first, _) = fixture();
+        let secrets = Secrets::default();
+        let project = Some(first);
+        let id = grant_id(&binding.workspace_id, project);
+        let token = "a".repeat(64);
+        let mut old = grant_input(project);
+        old.write_operations
+            .retain(|operation| !CONTACT_OPERATIONS.contains(&operation.as_str()));
+        match change {
+            "partial-contact" => old.write_operations.push("contact.read".into()),
+            "missing-write" => {
+                old.write_operations.pop();
+            }
+            "label" => old.client_label = "User changed connection".into(),
+            _ => {}
+        }
+        db.agent_connection_create(&binding, &old, &id, &token)
+            .unwrap();
+        let connection = rusqlite::Connection::open(root.path().join("app.sqlite")).unwrap();
+        match change {
+            "extra-operation" => {
+                connection.execute("UPDATE agent_connection_grants SET operations_json=json_insert(operations_json,'$[#]','unknown') WHERE id=?1",[&id]).unwrap();
+            }
+            "duplicate-operation" => {
+                connection.execute("UPDATE agent_connection_grants SET operations_json=json_insert(operations_json,'$[#]','source.read') WHERE id=?1",[&id]).unwrap();
+            }
+            "object-scope" => {
+                connection.execute("UPDATE agent_connection_grants SET scope_grant_json=json_set(scope_grant_json,'$.objects',json(?2)) WHERE id=?1",rusqlite::params![id,json!([{"workspaceId":binding.workspace_id,"scope":{"kind":"project","projectId":first},"kind":"record","id":"1"}]).to_string()]).unwrap();
+            }
+            "foreign-workspace" => {
+                connection.execute("UPDATE agent_connection_grants SET scope_grant_json=json_set(scope_grant_json,'$.workspaceId','foreign') WHERE id=?1",[&id]).unwrap();
+            }
+            "unknown-scope-field" => {
+                connection.execute("UPDATE agent_connection_grants SET scope_grant_json=json_set(scope_grant_json,'$.unknown',true) WHERE id=?1",[&id]).unwrap();
+            }
+            "revoked" => {
+                db.agent_connection_revoke(&binding, &id).unwrap();
+            }
+            _ => {}
+        }
+        if change != "missing-token" {
+            let saved_token=if change=="wrong-token" {"b".repeat(64)} else {token.clone()};
+            secrets.save(&id,&saved_token).unwrap();
+        }
+        let saved_secrets = secrets.0.borrow().clone();
+        let snapshot = || {
+            connection.query_row("SELECT scope_grant_json,operations_json,client_label,enabled,revoked_at FROM agent_connection_grants WHERE id=?1",[&id],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,bool>(3)?,row.get::<_,Option<String>>(4)?))).unwrap()
+        };
+        let before = snapshot();
+        assert!(
+            ensure_grant(&db, &binding, project, &secrets).is_err(),
+            "{change}"
+        );
+        assert_eq!(snapshot(), before, "{change}");
+        assert_eq!(*secrets.0.borrow(), saved_secrets, "{change}");
+    }
 }

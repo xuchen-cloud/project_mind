@@ -61,3 +61,12 @@ export function deriveContactPinyin(name: string): ContactPinyin {
     pinyinAbbr: abbr.slice(0, PINYIN_MAX_CHARS),
   };
 }
+
+/** Use the same pronunciation rules as names; commas and pipes remain inside an alias. */
+export function deriveContactNicknamePinyin(nicknames: string): string {
+  const aliases = new Set(nicknames.split(/[;；]/u).map((alias) => alias.trim()).filter(Boolean));
+  return [...aliases].flatMap((alias) => {
+    const { pinyinFull, pinyinAbbr } = deriveContactPinyin(alias);
+    return [pinyinFull, pinyinAbbr].filter(Boolean);
+  }).join(" ").slice(0, 8192);
+}

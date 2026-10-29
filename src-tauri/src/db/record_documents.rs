@@ -6,6 +6,7 @@ use crate::agent::{
     models::{ObjectKind, ObjectRef, Scope},
 };
 use crate::record_documents::*;
+use crate::agent::record_text::RecordMutation;
 use chrono::{Duration, Utc};
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -18,18 +19,15 @@ fn source(conn: &Connection, target: &RecordTarget) -> AgentResult<RecordLegacyS
     Ok(current)
 }
 
-fn checked_patch_base(
-    conn: &Connection,
-    patch: &crate::agent::outputs::RecordPatch,
-) -> AgentResult<RecordDocumentHead> {
-    let target = record_patch_target(patch)?;
+fn checked_mutation_base(conn: &Connection, edit: RecordMutation<'_>) -> AgentResult<RecordDocumentHead> {
+    let target = edit.target()?;
     let current = head_unchecked(conn, &target)?.ok_or_else(|| AgentError::new(
         ErrorCode::SourceNotReady, "Initialize the Record document first"
     ))?;
-    if current.head_revision != patch.base_revision {
+    if current.head_revision != edit.revision() {
         return Err(conflict(&current));
     }
-    validate_record_patch(patch, &current)?;
+    edit.validate_base(&current)?;
     Ok(current)
 }
 
@@ -826,21 +824,31 @@ impl Database {
         caller: &str,
         patch: &crate::agent::outputs::RecordPatch,
     ) -> AgentResult<RecordPatchPreparation> {
-        let target = record_patch_target(patch)?;
+        self.record_mutation_prepare(caller, RecordMutation::Blocks(patch))
+    }
+    pub(crate) fn record_mutation_prepare(
+        &self,
+        caller: &str,
+        edit: RecordMutation<'_>,
+    ) -> AgentResult<RecordPatchPreparation> {
+        let target = edit.target()?;
         source(&self.conn, &target)?;
         if let Some(previous) =
-            self.agent_operation_replay(caller, &patch.request_id, "record.patch", patch)?
+            self.agent_operation_replay(caller, edit.request_id(), "record.patch", &edit)?
         {
             return Ok(RecordPatchPreparation::Replay(previous));
         }
-        Ok(RecordPatchPreparation::Base(checked_patch_base(&self.conn, patch)?))
+        Ok(RecordPatchPreparation::Base(checked_mutation_base(&self.conn, edit)?))
     }
     pub(crate) fn record_patch_preview_base(
         &self,
         patch: &crate::agent::outputs::RecordPatch,
     ) -> AgentResult<RecordDocumentHead> {
-        source(&self.conn, &record_patch_target(patch)?)?;
-        checked_patch_base(&self.conn, patch)
+        self.record_mutation_preview_base(RecordMutation::Blocks(patch))
+    }
+    pub(crate) fn record_mutation_preview_base(&self, edit: RecordMutation<'_>) -> AgentResult<RecordDocumentHead> {
+        source(&self.conn, &edit.target()?)?;
+        checked_mutation_base(&self.conn, edit)
     }
     pub(crate) fn record_patch_preview_validate(
         &self,
@@ -848,14 +856,22 @@ impl Database {
         projection: &RecordDocumentProjection,
         metadata: &RecordPatchMetadata,
     ) -> AgentResult<()> {
-        let target = record_patch_target(patch)?;
+        self.record_mutation_preview_validate(RecordMutation::Blocks(patch), projection, metadata)
+    }
+    pub(crate) fn record_mutation_preview_validate(
+        &self,
+        edit: RecordMutation<'_>,
+        projection: &RecordDocumentProjection,
+        metadata: &RecordPatchMetadata,
+    ) -> AgentResult<()> {
+        let target = edit.target()?;
         source(&self.conn, &target)?;
-        let current = checked_patch_base(&self.conn, patch)?;
+        let current = checked_mutation_base(&self.conn, edit)?;
         self.record_compatibility_html(&target, projection)?;
         validate_patch_projection(&current, projection, metadata)?;
         validate_references(
             &self.conn, &target.scope, &projection.document,
-            &reference_identities(&current.projection.document)?, &patch.record.workspace_id,
+            &reference_identities(&current.projection.document)?, &edit.record().workspace_id,
         )?;
         Ok(())
     }
@@ -867,17 +883,27 @@ impl Database {
         metadata: &RecordPatchMetadata,
         workspace_id: &str,
     ) -> AgentResult<RecordPatchResult> {
-        let target = record_patch_target(patch)?;
+        self.record_mutation_commit(caller, RecordMutation::Blocks(patch), projection, metadata, workspace_id)
+    }
+    pub(crate) fn record_mutation_commit(
+        &self,
+        caller: &str,
+        edit: RecordMutation<'_>,
+        projection: &RecordDocumentProjection,
+        metadata: &RecordPatchMetadata,
+        workspace_id: &str,
+    ) -> AgentResult<RecordPatchResult> {
+        let target = edit.target()?;
         let compatibility = self.record_compatibility_html(&target, projection)?;
         // Receipt identity uses original intent, not randomly allocated worker IDs.
-        self.agent_atomic_operation(caller, &patch.request_id, "record.patch", patch, |tx| {
+        self.agent_atomic_operation(caller, edit.request_id(), "record.patch", &edit, |tx| {
             source(tx, &target)?;
-            let current = checked_patch_base(tx, patch)?;
+            let current = checked_mutation_base(tx, edit)?;
             validate_patch_projection(&current, projection, metadata)?;
             let operation_id = random_id();
             let commit = RecordDocumentCommit {
                 target: target.clone(),
-                base_revision: patch.base_revision,
+                base_revision: edit.revision(),
                 projection: projection.clone(),
                 origin: RecordVersionOrigin::Agent,
                 actor: json!({"kind":"agent","caller":caller}),
@@ -893,15 +919,15 @@ impl Database {
             )?;
             let receipt = crate::agent::outputs::OperationReceipt {
                 operation_id,
-                request_id: patch.request_id.clone(),
-                object: patch.record.clone(),
+                request_id: edit.request_id().to_owned(),
+                object: edit.record().clone(),
                 result_revision: saved.head.body_hash.clone(),
                 file_version: None,
                 undo_available: !saved.no_change,
             };
             Ok((
                 RecordPatchResult {
-                    before_revision: patch.base_revision,
+                    before_revision: edit.revision(),
                     after_revision: saved.head.head_revision,
                     created_block_ids: metadata.created_block_ids.clone(),
                     deleted_block_ids: metadata.deleted_block_ids.clone(),
@@ -911,7 +937,7 @@ impl Database {
                     changed_refs: if saved.no_change {
                         vec![]
                     } else {
-                        vec![patch.record.clone()]
+                        vec![edit.record().clone()]
                     },
                     receipt,
                     no_change: saved.no_change,

@@ -564,6 +564,7 @@ mod tests {
         let contact = db
             .contact_upsert(crate::models::ContactUpsertInput {
                 id: None,
+                base_revision: None,
                 name: "声音验收联系人".into(),
                 pinyin_full: None,
                 pinyin_abbr: None,
@@ -571,6 +572,9 @@ mod tests {
                 employee_id: None,
                 role: None,
                 department: None,
+                nicknames: None,
+                nickname_pinyin: None,
+                notes: None,
             })
             .unwrap();
         for (index, (start, embedding)) in [(same.1 .0, a), (same.1 .0 + 3100, b), (different.0, c)]

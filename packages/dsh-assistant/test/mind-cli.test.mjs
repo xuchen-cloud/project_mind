@@ -75,6 +75,10 @@ test('prompt supplies binding facts without lease credentials; PATH and env are 
   assert.equal(f.executions[0].env.CUSTOM, 'kept');
   assert.equal(f.executions[0].env.PROJECT_MIND_CLI_DISCOVERY, cli.discovery);
   assert.equal(f.executions[0].env.PROJECT_MIND_SESSION_ID, 'a');
+  assert.equal(f.executions[0].env.PROJECT_MIND_WORKSPACE, cli.workspace);
+  assert.equal(f.executions[0].env.PROJECT_MIND_CONNECTION, cli.connection);
+  assert.equal(f.executions[0].env.PROJECT_MIND_PROJECT_ID, '7');
+  assert.equal(f.executions[0].env.PROJECT_MIND_WORKSPACE_SCOPE, '');
   assert.match(f.executions[0].env.PROJECT_MIND_CLI_TOKEN, /^secret-a-/);
   assert.equal(f.executions[0].sandboxPolicy, request.sandboxPolicy);
   for (const [key, value] of Object.entries(ambient)) assert.ok(process.env[key] === value, `${key} must stay unchanged`);
@@ -217,9 +221,13 @@ test('shared runtime resolves prompt and shell CLI facts independently for each 
   const prompt=f.prompts[0].text({agent:{session:{id:'b'}}});
   assert.match(prompt,/--workspace-scope/);assert.ok(prompt.includes(second.cli.connection));assert.ok(!prompt.includes(cli.connection));
   const a=await f.shell.execute(spec('a'));
-  const b=await f.shell.execute({...spec('b'),sandboxPolicy:{mode:'read-only',workspaceRoot:second.directory}});
+  const b=await f.shell.execute({...spec('b'),env:{PROJECT_MIND_PROJECT_ID:'99',PROJECT_MIND_WORKSPACE_SCOPE:'0',PROJECT_MIND_WORKSPACE:'/stale'},sandboxPolicy:{mode:'read-only',workspaceRoot:second.directory}});
   assert.equal(f.executions[0].env.PROJECT_MIND_CLI_DISCOVERY,cli.discovery);
   assert.equal(f.executions[1].env.PROJECT_MIND_CLI_DISCOVERY,second.cli.discovery);
+  assert.equal(f.executions[1].env.PROJECT_MIND_WORKSPACE,second.cli.workspace);
+  assert.equal(f.executions[1].env.PROJECT_MIND_CONNECTION,second.cli.connection);
+  assert.equal(f.executions[1].env.PROJECT_MIND_PROJECT_ID,'');
+  assert.equal(f.executions[1].env.PROJECT_MIND_WORKSPACE_SCOPE,'1');
   assert.match(f.executions[1].env.PATH,/^\/other\/bin/);
   await assert.rejects(f.shell.execute(spec('missing')),/Unknown Session/);
   for(const run of runs)run.result.resolve({exitCode:0});await Promise.all([a.result(),b.result()]);

@@ -184,7 +184,7 @@ pub struct ProjectRecordGroup {
     pub notes: Vec<NoteRecord>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContactRecord {
     pub id: i64,
@@ -195,6 +195,11 @@ pub struct ContactRecord {
     pub employee_id: String,
     pub role: String,
     pub department: String,
+    pub nicknames: String,
+    #[serde(skip)]
+    pub nickname_pinyin: String,
+    pub notes: String,
+    pub revision: u64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -626,6 +631,7 @@ pub struct FileTagOptionDeleteInput {
 #[serde(rename_all = "camelCase")]
 pub struct ContactUpsertInput {
     pub id: Option<i64>,
+    pub base_revision: Option<u64>,
     pub name: String,
     pub pinyin_full: Option<String>,
     pub pinyin_abbr: Option<String>,
@@ -633,6 +639,9 @@ pub struct ContactUpsertInput {
     pub employee_id: Option<String>,
     pub role: Option<String>,
     pub department: Option<String>,
+    pub nicknames: Option<String>,
+    pub nickname_pinyin: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

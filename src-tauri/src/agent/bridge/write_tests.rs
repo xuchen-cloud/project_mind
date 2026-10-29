@@ -25,6 +25,7 @@ const GRANT: &str = "0123456789abcdef0123456789abcdef";
 const READ_ONLY: &str = "11111111111111111111111111111111";
 const OTHER: &str = "22222222222222222222222222222222";
 const BLOCK: &str = "33333333333333333333333333333333";
+include!("contact_tests.rs");
 
 fn document(text: &str) -> Value {
     json!({"type":"doc","content":[{"type":"paragraph","attrs":{"blockId":BLOCK},"content":[{"type":"text","text":text}]}]})
@@ -87,6 +88,9 @@ impl DocumentUtility for DocumentWorker {
     async fn request(&self, _: &str, method: &str, data: Value) -> AgentResult<Value> {
         if let Some(entered) = self.entered.lock().unwrap().take() { let _ = entered.send(()); }
         let _permit = self.resume.acquire().await.unwrap();
+        if method == "contact.pinyin" {
+            return Ok(json!({"pinyinFull":"fixture","pinyinAbbr":"f","nicknamePinyin":""}));
+        }
         let mut doc = data["document"].clone();
         if method == "record.patch" || method == "record.patch.preview" {
             let suffix = data["operations"][0]["text"].as_str().expect("append_inline text");
@@ -178,6 +182,47 @@ async fn prepared_document_worker_roundtrip_preserves_canonical_history() {
     assert_eq!(f.store.db.lock().unwrap().record_versions_list(&target, None, 10).unwrap().versions.len(), 3);
     assert_eq!(created["operation"]["requestId"], "worker-create");
     assert_eq!(undone["operation"]["requestId"], "worker-undo");
+}
+
+#[tokio::test]
+#[ignore = "requires the prepared native RecordDocumentWorker runtime"]
+async fn prepared_text_edit_roundtrip_keeps_ids_replays_and_undoes() {
+    let f = Fixture::new();
+    let worker = crate::record_document_worker::RecordDocumentWorker::development().unwrap();
+    let created = f.call(GRANT, "text-create", "record.create", f.create_input("text-create", "Text Record"), &worker).await.unwrap();
+    let object = f.object(&created);
+    let target = RecordTarget { scope: f.scope(), record_id: object.id.parse().unwrap() };
+    let before = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    let edit = json!({"kind":"replace","oldText":"Alpha","newText":"中文 '$() & | ; \\?\\ 路径"});
+    let preview = json!({"record":object,"baseRevision":1,"edit":edit});
+    let denied = f.call(READ_ONLY, "text-denied", "record.text.patch.preview", preview.clone(), &worker).await.unwrap_err();
+    assert_eq!(denied.code, ErrorCode::ScopeDenied);
+    let shown = f.call(GRANT, "text-preview", "record.text.patch.preview", preview, &worker).await.unwrap();
+    assert_eq!(shown["baseRevision"], 1);
+    assert_eq!(f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap().head_revision, 1);
+    let input = json!({"record":object,"baseRevision":1,"requestId":"text-replace","edit":edit});
+    let saved = f.call(GRANT, "text-replace", "record.text.patch", input.clone(), &worker).await.unwrap();
+    assert_eq!(saved["result"]["afterRevision"], 2);
+    assert_eq!(f.call(GRANT, "text-replace", "record.text.patch", input, &worker).await.unwrap(), saved);
+    let changed = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    assert_eq!(changed.projection.text, edit["newText"].as_str().unwrap());
+    assert_eq!(changed.projection.document["content"][0]["attrs"]["blockId"], before.projection.document["content"][0]["attrs"]["blockId"]);
+    let appended = f.call(GRANT, "text-append", "record.text.patch", json!({"record":object,"baseRevision":2,"requestId":"text-append","edit":{"kind":"append","markdown":"\n\n| 版本 | 日期 |\n| --- | --- |\n| 11.11 | 11月13日 |"}}), &worker).await.unwrap();
+    assert_eq!(appended["result"]["afterRevision"], 3);
+    let table = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    let table_id = table.projection.document["content"][1]["attrs"]["blockId"].clone();
+    let baseline = table.projection.markdown;
+    let revised = baseline.replace("11月13日", "11月14日");
+    let patched = f.call(GRANT, "text-markdown", "record.text.patch", json!({"record":object,"baseRevision":3,"requestId":"text-markdown","edit":{"kind":"markdown","beforeMarkdown":baseline,"afterMarkdown":revised}}), &worker).await.unwrap();
+    assert_eq!(patched["result"]["afterRevision"], 4);
+    let latest = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    assert!(latest.projection.markdown.contains("11月14日"));
+    assert_eq!(latest.projection.document["content"][1]["attrs"]["blockId"], table_id);
+    let undone = f.call(GRANT, "text-undo", "operation.undo", json!({"requestId":"text-undo","input":{"operationId":patched["operation"]["operationId"],"expectedHeadRevision":4}}), &worker).await.unwrap();
+    assert_eq!(undone["result"]["head"]["headRevision"], 5);
+    let restored = f.store.db.lock().unwrap().record_document_head(&target).unwrap().unwrap();
+    assert_eq!(restored.projection.document, table.projection.document);
+    assert_eq!(f.store.db.lock().unwrap().record_versions_list(&target, None, 10).unwrap().versions.len(), 5);
 }
 
 #[tokio::test]

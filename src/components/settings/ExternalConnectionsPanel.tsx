@@ -13,6 +13,7 @@ import { settingsSelectClassName } from "./shared";
 
 type ConnectionScope = "workspace" | "project";
 type ConnectionMode = "collaborate" | "read_only";
+type ContactAccess = "none" | "read" | "write";
 const COLLABORATE_OPERATIONS = ["content.create", "record.patch", "record.restore", "todo.update", "file.update", "file.restore", "operation.undo"];
 function shellQuote(value: string, shell: ExternalConnectionsStatus["cliShell"]) {
   // PowerShell recognizes typographic apostrophes as quote delimiters too.
@@ -24,7 +25,7 @@ function shellQuote(value: string, shell: ExternalConnectionsStatus["cliShell"])
 const WRITE_PERMISSION_OPTIONS = [
   { value: "schedule.manage", label: "管理定时任务（可让 AI 操作整个工作区）" },
   { value: "content.create", label: "创建 Record、待办和文件" },
-  { value: "record.patch", label: "修改 Record 正文块" },
+  { value: "record.patch", label: "修改 Record 正文" },
   { value: "record.restore", label: "恢复 Record 历史版本" },
   { value: "todo.update", label: "修改待办（包括子行动）" },
   { value: "file.update", label: "修改文件内容" },
@@ -33,14 +34,15 @@ const WRITE_PERMISSION_OPTIONS = [
 ] as const;
 
 function grantPermissions(operations: string[]) {
-  const writeOperations = operations.filter((operation) => !/\.(?:read|get|list|search)$/u.test(operation));
-  if (writeOperations.length === 0) return "只读";
+  const writeOperations = operations.filter((operation) => operation !== "contact.write" && !/\.(?:read|get|list|search)$/u.test(operation));
   const labels = writeOperations.map((operation) =>
     operation === "operation.restore_created"
       ? "撤销此连接自己的更改"
       : WRITE_PERMISSION_OPTIONS.find((option) => option.value === operation)?.label ?? "其他写入权限",
   );
-  return `可读取和修改：${[...new Set(labels)].join("、")}`;
+  const content = writeOperations.length === 0 ? "正文只读" : `可读取和修改：${[...new Set(labels)].join("、")}`;
+  const contacts = operations.includes("contact.write") ? "读写（整个 Workspace 共享）" : operations.includes("contact.read") ? "读取（整个 Workspace 共享）" : "未授权";
+  return `${content}；通讯录：${contacts}`;
 }
 
 export function ExternalConnectionsPanel({ open }: { open: boolean }) {
@@ -61,6 +63,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
   const [connectionScope, setConnectionScope] = useState<ConnectionScope>("workspace");
   const [scheduleManagement, setScheduleManagement] = useState(false);
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>("collaborate");
+  const [contactAccess, setContactAccess] = useState<ContactAccess>("none");
   const epoch = useRef(0);
   const loadedWorkspace = useRef<string | null>(null);
 
@@ -93,6 +96,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
         setConnectionScope("workspace");
         setConnectionMode("collaborate");
         setScheduleManagement(false);
+        setContactAccess("none");
         setProjectId(nextProjects.find((project) => !project.isArchived)?.id ?? null);
         loadedWorkspace.current = nextWorkspace;
       }
@@ -137,7 +141,7 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
   const binding = status?.binding ?? null;
   const grants = status?.connections ?? [];
   const selectedProjectIds = connectionScope === "project" && projectId !== null ? [projectId] : [];
-  const selectedWriteOperations = [...(connectionMode === "collaborate" ? COLLABORATE_OPERATIONS : []), ...(connectionScope === "workspace" && connectionMode === "collaborate" && scheduleManagement ? ["schedule.manage"] : [])];
+  const selectedWriteOperations = [...(connectionMode === "collaborate" ? COLLABORATE_OPERATIONS : []), ...(connectionScope === "workspace" && connectionMode === "collaborate" && scheduleManagement ? ["schedule.manage"] : []), ...(contactAccess !== "none" ? ["contact.read"] : []), ...(contactAccess === "write" && connectionMode === "collaborate" ? ["contact.write"] : [])];
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5" data-testid="external-connections-panel">
@@ -174,8 +178,16 @@ export function ExternalConnectionsPanel({ open }: { open: boolean }) {
           <fieldset className="grid gap-1.5 text-ui text-text-secondary">
             <legend className="mb-1">权限</legend>
             <label className="flex items-center gap-2"><input type="radio" name="connection-mode" checked={connectionMode === "collaborate"} onChange={() => setConnectionMode("collaborate")} />协作（推荐）</label>
-            <label className="flex items-center gap-2"><input type="radio" name="connection-mode" checked={connectionMode === "read_only"} onChange={() => setConnectionMode("read_only")} />只读</label>
+            <label className="flex items-center gap-2"><input type="radio" name="connection-mode" checked={connectionMode === "read_only"} onChange={() => { setConnectionMode("read_only"); setContactAccess(current => current === "write" ? "read" : current); }} />只读</label>
           </fieldset>
+          <label className="grid gap-1 text-ui text-text-secondary">通讯录
+            <select className={`${settingsSelectClassName} min-w-0 max-w-full`} value={contactAccess} aria-describedby="connection-contacts-scope" onChange={event => setContactAccess(event.target.value === "write" && connectionMode === "collaborate" ? "write" : event.target.value === "read" ? "read" : "none")}>
+              <option value="none">不授权</option>
+              <option value="read">读取</option>
+              <option value="write" disabled={connectionMode === "read_only"}>读写</option>
+            </select>
+          </label>
+          <p id="connection-contacts-scope" className="text-ui text-text-secondary">权限覆盖整个 Workspace 共享通讯录，与所选 Project 的正文范围独立；默认不授权。</p>
           <label className="flex items-center gap-2 text-ui text-text-secondary"><input type="checkbox" checked={connectionScope === "workspace" && connectionMode === "collaborate" && scheduleManagement} disabled={connectionScope !== "workspace" || connectionMode !== "collaborate"} onChange={event => setScheduleManagement(event.target.checked)} />管理定时任务（可让 AI 操作整个工作区）</label>
           <p className="text-ui text-text-secondary">
             {connectionScope === "workspace" ? "Workspace 直属内容和所有未归档 Project，新建 Project 自动纳入。" : "仅所选 Project 的内容。"}

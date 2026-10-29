@@ -39,5 +39,6 @@ export interface ConnectionCreateData {
   workspaceContent: boolean;
   allProjects: boolean;
   projectIds: number[];
+  /** Explicit extra operations, including optional contact.read/contact.write. */
   writeOperations: string[];
 }

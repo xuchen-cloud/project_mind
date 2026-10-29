@@ -1171,6 +1171,7 @@ mod driver_tests {
                     include_history: false,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await

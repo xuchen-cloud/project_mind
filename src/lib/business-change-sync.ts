@@ -23,6 +23,11 @@ function sourceObject(entry: AgentChangeEntry, binding: AgentWorkspaceBinding): 
     || !/^[A-Za-z0-9_-]{1,128}$/u.test(parts[3])) return null;
   return { workspaceId: parts[0], scope: entry.scope, kind: kind as AgentObjectRef["kind"], id: parts[3] };
 }
+function isContactChange(entry: AgentChangeEntry, binding: AgentWorkspaceBinding): boolean {
+  const parts = entry.objectKey.split("/");
+  return entry.scope.kind === "workspace" && parts.length === 4 && parts[0] === binding.workspaceId
+    && parts[1] === "workspace" && parts[2] === "contact" && /^[1-9][0-9]*$/u.test(parts[3]);
+}
 /** Each window has one serialized log consumer. Events never advance the cursor
  * on their own, so a later notification can recover any intervening lost event. */
 export function createBusinessChangeSync({ binding, queryClient, readChanges, initialSeq = 0 }: SyncOptions) {
@@ -78,6 +83,11 @@ export function createBusinessChangeSync({ binding, queryClient, readChanges, in
         for (const entry of page.entries) {
           if (keys.has(entry.objectKey)) continue;
           keys.add(entry.objectKey);
+          if (isContactChange(entry, binding)) {
+            invalidate(queryKeys.contacts.all);
+            invalidate(queryKeys.searchAll);
+            continue;
+          }
           const object = sourceObject(entry, binding);
           if (object) objectChanged(object);
           else invalidate(agentQueryKeys.scope(binding, entry.scope));

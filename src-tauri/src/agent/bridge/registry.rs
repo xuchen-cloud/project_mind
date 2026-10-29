@@ -27,9 +27,11 @@ use crate::{
     source_service::{SourceReadInput, SourceSearchInput},
 };
 use schemars::{schema_for, JsonSchema};
+use crate::agent::record_text::{RecordTextPatch, RecordTextPreview};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use super::schedules::{ScheduleListInput, ScheduleCreateInput, ScheduleUpdateInput, ScheduleDeleteInput, ScheduleRunInput};
+use super::contacts::{ContactListInput, ContactGetInput, ContactCreateInput, ContactUpdateInput};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -50,6 +52,36 @@ pub struct RegisteredMethod {
 
 pub fn registered_methods() -> Vec<RegisteredMethod> {
     vec![
+        RegisteredMethod {
+            method: "contact.list",
+            description: "List the shared Workspace address book with contact.read. Optional query matches literal words across name, nicknames, employee ID, email, role, department, notes and pinyin. offset is zero-based; follow nextOffset when hasMore. Contacts have no Project ownership.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ContactListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "contact.search",
+            description: "Find contacts with a single case-insensitive literal query across all contact fields. Whitespace-separated words use AND across fields; percent, underscore and backslashes are literal. Requires contact.read; offset is zero-based.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ContactListInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "contact.get",
+            description: "Read one Workspace contact, including its numeric revision for a guarded update. Requires contact.read.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(ContactGetInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "contact.create",
+            description: "Create a contact with contact.write and a stable requestId. fields.name is required. nicknames is one semicolon-separated field; notes accepts multiple lines. Native contact and receipt commit together.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ContactCreateInput)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "contact.update",
+            description: "Update only supplied fields of a contact with contact.write, baseRevision and stable requestId. Omitted fields are preserved; an empty string clears an optional field. Stale revision fails; identical retries reuse the committed receipt.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(ContactUpdateInput)).expect("static schema"),
+        },
         RegisteredMethod {
             method: "connection.status",
             description: "Read this connection's current binding and native scope/operation grants. Embedded executions also report their actual executionMode; external connections report null. This snapshot does not reserve access: each operation rechecks authorization and source visibility.",
@@ -88,7 +120,7 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "source.search",
-            description: "Search authorized original sources in a scope, optionally selecting objects or source kinds. Results are checked against current ownership, exclusion and revision; limit and budgetChars bound output.",
+            description: "Search authorized original sources in a scope with document-level keywords, optionally selecting objects or source kinds. Results are checked against current ownership, exclusion and revision; limit and budgetChars bound each page. Follow nextCursor; restart on SOURCE_CHANGED. Non-Record coverage depends on existing extraction.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(SourceSearchInput)).expect("static schema"),
         },
@@ -106,7 +138,7 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
         },
         RegisteredMethod {
             method: "record.get",
-            description: "Read the current body of an authorized Record with source.read. Use nextCursor and budgetChars for bounded continuation; revision can pin the source.",
+            description: "Read an authorized Record as text or Markdown, with numeric headRevision for editing. Optional one-based offset/limit select lines on the server. Use nextCursor and budgetChars for bounded continuation; revision pins the source. Markdown preserves table rows and columns.",
             read_only: true,
             parameters: serde_json::to_value(schema_for!(RecordGetInput)).expect("static schema"),
         },
@@ -217,6 +249,18 @@ pub fn registered_methods() -> Vec<RegisteredMethod> {
             description: "Restore the body of an authorized Record from an exact retained version with record.restore. Supply baseRevision and stable requestId; this creates a new version.",
             read_only: false,
             parameters: serde_json::to_value(schema_for!(MutationInput<RecordRestoreInput>)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.text.patch",
+            description: "Replace a unique literal passage, append Markdown, or apply edits to an exact Markdown baseline. Supply baseRevision from record.get and a stable requestId. Stable block identities, native versions and undo are maintained by the application.",
+            read_only: false,
+            parameters: serde_json::to_value(schema_for!(RecordTextPatch)).expect("static schema"),
+        },
+        RegisteredMethod {
+            method: "record.text.patch.preview",
+            description: "Preview the same version-bound text edit without saving, flushing editors or creating a receipt. Requires record.patch permission; commit checks the baseline again.",
+            read_only: true,
+            parameters: serde_json::to_value(schema_for!(RecordTextPreview)).expect("static schema"),
         },
         RegisteredMethod {
             method: "operation.get",
@@ -345,13 +389,15 @@ pub fn is_registered(method: &str) -> bool {
 
 pub fn is_read_only(method: &str) -> Option<bool> {
     match method {
+        "contact.list"|"contact.search"|"contact.get" => Some(true),
+        "contact.create"|"contact.update" => Some(false),
         "connection.status" | "project.list" | "context.get" | "context.overview.get" | "knowledge.search"
         | "knowledge.get" | "source.search" | "source.read"
         | "reference.list" | "record.get" | "record.blocks.get" | "todo.get" | "todo.list" | "record.list" | "file.list" | "session.list"
         | "file.versions.list" | "file.versions.get" | "file.source.read" | "file.bytes.read"
         | "record.versions.list" | "record.versions.get" | "record.versions.compare"
-        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.create.preview" | "schedule.list" => Some(true),
-        "record.create" | "record.patch" | "record.restore" | "operation.undo"
+        | "operation.get" | "operation.list" | "file.content.status" | "record.patch.preview" | "record.text.patch.preview" | "record.create.preview" | "schedule.list" => Some(true),
+        "record.create" | "record.patch" | "record.text.patch" | "record.restore" | "operation.undo"
         | "operation.restore_created" | "todo.create" | "todo.update"
         | "file.create" | "file.patch" | "file.version.restore" | "file.update"
         | "file.content.begin" | "file.content.chunk" | "file.content.complete"
@@ -374,6 +420,10 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         crate::agent::tools::validate_bounds(method, parameters)?;
     }
     let decoded = match method {
+        "contact.list"|"contact.search" => decode::<ContactListInput>(parameters),
+        "contact.get" => decode::<ContactGetInput>(parameters),
+        "contact.create" => decode::<ContactCreateInput>(parameters),
+        "contact.update" => decode::<ContactUpdateInput>(parameters),
         "connection.status" => decode::<ConnectionStatusInput>(parameters),
         "schedule.list" => decode::<ScheduleListInput>(parameters),
         "schedule.create" => decode::<ScheduleCreateInput>(parameters),
@@ -404,6 +454,8 @@ pub fn validate(method: &str, parameters: &Value) -> AgentResult<()> {
         "record.create.preview" => decode::<RecordCreatePreviewInput>(parameters),
         "record.patch" => decode::<RecordPatch>(parameters),
         "record.patch.preview" => decode::<RecordPatchPreviewInput>(parameters),
+        "record.text.patch" => decode::<RecordTextPatch>(parameters),
+        "record.text.patch.preview" => decode::<RecordTextPreview>(parameters),
         "record.restore" => decode::<MutationInput<RecordRestoreInput>>(parameters),
         "operation.get" => decode::<OperationGetInput>(parameters),
         "operation.list" => decode::<ConnectionOperationListInput>(parameters),
@@ -456,12 +508,13 @@ mod tests {
     #[test]
     fn registry_contains_only_exposed_methods() {
         assert_eq!(registered_methods().iter().map(|x| x.method).collect::<Vec<_>>(), vec![
+            "contact.list", "contact.search", "contact.get", "contact.create", "contact.update",
             "connection.status", "project.list", "context.get", "context.overview.get", "knowledge.search",
             "knowledge.get", "source.search", "source.read",
             "reference.list", "record.get", "record.blocks.get", "todo.get", "file.list", "session.list", "record.list", "todo.list",
             "file.versions.list", "file.versions.get", "file.bytes.read", "file.source.read",
             "record.versions.list", "record.versions.get", "record.versions.compare",
-            "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "operation.get",
+            "record.create", "record.create.preview", "record.patch", "record.patch.preview", "record.restore", "record.text.patch", "record.text.patch.preview", "operation.get",
             "operation.list", "operation.undo", "operation.restore_created",
             "todo.create", "todo.update",
             "file.create", "file.patch", "file.version.restore", "file.update",

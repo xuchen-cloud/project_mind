@@ -379,6 +379,7 @@ mod tests {
         let page = SourceService::new(&store).search(&request, &SourceSearchInput {
             scope: Scope::Workspace, query: "Fresh notified".into(), kinds: vec![], selected: vec![],
             include_history: false, limit: None, budget_chars: None,
+            cursor: None,
         }).await.unwrap();
         assert_eq!(page.items.len(), 1);
         assert!(started.elapsed() < Duration::from_millis(900), "notification waited for idle calibration");
@@ -440,6 +441,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         assert_eq!(
             SourceService::new(&store)
@@ -565,6 +567,7 @@ mod tests {
                         include_history: false,
                         limit: None,
                         budget_chars: None,
+                        cursor: None,
                     },
                 )
                 .await
@@ -592,6 +595,7 @@ mod tests {
                         include_history: false,
                         limit: None,
                         budget_chars: None,
+                        cursor: None,
                     },
                 )
                 .await

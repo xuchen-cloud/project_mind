@@ -482,6 +482,7 @@ mod tests {
             include_history: true,
             limit: None,
             budget_chars: None,
+            cursor: None,
         }
     }
     #[tokio::test]

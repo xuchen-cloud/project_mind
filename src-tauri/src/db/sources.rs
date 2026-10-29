@@ -484,6 +484,12 @@ impl Database {
         self.source_prune_cache(binding, &source.object.scope)?;
         index.replace(cached)
     }
+    pub(crate) fn source_search_epoch(&self, binding: &WorkspaceBinding, scope: &Scope) -> AgentResult<(i64, String)> {
+        crate::source_search_index::SourceIndex::prepare(&self.conn)?;
+        self.source_prune_cache(binding, scope)?;
+        crate::source_search_index::cursor::epoch(&self.conn)
+    }
+
     pub(crate) fn source_search_candidates(
         &self,
         request: &RequestContext,
@@ -532,11 +538,13 @@ impl Database {
                 &input.kinds
             }),
             false,
+            crate::source_search_index::cursor::position(input)?.as_ref(),
         )?;
         if input.kinds.is_empty() || input.kinds.contains(&ObjectKind::Record) {
             let mut records = self.source_search_current_records(request, binding, input)?;
             records.has_more |= cached.has_more;
             records.items.append(&mut cached.items);
+            records.items.sort_by_key(|item| crate::source_search_index::cursor::Position::of(item, input));
             let limit = input.limit.unwrap_or(8);
             if records.items.len() > limit {
                 records.has_more = true;
@@ -776,6 +784,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         {
             let active = Store {
@@ -976,6 +985,7 @@ mod tests {
                     include_history: false,
                     limit: Some(1),
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
